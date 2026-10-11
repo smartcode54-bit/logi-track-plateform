@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net"
@@ -247,6 +248,62 @@ func TestPublicAllowListNarrowsGroups(t *testing.T) {
 	}
 	if st, _, _ := get(t, in, "/v1/mobile/whoami", nil); st != 200 {
 		t.Fatalf("internal still serves it, got %d", st)
+	}
+}
+
+// ListenOn serves the listeners it is given instead of binding their addresses (the integration harnesses
+// bind the public one before the API exists, for the local storage backend's PublicBaseURL), and closes
+// them when it fails.
+func TestListenOnServesGivenListeners(t *testing.T) {
+	log, _ := logx.New(logx.Options{Level: "info", Format: "json", Out: io.Discard})
+	newAPI := func(internalAddr string) *app.API {
+		t.Helper()
+		a, err := app.NewAPI(&app.APIConfig{
+			AppEnv: "local", LogLevel: "info", LogFormat: "json", OTelSamplerArg: 1,
+			MetricsAddr: "127.0.0.1:0", ShutdownTimeout: 3 * time.Second,
+			InternalAddr: internalAddr, PublicAddr: "127.0.0.1:0", PublicRouteGroups: ingress.PublicPrefixes,
+		}, log, testGroups()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+
+	pubLn, metLn := listenLoopback(t), listenLoopback(t)
+	a := newAPI("127.0.0.1:0")
+	if err := a.ListenOn(app.Listeners{Public: pubLn, Metrics: metLn}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Serve(ctx) }()
+	defer func() { cancel(); <-done }()
+	in, pub, met := a.Addrs()
+	if pub != pubLn.Addr().String() || met != metLn.Addr().String() {
+		t.Fatalf("Addrs public %s metrics %s, want the given %s and %s", pub, met, pubLn.Addr(), metLn.Addr())
+	}
+	waitReady(t, in)
+	if st, _, _ := get(t, pub, "/healthz", nil); st != 200 {
+		t.Fatalf("public /healthz on the given listener = %d", st)
+	}
+	resp, err := client.Get("http://" + met + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("/metrics on the given listener = %d", resp.StatusCode)
+	}
+
+	// API_INTERNAL_ADDR taken: ListenOn fails before serving and closes the public listener it was given.
+	busy, given := listenLoopback(t), listenLoopback(t)
+	err = newAPI(busy.Addr().String()).ListenOn(app.Listeners{Public: given})
+	if err == nil || !strings.Contains(err.Error(), "listen API_INTERNAL_ADDR") {
+		t.Fatalf("want the API_INTERNAL_ADDR bind error, got %v", err)
+	}
+	_ = given.(*net.TCPListener).SetDeadline(time.Now().Add(time.Second)) // an open listener times out instead
+	if _, err := given.Accept(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("the given listener must be closed, Accept: %v", err)
 	}
 }
 

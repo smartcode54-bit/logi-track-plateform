@@ -148,7 +148,8 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	}
 	// STORAGE_BACKEND=local (the staging VM's backend); LOCAL_MEDIA_PUBLIC_BASE_URL reaches /media on the public
 	// listener, so the APK link and cmd/release's URL check go through the api like on the VM.
-	publicAddr := freeAddr(t)
+	publicLn := listenLoopback(t)
+	publicAddr := publicLn.Addr().String()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: w.mediaDir, PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("e"), 40), APIUploadPath: storage.LocalUploadPath})
 	if err != nil {
@@ -200,7 +201,7 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	if err := a.CheckRoutes(); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Listen(); err != nil {
+	if err := a.ListenOn(app.Listeners{Public: publicLn}); err != nil {
 		t.Fatal(err)
 	}
 	sctx, cancel := context.WithCancel(context.Background())
@@ -212,15 +213,18 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	return w
 }
 
-func freeAddr(t *testing.T) string {
+// listenLoopback binds the public listener up front, for the API to serve (app.Listeners): the local storage
+// backend's PublicBaseURL needs its address before the API is built. A port picked and released here would be
+// bound again only in Listen, and another process (docker-proxy, a parallel test binary) can take it in between.
+// The cleanup covers a harness that fails before the API owns the listener.
+func listenLoopback(t *testing.T) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
+	t.Cleanup(func() { _ = ln.Close() })
+	return ln
 }
 
 // --- fixture (logitrack_etl, BYPASSRLS) ----------------------------------------------------------------------------

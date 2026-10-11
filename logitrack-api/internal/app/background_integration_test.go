@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -54,12 +55,13 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 	if err := etl.QueryRow(ctx, `INSERT INTO users (email, display_name) VALUES ('ops@logitrack.test', 'Ops') RETURNING id`).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
-	// run starts one process and returns a stop function that waits for its exit code. The processes run
-	// one after the other: in one test binary they would share logx's process-wide settings.
-	run := func(main func(context.Context, io.Writer, io.Writer) int) func() {
+	// run starts one process with /metrics on metrics and returns a stop function that waits for its exit
+	// code. The processes run one after the other: in one test binary they would share logx's process-wide
+	// settings.
+	run := func(main func(context.Context, net.Listener, io.Writer, io.Writer) int, metrics net.Listener) func() {
 		pctx, cancel := context.WithCancel(ctx)
 		code := make(chan int, 1)
-		go func() { code <- main(pctx, io.Discard, io.Discard) }()
+		go func() { code <- main(pctx, metrics, io.Discard, io.Discard) }()
 		return func() {
 			t.Helper()
 			cancel()
@@ -123,10 +125,9 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 	// Scheduler: elected leader, its relay wakes on NOTIFY (the tick is a minute), drops the cache: keys
 	// of what it relays and publishes; ready once PostgreSQL and Redis answer and the leader holds its
 	// broker connection.
-	saddr := freeAddr(t)
-	t.Setenv("METRICS_ADDR", saddr)
-	stopScheduler := run(app.RunScheduler)
-	waitReadiness(t, saddr, 15*time.Second, ready)
+	sln := metricsListener(t)
+	stopScheduler := run(app.RunSchedulerOn, sln)
+	waitReadiness(t, sln.Addr().String(), 15*time.Second, ready)
 	time.Sleep(time.Second) // LISTEN up
 	pool := d.Pool(t, db.RoleApp)
 	tx, err := pool.Begin(ctx)
@@ -165,10 +166,9 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 
 	// Worker: asserts the topology, consumes notify.email and mails the link; ready with PostgreSQL and
 	// its broker session up.
-	waddr := freeAddr(t)
-	t.Setenv("METRICS_ADDR", waddr)
-	stopWorker := run(app.RunWorker)
-	waitReadiness(t, waddr, 15*time.Second, ready)
+	wln := metricsListener(t)
+	stopWorker := run(app.RunWorkerOn, wln)
+	waitReadiness(t, wln.Addr().String(), 15*time.Second, ready)
 	mails := mp.WaitMessages(t, 1, 20*time.Second)
 	if len(mails) != 1 || mails[0].Subject != "Reset your LogiTrack password" {
 		t.Fatalf("mails %+v", mails)

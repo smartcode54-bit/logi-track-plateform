@@ -12,17 +12,27 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 )
 
-// freeAddr reserves a loopback port for METRICS_ADDR: the processes log their bound address, so a
-// test that probes /readyz picks it beforehand.
-func freeAddr(t *testing.T) string {
+// listenLoopback binds a loopback port for a process to serve (app.Listeners): the test needs the address
+// before the process starts, to probe /readyz on METRICS_ADDR or for the local storage backend's
+// PublicBaseURL. A port picked and released here would be bound again only later, and another process
+// (docker-proxy, a parallel test binary) can take it in between. The process owns the listener once it
+// gets it; the cleanup covers a test that ends before.
+func listenLoopback(t *testing.T) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
+	t.Cleanup(func() { _ = ln.Close() })
+	return ln
+}
+
+// metricsListener is listenLoopback for a worker or scheduler, with METRICS_ADDR naming its address.
+func metricsListener(t *testing.T) net.Listener {
+	t.Helper()
+	ln := listenLoopback(t)
+	t.Setenv("METRICS_ADDR", ln.Addr().String())
+	return ln
 }
 
 type readiness struct {
@@ -70,12 +80,13 @@ func waitReadiness(t *testing.T, addr string, within time.Duration, ok func(read
 	return last
 }
 
-// startProcess runs main until the returned stop function, which waits for exit code 0.
-func startProcess(t *testing.T, main func(context.Context, io.Writer, io.Writer) int) func() {
+// startProcess runs main with /metrics on metrics until the returned stop function, which waits for exit
+// code 0.
+func startProcess(t *testing.T, main func(context.Context, net.Listener, io.Writer, io.Writer) int, metrics net.Listener) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	code := make(chan int, 1)
-	go func() { code <- main(ctx, io.Discard, io.Discard) }()
+	go func() { code <- main(ctx, metrics, io.Discard, io.Discard) }()
 	return func() {
 		t.Helper()
 		cancel()
@@ -120,15 +131,13 @@ func TestBackgroundReadinessReportsDependencies(t *testing.T) {
 		}
 	}
 
-	addr := freeAddr(t)
-	t.Setenv("METRICS_ADDR", addr)
-	stop := startProcess(t, app.RunWorker)
-	waitReadiness(t, addr, 10*time.Second, unreachable("postgres", "redis", "rabbitmq"))
+	ln := metricsListener(t)
+	stop := startProcess(t, app.RunWorkerOn, ln)
+	waitReadiness(t, ln.Addr().String(), 10*time.Second, unreachable("postgres", "redis", "rabbitmq"))
 	stop()
 
-	addr = freeAddr(t)
-	t.Setenv("METRICS_ADDR", addr)
-	stop = startProcess(t, app.RunScheduler)
-	waitReadiness(t, addr, 10*time.Second, unreachable("postgres", "redis"))
+	ln = metricsListener(t)
+	stop = startProcess(t, app.RunSchedulerOn, ln)
+	waitReadiness(t, ln.Addr().String(), 10*time.Second, unreachable("postgres", "redis"))
 	stop()
 }

@@ -213,6 +213,12 @@ func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, re
 	if err != nil {
 		return nil, err
 	}
+	return ServeMetrics(ln, reg, log, ready), nil
+}
+
+// ServeMetrics is ListenMetrics on a listener the caller bound already. The server owns ln: Shutdown
+// closes it.
+func ServeMetrics(ln net.Listener, reg *prometheus.Registry, log zerolog.Logger, ready func(ctx context.Context) error) *MetricsServer {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
 	if ready != nil {
@@ -239,7 +245,7 @@ func ListenMetrics(addr string, reg *prometheus.Registry, log zerolog.Logger, re
 			log.Error().Err(err).Msg("metrics server stopped")
 		}
 	}()
-	return s, nil
+	return s
 }
 
 // notReadyBody renders the 503 of /readyz in the R48 envelope: the code, message and details of an

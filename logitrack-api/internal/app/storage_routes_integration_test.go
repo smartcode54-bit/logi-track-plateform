@@ -133,7 +133,8 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	}
 
 	// STORAGE_BACKEND=local; LOCAL_MEDIA_PUBLIC_BASE_URL reaches /media on the public listener.
-	publicAddr := freeAddr(t)
+	publicLn := listenLoopback(t)
+	publicAddr := publicLn.Addr().String()
 	dir := t.TempDir()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: dir, PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("e"), 40), APIUploadPath: storage.LocalUploadPath})
@@ -171,7 +172,7 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	if err := a.CheckRoutes(); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Listen(); err != nil {
+	if err := a.ListenOn(app.Listeners{Public: publicLn}); err != nil {
 		t.Fatal(err)
 	}
 	sctx, cancel := context.WithCancel(ctx)
