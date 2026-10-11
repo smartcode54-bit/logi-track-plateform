@@ -182,26 +182,12 @@ func TestParseStorageURL(t *testing.T) {
 	}
 }
 
-func TestVocabulariesAndTripNumbers(t *testing.T) {
+// The trip number and photo type rules are tripcheck's (tested there and against the schema by internal/operations).
+func TestVocabularies(t *testing.T) {
 	for in, want := range map[string]string{"Checked in": "checked_in", "In-Transit": "in_transit", "On-Duty": "on_duty",
 		"insurance-claim": "insurance_claim", "PM Booking": "pm_booking", "FULL_TIME": "full_time", "APPROVED": "approved"} {
 		if got := canon(in); got != want {
 			t.Errorf("canon(%q) = %q, want %q", in, got, want)
-		}
-	}
-	for _, ok := range []string{"TRIP001", "SPX-TRIP-4", "a.b", "ไทย"} {
-		if !validTripNo(ok) {
-			t.Errorf("%q is a valid trip number", ok)
-		}
-	}
-	for _, bad := range []string{"", "a/b", ".", "..", "__x__", strings.Repeat("x", 1501)} {
-		if validTripNo(bad) {
-			t.Errorf("%q must fail the trip_no CHECK", bad)
-		}
-	}
-	for typ, known := range map[string]bool{"seal": true, "stop_2_opening": true, "stop_x_opening": false, "selfie": false, "checkin_app": true} {
-		if knownTripPhotoType(typ) != known {
-			t.Errorf("knownTripPhotoType(%q) != %v", typ, known)
 		}
 	}
 }

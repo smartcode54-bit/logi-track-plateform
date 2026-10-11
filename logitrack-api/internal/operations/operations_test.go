@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,27 +13,6 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
-
-// The vectors of logitrack-web/functions/src/core/tripDocId.test.ts, one for one.
-func TestValidateTripNoMatchesTripDocID(t *testing.T) {
-	for _, c := range []struct {
-		no, want string
-	}{
-		{"ZXZB26011192271", ""}, {"36601950", ""}, {"SPX-123_456", ""},
-		{"", "required"},
-		{"ZXZB/26011192271", "slash"},
-		{".", "reserved_segment"}, {"..", "reserved_segment"},
-		{"__name__", "reserved_name"}, {"__name", ""},
-		{strings.Repeat("A", 1500), ""}, {strings.Repeat("A", 1501), "too_long"},
-		{strings.Repeat("ก", 501), "too_long"}, // 3 bytes per Thai character
-		{strings.Repeat("ก", 500), ""},
-		{"...", ""}, {"_x_", ""}, {"a.b", ""},
-	} {
-		if got := ValidateTripNo(c.no); got != c.want {
-			t.Errorf("ValidateTripNo(%.20q) = %q, want %q", c.no, got, c.want)
-		}
-	}
-}
 
 func TestTaskNumbers(t *testing.T) {
 	// 2026-10-10 18:30Z is 11 October 01:30 in Bangkok: the number carries the Bangkok day.
@@ -63,36 +41,14 @@ func TestTaskNumbers(t *testing.T) {
 	if typ, _, seq, padded, ok := ParseTaskNo("FM-01102026-7"); !ok || typ != FirstMile || seq != 7 || padded {
 		t.Errorf("legacy unpadded: %s %d %t %t", typ, seq, padded, ok)
 	}
-	for _, bad := range []string{"FM-1102026-001", "XX-11102026-001", "FM-31022026-001", "FM-11102026-000", "FM-11102026-", "LH-11102026-01a", "20261011-001"} {
+	for _, bad := range []string{"FM-1102026-001", "XX-11102026-001", "FM-31022026-001", "FM-11102026-000", "FM-11102026-",
+		"LH-11102026-01a", "20261011-001", "FM-11102026-2147483648"} { // the counter is an int: past it, not a number of record
 		if _, _, _, _, ok := ParseTaskNo(bad); ok {
 			t.Errorf("ParseTaskNo(%q) accepted", bad)
 		}
 	}
 	if TaskNoPrefix("other") != "" {
 		t.Error("an unknown type has a prefix")
-	}
-}
-
-// PhotoTypeKnown is the generated column trip_photos.photo_type_known (the integration test compares the two on the
-// same list against PostgreSQL).
-func TestPhotoTypeKnown(t *testing.T) {
-	for _, typ := range TripPhotoTypes {
-		if !PhotoTypeKnown(typ) {
-			t.Errorf("%s unknown", typ)
-		}
-	}
-	for _, typ := range []string{"stop_1_arrived", "stop_2_pre_open", "stop_12_opening", "stop_3_empty_container", "stop_4_runsheet_received"} {
-		if !PhotoTypeKnown(typ) {
-			t.Errorf("%s unknown", typ)
-		}
-	}
-	for _, typ := range []string{"stop_1_seal", "stop__arrived", "stop_x_arrived", "selfie", "Seal", " seal", "stop_1_arrived_2", ""} {
-		if PhotoTypeKnown(typ) {
-			t.Errorf("%q known", typ)
-		}
-	}
-	if StopPhotoType(3, "opening") != "stop_3_opening" {
-		t.Error("StopPhotoType")
 	}
 }
 
@@ -139,12 +95,25 @@ func TestCursors(t *testing.T) {
 	if c, ok := decodeCursor("", axisCreated); !ok || c != nil {
 		t.Error("the first page has no cursor")
 	}
-	for _, bad := range []string{"%%%", "e30", cursor{Axis: axisPlan, Day: "11/10/2026", ID: id}.encode(),
-		cursor{Axis: axisCreated, ID: id}.encode(), cursor{Axis: axisCreated, At: &at}.encode()} {
-		if _, ok := decodeCursor(bad, axisCreated); ok {
-			if _, ok2 := decodeCursor(bad, axisPlan); ok2 {
-				t.Errorf("%q accepted", bad)
-			}
+	// Each malformed cursor is refused on its own axis (an axis mismatch is the loop above): an undecodable value, a day
+	// that is not yyyy-MM-dd or missing on a day axis, an instant on a day axis, a missing instant or a day on an
+	// instant axis, a nil id.
+	for _, bad := range []struct {
+		name, s, axis string
+	}{
+		{"not base64", "%%%", axisCreated},
+		{"empty object", "e30", axisCreated},
+		{"day not yyyy-MM-dd", cursor{Axis: axisPlan, Day: "11/10/2026", ID: id}.encode(), axisPlan},
+		{"day missing", cursor{Axis: axisBilling, ID: id}.encode(), axisBilling},
+		{"instant on a day axis", cursor{Axis: axisPlan, Day: "2026-10-11", At: &at, ID: id}.encode(), axisPlan},
+		{"instant missing (created)", cursor{Axis: axisCreated, ID: id}.encode(), axisCreated},
+		{"instant missing (ended)", cursor{Axis: axisEnded, ID: id}.encode(), axisEnded},
+		{"day on an instant axis", cursor{Axis: axisDelivered, At: &at, Day: "2026-10-11", ID: id}.encode(), axisDelivered},
+		{"nil id (instant axis)", cursor{Axis: axisCreated, At: &at}.encode(), axisCreated},
+		{"nil id (day axis)", cursor{Axis: axisPlan, Day: "2026-10-11"}.encode(), axisPlan},
+	} {
+		if _, ok := decodeCursor(bad.s, bad.axis); ok {
+			t.Errorf("%s: %q accepted on axis %s", bad.name, bad.s, bad.axis)
 		}
 	}
 	rows := []int{1, 2, 3}
@@ -189,8 +158,13 @@ func TestStandbyBillingProjection(t *testing.T) {
 	dispatcher := &authz.Principal{UserID: uuid.New(), TenantID: &own, TenantRole: authz.Manager, Dispatcher: true, TenantKind: "own_fleet"}
 	all := &authz.Principal{UserID: uuid.New(), ActOnAll: true}
 
-	priced := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("standby_rate"), BillingPartyID: ptr(uuid.New())}
+	priced := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("standby_rate"), BillingPartyID: ptr(uuid.New()),
+		BillingRateEntryID: ptr(uuid.New())}
 	unpriced := Standby{BillingUnpricedReason: ptr("no_rate")}
+	// A service-fee price names no fee row: the own fleet's, whatever tenant holds the party's fee now.
+	serviceFee := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("service_fee"), BillingPartyID: ptr(uuid.New())}
+	// A legacy standby rate the ETL has not linked yet (billing_rate_entry_id NULL): the own fleet's too.
+	unlinked := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("standby_rate"), BillingPartyID: ptr(uuid.New())}
 	for _, c := range []struct {
 		name   string
 		p      *authz.Principal
@@ -204,6 +178,10 @@ func TestStandbyBillingProjection(t *testing.T) {
 		{"carrier priced it", carrierStaff, priced, carrier, true},
 		{"unpriced: the own fleet", ownStaff, unpriced, uuid.Nil, true},
 		{"unpriced: a carrier", carrierStaff, unpriced, uuid.Nil, false},
+		{"service fee: the own fleet", ownStaff, serviceFee, uuid.Nil, true},
+		{"service fee: a carrier, even holding the party's fee now", carrierStaff, serviceFee, carrier, false},
+		{"unlinked legacy rate: the own fleet", ownStaff, unlinked, uuid.Nil, true},
+		{"unlinked legacy rate: a carrier", carrierStaff, unlinked, carrier, false},
 		{"driver", driver, priced, own, false},
 		{"dispatcher", dispatcher, priced, own, false},
 		{"X-Act-On-Tenant: *", all, priced, own, true},
@@ -227,16 +205,18 @@ func TestNewTaskValidation(t *testing.T) {
 	}
 	drv := uuid.New()
 	for name, mut := range map[string]func(*NewTask){
-		"task type":    func(n *NewTask) { n.TaskType = "FIRST_MILE" },
-		"status":       func(n *NewTask) { n.Status = "Pending" },
-		"source":       func(n *NewTask) { n.SourceHubRaw = "  " },
-		"helper":       func(n *NewTask) { n.DriverID, n.HelperDriverID = &drv, &drv },
-		"truck type":   func(n *NewTask) { n.TruckType = ptr("4WH") },
-		"one stop":     func(n *NewTask) { n.IsMultiDelivery, n.Stops = true, []NewStop{{Destination: "A"}} },
-		"blank stop":   func(n *NewTask) { n.Stops = []NewStop{{Destination: "A"}, {Destination: " "}} },
-		"tenant":       func(n *NewTask) { n.TenantID = uuid.Nil },
-		"job":          func(n *NewTask) { n.JobCategory = ptr("primary") },
-		"empty number": func(n *NewTask) { n.TaskNo = ptr(" ") },
+		"task type":  func(n *NewTask) { n.TaskType = "FIRST_MILE" },
+		"status":     func(n *NewTask) { n.Status = "Pending" },
+		"source":     func(n *NewTask) { n.SourceHubRaw = "  " },
+		"helper":     func(n *NewTask) { n.DriverID, n.HelperDriverID = &drv, &drv },
+		"truck type": func(n *NewTask) { n.TruckType = ptr("4WH") },
+		"one stop":   func(n *NewTask) { n.IsMultiDelivery, n.Stops = true, []NewStop{{Destination: "A"}} },
+		// Planned stops make the task multi-drop (CreateTask), so one stop without the flag is too few as well.
+		"one stop without flag": func(n *NewTask) { n.Stops = []NewStop{{Destination: "A"}} },
+		"blank stop":            func(n *NewTask) { n.Stops = []NewStop{{Destination: "A"}, {Destination: " "}} },
+		"tenant":                func(n *NewTask) { n.TenantID = uuid.Nil },
+		"job":                   func(n *NewTask) { n.JobCategory = ptr("primary") },
+		"empty number":          func(n *NewTask) { n.TaskNo = ptr(" ") },
 	} {
 		n := ok
 		mut(&n)

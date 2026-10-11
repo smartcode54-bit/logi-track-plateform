@@ -264,10 +264,20 @@ WHERE t.driver_id = sqlc.arg(driver_id)::uuid AND t.status = 'in_transit'
 ORDER BY t.updated_at DESC
 LIMIT 1;
 
+-- name: TripSealTaken :one
+-- The duplicate-seal check of a trip submit (POST /v1/mobile/trips, P7a; 409 duplicate_seal; the legacy query read every
+-- trip, trip_records_repository.dart:59-62): whether any trip other than exclude_id carries the seal, in every tenant
+-- and every status (cancelled trips keep their seal, as in legacy). trip_seal_taken() is SECURITY DEFINER (0014): the
+-- driver's own RLS shows only its own trips. It holds a per-seal transaction lock, so the trip insert that follows in
+-- the same transaction cannot race another submit of the seal (trip_records_seal inside the function).
+SELECT trip_seal_taken(sqlc.arg(seal_code)::text, sqlc.narg(exclude_id)::uuid)::boolean AS taken;
+
 -- name: TripIDsBySeal :many
--- The duplicate-seal check (409 duplicate_seal, trip_records_repository.dart:59-62; trip_records_seal) over the rows the
--- caller's transaction reads: a request transaction sees its reach, a system transaction every tenant.
+-- The trips of the caller's reach that carry the seal (trip_records_seal): the 409 duplicate_seal of a taken seal names
+-- the first one (details.tripNo) only when the caller reaches it, so no other tenant's or driver's trip number leaks.
 SELECT t.id, t.trip_no FROM trip_records t
-WHERE t.seal_code = sqlc.arg(seal_code)::text AND t.id <> coalesce(sqlc.narg(exclude_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-  AND t.status <> 'cancelled'
+WHERE t.seal_code = sqlc.arg(seal_code)::text
+  AND t.id <> coalesce(sqlc.narg(exclude_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  AND (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[])
+       OR t.driver_id = sqlc.narg(reach_driver)::uuid)
 ORDER BY t.created_at, t.id;

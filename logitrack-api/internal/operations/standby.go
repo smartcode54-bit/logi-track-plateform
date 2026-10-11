@@ -95,8 +95,18 @@ type StandbyView struct {
 }
 
 // BillingVisible reports whether p reads the billing columns of a standby record (Appendix C §C.3.4): only the billing
-// carrier's principals do, that is the tenant owning the rate entry or the standby service fee that priced it
-// (billingTenant: the zero uuid when unpriced or outside the caller's reach), or the own fleet for an unpriced record;
+// carrier's principals do. The billing carrier is fixed by what the record itself names, never by today's fee
+// table:
+//
+//   - a record priced from a standby rate entry (billing_rate_entry_id set) belongs to the tenant owning that entry
+//     (billingTenant, read through the caller's RLS: the zero uuid when the entry is outside the caller's reach);
+//     the entry is immutable in that respect and never deleted (standby_rate_entries_no_delete);
+//   - a record that names no rate entry (unpriced, priced from the party's standby service fee, or a legacy rate the
+//     ETL has not linked yet) belongs to the own fleet, the billing carrier of today's rate tables (R61, D6). A
+//     service-fee price names no fee row (the 0004 CHECK), and the party's one standby fee may since have been
+//     replaced or deleted and re-created by another tenant, so resolving it through customer_service_fees would hand
+//     the columns to whoever holds the fee now.
+//
 // X-Act-On-Tenant: * reads everything; a driver, a customer scope or a dispatcher never.
 func BillingVisible(p *authz.Principal, rec Standby, billingTenant uuid.UUID) bool {
 	if p.ActOnAll {
@@ -106,7 +116,7 @@ func BillingVisible(p *authz.Principal, rec Standby, billingTenant uuid.UUID) bo
 	if t == nil || !p.EffectiveRole().IsStaff() || p.Dispatcher {
 		return false
 	}
-	if rec.BillingRateSource == nil {
+	if rec.BillingRateEntryID == nil {
 		return p.TenantKind == "own_fleet"
 	}
 	return billingTenant != uuid.Nil && billingTenant == *t

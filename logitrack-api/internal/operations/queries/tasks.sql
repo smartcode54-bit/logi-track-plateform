@@ -20,12 +20,21 @@
 -- logitrack_rls_definer (R66); logitrack_app holds no privilege on task_number_counters (R67).
 SELECT next_task_seq(sqlc.arg(task_type)::text, sqlc.arg(plan_date)::date)::int AS seq;
 
+-- name: BumpTaskSeq :one
+-- A task that keeps a canonical number of record (FM|LH-ddMMyyyy-NNN, padded: a legacy or mirrored number, CreateTask)
+-- moves the counter of the (task_type, plan_date) the number names up to its sequence, never down
+-- (bump_task_seq(), SECURITY DEFINER, 0014), so NextTaskSeq never mints that number again. It locks the counter row
+-- until COMMIT, as NextTaskSeq does.
+SELECT bump_task_seq(sqlc.arg(task_type)::text, sqlc.arg(plan_date)::date, sqlc.arg(seq)::int)::int AS last_seq;
+
 -- --- run order (per-driver queue position) ----------------------------------------------------------------------
 
 -- name: LockDriverQueue :exec
 -- Serialises the run_order = max + 1 of one driver's queue for the rest of the transaction (a transaction-level
 -- advisory lock: a staff writer may not hold UPDATE on a driver of another tenant, and the lock must not wait on the
--- driver row's other writers). Replaces the client-side max read (taskService.ts:51-66, tasks.ts:123-128).
+-- driver row's other writers). Every writer that sets or recomputes a run_order takes it before NextRunOrder (task
+-- creation here; the PATCH /v1/tasks/{id} assignment of T31, the import, the mirror): a drivers row lock would not
+-- exclude it (developer-spec.md §3.6). Replaces the client-side max read (taskService.ts:51-66, tasks.ts:123-128).
 SELECT pg_advisory_xact_lock(hashtextextended('lt-run-order:' || sqlc.arg(driver_id)::uuid::text, 0));
 
 -- name: NextRunOrder :one

@@ -10,21 +10,24 @@
 //     R28), the parent's reach for the child tables; the staff lists and lookups name the reach as well (Reach,
 //     Appendix C §C.3.8);
 //   - the services of this package: the writes that must be one statement sequence in the caller's transaction
-//     (CreateTask with its number and queue position, AddTaskStop, CreateTrip, RenameTrip, PutTripPhoto,
+//     (CreateTask with its number and queue position, AddTaskStop, CheckSeal, CreateTrip, RenameTrip, PutTripPhoto,
 //     CreateStandby, CreateIncident; the caller owns the transaction and appends its outbox events there, main spec
 //     §2.3), and the principal reads of Service (keyset pages, lookups, the standby billing projection).
 //
 // Task numbers (R10): FM|LH-ddMMyyyy-NNN from next_task_seq() over task_number_counters, global per (task_type,
 // plan_date) across tenants, three digits padded, allocated inside the task insert transaction (no count()+1 race);
 // logitrack_app holds no privilege on the counter table (R66, R67). Legacy numbers, unpadded or duplicated, are kept
-// verbatim: task_no is indexed, not unique.
+// verbatim: task_no is indexed, not unique; a canonical padded one moves the counter past its sequence
+// (bump_task_seq(), 0014), so the allocator never mints it again.
 //
 // Trip identity (main spec §3.1 #3): surrogate id plus trip_no, UNIQUE and mutable, with the Firestore document-id
-// rule of core/tripDocId.ts (ValidateTripNo; the same CHECK in the schema); a rename is an UPDATE plus one
-// trip_no_history row, and storage objects never move.
+// rule of core/tripDocId.ts (tripcheck.ValidateTripNo; the same CHECK in the schema); a rename is an UPDATE plus one
+// trip_no_history row, and storage objects never move. The duplicate-seal check (CheckSeal) reads every trip through
+// the SECURITY DEFINER trip_seal_taken() of 0014, as the legacy check did.
 //
 // Trip photo types (R19): free text, merged by type (last wins); photo_type_known is a STORED generated column (the 14
-// workflow types and stop_{n}_*), so an unknown legacy type still loads and is reported, never refused.
+// workflow types and stop_{n}_*; tripcheck.PhotoTypeKnown), so an unknown legacy type still loads and is reported,
+// never refused.
 package operations
 
 import (
@@ -199,10 +202,14 @@ func ErrDuplicateTripNo(tripNo string) *httpx.Error {
 		WithDetails(map[string]any{"field": "tripNo", "tripNo": tripNo})
 }
 
-// ErrDuplicateSeal is the 409 of a seal code another trip carries (the legacy duplicate check, trip_records_seal).
+// ErrDuplicateSeal is the 409 of a seal code another trip carries (the legacy duplicate check, CheckSeal): tripNo is
+// the holder's number when the caller reaches that trip, else "" and details carry no tripNo.
 func ErrDuplicateSeal(tripNo string) *httpx.Error {
-	return httpx.NewError(http.StatusConflict, CodeDuplicateSeal, "another trip has this seal code").
-		WithDetails(map[string]any{"field": "sealCode", "tripNo": tripNo})
+	details := map[string]any{"field": "sealCode"}
+	if tripNo != "" {
+		details["tripNo"] = tripNo
+	}
+	return httpx.NewError(http.StatusConflict, CodeDuplicateSeal, "another trip has this seal code").WithDetails(details)
 }
 
 // ErrDuplicateDestination is the 409 of a stop destination the task already has (taskSchema refine).

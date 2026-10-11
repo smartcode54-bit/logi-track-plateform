@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/tripcheck"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
@@ -47,13 +48,14 @@ type PhotoInput struct {
 }
 
 // CreateTrip inserts a trip in the caller's transaction with its stop plan and photos. The trip number is trimmed and
-// must be a valid Firestore document id (ValidateTripNo, 422 tripNo); a number another trip holds is 409
+// must be a valid Firestore document id (tripcheck.ValidateTripNo, 422 tripNo); a number another trip holds is 409
 // duplicate_trip_id (trip_records_trip_no). The tenant is the caller's stamping (T28: the task's, else the driver's);
-// the deferred trip_records_tenant_check refuses at COMMIT a trip off its task's tenant.
+// the deferred trip_records_tenant_check refuses at COMMIT a trip off its task's tenant. A driver's submit calls
+// CheckSeal first in the same transaction (409 duplicate_seal).
 func CreateTrip(ctx context.Context, tx pgx.Tx, in NewTrip) (Trip, error) {
 	in.TripNo = strings.TrimSpace(in.TripNo)
 	var ck checker
-	if r := ValidateTripNo(in.TripNo); r != "" {
+	if r := tripcheck.ValidateTripNo(in.TripNo); r != "" {
 		ck.add("tripNo", r)
 	}
 	if !slices.Contains(TripStatuses, in.Status) {
@@ -106,6 +108,40 @@ func CreateTrip(ctx context.Context, tx pgx.Tx, in NewTrip) (Trip, error) {
 	return trip, nil
 }
 
+// CheckSeal is the duplicate-seal check of a trip submit (POST /v1/mobile/trips, P7a: 409 duplicate_seal), in the
+// caller's transaction before the trip insert. The seal is trimmed; an empty one is not checked (as the legacy
+// check, trip_records_repository.dart:57-69). Whether another trip holds it is answered over every tenant and every
+// status, cancelled trips included, as the legacy query read every trip (trip_seal_taken(), 0014: the driver's own RLS
+// sees only its own trips); exclude is the trip being resubmitted, if any. The check also takes a per-seal lock until
+// the transaction ends, so a concurrent submit of the same seal waits and then sees this trip. The 409 names the
+// holder (details.tripNo) only when it is in r, the caller's reach (ReachOf; SystemReach in a system transaction), so
+// no other tenant's or driver's trip number leaks. CreateTrip does not call it: a mirrored or legacy trip keeps its
+// seal even when another trip carries it.
+func CheckSeal(ctx context.Context, tx pgx.Tx, r Reach, seal string, exclude *uuid.UUID) error {
+	seal = strings.TrimSpace(seal)
+	if seal == "" {
+		return nil
+	}
+	q := operationsdb.New(tx)
+	taken, err := q.TripSealTaken(ctx, operationsdb.TripSealTakenParams{SealCode: seal, ExcludeID: exclude})
+	if err != nil {
+		return MapError(err)
+	}
+	if !taken {
+		return nil
+	}
+	holders, err := q.TripIDsBySeal(ctx, operationsdb.TripIDsBySealParams{SealCode: seal, ExcludeID: exclude,
+		AllTenants: r.All, TenantIds: r.tenants(), ReachDriver: r.Driver})
+	if err != nil {
+		return MapError(err)
+	}
+	tripNo := ""
+	if len(holders) > 0 {
+		tripNo = holders[0].TripNo
+	}
+	return ErrDuplicateSeal(tripNo)
+}
+
 // tripNoError maps a taken trip number to 409 duplicate_trip_id with the number, anything else through MapError.
 func tripNoError(err error, tripNo string) error {
 	err = MapError(err)
@@ -117,14 +153,14 @@ func tripNoError(err error, tripNo string) error {
 }
 
 // RenameTrip changes a trip's number in place (POST /v1/trips/{id}/rename; renameTripRecord.ts:51 copied and deleted
-// the document): the trip is locked, newNo is trimmed and validated (ValidateTripNo; equal to the current number is
-// 422 tripNo unchanged), only a delivered trip is renamed (409 failed_precondition not_delivered: a running trip also
-// lives in the driver's app, renameTripRecord.ts:94-101), a number another trip holds is 409 duplicate_trip_id, and one
-// trip_no_history row records the change (append-only). Photos, stops and incidents keep the trip id, so nothing is
+// the document): the trip is locked, newNo is trimmed and validated (tripcheck.ValidateTripNo; equal to the current
+// number is 422 tripNo unchanged), only a delivered trip is renamed (409 failed_precondition not_delivered: a running
+// trip also lives in the driver's app, renameTripRecord.ts:94-101), a number another trip holds is 409
+// duplicate_trip_id, and one trip_no_history row records the change (append-only). Photos, stops and incidents keep the trip id, so nothing is
 // re-pointed and no object moves.
 func RenameTrip(ctx context.Context, tx pgx.Tx, tripID uuid.UUID, newNo string, by *uuid.UUID, at time.Time) (Trip, TripRename, error) {
 	newNo = strings.TrimSpace(newNo)
-	if r := ValidateTripNo(newNo); r != "" {
+	if r := tripcheck.ValidateTripNo(newNo); r != "" {
 		return Trip{}, TripRename{}, httpx.ErrInvalidArgument(violation("tripNo", r))
 	}
 	q := operationsdb.New(tx)

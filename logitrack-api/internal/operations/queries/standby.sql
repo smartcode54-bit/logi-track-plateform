@@ -3,8 +3,11 @@
 -- trip's: deferred standby_records_tenant_check); RLS: staff of the reach, the driver's own rows (p_driver_read,
 -- p_driver_insert; no driver update), scope principals through scope_standby. The billing columns are inline (R61) and
 -- the service shows them only to the billing carrier's principals (Appendix C §C.3.4): every read returns
--- billing_tenant_id, the tenant owning the rate entry or the standby service fee that priced the row (the zero uuid
--- when unpriced or when that row is outside the caller's reach), and the service decides.
+-- billing_tenant_id, the tenant owning the standby_rate_entries row the record names (billing_rate_entry_id: an
+-- immutable reference to a row that is never deleted); the zero uuid when the record names none (unpriced, a service
+-- fee, a legacy rate not linked yet) or when that row is outside the caller's reach, and the service decides
+-- (operations.BillingVisible). A service-fee price names no fee row (the 0004 CHECK) and the party's fee may since have
+-- changed hands, so it is never resolved through customer_service_fees.
 --
 -- Indexes -> live query: standby_records_tenant_created / standby_records_created (the standby page, I33),
 -- standby_records_ended (the ended axis, I34), standby_records_driver (driver history), standby_records_task /
@@ -48,12 +51,8 @@ SELECT * FROM standby_photos WHERE standby_id = ANY (sqlc.arg(standby_ids)::uuid
 
 -- name: GetStandby :one
 SELECT sqlc.embed(s),
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.id = sqlc.arg(id)
   AND (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[])
@@ -62,12 +61,8 @@ WHERE s.id = sqlc.arg(id)
 -- name: StandbyByLegacyDocID :one
 -- The Firestore standby doc id (the line-notify shim target; the mirror's key).
 SELECT sqlc.embed(s),
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.legacy_doc_id = sqlc.arg(legacy_doc_id)::text
   AND (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[])
@@ -76,12 +71,8 @@ WHERE s.legacy_doc_id = sqlc.arg(legacy_doc_id)::text
 -- name: StandbyOfTasks :many
 -- The standby records of the given tasks (the boards and the monitor; standby_records_task).
 SELECT sqlc.embed(s),
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.task_id = ANY (sqlc.arg(task_ids)::uuid[])
   AND (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[])
@@ -91,12 +82,8 @@ ORDER BY s.task_id, s.created_at DESC, s.id DESC;
 -- name: StandbyOfTrip :many
 -- The standby record a legacy standby trip became (standby_records_trip).
 SELECT sqlc.embed(s),
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.trip_id = sqlc.arg(trip_id)::uuid
   AND (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[])
@@ -108,12 +95,8 @@ ORDER BY s.created_at DESC, s.id DESC;
 -- (standby_records_tenant_created; standby_records_created under X-Act-On-Tenant: *). customer matches the record's
 -- customer or its billing party. from / to bound created_at, [from, to).
 SELECT sqlc.embed(s),
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.narg(from_at)::timestamptz IS NULL OR s.created_at >= sqlc.narg(from_at)::timestamptz)
@@ -131,12 +114,8 @@ LIMIT sqlc.arg(row_limit);
 -- records that ended, latest first, keyset (ended_at, id). Records without ended_at (unpriced no_ended_at) are on the
 -- created axis only. from / to bound ended_at, [from, to).
 SELECT sqlc.embed(s),
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.status = 'completed' AND s.ended_at IS NOT NULL
   AND (sqlc.arg(all_tenants)::boolean OR s.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))

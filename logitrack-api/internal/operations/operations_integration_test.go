@@ -4,7 +4,9 @@ package operations_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/tripcheck"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
@@ -158,33 +161,57 @@ func TestTaskNumbersGlobalConcurrentAndUnreachable(t *testing.T) {
 	if *late.TaskNo != "FM-13102026-001" || late.PlanDate.Format(time.DateOnly) != "2026-10-13" {
 		t.Errorf("late plan: %s on %s", *late.TaskNo, late.PlanDate)
 	}
+}
 
-	// Concurrent assignments to one driver get distinct queue positions (max + 1 under the per-driver lock).
-	var orders []int32
-	start2 := make(chan struct{})
-	for range 8 {
+// run_order = max + 1 under the per-driver transaction lock (LockDriverQueue): concurrent assignments to one driver get
+// distinct queue positions. The creations must not queue on anything else, so each takes its own counter row (its own
+// plan day) or carries its own number (no allocation at all, the path of a number of record): only the driver lock
+// serialises them, and without it they all read the same max.
+func TestRunOrderPerDriverLock(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	const n = 8
+	var (
+		mu     sync.Mutex
+		orders []int32
+		errs   []error
+		start  = make(chan struct{})
+		wg     sync.WaitGroup
+	)
+	for i := range n {
+		in := w.newTask(w.O, time.Date(2026, 10, 14+i, 1, 0, 0, 0, time.UTC))
+		in.DriverID, in.Status = &w.dO1, operations.TaskAssigned
+		if i%2 == 1 {
+			in.TaskNo = ptr(fmt.Sprintf("RUN-%d", i)) // a number of record: next_task_seq is skipped
+		}
 		wg.Go(func() {
-			<-start2
-			in := w.newTask(w.O, planAt)
-			in.DriverID, in.Status = &w.dO1, operations.TaskAssigned
-			_ = w.tx(w.staffO, func(tx pgx.Tx) error {
+			<-start
+			err := w.tx(w.staffO, func(tx pgx.Tx) error {
 				task, _, err := operations.CreateTask(ctx, tx, in)
 				if err != nil {
 					return err
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(10 * time.Millisecond) // hold the transaction open while the others try
 				mu.Lock()
 				orders = append(orders, *task.RunOrder)
 				mu.Unlock()
 				return nil
 			})
+			if err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
 		})
 	}
-	close(start2)
+	close(start)
 	wg.Wait()
+	if len(errs) > 0 {
+		t.Fatalf("concurrent assignments failed: %v", errs)
+	}
 	slices.Sort(orders)
-	if !slices.Equal(orders, []int32{1, 2, 3, 4, 5, 6, 7, 8}) {
-		t.Errorf("run orders %v, want 1..8", orders)
+	if want := []int32{1, 2, 3, 4, 5, 6, 7, 8}; !slices.Equal(orders, want) {
+		t.Fatalf("run orders %v, want %v", orders, want)
 	}
 }
 
@@ -208,9 +235,176 @@ func TestLegacyTaskNumbersKeptVerbatim(t *testing.T) {
 	if got, err := w.svc.TasksByNumber(ctx, w.staffC, "FM-01102026-7"); err != nil || len(got) != 0 {
 		t.Fatalf("another tenant read the numbers: %d %v", len(got), err)
 	}
-	// Explicit numbers do not move the counter (ETL and cmd/seed seed it past the legacy suffixes, Appendix A §A.3.5).
+	// Unpadded numbers do not move the counter (ETL and cmd/seed seed it past the padded legacy suffixes only, Appendix
+	// A §A.3.5).
 	if no := *w.createTask(w.staffO, w.newTask(w.O, plan)).TaskNo; no != "FM-01102026-001" {
 		t.Errorf("allocated %s", no)
+	}
+
+	// A canonical number of record (a mirrored web number) moves the counter of the (type, day) it names past its
+	// sequence, never back (bump_task_seq, 0014), so the allocator never mints it again, for any tenant. The day is the
+	// number's, not the task's plan day.
+	kept := w.newTask(w.O, plan) // planned on 1 October, the number names 12 October
+	kept.TaskNo = ptr("FM-12102026-005")
+	w.createTask(w.staffO, kept)
+	day12 := time.Date(2026, 10, 12, 2, 0, 0, 0, time.UTC)
+	if no := *w.createTask(w.staffC, w.newTask(w.C, day12)).TaskNo; no != "FM-12102026-006" {
+		t.Errorf("after a kept FM-12102026-005 the allocator minted %s, want FM-12102026-006", no)
+	}
+	lower := w.newTask(w.O, day12)
+	lower.TaskNo = ptr("FM-12102026-002") // a lower kept number leaves the counter where it is
+	w.createTask(w.staffO, lower)
+	if no := *w.createTask(w.staffO, w.newTask(w.O, day12)).TaskNo; no != "FM-12102026-007" {
+		t.Errorf("after a lower kept number the allocator minted %s, want FM-12102026-007", no)
+	}
+	lh := w.newTask(w.O, day12)
+	lh.TaskType, lh.TaskNo = operations.LineHaul, ptr("LH-12102026-040")
+	w.createTask(w.staffO, lh)
+	lhNext := w.newTask(w.O, day12)
+	lhNext.TaskType = operations.LineHaul
+	if no := *w.createTask(w.staffO, lhNext).TaskNo; no != "LH-12102026-041" {
+		t.Errorf("line haul after LH-12102026-040: %s", no)
+	}
+	if no := *w.createTask(w.staffO, w.newTask(w.O, day12)).TaskNo; no != "FM-12102026-008" {
+		t.Errorf("a line haul number moved the first-mile counter: %s", no)
+	}
+	// A rolled-back creation rolls its bump back too.
+	err = w.tx(w.staffO, func(tx pgx.Tx) error {
+		in := w.newTask(w.O, day12)
+		in.TaskNo = ptr("FM-12102026-900")
+		if _, _, err := operations.CreateTask(ctx, tx, in); err != nil {
+			return err
+		}
+		return errRollback
+	})
+	if !errors.Is(err, errRollback) {
+		t.Fatal(err)
+	}
+	if no := *w.createTask(w.staffO, w.newTask(w.O, day12)).TaskNo; no != "FM-12102026-009" {
+		t.Errorf("after a rolled-back kept number: %s, want FM-12102026-009", no)
+	}
+}
+
+// The duplicate-seal check (POST /v1/mobile/trips, 409 duplicate_seal) sees every trip, as the legacy query did,
+// although a driver's RLS shows only its own: another driver's seal, another tenant's, a cancelled trip's. The 409
+// names the holder only to a caller that reaches it. Concurrent submits of one new seal serialise: one wins.
+func TestDuplicateSealCheck(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	in := w.newTask(w.O, now)
+	in.DriverID, in.Status = &w.dO1, operations.TaskAssigned
+	task := w.createTask(w.staffO, in)
+	held := w.newTrip(task, "SEAL-HOLDER")
+	held.SealCode = ptr("SEAL-1")
+	trip := w.createTrip(w.driverO1, held)
+
+	check := func(p *authz.Principal, seal string, exclude *uuid.UUID) error {
+		return w.tx(p, func(tx pgx.Tx) error {
+			return operations.CheckSeal(ctx, tx, operations.ReachOf(p), seal, exclude)
+		})
+	}
+	wantSeal := func(name string, err error, tripNo string) {
+		t.Helper()
+		var he *httpx.Error
+		if !errors.As(err, &he) || he.Status != http.StatusConflict || he.Code != operations.CodeDuplicateSeal {
+			t.Fatalf("%s: got %v, want 409 duplicate_seal", name, err)
+		}
+		got, named := he.Details["tripNo"]
+		if (tripNo != "") != named || (named && got != tripNo) {
+			t.Errorf("%s: details %v, want tripNo %q", name, he.Details, tripNo)
+		}
+	}
+	// Driver O2 cannot read O1's trip (p_driver_read) and still finds the seal, without O1's trip number.
+	wantSeal("another driver of the tenant", check(w.driverO2, "SEAL-1", nil), "")
+	wantSeal("the holder's driver", check(w.driverO1, " SEAL-1 ", nil), trip.TripNo)
+	wantSeal("staff of the tenant", check(w.staffO, "SEAL-1", nil), trip.TripNo)
+	wantSeal("staff of another tenant", check(w.staffC, "SEAL-1", nil), "")
+	wantSeal("X-Act-On-Tenant: *", check(w.all, "SEAL-1", nil), trip.TripNo)
+	wantSeal("system", operations.MapError(db.WithSystem(ctx, w.pool, nil, func(tx pgx.Tx) error {
+		return operations.CheckSeal(ctx, tx, operations.SystemReach(), "SEAL-1", nil)
+	})), trip.TripNo)
+	for name, c := range map[string]struct {
+		seal    string
+		exclude *uuid.UUID
+	}{"the trip itself (a resubmit)": {"SEAL-1", &trip.ID}, "another seal": {"SEAL-2", nil}, "no seal": {"  ", nil},
+		"case differs": {"seal-1", nil}} {
+		if err := check(w.driverO2, c.seal, c.exclude); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// A customer scope or a dispatcher never submits a trip: the definer helper refuses them (403).
+	scope := &authz.Principal{UserID: uuid.New(), PartyIDs: []uuid.UUID{w.partyX}}
+	dispatcher := &authz.Principal{UserID: uuid.New(), TenantID: &w.O, TenantRole: authz.Operator, Dispatcher: true,
+		PartyIDs: []uuid.UUID{w.partyX}, TenantKind: "own_fleet"}
+	for name, p := range map[string]*authz.Principal{"customer scope": scope, "dispatcher": dispatcher} {
+		var he *httpx.Error
+		if err := check(p, "SEAL-1", nil); !errors.As(err, &he) || he.Status != http.StatusForbidden || he.Code != "permission_denied" {
+			t.Errorf("%s: %v, want 403 permission_denied", name, err)
+		}
+	}
+
+	// A cancelled trip keeps its seal (legacy parity: the legacy query had no status filter).
+	if err := w.tx(w.staffO, func(tx pgx.Tx) error {
+		_, err := operationsdb.New(tx).SetTripStatus(ctx, operationsdb.SetTripStatusParams{ID: trip.ID, Status: operations.TripCancelled})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wantSeal("a cancelled trip's seal", check(w.driverO2, "SEAL-1", nil), "")
+
+	// Two drivers submit the same new seal at once: the check takes a per-seal lock until COMMIT, so the second check
+	// waits for the first submit and then sees its trip.
+	in2 := w.newTask(w.O, now)
+	in2.DriverID, in2.Status = &w.dO2, operations.TaskAssigned
+	task2 := w.createTask(w.staffO, in2)
+	var (
+		mu    sync.Mutex
+		errs  []error
+		start = make(chan struct{})
+		wg    sync.WaitGroup
+	)
+	for i, c := range []struct {
+		p    *authz.Principal
+		task operations.Task
+	}{{w.driverO1, task}, {w.driverO2, task2}} {
+		wg.Go(func() {
+			<-start
+			err := w.tx(c.p, func(tx pgx.Tx) error {
+				if err := operations.CheckSeal(ctx, tx, operations.ReachOf(c.p), "SEAL-RACE", nil); err != nil {
+					return err
+				}
+				nt := w.newTrip(c.task, fmt.Sprintf("RACE-%d", i))
+				nt.SealCode = ptr("SEAL-RACE")
+				if _, err := operations.CreateTrip(ctx, tx, nt); err != nil {
+					return err
+				}
+				time.Sleep(20 * time.Millisecond) // hold the lock while the other submit checks
+				return nil
+			})
+			mu.Lock()
+			errs = append(errs, err)
+			mu.Unlock()
+		})
+	}
+	close(start)
+	wg.Wait()
+	var won, lost int
+	for _, err := range errs {
+		var he *httpx.Error
+		switch {
+		case err == nil:
+			won++
+		case errors.As(err, &he) && he.Code == operations.CodeDuplicateSeal:
+			lost++
+			if _, named := he.Details["tripNo"]; named {
+				t.Errorf("the losing driver learned the other driver's trip number: %v", he.Details)
+			}
+		default:
+			t.Errorf("concurrent submit: %v", err)
+		}
+	}
+	if won != 1 || lost != 1 {
+		t.Errorf("concurrent submits of one seal: %d won, %d refused, want 1 and 1", won, lost)
 	}
 }
 
@@ -254,8 +448,8 @@ func TestTripNoUniqueMutableAndChecked(t *testing.T) {
 			}
 			return errRollback
 		})
-		if c.ok != errors.Is(err, errRollback) || (c.ok == (operations.ValidateTripNo(c.no) != "")) {
-			t.Errorf("trip_no %.12q: %v (Go rule %q)", c.no, err, operations.ValidateTripNo(c.no))
+		if c.ok != errors.Is(err, errRollback) || (c.ok == (tripcheck.ValidateTripNo(c.no) != "")) {
+			t.Errorf("trip_no %.12q: %v (Go rule %q)", c.no, err, tripcheck.ValidateTripNo(c.no))
 		}
 		if !c.ok {
 			wantAPIError(t, err, http.StatusUnprocessableEntity, "invalid_argument", "tripNo")
@@ -362,8 +556,8 @@ func TestTripPhotoTypes(t *testing.T) {
 	}
 	var unknown []string
 	for _, ph := range detail.Photos {
-		if ph.PhotoTypeKnown == nil || *ph.PhotoTypeKnown != operations.PhotoTypeKnown(ph.PhotoType) {
-			t.Errorf("%s: photo_type_known %v, Go %t", ph.PhotoType, ph.PhotoTypeKnown, operations.PhotoTypeKnown(ph.PhotoType))
+		if ph.PhotoTypeKnown == nil || *ph.PhotoTypeKnown != tripcheck.PhotoTypeKnown(ph.PhotoType) {
+			t.Errorf("%s: photo_type_known %v, Go %t", ph.PhotoType, ph.PhotoTypeKnown, tripcheck.PhotoTypeKnown(ph.PhotoType))
 		}
 		if !*ph.PhotoTypeKnown {
 			unknown = append(unknown, ph.PhotoType)
@@ -491,6 +685,10 @@ func TestReachPagesAndStandbyProjection(t *testing.T) {
 	}
 	_, err = w.svc.ListTasks(ctx, w.staffO, operations.TaskFilter{Cursor: pg.NextCursor})
 	wantAPIError(t, err, http.StatusUnprocessableEntity, "invalid_argument", "cursor")
+	// A plan cursor whose day is not yyyy-MM-dd is 422 too, never an empty page.
+	badDay := base64.RawURLEncoding.EncodeToString([]byte(`{"a":"p","d":"11/10/2026","id":"` + taskA.ID.String() + `"}`))
+	_, err = w.svc.ListTasks(ctx, w.staffO, operations.TaskFilter{From: &from, To: &to, Cursor: badDay})
+	wantAPIError(t, err, http.StatusUnprocessableEntity, "invalid_argument", "cursor")
 
 	// The driver's queue: own and helper tasks.
 	if err := w.tx(w.driverO1, func(tx pgx.Tx) error {
@@ -561,6 +759,57 @@ func TestReachPagesAndStandbyProjection(t *testing.T) {
 	if err != nil || len(ended.Items) != 1 || ended.Items[0].Standby.ID != stA.ID || !ended.Items[0].Billing {
 		t.Errorf("own fleet ended axis: %+v %v", ended.Items, err)
 	}
+
+	// A record of carrier A priced from the own fleet's standby service fee for party Y (billing_rate_source
+	// 'service_fee', no fee row named). The fee then changes hands: O deletes it (fees are deletable), and A's admin
+	// creates the party's standby fee in A (the one-per-type slot is free again). The record's billing carrier stays
+	// the own fleet: O keeps the columns and A never gets them.
+	fee := w.id(`INSERT INTO customer_service_fees (tenant_id, billing_party_id, fee_type, amount_thb, unit)
+		VALUES ($1, $2, 'standby', 500, 'per_trip') RETURNING id`, w.O, w.partyY)
+	var stFee operations.Standby
+	if err := w.tx(w.staffA, func(tx pgx.Tx) error {
+		var err error
+		stFee, _, err = operations.CreateStandby(ctx, tx, operations.NewStandby{StandbyInsert: operations.StandbyInsert{
+			TenantID: w.A, TenantSource: "task", DriverID: &w.dA1, TaskID: &taskA.ID, StartedAt: ptr(base),
+			EndedAt: ptr(base.Add(2 * time.Hour)), CustomerPartyID: &w.partyY, CustomerResolved: true}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.exec(`UPDATE standby_records SET billing_estimate_thb = 500, billing_party_id = $2, billing_rate_source = 'service_fee',
+		billing_computed_at = now() WHERE id = $1`, stFee.ID, w.partyY)
+	carrierView := func(stage string) {
+		t.Helper()
+		for _, c := range []struct {
+			name string
+			p    *authz.Principal
+			want bool
+		}{{"own fleet", w.staffO, true}, {"carrier A", w.staffA, false}} {
+			v, _, err := w.svc.GetStandby(ctx, c.p, stFee.ID)
+			if err != nil {
+				t.Fatalf("%s, %s: %v", stage, c.name, err)
+			}
+			if v.Billing != c.want || (v.Standby.BillingEstimateThb != nil) != c.want {
+				t.Errorf("%s, %s: billing %t (estimate %v), want %t", stage, c.name, v.Billing, v.Standby.BillingEstimateThb, c.want)
+			}
+		}
+	}
+	carrierView("priced from O's fee")
+	if err := w.tx(w.staffO, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM customer_service_fees WHERE id = $1`, fee)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	carrierView("O's fee deleted")
+	if err := w.tx(w.staffA, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO customer_service_fees (tenant_id, billing_party_id, fee_type, amount_thb, unit)
+			VALUES ($1, $2, 'standby', 900, 'per_trip')`, w.A, w.partyY)
+		return err
+	}); err != nil {
+		t.Fatalf("carrier A creates the party's standby fee: %v", err)
+	}
+	carrierView("A holds the party's fee now")
 }
 
 // Delivery stops (addDeliveryStop) and the offline replays of driver-created rows (R63).

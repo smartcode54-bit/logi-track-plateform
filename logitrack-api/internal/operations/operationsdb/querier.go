@@ -13,6 +13,11 @@ import (
 type Querier interface {
 	// The "On run" badges (taskService.ts:50-55; tasks_active_status): drivers with a checked-in or in-transit task.
 	ActiveTaskDrivers(ctx context.Context, arg ActiveTaskDriversParams) ([]ActiveTaskDriversRow, error)
+	// A task that keeps a canonical number of record (FM|LH-ddMMyyyy-NNN, padded: a legacy or mirrored number, CreateTask)
+	// moves the counter of the (task_type, plan_date) the number names up to its sequence, never down
+	// (bump_task_seq(), SECURITY DEFINER, 0014), so NextTaskSeq never mints that number again. It locks the counter row
+	// until COMMIT, as NextTaskSeq does.
+	BumpTaskSeq(ctx context.Context, arg BumpTaskSeqParams) (int32, error)
 	// POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[].
 	CancelInTransitTrips(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
 	// POST /v1/tasks/{id}/cancel; a task already cancelled is not rewritten (no row).
@@ -71,8 +76,11 @@ type Querier interface {
 	// trip's: deferred standby_records_tenant_check); RLS: staff of the reach, the driver's own rows (p_driver_read,
 	// p_driver_insert; no driver update), scope principals through scope_standby. The billing columns are inline (R61) and
 	// the service shows them only to the billing carrier's principals (Appendix C §C.3.4): every read returns
-	// billing_tenant_id, the tenant owning the rate entry or the standby service fee that priced the row (the zero uuid
-	// when unpriced or when that row is outside the caller's reach), and the service decides.
+	// billing_tenant_id, the tenant owning the standby_rate_entries row the record names (billing_rate_entry_id: an
+	// immutable reference to a row that is never deleted); the zero uuid when the record names none (unpriced, a service
+	// fee, a legacy rate not linked yet) or when that row is outside the caller's reach, and the service decides
+	// (operations.BillingVisible). A service-fee price names no fee row (the 0004 CHECK) and the party's fee may since have
+	// changed hands, so it is never resolved through customer_service_fees.
 	//
 	// Indexes -> live query: standby_records_tenant_created / standby_records_created (the standby page, I33),
 	// standby_records_ended (the ended axis, I34), standby_records_driver (driver history), standby_records_task /
@@ -148,7 +156,9 @@ type Querier interface {
 	// --- run order (per-driver queue position) ----------------------------------------------------------------------
 	// Serialises the run_order = max + 1 of one driver's queue for the rest of the transaction (a transaction-level
 	// advisory lock: a staff writer may not hold UPDATE on a driver of another tenant, and the lock must not wait on the
-	// driver row's other writers). Replaces the client-side max read (taskService.ts:51-66, tasks.ts:123-128).
+	// driver row's other writers). Every writer that sets or recomputes a run_order takes it before NextRunOrder (task
+	// creation here; the PATCH /v1/tasks/{id} assignment of T31, the import, the mirror): a drivers row lock would not
+	// exclude it (developer-spec.md §3.6). Replaces the client-side max read (taskService.ts:51-66, tasks.ts:123-128).
 	LockDriverQueue(ctx context.Context, driverID uuid.UUID) error
 	// The write lock of a task update (FOR UPDATE: RLS also applies the UPDATE policies, so only staff of the reach or the
 	// assigned driver or helper lock it).
@@ -218,14 +228,20 @@ type Querier interface {
 	// A number from before a rename (incident and evidence lookups, trip_no_history_old_no): the trip it was renamed
 	// from most recently.
 	TripByOldNo(ctx context.Context, arg TripByOldNoParams) (TripRecord, error)
-	// The duplicate-seal check (409 duplicate_seal, trip_records_repository.dart:59-62; trip_records_seal) over the rows the
-	// caller's transaction reads: a request transaction sees its reach, a system transaction every tenant.
+	// The trips of the caller's reach that carry the seal (trip_records_seal): the 409 duplicate_seal of a taken seal names
+	// the first one (details.tripNo) only when the caller reaches it, so no other tenant's or driver's trip number leaks.
 	TripIDsBySeal(ctx context.Context, arg TripIDsBySealParams) ([]TripIDsBySealRow, error)
 	// The renames of a trip, oldest first (trip_no_history_trip; staff only, p_parent_read read_staff_only).
 	TripNoHistory(ctx context.Context, tripID uuid.UUID) ([]TripNoHistory, error)
 	// Insertion / replace order; the service sorts by the ADR 0018 workflow rank.
 	TripPhotos(ctx context.Context, tripID uuid.UUID) ([]TripPhoto, error)
 	TripPhotosOf(ctx context.Context, tripIds []uuid.UUID) ([]TripPhoto, error)
+	// The duplicate-seal check of a trip submit (POST /v1/mobile/trips, P7a; 409 duplicate_seal; the legacy query read every
+	// trip, trip_records_repository.dart:59-62): whether any trip other than exclude_id carries the seal, in every tenant
+	// and every status (cancelled trips keep their seal, as in legacy). trip_seal_taken() is SECURITY DEFINER (0014): the
+	// driver's own RLS shows only its own trips. It holds a per-seal transaction lock, so the trip insert that follows in
+	// the same transaction cannot race another submit of the seal (trip_records_seal inside the function).
+	TripSealTaken(ctx context.Context, arg TripSealTakenParams) (bool, error)
 	TripStops(ctx context.Context, tripID uuid.UUID) ([]TripDeliveryStop, error)
 	// GET /v1/tasks/{id}/trip and the boards' trip column (first-mile/page.tsx:136-141): the trips of the given tasks,
 	// newest first per task (trip_records_task).

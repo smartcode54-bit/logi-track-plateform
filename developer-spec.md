@@ -154,7 +154,7 @@ Payroll matches `tasks.driverId == authId` (`fn:driverCompensation.ts:199-204`, 
 |---|---|---|
 | Invoice number `{code}-{YYYYMM}-{seq3}` | Counter bumped before the insert (`web:lib/billingStatement.ts:73-98`) → gaps; fallback `INV-YYYYMM-<epoch>` (`web:lib/billingDocument.ts:231-235`) | One PG tx (P3) |
 | Task number, `runOrder` | count+1 / max+1 in web (`web:features/tasks/hooks/useFirstMileTask.ts:210-213`) and mobile (`task_repository.dart:118-131`) → races | Counters in the insert tx (P2) |
-| Duplicate checks (trip id + seal, driver hub, tax invoice, plate) | Mobile (`trip_records_repository.dart:42-79`, `hubs_repository.dart:219-226`, `vehicle_expense_repository.dart:197-212`) → races | UNIQUE constraints |
+| Duplicate checks (trip id + seal, driver hub, tax invoice, plate) | Mobile (`trip_records_repository.dart:42-79`, `hubs_repository.dart:219-226`, `vehicle_expense_repository.dart:197-212`) → races | UNIQUE constraints; the seal, which legacy data repeats, by the global check `trip_seal_taken()` under a per-seal transaction lock in the submit transaction (`operations.CheckSeal`, 0014, T27) |
 | Billing rows; second snapshot writer | 6 sequential hops (`web:features/accounting/api/billing.ts:737`); `EditBillingDialog` writes snapshots (`:444-466`) | `GET /v1/billing/rows`, one billing service (P3) |
 | PDF / XLSX / billing ZIP | jsPDF, xlsx-js-style, jszip in the browser (`web:lib/billingDocument.ts:12-16`) | `documents.render` → `statement_documents` (P3, R69); photo ZIPs stay a lazy jszip chunk |
 | Multi-doc workflows | Standby batch (`standby_repository.dart:98-147`); trip → task → billing → LINE → `activeTruck`; truck assignment (`web:app/app/truck-assignment/actions.client.ts:70,151`) | PG tx + outbox |
@@ -296,6 +296,7 @@ logitrack-api/            module github.com/smartcode54-bit/logi-track-plateform
     scope (dispatcher / customer-scope reads, scope_* views only, Appendix C §C.3.7)
     parties  drivers  fleet  hubs (hubs, nameToCode/codeToName, distances; T21)
     operations (one data layer for tasks, trips, standby, incidents: sqlc operationsdb, numbering, rename, photos; T27)
+    operations/tripcheck (the trip-number and photo-type rules of the schema, shared with the ETL; T27)
     expenses  chats  hr  mobile  billing  billing/compute  hr/compute  files (file_objects,
     presign/commit, /evidence/*)  jobs  scheduler (leader, cron table; T10)  webcfg  forms  public (/public/v1/*)  notify
   internal/platform/{db,cache,mq,outbox,inbox,storage,realtime,push,line,cartrack,bangchak,
@@ -442,7 +443,7 @@ goose v3.28, one file per migration with Up and Down (R31). `-- +goose NO TRANSA
 
 | Rule | Mechanism |
 |---|---|
-| Task numbers have no races | `next_task_seq()` over `task_number_counters`, global across tenants (R10), in the task insert; `FM\|LH-ddMMyyyy-NNN`; `task_no` indexed, not unique (legacy); `run_order = max+1` under a driver-row lock |
+| Task numbers have no races | `next_task_seq()` over `task_number_counters`, global across tenants (R10), in the task insert; `FM\|LH-ddMMyyyy-NNN`; `task_no` indexed, not unique (legacy); a task that keeps a canonical number of record moves the counter of the day that number names past it (`bump_task_seq()`, 0014, T27), so the allocator never mints it again; `run_order = max+1` under the per-driver transaction advisory lock `pg_advisory_xact_lock(hashtextextended('lt-run-order:'\|\|driver_id, 0))` (`operationsdb.LockDriverQueue`, T27; not a `drivers` row lock, which staff of another tenant cannot take under RLS and which would not exclude the advisory lock). Every writer that sets or recomputes `run_order` takes it before `NextRunOrder`: create, `PATCH /v1/tasks/{id}` assignment (T31), import, ETL mirror |
 | Announcement rows | Only `voided` false→true (+ `voided_at/by/reason`, `updated_at`); no DELETE; a price change is a new row (`firestore.rules:142-163`); standby rates soft-delete via `voided_at` (R20) |
 | Period lock | `billing_statements_period_lock (billing_party_id, period_year, period_month) WHERE status IN ('sent','paid')` read `FOR SHARE` in every pricing transaction → `billing_period_locked` + `blockedInvoiceNumber` (R17; `billingPeriodLock.ts:34-36,93`) |
 | No invoice-number gaps | `next_invoice_seq()` in the statement's transaction (today incremented before `addDoc`, `billingStatement.ts:84-94` vs `:166`); only `draft` statements deletable |

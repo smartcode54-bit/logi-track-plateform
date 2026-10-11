@@ -167,6 +167,10 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			_, err := q.NextTaskSeq(ctx, operationsdb.NextTaskSeqParams{TaskType: "first_mile", PlanDate: day})
 			return err
 		}, nil}, // the allocator's INSERT ... ON CONFLICT runs on the counter's primary key inside the definer function
+		{"BumpTaskSeq", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.BumpTaskSeq(ctx, operationsdb.BumpTaskSeqParams{TaskType: "first_mile", PlanDate: day, Seq: 5})
+			return err
+		}, nil}, // the counter's INSERT ... ON CONFLICT on its primary key, inside the definer function
 		{"LockDriverQueue", staff, func(ctx context.Context, q *operationsdb.Queries) error { return q.LockDriverQueue(ctx, drv) }, nil},
 		{"NextRunOrder", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.NextRunOrder(ctx, drv)
@@ -414,8 +418,16 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			_, err := q.PendingInTransitTrip(ctx, drv)
 			return err
 		}, []string{"trip_records_pending_driver"}},
+		{"TripSealTaken", driver, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TripSealTaken(ctx, operationsdb.TripSealTakenParams{SealCode: "SEAL-10"})
+			return err
+		}, nil}, // the lookup runs inside the SECURITY DEFINER function: planned below as "duplicate-seal check (0014)"
 		{"TripIDsBySeal", staff, func(ctx context.Context, q *operationsdb.Queries) error {
-			_, err := q.TripIDsBySeal(ctx, operationsdb.TripIDsBySealParams{SealCode: "SEAL-10", ExcludeID: &trip})
+			_, err := q.TripIDsBySeal(ctx, operationsdb.TripIDsBySealParams{SealCode: "SEAL-10", ExcludeID: &trip, TenantIds: reachO})
+			return err
+		}, []string{"trip_records_seal"}},
+		{"TripIDsBySeal/driver", driver, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TripIDsBySeal(ctx, operationsdb.TripIDsBySealParams{SealCode: "SEAL-10", TenantIds: []uuid.UUID{}, ReachDriver: &drv})
 			return err
 		}, []string{"trip_records_seal"}},
 
@@ -559,7 +571,8 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 	}
 
 	// Shapes of the sibling domains over these tables (billing, payroll, evidence, the dispatcher's projection), as
-	// Appendix A §A.2.3 maps them to indexes; their packages plan the same SQL.
+	// Appendix A §A.2.3 maps them to indexes; their packages plan the same SQL. Also the lookup a SECURITY DEFINER
+	// helper of 0014 runs, which EXPLAIN of the generated call cannot show.
 	for _, raw := range []struct {
 		name string
 		p    *authz.Principal
@@ -597,6 +610,10 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 		{"standby safety net (I34)", staff, `SELECT id FROM standby_records
 			WHERE status = 'completed' AND ended_at >= $1 AND ended_at < $2`, []any{from, to},
 			[]string{"standby_records_ended"}},
+		// trip_seal_taken() (0014) runs this as logitrack_rls_definer (BYPASSRLS): the bypass principal plans it alike.
+		{"duplicate-seal check inside trip_seal_taken (0014)", all, `SELECT EXISTS (SELECT 1 FROM trip_records t
+			WHERE t.seal_code = $1 AND t.id IS DISTINCT FROM $2)`, []any{"SEAL-10", trip},
+			[]string{"trip_records_seal"}},
 		{"evidence gallery: trip token", all, `SELECT id FROM trip_records WHERE evidence_token = $1`, []any{"ev10"},
 			[]string{"trip_records_evidence"}},
 		{"dispatcher day list (scope_tasks)", all, `SELECT id FROM scope_tasks WHERE plan_date = $1 AND task_type = 'first_mile'`, []any{day},

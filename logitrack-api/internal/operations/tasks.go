@@ -16,7 +16,9 @@ import (
 )
 
 // TaskInsert are the columns of a new task (operationsdb.InsertTaskParams). TaskNo nil: CreateTask allocates the
-// number (R10); RunOrder nil with a driver: CreateTask puts the task at the end of the driver's queue.
+// number (R10), the case of every runtime create (POST /v1/tasks, the import, whose numbers are sequenced server-side,
+// and the driver's manual task); a TaskNo is a number of record kept verbatim (a legacy or mirrored number). RunOrder
+// nil with a driver: CreateTask puts the task at the end of the driver's queue.
 type TaskInsert = operationsdb.InsertTaskParams
 
 // NewTask is a task to create, with the planned stops of a multi-drop task (stop 1 first).
@@ -36,13 +38,18 @@ type NewStop struct {
 
 // CreateTask inserts a task in the caller's transaction (tx: a request transaction of the writer, or a system one):
 //
-//   - the number of record, unless the task carries one (an import row's own number, a legacy number kept verbatim):
-//     next_task_seq() for (task_type, Bangkok plan day), formatted FM|LH-ddMMyyyy-NNN (R10); the counter row stays
-//     locked until the transaction ends, so concurrent creations of one type and day get distinct numbers;
-//   - the queue position of an assigned task without one: max(run_order) + 1 of the driver's tasks, under a
-//     transaction-level lock per driver (two assignments to one driver never share a position);
+//   - the number of record: next_task_seq() for (task_type, Bangkok plan day), formatted FM|LH-ddMMyyyy-NNN (R10);
+//     the counter row stays locked until the transaction ends, so concurrent creations of one type and day get
+//     distinct numbers. A task that carries its number (a legacy or mirrored number of record, kept verbatim, never
+//     re-formatted) allocates nothing; when that number is canonical (ParseTaskNo: padded, at least three digits) it
+//     moves the counter of the (type, day) the number names up to its sequence (bump_task_seq(), under the same row
+//     lock), so the allocator never mints it again. Unpadded legacy numbers do not move the counter (Appendix A
+//     §A.3.5);
+//   - the queue position of an assigned task without one: max(run_order) + 1 of the driver's tasks, under the
+//     per-driver transaction advisory lock LockDriverQueue (two assignments to one driver never share a position;
+//     every run_order writer takes the same lock, developer-spec.md §3.6);
 //   - the planned stops of a multi-drop task (at least two, destinations unique after trimming and upper-casing,
-//     createOrUpdateTask tasks.ts:115-131) as stop 1..n.
+//     createOrUpdateTask tasks.ts:103-131) as stop 1..n. Stops make the task multi-drop, flag or not.
 //
 // A driver's manual task with a client_op_id is idempotent per (driver_id, client_op_id) (R63): a replay returns the
 // stored task with replayed = true and allocates nothing. Tenant stamping is the caller's (T28); RLS and the deferred
@@ -69,6 +76,10 @@ func CreateTask(ctx context.Context, tx pgx.Tx, in NewTask) (task Task, replayed
 			return Task{}, false, MapError(err)
 		}
 		p.TaskNo = ptr(FormatTaskNo(p.TaskType, day, int(seq)))
+	} else if typ, day, seq, padded, ok := ParseTaskNo(*p.TaskNo); ok && padded {
+		if _, err := q.BumpTaskSeq(ctx, operationsdb.BumpTaskSeqParams{TaskType: typ, PlanDate: day, Seq: int32(seq)}); err != nil {
+			return Task{}, false, MapError(err)
+		}
 	}
 	if p.DriverID != nil && p.RunOrder == nil {
 		if err := q.LockDriverQueue(ctx, *p.DriverID); err != nil {
@@ -142,8 +153,8 @@ func (in NewTask) validate() error {
 	if in.RunOrder != nil && *in.RunOrder < 1 {
 		ck.add("runOrder", "out_of_range")
 	}
-	if in.IsMultiDelivery && len(in.Stops) < 2 {
-		ck.add("deliveryStops", "too_few") // tasks.ts:105-110: two stops or more
+	if (in.IsMultiDelivery || len(in.Stops) > 0) && len(in.Stops) < 2 {
+		ck.add("deliveryStops", "too_few") // tasks.ts:103-110: two stops or more; planned stops make the task multi-drop
 	}
 	seen := map[string]bool{}
 	for _, st := range in.Stops {

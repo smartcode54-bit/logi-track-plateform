@@ -98,12 +98,8 @@ func (q *Queries) DriverStandby(ctx context.Context, arg DriverStandbyParams) ([
 
 const getStandby = `-- name: GetStandby :one
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at,
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.id = $1
   AND ($2::boolean OR s.tenant_id = ANY ($3::uuid[])
@@ -227,8 +223,11 @@ type InsertStandbyParams struct {
 // trip's: deferred standby_records_tenant_check); RLS: staff of the reach, the driver's own rows (p_driver_read,
 // p_driver_insert; no driver update), scope principals through scope_standby. The billing columns are inline (R61) and
 // the service shows them only to the billing carrier's principals (Appendix C §C.3.4): every read returns
-// billing_tenant_id, the tenant owning the rate entry or the standby service fee that priced the row (the zero uuid
-// when unpriced or when that row is outside the caller's reach), and the service decides.
+// billing_tenant_id, the tenant owning the standby_rate_entries row the record names (billing_rate_entry_id: an
+// immutable reference to a row that is never deleted); the zero uuid when the record names none (unpriced, a service
+// fee, a legacy rate not linked yet) or when that row is outside the caller's reach, and the service decides
+// (operations.BillingVisible). A service-fee price names no fee row (the 0004 CHECK) and the party's fee may since have
+// changed hands, so it is never resolved through customer_service_fees.
 //
 // Indexes -> live query: standby_records_tenant_created / standby_records_created (the standby page, I33),
 // standby_records_ended (the ended axis, I34), standby_records_driver (driver history), standby_records_task /
@@ -312,12 +311,8 @@ func (q *Queries) InsertStandby(ctx context.Context, arg InsertStandbyParams) (S
 
 const listStandbyByCreated = `-- name: ListStandbyByCreated :many
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at,
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE ($1::boolean OR s.tenant_id = ANY ($2::uuid[]))
   AND ($3::timestamptz IS NULL OR s.created_at >= $3::timestamptz)
@@ -425,12 +420,8 @@ func (q *Queries) ListStandbyByCreated(ctx context.Context, arg ListStandbyByCre
 
 const listStandbyByEnded = `-- name: ListStandbyByEnded :many
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at,
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.status = 'completed' AND s.ended_at IS NOT NULL
   AND ($1::boolean OR s.tenant_id = ANY ($2::uuid[]))
@@ -597,12 +588,8 @@ func (q *Queries) StandbyByClientOp(ctx context.Context, arg StandbyByClientOpPa
 
 const standbyByLegacyDocID = `-- name: StandbyByLegacyDocID :one
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at,
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.legacy_doc_id = $1::text
   AND ($2::boolean OR s.tenant_id = ANY ($3::uuid[])
@@ -678,12 +665,8 @@ func (q *Queries) StandbyByLegacyDocID(ctx context.Context, arg StandbyByLegacyD
 
 const standbyOfTasks = `-- name: StandbyOfTasks :many
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at,
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.task_id = ANY ($1::uuid[])
   AND ($2::boolean OR s.tenant_id = ANY ($3::uuid[])
@@ -773,12 +756,8 @@ func (q *Queries) StandbyOfTasks(ctx context.Context, arg StandbyOfTasksParams) 
 
 const standbyOfTrip = `-- name: StandbyOfTrip :many
 SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at,
-       coalesce(CASE s.billing_rate_source
-                  WHEN 'standby_rate' THEN (SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id)
-                  WHEN 'service_fee' THEN (SELECT f.tenant_id FROM customer_service_fees f
-                                            WHERE f.billing_party_id = s.billing_party_id AND f.fee_type = 'standby'
-                                            ORDER BY f.created_at DESC, f.id DESC LIMIT 1)
-                END, '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
+       coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
+                '00000000-0000-0000-0000-000000000000')::uuid AS billing_tenant_id
 FROM standby_records s
 WHERE s.trip_id = $1::uuid
   AND ($2::boolean OR s.tenant_id = ANY ($3::uuid[])

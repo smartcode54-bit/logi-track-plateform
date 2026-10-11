@@ -63,6 +63,27 @@ func (q *Queries) ActiveTaskDrivers(ctx context.Context, arg ActiveTaskDriversPa
 	return items, nil
 }
 
+const bumpTaskSeq = `-- name: BumpTaskSeq :one
+SELECT bump_task_seq($1::text, $2::date, $3::int)::int AS last_seq
+`
+
+type BumpTaskSeqParams struct {
+	TaskType string
+	PlanDate time.Time
+	Seq      int32
+}
+
+// A task that keeps a canonical number of record (FM|LH-ddMMyyyy-NNN, padded: a legacy or mirrored number, CreateTask)
+// moves the counter of the (task_type, plan_date) the number names up to its sequence, never down
+// (bump_task_seq(), SECURITY DEFINER, 0014), so NextTaskSeq never mints that number again. It locks the counter row
+// until COMMIT, as NextTaskSeq does.
+func (q *Queries) BumpTaskSeq(ctx context.Context, arg BumpTaskSeqParams) (int32, error) {
+	row := q.db.QueryRow(ctx, bumpTaskSeq, arg.TaskType, arg.PlanDate, arg.Seq)
+	var last_seq int32
+	err := row.Scan(&last_seq)
+	return last_seq, err
+}
+
 const cancelTask = `-- name: CancelTask :one
 UPDATE tasks SET status = 'cancelled', cancelled_at = $1::timestamptz, cancel_reason = $2
 WHERE id = $3 AND status <> 'cancelled'
@@ -857,7 +878,9 @@ SELECT pg_advisory_xact_lock(hashtextextended('lt-run-order:' || $1::uuid::text,
 // --- run order (per-driver queue position) ----------------------------------------------------------------------
 // Serialises the run_order = max + 1 of one driver's queue for the rest of the transaction (a transaction-level
 // advisory lock: a staff writer may not hold UPDATE on a driver of another tenant, and the lock must not wait on the
-// driver row's other writers). Replaces the client-side max read (taskService.ts:51-66, tasks.ts:123-128).
+// driver row's other writers). Every writer that sets or recomputes a run_order takes it before NextRunOrder (task
+// creation here; the PATCH /v1/tasks/{id} assignment of T31, the import, the mirror): a drivers row lock would not
+// exclude it (developer-spec.md §3.6). Replaces the client-side max read (taskService.ts:51-66, tasks.ts:123-128).
 func (q *Queries) LockDriverQueue(ctx context.Context, driverID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, lockDriverQueue, driverID)
 	return err

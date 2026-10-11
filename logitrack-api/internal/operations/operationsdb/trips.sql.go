@@ -1578,14 +1578,19 @@ func (q *Queries) TripByOldNo(ctx context.Context, arg TripByOldNoParams) (TripR
 
 const tripIDsBySeal = `-- name: TripIDsBySeal :many
 SELECT t.id, t.trip_no FROM trip_records t
-WHERE t.seal_code = $1::text AND t.id <> coalesce($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-  AND t.status <> 'cancelled'
+WHERE t.seal_code = $1::text
+  AND t.id <> coalesce($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  AND ($3::boolean OR t.tenant_id = ANY ($4::uuid[])
+       OR t.driver_id = $5::uuid)
 ORDER BY t.created_at, t.id
 `
 
 type TripIDsBySealParams struct {
-	SealCode  string
-	ExcludeID *uuid.UUID
+	SealCode    string
+	ExcludeID   *uuid.UUID
+	AllTenants  bool
+	TenantIds   []uuid.UUID
+	ReachDriver *uuid.UUID
 }
 
 type TripIDsBySealRow struct {
@@ -1593,10 +1598,16 @@ type TripIDsBySealRow struct {
 	TripNo string
 }
 
-// The duplicate-seal check (409 duplicate_seal, trip_records_repository.dart:59-62; trip_records_seal) over the rows the
-// caller's transaction reads: a request transaction sees its reach, a system transaction every tenant.
+// The trips of the caller's reach that carry the seal (trip_records_seal): the 409 duplicate_seal of a taken seal names
+// the first one (details.tripNo) only when the caller reaches it, so no other tenant's or driver's trip number leaks.
 func (q *Queries) TripIDsBySeal(ctx context.Context, arg TripIDsBySealParams) ([]TripIDsBySealRow, error) {
-	rows, err := q.db.Query(ctx, tripIDsBySeal, arg.SealCode, arg.ExcludeID)
+	rows, err := q.db.Query(ctx, tripIDsBySeal,
+		arg.SealCode,
+		arg.ExcludeID,
+		arg.AllTenants,
+		arg.TenantIds,
+		arg.ReachDriver,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1722,6 +1733,27 @@ func (q *Queries) TripPhotosOf(ctx context.Context, tripIds []uuid.UUID) ([]Trip
 		return nil, err
 	}
 	return items, nil
+}
+
+const tripSealTaken = `-- name: TripSealTaken :one
+SELECT trip_seal_taken($1::text, $2::uuid)::boolean AS taken
+`
+
+type TripSealTakenParams struct {
+	SealCode  string
+	ExcludeID *uuid.UUID
+}
+
+// The duplicate-seal check of a trip submit (POST /v1/mobile/trips, P7a; 409 duplicate_seal; the legacy query read every
+// trip, trip_records_repository.dart:59-62): whether any trip other than exclude_id carries the seal, in every tenant
+// and every status (cancelled trips keep their seal, as in legacy). trip_seal_taken() is SECURITY DEFINER (0014): the
+// driver's own RLS shows only its own trips. It holds a per-seal transaction lock, so the trip insert that follows in
+// the same transaction cannot race another submit of the seal (trip_records_seal inside the function).
+func (q *Queries) TripSealTaken(ctx context.Context, arg TripSealTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tripSealTaken, arg.SealCode, arg.ExcludeID)
+	var taken bool
+	err := row.Scan(&taken)
+	return taken, err
 }
 
 const tripStops = `-- name: TripStops :many
