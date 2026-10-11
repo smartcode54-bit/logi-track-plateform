@@ -53,10 +53,10 @@ SELECT * FROM scope_trips
  ORDER BY task_id, created_at DESC, id DESC;
 
 -- name: ScopeTripStopsOf :many
--- The stop progress of a page of the projection (scope_trip_stops, 0016).
+-- The stop progress of a page of the projection (scope_trip_stops, 0017).
 SELECT * FROM scope_trip_stops WHERE trip_id = ANY (sqlc.arg(trip_ids)::uuid[]) ORDER BY trip_id, stop_index;
 
 -- name: ScopeTripPhotos :many
--- The evidence photos of one trip (scope_trip_photos, 0016); the API sorts them by the ADR 0018 rank and signs the
+-- The evidence photos of one trip (scope_trip_photos, 0017); the API sorts them by the ADR 0018 rank and signs the
 -- files.
 SELECT * FROM scope_trip_photos WHERE trip_id = sqlc.arg(trip_id) ORDER BY position, id;

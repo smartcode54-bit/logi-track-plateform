@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,6 +49,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
 )
 
@@ -103,6 +105,7 @@ type world struct {
 	rdb      *redis.Client
 	ks       cache.Keyspace
 	svc      *billing.Service
+	files    *storage.Service // the local backend in a temporary directory (T39 documents)
 	feed     *fakeFeed
 	internal string
 	hash     string
@@ -164,7 +167,17 @@ func newWorld(t *testing.T) *world {
 	}
 	t.Cleanup(svc.Close)
 	jobSvc := jobs.NewService(w.pool, jobs.NewRedisLocker(w.rdb, w.ks))
-	w.svc, err = billing.New(billing.Deps{Pool: w.pool, Cache: caches, Jobs: jobSvc, Bangchak: w.feed,
+	local, err := storage.NewLocal(storage.LocalConfig{Dir: t.TempDir(), PublicBaseURL: "http://media.test/media",
+		SigningKey: bytes.Repeat([]byte("k"), storage.MinSigningKeyBytes)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.files, err = storage.New(w.pool, storage.Config{Active: storage.BackendLocal, Bucket: "logitrack",
+		PublicBucket: "logitrack-public"}, zerolog.Nop(), local); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.files.Close)
+	w.svc, err = billing.New(billing.Deps{Pool: w.pool, Cache: caches, Jobs: jobSvc, Bangchak: w.feed, Files: w.files,
 		Now: func() time.Time { return now }, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
@@ -348,6 +361,24 @@ func (w *world) testRoutes(requireAuth fiber.Handler) func(r fiber.Router) {
 				return err
 			}
 			return httpx.JSON(c, http.StatusOK, map[string]any{"sqlstate": state, "rows": n})
+		})
+		// The billing projection GET /v1/trips attaches (T39 helper for T30), in the caller's transaction.
+		r.Get("/trip-billing", func(c fiber.Ctx) error {
+			var ids []uuid.UUID
+			for v := range strings.SplitSeq(c.Query("ids"), ",") {
+				ids = append(ids, uuid.MustParse(v))
+			}
+			var out map[uuid.UUID]billing.TripBilling
+			err := db.WithPrincipal(c.Context(), w.pool, authz.PrincipalFrom(c), func(tx pgx.Tx) error {
+				var err error
+				out, err = billing.TripBillingOf(c.Context(), tx, ids)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			return httpx.JSON(c, http.StatusOK, map[string]any{"trips": out,
+				"visible": billing.IncomeBillingVisible(authz.PrincipalFrom(c))})
 		})
 	}
 }

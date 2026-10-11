@@ -307,7 +307,7 @@ const scopeTaskStopsOf = `-- name: ScopeTaskStopsOf :many
 SELECT id, task_id, stop_index, destination_raw, destination_hub_id, status, delivered_at, delivered_lat, delivered_lng, sequence, added_at, source_id, is_custom FROM scope_task_stops WHERE task_id = ANY ($1::uuid[]) ORDER BY task_id, stop_index
 `
 
-// The planned stops of a page of the projection (scope_task_stops, 0016: no linked party, no price).
+// The planned stops of a page of the projection (scope_task_stops, 0017: no linked party, no price).
 func (q *Queries) ScopeTaskStopsOf(ctx context.Context, taskIds []uuid.UUID) ([]ScopeTaskStop, error) {
 	rows, err := q.db.Query(ctx, scopeTaskStopsOf, taskIds)
 	if err != nil {

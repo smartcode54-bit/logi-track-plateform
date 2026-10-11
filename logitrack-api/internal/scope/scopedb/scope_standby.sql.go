@@ -209,7 +209,7 @@ const scopeStandbyPhotosOf = `-- name: ScopeStandbyPhotosOf :many
 SELECT id, standby_id, photo_type, file_id, overlay_text, created_at FROM scope_standby_photos WHERE standby_id = ANY ($1::uuid[]) ORDER BY standby_id, photo_type
 `
 
-// The two photos of a page of the projection (scope_standby_photos, 0016).
+// The two photos of a page of the projection (scope_standby_photos, 0017).
 func (q *Queries) ScopeStandbyPhotosOf(ctx context.Context, standbyIds []uuid.UUID) ([]ScopeStandbyPhoto, error) {
 	rows, err := q.db.Query(ctx, scopeStandbyPhotosOf, standbyIds)
 	if err != nil {

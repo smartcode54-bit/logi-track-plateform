@@ -17,6 +17,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/render"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
@@ -266,6 +267,21 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 		return nil, err
 	}
 	available[orphanscan.Queue] = scan.Registration()
+
+	// documents.render (T39, R69): statement documents and the Shopee report, stored through the storage service. The
+	// fonts are read (and parsed) once here, so a bad PDF_FONT_DIR stops the start instead of every render.
+	if st != nil && slices.Contains(cfg.Groups, "documents") {
+		fonts, err := render.LoadFonts(cfg.PDFFontDir)
+		if err != nil {
+			return nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+		docs, err := billing.NewDocumentJob(billing.DocumentJobDeps{Pool: pool, Files: st, Fonts: fonts,
+			Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+		if err != nil {
+			return nil, err
+		}
+		available[billing.QueueDocuments] = docs.Registration()
+	}
 
 	var regs []mq.Registration
 	var waiting []string

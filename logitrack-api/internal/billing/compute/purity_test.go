@@ -23,7 +23,7 @@ const module = "github.com/smartcode54-bit/logi-track-plateform/logitrack-api"
 // non-standard-library imports each may use.
 var moneyPackages = map[string][]string{
 	"internal/billing/compute":   {module + "/internal/platform/clock", module + "/internal/platform/jsmath"},
-	"internal/billing/documents": {module + "/internal/platform/jsmath"},
+	"internal/billing/documents": {module + "/internal/platform/clock", module + "/internal/platform/jsmath"},
 	"internal/platform/jsmath":   nil,
 }
 

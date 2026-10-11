@@ -2,7 +2,7 @@
 // dispatcher grant over billing parties, reading across tenants) and a customer-scope user (cs without a
 // tenant). Both are served exclusively from the security_invoker views scope_tasks, scope_trips,
 // scope_standby, scope_incidents, scope_drivers, scope_trucks and scope_tenants, and the child projections of
-// 0016 (T30) scope_task_stops, scope_trip_stops, scope_trip_photos and scope_standby_photos: rows come from the
+// 0017 (T30) scope_task_stops, scope_trip_stops, scope_trip_photos and scope_standby_photos: rows come from the
 // p_scope_read policies (the children's p_parent_read) under the caller's RLS (db.WithPrincipal), columns from
 // the views, so no billing, party, price, evidence-token, HR, ID-card, licence, insurance, tax or cost column
 // ever reaches a scope principal.

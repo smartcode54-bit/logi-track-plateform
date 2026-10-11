@@ -95,3 +95,13 @@ DELETE FROM file_objects WHERE id = @id AND status = 'pending';
 -- name: IsDirectSubtenant :one
 -- Contractor reach (R60): tenant is a carrier working for contractor (one level).
 SELECT EXISTS (SELECT 1 FROM tenants WHERE id = @tenant_id AND contractor_tenant_id = @contractor_id::uuid);
+
+-- name: InsertServerObject :one
+-- A server-side writer's object (rendered statement documents, reports; main spec §9.9): committed at once, owned by
+-- its entity, never presigned by a client. The bytes are already stored under the key (PutServerObject).
+INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256,
+                          visibility, status, committed_at, storage_backend)
+VALUES (@bucket, @object_key, sqlc.narg(tenant_id)::uuid, @purpose, @owner_kind::text, @owner_id::uuid,
+        @content_type::text, @size_bytes::bigint, @sha256::text, 'private', 'committed', @committed_at::timestamptz,
+        @storage_backend)
+RETURNING id;

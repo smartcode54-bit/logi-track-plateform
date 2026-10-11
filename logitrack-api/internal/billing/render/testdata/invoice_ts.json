@@ -1,0 +1,4957 @@
+{
+ "source": "invoice_ts.mjs",
+ "node": "v26.11.0",
+ "customer": {
+  "id": "c",
+  "name": "CJ Super Fresh",
+  "address": "123 ถนนสุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110 ประเทศไทย อาคารทดสอบ ชั้น 12 ห้อง 1201",
+  "taxId": "0105556000001",
+  "branchType": "สาขา",
+  "branchNumber": "00002",
+  "paymentTermsDays": 30,
+  "contactName": "คุณเอ",
+  "contactPhone": "021234567",
+  "invoiceNote": "กรุณาชำระภายในกำหนด"
+ },
+ "provider": {
+  "name": "บริษัท ทดสอบ จำกัด",
+  "address": "Bangkok",
+  "taxId": "0105556000002",
+  "bankName": "กสิกรไทย",
+  "accountNumber": "123-4-56789-0",
+  "accountName": "บริษัท ทดสอบ",
+  "withholdingTaxRate": 3,
+  "signatoryName": "นายทดสอบ"
+ },
+ "scenarios": {
+  "invoice": [
+   {
+    "page": 1,
+    "x": 105,
+    "y": 18,
+    "text": "ใบวางบิล",
+    "size": 16,
+    "bold": true,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 105,
+    "y": 26,
+    "text": "(ใบแจ้งหนี้)",
+    "size": 11,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 34,
+    "text": "บริษัท ทดสอบ จำกัด",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 39,
+    "text": "Bangkok",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 44,
+    "text": "Tax ID: 0105556000002",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 32,
+    "text": "เลขที่: CJSF-202609-001",
+    "size": 9,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 37,
+    "text": "วันที่: 12/10/2026",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 42,
+    "text": "ประจำเดือน: กันยายน 2026",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 47,
+    "text": "กำหนดชำระ: 30 วัน",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 55,
+    "text": "เรียน / Bill To:",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 60,
+    "text": "CJ Super Fresh",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 65,
+    "text": "123 ถนนสุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110 ประเทศไทย",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 68.6513,
+    "text": "อาคารทดสอบ ชั้น 12 ห้อง 1201",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 75,
+    "text": "Tax ID: 0105556000001 (สาขา 00002)",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 80,
+    "text": "ผู้ติดต่อ: คุณเอ  |  021234567",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 90,
+    "text": "เรตตามช่วงราคาน้ำมัน (ดีเซล)",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18,
+    "y": 94.5,
+    "text": "R1   2-5/9/2569   37.01–38.00 ฿/L   ปรับ -40.00/เที่ยว",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18,
+    "y": 99,
+    "text": "R2   20/9/2569   36.01–37.00 ฿/L",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 15.875,
+    "y": 110.4626,
+    "text": "ลำดั",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 15.875,
+    "y": 114.1139,
+    "text": "บ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 110.4626,
+    "text": "รอบ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 110.4626,
+    "text": "ประเภทรถ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 110.4626,
+    "text": "รายการ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 107.6543,
+    "y": 110.4626,
+    "text": "วันที่ตามแผน",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 135.6543,
+    "y": 110.4626,
+    "text": "จำนวน",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 149.6543,
+    "y": 110.4626,
+    "text": "ราคา/หน่วย",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 173.6543,
+    "y": 110.4626,
+    "text": "รวม",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 121.2929,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 121.2929,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 121.2929,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 121.2929,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 121.2929,
+    "text": "2/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 121.2929,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 121.2929,
+    "text": "1,493.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 121.2929,
+    "text": "1,493.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 128.4719,
+    "text": "2",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 128.4719,
+    "text": "R2",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 128.4719,
+    "text": "PICKUP",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 128.4719,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 128.4719,
+    "text": "20/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 128.4719,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 128.4719,
+    "text": "1,453.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 128.4719,
+    "text": "1,453.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 135.651,
+    "text": "3",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 135.651,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 135.651,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 135.651,
+    "text": "ค่าโยก",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 135.651,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 135.651,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 135.651,
+    "text": "1,200.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 135.651,
+    "text": "1,200.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 142.83,
+    "text": "4",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 142.83,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 142.83,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 142.83,
+    "text": "ค่าโยก",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 142.83,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 142.83,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 160.5952,
+    "y": 142.83,
+    "text": "150.10",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 184.5952,
+    "y": 142.83,
+    "text": "150.10",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 150.009,
+    "text": "5",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 150.009,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 150.009,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 150.009,
+    "text": "ค่าโยก",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 150.009,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 150.009,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 160.5952,
+    "y": 150.009,
+    "text": "150.20",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 184.5952,
+    "y": 150.009,
+    "text": "150.20",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 157.1881,
+    "text": "6",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 29.5714,
+    "y": 157.1881,
+    "text": "-",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 157.1881,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 157.1881,
+    "text": "SPK-GW → ลาดกระบัง26 (Stand",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 160.8393,
+    "text": "by)",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 157.1881,
+    "text": "14/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 157.1881,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 160.5952,
+    "y": 157.1881,
+    "text": "500.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 184.5952,
+    "y": 157.1881,
+    "text": "500.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 156,
+    "y": 171.5557,
+    "text": "ยอดรวมทั้งสิ้น:",
+    "size": 8,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 171.5557,
+    "text": "4,947.16",
+    "size": 8,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 136,
+    "y": 178.5557,
+    "text": "ภาษีหัก ณ ที่จ่าย 1%",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 178.5557,
+    "text": "-148.41",
+    "size": 8,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 156,
+    "y": 185.5557,
+    "text": "ยอดรวมสุทธิ:",
+    "size": 8,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 185.5557,
+    "text": "4,798.75",
+    "size": 8,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 192.5557,
+    "text": "ยอดรวม : สี่พันเจ็ดร้อยเก้าสิบแปดบาทเจ็ดสิบห้าสตางค์",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 197.5557,
+    "text": "ชำระโดย",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 34.5,
+    "y": 197.5557,
+    "text": "เงินสด",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 56.5,
+    "y": 197.5557,
+    "text": "เงินโอน",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 203.5557,
+    "text": "ธนาคาร กสิกรไทย   เลขที่บัญชี 123-4-56789-0   ชื่อบัญชี บริษัท ทดสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 213.5557,
+    "text": "หมายเหตุ: กรุณาชำระภายในกำหนด",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 40,
+    "y": 238.5557,
+    "text": "นายทดสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 40,
+    "y": 243.5557,
+    "text": "ผู้จัดทำ/ผู้ตรวจสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 40,
+    "y": 249.5557,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 105,
+    "y": 238.5557,
+    "text": "ตราประทับ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 105,
+    "y": 244.5557,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 170,
+    "y": 238.5557,
+    "text": "ผู้รับวางบิล",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 170,
+    "y": 244.5557,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   }
+  ],
+  "receipt": [
+   {
+    "page": 1,
+    "x": 105,
+    "y": 20,
+    "text": "ใบเสร็จรับเงิน",
+    "size": 18,
+    "bold": true,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 34,
+    "text": "บริษัท ทดสอบ จำกัด",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 39,
+    "text": "Bangkok",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 44,
+    "text": "Tax ID: 0105556000002",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 32,
+    "text": "เลขที่: CJSF-202609-001",
+    "size": 9,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 37,
+    "text": "วันที่: 12/10/2026",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 42,
+    "text": "ประจำเดือน: กันยายน 2026",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 47,
+    "text": "กำหนดชำระ: 30 วัน",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 55,
+    "text": "เรียน / Bill To:",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 60,
+    "text": "CJ Super Fresh",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 65,
+    "text": "123 ถนนสุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110 ประเทศไทย",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 68.6513,
+    "text": "อาคารทดสอบ ชั้น 12 ห้อง 1201",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 75,
+    "text": "Tax ID: 0105556000001 (สาขา 00002)",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 80,
+    "text": "ผู้ติดต่อ: คุณเอ  |  021234567",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 90,
+    "text": "เรตตามช่วงราคาน้ำมัน (ดีเซล)",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18,
+    "y": 94.5,
+    "text": "R1   2-5/9/2569   37.01–38.00 ฿/L   ปรับ -40.00/เที่ยว",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18,
+    "y": 99,
+    "text": "R2   20/9/2569   36.01–37.00 ฿/L",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 15.875,
+    "y": 110.4626,
+    "text": "ลำดั",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 15.875,
+    "y": 114.1139,
+    "text": "บ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 110.4626,
+    "text": "รอบ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 110.4626,
+    "text": "ประเภทรถ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 110.4626,
+    "text": "รายการ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 107.6543,
+    "y": 110.4626,
+    "text": "วันที่ตามแผน",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 135.6543,
+    "y": 110.4626,
+    "text": "จำนวน",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 149.6543,
+    "y": 110.4626,
+    "text": "ราคา/หน่วย",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 173.6543,
+    "y": 110.4626,
+    "text": "รวม",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 121.2929,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 121.2929,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 121.2929,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 121.2929,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 121.2929,
+    "text": "2/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 121.2929,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 121.2929,
+    "text": "1,493.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 121.2929,
+    "text": "1,493.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 128.4719,
+    "text": "2",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 128.4719,
+    "text": "R2",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 128.4719,
+    "text": "PICKUP",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 128.4719,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 128.4719,
+    "text": "20/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 128.4719,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 128.4719,
+    "text": "1,453.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 128.4719,
+    "text": "1,453.43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 135.651,
+    "text": "3",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 135.651,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 135.651,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 135.651,
+    "text": "ค่าโยก",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 135.651,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 135.651,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 135.651,
+    "text": "1,200.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 135.651,
+    "text": "1,200.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 142.83,
+    "text": "4",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 142.83,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 142.83,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 142.83,
+    "text": "ค่าโยก",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 142.83,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 142.83,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 160.5952,
+    "y": 142.83,
+    "text": "150.10",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 184.5952,
+    "y": 142.83,
+    "text": "150.10",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 150.009,
+    "text": "5",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 28.3156,
+    "y": 150.009,
+    "text": "R1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 150.009,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 150.009,
+    "text": "ค่าโยก",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 150.009,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 150.009,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 160.5952,
+    "y": 150.009,
+    "text": "150.20",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 184.5952,
+    "y": 150.009,
+    "text": "150.20",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 157.1881,
+    "text": "6",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 29.5714,
+    "y": 157.1881,
+    "text": "-",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 37.875,
+    "y": 157.1881,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 157.1881,
+    "text": "SPK-GW → ลาดกระบัง26 (Stand",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 57.875,
+    "y": 160.8393,
+    "text": "by)",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 157.1881,
+    "text": "14/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 157.1881,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 160.5952,
+    "y": 157.1881,
+    "text": "500.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 184.5952,
+    "y": 157.1881,
+    "text": "500.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 156,
+    "y": 171.5557,
+    "text": "ยอดรวมทั้งสิ้น:",
+    "size": 8,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 171.5557,
+    "text": "4,947.16",
+    "size": 8,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 136,
+    "y": 178.5557,
+    "text": "ภาษีหัก ณ ที่จ่าย 1%",
+    "size": 8,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 178.5557,
+    "text": "-148.41",
+    "size": 8,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 156,
+    "y": 185.5557,
+    "text": "ยอดรวมสุทธิ:",
+    "size": 8,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 185.5557,
+    "text": "4,798.75",
+    "size": 8,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 192.5557,
+    "text": "ยอดรวม : สี่พันเจ็ดร้อยเก้าสิบแปดบาทเจ็ดสิบห้าสตางค์",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 197.5557,
+    "text": "ชำระโดย",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 34.5,
+    "y": 197.5557,
+    "text": "เงินสด",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 56.5,
+    "y": 197.5557,
+    "text": "เงินโอน",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 203.5557,
+    "text": "ธนาคาร กสิกรไทย   เลขที่บัญชี 123-4-56789-0   ชื่อบัญชี บริษัท ทดสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 40,
+    "y": 228.5557,
+    "text": "นายทดสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 40,
+    "y": 233.5557,
+    "text": "ผู้จัดทำ/ผู้ตรวจสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 40,
+    "y": 239.5557,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 105,
+    "y": 228.5557,
+    "text": "ตราประทับ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 105,
+    "y": 234.5557,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 170,
+    "y": 228.5557,
+    "text": "ผู้รับวางบิล",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 170,
+    "y": 234.5557,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   }
+  ],
+  "many": [
+   {
+    "page": 1,
+    "x": 105,
+    "y": 18,
+    "text": "ใบวางบิล",
+    "size": 16,
+    "bold": true,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 105,
+    "y": 26,
+    "text": "(ใบแจ้งหนี้)",
+    "size": 11,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 34,
+    "text": "บริษัท ทดสอบ จำกัด",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 39,
+    "text": "Bangkok",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 44,
+    "text": "Tax ID: 0105556000002",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 32,
+    "text": "เลขที่: TTP-202609-001",
+    "size": 9,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 37,
+    "text": "วันที่: 12/10/2026",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 196,
+    "y": 42,
+    "text": "ประจำเดือน: กันยายน 2026",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 55,
+    "text": "เรียน / Bill To:",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 14,
+    "y": 60,
+    "text": "TTP Co.",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 15.875,
+    "y": 84.4626,
+    "text": "ลำดั",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 15.875,
+    "y": 88.1139,
+    "text": "บ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 84.4626,
+    "text": "ประเภทรถ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 84.4626,
+    "text": "รายการ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 107.6543,
+    "y": 84.4626,
+    "text": "วันที่จัดส่ง",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 135.6543,
+    "y": 84.4626,
+    "text": "จำนวน",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 149.6543,
+    "y": 84.4626,
+    "text": "ราคา/หน่วย",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 173.6543,
+    "y": 84.4626,
+    "text": "รวม",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 95.2929,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 95.2929,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 95.2929,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 95.2929,
+    "text": "1/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 95.2929,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 95.2929,
+    "text": "1,000.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 95.2929,
+    "text": "1,000.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 102.4719,
+    "text": "2",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 102.4719,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 102.4719,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 102.4719,
+    "text": "2/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 102.4719,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 102.4719,
+    "text": "1,001.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 102.4719,
+    "text": "1,001.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 109.651,
+    "text": "3",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 109.651,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 109.651,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 109.651,
+    "text": "3/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 109.651,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 109.651,
+    "text": "1,002.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 109.651,
+    "text": "1,002.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 116.83,
+    "text": "4",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 116.83,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 116.83,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 116.83,
+    "text": "4/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 116.83,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 116.83,
+    "text": "1,003.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 116.83,
+    "text": "1,003.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 124.009,
+    "text": "5",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 124.009,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 124.009,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 124.009,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 124.009,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 124.009,
+    "text": "1,004.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 124.009,
+    "text": "1,004.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 131.1881,
+    "text": "6",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 131.1881,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 131.1881,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 131.1881,
+    "text": "6/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 131.1881,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 131.1881,
+    "text": "1,005.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 131.1881,
+    "text": "1,005.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 138.3671,
+    "text": "7",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 138.3671,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 138.3671,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 138.3671,
+    "text": "7/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 138.3671,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 138.3671,
+    "text": "1,006.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 138.3671,
+    "text": "1,006.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 145.5461,
+    "text": "8",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 145.5461,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 145.5461,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 145.5461,
+    "text": "8/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 145.5461,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 145.5461,
+    "text": "1,007.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 145.5461,
+    "text": "1,007.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 18.238,
+    "y": 152.7251,
+    "text": "9",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 152.7251,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 152.7251,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 113.3341,
+    "y": 152.7251,
+    "text": "9/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 152.7251,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 152.7251,
+    "text": "1,008.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 152.7251,
+    "text": "1,008.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 159.9042,
+    "text": "10",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 159.9042,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 159.9042,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 159.9042,
+    "text": "10/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 159.9042,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 159.9042,
+    "text": "1,009.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 159.9042,
+    "text": "1,009.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 167.0832,
+    "text": "11",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 167.0832,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 167.0832,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 167.0832,
+    "text": "11/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 167.0832,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 167.0832,
+    "text": "1,010.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 167.0832,
+    "text": "1,010.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 174.2622,
+    "text": "12",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 174.2622,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 174.2622,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 174.2622,
+    "text": "12/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 174.2622,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 174.2622,
+    "text": "1,011.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 174.2622,
+    "text": "1,011.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 181.4412,
+    "text": "13",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 181.4412,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 181.4412,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 181.4412,
+    "text": "13/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 181.4412,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 181.4412,
+    "text": "1,012.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 181.4412,
+    "text": "1,012.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 188.6203,
+    "text": "14",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 188.6203,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 188.6203,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 188.6203,
+    "text": "14/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 188.6203,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 188.6203,
+    "text": "1,013.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 188.6203,
+    "text": "1,013.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 195.7993,
+    "text": "15",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 195.7993,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 195.7993,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 195.7993,
+    "text": "15/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 195.7993,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 195.7993,
+    "text": "1,014.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 195.7993,
+    "text": "1,014.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 202.9783,
+    "text": "16",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 202.9783,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 202.9783,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 202.9783,
+    "text": "16/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 202.9783,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 202.9783,
+    "text": "1,015.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 202.9783,
+    "text": "1,015.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 210.1574,
+    "text": "17",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 210.1574,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 210.1574,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 210.1574,
+    "text": "17/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 210.1574,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 210.1574,
+    "text": "1,016.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 210.1574,
+    "text": "1,016.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 217.3364,
+    "text": "18",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 217.3364,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 217.3364,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 217.3364,
+    "text": "18/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 217.3364,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 217.3364,
+    "text": "1,017.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 217.3364,
+    "text": "1,017.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 224.5154,
+    "text": "19",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 224.5154,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 224.5154,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 224.5154,
+    "text": "19/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 224.5154,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 224.5154,
+    "text": "1,018.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 224.5154,
+    "text": "1,018.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 231.6944,
+    "text": "20",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 231.6944,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 231.6944,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 231.6944,
+    "text": "20/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 231.6944,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 231.6944,
+    "text": "1,019.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 231.6944,
+    "text": "1,019.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 238.8735,
+    "text": "21",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 238.8735,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 238.8735,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 238.8735,
+    "text": "21/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 238.8735,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 238.8735,
+    "text": "1,020.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 238.8735,
+    "text": "1,020.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 246.0525,
+    "text": "22",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 246.0525,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 246.0525,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 246.0525,
+    "text": "22/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 246.0525,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 246.0525,
+    "text": "1,021.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 246.0525,
+    "text": "1,021.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 253.2315,
+    "text": "23",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 253.2315,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 253.2315,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 253.2315,
+    "text": "23/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 253.2315,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 253.2315,
+    "text": "1,022.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 253.2315,
+    "text": "1,022.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 260.4106,
+    "text": "24",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 260.4106,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 260.4106,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 260.4106,
+    "text": "24/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 260.4106,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 260.4106,
+    "text": "1,023.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 260.4106,
+    "text": "1,023.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 267.5896,
+    "text": "25",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 267.5896,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 267.5896,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 267.5896,
+    "text": "25/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 267.5896,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 267.5896,
+    "text": "1,024.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 267.5896,
+    "text": "1,024.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 17.3649,
+    "y": 274.7686,
+    "text": "26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 25.875,
+    "y": 274.7686,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 45.875,
+    "y": 274.7686,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 112.4609,
+    "y": 274.7686,
+    "text": "26/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 140.0173,
+    "y": 274.7686,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 158.0489,
+    "y": 274.7686,
+    "text": "1,025.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 1,
+    "x": 182.0489,
+    "y": 274.7686,
+    "text": "1,025.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 15.875,
+    "y": 18.5737,
+    "text": "ลำดั",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 15.875,
+    "y": 22.225,
+    "text": "บ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 18.5737,
+    "text": "ประเภทรถ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 18.5737,
+    "text": "รายการ",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 107.6543,
+    "y": 18.5737,
+    "text": "วันที่จัดส่ง",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 135.6543,
+    "y": 18.5737,
+    "text": "จำนวน",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 149.6543,
+    "y": 18.5737,
+    "text": "ราคา/หน่วย",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 173.6543,
+    "y": 18.5737,
+    "text": "รวม",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 29.404,
+    "text": "27",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 29.404,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 29.404,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 29.404,
+    "text": "27/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 29.404,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 29.404,
+    "text": "1,026.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 29.404,
+    "text": "1,026.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 36.5831,
+    "text": "28",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 36.5831,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 36.5831,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 36.5831,
+    "text": "28/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 36.5831,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 36.5831,
+    "text": "1,027.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 36.5831,
+    "text": "1,027.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 43.7621,
+    "text": "29",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 43.7621,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 43.7621,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 43.7621,
+    "text": "1/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 43.7621,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 43.7621,
+    "text": "1,028.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 43.7621,
+    "text": "1,028.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 50.9411,
+    "text": "30",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 50.9411,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 50.9411,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 50.9411,
+    "text": "2/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 50.9411,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 50.9411,
+    "text": "1,029.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 50.9411,
+    "text": "1,029.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 58.1201,
+    "text": "31",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 58.1201,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 58.1201,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 58.1201,
+    "text": "3/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 58.1201,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 58.1201,
+    "text": "1,030.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 58.1201,
+    "text": "1,030.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 65.2992,
+    "text": "32",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 65.2992,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 65.2992,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 65.2992,
+    "text": "4/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 65.2992,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 65.2992,
+    "text": "1,031.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 65.2992,
+    "text": "1,031.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 72.4782,
+    "text": "33",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 72.4782,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 72.4782,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 72.4782,
+    "text": "5/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 72.4782,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 72.4782,
+    "text": "1,032.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 72.4782,
+    "text": "1,032.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 79.6572,
+    "text": "34",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 79.6572,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 79.6572,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 79.6572,
+    "text": "6/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 79.6572,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 79.6572,
+    "text": "1,033.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 79.6572,
+    "text": "1,033.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 86.8362,
+    "text": "35",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 86.8362,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 86.8362,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 86.8362,
+    "text": "7/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 86.8362,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 86.8362,
+    "text": "1,034.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 86.8362,
+    "text": "1,034.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 94.0153,
+    "text": "36",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 94.0153,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 94.0153,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 94.0153,
+    "text": "8/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 94.0153,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 94.0153,
+    "text": "1,035.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 94.0153,
+    "text": "1,035.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 101.1943,
+    "text": "37",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 101.1943,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 101.1943,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 113.3341,
+    "y": 101.1943,
+    "text": "9/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 101.1943,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 101.1943,
+    "text": "1,036.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 101.1943,
+    "text": "1,036.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 108.3733,
+    "text": "38",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 108.3733,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 108.3733,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 108.3733,
+    "text": "10/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 108.3733,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 108.3733,
+    "text": "1,037.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 108.3733,
+    "text": "1,037.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 115.5524,
+    "text": "39",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 115.5524,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 115.5524,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 115.5524,
+    "text": "11/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 115.5524,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 115.5524,
+    "text": "1,038.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 115.5524,
+    "text": "1,038.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 122.7314,
+    "text": "40",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 122.7314,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 122.7314,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 122.7314,
+    "text": "12/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 122.7314,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 122.7314,
+    "text": "1,039.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 122.7314,
+    "text": "1,039.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 129.9104,
+    "text": "41",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 129.9104,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 129.9104,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 129.9104,
+    "text": "13/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 129.9104,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 129.9104,
+    "text": "1,040.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 129.9104,
+    "text": "1,040.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 137.0894,
+    "text": "42",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 137.0894,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 137.0894,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 137.0894,
+    "text": "14/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 137.0894,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 137.0894,
+    "text": "1,041.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 137.0894,
+    "text": "1,041.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 144.2685,
+    "text": "43",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 144.2685,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 144.2685,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 144.2685,
+    "text": "15/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 144.2685,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 144.2685,
+    "text": "1,042.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 144.2685,
+    "text": "1,042.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 151.4475,
+    "text": "44",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 151.4475,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 151.4475,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 151.4475,
+    "text": "16/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 151.4475,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 151.4475,
+    "text": "1,043.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 151.4475,
+    "text": "1,043.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 17.3649,
+    "y": 158.6265,
+    "text": "45",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 25.875,
+    "y": 158.6265,
+    "text": "6WH",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 45.875,
+    "y": 158.6265,
+    "text": "SPK-GW → ลาดกระบัง26",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 112.4609,
+    "y": 158.6265,
+    "text": "17/9/2569",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 140.0173,
+    "y": 158.6265,
+    "text": "1",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 158.0489,
+    "y": 158.6265,
+    "text": "1,044.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 182.0489,
+    "y": 158.6265,
+    "text": "1,044.00",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 156,
+    "y": 169.3429,
+    "text": "ยอดรวมทั้งสิ้น:",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 196,
+    "y": 169.3429,
+    "text": "45,990.00",
+    "size": 9,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 2,
+    "x": 136,
+    "y": 176.3429,
+    "text": "ภาษีหัก ณ ที่จ่าย 1%",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 196,
+    "y": 176.3429,
+    "text": "-1,379.70",
+    "size": 9,
+    "bold": false,
+    "align": "right"
+   },
+   {
+    "page": 2,
+    "x": 156,
+    "y": 183.3429,
+    "text": "ยอดรวมสุทธิ:",
+    "size": 9,
+    "bold": true,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 196,
+    "y": 183.3429,
+    "text": "44,610.30",
+    "size": 9,
+    "bold": true,
+    "align": "right"
+   },
+   {
+    "page": 2,
+    "x": 14,
+    "y": 190.3429,
+    "text": "ยอดรวม : สี่หมื่นสี่พันหกร้อยสิบบาทสามสิบสตางค์",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 14,
+    "y": 195.3429,
+    "text": "ชำระโดย",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 34.5,
+    "y": 195.3429,
+    "text": "เงินสด",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 56.5,
+    "y": 195.3429,
+    "text": "เงินโอน",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 14,
+    "y": 201.3429,
+    "text": "ธนาคาร กสิกรไทย   เลขที่บัญชี 123-4-56789-0   ชื่อบัญชี บริษัท ทดสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "left"
+   },
+   {
+    "page": 2,
+    "x": 40,
+    "y": 226.3429,
+    "text": "นายทดสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 2,
+    "x": 40,
+    "y": 231.3429,
+    "text": "ผู้จัดทำ/ผู้ตรวจสอบ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 2,
+    "x": 40,
+    "y": 237.3429,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 2,
+    "x": 105,
+    "y": 226.3429,
+    "text": "ตราประทับ",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 2,
+    "x": 105,
+    "y": 232.3429,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 2,
+    "x": 170,
+    "y": 226.3429,
+    "text": "ผู้รับวางบิล",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   },
+   {
+    "page": 2,
+    "x": 170,
+    "y": 232.3429,
+    "text": "วันที่ ___/___/______",
+    "size": 9,
+    "bold": false,
+    "align": "center"
+   }
+  ]
+ }
+}

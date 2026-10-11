@@ -355,6 +355,50 @@ func (q *Queries) InsertPendingPublic(ctx context.Context, arg InsertPendingPubl
 	return i, err
 }
 
+const insertServerObject = `-- name: InsertServerObject :one
+INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256,
+                          visibility, status, committed_at, storage_backend)
+VALUES ($1, $2, $3::uuid, $4, $5::text, $6::uuid,
+        $7::text, $8::bigint, $9::text, 'private', 'committed', $10::timestamptz,
+        $11)
+RETURNING id
+`
+
+type InsertServerObjectParams struct {
+	Bucket         string
+	ObjectKey      string
+	TenantID       *uuid.UUID
+	Purpose        string
+	OwnerKind      string
+	OwnerID        uuid.UUID
+	ContentType    string
+	SizeBytes      int64
+	Sha256         string
+	CommittedAt    time.Time
+	StorageBackend string
+}
+
+// A server-side writer's object (rendered statement documents, reports; main spec §9.9): committed at once, owned by
+// its entity, never presigned by a client. The bytes are already stored under the key (PutServerObject).
+func (q *Queries) InsertServerObject(ctx context.Context, arg InsertServerObjectParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertServerObject,
+		arg.Bucket,
+		arg.ObjectKey,
+		arg.TenantID,
+		arg.Purpose,
+		arg.OwnerKind,
+		arg.OwnerID,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Sha256,
+		arg.CommittedAt,
+		arg.StorageBackend,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const isDirectSubtenant = `-- name: IsDirectSubtenant :one
 SELECT EXISTS (SELECT 1 FROM tenants WHERE id = $1 AND contractor_tenant_id = $2::uuid)
 `

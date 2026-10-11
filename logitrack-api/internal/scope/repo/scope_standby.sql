@@ -34,5 +34,5 @@ SELECT * FROM scope_standby
  LIMIT sqlc.arg(row_limit);
 
 -- name: ScopeStandbyPhotosOf :many
--- The two photos of a page of the projection (scope_standby_photos, 0016).
+-- The two photos of a page of the projection (scope_standby_photos, 0017).
 SELECT * FROM scope_standby_photos WHERE standby_id = ANY (sqlc.arg(standby_ids)::uuid[]) ORDER BY standby_id, photo_type;

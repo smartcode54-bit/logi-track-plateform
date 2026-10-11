@@ -40,10 +40,15 @@ GET /v1/billing/rate-entries internal
 POST /v1/billing/rate-entries internal
 POST /v1/billing/rate-entries/:id/void internal
 POST /v1/billing/rate-entries/import internal
+GET /v1/billing/rows internal
+GET /v1/billing/rows/missing-billing-date internal
 GET /v1/billing/service-fees internal
 POST /v1/billing/service-fees internal
 DELETE /v1/billing/service-fees/:id internal
 PATCH /v1/billing/service-fees/:id internal
+GET /v1/billing/shopee-report internal
+GET /v1/billing/shopee-report.pdf internal
+GET /v1/billing/standby-diagnostics internal
 GET /v1/billing/standby-rates internal
 POST /v1/billing/standby-rates internal
 PATCH /v1/billing/standby-rates/:id internal
@@ -52,6 +57,8 @@ GET /v1/billing/statements internal
 POST /v1/billing/statements internal
 DELETE /v1/billing/statements/:id internal
 GET /v1/billing/statements/:id internal
+GET /v1/billing/statements/:id/documents/:kind internal
+POST /v1/billing/statements/:id/documents/regenerate internal
 GET /v1/billing/statements/:id/lines internal
 POST /v1/billing/statements/:id/status internal
 USE /v1/bridge internal

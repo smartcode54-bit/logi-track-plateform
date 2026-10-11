@@ -343,7 +343,7 @@ const scopeTripPhotos = `-- name: ScopeTripPhotos :many
 SELECT id, trip_id, stop_id, photo_type, photo_type_known, file_id, geocode_lat, geocode_lng, geocode_address, geocoded_at, position, created_at FROM scope_trip_photos WHERE trip_id = $1 ORDER BY position, id
 `
 
-// The evidence photos of one trip (scope_trip_photos, 0016); the API sorts them by the ADR 0018 rank and signs the
+// The evidence photos of one trip (scope_trip_photos, 0017); the API sorts them by the ADR 0018 rank and signs the
 // files.
 func (q *Queries) ScopeTripPhotos(ctx context.Context, tripID uuid.UUID) ([]ScopeTripPhoto, error) {
 	rows, err := q.db.Query(ctx, scopeTripPhotos, tripID)
@@ -382,7 +382,7 @@ const scopeTripStopsOf = `-- name: ScopeTripStopsOf :many
 SELECT id, trip_id, stop_index, destination_raw, destination_hub_id, source_id, status, delivered_at, delivered_lat, delivered_lng, completed_seq FROM scope_trip_stops WHERE trip_id = ANY ($1::uuid[]) ORDER BY trip_id, stop_index
 `
 
-// The stop progress of a page of the projection (scope_trip_stops, 0016).
+// The stop progress of a page of the projection (scope_trip_stops, 0017).
 func (q *Queries) ScopeTripStopsOf(ctx context.Context, tripIds []uuid.UUID) ([]ScopeTripStop, error) {
 	rows, err := q.db.Query(ctx, scopeTripStopsOf, tripIds)
 	if err != nil {

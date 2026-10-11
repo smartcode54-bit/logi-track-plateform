@@ -53,5 +53,5 @@ SELECT * FROM scope_tasks
 SELECT * FROM scope_tasks WHERE task_no = sqlc.arg(task_no)::text ORDER BY created_at, id;
 
 -- name: ScopeTaskStopsOf :many
--- The planned stops of a page of the projection (scope_task_stops, 0016: no linked party, no price).
+-- The planned stops of a page of the projection (scope_task_stops, 0017: no linked party, no price).
 SELECT * FROM scope_task_stops WHERE task_id = ANY (sqlc.arg(task_ids)::uuid[]) ORDER BY task_id, stop_index;

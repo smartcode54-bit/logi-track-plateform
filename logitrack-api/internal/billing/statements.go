@@ -73,6 +73,7 @@ type Statement struct {
 	CancelledAt        *time.Time    `json:"cancelledAt"`
 	DueDate            *time.Time    `json:"dueDate"`
 	Note               *string       `json:"note"`
+	ShowActualPickup   bool          `json:"showActualPickup"` // the detail sheet's วันรับงานจริง column (0016)
 	GeneratedBy        *uuid.UUID    `json:"generatedBy"`
 	GeneratedByName    *string       `json:"generatedByName"`
 	CreatedAt          time.Time     `json:"createdAt"`
@@ -87,12 +88,15 @@ type Period struct {
 	Month int32 `json:"month"`
 }
 
-// DocumentRef is one rendered document of a statement (statement_documents, R14); the download is
-// GET /v1/billing/statements/{id}/documents/{kind} (T39).
+// DocumentRef is one rendered document of a statement (statement_documents, R14). url, present once the document is
+// ready, is its download route GET /v1/billing/statements/{id}/documents/{kind} (T39), which answers 302 to a
+// short-lived signed URL of the stored file; the web calls it under the BFF prefix. The route rather than a signed URL
+// keeps the detail cacheable (a signed URL expires in 15 minutes).
 type DocumentRef struct {
 	Kind       string     `json:"kind"`
 	Status     string     `json:"status"`
 	Error      *string    `json:"error,omitempty"`
+	URL        *string    `json:"url,omitempty"`
 	RenderedAt *time.Time `json:"renderedAt"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
 }
@@ -114,21 +118,23 @@ func statementOf(r billingdb.GetStatementRow) Statement {
 		StandbyCount: r.StandbyCount, StandbySubtotal: r.StandbySubtotal, MultiDropCount: r.MultiDropCount,
 		MultiDropSubtotal: r.MultiDropSubtotal, Status: r.Status, GeneratedAt: r.GeneratedAt.UTC(), SentAt: utc(r.SentAt),
 		PaidAt: utc(r.PaidAt), CancelledAt: utc(r.CancelledAt), DueDate: utc(r.DueDate), Note: r.Note,
-		GeneratedBy: r.GeneratedBy, GeneratedByName: by, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
+		ShowActualPickup: r.ShowActualPickup, GeneratedBy: r.GeneratedBy, GeneratedByName: by, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
 		LegacyDocID: r.LegacyDocID}
 }
 
 // StatementInput is the body of POST /v1/billing/statements. Types and categories are the invoice-set toggles
 // (absent = all; an empty list is refused); issuerCompanyId names the issuing company of the billing tenant (absent =
-// its owner company, else its only active company).
+// its owner company, else its only active company); showActualPickup adds the วันรับงานจริง column to the detail
+// sheet (the Billing Document page's toggle, absent = false; stored with the statement, 0016).
 type StatementInput struct {
-	CustomerID      string    `json:"customerId"`
-	Year            int       `json:"year"`
-	Month           int       `json:"month"`
-	Types           *[]string `json:"types"`
-	Categories      *[]string `json:"categories"`
-	Note            string    `json:"note"`
-	IssuerCompanyID string    `json:"issuerCompanyId"`
+	CustomerID       string    `json:"customerId"`
+	Year             int       `json:"year"`
+	Month            int       `json:"month"`
+	Types            *[]string `json:"types"`
+	Categories       *[]string `json:"categories"`
+	Note             string    `json:"note"`
+	IssuerCompanyID  string    `json:"issuerCompanyId"`
+	ShowActualPickup bool      `json:"showActualPickup"`
 }
 
 // toggles validates an optional list of toggles: absent = all of allowed, empty or unknown values refused.
@@ -263,7 +269,7 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 		st, err := q.InsertStatement(ctx, billingdb.InsertStatementParams{TenantID: tenant, PartyID: party,
 			IssuerCompanyID: &company, InvoiceNumber: invoiceNumber(code, in.Year, in.Month, int(seq)),
 			CustomerName: name, CustomerCode: &codeSnap, PeriodYear: int32(in.Year), PeriodMonth: int32(in.Month),
-			GeneratedAt: now, DueDate: due, Note: notePtr, GeneratedBy: actor(p)})
+			GeneratedAt: now, DueDate: due, Note: notePtr, GeneratedBy: actor(p), ShowActualPickup: in.ShowActualPickup})
 		if err != nil {
 			return err
 		}
@@ -343,8 +349,13 @@ func (s *Service) GetStatement(ctx context.Context, p *authz.Principal, id uuid.
 		docs, err := q.StatementDocuments(ctx, id)
 		out.Documents = make([]DocumentRef, 0, len(docs))
 		for _, d := range docs {
-			out.Documents = append(out.Documents, DocumentRef{Kind: d.Kind, Status: d.Status, Error: d.Error,
-				RenderedAt: utc(d.RenderedAt), UpdatedAt: d.UpdatedAt.UTC()})
+			ref := DocumentRef{Kind: d.Kind, Status: d.Status, Error: d.Error, RenderedAt: utc(d.RenderedAt),
+				UpdatedAt: d.UpdatedAt.UTC()}
+			if d.Status == statusReady {
+				u := BillingPrefix + "/statements/" + id.String() + "/documents/" + d.Kind
+				ref.URL = &u
+			}
+			out.Documents = append(out.Documents, ref)
 		}
 		return err
 	})

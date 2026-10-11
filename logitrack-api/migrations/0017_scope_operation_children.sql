@@ -1,4 +1,4 @@
--- 0016_scope_operation_children.sql: Appendix C §C.3.7 (issue T30). Never edit this file once it is merged; follow-ups
+-- 0017_scope_operation_children.sql: Appendix C §C.3.7 (issue T30). Never edit this file once it is merged; follow-ups
 -- take the next number (R31).
 -- The child rows of the operations projections, for the dispatcher and customer-scope reads of T30 (GET /v1/tasks with
 -- the planned stops of a multi-drop task, GET /v1/trips/monitor with the stops a trip served, GET /v1/trips/{id}[/photos]
@@ -15,7 +15,7 @@
 -- Grants: SELECT to logitrack_app (the API reads them in db.WithPrincipal) and logitrack_readonly (reporting, as 0009
 -- granted every relation of public); nothing else (the catalog test allows SELECT only on a scope_* view).
 -- Depends on: 0004 (the four child tables), 0009 (roles). Production applies it with `migrate up`; it depends on nothing
--- in 0010-0015.
+-- in 0010-0016.
 
 -- +goose Up
 CREATE VIEW scope_task_stops WITH (security_invoker = true) AS

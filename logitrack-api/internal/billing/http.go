@@ -82,6 +82,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/statements/:id/lines", requireAuth, need(authz.AccountingBillingResult), h.statementLines)
 			r.Post("/statements/:id/status", requireAuth, need(authz.AccountingManageStatements), h.setStatementStatus)
 			r.Delete("/statements/:id", requireAuth, need(authz.AccountingManageStatements), h.deleteStatement)
+			readRoutes(r, h, requireAuth) // T39: rows, diagnostics, Shopee report, documents (http_reads.go)
 		}},
 		{Prefix: FuelPrefix, Mount: func(r fiber.Router) {
 			fuel := need(authz.AccountingViewFuel)
