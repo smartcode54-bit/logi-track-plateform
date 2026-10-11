@@ -1,8 +1,10 @@
 # Seconds each package took in go-ci's test job (make test-integration TESTFLAGS=-count=1, ubuntu-24.04,
-# run 38143118808 on mv-go at bdcb2409). Refresh from a later run's log when the shards drift apart;
+# run 38143118808 on mv-go at bdcb2409; cmd/seed and cmd/seed/internal/seed from run 38169005792 on PR #149
+# at d34b997c, T35's demo operations). Refresh from a later run's log when the shards drift apart;
 # a package not listed here counts as the default weight of tools/testshard.
+337.848 cmd/seed/internal/seed
+332.045 cmd/seed
 328.025 internal/auth
-223.840 cmd/seed
 170.443 internal/iam
 112.191 cmd/etl
 87.373 internal/notify
@@ -31,7 +33,6 @@
 7.825 internal/platform/xlsx
 6.506 internal/platform/db/pgtest
 6.313 internal/platform/httpx/ratelimit
-5.370 cmd/seed/internal/seed
 4.534 tools/analyzers/withsystem
 3.391 internal/billing/compute
 2.805 cmd/api

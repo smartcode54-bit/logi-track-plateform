@@ -156,8 +156,9 @@ jobs:
       - run: make test-shard SHARD=${{ matrix.shard }} SHARDS=3 TESTFLAGS=-count=1
       # T16 AC: seed --profile smoke < 5 s. The race detector slows hashing and encoding, so the budget is
       # asserted in this second run of the smoke test without it, at the .env.example Argon2id cost. It
-      # runs in shard 2, which finished first in CI (shard 1 holds internal/auth, shard 3 internal/iam
-      # and cmd/etl); re-check the choice when weights.txt is refreshed.
+      # runs in shard 2 (shard 1 holds cmd/seed/internal/seed, shard 2 cmd/seed and cmd/etl, shard 3
+      # internal/auth and internal/iam; the shards finish within a minute of each other); re-check the
+      # choice when weights.txt is refreshed.
       - if: matrix.shard == 2
         run: make seed-budget
 
