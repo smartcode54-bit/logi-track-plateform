@@ -15,6 +15,10 @@
 //	                                               older than RTLOG_TTL + 1 h are removed (Reader, expiry)
 //	PUBLISH lt:{env}:rt:{topic} {"id":n,"topic":"<topic>","type":"<event_type>","eventId":"<uuid>","data":<payload>}
 //
+// <payload> is the event's payload as that topic carries it (Project, T33): the operations events are thin on every
+// topic and stripped of what a dispatcher may not read on dispatch:{partyId}:*, a topic that does not carry the event
+// gets neither an entry nor a message, and an event no topic carries takes no sequence number.
+//
 // All of it runs in one Lua script per event, so the sequence and the stream ids can never interleave
 // even if two relays ran at once, and a stream whose top id is ahead of the counter (a restore from
 // an older snapshot) moves the counter past it instead of failing every later XADD.
@@ -93,8 +97,9 @@ func NewWriter(rdb redis.UniversalClient, ks cache.Keyspace, maxLen int64, ttl t
 	return &Writer{rdb: rdb, ks: ks, maxLen: maxLen, ttl: ttl}
 }
 
-// publishScript: KEYS = [seq, marks, stream...]; ARGV = [maxlen, ttl ms, type, data, event id, mark
-// minutes, (channel, message-tail)...]. Returns the sequence number used. The mark of the Redis-clock
+// publishScript: KEYS = [seq, marks, stream...]; ARGV = [maxlen, ttl ms, type, event id, mark minutes,
+// (data of each stream, in KEYS order)..., (channel, message-tail)...]: the stream KEYS[i] takes ARGV[i + 3],
+// the channels start at ARGV[#KEYS + 4]. Returns the sequence number used. The mark of the Redis-clock
 // minute records the first sequence number of that minute; marks older than the mark minutes go, and
 // the set itself expires when no event came for that long (Reader.Snapshot reads it).
 var publishScript = redis.NewScript(`
@@ -111,17 +116,17 @@ for i = 3, #KEYS do
 end
 local id = string.format('%d', n)
 for i = 3, #KEYS do
-  redis.call('XADD', KEYS[i], 'MAXLEN', '~', ARGV[1], id .. '-0', 'type', ARGV[3], 'event_id', ARGV[5], 'data', ARGV[4])
+  redis.call('XADD', KEYS[i], 'MAXLEN', '~', ARGV[1], id .. '-0', 'type', ARGV[3], 'event_id', ARGV[4], 'data', ARGV[i + 3])
   redis.call('PEXPIRE', KEYS[i], ARGV[2])
 end
-local keep = tonumber(ARGV[6])
+local keep = tonumber(ARGV[5])
 local minute = math.floor(tonumber(redis.call('TIME')[1]) / 60)
 if redis.call('ZCOUNT', KEYS[2], minute, minute) == 0 then
   redis.call('ZADD', KEYS[2], string.format('%d', minute), id)
 end
 redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', '(' .. string.format('%d', minute - keep))
 redis.call('PEXPIRE', KEYS[2], string.format('%d', keep * 60000))
-for i = 7, #ARGV, 2 do
+for i = #KEYS + 4, #ARGV, 2 do
   redis.call('PUBLISH', ARGV[i], '{"id":' .. id .. ',' .. ARGV[i + 1])
 end
 return n
@@ -137,8 +142,9 @@ func markMinutes(ttl time.Duration) int64 {
 var ErrInvalidTopic = errors.New("realtime: topic is not in the catalogue of Appendix B §B.4.2")
 
 // Publish takes the next sequence number n, appends the event as {n}-0 to the replay log of each
-// non-ephemeral topic, marks the minute and publishes it on each topic's channel, in one script. It
-// returns n.
+// non-ephemeral topic, marks the minute and publishes it on each topic's channel, in one script, each
+// topic with the payload Project gives it. It returns n, or 0 without a sequence number when no topic
+// carries the event (a priced event whose only topics are dispatch topics).
 func (w *Writer) Publish(ctx context.Context, e Event) (int64, error) {
 	if len(e.Topics) == 0 {
 		return 0, errors.New("realtime: event without topics")
@@ -148,7 +154,7 @@ func (w *Writer) Publish(ctx context.Context, e Event) (int64, error) {
 		data = json.RawMessage("{}")
 	}
 	keys := []string{w.ks.RealtimeSeq(), w.ks.RealtimeMarks()}
-	args := []any{w.maxLen, w.ttl.Milliseconds(), e.Type, string(data), e.EventID, markMinutes(w.ttl)}
+	var streams, channels []any
 	seen := map[string]bool{}
 	for _, t := range e.Topics {
 		if !ValidTopic(t) {
@@ -158,15 +164,25 @@ func (w *Writer) Publish(ctx context.Context, e Event) (int64, error) {
 			continue
 		}
 		seen[t] = true
+		d, ok := Project(t, e.Type, data)
+		if !ok {
+			continue
+		}
 		if !Ephemeral(t) {
 			keys = append(keys, w.ks.RealtimeLog(t))
+			streams = append(streams, string(d))
 		}
-		tail, err := messageTail(t, e.Type, e.EventID, data)
+		tail, err := messageTail(t, e.Type, e.EventID, d)
 		if err != nil {
 			return 0, err
 		}
-		args = append(args, w.ks.Channel(t), tail)
+		channels = append(channels, w.ks.Channel(t), tail)
 	}
+	if len(channels) == 0 {
+		return 0, nil
+	}
+	args := append([]any{w.maxLen, w.ttl.Milliseconds(), e.Type, e.EventID, markMinutes(w.ttl)}, streams...)
+	args = append(args, channels...)
 	n, err := publishScript.Run(ctx, w.rdb, keys, args...).Int64()
 	if err != nil {
 		return 0, fmt.Errorf("realtime: publish: %w", err)

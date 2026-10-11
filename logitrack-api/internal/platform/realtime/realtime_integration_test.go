@@ -153,3 +153,61 @@ func TestSnapshotReadsTheControlWindow(t *testing.T) {
 		t.Fatalf("%+v %v", snap, err)
 	}
 }
+
+// The writer gives each topic its own payload (T33): one sequence number, a thin copy on the tenant topic, a dispatch
+// copy without the billing, party and hidden columns, in the replay logs and on the channels alike; a priced event
+// whose only topic is a dispatch topic takes no sequence number and reaches nobody.
+func TestWriterProjectsEachTopic(t *testing.T) {
+	rdb, ks := cachetest.NewClient(t)
+	ctx := context.Background()
+	w := realtime.NewWriter(rdb, ks, 1000, time.Hour)
+	const tenant, party = "0199c000-0000-7000-8000-0000000000d1", "0199c000-0000-7000-8000-0000000000d2"
+	trips, dispatch := realtime.TenantTopic(tenant, realtime.FamilyTrips), realtime.DispatchTopic(party, realtime.FamilyTrips)
+	sub := rdb.Subscribe(ctx, ks.Channel(trips), ks.Channel(dispatch))
+	defer func() { _ = sub.Close() }()
+	if _, err := sub.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"entity":"trip","id":"t1","tenantId":"` + tenant + `","changed":["status","billingPartyId"],"status":"delivered",` +
+		`"legacyDocId":"TRIP1","billingEstimateThb":1234.5,"customerPartyId":"` + party + `"}`
+	n, err := w.Publish(ctx, realtime.Event{Type: "trip.delivered", EventID: "e1", Topics: []string{trips, dispatch}, Data: json.RawMessage(payload)})
+	if err != nil || n == 0 {
+		t.Fatalf("publish %d %v", n, err)
+	}
+	want := map[string]string{
+		trips:    `{"changed":["status","billingPartyId"],"entity":"trip","id":"t1","status":"delivered","tenantId":"` + tenant + `"}`,
+		dispatch: `{"changed":["status"],"entity":"trip","id":"t1","status":"delivered","tenantId":"` + tenant + `"}`,
+	}
+	for topic, data := range want {
+		entries, err := rdb.XRange(ctx, ks.RealtimeLog(topic), "-", "+").Result()
+		if err != nil || len(entries) != 1 || entries[0].ID != strconv.FormatInt(n, 10)+"-0" || entries[0].Values["data"] != data {
+			t.Errorf("%s log: %+v %v, want %s", topic, entries, err, data)
+		}
+	}
+	for range 2 {
+		msg, err := sub.ReceiveMessage(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m realtime.Message
+		if err := json.Unmarshal([]byte(msg.Payload), &m); err != nil || m.ID != n {
+			t.Fatalf("%s: %v", msg.Payload, err)
+		}
+		if string(m.Data) != want[m.Topic] {
+			t.Errorf("%s message data %s, want %s", m.Topic, m.Data, want[m.Topic])
+		}
+	}
+	seq, _ := rdb.Get(ctx, ks.RealtimeSeq()).Int64()
+	if n, err := w.Publish(ctx, realtime.Event{Type: "trip.priced", EventID: "e2", Topics: []string{dispatch}, Data: json.RawMessage(`{}`)}); n != 0 || err != nil {
+		t.Fatalf("priced on a dispatch topic: %d %v", n, err)
+	}
+	if after, _ := rdb.Get(ctx, ks.RealtimeSeq()).Int64(); after != seq {
+		t.Errorf("an event no topic carries took sequence %d", after)
+	}
+	if l, _ := rdb.XLen(ctx, ks.RealtimeLog(dispatch)).Result(); l != 1 {
+		t.Errorf("dispatch log length %d", l)
+	}
+}
