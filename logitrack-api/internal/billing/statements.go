@@ -73,6 +73,7 @@ type Statement struct {
 	CancelledAt        *time.Time    `json:"cancelledAt"`
 	DueDate            *time.Time    `json:"dueDate"`
 	Note               *string       `json:"note"`
+	ShowActualPickup   bool          `json:"showActualPickup"` // the detail sheet's วันรับงานจริง column (0016)
 	GeneratedBy        *uuid.UUID    `json:"generatedBy"`
 	GeneratedByName    *string       `json:"generatedByName"`
 	CreatedAt          time.Time     `json:"createdAt"`
@@ -117,21 +118,23 @@ func statementOf(r billingdb.GetStatementRow) Statement {
 		StandbyCount: r.StandbyCount, StandbySubtotal: r.StandbySubtotal, MultiDropCount: r.MultiDropCount,
 		MultiDropSubtotal: r.MultiDropSubtotal, Status: r.Status, GeneratedAt: r.GeneratedAt.UTC(), SentAt: utc(r.SentAt),
 		PaidAt: utc(r.PaidAt), CancelledAt: utc(r.CancelledAt), DueDate: utc(r.DueDate), Note: r.Note,
-		GeneratedBy: r.GeneratedBy, GeneratedByName: by, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
+		ShowActualPickup: r.ShowActualPickup, GeneratedBy: r.GeneratedBy, GeneratedByName: by, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
 		LegacyDocID: r.LegacyDocID}
 }
 
 // StatementInput is the body of POST /v1/billing/statements. Types and categories are the invoice-set toggles
 // (absent = all; an empty list is refused); issuerCompanyId names the issuing company of the billing tenant (absent =
-// its owner company, else its only active company).
+// its owner company, else its only active company); showActualPickup adds the วันรับงานจริง column to the detail
+// sheet (the Billing Document page's toggle, absent = false; stored with the statement, 0016).
 type StatementInput struct {
-	CustomerID      string    `json:"customerId"`
-	Year            int       `json:"year"`
-	Month           int       `json:"month"`
-	Types           *[]string `json:"types"`
-	Categories      *[]string `json:"categories"`
-	Note            string    `json:"note"`
-	IssuerCompanyID string    `json:"issuerCompanyId"`
+	CustomerID       string    `json:"customerId"`
+	Year             int       `json:"year"`
+	Month            int       `json:"month"`
+	Types            *[]string `json:"types"`
+	Categories       *[]string `json:"categories"`
+	Note             string    `json:"note"`
+	IssuerCompanyID  string    `json:"issuerCompanyId"`
+	ShowActualPickup bool      `json:"showActualPickup"`
 }
 
 // toggles validates an optional list of toggles: absent = all of allowed, empty or unknown values refused.
@@ -266,7 +269,7 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 		st, err := q.InsertStatement(ctx, billingdb.InsertStatementParams{TenantID: tenant, PartyID: party,
 			IssuerCompanyID: &company, InvoiceNumber: invoiceNumber(code, in.Year, in.Month, int(seq)),
 			CustomerName: name, CustomerCode: &codeSnap, PeriodYear: int32(in.Year), PeriodMonth: int32(in.Month),
-			GeneratedAt: now, DueDate: due, Note: notePtr, GeneratedBy: actor(p)})
+			GeneratedAt: now, DueDate: due, Note: notePtr, GeneratedBy: actor(p), ShowActualPickup: in.ShowActualPickup})
 		if err != nil {
 			return err
 		}

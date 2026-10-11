@@ -6,10 +6,11 @@
 
 -- name: RenderStatement :one
 -- The statement as its documents print it: number, period, totals and the stored withholding rate (R18), the party's
--- basis, the bill-to (the customer, or the carrier tenant the party bills) and the issuing company.
+-- basis, the bill-to (the customer, or the carrier tenant the party bills), the issuing company and whether the detail
+-- sheet carries the วันรับงานจริง column (0016).
 SELECT s.id, s.tenant_id, s.billing_party_id, s.invoice_number, s.customer_name_snapshot, s.customer_code_snapshot,
        s.period_year, s.period_month, s.total_amount, s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.status,
-       s.generated_at, s.paid_at,
+       s.generated_at, s.paid_at, s.show_actual_pickup,
        bp.kind AS party_kind, bp.billing_date_basis,
        c.code AS customer_code, c.name AS customer_name, c.address AS customer_address, c.tax_id AS customer_tax_id,
        c.branch_type AS customer_branch_type, c.branch_number AS customer_branch_number,
@@ -81,6 +82,11 @@ FROM unnest(sqlc.arg(kinds)::text[]) AS k
 ON CONFLICT (statement_id, kind) DO UPDATE
   SET status = 'failed', error = excluded.error, job_id = excluded.job_id
   WHERE statement_documents.status <> 'ready';
+
+-- name: SetStatementShowActualPickup :exec
+-- A regenerate that names showActualPickup stores it in the transaction that succeeds its job (0016), so the column
+-- always names what the stored detail sheet shows.
+UPDATE billing_statements SET show_actual_pickup = sqlc.arg(show_actual_pickup) WHERE id = sqlc.arg(id);
 
 -- name: StatementDocument :one
 -- GET /v1/billing/statements/{id}/documents/{kind}: the document of a statement the caller can read.

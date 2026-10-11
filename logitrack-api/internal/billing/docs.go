@@ -146,13 +146,27 @@ func (s *Service) DocumentDownload(ctx context.Context, p *authz.Principal, id u
 	return u, err
 }
 
+// RegenerateInput is the optional body of POST /v1/billing/statements/{id}/documents/regenerate: showActualPickup,
+// when given, changes whether the detail sheet carries the วันรับงานจริง column (absent = the statement's stored
+// choice, billing_statements.show_actual_pickup, 0016).
+type RegenerateInput struct {
+	ShowActualPickup *bool `json:"showActualPickup"`
+}
+
+// regenerateParams are the parameters of a documents.regenerate job.
+type regenerateParams struct {
+	StatementID      uuid.UUID `json:"statementId"`
+	ShowActualPickup *bool     `json:"showActualPickup,omitempty"`
+}
+
 // RegenerateDocuments is POST /v1/billing/statements/{id}/documents/regenerate (accounting:manage_statements): a
 // documents.regenerate job (202 {jobId}; lock:job:documents.regenerate:{statementId}, a render in progress is 409
 // already_exists with its jobId) that renders the invoice PDF, the detail sheet and the bundle again from the statement's
 // lines, and the receipt when the statement is paid; each document points at its new file, the old objects stay. A
-// statement without lines (a legacy one the ETL loaded) is 409 failed_precondition (no_lines). Only the own fleet
-// manages statements (billingTenantOf).
-func (s *Service) RegenerateDocuments(ctx context.Context, p *authz.Principal, id uuid.UUID) (jobs.Job, error) {
+// showActualPickup in the body renders the detail sheet with (or without) the วันรับงานจริง column and is stored on the
+// statement in the transaction that succeeds the job. A statement without lines (a legacy one the ETL loaded) is 409
+// failed_precondition (no_lines). Only the own fleet manages statements (billingTenantOf).
+func (s *Service) RegenerateDocuments(ctx context.Context, p *authz.Principal, id uuid.UUID, in RegenerateInput) (jobs.Job, error) {
 	if _, err := billingTenantOf(p); err != nil {
 		return jobs.Job{}, err
 	}
@@ -179,7 +193,7 @@ func (s *Service) RegenerateDocuments(ctx context.Context, p *authz.Principal, i
 	}
 	return s.jobs.Submit(ctx, jobs.SubmitInput{
 		NewInput: jobs.NewInput{Type: jobs.TypeDocumentsRegenerate, OwnerUserID: actor(p), TenantID: &tenant,
-			Params: map[string]any{"statementId": id.String()}, Scope: id.String()},
+			Params: regenerateParams{StatementID: id, ShowActualPickup: in.ShowActualPickup}, Scope: id.String()},
 		Command: true,
 	})
 }
@@ -241,7 +255,8 @@ type statementEvent struct {
 	Status      string    `json:"status"`
 }
 
-// errPermanent marks a render that cannot succeed by retrying (the documents are failed and the message acked).
+// errPermanent marks a render that cannot succeed by retrying (the documents are failed and the message acked): the
+// event path hands it to the consumer as mq.Permanent, a regenerate fails its job.
 type errPermanent struct{ error }
 
 // Handle runs one delivery of documents.render.
@@ -285,7 +300,14 @@ func (j *DocumentJob) statementEvent(ctx context.Context, d *mq.Delivery, id uui
 		return nil
 	}
 	claim := func(ctx context.Context, tx pgx.Tx) (bool, error) { return inbox.Claim(ctx, tx, d.Queue, d.MessageID) }
-	return j.renderStatement(ctx, id, kinds, nil, claim)
+	err := j.renderStatement(ctx, id, kinds, nil, nil, claim)
+	var perm errPermanent
+	if errors.As(err, &perm) {
+		// The kinds are marked failed with the cause; a retry would draw the same failure, so the message is acked
+		// (no retry ladder, no dead letter). A regenerate job renders them again.
+		return mq.Permanent(perm.error)
+	}
+	return err
 }
 
 // regenerate runs a documents.regenerate job.
@@ -305,9 +327,7 @@ func (j *DocumentJob) regenerate(ctx context.Context, d *mq.Delivery) error {
 	} else if err != nil {
 		return err
 	}
-	var params struct {
-		StatementID uuid.UUID `json:"statementId"`
-	}
+	var params regenerateParams
 	if json.Unmarshal(job.Params, &params) != nil || params.StatementID == uuid.Nil {
 		return j.failJob(ctx, cmd, job.ID, "the job names no statement")
 	}
@@ -317,9 +337,14 @@ func (j *DocumentJob) regenerate(ctx context.Context, d *mq.Delivery) error {
 		if errors.Is(err, jobs.ErrNotActive) {
 			return false, nil
 		}
-		return err == nil, err
+		if err != nil || params.ShowActualPickup == nil {
+			return err == nil, err
+		}
+		// The choice is stored with the documents drawn from it, so the column names what the stored sheet shows.
+		return true, billingdb.New(tx).SetStatementShowActualPickup(ctx, billingdb.SetStatementShowActualPickupParams{
+			ID: params.StatementID, ShowActualPickup: *params.ShowActualPickup})
 	}
-	err = j.renderStatement(ctx, params.StatementID, nil, &jobID, claim)
+	err = j.renderStatement(ctx, params.StatementID, nil, &jobID, params.ShowActualPickup, claim)
 	var perm errPermanent
 	if errors.As(err, &perm) {
 		return j.failJob(ctx, cmd, jobID, perm.Error())
@@ -356,17 +381,21 @@ func (j *DocumentJob) release(ctx context.Context, jobType string, cmd jobs.Comm
 // renderStatement renders a statement's documents: kinds (nil = the invoice kinds, plus the receipt of a paid statement),
 // marked rendering first, stored under a fresh render id, then registered and pointed at in one transaction that also
 // runs claim (the inbox claim of an event, the success of a job); claim false means another delivery finished first, and
-// the objects just stored are removed. A statement that no longer exists (a deleted draft) ends quietly. A render that
-// cannot succeed marks the documents failed and returns errPermanent; a storage or database failure is returned for the
-// retry ladder, the documents marked failed meanwhile.
+// the objects just stored are removed. showActualPickup, when not nil, overrides the statement's stored choice of the
+// detail sheet's วันรับงานจริง column (a regenerate that names it). A statement that no longer exists (a deleted draft)
+// ends quietly. A render that cannot succeed marks the documents failed and returns errPermanent; a storage or database
+// failure is returned for the retry ladder, the documents marked failed meanwhile.
 func (j *DocumentJob) renderStatement(ctx context.Context, id uuid.UUID, kinds []string, jobID *uuid.UUID,
-	claim func(context.Context, pgx.Tx) (bool, error)) error {
+	showActualPickup *bool, claim func(context.Context, pgx.Tx) (bool, error)) error {
 	in, err := j.loadStatement(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.WithSystem(ctx, j.d.Pool, nil, func(tx pgx.Tx) error { _, err := claim(ctx, tx); return err })
 	}
 	if err != nil {
 		return err
+	}
+	if showActualPickup != nil {
+		in.detail.ShowActualPickup = *showActualPickup
 	}
 	if kinds == nil {
 		kinds = slices.Clone(invoiceKinds)
@@ -530,7 +559,7 @@ func (j *DocumentJob) loadStatement(ctx context.Context, id uuid.UUID) (statemen
 		IssuedAt: st.GeneratedAt, Totals: totals}
 	in.invoice = render.InvoiceInput{Rows: rows, Customer: cust, Provider: prov, Statement: statement}
 	in.detail = render.DetailInput{Rows: rows, Year: statement.Year, Month: statement.Month, CustomerName: cust.Name,
-		ProviderName: prov.Name, OwnerShortName: prov.ShortName, Totals: totals}
+		ProviderName: prov.Name, OwnerShortName: prov.ShortName, Totals: totals, ShowActualPickup: st.ShowActualPickup}
 	return in, nil
 }
 

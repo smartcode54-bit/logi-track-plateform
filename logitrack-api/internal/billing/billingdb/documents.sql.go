@@ -281,7 +281,7 @@ const renderStatement = `-- name: RenderStatement :one
 
 SELECT s.id, s.tenant_id, s.billing_party_id, s.invoice_number, s.customer_name_snapshot, s.customer_code_snapshot,
        s.period_year, s.period_month, s.total_amount, s.withholding_tax_rate, s.withholding_tax, s.net_amount, s.status,
-       s.generated_at, s.paid_at,
+       s.generated_at, s.paid_at, s.show_actual_pickup,
        bp.kind AS party_kind, bp.billing_date_basis,
        c.code AS customer_code, c.name AS customer_name, c.address AS customer_address, c.tax_id AS customer_tax_id,
        c.branch_type AS customer_branch_type, c.branch_number AS customer_branch_number,
@@ -316,6 +316,7 @@ type RenderStatementRow struct {
 	Status               string
 	GeneratedAt          time.Time
 	PaidAt               *time.Time
+	ShowActualPickup     bool
 	PartyKind            string
 	BillingDateBasis     string
 	CustomerCode         *string
@@ -353,7 +354,8 @@ type RenderStatementRow struct {
 // a committed file_objects row of purpose statement_document; a regenerate renders under a new key and points the row
 // at the new file, the old object staying (§9.9).
 // The statement as its documents print it: number, period, totals and the stored withholding rate (R18), the party's
-// basis, the bill-to (the customer, or the carrier tenant the party bills) and the issuing company.
+// basis, the bill-to (the customer, or the carrier tenant the party bills), the issuing company and whether the detail
+// sheet carries the วันรับงานจริง column (0016).
 func (q *Queries) RenderStatement(ctx context.Context, id uuid.UUID) (RenderStatementRow, error) {
 	row := q.db.QueryRow(ctx, renderStatement, id)
 	var i RenderStatementRow
@@ -373,6 +375,7 @@ func (q *Queries) RenderStatement(ctx context.Context, id uuid.UUID) (RenderStat
 		&i.Status,
 		&i.GeneratedAt,
 		&i.PaidAt,
+		&i.ShowActualPickup,
 		&i.PartyKind,
 		&i.BillingDateBasis,
 		&i.CustomerCode,
@@ -404,6 +407,22 @@ func (q *Queries) RenderStatement(ctx context.Context, id uuid.UUID) (RenderStat
 		&i.SignatureFileID,
 	)
 	return i, err
+}
+
+const setStatementShowActualPickup = `-- name: SetStatementShowActualPickup :exec
+UPDATE billing_statements SET show_actual_pickup = $1 WHERE id = $2
+`
+
+type SetStatementShowActualPickupParams struct {
+	ShowActualPickup bool
+	ID               uuid.UUID
+}
+
+// A regenerate that names showActualPickup stores it in the transaction that succeeds its job (0016), so the column
+// always names what the stored detail sheet shows.
+func (q *Queries) SetStatementShowActualPickup(ctx context.Context, arg SetStatementShowActualPickupParams) error {
+	_, err := q.db.Exec(ctx, setStatementShowActualPickup, arg.ShowActualPickup, arg.ID)
+	return err
 }
 
 const statementDocument = `-- name: StatementDocument :one

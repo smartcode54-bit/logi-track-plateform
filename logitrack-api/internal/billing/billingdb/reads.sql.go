@@ -840,8 +840,7 @@ SELECT tr.id, tr.trip_no, tr.tenant_id, tr.delivered_at, tr.parcel_count, tr.ori
        tr.truck_license_plate_snapshot AS trip_plate, tr.vehicle_class AS trip_vehicle_class,
        s.lookup_hub_code, s.lookup_destination_code,
        tk.truck_type, tk.license_plate_snapshot AS task_plate, tk.source_hub_raw, tk.destination_raw,
-       d.id AS driver_id, d.full_name_th, d.first_name, d.last_name, d.email AS driver_email,
-       greatest(tr.updated_at, (SELECT max(p.updated_at) FROM trip_photos p WHERE p.trip_id = tr.id))::timestamptz AS changed_at
+       d.id AS driver_id, d.full_name_th, d.first_name, d.last_name, d.email AS driver_email
 FROM trip_records tr
 LEFT JOIN trip_billing_snapshots s ON s.trip_id = tr.id
 LEFT JOIN tasks tk ON tk.id = tr.task_id
@@ -882,13 +881,13 @@ type ShopeeReportTripsRow struct {
 	FirstName             *string
 	LastName              *string
 	DriverEmail           *string
-	ChangedAt             time.Time
 }
 
 // GET /v1/billing/shopee-report (fetchShopeeExpressReportTrips, billing.ts:1249-1363): delivered trips of a Bangkok
 // month or half-month whose party resolves to the customer (billing_party_id, else the task's source then destination
 // link: un-billed trips count), filtered here instead of in the browser over every customer's trips. Price-free. The
-// reach is named for the worker's render (a system transaction); requests also run under RLS.
+// reach is named for the render's READ ONLY system transaction (the worker's, and the PDF route's rows version, which
+// digests what the render prints, so it is read the same way); GET /v1/billing/shopee-report also runs under RLS.
 func (q *Queries) ShopeeReportTrips(ctx context.Context, arg ShopeeReportTripsParams) ([]ShopeeReportTripsRow, error) {
 	rows, err := q.db.Query(ctx, shopeeReportTrips,
 		arg.PeriodFrom,
@@ -925,7 +924,6 @@ func (q *Queries) ShopeeReportTrips(ctx context.Context, arg ShopeeReportTripsPa
 			&i.FirstName,
 			&i.LastName,
 			&i.DriverEmail,
-			&i.ChangedAt,
 		); err != nil {
 			return nil, err
 		}

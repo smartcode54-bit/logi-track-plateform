@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,7 +44,6 @@ type ShopeeTrip struct {
 	TruckLicensePlate    *string       `json:"truckLicensePlate"`
 	ParcelCount          *int32        `json:"parcelCount"`
 	SignedRunsheetPhotos []ShopeePhoto `json:"signedRunsheetPhotos"`
-	changedAt            time.Time
 }
 
 // ShopeeReport is the answer of GET /v1/billing/shopee-report.
@@ -139,19 +137,18 @@ func reachDigest(all bool, tenants []uuid.UUID) string {
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 
-// shopeeTrips reads the report's trips and photos in tx (the request's, or the worker's READ ONLY system one with the
-// same reach) and their rows version: the count and the latest change of a trip or its photos, which tells whether a
-// stored render is still current.
+// shopeeTrips reads the report's trips and photos in tx: the request's under RLS (GET /v1/billing/shopee-report), or
+// the READ ONLY system one of readShopeeContent with the reach of a render.
 func shopeeTrips(ctx context.Context, q *billingdb.Queries, party uuid.UUID, from, to time.Time, all bool,
-	tenants []uuid.UUID) ([]ShopeeTrip, string, error) {
+	tenants []uuid.UUID) ([]ShopeeTrip, error) {
 	rows, err := q.ShopeeReportTrips(ctx, billingdb.ShopeeReportTripsParams{PeriodFrom: from, PeriodTo: to, PartyID: party,
 		AllTenants: all, TenantIds: tenants})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	hubs, err := q.DisplayHubs(ctx)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	disp := newHubDisplay(hubs)
 	ids := make([]uuid.UUID, len(rows))
@@ -162,14 +159,13 @@ func shopeeTrips(ctx context.Context, q *billingdb.Queries, party uuid.UUID, fro
 	if len(ids) > 0 {
 		ps, err := q.ShopeeReportPhotos(ctx, ids)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		for _, ph := range ps {
 			photos[ph.TripID] = append(photos[ph.TripID], ShopeePhoto{PhotoType: ph.PhotoType, FileID: ph.FileID})
 		}
 	}
 	out := make([]ShopeeTrip, 0, len(rows))
-	var latest time.Time
 	for _, r := range rows {
 		name := driverName(r.FullNameTh, r.FirstName, r.LastName, r.DriverEmail)
 		if name == "" {
@@ -179,12 +175,9 @@ func shopeeTrips(ctx context.Context, q *billingdb.Queries, party uuid.UUID, fro
 			OriginDisplay:      disp.name(firstNonBlank(deref(r.LookupHubCode), deref(r.SourceHubRaw), deref(r.OriginRaw))),
 			DestinationDisplay: disp.name(firstNonBlank(deref(r.LookupDestinationCode), deref(r.DestinationRaw), deref(r.TripDestinationRaw))),
 			VehicleClass:       firstStr(r.TruckType, r.TripVehicleClass), TruckLicensePlate: firstStr(r.TaskPlate, r.TripPlate),
-			ParcelCount: r.ParcelCount, SignedRunsheetPhotos: photos[r.ID], changedAt: r.ChangedAt}
+			ParcelCount: r.ParcelCount, SignedRunsheetPhotos: photos[r.ID]}
 		if t.SignedRunsheetPhotos == nil {
 			t.SignedRunsheetPhotos = []ShopeePhoto{}
-		}
-		if r.ChangedAt.After(latest) {
-			latest = r.ChangedAt
 		}
 		out = append(out, t)
 	}
@@ -196,8 +189,63 @@ func shopeeTrips(ctx context.Context, q *billingdb.Queries, party uuid.UUID, fro
 		}
 		return strings.Compare(a.DriverName, b.DriverName)
 	})
-	version := strconv.Itoa(len(out)) + ":" + strconv.FormatInt(latest.UnixMicro(), 10)
-	return out, version, nil
+	return out, nil
+}
+
+// shopeeContent is what a Shopee report PDF prints but its issue date: the customer (its party), the owner company's
+// name in the header and the trips with their run-sheet photos, and version, the rows version that digests them.
+type shopeeContent struct {
+	party   billingdb.ResolvePartyRow
+	owner   string
+	trips   []ShopeeTrip
+	version string
+}
+
+// customerName is the report's customer: the customer's name, else the carrier tenant's the party bills.
+func (c shopeeContent) customerName() string {
+	return firstNonBlank(deref(c.party.CustomerName), deref(c.party.TenantName))
+}
+
+// readShopeeContent reads the content of a render with the parameters of a documents.shopee-report job in one READ
+// ONLY system transaction that names their reach: the worker renders from it, and GET /v1/billing/shopee-report.pdf
+// computes its version the same way, so both read the same rows whatever the caller's RLS shows (a driver or task of a
+// tenant in the reach that the caller's RLS hides would otherwise change the digest on every request). A party that no
+// longer exists is pgx.ErrNoRows.
+func readShopeeContent(ctx context.Context, pool db.Beginner, params shopeeParams) (shopeeContent, error) {
+	from, to := shopeeBounds(params.Year, params.Month, params.Half)
+	var c shopeeContent
+	err := readShared(ctx, pool, func(q *billingdb.Queries) error {
+		var err error
+		if c.party, err = q.ResolveParty(ctx, params.PartyID); err != nil {
+			return err
+		}
+		if c.trips, err = shopeeTrips(ctx, q, params.PartyID, from, to, params.AllTenants, params.TenantIDs); err != nil {
+			return err
+		}
+		c.owner, err = q.OwnerCompanyName(ctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = nil
+		}
+		return err
+	})
+	if err != nil {
+		return shopeeContent{}, err
+	}
+	c.version = shopeeVersion(c)
+	return c, nil
+}
+
+// shopeeVersion is the rows version of a render: a digest of everything the PDF prints but its issue date (the
+// customer and owner names of the header; per trip, in print order, its number, delivery time, driver and name,
+// origin and destination labels, vehicle class, plate, parcel count and the file of every signed run-sheet). A
+// correction anywhere the report reads (the task's plate or class, a driver's name, a hub's label, a photo added or
+// removed) changes it, whatever row's updated_at moved, and so does a change committed after a render read its rows;
+// a write that changes nothing printed leaves the render current.
+func shopeeVersion(c shopeeContent) string {
+	h := sha256.New()
+	// json.Encoder over a hash writer cannot fail; the trips encode their fields in declaration order.
+	_ = json.NewEncoder(h).Encode([]any{c.customerName(), c.owner, c.trips})
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // ShopeeReport is GET /v1/billing/shopee-report (accounting:shopee_report; fetchShopeeExpressReportTrips,
@@ -219,7 +267,7 @@ func (s *Service) ShopeeReport(ctx context.Context, p *authz.Principal, in Shope
 	out.BillingPartyID = &party
 	err = s.tx(ctx, p, func(_ pgx.Tx, q *billingdb.Queries) error {
 		var err error
-		out.Trips, _, err = shopeeTrips(ctx, q, party, sc.from, sc.to, sc.all, sc.tenants)
+		out.Trips, err = shopeeTrips(ctx, q, party, sc.from, sc.to, sc.all, sc.tenants)
 		return err
 	})
 	if err != nil {
@@ -238,7 +286,8 @@ func (s *Service) ShopeeReport(ctx context.Context, p *authz.Principal, in Shope
 	return out, nil
 }
 
-// shopeeParams are the parameters of a documents.shopee-report job; the first five also find a reusable render.
+// shopeeParams are the parameters of a documents.shopee-report job; the first five also find a reusable render, and
+// the reach is part of its lock scope.
 type shopeeParams struct {
 	PartyID    uuid.UUID   `json:"partyId"`
 	Year       int         `json:"year"`
@@ -254,7 +303,7 @@ type shopeeResult struct {
 	FileID            uuid.UUID `json:"fileId"`
 	Key               string    `json:"key"`
 	FileName          string    `json:"fileName"`
-	RowsVersion       string    `json:"rowsVersion"`
+	RowsVersion       string    `json:"rowsVersion"` // shopeeVersion of the content rendered
 	TripCount         int       `json:"tripCount"`
 	PhotoCount        int       `json:"photoCount"`
 	MissingPhotoCount int       `json:"missingPhotoCount"`
@@ -268,11 +317,13 @@ type ShopeePDF struct {
 }
 
 // ShopeeReportPDF is GET /v1/billing/shopee-report.pdf (accounting:shopee_report; replaces the browser's jsPDF report,
-// web:lib/shopeeExpressReport.ts): the newest finished render for these parameters and the caller's reach when its
-// rows version is still the period's (302 to a signed download), else a documents.shopee-report job (202 {jobId};
-// lock:job:documents.shopee-report:{partyId}:{yyyymm}:{half}, a render in progress answers its own jobId). The page
-// waits for job.updated (or polls GET /v1/jobs/{id}) and asks again. A caller without a staff tenant reach is 403: the
-// worker renders the trips of the reach the request names.
+// web:lib/shopeeExpressReport.ts): the newest finished render for these parameters and the caller's reach while its
+// rows version (shopeeVersion, a digest of what it prints) equals the one of the content it would print now (302 to a
+// signed download), else a documents.shopee-report job (202 {jobId};
+// lock:job:documents.shopee-report:{partyId}:{yyyymm}:{half}:{reach}, so a render in progress answers its jobId only
+// to callers of the same reach, who can read the job; another reach starts its own). The page waits for job.updated
+// (or polls GET /v1/jobs/{id}) and asks again. A caller without a staff tenant reach is 403: the worker renders the
+// trips of the reach the request names.
 func (s *Service) ShopeeReportPDF(ctx context.Context, p *authz.Principal, in ShopeeInput) (ShopeePDF, error) {
 	sc, err := s.shopeeScope(ctx, p, in)
 	if err != nil {
@@ -291,13 +342,8 @@ func (s *Service) ShopeeReportPDF(ctx context.Context, p *authz.Principal, in Sh
 		AllTenants: sc.all, TenantIDs: sc.tenants}
 	match, _ := json.Marshal(map[string]any{"partyId": params.PartyID, "year": params.Year, "month": params.Month,
 		"half": params.Half, "reach": params.Reach})
-	var version string
 	var latest *billingdb.LatestShopeeRenderRow
 	err = s.tx(ctx, p, func(_ pgx.Tx, q *billingdb.Queries) error {
-		var err error
-		if _, version, err = shopeeTrips(ctx, q, sc.party.ID, sc.from, sc.to, sc.all, sc.tenants); err != nil {
-			return err
-		}
 		r, err := q.LatestShopeeRender(ctx, match)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -308,9 +354,16 @@ func (s *Service) ShopeeReportPDF(ctx context.Context, p *authz.Principal, in Sh
 	if err != nil {
 		return ShopeePDF{}, err
 	}
-	if latest != nil {
-		var res shopeeResult
-		if json.Unmarshal(latest.Result, &res) == nil && res.FileID != uuid.Nil && res.RowsVersion == version {
+	var res shopeeResult
+	if latest != nil && json.Unmarshal(latest.Result, &res) == nil && res.FileID != uuid.Nil {
+		now, err := readShopeeContent(ctx, s.pool, params)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ShopeePDF{}, httpx.ErrNotFound()
+		}
+		if err != nil {
+			return ShopeePDF{}, err
+		}
+		if res.RowsVersion == now.version {
 			u, _, err := s.files.SignedDownload(ctx, res.FileID, 0, storage.GetOptions{
 				ContentDisposition: `attachment; filename="` + res.FileName + `"`})
 			if err == nil {
@@ -321,7 +374,9 @@ func (s *Service) ShopeeReportPDF(ctx context.Context, p *authz.Principal, in Sh
 			}
 		}
 	}
-	scope := sc.party.ID.String() + ":" + fmt.Sprintf("%04d%02d", sc.year, sc.month) + ":" + sc.half
+	// The reach is in the scope: a running render of another reach is not the caller's (its jobId would be a job the
+	// caller cannot read, jobs.Caller.canRead, whose job.updated goes to another owner), so it starts its own.
+	scope := sc.party.ID.String() + ":" + fmt.Sprintf("%04d%02d", sc.year, sc.month) + ":" + sc.half + ":" + sc.reachDigest
 	j, err := s.jobs.Submit(ctx, jobs.SubmitInput{
 		NewInput: jobs.NewInput{Type: jobs.TypeDocumentsShopeeReport, OwnerUserID: actor(p), TenantID: p.EffectiveTenant(),
 			Params: params, Scope: scope},
@@ -362,34 +417,18 @@ func (j *DocumentJob) shopee(ctx context.Context, d *mq.Delivery) error {
 	if json.Unmarshal(job.Params, &params) != nil || params.PartyID == uuid.Nil {
 		return j.failJob(ctx, cmd, job.ID, "the job names no customer")
 	}
-	from, to := shopeeBounds(params.Year, params.Month, params.Half)
-	var trips []ShopeeTrip
-	var version, ownerName string
-	var party billingdb.ResolvePartyRow
-	err = readShared(ctx, j.d.Pool, func(q *billingdb.Queries) error {
-		var err error
-		if party, err = q.ResolveParty(ctx, params.PartyID); err != nil {
-			return err
-		}
-		if trips, version, err = shopeeTrips(ctx, q, params.PartyID, from, to, params.AllTenants, params.TenantIDs); err != nil {
-			return err
-		}
-		ownerName, err = q.OwnerCompanyName(ctx)
-		if errors.Is(err, pgx.ErrNoRows) {
-			err = nil
-		}
-		return err
-	})
+	content, err := readShopeeContent(ctx, j.d.Pool, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j.failJob(ctx, cmd, job.ID, "the customer no longer exists")
 	}
 	if err != nil {
 		return err
 	}
-	in := render.ShopeeInput{CustomerName: firstNonBlank(deref(party.CustomerName), deref(party.TenantName)),
-		ProviderName: ownerName, Year: params.Year, Month: params.Month, Half: render.Half(params.Half), IssuedAt: j.d.Now()}
-	res := shopeeResult{RowsVersion: version, TripCount: len(trips)}
-	for _, t := range trips {
+	party := content.party
+	in := render.ShopeeInput{CustomerName: content.customerName(), ProviderName: content.owner, Year: params.Year,
+		Month: params.Month, Half: render.Half(params.Half), IssuedAt: j.d.Now()}
+	res := shopeeResult{RowsVersion: content.version, TripCount: len(content.trips)}
+	for _, t := range content.trips {
 		row := render.ShopeeRow{ID: t.ID.String(), TripNo: t.TripNo, DriverKey: idStr(t.DriverID), DriverName: t.DriverName,
 			Origin: t.OriginDisplay, Destination: t.DestinationDisplay, VehicleClass: deref(t.VehicleClass),
 			Plate: deref(t.TruckLicensePlate), ParcelCount: t.ParcelCount, PhotoCount: len(t.SignedRunsheetPhotos)}

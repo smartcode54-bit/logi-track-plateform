@@ -331,8 +331,8 @@ func TestStatementDocuments(t *testing.T) {
 	}
 }
 
-// A render that cannot succeed marks its documents failed (the download answers the reason) and acks; a regenerate job
-// ends failed.
+// A render that cannot succeed marks its documents failed (the download answers the reason) and acks; a storage failure
+// returns to the retry ladder; a regenerate job ends failed.
 func TestStatementDocumentFailures(t *testing.T) {
 	w := newWorld(t)
 	tok := w.login("ta.o")
@@ -341,6 +341,27 @@ func TestStatementDocumentFailures(t *testing.T) {
 	st := w.statement("ta.o", map[string]any{"customerId": w.partyY, "year": 2026, "month": 10})
 	expect(t, st, http.StatusCreated, "")
 	id := str(st.data()["id"])
+	docPath := "/v1/billing/statements/" + id + "/documents/"
+	body := scan[[]byte](w, `SELECT payload::text::bytea FROM outbox_events WHERE routing_key = 'statement.created' AND aggregate_id = $1`, id)
+
+	// Regression (T39 review): a render that cannot succeed (fonts that do not parse) is permanent on the event path
+	// too: the kinds are failed with the cause and the message acked, not retried up the ladder into the dead letter.
+	bad, err := billing.NewDocumentJob(billing.DocumentJobDeps{Pool: w.pool, Files: w.files,
+		Fonts: render.Fonts{Regular: []byte("not a font"), Bold: []byte("not a font")}, Locks: jobs.NewRedisLocker(w.rdb, w.ks),
+		Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := &mq.Delivery{Queue: billing.QueueDocuments, MessageID: "9000", RoutingKey: billing.RouteStatementCreated, Body: body}
+	if err := bad.Handle(context.Background(), created); err == nil || !mq.IsPermanent(err) {
+		t.Fatalf("a render that cannot succeed: %v, want a permanent error", err)
+	}
+	r := w.get(docPath+"invoice_summary_pdf", tok)
+	expect(t, r, http.StatusConflict, "failed_precondition")
+	if r.detail("status") != "failed" || !strings.Contains(str(r.detail("error")), "invoice PDF") {
+		t.Fatalf("%s", r.raw)
+	}
+
 	broken := &failingFiles{Service: w.files, fail: true}
 	f, _ := render.LoadFonts("")
 	j, err := billing.NewDocumentJob(billing.DocumentJobDeps{Pool: w.pool, Files: broken, Fonts: f,
@@ -348,12 +369,11 @@ func TestStatementDocumentFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := scan[[]byte](w, `SELECT payload::text::bytea FROM outbox_events WHERE routing_key = 'statement.created' AND aggregate_id = $1`, id)
 	d := &mq.Delivery{Queue: billing.QueueDocuments, MessageID: "9001", RoutingKey: billing.RouteStatementCreated, Body: body}
-	if err := j.Handle(context.Background(), d); err == nil {
-		t.Fatal("a storage failure was acked: the retry ladder must run it again")
+	if err := j.Handle(context.Background(), d); err == nil || mq.IsPermanent(err) {
+		t.Fatalf("a storage failure: %v; the retry ladder must run it again", err)
 	}
-	r := w.get("/v1/billing/statements/"+id+"/documents/bundle_zip", tok)
+	r = w.get(docPath+"bundle_zip", tok)
 	expect(t, r, http.StatusConflict, "failed_precondition")
 	if r.detail("status") != "failed" || !strings.Contains(str(r.detail("error")), "storage") {
 		t.Fatalf("%s", r.raw)
@@ -366,8 +386,115 @@ func TestStatementDocumentFailures(t *testing.T) {
 	if got := documentStatuses(w.get("/v1/billing/statements/"+id, tok)); got["bundle_zip"] != "ready" {
 		t.Fatalf("after the retry %v", got)
 	}
+
+	// The receipt of the statement once paid, the same way: acked as permanent, failed with its cause.
+	expect(t, w.post("/v1/billing/statements/"+id+"/status", tok, map[string]any{"status": "sent"}), http.StatusOK, "")
+	expect(t, w.post("/v1/billing/statements/"+id+"/status", tok, map[string]any{"status": "paid"}), http.StatusOK, "")
+	paid := scan[[]byte](w, `SELECT payload::text::bytea FROM outbox_events WHERE routing_key = 'statement.status_changed'
+		AND aggregate_id = $1 ORDER BY id DESC LIMIT 1`, id)
+	err = bad.Handle(context.Background(), &mq.Delivery{Queue: billing.QueueDocuments, MessageID: "9002",
+		RoutingKey: billing.RouteStatementStatusChanged, Body: paid})
+	if err == nil || !mq.IsPermanent(err) {
+		t.Fatalf("a receipt that cannot be drawn: %v, want a permanent error", err)
+	}
+	r = w.get(docPath+"receipt_pdf", tok)
+	expect(t, r, http.StatusConflict, "failed_precondition")
+	if r.detail("status") != "failed" || !strings.Contains(str(r.detail("error")), "receipt PDF") {
+		t.Fatalf("%s", r.raw)
+	}
+	if got := documentStatuses(w.get("/v1/billing/statements/"+id, tok)); got["bundle_zip"] != "ready" {
+		t.Fatalf("a failed receipt touched the ready documents: %v", got)
+	}
 	if _, err := billing.NewDocumentJob(billing.DocumentJobDeps{Pool: w.pool, Files: w.files}); err == nil {
 		t.Fatal("a consumer without fonts was built")
+	}
+}
+
+// detailSheet downloads a statement's stored invoice_detail.xlsx and returns the rows of its sheet.
+func (w *world) detailSheet(statementID, bearer, sheet string) [][]string {
+	w.t.Helper()
+	_, _, body := w.download("/v1/billing/statements/"+statementID+"/documents/invoice_detail_xlsx", bearer)
+	f, err := excelize.OpenReader(bytes.NewReader(body))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	rows, err := f.GetRows(sheet)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return rows
+}
+
+// Regression (T39 review): the detail sheet's optional วันรับงานจริง column (the Billing Document page's toggle,
+// ADR 0028) is chosen when the statement is created, stored with it, and changed by a regenerate that names it; a
+// regenerate without it keeps the stored choice.
+func TestStatementDetailActualPickup(t *testing.T) {
+	w := newWorld(t)
+	tok := w.login("ta.o")
+	w.hub("SPK-GW", "เจแอนด์ที บางปู", "J&T EXPRESS บางปู")
+	drv := w.driver(w.O, "สมชาย ใจดี", "0812345678")
+	for party, no := range map[string]string{w.partyX: "X-1", w.partyY: "Y-1"} {
+		task := w.task(taskSpec{tenant: w.O, party: party, src: "SPK-GW", dest: "SPK890103", class: "6WH", plate: "70-1111",
+			cat: "PRIMARY", driver: drv, plan: bkk(2026, 10, 3, 8, 0)})
+		w.exec(`UPDATE tasks SET actual_pickup_at = $2 WHERE id = $1`, task, bkk(2026, 10, 3, 9, 15))
+		trip := w.tripOf(w.O, party, no, task, drv, bkk(2026, 10, 4, 9, 0), ptr(bkk(2026, 10, 3, 8, 0)), "PRIMARY", false)
+		w.snapshot(trip, w.O, ptr(1000.0), false)
+		w.priced(trip, "SPK-GW", "SPK890103", "", 0, false)
+	}
+	bad := w.post("/v1/billing/statements", tok, map[string]any{"customerId": w.partyX, "year": 2026, "month": 10,
+		"showActualPickup": "yes"})
+	if bad.status != http.StatusBadRequest {
+		t.Fatalf("a non-boolean showActualPickup: %d %s", bad.status, bad.raw)
+	}
+	with := w.statement("ta.o", map[string]any{"customerId": w.partyX, "year": 2026, "month": 10, "showActualPickup": true})
+	expect(t, with, http.StatusCreated, "")
+	without := w.statement("ta.o", map[string]any{"customerId": w.partyY, "year": 2026, "month": 10})
+	expect(t, without, http.StatusCreated, "")
+	withID, withoutID := str(with.data()["id"]), str(without.data()["id"])
+	if with.data()["showActualPickup"] != true || without.data()["showActualPickup"] != false {
+		t.Fatalf("stored choice: %v / %v", with.data()["showActualPickup"], without.data()["showActualPickup"])
+	}
+	job := w.docJob(bkk(2026, 11, 1, 10, 0))
+	w.event(job, billing.RouteStatementCreated, withID)
+	w.event(job, billing.RouteStatementCreated, withoutID)
+	sheet := "รายละเอียดขนส่ง ตุลาคม 2569"
+	// header row 5 (index 4); the column follows the date column. CJSF (X) is plan basis, TTP (Y) delivered.
+	if rows := w.detailSheet(withID, tok, sheet); rows[4][1] != "วันที่ตามแผน" || rows[4][2] != "วันรับงานจริง" ||
+		rows[4][3] != "เลขใบงาน" || rows[5][2] != "03/10/2026 09:15" || rows[5][3] != "X-1" {
+		t.Fatalf("detail with the column %q", rows[4:6])
+	}
+	if rows := w.detailSheet(withoutID, tok, sheet); rows[4][1] != "วันที่" || rows[4][2] != "เลขใบงาน" || rows[5][2] != "Y-1" {
+		t.Fatalf("detail without the column %q", rows[4:6])
+	}
+
+	// regenerate posts a regenerate with body and runs its job.
+	regenerate := func(id string, body any) {
+		t.Helper()
+		r := w.post("/v1/billing/statements/"+id+"/documents/regenerate", tok, body)
+		expect(t, r, http.StatusAccepted, "")
+		if err := w.command(w.docJob(bkk(2026, 11, 2, 10, 0)), billing.RouteRegenerateJob, str(r.data()["jobId"])); err != nil {
+			t.Fatal(err)
+		}
+		if j := w.get("/v1/jobs/"+str(r.data()["jobId"]), tok); str(j.data()["status"]) != jobs.StatusSucceeded {
+			t.Fatalf("regenerate %s", j.raw)
+		}
+	}
+	stored := func(id string) any { return w.get("/v1/billing/statements/"+id, tok).data()["showActualPickup"] }
+	if r := w.post("/v1/billing/statements/"+withID+"/documents/regenerate", tok, map[string]any{"showActualPickup": 1}); r.status != http.StatusBadRequest {
+		t.Fatalf("a non-boolean showActualPickup on regenerate: %d %s", r.status, r.raw)
+	}
+	// Off: the column leaves the sheet and the statement stores the new choice with the documents.
+	regenerate(withID, map[string]any{"showActualPickup": false})
+	if rows := w.detailSheet(withID, tok, sheet); rows[4][2] != "เลขใบงาน" || rows[5][2] != "X-1" || stored(withID) != false {
+		t.Fatalf("after turning it off %q, stored %v", rows[4], stored(withID))
+	}
+	// On for the other statement, then a regenerate without a body keeps it.
+	regenerate(withoutID, map[string]any{"showActualPickup": true})
+	regenerate(withoutID, nil)
+	if rows := w.detailSheet(withoutID, tok, sheet); rows[4][2] != "วันรับงานจริง" || rows[5][2] != "03/10/2026 09:15" ||
+		stored(withoutID) != true {
+		t.Fatalf("after turning it on %q, stored %v", rows[4:6], stored(withoutID))
 	}
 }
 
@@ -404,7 +531,8 @@ func (w *world) photo(trip, photoType string) {
 }
 
 // The Shopee Express report: the rows filtered on the server (the customer resolves per trip, un-billed trips count),
-// and the PDF rendered once per rows version (302 to it while current, else a new render).
+// and the PDF rendered once per rows version, a digest of what it prints (302 to it while current, else a new render),
+// one render at a time per reach.
 func TestShopeeReport(t *testing.T) {
 	w := newWorld(t)
 	tok := w.login("ta.o")
@@ -421,7 +549,6 @@ func TestShopeeReport(t *testing.T) {
 	unbilled := w.tripOf(w.O, "", "TTP-2", linked, "", bkk(2026, 9, 20, 10, 0), nil, "", false) // second half
 	w.trip(w.O, w.partyX, "OTHER", bkk(2026, 9, 4, 10, 0), nil, ptr("PRIMARY"))                 // another customer
 	w.trip(w.C, w.partyY, "HIDDEN", bkk(2026, 9, 5, 10, 0), nil, ptr("PRIMARY"))                // outside O's reach
-	_ = unbilled
 
 	q := url.Values{"customerId": {w.customerY}, "year": {"2026"}, "month": {"9"}}
 	r := w.get("/v1/billing/shopee-report?"+q.Encode(), tok)
@@ -475,14 +602,85 @@ func TestShopeeReport(t *testing.T) {
 		disp != `attachment; filename="shopee_express_report_TTP_202609.pdf"` || bytes.Count(pdf, []byte("/Subtype /Image")) < 1 {
 		t.Fatalf("pdf %s %q", key, disp)
 	}
-	// A change to the period's rows makes the render stale: a new job.
-	w.exec(`UPDATE trip_records SET parcel_count = 13, updated_at = now() + interval '1 minute' WHERE id = $1`, billed)
-	stale := w.get(pdfPath, tok)
-	expect(t, stale, http.StatusAccepted, "")
-	if str(stale.data()["jobId"]) == jobID {
-		t.Fatal("a stale render was reused")
+	// A write that changes nothing the PDF prints keeps the render current.
+	w.exec(`UPDATE trip_records SET parcel_count = parcel_count WHERE id = $1`, unbilled)
+	if k, _, _ := w.download(pdfPath, tok); k != key {
+		t.Fatalf("a no-op write re-rendered: %s, was %s", k, key)
 	}
-	// A carrier sees its own trips only, so its report is another render (another reach).
+
+	// Regression (T39 review): the rows version was the trip count and the latest trip_records / trip_photos
+	// updated_at, so a correction elsewhere the PDF reads kept redirecting to the old render. Each correction below
+	// must make it stale: a new job, whose render the route then redirects to.
+	worker := w.docJob(bkk(2026, 10, 1, 9, 0))
+	rerender := func(what string) {
+		t.Helper()
+		r := w.get(pdfPath, tok)
+		if r.status != http.StatusAccepted || str(r.data()["jobId"]) == "" || str(r.data()["jobId"]) == jobID {
+			t.Fatalf("after %s: %d %s (the stale render was reused)", what, r.status, r.raw)
+		}
+		jobID = str(r.data()["jobId"])
+		if err := w.command(worker, billing.RouteShopeeReportJob, jobID); err != nil {
+			t.Fatal(err)
+		}
+		k, _, _ := w.download(pdfPath, tok)
+		if k == key || !strings.HasPrefix(k, "documents/reports/"+jobID+"/") {
+			t.Fatalf("after %s: %s, was %s", what, k, key)
+		}
+		key = k
+	}
+	w.exec(`UPDATE trip_records SET parcel_count = 13 WHERE id = $1`, billed)
+	rerender("a parcel count")
+	w.exec(`UPDATE drivers SET full_name_th = 'สมชาย ใจงาม' WHERE id = $1`, drv)
+	rerender("a driver's name")
+	w.exec(`UPDATE hubs SET name_th = 'เจแอนด์ที บางปู 2' WHERE source_id = 'SPK-GW'`)
+	rerender("a hub's label")
+	w.exec(`UPDATE tasks SET license_plate_snapshot = '70-9999', truck_type = '10WH' WHERE id = $1`, linked)
+	rerender("the task's plate and class")
+	// A run-sheet removed from the older trip while the newer trip changed last (the maximum updated_at stays).
+	w.exec(`UPDATE trip_records SET parcel_count = parcel_count WHERE id = $1`, unbilled)
+	w.exec(`DELETE FROM trip_photos WHERE trip_id = $1 AND photo_type = 'stop_2_runsheet_received'`, billed)
+	rerender("a run-sheet removed")
+	r = w.get("/v1/billing/shopee-report?"+q.Encode(), tok)
+	trips = r.data()["trips"].([]any)
+	first, second := trips[0].(map[string]any), trips[1].(map[string]any)
+	if str(first["driverName"]) != "สมชาย ใจงาม" || str(first["originDisplay"]) != "เจแอนด์ที บางปู 2" ||
+		len(first["signedRunsheetPhotos"].([]any)) != 1 || str(second["truckLicensePlate"]) != "70-9999" ||
+		str(second["vehicleClass"]) != "10WH" {
+		t.Fatalf("report after the corrections %s", r.raw)
+	}
+	if res := w.get("/v1/jobs/"+jobID, tok).data()["result"].(map[string]any); num(res["photoCount"]) != 1 {
+		t.Fatalf("the last render %v", res)
+	}
+
+	// Regression (T39 review): the render lock is per reach. While the own fleet's render runs, carrier C (another
+	// reach: its own trip of the customer) starts its own render, a job it can read, instead of being handed O's.
+	w.exec(`UPDATE trip_records SET parcel_count = 14 WHERE id = $1`, billed)
+	running := w.get(pdfPath, tok)
+	expect(t, running, http.StatusAccepted, "")
+	tokC := w.login("ta.c")
+	carrier := w.get(pdfPath, tokC)
+	expect(t, carrier, http.StatusAccepted, "")
+	jobC := str(carrier.data()["jobId"])
+	if jobC == "" || jobC == str(running.data()["jobId"]) {
+		t.Fatalf("carrier C was handed the own fleet's render: %s", carrier.raw)
+	}
+	expect(t, w.get("/v1/jobs/"+jobC, tokC), http.StatusOK, "")
+	if again := w.get(pdfPath, tokC); str(again.data()["jobId"]) != jobC {
+		t.Fatalf("C's running render answers its own job: %s", again.raw)
+	}
+	if again := w.get(pdfPath, tok); str(again.data()["jobId"]) != str(running.data()["jobId"]) {
+		t.Fatalf("O's running render answers its own job: %s", again.raw)
+	}
+	if err := w.command(worker, billing.RouteShopeeReportJob, jobC); err != nil {
+		t.Fatal(err)
+	}
+	if res := w.get("/v1/jobs/"+jobC, tokC).data()["result"].(map[string]any); num(res["tripCount"]) != 1 {
+		t.Fatalf("C's render %v (its own trip only)", res)
+	}
+	if k, _, _ := w.download(pdfPath, tokC); !strings.HasPrefix(k, "documents/reports/"+jobC+"/") {
+		t.Fatalf("C's PDF %s", k)
+	}
+	// A plain user holds no accounting:shopee_report.
 	expect(t, w.get("/v1/billing/shopee-report.pdf?customerId="+w.customerY+"&year=2026&month=9", w.login("us.o")),
 		http.StatusForbidden, "permission_denied")
 }

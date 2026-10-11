@@ -18,7 +18,7 @@ import (
 //	GET  /v1/billing/shopee-report                          accounting:shopee_report (?customerId&year&month&half)
 //	GET  /v1/billing/shopee-report.pdf                      accounting:shopee_report (302 to a current render, else 202 {jobId})
 //	GET  /v1/billing/statements/{id}/documents/{kind}       accounting:billing_result (302 to the stored document)
-//	POST /v1/billing/statements/{id}/documents/regenerate   accounting:manage_statements * (202 {jobId})
+//	POST /v1/billing/statements/{id}/documents/regenerate   accounting:manage_statements * ({showActualPickup?} -> 202 {jobId})
 //
 // The billing aggregates and the regenerate are the own fleet's (403 own_fleet_only for another tenant, like the
 // statements they preview); the Shopee report reads under the caller's RLS.
@@ -206,7 +206,11 @@ func (h handlers) regenerateDocuments(c fiber.Ctx) error {
 	if err := onlyQuery(c); err != nil {
 		return err
 	}
-	j, err := h.s.RegenerateDocuments(c.Context(), p, id)
+	var in RegenerateInput // optional body {showActualPickup?}
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	j, err := h.s.RegenerateDocuments(c.Context(), p, id, in)
 	if err != nil {
 		return err
 	}
