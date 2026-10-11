@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs/jobsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
@@ -44,6 +45,18 @@ const ProgressEvery = 50
 
 // LockTTL is the life of lock:job:{type}:{scope} (Appendix B §B.6.2).
 const LockTTL = time.Hour
+
+// TypeDistancesCompute is the Hub <-> SOC distance matrix job (POST /v1/jobs/distances.compute, T21).
+const TypeDistancesCompute = "distances.compute"
+
+// TypeCapabilities maps each job type a per-type POST /v1/jobs/{type} route submits to the capability
+// that route checks (Appendix B §B.2.20, developer-spec.md §7.5): staff of the job's tenant
+// (EffectiveTenant() = jobs.tenant_id) holding it read the job besides its owner and the platform. T21
+// registers distances.compute; T37, T38 and T44 add their types here. Types without a row (queue.replay,
+// the scheduler's cron jobs) stay owner + platform.
+var TypeCapabilities = map[string]authz.Cap{
+	TypeDistancesCompute: authz.OperationsCalcDistances,
+}
 
 var typeRx = regexp.MustCompile(`^[a-z]+(\.[a-z0-9-]+)+$`) // the CHECK of jobs.type
 

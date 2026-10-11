@@ -62,6 +62,11 @@ type WorkerConfig struct {
 	SMTPFromName     string        `env:"SMTP_FROM_NAME" envDefault:"LogiTrack"`
 	SMTPStartTLS     bool          `env:"SMTP_STARTTLS" envDefault:"true"`
 
+	// distances.compute (T21): the Google Distance Matrix API with the server key. Off locally: the job then ends
+	// failed naming the switch, and no request leaves the worker.
+	DistanceMatrixEnabled  bool   `env:"DISTANCE_MATRIX_ENABLED"`
+	GoogleMapsServerAPIKey string `env:"GOOGLE_MAPS_SERVER_API_KEY"`
+
 	// Groups is WORKER_CONSUMERS resolved by Validate ("all" = every group).
 	Groups []string `env:"-"`
 }
@@ -109,6 +114,9 @@ func (c *WorkerConfig) Validate() error {
 	}
 	if c.PasswordResetTTL < time.Minute || c.PasswordResetTTL > 24*time.Hour {
 		errs = append(errs, config.Invalidf("PASSWORD_RESET_TTL", "must be between 1m and 24h"))
+	}
+	if c.DistanceMatrixEnabled && strings.TrimSpace(c.GoogleMapsServerAPIKey) == "" {
+		errs = append(errs, config.Invalidf("GOOGLE_MAPS_SERVER_API_KEY", "required when DISTANCE_MATRIX_ENABLED is true"))
 	}
 	if c.FCMEnabled {
 		if !push.ValidProjectID(c.FCMProjectID) {
