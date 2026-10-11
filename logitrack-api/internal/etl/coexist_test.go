@@ -117,9 +117,21 @@ func TestPlanProjection(t *testing.T) {
 	if c, _ := PlanProjection(set("auth"), nil); len(c) != 0 {
 		t.Errorf("a Firestore-owned masterdata is projected: %v", c)
 	}
+	// P1: the master data; the version gate settings/mobile_app stays Firestore's (mobile_release is not owned).
 	c, _ := PlanProjection(set("auth", "masterdata"), nil)
-	if !slices.Equal(c, ProjectedCollections) {
+	if !slices.Equal(c, slices.DeleteFunc(slices.Clone(ProjectedCollections), func(s string) bool { return s == "settings" })) {
 		t.Errorf("P1 projection %v", c)
+	}
+	// P6 (mobile_release owned): the version gate joins; alone, it is the only projected collection.
+	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
+		t.Errorf("P6 projection %v", c)
+	}
+	if c, _ := PlanProjection(set("mobile_release"), nil); strings.Join(c, ",") != "settings" {
+		t.Errorf("mobile_release projection %v", c)
+	}
+	// Once the gate is PostgreSQL's, the settings collection is no longer mirrored (no second writer, no echo).
+	if p, _ := PlanMirror(set("auth", "mobile_release"), nil); p.Mode("settings") != "" {
+		t.Errorf("settings mirrored while projected: %q", p.Mode("settings"))
 	}
 	c, _ = PlanProjection(set("masterdata"), []string{"hubs", "drivers"})
 	if strings.Join(c, ",") != "hubs,drivers" {
@@ -156,7 +168,8 @@ func TestShadowTargets(t *testing.T) {
 		{"tenant.created", `{"tenantId":"` + a.String() + `"}`, []ShadowTarget{{Collection: "subcontractors", IDs: []uuid.UUID{a}}}},
 		{"settings.changed", `{"key":"distances_last_calculated"}`, []ShadowTarget{{Collection: "hub_soc_distances", All: true},
 			{Collection: "soc_hub_distances", All: true}, {Collection: "metadata", All: true}}},
-		{"settings.changed", `{"key":"mobile_app"}`, nil},
+		{"settings.changed", `{"key":"mobile_app","flavor":"prod"}`, []ShadowTarget{{Collection: "settings", All: true}}},
+		{"settings.changed", `{"key":"branding"}`, nil},
 		{"holidays.changed", `{}`, nil},
 		{"trip.priced", `{"id":"x"}`, nil},
 	}

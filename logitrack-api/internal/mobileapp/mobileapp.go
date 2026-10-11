@@ -35,7 +35,8 @@ const SettingsKey = "mobile_app"
 
 // RouteSettingsChanged is the outbox event of a floor change and of a publish (Appendix B §B.4.3): it drops
 // cache:settings:mobile_app, reaches open web tabs as SSE mobile_settings.changed on the global topic, and feeds the
-// Firestore projection of settings/mobile_app for installed 3.x APKs once the firestore.shadow consumer exists (T24).
+// firestore.shadow projection of settings/mobile_app for installed 3.x APKs (internal/etl encodeMobileAppSettings,
+// T52R; once mobile_release is PostgreSQL-owned).
 const RouteSettingsChanged = "settings.changed"
 
 // Flavors of the driver app (mobile_app_releases.flavor, mobile_installations.flavor).
@@ -96,7 +97,7 @@ func (s *Service) SetClock(now func() time.Time) { s.now = now }
 // --- settings('mobile_app') ------------------------------------------------------------------------------------------
 
 // Settings is the document settings('mobile_app'): the shape of the legacy Firestore settings/mobile_app (Appendix A
-// §A.3, Appendix D §D.4.12), which the coexistence projection writes back for installed 3.x APKs (T24). The floor
+// §A.3, Appendix D §D.4.12), which the coexistence projection writes back for installed 3.x APKs (T52R). The floor
 // half is written only by PUT /v1/app-releases/floor, the release half only by POST /v1/app-releases.
 //
 // Flavor is the deployment's gate flavor: the flavor of the release half, taken by the first publish of a deployment
