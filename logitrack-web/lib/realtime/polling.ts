@@ -9,6 +9,8 @@
  *   and a tab switch shorter than that costs no request. It leaves `staleTime` alone, so it can be
  *   spread in any order: `useInfiniteQuery({ ...QUERY_POLICY.entity, ...listOptions, ...pollWhileVisible() })`.
  *   Rows 23 and 30 (drivers and trucks lists, M1) use the 60 s default; security events use 30 s.
+ *   A keyset list whose every request is audited uses `pollHeadWhileVisible(ms)`, which stops once
+ *   more than one page is loaded (TanStack refetches each loaded page).
  * - **SSE**: the query refetches when an event of the map invalidates it (lib/realtime/eventMap.ts) and
  *   on focus when stale. While the tab's stream is not open (opening, a 429 past
  *   `SSE_MAX_CONN_PER_USER`, the api down) it polls instead: `useStreamFallbackPoll()` returns the poll
@@ -50,6 +52,40 @@ export function pollWhileVisible(intervalMs: number = POLL_INTERVAL_MS): PollOpt
         refetchInterval: intervalMs,
         refetchIntervalInBackground: false,
         refetchOnWindowFocus: refetchOnFocusOlderThan(intervalMs),
+    };
+}
+
+/** What the poll rules read of a query: an infinite query's `data` holds its `pages`. */
+export interface PolledQuery {
+    state: { dataUpdatedAt: number; data?: unknown };
+}
+
+/** How many pages an infinite query holds (0 before its first one). */
+export function loadedPages(query: PolledQuery): number {
+    const data = query.state.data as { pages?: unknown } | undefined;
+    return Array.isArray(data?.pages) ? data.pages.length : 0;
+}
+
+export interface HeadPollOptions {
+    refetchInterval: (query: PolledQuery) => number | false;
+    refetchIntervalInBackground: false;
+    refetchOnWindowFocus: (query: PolledQuery) => boolean | "always";
+}
+
+/**
+ * `pollWhileVisible` for a keyset list (an infinite query) that polls only while it holds its first
+ * page (T54S). TanStack refetches every loaded page in turn on each interval and focus refetch, one
+ * request per page; once "load more" was used, the list stops refreshing by itself (the page's Refresh
+ * button and an invalidation still refetch). That bounds what a poll costs where each request is
+ * audited (a platform principal's `X-Act-On-Tenant`, developer-spec.md §19.2 question 20) to one
+ * request per interval. Not `maxPages`: with forward paging it drops the pages "load more" added.
+ */
+export function pollHeadWhileVisible(intervalMs: number = POLL_INTERVAL_MS): HeadPollOptions {
+    const focus = refetchOnFocusOlderThan(intervalMs);
+    return {
+        refetchInterval: (query) => (loadedPages(query) > 1 ? false : intervalMs),
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: (query) => (loadedPages(query) > 1 ? false : focus(query)),
     };
 }
 

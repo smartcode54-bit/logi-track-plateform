@@ -4,7 +4,16 @@ import { describe, expect, it } from "vitest";
 import { partialMatchKey, type QueryKey } from "@tanstack/react-query";
 
 import { queryKeys } from "../queryKeys";
-import { effectsOf, FLEET_EVENTS, FLEET_KEYS, JOB_SUCCESS_KEYS, LIST_WINDOW_MS, REALTIME_EVENTS } from "./eventMap";
+import {
+    effectsOf,
+    FLEET_EVENTS,
+    FLEET_KEYS,
+    JOB_SUCCESS_KEYS,
+    LIST_WINDOW_MS,
+    MOBILE_SETTINGS_KEYS,
+    REALTIME_EVENTS,
+    ROLES_CHANGED_KEYS,
+} from "./eventMap";
 
 const keysOf = (event: string, data: unknown = {}) => effectsOf({ event, data }).invalidate.map((i) => i.queryKey);
 const reaches = (keys: QueryKey[], key: QueryKey) => keys.some((k) => partialMatchKey(key, k));
@@ -24,11 +33,13 @@ const CATALOGUE = {
         "maintenance.updated",
         "maintenance.driver_submitted",
     ],
+    // tenant:{tid}:config (T54S pulls the roles row forward from M6).
+    config: ["roles.changed", "holidays.changed"],
 };
 
 describe("event map (M1 slice)", () => {
     it("listens only to catalogued event names, in full (EventSource has no patterns)", () => {
-        const catalogued = new Set([...CATALOGUE.user, ...CATALOGUE.global, ...CATALOGUE.fleet]);
+        const catalogued = new Set([...CATALOGUE.user, ...CATALOGUE.global, ...CATALOGUE.fleet, ...CATALOGUE.config]);
         for (const name of REALTIME_EVENTS) {
             expect(catalogued.has(name), name).toBe(true);
             expect(name).not.toContain("*");
@@ -45,6 +56,19 @@ describe("event map (M1 slice)", () => {
         expect(keysOf("companies.changed")).toEqual([queryKeys.companies.all()]);
         expect(reaches(keysOf("companies.changed"), queryKeys.companies.owner())).toBe(true);
         expect(reaches(keysOf("hubs.changed"), queryKeys.customers.all())).toBe(false);
+    });
+
+    it("Security Center (T54S): roles.changed refreshes ['me'] and every matrix; mobile_settings.changed the gate, releases and installations", () => {
+        expect(keysOf("roles.changed", { tenantId: "t1" })).toEqual(ROLES_CHANGED_KEYS);
+        expect(reaches(keysOf("roles.changed"), queryKeys.me())).toBe(true);
+        expect(reaches(keysOf("roles.changed"), queryKeys.roles.matrix({ layer: "default", tenantId: "" }))).toBe(true);
+        expect(reaches(keysOf("roles.changed"), queryKeys.users.all())).toBe(false);
+        expect(keysOf("mobile_settings.changed", { key: "mobile_app", flavor: "prod" })).toEqual(MOBILE_SETTINGS_KEYS);
+        expect(reaches(keysOf("mobile_settings.changed"), queryKeys.mobileSettings())).toBe(true);
+        expect(reaches(keysOf("mobile_settings.changed"), queryKeys.mobileReleases({ flavor: "" }))).toBe(true);
+        expect(reaches(keysOf("mobile_settings.changed"), queryKeys.installations.list({ flavor: "", reach: "all" }))).toBe(true);
+        expect(reaches(keysOf("mobile_settings.changed"), queryKeys.installations.stats({ since: "7d" }))).toBe(true);
+        expect(reaches(keysOf("mobile_settings.changed"), queryKeys.me())).toBe(false);
     });
 
     it("every fleet event makes the fleet lists stale (drivers and trucks rows 23 and 30, details included)", () => {
