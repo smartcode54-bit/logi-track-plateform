@@ -13,10 +13,11 @@
  *   `GET /v1/me` (context/auth.tsx `completeSignIn`, `switchTenant`); a forced refresh after
  *   `claims_changed` invalidates it (lib/queryClient.ts `bindQueryClientToSession`) and the
  *   AuthProvider awaits that refetch (`refetchMe`) before it mints the bridge token again; a
- *   `session.revoked` for another session of the user checks it (`refetchMe`, context/realtime.tsx).
- *   A logout or a session end sets it to `null`. Planned, not wired yet: the role-matrix save
- *   (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed` event (TW5). The Role Matrix page
- *   still saves to Firestore `permissions_config`, which Go does not read in P0.
+ *   `session.revoked` for another session of the user checks it (`refetchMe`,
+ *   lib/realtime/RealtimeProvider.tsx). A logout or a session end sets it to `null`. Planned, not
+ *   wired yet: the role-matrix save (`useSaveRoleMatrix`, T51/P6) and the realtime `roles.changed`
+ *   event (its row of lib/realtime/eventMap.ts comes with T51, M6). The Role Matrix page still saves
+ *   to Firestore `permissions_config`, which Go does not read in P0.
  * - `['me','tenants']` (`GET /v1/me/tenants`, the tenant switcher) sits under the `['me']` prefix.
  *
  * Every read of `GET /v1/me` goes through `parseMe`, so a body without an id or a capability list is a

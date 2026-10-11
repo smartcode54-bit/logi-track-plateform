@@ -14,12 +14,13 @@ import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { goQueryFn } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
+import { POLL_INTERVAL_MS, pollWhileVisible } from "@/lib/realtime/polling";
 import { domainQueryFn } from "@/features/platform/api/webFlags";
 import { hasCapability, meQueryOptions } from "@/features/auth/api/me";
 
 export const BADGES_PATH = "/v1/badges";
 /** Poll interval while the tab is visible (Appendix E §E.5 row 19). */
-export const BADGES_POLL_MS = 60_000;
+export const BADGES_POLL_MS = POLL_INTERVAL_MS;
 
 /** The body of `GET /v1/badges`: each counter only when the principal holds its capability. */
 export interface BadgesDTO {
@@ -48,7 +49,5 @@ export const badgesQueryOptions = queryOptions({
     queryKey: queryKeys.badges(),
     queryFn: domainQueryFn<BadgesDTO>("dashboard", { firestore: fetchBadgesFromFirestore, go: goQueryFn<BadgesDTO>(BADGES_PATH) }),
     ...QUERY_POLICY.live,
-    refetchInterval: BADGES_POLL_MS,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    ...pollWhileVisible(BADGES_POLL_MS),
 });
