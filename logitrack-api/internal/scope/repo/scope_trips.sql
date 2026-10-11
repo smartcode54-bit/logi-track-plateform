@@ -47,7 +47,7 @@ SELECT * FROM scope_trips WHERE trip_no = sqlc.arg(trip_no)::text;
 SELECT * FROM scope_trips WHERE id = ANY (sqlc.arg(ids)::uuid[]) ORDER BY id;
 
 -- name: ScopeTripsOfTasks :many
--- GET /v1/tasks/{id}/trip and the boards' trip column for a scope principal (T30): newest first per task.
+-- The newest trip of a task (the boards' trip column) for a scope principal (T30): newest first per task.
 SELECT * FROM scope_trips
  WHERE task_id = ANY (sqlc.arg(task_ids)::uuid[])
  ORDER BY task_id, created_at DESC, id DESC;

@@ -478,7 +478,7 @@ SELECT id, tenant_id, trip_no, status, job_type, job_category, task_id, driver_i
  ORDER BY task_id, created_at DESC, id DESC
 `
 
-// GET /v1/tasks/{id}/trip and the boards' trip column for a scope principal (T30): newest first per task.
+// The newest trip of a task (the boards' trip column) for a scope principal (T30): newest first per task.
 func (q *Queries) ScopeTripsOfTasks(ctx context.Context, taskIds []uuid.UUID) ([]ScopeTrip, error) {
 	rows, err := q.db.Query(ctx, scopeTripsOfTasks, taskIds)
 	if err != nil {

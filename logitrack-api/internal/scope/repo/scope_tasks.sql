@@ -13,7 +13,7 @@ SELECT * FROM scope_tasks
 SELECT * FROM scope_tasks WHERE id = sqlc.arg(id);
 
 -- name: ListScopeTasksByCreated :many
--- GET /v1/tasks without a date for a scope principal (T30): the boards' filters of the staff list, newest first,
+-- The boards without a date for a scope principal (T30): the filters of the staff list, newest first,
 -- keyset (created_at, id). driver_id matches the driver or the helper; q is a substring of the number, the places
 -- or the plate.
 SELECT * FROM scope_tasks
@@ -31,7 +31,7 @@ SELECT * FROM scope_tasks
  LIMIT sqlc.arg(row_limit);
 
 -- name: ListScopeTasksByPlan :many
--- GET /v1/tasks?date | from&to for a scope principal (T30): the Bangkok plan days of the range, latest day first,
+-- The boards on a plan day or range for a scope principal (T30): the Bangkok plan days of the range, latest day first,
 -- keyset (plan_date, id).
 SELECT * FROM scope_tasks
  WHERE plan_date >= sqlc.arg(from_date)::date AND plan_date <= sqlc.arg(to_date)::date
@@ -49,7 +49,7 @@ SELECT * FROM scope_tasks
  LIMIT sqlc.arg(row_limit);
 
 -- name: ScopeTasksByNumber :many
--- GET /v1/tasks/by-number/{taskNo} for a scope principal (T30): every match, the number verbatim.
+-- The lookup by task number for a scope principal (T30): every match, the number verbatim.
 SELECT * FROM scope_tasks WHERE task_no = sqlc.arg(task_no)::text ORDER BY created_at, id;
 
 -- name: ScopeTaskStopsOf :many

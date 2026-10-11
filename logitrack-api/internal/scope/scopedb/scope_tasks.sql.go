@@ -148,7 +148,7 @@ type ListScopeTasksByCreatedParams struct {
 	RowLimit     int32      `json:"rowLimit"`
 }
 
-// GET /v1/tasks without a date for a scope principal (T30): the boards' filters of the staff list, newest first,
+// The boards without a date for a scope principal (T30): the filters of the staff list, newest first,
 // keyset (created_at, id). driver_id matches the driver or the helper; q is a substring of the number, the places
 // or the plate.
 func (q *Queries) ListScopeTasksByCreated(ctx context.Context, arg ListScopeTasksByCreatedParams) ([]ScopeTask, error) {
@@ -240,7 +240,7 @@ type ListScopeTasksByPlanParams struct {
 	RowLimit  int32      `json:"rowLimit"`
 }
 
-// GET /v1/tasks?date | from&to for a scope principal (T30): the Bangkok plan days of the range, latest day first,
+// The boards on a plan day or range for a scope principal (T30): the Bangkok plan days of the range, latest day first,
 // keyset (plan_date, id).
 func (q *Queries) ListScopeTasksByPlan(ctx context.Context, arg ListScopeTasksByPlanParams) ([]ScopeTask, error) {
 	rows, err := q.db.Query(ctx, listScopeTasksByPlan,
@@ -346,7 +346,7 @@ const scopeTasksByNumber = `-- name: ScopeTasksByNumber :many
 SELECT id, tenant_id, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, actual_pickup_at, source_hub_raw, source_hub_id, destination_raw, destination_hub_id, destination_soc_key, truck_id, truck_type, license_plate_snapshot, driver_id, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, created_at, updated_at FROM scope_tasks WHERE task_no = $1::text ORDER BY created_at, id
 `
 
-// GET /v1/tasks/by-number/{taskNo} for a scope principal (T30): every match, the number verbatim.
+// The lookup by task number for a scope principal (T30): every match, the number verbatim.
 func (q *Queries) ScopeTasksByNumber(ctx context.Context, taskNo string) ([]ScopeTask, error) {
 	rows, err := q.db.Query(ctx, scopeTasksByNumber, taskNo)
 	if err != nil {
