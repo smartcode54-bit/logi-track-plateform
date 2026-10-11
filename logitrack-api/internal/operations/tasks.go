@@ -52,8 +52,8 @@ type NewStop struct {
 //     createOrUpdateTask tasks.ts:103-131) as stop 1..n. Stops make the task multi-drop, flag or not.
 //
 // A driver's manual task with a client_op_id is idempotent per (driver_id, client_op_id) (R63): a replay returns the
-// stored task with replayed = true and allocates nothing. Tenant stamping is the caller's (T28); RLS and the deferred
-// tenant triggers still decide at write and at COMMIT.
+// stored task with replayed = true and allocates nothing. The caller stamps the tenant first (Stamp, T28); RLS and the
+// deferred tenant triggers still decide at write and at COMMIT.
 func CreateTask(ctx context.Context, tx pgx.Tx, in NewTask) (task Task, replayed bool, err error) {
 	if err := in.validate(); err != nil {
 		return Task{}, false, err

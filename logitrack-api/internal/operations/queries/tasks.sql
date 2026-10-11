@@ -73,7 +73,8 @@ SELECT * FROM tasks WHERE id = sqlc.arg(id) FOR UPDATE;
 -- name: UpdateTask :one
 -- PATCH writes the merged row (Go merges the request into the locked row; an absent field keeps its value, and status
 -- and run_order change only when the caller sets them, fixing tasks.ts:120-137). Never tenant_id (frozen,
--- t_freeze_tenant_id; the R13 reassignment is a tenant-move path of T28), task_no, task_type or the check-in columns.
+-- t_freeze_tenant_id; the R13 reassignment is the tenant-move path of T28, iam.TaskMover + tenancy.MoveTask), task_no,
+-- task_type or the check-in columns.
 UPDATE tasks
 SET job_category = sqlc.narg(job_category), status = sqlc.arg(status), plan_at = sqlc.arg(plan_at),
     plan_time = sqlc.narg(plan_time), actual_pickup_at = sqlc.narg(actual_pickup_at),

@@ -30,6 +30,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -50,7 +51,7 @@ func main() {
 // administration (T19, deps.Admin, with the carrier profiles of T20), the API keys administration (T32K,
 // deps.APIKeys), the customers and companies (T20, deps.Parties) and the hubs, distances and
 // POST /v1/jobs/distances.compute (T21, deps.Hubs), the trucks (T22, deps.Fleet) with the truck assignments and
-// the drivers (T23, deps.Fleet, deps.Drivers) sit behind
+// the drivers (T23, deps.Fleet, deps.Drivers) and the R13 task reassignment (T28, deps.Operations) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
 // installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
@@ -69,6 +70,7 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, hubs.Groups(deps.Hubs, deps.Auth.RequireAuth())...)
 	groups = append(groups, fleet.Groups(deps.Fleet, deps.Auth.RequireAuth())...)
 	groups = append(groups, drivers.Groups(deps.Drivers, deps.Auth.RequireAuth())...)
+	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)

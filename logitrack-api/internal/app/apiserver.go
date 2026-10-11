@@ -22,6 +22,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -53,9 +54,12 @@ type APIDeps struct {
 	Fleet *fleet.Service
 	// Drivers are the driver master of T23: /v1/drivers*.
 	Drivers *drivers.Service
-	Jobs    *jobs.Service
-	Storage *storage.Service
-	Events  *sse.Service
+	// Operations are the operations routes: PATCH /v1/tasks/{id} with tenantId, the R13 reassignment (T28); the read
+	// APIs (T30) and the write-back (T31) join it.
+	Operations *operations.Service
+	Jobs       *jobs.Service
+	Storage    *storage.Service
+	Events     *sse.Service
 	// Mobile is the driver app's installations, version gate and releases (T52): /v1/mobile/settings,
 	// /v1/mobile/heartbeat, /v1/app-installations*, /v1/app-releases*.
 	Mobile *mobileapp.Service
@@ -253,6 +257,18 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Operations (T27 data layer; T28 the R13 task reassignment, performed by iam.TaskMover in a system transaction
+	// after Go authorization).
+	taskMover, err := iam.NewTaskMover(iam.TaskMoverDeps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// The driver app's fleet (T52): installations under RLS, the version gate through cache:settings:mobile_app, the
 	// APKs in the public bucket through the storage service.
 	mobile, err := mobileapp.New(mobileapp.Deps{Pool: pool, Storage: st, Cache: caches, Log: log})
@@ -261,7 +277,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Drivers: driverSvc, Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter,
+		Drivers: driverSvc, Operations: opsSvc, Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()

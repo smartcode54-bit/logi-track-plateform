@@ -250,7 +250,8 @@ type Querier interface {
 	UnknownTripPhotos(ctx context.Context, tripID uuid.UUID) ([]TripPhoto, error)
 	// PATCH writes the merged row (Go merges the request into the locked row; an absent field keeps its value, and status
 	// and run_order change only when the caller sets them, fixing tasks.ts:120-137). Never tenant_id (frozen,
-	// t_freeze_tenant_id; the R13 reassignment is a tenant-move path of T28), task_no, task_type or the check-in columns.
+	// t_freeze_tenant_id; the R13 reassignment is the tenant-move path of T28, iam.TaskMover + tenancy.MoveTask), task_no,
+	// task_type or the check-in columns.
 	UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, error)
 	// PATCH /v1/trips/{id} (edit trip details) writes the merged row; status, delivery and billing columns have their
 	// own statements.

@@ -84,6 +84,7 @@ GET /v1/subcontractors internal
 POST /v1/subcontractors internal
 GET /v1/subcontractors/:id internal
 PATCH /v1/subcontractors/:id internal
+PATCH /v1/tasks/:id internal
 GET /v1/tenants internal
 POST /v1/tenants internal
 GET /v1/tenants/:id internal
