@@ -1,8 +1,8 @@
 // Package fleet is the truck master of T22 (Appendix B §B.2.8): trucks with their append-only status history
 // (status_history, entity 'truck'), files (truck_files -> file_objects), tax and insurance renewals with their ledger
 // rows (transactions), the renewal overview and the spreadsheet import, and the truck assignments of T23 (the
-// driver's home truck, truck_assignments with drivers.current_assignment_id, in one transaction). The PM check (P3)
-// and vehicle locations (P6) join this package later.
+// driver's home truck, truck_assignments with drivers.current_assignment_id, in one transaction). The PM check lives in
+// internal/maintenance (T40) and the vehicle locations with the Cartrack sync in internal/fleet/locations (T53).
 //
 // Every statement runs in db.WithPrincipal, so RLS decides (Appendix C §C.3.0): trucks and transactions are tenant
 // rows of the caller's reach (own tenant plus the carriers working for it, R60); truck_files and status_history follow

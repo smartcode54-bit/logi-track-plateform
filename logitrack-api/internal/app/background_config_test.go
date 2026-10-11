@@ -255,3 +255,55 @@ func TestSchedulerETLSyncInterval(t *testing.T) {
 		t.Errorf("7m: %v", err)
 	}
 }
+
+// The Cartrack sync (T53, R70): the credentials are the worker's alone; the client exists only with the base URL and
+// both credentials (the local .env.example sets the WireMock URL and blank credentials: off, not an error); a bad URL
+// stops the worker naming the variable, never a value; CARTRACK_SYNC_ENABLED is the scheduler's gate.
+func TestCartrackConfig(t *testing.T) {
+	cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := cfg.CartrackClient(); c != nil || err != nil {
+		t.Fatalf("unset: %v %v", c, err)
+	}
+	cfg, err = config.LoadFrom[app.WorkerConfig](workerEnv("CARTRACK_API_BASE_URL=http://mocks:8080/cartrack"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := cfg.CartrackClient(); c != nil || err != nil {
+		t.Fatalf("no credentials: %v %v", c, err)
+	}
+	secret := "placeholder-" + strings.Repeat("x", 9)
+	cfg, err = config.LoadFrom[app.WorkerConfig](workerEnv("CARTRACK_API_BASE_URL=http://mocks:8080/cartrack",
+		"CARTRACK_API_USERNAME=placeholder-user", "CARTRACK_API_PASSWORD="+secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := cfg.CartrackClient(); c == nil || err != nil {
+		t.Fatalf("configured: %v %v", c, err)
+	}
+	_, err = config.LoadFrom[app.WorkerConfig](workerEnv("CARTRACK_API_BASE_URL=https://u:"+secret+"@fleet.example", "CARTRACK_API_PASSWORD="+secret))
+	if err == nil || !strings.Contains(err.Error(), "CARTRACK_API_BASE_URL") || strings.Contains(err.Error(), secret) {
+		t.Fatalf("bad URL: %v", err)
+	}
+	w, s := config.Describe[app.WorkerConfig](), config.Describe[app.SchedulerConfig]()
+	for _, n := range []string{"CARTRACK_API_BASE_URL", "CARTRACK_API_USERNAME", "CARTRACK_API_PASSWORD"} {
+		if _, ok := w[n]; !ok {
+			t.Errorf("worker does not read %s", n)
+		}
+		if _, ok := s[n]; ok {
+			t.Errorf("scheduler reads %s", n)
+		}
+	}
+	if _, ok := s["CARTRACK_SYNC_ENABLED"]; !ok {
+		t.Error("scheduler does not read CARTRACK_SYNC_ENABLED")
+	}
+	if _, ok := config.Describe[app.APIConfig]()["CARTRACK_API_PASSWORD"]; ok {
+		t.Error("the api must never hold the Cartrack credentials (main spec §16.1)")
+	}
+	sc, err := config.LoadFrom[app.SchedulerConfig](schedulerEnv("CARTRACK_SYNC_ENABLED=true"))
+	if err != nil || !sc.CartrackSyncEnabled {
+		t.Fatalf("scheduler gate: %v", err)
+	}
+}

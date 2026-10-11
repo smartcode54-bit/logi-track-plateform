@@ -29,7 +29,6 @@ const (
 // consumer that does their work arrives with a later issue (each turns its entry on there, behind its
 // env gate where §7.4 names one). Firing them now would only pile commands up in an unconsumed queue.
 var Pending = []struct{ Name, Spec, Issue, Gate string }{
-	{"cartrack.sync", "*/3 * * * *", "T53", "CARTRACK_SYNC_ENABLED"},
 	{"billing.safety-net", "*/15 * * * *", "T38", ""},
 }
 
@@ -38,6 +37,7 @@ var Pending = []struct{ Name, Spec, Issue, Gate string }{
 var Gated = []struct{ Name, Spec, Gate string }{
 	{"bangchak.snapshot", "0 5 * * *", "FUEL_MONTHLY_SNAPSHOT_ENABLED"}, // T37, R70: worker consumer bangchak.snapshot
 	{"etl.sync", "*/5 * * * *", "ETL_SYNC_ENABLED"},                     // T24S: worker consumer etl.sync; ETL_SYNC_INTERVAL sets the spec
+	{"cartrack.sync", "*/3 * * * *", "CARTRACK_SYNC_ENABLED"},           // T53, R70: worker consumer cartrack.sync
 }
 
 // Gates are the env gates of the Gated crons (SchedulerConfig).
@@ -48,13 +48,15 @@ type Gates struct {
 	// fields (empty: the Gated default, every 5 minutes).
 	ETLSync     bool
 	ETLSyncSpec string
+	// CartrackSync is CARTRACK_SYNC_ENABLED: cartrack.sync every three minutes (T53, R70).
+	CartrackSync bool
 }
 
 // Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, the command crons
 // whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc queue, Appendix B
 // §B.5.6; tenancy.orphan-scan, T28: daily at 03:00 job.tenancy.orphan-scan to the worker's tenancy.orphan-scan queue,
-// Appendix C §C.3.10), and the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S). Only the leader fires, and lock:cron guards
-// each slot, so two scheduler replicas fire a slot once.
+// Appendix C §C.3.10), and the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S; cartrack.sync,
+// T53). Only the leader fires, and lock:cron guards each slot, so two scheduler replicas fire a slot once.
 func Table(pool *pgxpool.Pool, rt *realtime.Writer, gates Gates) []Job {
 	jobs := []Job{
 		{Name: "storage.gc", Spec: "0 * * * *", Kind: Command},
@@ -102,6 +104,9 @@ func Table(pool *pgxpool.Pool, rt *realtime.Writer, gates Gates) []Job {
 			spec = Gated[1].Spec
 		}
 		jobs = append(jobs, Job{Name: Gated[1].Name, Spec: spec, Kind: Command})
+	}
+	if gates.CartrackSync {
+		jobs = append(jobs, Job{Name: Gated[2].Name, Spec: Gated[2].Spec, Kind: Command})
 	}
 	return jobs
 }
