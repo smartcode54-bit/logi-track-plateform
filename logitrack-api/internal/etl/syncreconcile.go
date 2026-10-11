@@ -165,7 +165,8 @@ func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.
 }
 
 // mirroredFieldsMatch compares the fields the field-level mirror applies with the row behind the document. A document
-// with no row (rejected by the mirror) has nothing to compare.
+// with no row (rejected by the mirror) has nothing to compare. A truck field the maintenance flow owns until P3 that a
+// truck-form edit in Go changed differs too: reported, since Firestore readers still see the maintenance flow's value.
 func mirroredFieldsMatch(ctx context.Context, tx pgx.Tx, coll string, d dump.Doc, owned map[string]bool) (bool, error) {
 	c := &docCtx{ctx: ctx, tx: tx, f: d.Fields}
 	switch coll {
@@ -215,9 +216,12 @@ func mirroredFieldsMatch(ctx context.Context, tx pgx.Tx, coll string, d dump.Doc
 		return true, nil
 	case "trucks":
 		var maint *uuid.UUID
-		var alert, current *int32
-		err := tx.QueryRow(ctx, `SELECT active_maintenance_id, last_alert_mileage, current_mileage FROM trucks WHERE legacy_doc_id = $1`,
-			d.ID).Scan(&maint, &alert, &current)
+		var alert, current, next *int32
+		var service *time.Time
+		var status string
+		var legacyStatus *string
+		err := tx.QueryRow(ctx, `SELECT active_maintenance_id, last_alert_mileage, current_mileage, next_service_mileage, last_service_date,
+			  status, legacy_status FROM trucks WHERE legacy_doc_id = $1`, d.ID).Scan(&maint, &alert, &current, &next, &service, &status, &legacyStatus)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return true, nil
 		}
@@ -242,6 +246,18 @@ func mirroredFieldsMatch(ctx context.Context, tx pgx.Tx, coll string, d dump.Doc
 				}
 			case "currentMileage":
 				if !sameInt(current, c.integer(f)) {
+					return false, nil
+				}
+			case "nextServiceMileage":
+				if !sameInt(next, c.integer(f)) {
+					return false, nil
+				}
+			case "lastServiceDate":
+				if !sameTime(service, c.date(f)) {
+					return false, nil
+				}
+			case "truckStatus":
+				if s := c.str(f); s != "" && truckStatusCanon(s) != status {
 					return false, nil
 				}
 			}

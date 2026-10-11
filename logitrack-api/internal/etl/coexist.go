@@ -57,11 +57,13 @@ var fieldMirrored = map[string]bool{"drivers": true, "hubs": true}
 
 // foreignFields are fields of a collection that the flows of another domain write: the trucks fields of the PM alert
 // and the maintenance pages (checkMaintenanceAlert after a fuel-log approval, functions/src/triggers.ts:449-516, and
-// features/maintenance/api/maintenance.ts; billing, P3). While that domain is Firestore-owned they keep Firestore as
-// their writer even on a PostgreSQL-owned collection: the field mirror applies them and the projection leaves them
-// out, so a field always has one writer (a truck-form edit of currentMileage in Go reaches Firestore from P3 on).
+// features/maintenance/api/maintenance.ts:118-142, 220-238: the status, the mileage, the service date and the active
+// maintenance; billing, P3). While that domain is Firestore-owned they keep Firestore as their writer even on a
+// PostgreSQL-owned collection: the field mirror applies Firestore's changes of them and the projection leaves them
+// out, so a projected write never overwrites the maintenance flow. A truck-form edit of one of them in Go stays in
+// PostgreSQL until the maintenance flow writes the field again, and reaches Firestore from P3 on.
 var foreignFields = map[string]map[string][]string{
-	"trucks": {"billing": {"activeMaintenanceId", "lastAlertMileage", "currentMileage"}},
+	"trucks": {"billing": {"activeMaintenanceId", "lastAlertMileage", "currentMileage", "lastServiceDate", "nextServiceMileage", "truckStatus"}},
 }
 
 // ForeignFields are the fields of coll another domain still writes in Firestore under owned.

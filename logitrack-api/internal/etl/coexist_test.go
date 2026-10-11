@@ -96,7 +96,7 @@ func TestPlanProjection(t *testing.T) {
 	if _, err := PlanProjection(set("masterdata"), []string{"holidays"}); err == nil {
 		t.Error("a pin outside the projected collections was accepted")
 	}
-	if f := ForeignFields("trucks", set("masterdata")); strings.Join(f, ",") != "activeMaintenanceId,currentMileage,lastAlertMileage" {
+	if f := ForeignFields("trucks", set("masterdata")); strings.Join(f, ",") != "activeMaintenanceId,currentMileage,lastAlertMileage,lastServiceDate,nextServiceMileage,truckStatus" {
 		t.Errorf("trucks foreign fields %v", f)
 	}
 	if f := ForeignFields("trucks", set("masterdata", "billing")); len(f) != 0 {

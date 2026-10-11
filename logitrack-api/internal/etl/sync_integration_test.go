@@ -454,35 +454,52 @@ func TestDriverCreatedHubs(t *testing.T) {
 	}
 }
 
-// While billing is Firestore-owned, the PM alert's fields of a truck keep Firestore as their writer: the sweep applies
-// them and the projection leaves them out.
+// While billing is Firestore-owned, the maintenance flow's fields of a truck keep Firestore as their writer: the sweep
+// applies Firestore's changes of them (only when Firestore changed them, so a projected write of the document does
+// not bring a stale value back over a Go edit) and the projection leaves them out.
 func TestTruckFieldsOfTheMaintenanceFlow(t *testing.T) {
 	h := newSyncHarness(t)
 	o := owned("auth", "masterdata")
 	p, proj := h.plan(o), h.projector(o)
-	h.fs.Merge("trucks/trk_own1", map[string]any{"currentMileage": int64(120500), "lastAlertMileage": int64(120000)})
-	h.sweep(p)
 	truck := h.id(`SELECT id FROM trucks WHERE legacy_doc_id = 'trk_own1'`)
-	if v := h.scalar(`SELECT current_mileage || ' ' || last_alert_mileage FROM trucks WHERE id = $1`, truck); v != "120500 120000" {
-		t.Errorf("mileage %v", v)
+	// The web maintenance page opens a PM job on the truck (Firestore).
+	h.fs.Merge("trucks/trk_own1", map[string]any{"truckStatus": "maintenance", "currentMileage": int64(120500), "lastAlertMileage": int64(120000)})
+	h.sweep(p)
+	if v := h.scalar(`SELECT status || ' ' || current_mileage || ' ' || last_alert_mileage FROM trucks WHERE id = $1`, truck); v != "maintenance 120500 120000" {
+		t.Errorf("after the maintenance flow: %v", v)
 	}
-	h.exec(`UPDATE trucks SET color = 'blue', current_mileage = 1 WHERE id = $1`, truck)
+	// A Go edit of the truck: the color is projected, the maintenance flow's fields are not.
+	h.exec(`UPDATE trucks SET color = 'blue', status = 'active', current_mileage = 1 WHERE id = $1`, truck)
 	if _, err := proj.Project(h.ctx, ShadowTarget{Collection: "trucks", IDs: []uuid.UUID{truck}}); err != nil {
 		t.Fatal(err)
 	}
 	f := h.doc("trucks/trk_own1")
-	if f["color"] != "blue" || f["currentMileage"] != int64(120500) || f["activeMaintenanceId"] != "mnt1" {
+	if f["color"] != "blue" || f["currentMileage"] != int64(120500) || f["truckStatus"] != "maintenance" || f["activeMaintenanceId"] != "mnt1" {
 		t.Errorf("truck document %v", f)
+	}
+	// The sweep of the projected document does not bring the maintenance flow's unchanged values back.
+	h.sweep(p)
+	if v := h.scalar(`SELECT status || ' ' || current_mileage FROM trucks WHERE id = $1`, truck); v != "active 1" {
+		t.Errorf("a projected write re-applied stale fields: %v", v)
+	}
+	// The maintenance flow completes the job: its new values win.
+	h.fs.Merge("trucks/trk_own1", map[string]any{"truckStatus": "active", "currentMileage": int64(121000), "lastServiceDate": "2026-10-03",
+		"lastAlertMileage": nil, "activeMaintenanceId": nil})
+	h.sweep(p)
+	if v := h.scalar(`SELECT status || ' ' || current_mileage || ' ' || last_service_date || ' ' || (last_alert_mileage IS NULL)::text || ' ' ||
+		(active_maintenance_id IS NULL)::text FROM trucks WHERE id = $1`, truck); v != "active 121000 2026-10-03 true true" {
+		t.Errorf("after the job: %v", v)
 	}
 	// Once billing is PostgreSQL-owned too the fields are PostgreSQL's: projected, no longer mirrored.
 	o2 := owned("auth", "masterdata", "billing")
 	if h.plan(o2).Mode("trucks") != "" {
 		t.Error("trucks still mirrored with billing owned")
 	}
+	h.exec(`UPDATE trucks SET current_mileage = 121500 WHERE id = $1`, truck)
 	if _, err := h.projector(o2).Project(h.ctx, ShadowTarget{Collection: "trucks", IDs: []uuid.UUID{truck}}); err != nil {
 		t.Fatal(err)
 	}
-	if f := h.doc("trucks/trk_own1"); f["currentMileage"] != int64(1) {
+	if f := h.doc("trucks/trk_own1"); f["currentMileage"] != int64(121500) {
 		t.Errorf("current mileage once billing is owned: %v", f["currentMileage"])
 	}
 }
