@@ -34,6 +34,7 @@ const (
 	EventUserScopeChanged      = "user_scope_changed"
 	EventUserDisabled          = "user_disabled"
 	EventUserEnabled           = "user_enabled"
+	EventUserDeleted           = "user_deleted" // T51: DELETE /v1/users/{id} (soft delete)
 	EventUserSessionsRevoked   = "user_sessions_revoked"
 	EventUserTemporaryPassword = "user_password_temporary_issued"
 	EventDriverLinked          = "driver_linked"
@@ -92,7 +93,8 @@ type Files interface {
 // the users with a membership in the request's tenant reach (the effective tenant and, for staff, the
 // carriers that work for it: the RLS rule p_staff_read of users), and for a steward (own-fleet staff,
 // platform_admin) also the accounts that belong to no tenant and hold no platform role (customer-scope
-// accounts, whose parties are global master data, R60, and imported accounts still without a role). A
+// accounts, whose parties are global master data, R60, and imported accounts still without a role) and are not
+// deleted (a soft delete removes every grant; a deleted account is read only under X-Act-On-Tenant: *). A
 // platform_admin writes any user and any tenant's memberships without the header
 // (Appendix B §B.1.4); everyone else writes only inside the same reach. A user outside the reach does not
 // exist for the caller (404). Inside it, a route that targets a user also needs a user the caller outranks
@@ -102,6 +104,7 @@ type Admin struct {
 	pool  db.Beginner
 	auth  *auth.Service
 	files Files
+	rbac  *RBAC
 	log   zerolog.Logger
 	now   func() time.Time
 }
@@ -113,8 +116,11 @@ type AdminDeps struct {
 	// Auth performs the revocations, status and password changes and the Firebase mirror.
 	Auth  *auth.Service
 	Files Files // optional
-	Log   zerolog.Logger
-	Now   func() time.Time // optional, defaults to time.Now
+	// RBAC increments rbac:ver after a role matrix save (T51) and pings Redis for the status section of
+	// GET /v1/security/overview; optional (without it a save is effective within CapsTTL).
+	RBAC *RBAC
+	Log  zerolog.Logger
+	Now  func() time.Time // optional, defaults to time.Now
 }
 
 // NewAdmin builds the administration.
@@ -122,7 +128,7 @@ func NewAdmin(d AdminDeps) (*Admin, error) {
 	if d.Pool == nil || d.Auth == nil {
 		return nil, errors.New("iam: the administration needs a pool and the auth service")
 	}
-	a := &Admin{pool: d.Pool, auth: d.Auth, files: d.Files, log: d.Log, now: d.Now}
+	a := &Admin{pool: d.Pool, auth: d.Auth, files: d.Files, rbac: d.RBAC, log: d.Log, now: d.Now}
 	if a.now == nil {
 		a.now = time.Now
 	}
@@ -146,7 +152,8 @@ type reach struct {
 }
 
 // readReach: everyone under X-Act-On-Tenant: *; else the members of the tenant reach of a staff principal
-// (the effective tenant plus contractor reach) and, for a steward, the accounts without a membership.
+// (the effective tenant plus contractor reach) and, for a steward, the accounts without a membership that are not
+// deleted.
 func readReach(p *authz.Principal) reach {
 	if p.ActOnAll {
 		return reach{all: true}
@@ -254,12 +261,20 @@ func (a *Admin) claimsChanged(c call, tx pgx.Tx, uid uuid.UUID, keep func(*auth.
 	return nil
 }
 
-// audit appends the change's security_events row in its transaction (no audit, no change).
+// audit appends the change's security_events row in its transaction (no audit, no change). The row carries tenant
+// (the tenant the change concerns: a membership, a driver, a tenant), else the caller's effective tenant (its active
+// tenant, or the X-Act-On-Tenant target), so the staff who made a change in their tenant read it in their audit feed
+// (RLS p_staff_read: tenant_id = app_tenant_id()). It stays NULL, a platform-level row read only under
+// X-Act-On-Tenant: *, without a tenant context (a platform admin acting without the header) and for platform-level
+// grants: platform roles and dispatcher scopes (Appendix C §C.4.13).
 func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid.UUID, tenant *uuid.UUID, details map[string]any) error {
+	if tenant == nil && !platformLevelEvent(eventType, details) {
+		tenant = c.p.EffectiveTenant()
+	}
 	actor := c.p.UserID
 	sev := security.SeverityInfo
 	switch eventType {
-	case EventPlatformRoleGranted, EventPlatformRoleRevoked, EventUserDisabled, EventUserSessionsRevoked,
+	case EventPlatformRoleGranted, EventPlatformRoleRevoked, EventUserDisabled, EventUserDeleted, EventUserSessionsRevoked,
 		EventUserTemporaryPassword:
 		sev = security.SeverityWarning
 	}
@@ -269,14 +284,32 @@ func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid
 	})
 }
 
+// platformLevelEvent: the grants only platform admins make (platform roles, dispatcher scopes, R13) are audited as
+// platform-level rows, whatever tenant the platform admin acts as.
+func platformLevelEvent(eventType string, details map[string]any) bool {
+	switch eventType {
+	case EventPlatformRoleGranted, EventPlatformRoleRevoked:
+		return true
+	case EventUserScopeChanged:
+		return details["kind"] == string(authz.ScopeDispatcher)
+	}
+	return false
+}
+
 // emit appends an outbox event in the change's transaction.
 func emit(c call, tx pgx.Tx, routingKey, aggType, aggID string, tenant *uuid.UUID, payload any) error {
+	return emitTopics(c, tx, routingKey, aggType, aggID, tenant, payload, nil)
+}
+
+// emitTopics is emit with realtime topics (Appendix B §B.4.2): the relay also publishes the event on them.
+func emitTopics(c call, tx pgx.Tx, routingKey, aggType, aggID string, tenant *uuid.UUID, payload any, topics []string) error {
 	var headers map[string]string
 	if c.rid != "" {
 		headers = map[string]string{"requestId": c.rid}
 	}
 	_, err := outbox.Append(c.ctx, tx, outbox.Event{
 		RoutingKey: routingKey, AggregateType: aggType, AggregateID: aggID, TenantID: tenant, Payload: payload, Headers: headers,
+		Topics: topics,
 	})
 	return err
 }

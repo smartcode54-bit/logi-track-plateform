@@ -1,6 +1,7 @@
 // Command etl moves Firestore and Cloud Storage into PostgreSQL 18 and MinIO (developer-spec.md §13, Appendix A
 // §A.3): dump, load, reconcile, export-back, media-copy, rewrite-urls, quarantine list|resolve and status; and the
-// users ETL of T19 (Appendix C §C.5): auth-import and auth-weak-scan. It runs
+// users ETL of T19 (Appendix C §C.5): auth-import and auth-weak-scan; and the role matrix of T51 (Appendix C §C.2.6):
+// auth-rbac. It runs
 // as logitrack_etl through ETL_DATABASE_URL (BYPASSRLS, R66) inside db.WithSystem with app.etl_load on, and refuses
 // to start without OWN_FLEET_TENANT_ID (R56).
 package main
@@ -80,6 +81,10 @@ Users (T19, Appendix C §C.5; PLATFORM_ADMIN_EMAILS, FIREBASE_SCRYPT_* for the s
         flags every account whose legacy hash matches a candidate (must_change_password); run it before the P0
         cut-over (a Go sign-in replaces the legacy hash); --dump gives --with-mobile the drivers not loaded yet;
         never prints a candidate
+  auth-rbac (--dump=DIR|s3:etl/dumps/{ts} | --fixtures) [--actor=EMAIL] [--report=FILE] [--dry-run]
+        permissions_config -> own-fleet rows of role_capability_overrides (T51, Appendix C §C.2.6), where the saved
+        value differs from the new default; unknown keys -> etl.quarantine unknown_capability_key;
+        migration_rbac_report.csv; --actor (default: the first PLATFORM_ADMIN_EMAILS address) is updated_by
 
 Exit codes: 0 ok, 1 runtime error, 2 configuration error, mismatch, refusal or an aborted load (R19).
 `
@@ -125,7 +130,7 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, 
 	commands := map[string]func(*env, []string) int{
 		"dump": cmdDump, "load": cmdLoad, "reconcile": cmdReconcile, "export-back": cmdExportBack, "media-copy": cmdMediaCopy,
 		"rewrite-urls": cmdRewriteURLs, "quarantine list": cmdQuarantineList, "quarantine resolve": cmdQuarantineResolve,
-		"status": cmdStatus, "auth-import": cmdAuthImport, "auth-weak-scan": cmdAuthWeakScan,
+		"status": cmdStatus, "auth-import": cmdAuthImport, "auth-weak-scan": cmdAuthWeakScan, "auth-rbac": cmdAuthRBAC,
 	}
 	fn, ok := commands[cmd]
 	if !ok {

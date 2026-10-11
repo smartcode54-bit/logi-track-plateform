@@ -53,8 +53,9 @@ func main() {
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
 	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
 	// GET /v1/roles also admits integration and script API keys (the catalog a script picks capabilities
-	// from); every other route here admits people only (T32K).
-	groups = append(groups, iam.RoleGroups(deps.Auth.RequireAuth(auth.AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)))...)
+	// from); the role matrix of T51 and every other route here admit people only (T32K).
+	groups = append(groups, iam.RoleGroups(deps.Admin, deps.Auth.RequireAuth(),
+		deps.Auth.RequireAuth(auth.AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)))...)
 	groups = append(groups, iam.AdminGroups(deps.Admin, deps.Auth.RequireAuth())...)
 	groups = append(groups, iam.APIKeyGroups(deps.APIKeys, deps.Auth.RequireAuth())...)
 	groups = append(groups, parties.Groups(deps.Parties, deps.Auth.RequireAuth())...)

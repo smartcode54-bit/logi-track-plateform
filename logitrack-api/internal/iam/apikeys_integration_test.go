@@ -429,8 +429,10 @@ func TestAPIKeyScopeEnforcement(t *testing.T) {
 		t.Fatalf("customer rows: %d", n)
 	}
 
-	// Routes that admit no key (people only): identity, sessions, the key administration itself.
-	for _, path := range []string{"/v1/me", "/v1/users", "/v1/api-keys", "/v1/rbactest/whoami"} {
+	// Routes that admit no key (people only): identity, sessions, the key administration itself, and the
+	// Security Center of T51 (the role matrix beside the catalog, the events feed, the overview, the counts).
+	for _, path := range []string{"/v1/me", "/v1/users", "/v1/api-keys", "/v1/rbactest/whoami", "/v1/roles/matrix",
+		"/v1/security-events", "/v1/security/overview", "/v1/security/status", "/v1/stats/users-by-role"} {
 		scopeRefusal(w.keyed(http.MethodGet, path, integ))
 	}
 	scopeRefusal(w.send(http.MethodPost, "/v1/api-keys", "", map[string]any{"name": "x", "scope": "script",

@@ -156,18 +156,20 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
-	// The users and tenants administration of T19 (/v1/users*, /v1/tenants*).
-	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: w.pool, Auth: svc, Log: logger})
+	// The users and tenants administration of T19 (/v1/users*, /v1/tenants*) and the Security Center of T51
+	// (/v1/roles/matrix, /v1/security-events, /v1/security/overview, /v1/stats/users-by-role).
+	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: w.pool, Auth: svc, RBAC: w.rbac, Log: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The API keys administration of T32K (/v1/api-keys*) and the route admission of cmd/api: GET /v1/roles
-	// also takes integration and script keys.
+	// also takes integration and script keys; the role matrix of T51 admits people only.
 	keys, err := iam.NewAPIKeys(iam.APIKeysDeps{Pool: w.pool, Pepper: pepper, Log: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
-	groups := append(svc.Groups(), iam.RoleGroups(svc.RequireAuth(auth.AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)))...)
+	groups := append(svc.Groups(), iam.RoleGroups(admin, svc.RequireAuth(),
+		svc.RequireAuth(auth.AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)))...)
 	groups = append(groups, iam.AdminGroups(admin, svc.RequireAuth())...)
 	groups = append(groups, iam.APIKeyGroups(keys, svc.RequireAuth())...)
 	groups = append(groups, ingress.Group{Prefix: "/v1/rbactest", Mount: w.testRoutes(svc.RequireAuth())})
