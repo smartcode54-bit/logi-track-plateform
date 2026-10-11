@@ -49,7 +49,7 @@ type PhotoInput struct {
 
 // CreateTrip inserts a trip in the caller's transaction with its stop plan and photos. The trip number is trimmed and
 // must be a valid Firestore document id (tripcheck.ValidateTripNo, 422 tripNo); a number another trip holds is 409
-// duplicate_trip_id (trip_records_trip_no). The tenant is the caller's stamping (T28: the task's, else the driver's);
+// duplicate_trip_id (trip_records_trip_no). The tenant is the caller's stamping (Stamp, T28: the task's, else the driver's);
 // the deferred trip_records_tenant_check refuses at COMMIT a trip off its task's tenant. A driver's submit calls
 // CheckSeal first in the same transaction (409 duplicate_seal).
 func CreateTrip(ctx context.Context, tx pgx.Tx, in NewTrip) (Trip, error) {

@@ -1,0 +1,24 @@
+{
+  "_note": "Expected tenancy.orphan-scan result after `etl load --fixtures` (T28, Appendix D §D.5.3); ids are the legacy document ids (tenants: the subcontractors doc id, or own_fleet / quarantine). Rewritten by go test ./cmd/etl -tags=integration -update.",
+  "quarantineRows": {
+    "companies": 1,
+    "driver_penalties": 1,
+    "drivers": 1,
+    "maintenance_records": 1,
+    "tasks": 1,
+    "transactions": 1,
+    "trip_records": 1,
+    "trucks": 1
+  },
+  "driverMoved": [],
+  "truckTenantMismatch": [
+    {
+      "table": "tasks",
+      "doc": "task_broker_jul",
+      "driver": "drv_broker",
+      "rowTenant": "own_fleet",
+      "truck": "trk_alpha1",
+      "truckTenant": "sub_alpha"
+    }
+  ]
+}

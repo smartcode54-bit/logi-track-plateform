@@ -33,6 +33,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -55,7 +56,7 @@ func main() {
 // POST /v1/jobs/distances.compute (T21, deps.Hubs), the trucks (T22, deps.Fleet) with the truck assignments and
 // the drivers (T23, deps.Fleet, deps.Drivers), the vehicle expenses and maintenance with the PM check below /v1/trucks
 // (T40, deps.Expenses, deps.Maintenance), the billing rate tables, statements, fuel snapshots and POST
-// /v1/jobs/bangchak.snapshot (T37, deps.Billing) sit behind
+// /v1/jobs/bangchak.snapshot (T37, deps.Billing) and the R13 task reassignment (T28, deps.Operations) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
 // installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
@@ -78,6 +79,7 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, expenses.Groups(deps.Expenses, deps.Auth.RequireAuth())...)
 	groups = append(groups, maintenance.Groups(deps.Maintenance, deps.Auth.RequireAuth())...)
 	groups = append(groups, billing.Groups(deps.Billing, deps.Auth.RequireAuth())...)
+	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)

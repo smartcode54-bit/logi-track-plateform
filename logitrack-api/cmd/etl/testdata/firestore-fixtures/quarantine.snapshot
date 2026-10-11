@@ -23,6 +23,7 @@ driver_penalties	driver_penalties/pen_bad	remainingThb	bad_number
 driver_penalties	driver_penalties/pen_ghost	-	tenant_unresolved
 driver_penalties	driver_penalties/pen_ghost	driverId	driver_unresolved
 drivers	drivers/drv_alpha	authId	user_unresolved
+drivers	drivers/drv_broker	authId	user_unresolved
 drivers	drivers/drv_ghost	-	tenant_unresolved
 drivers	drivers/drv_nomobile	mobile	missing_required
 drivers	drivers/drv_own	authId	user_unresolved
@@ -121,6 +122,7 @@ driver_penalties	driver_penalties/pen_1	loaded	driver
 driver_penalties	driver_penalties/pen_bad	rejected	-
 driver_penalties	driver_penalties/pen_ghost	quarantined	quarantine
 drivers	drivers/drv_alpha	loaded	self
+drivers	drivers/drv_broker	loaded	self
 drivers	drivers/drv_ghost	quarantined	quarantine
 drivers	drivers/drv_nomobile	rejected	-
 drivers	drivers/drv_own	loaded	self
@@ -187,6 +189,7 @@ tasks	tasks/task_2	loaded	driver
 tasks	tasks/task_3	loaded	driver
 tasks	tasks/task_4	quarantined	quarantine
 tasks	tasks/task_5	rejected	-
+tasks	tasks/task_broker_jul	loaded	driver
 tasks	tasks/task_dup_a	loaded	driver
 tasks	tasks/task_dup_b	loaded	driver
 tasks	tasks/task_md	loaded	driver

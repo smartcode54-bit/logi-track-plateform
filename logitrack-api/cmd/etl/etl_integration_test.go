@@ -561,7 +561,7 @@ func TestDumpThenLoad(t *testing.T) {
 		t.Fatalf("dumped collections %v", d.Names())
 	}
 	h.mustRun("load", "--dump", out)
-	if v := h.scalar(`SELECT count(*) FROM drivers`); v != int64(3) {
+	if v := h.scalar(`SELECT count(*) FROM drivers`); v != int64(4) { // drv_nomobile is rejected (missing_required)
 		t.Errorf("drivers loaded: %v", v)
 	}
 	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'drivers/drv_own/mobile_installations/i1'`); v != "loaded" {
