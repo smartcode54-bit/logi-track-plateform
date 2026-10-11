@@ -18,8 +18,9 @@ import (
 // of GET /v1/security/overview. Both run in the caller's db.WithPrincipal transaction, so RLS decides which rows
 // a principal sees (Appendix C §C.3.5, 0008_platform): tenant staff the rows of their tenant, a platform principal
 // under X-Act-On-Tenant: * every row, under X-Act-On-Tenant: <uuid> the rows of that tenant. Rows with tenant_id
-// NULL (platform-level events: login_failed, refresh_token_reuse, platform_cross_tenant_access with *) are
-// therefore platform-only.
+// NULL are therefore platform-only: the platform-level events (login_failed, login_lockout, refresh_token_reuse,
+// platform_cross_tenant_access with *, platform role and dispatcher grants) and the administration of a platform
+// admin acting without a tenant context; an admin event otherwise carries the caller's tenant (internal/iam audit).
 
 // EventTypes is the catalogue of security_events.event_type values, in the order of Appendix C §C.4.13 (R85,
 // Appendix B §B.5.7): the in-transaction events of auth and IAM, the cross-tenant access row, the consumer-written
@@ -51,8 +52,9 @@ func ValidSeverity(s string) bool {
 }
 
 // Row is one security_events row as GET /v1/security-events returns it. Type and the actor e-mail keep the names
-// of the legacy feed (logitrack-web/hooks/useSecurityEventsFeed.ts); actorLegacyUid is the legacy actorUid that no
-// users row matched at ETL.
+// of the legacy feed (logitrack-web/hooks/useSecurityEventsFeed.ts); actorEmail is the actor's address as recorded
+// when the event was written (InsertSecurityEvent; internal/iam names the actor of older rows on read);
+// actorLegacyUid is the legacy actorUid that no users row matched at ETL.
 type Row struct {
 	ID             uuid.UUID       `json:"id"`
 	CreatedAt      time.Time       `json:"createdAt"`

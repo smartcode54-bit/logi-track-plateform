@@ -16,9 +16,10 @@ const insertSecurityEvent = `-- name: InsertSecurityEvent :exec
 
 INSERT INTO security_events (event_type, severity, summary, details, actor_user_id, actor_email, target_user_id,
                              tenant_id, request_id, created_at)
-VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, $9,
-        $10)
+VALUES ($1, $2, $3, $4, $5::uuid,
+        coalesce($6::text,
+                 (SELECT u.email::text FROM users u WHERE u.id = $5::uuid)),
+        $7, $8, $9, $10)
 `
 
 type InsertSecurityEventParams struct {
@@ -36,6 +37,9 @@ type InsertSecurityEventParams struct {
 
 // security_events (Appendix A 0008_platform, Appendix C §C.4.13, R85): append-only; this package is its
 // only writer. Rows are appended in the caller's WithSystem transaction, with the change they describe.
+// actor_email is the actor's address when the event is written, as the legacy feed recorded it: the caller's value
+// (the sign-in events pass the address that was typed), else the users row of actor_user_id (every caller runs in
+// WithSystem or as the ETL role, so RLS does not hide it). A later email change does not rewrite history.
 func (q *Queries) InsertSecurityEvent(ctx context.Context, arg InsertSecurityEventParams) error {
 	_, err := q.db.Exec(ctx, insertSecurityEvent,
 		arg.EventType,

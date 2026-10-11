@@ -153,14 +153,38 @@ func TestDesiredRows(t *testing.T) {
 	want, err := desiredRows(in(
 		MatrixOverride{Role: "operator", Capability: "fleet:create_truck", Allowed: yes}, // differs from default: a row
 		MatrixOverride{Role: "operator", Capability: "fleet:view_trucks", Allowed: yes},  // equals default: no row
-		MatrixOverride{Role: "operator", Capability: "users:view", Allowed: yes},         // equals the inherited grant: no row
+		// Equals the inherited platform-wide grant, but a platform-wide row covers the cell: the tenant row is kept,
+		// so it pins the tenant's choice when the platform-wide row is lifted later.
+		MatrixOverride{Role: "operator", Capability: "users:view", Allowed: yes},
 		MatrixOverride{Role: "manager", Capability: "drivers:view", Allowed: no},
-	), carrier, platformRows)
+	), carrier, platformRows, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(want) != 2 || !want[cellKey{authz.Operator, authz.FleetCreateTruck}] || want[cellKey{authz.Manager, authz.DriversView}] {
+	if len(want) != 3 || !want[cellKey{authz.Operator, authz.FleetCreateTruck}] || want[cellKey{authz.Manager, authz.DriversView}] ||
+		!want[cellKey{authz.Operator, authz.UsersView}] {
 		t.Fatalf("rows %v", want)
+	}
+	// A tenant deny that mirrors a platform-wide deny is stored; the same request in the platform-wide layer is the
+	// layer's own row (no pinning there), and a value equal to the inherited one with no platform-wide row is not.
+	deny := map[cellKey]bool{{authz.Manager, authz.UsersView}: false}
+	if want, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: "users:view", Allowed: no}), carrier, deny, nil); err != nil ||
+		len(want) != 1 || want[cellKey{authz.Manager, authz.UsersView}] {
+		t.Fatalf("pinned tenant deny: %v %v", want, err)
+	}
+	if want, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: "users:view", Allowed: yes}), carrier, nil, nil); err != nil ||
+		len(want) != 0 {
+		t.Fatalf("a row equal to the default with no platform-wide row: %v %v", want, err)
+	}
+	// A row the layer already holds is kept when the body repeats it, even once it equals the inherited value (the
+	// platform-wide row it pinned was lifted): a GET -> PUT round trip never removes a row.
+	held := map[cellKey]bool{{authz.Manager, authz.UsersView}: true}
+	if want, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: "users:view", Allowed: yes}), carrier, nil, held); err != nil ||
+		len(want) != 1 || !want[cellKey{authz.Manager, authz.UsersView}] {
+		t.Fatalf("a held row repeated by the body: %v %v", want, err)
+	}
+	if want, err = desiredRows(in(), carrier, nil, held); err != nil || len(want) != 0 {
+		t.Fatalf("a held row left out of the body is removed: %v %v", want, err)
 	}
 
 	expect422 := func(name string, err error, code string) *httpx.Error {
@@ -171,32 +195,62 @@ func TestDesiredRows(t *testing.T) {
 		}
 		return he
 	}
-	_, err = desiredRows(SaveMatrixInput{}, carrier, nil)
+	_, err = desiredRows(SaveMatrixInput{}, carrier, nil, nil)
 	_ = expect422("missing overrides", err, httpx.CodeInvalidArgument)
-	_, err = desiredRows(in(MatrixOverride{Role: "boss", Capability: "fleet:nope", Allowed: nil}), carrier, nil)
+	_, err = desiredRows(in(MatrixOverride{Role: "boss", Capability: "fleet:nope", Allowed: nil}), carrier, nil, nil)
 	he := expect422("bad row", err, httpx.CodeInvalidArgument)
 	if f := he.Details["fields"].([]httpx.FieldViolation); len(f) != 3 {
 		t.Errorf("fields %v", f)
 	}
 	_, err = desiredRows(in(MatrixOverride{Role: "operator", Capability: "fleet:create_truck", Allowed: yes},
-		MatrixOverride{Role: "operator", Capability: "fleet:create_truck", Allowed: no}), carrier, nil)
+		MatrixOverride{Role: "operator", Capability: "fleet:create_truck", Allowed: no}), carrier, nil, nil)
 	_ = expect422("duplicate", err, httpx.CodeInvalidArgument)
 	// The AC: a tenant caller cannot override platform:*, dispatch:* or users:assign_role.
 	for _, k := range []authz.Cap{authz.PlatformManageTenants, authz.DispatchViewOperations, authz.UsersAssignRole} {
-		_, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: string(k), Allowed: yes}), ownFleet, nil)
+		_, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: string(k), Allowed: yes}), ownFleet, nil, nil)
 		he := expect422(string(k), err, CodeCapabilityNotOverridable)
 		if r := he.Details["overrides"].([]refusal); len(r) != 1 || r[0].Capability != string(k) {
 			t.Errorf("%s: %v", k, r)
 		}
 	}
-	if _, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: "users:assign_role", Allowed: yes}), platform, nil); err != nil {
+	if _, err = desiredRows(in(MatrixOverride{Role: "manager", Capability: "users:assign_role", Allowed: yes}), platform, nil, nil); err != nil {
 		t.Errorf("users:assign_role platform-wide: %v", err)
 	}
-	_, err = desiredRows(in(MatrixOverride{Role: "tenant_admin", Capability: "fleet:view_trucks", Allowed: no}), platform, nil)
+	_, err = desiredRows(in(MatrixOverride{Role: "tenant_admin", Capability: "fleet:view_trucks", Allowed: no}), platform, nil, nil)
 	_ = expect422("tenant_admin", err, CodeCapabilityNotOverridable)
 	many := make([]MatrixOverride, MaxMatrixOverrides+1)
-	_, err = desiredRows(SaveMatrixInput{Overrides: &many}, carrier, nil)
+	_, err = desiredRows(SaveMatrixInput{Overrides: &many}, carrier, nil, nil)
 	_ = expect422("too many", err, httpx.CodeInvalidArgument)
+}
+
+// ?layer=tenant names a tenant layer: without ?tenantId or an effective tenant it is 403 tenant_required, never
+// the platform-wide layer (whose rows apply to every tenant), for reads and writes alike. Without ?layer a platform
+// admin with no tenant still reads and writes the platform-wide layer; ?layer=platform names it; anything else is
+// 422.
+func TestResolveLayerNoTenant(t *testing.T) {
+	a := &Admin{}
+	pa := &authz.Principal{UserID: uuid.New(), AMR: authz.AMRPassword, Platform: []authz.PlatformRole{authz.PlatformAdmin}}
+	all := &authz.Principal{UserID: uuid.New(), AMR: authz.AMRPassword, Platform: []authz.PlatformRole{authz.PlatformAdmin},
+		ActOnAll: true}
+	for _, p := range []*authz.Principal{pa, all} {
+		for _, write := range []bool{false, true} {
+			c := call{ctx: t.Context(), p: p}
+			_, err := a.resolveLayer(c, nil, MatrixTarget{Layer: LayerTenant}, write)
+			var he *httpx.Error
+			if !errors.As(err, &he) || he.Status != http.StatusForbidden || he.Code != authz.CodeTenantRequired {
+				t.Errorf("?layer=tenant (actOnAll %t, write %t): want 403 tenant_required, got %v", p.ActOnAll, write, err)
+			}
+			for _, layer := range []string{"", LayerPlatform} {
+				if l, err := a.resolveLayer(c, nil, MatrixTarget{Layer: layer}, write); err != nil || l.tenant != nil {
+					t.Errorf("?layer=%q (actOnAll %t, write %t): want the platform-wide layer, got %+v %v", layer, p.ActOnAll, write, l, err)
+				}
+			}
+			if _, err := a.resolveLayer(c, nil, MatrixTarget{Layer: "world"}, write); !errors.As(err, &he) ||
+				he.Status != http.StatusUnprocessableEntity {
+				t.Errorf("?layer=world: %v", err)
+			}
+		}
+	}
 }
 
 func TestDiffRows(t *testing.T) {

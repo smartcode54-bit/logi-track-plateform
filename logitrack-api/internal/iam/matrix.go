@@ -179,7 +179,7 @@ func roleOverrides(role authz.TenantRole, platform, tenantRows map[cellKey]bool,
 
 // inherited is what role holds in layer l without the layer's own rows, before the steward rule: the catalog
 // default in the platform-wide layer, default + platform-wide rows in a tenant layer. A requested value equal to
-// it needs no row.
+// it needs no new row (desiredRows still keeps a tenant row that a platform-wide row covers, and a held row).
 func inherited(role authz.TenantRole, l matrixLayer, platform map[cellKey]bool) authz.CapSet {
 	if l.tenant == nil {
 		return authz.TenantDefaults(role)
@@ -229,8 +229,10 @@ type MatrixOverride struct {
 }
 
 // SaveMatrixInput is the body of PUT /v1/roles/matrix: the complete set of overrides of the layer. A row absent
-// from it is removed (the role falls back to the inherited value), and a row whose value equals the inherited value
-// is not stored, so the stored set is always the minimal one. overrides is required ([] resets the layer).
+// from it is removed (the role falls back to the inherited value), and a new row whose value equals the inherited
+// value is not stored, unless (in a tenant layer) the platform-wide layer holds a row for that cell: then the tenant
+// row is kept, so it survives later platform-wide changes. A row the layer already holds is kept when the body
+// repeats it. overrides is required ([] resets the layer).
 type SaveMatrixInput struct {
 	Overrides *[]MatrixOverride `json:"overrides"`
 }
@@ -251,8 +253,9 @@ type refusal struct {
 	Reason     string `json:"reason"`
 }
 
-// desiredRows validates the body against layer l and returns the rows the layer must hold afterwards.
-func desiredRows(in SaveMatrixInput, l matrixLayer, platform map[cellKey]bool) (map[cellKey]bool, error) {
+// desiredRows validates the body against layer l (whose rows are now current) and returns the rows the layer must
+// hold afterwards.
+func desiredRows(in SaveMatrixInput, l matrixLayer, platform, current map[cellKey]bool) (map[cellKey]bool, error) {
 	if in.Overrides == nil {
 		return nil, errInvalid(violation("overrides", "required"))
 	}
@@ -296,7 +299,14 @@ func desiredRows(in SaveMatrixInput, l matrixLayer, platform map[cellKey]bool) (
 			set = inherited(role, l, platform)
 			inh[role] = set
 		}
-		if *o.Allowed != set.Has(key) {
+		// A row equal to the inherited value is still stored when it pins a cell: in a tenant layer when the
+		// platform-wide layer holds a row for it (lifting or flipping that row later must not change the tenant: a
+		// tenant deny that only mirrored a platform-wide deny would otherwise vanish and the key come back), and in
+		// any layer when the layer already holds that row with that value (a GET -> PUT round trip of what GET
+		// showed as overridden never removes a row; leaving the row out of the body does).
+		_, pinned := platform[ck]
+		held, ok := current[ck]
+		if *o.Allowed != set.Has(key) || (l.tenant != nil && pinned) || (ok && held == *o.Allowed) {
 			want[ck] = *o.Allowed
 		}
 	}
@@ -348,7 +358,8 @@ func roleOrder(r string) int {
 // --- service --------------------------------------------------------------------------------------------
 
 // MatrixTarget are the query parameters that name the layer of a matrix request: ?tenantId (a tenant) or
-// ?layer=platform (the platform-wide layer); both absent = the caller's effective tenant.
+// ?layer=platform (the platform-wide layer); both absent = the caller's effective tenant. ?layer=tenant names a
+// tenant layer explicitly (?tenantId or the effective tenant).
 type MatrixTarget struct {
 	TenantID string
 	Layer    string // "", "tenant" or "platform"
@@ -357,8 +368,9 @@ type MatrixTarget struct {
 // resolveLayer decides the layer of a matrix request (Appendix B §B.2.6): ?layer=platform is the platform-wide layer
 // (platform_admin only; it excludes ?tenantId); ?tenantId names a tenant (a platform_admin names any tenant; anyone
 // else only its effective tenant); without either, the effective tenant (the active tenant, or the X-Act-On-Tenant
-// target), else the platform-wide layer for a platform_admin, else 403 tenant_required. A write needs a user
-// (updated_by and the audit actor are users rows): an API key reads only.
+// target), else the platform-wide layer for a platform_admin, else 403 tenant_required. ?layer=tenant asks for a
+// tenant layer: ?tenantId or the effective tenant, else 403 tenant_required (never the platform-wide layer). A write
+// needs a user (updated_by and the audit actor are users rows): an API key reads only.
 func (a *Admin) resolveLayer(c call, q *iamdb.Queries, target MatrixTarget, write bool) (matrixLayer, error) {
 	p := c.p
 	if write && p.IsMachine() {
@@ -397,9 +409,11 @@ func (a *Admin) resolveLayer(c call, q *iamdb.Queries, target MatrixTarget, writ
 	case eff != nil:
 		t := *eff
 		tid = &t
-	case platform:
+	case platform && target.Layer == "":
 		return matrixLayer{}, nil // the platform-wide layer
 	default:
+		// No tenant: 403 tenant_required, also for ?layer=tenant (which never falls back to the platform-wide
+		// layer, whose rows apply to every tenant).
 		return matrixLayer{}, authz.ErrTenantRequired()
 	}
 	t, err := q.MatrixTenant(c.ctx, *tid)
@@ -445,7 +459,7 @@ func (a *Admin) GetMatrix(c call, target MatrixTarget) (*Matrix, error) {
 }
 
 // SaveMatrix is PUT /v1/roles/matrix (security:manage_roles): the layer's override rows become exactly the body's
-// (minus the rows equal to the inherited value), and when anything changed the same transaction appends
+// (minus the new rows equal to the inherited value that no platform-wide row covers), and when anything changed the same transaction appends
 // role_matrix_saved with the full diff and the realtime event roles.changed; after COMMIT, INCR rbac:ver makes every
 // role set be computed again on the next request (Appendix C §C.2.5). It returns the new matrix and the number of
 // rows that changed.
@@ -473,7 +487,7 @@ func (a *Admin) SaveMatrix(c call, target MatrixTarget, in SaveMatrixInput) (*Ma
 			}
 			before = overrideRows(tr)
 		}
-		after, err := desiredRows(in, l, platform)
+		after, err := desiredRows(in, l, platform, before)
 		if err != nil {
 			return err
 		}

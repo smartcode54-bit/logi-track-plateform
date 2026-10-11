@@ -629,7 +629,7 @@ The ingress policy is §2.6 (and §B.1.2): `API_INTERNAL_ADDR` mounts every rout
 
 ### 5.3 Route groups
 
-Operation counts from §B.7: **293** (216 internal-only, 77 public). Web groups are internal, reached through the BFF.
+Operation counts from §B.7: **297** (218 internal-only, 79 public). Web groups are internal, reached through the BFF.
 
 | Group | Main routes | Capabilities | Phase | Ops |
 |---|---|---|---|---|
@@ -638,7 +638,7 @@ Operation counts from §B.7: **293** (216 internal-only, 77 public). Web groups 
 | Me, bridge | `/v1/me`, `/me/tenants`, `/me/sessions[/{sid}]`, `/me/devices[/{installId}]`, `POST /v1/bridge/firebase-token` | authenticated | P0 (devices P5) | 8 |
 | Tenants | `/v1/tenants[/{id}]`, `/{id}/members[/{userId}]`, `/quarantine/rows[/{table}/{id}/rehome]` | `platform:manage_tenants\|cross_tenant_*`, `users:view\|assign_role` | P1 (members P0) | 9 |
 | Users | `/v1/users[/{id}]`, `invite`, `disable`, `enable`, `password/temporary`, `sessions[/{sid}]`, `driver-link`, `scopes/{kind}`, `platform-roles[/{role}]`, `/v1/stats/users-by-role` | `users:*`, `drivers:set_password`, `platform:manage_platform_roles` | P0, R49, R81 (delete, stats P6; Go routes pulled forward 2026-10-11, T51) | 19 |
-| Roles, keys, audit | `/v1/roles`, `/v1/roles/matrix`, `/v1/api-keys[/{id}]`, `/v1/security-events`, `/v1/security/overview` | `security:*` | P0 / P2 keys / P6 (matrix, events, overview: Go routes pulled forward 2026-10-11, T51) | 8 |
+| Roles, keys, audit | `/v1/roles`, `/v1/roles/matrix`, `/v1/api-keys[/{id}]`, `/v1/security-events`, `/v1/security/overview`, `/v1/security/status` | `security:*` | P0 / P2 keys / P6 (matrix, events, overview, status: Go routes pulled forward 2026-10-11, T51) | 9 |
 | Drivers | `/v1/drivers[/{id}]`, `/{id}/documents/{kind}` | `drivers:*`, `dispatch:view_operations` | P1 | 5 |
 | Trucks | `/v1/trucks[/{id}]`, `import`, `renewals`, `{id}/renewals`, `{id}/pm-check`, `/v1/truck-assignments[/{id}/revoke]`, `/v1/vehicle-locations`, `/v1/admin/cartrack/probe` | `fleet:*`, `accounting:audit_expense`, platform | P1 (P3, P6) | 13 |
 | Hubs | **`GET /v1/hubs`**, `/v1/hubs/maps`, `POST`/`PATCH`, `import`, `/v1/distances[…]`, `POST /v1/jobs/distances.compute` | authenticated; `operations:manage_sources\|calculate_distances` | P1 | 9 |
@@ -1731,7 +1731,7 @@ A page moves in the phase that ships its domain's endpoints, switched at runtime
 | payroll (3), `/app/leave-requests`, `/app/holidays` (5) | P4 | `usePayroll`, `usePenalties`, `useLeaveRequests`, `useHolidays` | `/v1/payroll`, `POST /v1/jobs/payroll.run`, `/v1/penalties`, `/v1/leave-requests`, `/v1/holidays` | 3 listeners; penalties waterfall |
 | `/app/chat`, `/app/chat/room`, `/app/chat/with-driver` (3) | P5 | `useChats`, `useChatMessages`, `useBroadcasts` | `/v1/chats`, `/v1/broadcasts` | 4 listeners; write in snapshot callback |
 | `/app/dashboard`, `/app/waitlist` (2) | P6 | `useDashboardSummary`, `useVehicleLocations`, `useWaitlist` | `/v1/dashboard/summary`, `/v1/vehicle-locations`, `/v1/badges`, `/v1/waitlist` | about 10.7k reads per visit; 3 listeners |
-| security-center: index, roles, audit, api-keys, status (5) | P6 (api-keys routes P2) | `useSecurityOverview`, `useRoleMatrix`, `useSecurityEvents`, `useApiKeys` | `/v1/security/overview`, `/v1/stats/users-by-role`, `/v1/roles/matrix`, `/v1/security-events`, `/v1/api-keys` | 2 listeners; per-role reads; `status` reads the `system` section of `/v1/security/overview` (T51; Go routes pulled forward 2026-10-11, §12.2) |
+| security-center: index, roles, audit, api-keys, status (5) | P6 (api-keys routes P2) | `useSecurityOverview`, `useSecurityStatus`, `useRoleMatrix`, `useSecurityEvents`, `useApiKeys` | `/v1/security/overview`, `/v1/security/status`, `/v1/stats/users-by-role`, `/v1/roles/matrix`, `/v1/security-events`, `/v1/api-keys` | 2 listeners; per-role reads; `status` reads `GET /v1/security/status` (`security:view_status`, the key of its page gate; T51; Go routes pulled forward 2026-10-11, §12.2) |
 | `/app/security-center/{mobile-clients,mobile-release}` (2) | P6 | `useInstallations`, `useMobileReleases`, `useSetFloor` | `/v1/app-installations` (+ `/stats`), `/v1/app-releases`, `PUT /v1/app-releases/floor`, `/v1/mobile/settings` (R43) | 2 listeners; unbounded scan; ADR 0007 guard kept |
 
 Count: 6 + 22 + 6 + 13 + 5 + 3 + 9 = 64 (P0 to P6): the 63 legacy pages plus `/app/security-center/tenants`, which T18 adds in P0 (owner addition 2026-10-10: platform admins create carrier tenants and assign their `tenant_admin`, `platform:manage_tenants`, `/v1/tenants*` and `/v1/tenants/{id}/members/*`). TW7 deletes `/api/auth/firebase-token`, `FirebaseBridge`, `firebase/client.ts` and every `*.firestore.ts` adapter.

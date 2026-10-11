@@ -2,11 +2,15 @@
 -- only writer. Rows are appended in the caller's WithSystem transaction, with the change they describe.
 
 -- name: InsertSecurityEvent :exec
+-- actor_email is the actor's address when the event is written, as the legacy feed recorded it: the caller's value
+-- (the sign-in events pass the address that was typed), else the users row of actor_user_id (every caller runs in
+-- WithSystem or as the ETL role, so RLS does not hide it). A later email change does not rewrite history.
 INSERT INTO security_events (event_type, severity, summary, details, actor_user_id, actor_email, target_user_id,
                              tenant_id, request_id, created_at)
-VALUES (sqlc.arg(event_type), sqlc.arg(severity), sqlc.arg(summary), sqlc.arg(details), sqlc.narg(actor_user_id),
-        sqlc.narg(actor_email), sqlc.narg(target_user_id), sqlc.narg(tenant_id), sqlc.narg(request_id),
-        sqlc.arg(created_at));
+VALUES (sqlc.arg(event_type), sqlc.arg(severity), sqlc.arg(summary), sqlc.arg(details), sqlc.narg(actor_user_id)::uuid,
+        coalesce(sqlc.narg(actor_email)::text,
+                 (SELECT u.email::text FROM users u WHERE u.id = sqlc.narg(actor_user_id)::uuid)),
+        sqlc.narg(target_user_id), sqlc.narg(tenant_id), sqlc.narg(request_id), sqlc.arg(created_at));
 
 -- Reads (T51, GET /v1/security-events and the overview of GET /v1/security/overview) run in the caller's
 -- db.WithPrincipal transaction, so RLS decides the rows (Appendix C §C.3.5 0008_platform): tenant staff read the

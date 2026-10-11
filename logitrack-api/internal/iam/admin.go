@@ -93,7 +93,8 @@ type Files interface {
 // the users with a membership in the request's tenant reach (the effective tenant and, for staff, the
 // carriers that work for it: the RLS rule p_staff_read of users), and for a steward (own-fleet staff,
 // platform_admin) also the accounts that belong to no tenant and hold no platform role (customer-scope
-// accounts, whose parties are global master data, R60, and imported accounts still without a role). A
+// accounts, whose parties are global master data, R60, and imported accounts still without a role) and are not
+// deleted (a soft delete removes every grant; a deleted account is read only under X-Act-On-Tenant: *). A
 // platform_admin writes any user and any tenant's memberships without the header
 // (Appendix B §B.1.4); everyone else writes only inside the same reach. A user outside the reach does not
 // exist for the caller (404). Inside it, a route that targets a user also needs a user the caller outranks
@@ -151,7 +152,8 @@ type reach struct {
 }
 
 // readReach: everyone under X-Act-On-Tenant: *; else the members of the tenant reach of a staff principal
-// (the effective tenant plus contractor reach) and, for a steward, the accounts without a membership.
+// (the effective tenant plus contractor reach) and, for a steward, the accounts without a membership that are not
+// deleted.
 func readReach(p *authz.Principal) reach {
 	if p.ActOnAll {
 		return reach{all: true}
@@ -259,8 +261,16 @@ func (a *Admin) claimsChanged(c call, tx pgx.Tx, uid uuid.UUID, keep func(*auth.
 	return nil
 }
 
-// audit appends the change's security_events row in its transaction (no audit, no change).
+// audit appends the change's security_events row in its transaction (no audit, no change). The row carries tenant
+// (the tenant the change concerns: a membership, a driver, a tenant), else the caller's effective tenant (its active
+// tenant, or the X-Act-On-Tenant target), so the staff who made a change in their tenant read it in their audit feed
+// (RLS p_staff_read: tenant_id = app_tenant_id()). It stays NULL, a platform-level row read only under
+// X-Act-On-Tenant: *, without a tenant context (a platform admin acting without the header) and for platform-level
+// grants: platform roles and dispatcher scopes (Appendix C §C.4.13).
 func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid.UUID, tenant *uuid.UUID, details map[string]any) error {
+	if tenant == nil && !platformLevelEvent(eventType, details) {
+		tenant = c.p.EffectiveTenant()
+	}
 	actor := c.p.UserID
 	sev := security.SeverityInfo
 	switch eventType {
@@ -272,6 +282,18 @@ func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid
 		EventType: eventType, Severity: sev, Summary: summary, Details: details,
 		ActorUserID: &actor, TargetUserID: target, TenantID: tenant, RequestID: c.rid, OccurredAt: a.clock(),
 	})
+}
+
+// platformLevelEvent: the grants only platform admins make (platform roles, dispatcher scopes, R13) are audited as
+// platform-level rows, whatever tenant the platform admin acts as.
+func platformLevelEvent(eventType string, details map[string]any) bool {
+	switch eventType {
+	case EventPlatformRoleGranted, EventPlatformRoleRevoked:
+		return true
+	case EventUserScopeChanged:
+		return details["kind"] == string(authz.ScopeDispatcher)
+	}
+	return false
 }
 
 // emit appends an outbox event in the change's transaction.

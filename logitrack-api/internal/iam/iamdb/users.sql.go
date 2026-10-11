@@ -104,6 +104,21 @@ func (q *Queries) DeleteScopesNotIn(ctx context.Context, arg DeleteScopesNotInPa
 	return err
 }
 
+const deleteUserGoogleIdentity = `-- name: DeleteUserGoogleIdentity :execrows
+DELETE FROM auth_identities WHERE user_id = $1 AND provider = 'google'
+`
+
+// DELETE /v1/users/{id} (T51): the Google link goes with the account, so the freed address's Google account can link
+// to a new account (Appendix C §C.4.10); the firebase_legacy row stays (the legacy uid is the history key, and the
+// bridge refuses a deleted user).
+func (q *Queries) DeleteUserGoogleIdentity(ctx context.Context, userID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserGoogleIdentity, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteUserMemberships = `-- name: DeleteUserMemberships :many
 DELETE FROM memberships WHERE user_id = $1 RETURNING tenant_id, role
 `
@@ -233,7 +248,7 @@ FROM users u
 WHERE u.id = $1
   AND ($2::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($3::uuid[]))
-    OR ($4::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR ($4::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 `
 
@@ -719,7 +734,7 @@ SELECT u.id, u.email, u.display_name, u.photo_file_id, u.status, u.must_change_p
 FROM users u
 WHERE ($1::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($2::uuid[]))
-    OR ($3::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND ($4::text IS NULL OR u.email::text ILIKE $4 ESCAPE '\' OR u.display_name ILIKE $4 ESCAPE '\')
   AND (($5::text IS NULL AND u.status <> 'deleted') OR u.status = $5)
@@ -812,7 +827,7 @@ SELECT u.id, u.email, u.display_name, u.photo_file_id, u.status, u.must_change_p
 FROM users u
 WHERE ($1::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($2::uuid[]))
-    OR ($3::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND ($4::text IS NULL OR u.email::text ILIKE $4 ESCAPE '\' OR u.display_name ILIKE $4 ESCAPE '\')
   AND (($5::text IS NULL AND u.status <> 'deleted') OR u.status = $5)
@@ -925,7 +940,8 @@ type LockAdminUserRow struct {
 // Users administration (T19, Appendix B §B.2.5, Appendix C §C.8): the identity tables are platform-only under
 // RLS, so iam reads and writes them in db.WithSystem after Go authorization. Every read names the principal's
 // reach explicitly (all_users, tenant_ids, scope_only), the same rule RLS p_staff_read applies to tenant staff,
-// widened for stewards to the accounts that belong to no tenant (customer scopes are global master data, R60).
+// widened for stewards to the accounts that belong to no tenant (customer scopes are global master data, R60). A
+// deleted account (DELETE /v1/users/{id} removes every grant) is in no steward's reach: only all_users lists it.
 // The users row first (lock order users -> sessions -> refresh_tokens, Appendix C §C.4.4).
 func (q *Queries) LockAdminUser(ctx context.Context, id uuid.UUID) (LockAdminUserRow, error) {
 	row := q.db.QueryRow(ctx, lockAdminUser, id)
@@ -1101,7 +1117,7 @@ SELECT EXISTS (
   WHERE u.id = $1
     AND ($2::boolean
       OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($3::uuid[]))
-      OR ($4::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+      OR ($4::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 )::boolean AS in_reach
 `

@@ -61,7 +61,8 @@ func (e Event) Validate() error {
 }
 
 // Append writes e in tx, the caller's WithSystem transaction, so the row commits or rolls back with
-// the change it describes. Details default to {}.
+// the change it describes. Details default to {}. Without ActorEmail the row records the email of the
+// ActorUserID users row as it is now (the legacy feed recorded the actor's address on every event).
 func Append(ctx context.Context, tx pgx.Tx, e Event) error {
 	if err := e.Validate(); err != nil {
 		return err

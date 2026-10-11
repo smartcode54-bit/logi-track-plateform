@@ -13,10 +13,12 @@ import (
 // DeleteUser is DELETE /v1/users/{id} (platform_admin, T51; replaces onUserDeleted, fn:triggers.ts:35): a soft
 // delete in one transaction. The users row stays with status deleted and deleted_at (history, audit rows and the
 // legacy uid keep pointing at it; its email leaves the unique index, so the address can go to a new account); every
-// grant goes (memberships, scopes, platform roles), a linked drivers row is unlinked so the driver can get another
-// account, every session is revoked with reason disabled (auth_version++, SSE session.revoked, and the Firebase
-// account is disabled while the bridge mirrors, Appendix C §C.4.7), and user_deleted records what was removed. Not
-// self (403); an unknown or already deleted user is 404.
+// grant goes (memberships, scopes, platform roles), and so does its Google identity (the firebase_legacy row stays),
+// a linked drivers row is unlinked so the driver can get another account, every session is revoked with reason
+// disabled (auth_version++, SSE session.revoked, and the Firebase account is disabled while the bridge mirrors,
+// Appendix C §C.4.7), and user_deleted records what was removed. Without any grant the account leaves every tenant's
+// and steward's read reach: only a platform principal under X-Act-On-Tenant: * lists it (C.8 "Reach"). Not self
+// (403); an unknown or already deleted user is 404.
 func (a *Admin) DeleteUser(c call, id uuid.UUID) error {
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		u, err := a.target(c, q, id) // locks the users row first (C.4.4)
@@ -55,6 +57,13 @@ func (a *Admin) DeleteUser(c call, id uuid.UUID) error {
 		if err != nil {
 			return err
 		}
+		// The Google link goes too: it would keep resolving the Google account to this deleted user (403 no_account
+		// for ever), and a new account given the freed address could never link it (C.4.10).
+		gi, err := q.DeleteUserGoogleIdentity(c.ctx, id)
+		if err != nil {
+			return err
+		}
+		details["googleIdentityRemoved"] = gi > 0
 		if err := q.SoftDeleteUser(c.ctx, iamdb.SoftDeleteUserParams{At: a.clock(), ID: id}); err != nil {
 			return err
 		}

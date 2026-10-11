@@ -12,6 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const actorEmails = `-- name: ActorEmails :many
+SELECT u.id, u.email::text AS email FROM users u WHERE u.id = ANY ($1::uuid[]) AND u.email IS NOT NULL
+`
+
+type ActorEmailsRow struct {
+	ID    uuid.UUID
+	Email string
+}
+
+// GET /v1/security-events: the addresses of the actors of feed rows written before InsertSecurityEvent recorded
+// actor_email itself (T51). A soft-deleted user keeps its email, so its events still name it.
+func (q *Queries) ActorEmails(ctx context.Context, ids []uuid.UUID) ([]ActorEmailsRow, error) {
+	rows, err := q.db.Query(ctx, actorEmails, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ActorEmailsRow{}
+	for rows.Next() {
+		var i ActorEmailsRow
+		if err := rows.Scan(&i.ID, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const installationVersions = `-- name: InstallationVersions :many
 SELECT coalesce(app_version, '')::text AS app_version, count(*)::int AS installs,
        count(*) FILTER (WHERE last_seen_at >= $1::timestamptz)::int AS seen
@@ -124,7 +155,7 @@ WHERE e.event_type IN ('login_failed', 'login_lockout') AND e.created_at >= $1::
         SELECT 1 FROM users u
         WHERE u.id = e.target_user_id
           AND (EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($3::uuid[]))
-            OR ($4::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+            OR ($4::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
                 AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))))
 `
 
@@ -162,7 +193,7 @@ WHERE ((s.revoked_at IS NULL AND s.absolute_expires_at > $1::timestamptz)
        OR s.revoked_at >= $2::timestamptz)
   AND ($3::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($4::uuid[]))
-    OR ($5::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR ($5::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 GROUP BY 1
 `
@@ -214,7 +245,7 @@ SELECT u.status, count(*)::int AS users
 FROM users u
 WHERE ($1::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($2::uuid[]))
-    OR ($3::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 GROUP BY u.status
 `
@@ -233,7 +264,8 @@ type OverviewUsersByStatusRow struct {
 // Security Center read model (T51, Appendix B §B.2.5 /v1/stats/users-by-role, §B.2.6 /v1/security/overview). The
 // identity tables are platform-only under RLS, so these counts run in db.WithSystem and name the caller's reach
 // explicitly, with the predicate of GET /v1/users (all_users, tenant_ids, scope_only: the members of the tenant
-// reach and, for a steward, the accounts that belong to no tenant and hold no platform role).
+// reach and, for a steward, the accounts that belong to no tenant and hold no platform role and are not deleted:
+// a deleted account has lost every grant, so only all_users counts it).
 func (q *Queries) OverviewUsersByStatus(ctx context.Context, arg OverviewUsersByStatusParams) ([]OverviewUsersByStatusRow, error) {
 	rows, err := q.db.Query(ctx, overviewUsersByStatus, arg.AllUsers, arg.TenantIds, arg.ScopeOnly)
 	if err != nil {
@@ -312,7 +344,7 @@ WITH reach AS (
   WHERE u.status <> 'deleted'
     AND ($1::boolean
       OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($2::uuid[]))
-      OR ($3::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+      OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
           AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 )
 SELECT 'tenant'::text AS axis, m.role::text AS role, count(DISTINCT m.user_id)::int AS users

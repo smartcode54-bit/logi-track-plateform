@@ -1,14 +1,15 @@
 -- Security Center read model (T51, Appendix B §B.2.5 /v1/stats/users-by-role, §B.2.6 /v1/security/overview). The
 -- identity tables are platform-only under RLS, so these counts run in db.WithSystem and name the caller's reach
 -- explicitly, with the predicate of GET /v1/users (all_users, tenant_ids, scope_only: the members of the tenant
--- reach and, for a steward, the accounts that belong to no tenant and hold no platform role).
+-- reach and, for a steward, the accounts that belong to no tenant and hold no platform role and are not deleted:
+-- a deleted account has lost every grant, so only all_users counts it).
 
 -- name: OverviewUsersByStatus :many
 SELECT u.status, count(*)::int AS users
 FROM users u
 WHERE (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-    OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 GROUP BY u.status;
 
@@ -22,7 +23,7 @@ WHERE ((s.revoked_at IS NULL AND s.absolute_expires_at > sqlc.arg(now)::timestam
        OR s.revoked_at >= sqlc.arg(since)::timestamptz)
   AND (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-    OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+    OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 GROUP BY 1;
 
@@ -37,7 +38,7 @@ WHERE e.event_type IN ('login_failed', 'login_lockout') AND e.created_at >= sqlc
         SELECT 1 FROM users u
         WHERE u.id = e.target_user_id
           AND (EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-            OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+            OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
                 AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))));
 
 -- name: UsersByRole :many
@@ -48,7 +49,7 @@ WITH reach AS (
   WHERE u.status <> 'deleted'
     AND (sqlc.arg(all_users)::boolean
       OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
-      OR (sqlc.arg(scope_only)::boolean AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+      OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
           AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
 )
 SELECT 'tenant'::text AS axis, m.role::text AS role, count(DISTINCT m.user_id)::int AS users
@@ -123,3 +124,8 @@ SELECT coalesce(app_version, '')::text AS app_version, count(*)::int AS installs
        count(*) FILTER (WHERE last_seen_at >= sqlc.arg(since)::timestamptz)::int AS seen
 FROM mobile_installations
 GROUP BY 1;
+
+-- name: ActorEmails :many
+-- GET /v1/security-events: the addresses of the actors of feed rows written before InsertSecurityEvent recorded
+-- actor_email itself (T51). A soft-deleted user keeps its email, so its events still name it.
+SELECT u.id, u.email::text AS email FROM users u WHERE u.id = ANY (sqlc.arg(ids)::uuid[]) AND u.email IS NOT NULL;

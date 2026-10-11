@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
@@ -19,10 +20,11 @@ import (
 )
 
 // The Security Center read model of T51 (Appendix B §B.2.5, §B.2.6): GET /v1/security-events (the audit page and
-// the overview's recent events), GET /v1/security/overview (the overview cards and the status page) and
-// GET /v1/stats/users-by-role (the RBAC distribution). Every route needs a tenant context (authz.RequireTenant): a
-// tenant principal reads its tenant, a platform principal reads everything through X-Act-On-Tenant: * (one
-// platform_cross_tenant_access row per request, C.3.9) or one tenant through X-Act-On-Tenant: <uuid>.
+// the overview's recent events), GET /v1/security/overview (the overview cards), GET /v1/security/status (the
+// status page) and GET /v1/stats/users-by-role (the RBAC distribution). Every route but the status needs a tenant
+// context (authz.RequireTenant): a tenant principal reads its tenant, a platform principal reads everything through
+// X-Act-On-Tenant: * (one platform_cross_tenant_access row per request, C.3.9) or one tenant through
+// X-Act-On-Tenant: <uuid>. The status holds no tenant data.
 
 // SchedulerLockName is the advisory lock of the scheduler leader (internal/scheduler LockName); the status section
 // reports whether a session holds it.
@@ -113,14 +115,53 @@ func (a *Admin) ListEvents(c call, in EventsInput) ([]security.Row, string, erro
 	if err != nil {
 		return nil, "", err
 	}
+	if err := a.fillActorEmails(c, rows); err != nil {
+		return nil, "", err
+	}
 	return rows, next, nil
+}
+
+// fillActorEmails names the actor of the rows that carry an actor id but no email: rows appended before
+// InsertSecurityEvent recorded actor_email itself (the table is immutable, so they are resolved on read). The
+// users table is platform-only under RLS (a tenant reader could not resolve a platform admin), so the lookup runs
+// in the system context; it adds only the address of the actor of a row the caller may already read.
+func (a *Admin) fillActorEmails(c call, rows []security.Row) error {
+	var ids []uuid.UUID
+	for _, r := range rows {
+		if r.ActorUserID != nil && r.ActorEmail == nil && !slices.Contains(ids, *r.ActorUserID) {
+			ids = append(ids, *r.ActorUserID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	emails := make(map[uuid.UUID]string, len(ids))
+	err := a.read(c.ctx, func(q *iamdb.Queries) error {
+		got, err := q.ActorEmails(c.ctx, ids)
+		for _, g := range got {
+			emails[g.ID] = g.Email
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		if r := &rows[i]; r.ActorUserID != nil && r.ActorEmail == nil {
+			if e, ok := emails[*r.ActorUserID]; ok {
+				r.ActorEmail = &e
+			}
+		}
+	}
+	return nil
 }
 
 // --- GET /v1/security/overview ---------------------------------------------------------------------------
 
 // Overview is GET /v1/security/overview (security:view_overview): the counters of the Security Center overview
 // (Appendix B §B.2.6: users by status, failed logins 24 h, revoked sessions, outdated installs, open quarantine
-// rows) and the status page. A section the caller may not see is null: installations without
+// rows) and, as a convenience for a caller that also holds security:view_status, the status section (the status
+// page itself reads GET /v1/security/status). A section the caller may not see is null: installations without
 // security:view_mobile_clients, quarantine outside X-Act-On-Tenant: * (platform:cross_tenant_read), system without
 // security:view_status.
 type Overview struct {
@@ -181,9 +222,9 @@ type QuarantineCounts struct {
 	ByTable map[string]int `json:"byTable"` // only tables with rows
 }
 
-// SystemStatus is the status page (security:view_status, Appendix C §C.2.3 row 60): what the api can see of the
-// platform from PostgreSQL and Redis. The broker's queue and DLQ depths are not here: the api does not reach the
-// RabbitMQ management API (they are on /metrics and Grafana).
+// SystemStatus is the status page (GET /v1/security/status, security:view_status, Appendix C §C.2.3 row 60): what
+// the api can see of the platform from PostgreSQL and Redis. The broker's queue and DLQ depths are not here: the api
+// does not reach the RabbitMQ management API (they are on /metrics and Grafana).
 type SystemStatus struct {
 	Database  string       `json:"database"` // ok (the overview was read from it)
 	Redis     string       `json:"redis"`    // ok | down | unknown
@@ -398,6 +439,14 @@ func versionLess(a, b [3]int) bool {
 		}
 	}
 	return false
+}
+
+// Status is GET /v1/security/status (security:view_status, the data of /app/security-center/status): platform-wide
+// counters with no tenant data, so it needs no tenant context. security:view_status is a global key, effective only
+// for stewards (own-fleet staff, platform_admin) and support; a carrier never holds it (R60).
+func (a *Admin) Status(c call) (*SystemStatus, error) {
+	now := a.clock()
+	return a.systemStatus(c.ctx, now, now.Add(-24*time.Hour))
 }
 
 // systemStatus reads the status page section.

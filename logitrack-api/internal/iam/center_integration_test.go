@@ -136,6 +136,14 @@ func TestRoleMatrixTenant(t *testing.T) {
 	if ch := changes[0].(map[string]any); ch["role"] != "manager" || ch["capability"] != "fleet:create_truck" || ch["from"] != nil || ch["to"] != false {
 		t.Fatalf("diff %v", ch)
 	}
+	// The row names its actor by email, recorded when it is written (as the legacy feed did).
+	if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = 'role_matrix_saved' AND actor_email = 'ta.a@example.test'`); n != 1 {
+		t.Fatalf("%d role_matrix_saved rows carry the actor's email", n)
+	}
+	if rows := decodeData[[]security.Row](t, w.get("/v1/security-events?type=role_matrix_saved", taA)); len(rows) != 1 ||
+		rows[0].ActorEmail == nil || *rows[0].ActorEmail != "ta.a@example.test" {
+		t.Fatalf("feed row of the save: %+v", rows)
+	}
 	if got := w.rbacVersion(); got != ver+1 {
 		t.Fatalf("rbac:ver %d -> %d, want one INCR", ver, got)
 	}
@@ -248,6 +256,31 @@ func TestRoleMatrixPlatform(t *testing.T) {
 	w.oneEvent("role_matrix_saved", func() resp {
 		return w.send(http.MethodPut, "/v1/roles/matrix?tenantId="+w.C, pa, overrides([3]any{"operator", "fleet:create_truck", true}))
 	}, http.StatusOK)
+	// The tenant reads who changed its matrix: a platform admin outside its user reach, named by the email the row
+	// recorded.
+	w.oneEvent("role_matrix_saved", func() resp {
+		return w.send(http.MethodPut, "/v1/roles/matrix?tenantId="+w.A, pa, overrides([3]any{"operator", "fleet:create_truck", true}))
+	}, http.StatusOK)
+	r = w.get("/v1/security-events?type=role_matrix_saved", taA)
+	if rows := decodeData[[]security.Row](t, r); len(rows) != 1 || rows[0].ActorUserID == nil ||
+		rows[0].ActorUserID.String() != w.userID("pa@example.test") || rows[0].ActorEmail == nil || *rows[0].ActorEmail != "pa@example.test" {
+		t.Fatalf("tenant A's feed of the platform admin's save: %s", r.raw)
+	}
+	expect(t, w.get("/v1/users/"+w.userID("pa@example.test"), taA), http.StatusNotFound, "not_found")
+	// ?layer=tenant names a tenant layer: without ?tenantId or a tenant it is 403 tenant_required, never the
+	// platform-wide layer (whose rows apply to every tenant).
+	platformRows := w.count(`SELECT count(*) FROM role_capability_overrides WHERE tenant_id IS NULL`)
+	expect(t, w.noEvent(func() resp {
+		return w.send(http.MethodPut, "/v1/roles/matrix?layer=tenant", pa, overrides([3]any{"manager", "fleet:create_truck", false}))
+	}), http.StatusForbidden, "tenant_required")
+	expect(t, w.get("/v1/roles/matrix?layer=tenant", pa), http.StatusForbidden, "tenant_required")
+	if n := w.count(`SELECT count(*) FROM role_capability_overrides WHERE tenant_id IS NULL`); n != platformRows {
+		t.Fatalf("?layer=tenant wrote the platform-wide layer: %d -> %d rows", platformRows, n)
+	}
+	r = w.get("/v1/roles/matrix?layer=tenant&tenantId="+w.A, pa)
+	if m := decodeData[iam.Matrix](t, r); m.Layer != iam.LayerTenant || m.TenantID == nil || m.TenantID.String() != w.A {
+		t.Fatalf("?layer=tenant&tenantId=A: %s", r.raw)
+	}
 	if n := w.count(`SELECT count(*) FROM role_capability_overrides WHERE tenant_id = $1`, w.C); n != 1 {
 		t.Fatalf("%d rows in C", n)
 	}
@@ -355,6 +388,178 @@ func TestSecurityEventsFeed(t *testing.T) {
 	}
 	// support reads the audit too (read-only platform role).
 	expect(t, w.get("/v1/security-events", w.login("su@example.test"), "X-Act-On-Tenant", "*"), http.StatusOK, "")
+
+	// user_sessions_revoked written by Go through the real endpoint lands in the tenant of the admin who revoked,
+	// with the actor's email; a row appended before the email was recorded at write time is named on read.
+	opA := w.userID("op.a@example.test")
+	w.login("op.a@example.test")
+	w.oneEvent("user_sessions_revoked", func() resp { return w.send(http.MethodDelete, "/v1/users/"+opA+"/sessions", taA, nil) },
+		http.StatusNoContent)
+	w.exec(`INSERT INTO security_events (event_type, severity, summary, tenant_id, actor_user_id, created_at)
+		VALUES ('user_disabled', 'warning', 'older row', $1, $2, $3)`, w.A, w.userID("pa@example.test"), base.Add(10*time.Minute))
+	r = w.get("/v1/security-events?type=user_sessions_revoked,user_disabled", taA)
+	rows = decodeData[[]security.Row](t, r)
+	if len(rows) != 3 || rows[0].Type != "user_sessions_revoked" || rows[0].TenantID == nil || rows[0].TenantID.String() != w.A ||
+		rows[0].ActorEmail == nil || *rows[0].ActorEmail != "ta.a@example.test" || rows[0].TargetUserID == nil || rows[0].TargetUserID.String() != opA {
+		t.Fatalf("Go-written user_sessions_revoked in A's feed: %s", r.raw)
+	}
+	if rows[1].Type != "user_disabled" || rows[1].ActorEmail == nil || *rows[1].ActorEmail != "pa@example.test" {
+		t.Fatalf("an older row's actor is named on read: %s", r.raw)
+	}
+	if rows[2].ActorUserID != nil || rows[2].ActorEmail != nil {
+		t.Fatalf("a row without an actor stays without one: %s", r.raw)
+	}
+}
+
+// The administration a tenant's staff perform is in that tenant's audit feed (Appendix C §C.4.13): an admin event
+// carries the caller's effective tenant; a platform admin without a tenant context writes a platform-level row, and
+// platform roles stay platform-level even when the platform admin acts as a tenant.
+func TestAdminEventsInTenantFeed(t *testing.T) {
+	w := newWorld(t)
+	taO, taA, pa := w.login("ta.o@example.test"), w.login("ta.a@example.test"), w.login("pa@example.test")
+	opO, opA := w.userID("op.o@example.test"), w.userID("op.a@example.test")
+	w.login("op.o@example.test")
+
+	w.oneEvent("user_sessions_revoked", func() resp { return w.send(http.MethodDelete, "/v1/users/"+opO+"/sessions", taO, nil) },
+		http.StatusNoContent)
+	w.oneEvent("user_disabled", func() resp {
+		return w.send(http.MethodPost, "/v1/users/"+opO+"/disable", taO, map[string]any{"reason": "left"})
+	}, http.StatusNoContent)
+	r := w.get("/v1/security-events", taO)
+	expect(t, r, http.StatusOK, "")
+	rows := decodeData[[]security.Row](t, r)
+	if len(rows) != 2 || rows[0].Type != "user_disabled" || rows[1].Type != "user_sessions_revoked" {
+		t.Fatalf("the own fleet's admin reads its own administration: %s", r.raw)
+	}
+	for _, row := range rows {
+		if row.TenantID == nil || row.TenantID.String() != w.O || row.ActorEmail == nil || *row.ActorEmail != "ta.o@example.test" ||
+			row.TargetUserID == nil || row.TargetUserID.String() != opO {
+			t.Fatalf("row %+v", row)
+		}
+	}
+	if o := decodeData[iam.Overview](t, w.get("/v1/security/overview", taO)); o.Events.Last24h != 2 {
+		t.Fatalf("the overview counts the same rows: %+v", o.Events)
+	}
+	if rows := decodeData[[]security.Row](t, w.get("/v1/security-events", taA)); len(rows) != 0 {
+		t.Fatalf("carrier A reads the own fleet's rows: %+v", rows)
+	}
+
+	// A platform admin without a tenant context: a platform-level row (tenant_id NULL), read only under *.
+	w.oneEvent("user_disabled", func() resp {
+		return w.send(http.MethodPost, "/v1/users/"+opA+"/disable", pa, map[string]any{"reason": "audit"})
+	}, http.StatusNoContent)
+	if _, tenant := w.lastEventDetails("user_disabled"); tenant != "" {
+		t.Fatalf("a platform admin's change without a tenant context belongs to tenant %s", tenant)
+	}
+	if rows := decodeData[[]security.Row](t, w.get("/v1/security-events?type=user_disabled", taA)); len(rows) != 0 {
+		t.Fatalf("a platform-level row in A's feed: %+v", rows)
+	}
+	// Acting as A (X-Act-On-Tenant), the row is A's.
+	w.oneEvent("user_enabled", func() resp {
+		return w.send(http.MethodPost, "/v1/users/"+opA+"/enable", pa, map[string]any{}, "X-Act-On-Tenant", w.A)
+	}, http.StatusNoContent)
+	r = w.get("/v1/security-events?type=user_enabled", taA)
+	if rows := decodeData[[]security.Row](t, r); len(rows) != 1 || rows[0].ActorEmail == nil || *rows[0].ActorEmail != "pa@example.test" {
+		t.Fatalf("A's feed of the platform admin acting as A: %s", r.raw)
+	}
+	// Platform roles are platform-level whatever tenant the platform admin acts as.
+	w.oneEvent("platform_role_granted", func() resp {
+		return w.send(http.MethodPost, "/v1/users/"+opA+"/platform-roles", pa, map[string]any{"role": "support"}, "X-Act-On-Tenant", w.A)
+	}, http.StatusNoContent)
+	if _, tenant := w.lastEventDetails("platform_role_granted"); tenant != "" {
+		t.Fatalf("platform_role_granted belongs to tenant %s", tenant)
+	}
+}
+
+// A tenant row is kept when the platform-wide layer holds a row for the same cell, even when it equals the inherited
+// value: a tenant deny then survives the platform-wide row being lifted, and a GET -> PUT round trip keeps it.
+func TestRoleMatrixPinnedTenantRow(t *testing.T) {
+	w := newWorld(t)
+	pa, taA, mgA := w.login("pa@example.test"), w.login("ta.a@example.test"), w.login("mg.a@example.test")
+	put := func(path, tok string, body map[string]any) resp {
+		t.Helper()
+		r := w.send(http.MethodPut, path, tok, body)
+		expect(t, r, http.StatusOK, "")
+		return r
+	}
+	changes := func(r resp) any { meta, _ := r.body["meta"].(map[string]any); return meta["changes"] }
+	rowsOfA := func() int {
+		return w.count(`SELECT count(*) FROM role_capability_overrides WHERE tenant_id = $1 AND role = 'manager'`, w.A)
+	}
+	if !slices.Contains(w.whoami(mgA).Caps, "users:view") || !slices.Contains(w.whoami(mgA).Caps, "fleet:create_truck") {
+		t.Fatal("the manager holds users:view and fleet:create_truck by default")
+	}
+
+	// The platform denies; the tenant pins the same deny; the platform lifts its row: the tenant's deny stays.
+	put("/v1/roles/matrix", pa, overrides([3]any{"manager", "users:view", false}))
+	if r := put("/v1/roles/matrix", taA, overrides([3]any{"manager", "users:view", false})); changes(r) != float64(1) || rowsOfA() != 1 {
+		t.Fatalf("the tenant's deny equal to the platform-wide deny is stored: %s", r.raw)
+	}
+	put("/v1/roles/matrix", pa, overrides())
+	if slices.Contains(w.whoami(mgA).Caps, "users:view") {
+		t.Fatal("lifting the platform-wide deny re-granted users:view to A's manager")
+	}
+
+	// The tenant denies first; the platform adopts the same deny; the tenant saves its unchanged set again (a GET ->
+	// PUT round trip): nothing changes; the platform lifts its row: the tenant's deny stays.
+	put("/v1/roles/matrix", taA, overrides([3]any{"manager", "users:view", false}, [3]any{"manager", "fleet:create_truck", false}))
+	put("/v1/roles/matrix", pa, overrides([3]any{"manager", "fleet:create_truck", false}))
+	if c := cellOf(t, decodeData[iam.Matrix](t, w.get("/v1/roles/matrix", taA)), "manager", "fleet:create_truck"); !c.Overridden ||
+		c.PlatformOverride == nil || *c.PlatformOverride {
+		t.Fatalf("the tenant's row under a platform-wide row: %+v", c)
+	}
+	if r := put("/v1/roles/matrix", taA, overrides([3]any{"manager", "users:view", false}, [3]any{"manager", "fleet:create_truck", false})); changes(r) != float64(0) || rowsOfA() != 2 {
+		t.Fatalf("the round trip removed a row: %s", r.raw)
+	}
+	put("/v1/roles/matrix", pa, overrides())
+	if slices.Contains(w.whoami(mgA).Caps, "fleet:create_truck") {
+		t.Fatal("lifting the platform-wide deny re-granted fleet:create_truck to A's manager")
+	}
+
+	// A tenant allow pinned against a platform-wide deny equals the default once that deny is lifted; the tenant's
+	// round trip keeps the row it holds, so a later platform-wide deny still leaves A's manager the key.
+	set := overrides([3]any{"manager", "users:view", false}, [3]any{"manager", "fleet:create_truck", false},
+		[3]any{"manager", "drivers:view", true})
+	put("/v1/roles/matrix", pa, overrides([3]any{"manager", "drivers:view", false}))
+	put("/v1/roles/matrix", taA, set)
+	put("/v1/roles/matrix", pa, overrides())
+	if r := put("/v1/roles/matrix", taA, set); changes(r) != float64(0) || rowsOfA() != 3 {
+		t.Fatalf("the round trip removed the held row: %s", r.raw)
+	}
+	put("/v1/roles/matrix", pa, overrides([3]any{"manager", "drivers:view", false}))
+	if !slices.Contains(w.whoami(mgA).Caps, "drivers:view") {
+		t.Fatal("a platform-wide deny overrode A's pinned allow")
+	}
+}
+
+// GET /v1/security/status is the status page's data: security:view_status alone (support holds it without
+// security:view_overview), no tenant context (platform-wide counters); a global key, so never a carrier's.
+func TestSecurityStatus(t *testing.T) {
+	w := newWorld(t)
+	su, taO, taA, mgO := w.login("su@example.test"), w.login("ta.o@example.test"), w.login("ta.a@example.test"), w.login("mg.o@example.test")
+	for _, h := range [][]string{nil, {"X-Act-On-Tenant", "*"}} {
+		r := w.get("/v1/security/status", su, h...)
+		expect(t, r, http.StatusOK, "")
+		if s := decodeData[iam.SystemStatus](t, r); s.Database != "ok" || s.Redis != "ok" || s.Scheduler.LeaderPresent {
+			t.Fatalf("status for support (%v): %s", h, r.raw)
+		}
+	}
+	expect(t, w.get("/v1/security/overview", su, "X-Act-On-Tenant", "*"), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/security/status", taO), http.StatusOK, "")
+	expect(t, w.get("/v1/security/status", taA), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/security/status", mgO), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/security/status?x=1", taO), http.StatusBadRequest, "bad_request")
+	expect(t, w.get("/v1/security/status", ""), http.StatusUnauthorized, "")
+
+	// An own-fleet manager given only security:view_status reads the status page and still not the overview.
+	expect(t, w.send(http.MethodPut, "/v1/roles/matrix", taO, overrides([3]any{"manager", "security:view_status", true})),
+		http.StatusOK, "")
+	r := w.get("/v1/security/status", mgO)
+	expect(t, r, http.StatusOK, "")
+	if s := decodeData[iam.SystemStatus](t, r); s.Database != "ok" {
+		t.Fatalf("status %s", r.raw)
+	}
+	expect(t, w.get("/v1/security/overview", mgO), http.StatusForbidden, "permission_denied")
 }
 
 // The overview counters and the status page section, per reach; users by role.
@@ -464,6 +669,10 @@ func TestUserSoftDelete(t *testing.T) {
 	w.member(drvUser, w.A, "driver")
 	w.exec(`UPDATE drivers SET user_id = $1 WHERE id = $2`, drvUser, drv)
 
+	// mg.a signed in with Google once and was imported from Firebase.
+	w.exec(`INSERT INTO auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', 'g-sub-mga'),
+		($1, 'firebase_legacy', 'uid-mga')`, id)
+
 	expect(t, w.send(http.MethodDelete, "/v1/users/"+id, taA, nil), http.StatusForbidden, "permission_denied")
 	expect(t, w.send(http.MethodDelete, "/v1/users/"+w.userID("pa@example.test"), pa, nil), http.StatusForbidden, "permission_denied")
 
@@ -475,8 +684,14 @@ func TestUserSoftDelete(t *testing.T) {
 		t.Fatal("soft delete: status, grants or sessions")
 	}
 	d, _ := w.lastEventDetails("user_deleted")
-	if ms, _ := d["memberships"].([]any); len(ms) != 1 || d["previousStatus"] != "active" {
+	if ms, _ := d["memberships"].([]any); len(ms) != 1 || d["previousStatus"] != "active" || d["googleIdentityRemoved"] != true {
 		t.Fatalf("user_deleted details %v", d)
+	}
+	// The Google link goes with the account (the freed address's Google account can link to a new one); the legacy
+	// uid stays.
+	if w.count(`SELECT count(*) FROM auth_identities WHERE user_id = $1 AND provider = 'google'`, id) != 0 ||
+		w.count(`SELECT count(*) FROM auth_identities WHERE user_id = $1 AND provider = 'firebase_legacy'`, id) != 1 {
+		t.Fatal("auth_identities after the delete")
 	}
 	expect(t, w.get("/v1/me", mgA), http.StatusUnauthorized, "session_revoked")
 	expect(t, w.loginWith("mg.a@example.test", pw), http.StatusUnauthorized, "invalid_credentials")
@@ -494,7 +709,39 @@ func TestUserSoftDelete(t *testing.T) {
 	if w.count(`SELECT count(*) FROM drivers WHERE id = $1 AND user_id IS NULL`, drv) != 1 {
 		t.Fatal("the driver row is still linked")
 	}
-	if d, _ := w.lastEventDetails("user_deleted"); d["driverId"] != drv {
+	if d, _ := w.lastEventDetails("user_deleted"); d["driverId"] != drv || d["googleIdentityRemoved"] != false {
 		t.Fatalf("details %v", d)
+	}
+
+	// A deleted account leaves every tenant's and steward's reach (Appendix C §C.8 "Reach"): the own fleet's staff
+	// read neither the deleted tenant_admin of the independent carrier C (outside the own fleet's contractor reach)
+	// nor the deleted members of its carrier A; only X-Act-On-Tenant: * lists them.
+	taO, mgO := w.login("ta.o@example.test"), w.login("mg.o@example.test")
+	taC := w.userID("ta.c@example.test")
+	w.login("ta.c@example.test") // a live session, revoked by the delete
+	for _, tok := range []string{taO, mgO} {
+		expect(t, w.get("/v1/users/"+taC, tok), http.StatusNotFound, "not_found")
+	}
+	w.oneEvent("user_deleted", func() resp { return w.send(http.MethodDelete, "/v1/users/"+taC, pa, nil) }, http.StatusNoContent)
+	for _, tok := range []string{taO, mgO} {
+		expect(t, w.get("/v1/users/"+taC, tok), http.StatusNotFound, "not_found")
+		expect(t, w.get("/v1/users/"+id, tok), http.StatusNotFound, "not_found")
+		r := w.get("/v1/users?status=deleted", tok)
+		expect(t, r, http.StatusOK, "")
+		if users := decodeData[[]iam.User](t, r); len(users) != 0 {
+			t.Fatalf("own-fleet staff list deleted accounts: %s", r.raw)
+		}
+	}
+	expect(t, w.get("/v1/users/"+taC+"/sessions", taO), http.StatusNotFound, "not_found")
+	o := decodeData[iam.Overview](t, w.get("/v1/security/overview", taO))
+	if o.Users.ByStatus["deleted"] != 0 || o.Sessions.RevokedByReason24h["disabled"] != 0 {
+		t.Fatalf("the own fleet's overview counts deleted accounts: users %+v sessions %+v", o.Users, o.Sessions)
+	}
+	r = w.get("/v1/users?status=deleted", pa, "X-Act-On-Tenant", "*")
+	if users := decodeData[[]iam.User](t, r); len(users) != 3 {
+		t.Fatalf("the platform lists every deleted account: %s", r.raw)
+	}
+	if o := decodeData[iam.Overview](t, w.get("/v1/security/overview", pa, "X-Act-On-Tenant", "*")); o.Users.ByStatus["deleted"] != 3 {
+		t.Fatalf("platform overview: %+v", o.Users)
 	}
 }

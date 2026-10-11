@@ -53,6 +53,7 @@ GET /v1/roles/matrix internal
 PUT /v1/roles/matrix internal
 GET /v1/security-events internal
 GET /v1/security/overview internal
+GET /v1/security/status internal
 GET /v1/stats/users-by-role internal
 GET /v1/subcontractors internal
 POST /v1/subcontractors internal

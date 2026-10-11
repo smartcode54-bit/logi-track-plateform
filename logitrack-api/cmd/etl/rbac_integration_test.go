@@ -135,8 +135,8 @@ func TestAuthRBAC(t *testing.T) {
 		t.Fatalf("findings %v", findings)
 	}
 	if n := h.scalar(`SELECT count(*) FROM security_events WHERE event_type = 'role_matrix_saved' AND actor_user_id = $1
-		AND tenant_id = $2`, owner, ownFleet); n != int64(1) {
-		t.Fatalf("%v role_matrix_saved rows", n)
+		AND tenant_id = $2 AND actor_email = 'owner@example.test'`, owner, ownFleet); n != int64(1) {
+		t.Fatalf("%v role_matrix_saved rows (with the actor's email)", n)
 	}
 	// Every key of every document has a report line with its colon key or the reason it has none.
 	f, err := os.Open(report)
@@ -215,4 +215,55 @@ func diffVersions(a, b map[string]string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// The documented fixture mode: the committed dump carries permissions_config (manager, operator, driver, admin and
+// customer documents with an override, keys equal to their default, an unknown key and a non-boolean value), so
+// `auth-rbac --fixtures` plans, reports and, as a dry run, commits nothing.
+func TestAuthRBACFixtures(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO tenants (id, kind, name_th, name_en) VALUES ($1, 'own_fleet', 'O', 'O')`, ownFleet); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO users (email, display_name) VALUES ('owner@example.test', 'Owner')`); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(t.TempDir(), "migration_rbac_report.csv")
+	before := h.rowVersions()
+	h.mustRun("auth-rbac", "--fixtures", "--actor=owner@example.test", "--dry-run", "--report="+report)
+	if d := diffVersions(before, h.rowVersions()); len(d) != 0 {
+		t.Fatalf("the dry run changed %v", d)
+	}
+	f, err := os.Open(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := csv.NewReader(f).ReadAll()
+	_ = f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := map[string]string{}
+	for _, l := range lines[1:] {
+		actions[l[0]+"/"+l[2]] = l[6]
+	}
+	want := map[string]string{
+		"manager/create_truck": "override", "manager/accounting_view_fuel": "same_as_default",
+		"manager/made_up_key": "unknown_capability_key", "operator/assign_driver": "same_as_default",
+		"operator/security_view_audit": "not_boolean", "driver/send_chat": "same_as_default", "driver/submit_delivery": "override",
+		"admin/security_manage_roles": "not_overridable", "customer/operations_view_first_mile": "scope_fixed",
+	}
+	if len(actions) != len(want) {
+		t.Fatalf("report %v", actions)
+	}
+	for k, v := range want {
+		if actions[k] != v {
+			t.Errorf("report %s: %q, want %q", k, actions[k], v)
+		}
+	}
+	// The real run writes the two overrides.
+	out := h.mustRun("auth-rbac", "--fixtures", "--actor=owner@example.test")
+	if !strings.Contains(out, "2 override row(s) changed") {
+		t.Fatalf("stdout: %s", out)
+	}
 }

@@ -35,8 +35,8 @@ func (f *Field[T]) UnmarshalJSON(b []byte) error {
 // AdminGroups are the route groups of T19 on the internal listener (Appendix B §B.2.4, §B.2.5): /v1/users*
 // and /v1/tenants* behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
 // RBAC.Authorize, X-Act-On-Tenant included), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
-// of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview and
-// /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
+// of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview, /v1/security/status
+// and /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
 func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 	h := adminHTTP{a}
 	need := authz.RequireCap
@@ -85,6 +85,9 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 		}},
 		{Prefix: "/v1/security", Mount: func(r fiber.Router) {
 			r.Get("/overview", requireAuth, need(authz.SecurityViewOverview), authz.RequireTenant(), h.overview)
+			// The status page: platform-wide counters with no tenant data, so no tenant context (support holds
+			// security:view_status but not security:view_overview).
+			r.Get("/status", requireAuth, need(authz.SecurityViewStatus), h.status)
 		}},
 		{Prefix: "/v1/stats", Mount: func(r fiber.Router) {
 			r.Get("/users-by-role", requireAuth, need(authz.SecurityViewOverview), authz.RequireTenant(), h.usersByRole)
@@ -716,6 +719,22 @@ func (h adminHTTP) overview(c fiber.Ctx) error {
 	}
 	noStore(c)
 	return httpx.JSON(c, http.StatusOK, o)
+}
+
+func (h adminHTTP) status(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c); err != nil {
+		return err
+	}
+	s, err := h.a.Status(cl)
+	if err != nil {
+		return err
+	}
+	noStore(c)
+	return httpx.JSON(c, http.StatusOK, s)
 }
 
 func (h adminHTTP) usersByRole(c fiber.Ctx) error {
