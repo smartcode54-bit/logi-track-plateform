@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
@@ -280,11 +279,13 @@ func TestEchoAndLegacyJSON(t *testing.T) {
 	}
 }
 
-// The notify events of a write-back carry the origin header and no realtime topic (the mirror's event has them).
-func TestAppendEventsOrigin(t *testing.T) {
-	e := taskEvent(RouteTaskAssigned, Task{ID: uuid.New(), TenantID: uuid.New(), TaskType: FirstMile, Status: TaskAssigned}, nil)
-	if e.payload["changed"] == nil || e.agg != "task" {
+// The thin payload of a task event (Appendix B §B.4.3): the type, the Bangkok plan day, the status, changed[].
+func TestTaskEventPayload(t *testing.T) {
+	day := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	e := taskEvent(RouteTaskAssigned, Task{ID: uuid.New(), TenantID: uuid.New(), TaskType: FirstMile, Status: TaskAssigned,
+		PlanDate: &day}, nil)
+	if e.agg != "task" || e.payload["taskType"] != FirstMile || *e.payload["planDate"].(*string) != "2026-10-12" ||
+		len(e.payload["changed"].([]string)) != 0 {
 		t.Fatalf("%+v", e)
 	}
-	_ = zerolog.Nop()
 }
