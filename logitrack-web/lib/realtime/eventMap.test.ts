@@ -6,13 +6,16 @@ import { partialMatchKey, type QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import {
     effectsOf,
+    EXPENSE_EVENTS,
     FLEET_EVENTS,
     FLEET_KEYS,
     JOB_SUCCESS_KEYS,
     LIST_WINDOW_MS,
     MOBILE_SETTINGS_KEYS,
+    MONITOR_WINDOW_MS,
     REALTIME_EVENTS,
     ROLES_CHANGED_KEYS,
+    STATEMENT_EVENTS,
 } from "./eventMap";
 
 const keysOf = (event: string, data: unknown = {}) => effectsOf({ event, data }).invalidate.map((i) => i.queryKey);
@@ -35,11 +38,15 @@ const CATALOGUE = {
     ],
     // tenant:{tid}:config (T54S pulls the roles row forward from M6).
     config: ["roles.changed", "holidays.changed"],
+    // M3 (T42): tenant:{tid}:billing, tenant:{tid}:expenses and the priced events of tenant:{tid}:trips.
+    billing: ["ratecard.changed", "statement.created", "statement.status_changed", "documents.rendered"],
+    expenses: ["expense.created", "expense.updated", "expense.approved", "expense.status_changed"],
+    trips: ["trip.created", "trip.updated", "trip.delivered", "trip.priced", "trip.repriced", "trip.cancelled", "trip.resubmitted", "standby.completed", "standby.priced", "incident.created"],
 };
 
 describe("event map (M1 slice)", () => {
     it("listens only to catalogued event names, in full (EventSource has no patterns)", () => {
-        const catalogued = new Set([...CATALOGUE.user, ...CATALOGUE.global, ...CATALOGUE.fleet, ...CATALOGUE.config]);
+        const catalogued = new Set(Object.values(CATALOGUE).flat());
         for (const name of REALTIME_EVENTS) {
             expect(catalogued.has(name), name).toBe(true);
             expect(name).not.toContain("*");
@@ -87,14 +94,15 @@ describe("event map (M1 slice)", () => {
         }
     });
 
-    it("list invalidations use the 500 ms window", () => {
-        for (const name of REALTIME_EVENTS.filter((n) => n !== "job.updated")) {
+    it("list invalidations use the 500 ms window (the priced events use the 2 s window, below)", () => {
+        const priced = new Set(["trip.priced", "trip.repriced", "standby.priced"]);
+        for (const name of REALTIME_EVENTS.filter((n) => n !== "job.updated" && !priced.has(n))) {
             for (const i of effectsOf({ event: name, data: {} }).invalidate) expect(i.windowMs).toBe(LIST_WINDOW_MS);
         }
     });
 
     it("an event outside the map, or a prototype name, has no effect", () => {
-        for (const name of ["task.assigned", "trip.priced", "chat.created", "constructor", "__proto__", "toString", ""]) {
+        for (const name of ["task.assigned", "trip.delivered", "chat.created", "constructor", "__proto__", "toString", ""]) {
             expect(effectsOf({ event: name, data: {} })).toEqual({ invalidate: [], write: [] });
         }
     });
@@ -130,5 +138,61 @@ describe("job.updated (user:{uid}, full payload)", () => {
         for (const data of [null, "x", [], {}, { id: "" }, { id: 7 }]) {
             expect(effectsOf({ event: "job.updated", data })).toEqual({ invalidate: [], write: [] });
         }
+    });
+});
+
+describe("billing, expenses and income (M3, T42)", () => {
+    it("ratecard.changed makes only the touched table's key stale, for that customer and the all view (R51)", () => {
+        expect(keysOf("ratecard.changed", { billingPartyId: "p1", customerId: "c1", table: "entries" })).toEqual([
+            queryKeys.rateCard.entries("c1"),
+            queryKeys.rateCard.entries("all"),
+        ]);
+        expect(keysOf("ratecard.changed", { customerId: "c1", table: "fuelAdj" })).toEqual([queryKeys.rateCard.fuelAdj("c1"), queryKeys.rateCard.fuelAdj("all")]);
+        expect(keysOf("ratecard.changed", { customerId: "c1", table: "serviceFees" })).toEqual([queryKeys.rateCard.serviceFees()]);
+        expect(keysOf("ratecard.changed", { customerId: "c1", table: "standby" })).toEqual([queryKeys.rateCard.standby()]);
+        const entries = keysOf("ratecard.changed", { customerId: "c1", table: "entries" });
+        expect(reaches(entries, queryKeys.rateCard.entries("c2"))).toBe(false);
+        expect(reaches(entries, queryKeys.rateCard.fuelAdj("c1"))).toBe(false);
+        // An unknown table, or no payload, makes the whole rate card stale rather than none of it.
+        expect(keysOf("ratecard.changed", { table: "other" })).toEqual([queryKeys.rateCard.all()]);
+        expect(keysOf("ratecard.changed", null)).toEqual([queryKeys.rateCard.all()]);
+    });
+
+    it("statement events and documents.rendered make every statement list and detail stale (R89)", () => {
+        for (const name of STATEMENT_EVENTS) {
+            const keys = keysOf(name, { statementId: "s1" });
+            expect(keys).toEqual([queryKeys.statements.all()]);
+            expect(reaches(keys, queryKeys.statements.detail("s1"))).toBe(true);
+            expect(reaches(keys, queryKeys.billing.rows("c1", 2026, 9))).toBe(false);
+        }
+    });
+
+    it("expense events make the expense lists and the badges stale", () => {
+        for (const name of EXPENSE_EVENTS) {
+            const keys = keysOf(name);
+            expect(reaches(keys, queryKeys.expenses({ status: "pending" }))).toBe(true);
+            expect(reaches(keys, queryKeys.badges())).toBe(true);
+        }
+    });
+
+    it("priced events refresh income with the 2 s window, never the billing rows or missing-date keys", () => {
+        for (const name of ["trip.priced", "trip.repriced", "standby.priced"]) {
+            const fx = effectsOf({ event: name, data: {} }).invalidate;
+            expect(fx.every((i) => i.windowMs === MONITOR_WINDOW_MS)).toBe(true);
+            const keys = fx.map((i) => i.queryKey);
+            expect(reaches(keys, queryKeys.income({ from: "a" }))).toBe(true);
+            expect(reaches(keys, queryKeys.billing.rows("c1", 2026, 9))).toBe(false);
+            expect(reaches(keys, queryKeys.billing.missingDate("c1", 2026, 9))).toBe(false);
+        }
+        expect(reaches(keysOf("standby.priced"), queryKeys.billing.standbyDiag("c1", 2026, 9))).toBe(true);
+    });
+
+    it("a succeeded billing, document or Bangchak job makes its keys stale", () => {
+        const done = (type: string) => keysOf("job.updated", { id: "j", type, status: "succeeded" });
+        expect(reaches(done("billing.backfill-trips"), queryKeys.income({}))).toBe(true);
+        expect(reaches(done("billing.backfill-standby"), queryKeys.billing.rows("c1", 2026, 9))).toBe(true);
+        expect(reaches(done("documents.regenerate"), queryKeys.statements.detail("s1"))).toBe(true);
+        expect(reaches(done("documents.shopee-report"), queryKeys.billing.shopee("c1", 2026, 9, "full"))).toBe(true);
+        expect(reaches(done("bangchak.snapshot"), queryKeys.fuel.monthly())).toBe(true);
     });
 });

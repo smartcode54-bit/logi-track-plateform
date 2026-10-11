@@ -73,6 +73,8 @@ interface MaintenanceFormProps {
     setNextServiceMileage: (v: string) => void;
     selectedFile: File | null;
     handleFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    /** The file input's `accept` (default `image/*,.pdf`; the Go page passes the types its upload takes). */
+    fileAccept?: string;
     notes: string;
     setNotes: (v: string) => void;
     isSubmitting: boolean;
@@ -433,7 +435,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         )}
 
                         <div className="border border-dashed rounded-lg p-4 bg-background space-y-2">
-                            <Input type="file" accept="image/*,.pdf" onChange={props.handleFileChange} />
+                            <Input type="file" accept={props.fileAccept ?? "image/*,.pdf"} onChange={props.handleFileChange} />
                             {props.selectedFile ? (
                                 <p className="text-xs text-muted-foreground">{props.selectedFile.name}</p>
                             ) : (
