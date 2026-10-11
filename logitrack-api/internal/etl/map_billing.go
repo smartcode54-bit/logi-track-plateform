@@ -20,9 +20,10 @@ import (
 // Companies, rate tables, fuel snapshots, statements and counters (Appendix A §A.3.2, §A.3.9, §A.3.10). The rate
 // tables, statements and counters belong to the billing carrier, the own fleet today (form, R61).
 
-// loadCompany: companies/{id} -> companies (§A.3.2). companyType owner -> the own fleet; subcontractor -> the carrier
-// tenant with the same taxId, then the same Thai name (self); no carrier -> the quarantine tenant (relationship
-// UNVERIFIED, auth report §8). withholdingTaxRate is loaded as stored; a document without one takes 3, the default
+// loadCompany: companies/{id} -> companies (§A.3.2). companyType owner -> the own fleet; subcontractor -> the one
+// carrier tenant whose tax id or id-card number is the taxId, else the one with the same Thai name and no contradicting
+// number (self, companyCarrier); no carrier or several -> the quarantine tenant (relationship UNVERIFIED, auth report
+// §8). withholdingTaxRate is loaded as stored; a document without one takes 3, the default
 // the company form and every reader apply (companySchema.ts), since the column has no default. Logo, stamp and
 // signature URLs become file_objects (company_logo, company_stamp, company_signature).
 func loadCompany(c *docCtx) error {
@@ -75,18 +76,9 @@ func loadCompany(c *docCtx) error {
 	}
 	tenant, why := c.ownFleet(), ""
 	if ctype == "subcontractor" {
-		var t uuid.UUID
-		err := c.tx.QueryRow(c.ctx, `SELECT id FROM (
-			  SELECT id, 1 AS rank, legacy_doc_id FROM tenants WHERE kind = 'carrier' AND tax_id = $1
-			  UNION ALL SELECT id, 2, legacy_doc_id FROM tenants WHERE kind = 'carrier' AND name_th = $2
-			) x ORDER BY rank, legacy_doc_id COLLATE "C" LIMIT 1`, *taxID, *name).Scan(&t)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-			tenant, why = uuid.Nil, "no carrier tenant has this taxId or Thai name (companies <-> subcontractors is UNVERIFIED)"
-		case err != nil:
-			return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
-		default:
-			tenant = t
+		var err error
+		if tenant, why, err = c.companyCarrier(*taxID, *name); err != nil {
+			return err
 		}
 	}
 	cur, found, err := c.stampedRow("companies")
@@ -122,6 +114,43 @@ func loadCompany(c *docCtx) error {
 	}
 	c.done("companies", id)
 	return nil
+}
+
+// companyCarrier is the carrier tenant of a subcontractor company (companies <-> subcontractors is UNVERIFIED, auth
+// report §8), and nothing is guessed (R11, Appendix C rule 3): first the carriers whose tax id or id-card number (an
+// individual carrier keeps its 13-digit number there, tax_id NULL) equals the company's taxId; only when none does,
+// the carriers with the same Thai name whose numbers do not contradict it. Exactly one carrier at the best rank is
+// the tenant; none, or several (same-name carriers), leave it unresolved (why says which) and the row goes to the
+// quarantine tenant, where a platform admin re-homes it.
+func (c *docCtx) companyCarrier(taxID, name string) (uuid.UUID, string, error) {
+	rows, err := c.tx.Query(c.ctx, `WITH x AS (
+		  SELECT id, 1 AS rank FROM tenants WHERE kind = 'carrier' AND (tax_id = $1 OR id_card_number = $1)
+		  UNION ALL SELECT id, 2 FROM tenants WHERE kind = 'carrier' AND name_th = $2
+		    AND (tax_id IS NULL OR tax_id = $1) AND (id_card_number IS NULL OR id_card_number = $1)
+		) SELECT DISTINCT id FROM x WHERE rank = (SELECT min(rank) FROM x) ORDER BY id LIMIT 2`, taxID, name)
+	if err != nil {
+		return uuid.Nil, "", fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return uuid.Nil, "", fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	switch len(ids) {
+	case 1:
+		return ids[0], "", nil
+	case 0:
+		var sameName int
+		if err := c.tx.QueryRow(c.ctx, `SELECT count(*) FROM tenants WHERE kind = 'carrier' AND name_th = $1`, name).Scan(&sameName); err != nil {
+			return uuid.Nil, "", fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+		}
+		if sameName > 0 {
+			return uuid.Nil, "a carrier tenant has this Thai name but another tax id or id-card number than the company's taxId; " +
+				"not matched (companies <-> subcontractors is UNVERIFIED)", nil
+		}
+		return uuid.Nil, "no carrier tenant has this taxId (tax id or id-card number) or Thai name (companies <-> subcontractors is UNVERIFIED)", nil
+	default:
+		return uuid.Nil, "several carrier tenants match this taxId or Thai name; not guessed (companies <-> subcontractors is UNVERIFIED)", nil
+	}
 }
 
 // --- rate tables -----------------------------------------------------------------------------------------------
@@ -601,8 +630,12 @@ func (c *docCtx) companyRef(ids ...string) (*uuid.UUID, error) {
 
 // afterStatements raises billing_date_locked (D7, info) on the plan-basis trips of this load that have no billingDate
 // while the Bangkok month of their task's plan date (the date a restamp would write) already has a sent or paid
-// statement of the trip's party: the restamp is refused there, so the owner decides by hand.
+// statement of the trip's party: the restamp is refused there, so the owner decides by hand. It runs only when the
+// run applied a statement: a trip applied without one already checked the stored statements itself (restampLocked).
 func afterStatements(r *runState, _ string) error {
+	if len(r.applied["billing_statements"]) == 0 {
+		return nil
+	}
 	rows, err := r.tx.Query(r.ctx, `SELECT sd.doc_path FROM etl.source_docs sd
 		JOIN trip_records tr ON tr.id = sd.target_id::uuid AND sd.target_table = 'trip_records'
 		JOIN billing_parties bp ON bp.id = tr.billing_party_id AND bp.billing_date_basis = 'plan'

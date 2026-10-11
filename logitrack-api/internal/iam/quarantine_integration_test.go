@@ -25,6 +25,9 @@ func TestQuarantineReview(t *testing.T) {
 	// A chat without driver cannot leave the quarantine tenant (its CHECK needs one).
 	chat := w.id(`INSERT INTO chats (tenant_id, tenant_source, legacy_driver_ref, driver_ref_match, legacy_doc_id)
 		VALUES ($1, 'quarantine', 'uid_gone', 'none', 'chat_q') RETURNING id::text`, w.Q)
+	// A renewal entry of an unknown truck: the immutable ledger keeps it in Q, listed for the review only.
+	ledger := w.id(`INSERT INTO transactions (tenant_id, tenant_source, tx_type, sub_type, amount_thb, tx_date, legacy_doc_id)
+		VALUES ($1, 'quarantine', 'insurance', 'annual', 9000, '2026-08-20', 'tx_q') RETURNING id::text`, w.Q)
 
 	pa, su, ta := w.login("pa@example.test"), w.login("su@example.test"), w.login("ta.o@example.test")
 
@@ -47,7 +50,8 @@ func TestQuarantineReview(t *testing.T) {
 	r = w.get("/v1/tenants/quarantine/rows?limit=2", pa)
 	expect(t, r, http.StatusOK, "")
 	byTable := r.body["meta"].(map[string]any)["byTable"].(map[string]any)
-	if byTable["tasks"] != float64(3) || byTable["trip_records"] != float64(1) || byTable["chats"] != float64(1) {
+	if byTable["tasks"] != float64(3) || byTable["trip_records"] != float64(1) || byTable["chats"] != float64(1) ||
+		byTable["transactions"] != float64(1) {
 		t.Errorf("meta.byTable: %s", r.raw)
 	}
 	seen, cur := 0, r.body["nextCursor"]
@@ -58,9 +62,37 @@ func TestQuarantineReview(t *testing.T) {
 		seen += len(r.data().([]any))
 		cur = r.body["nextCursor"]
 	}
-	if seen != 5 {
-		t.Errorf("paged rows: %d, want the 5 rows of the quarantine tenant", seen)
+	if seen != 6 {
+		t.Errorf("paged rows: %d, want the 6 rows of the quarantine tenant", seen)
 	}
+	// The quarantined ledger entry is listed with its truck link (which ran out) ...
+	r = w.get("/v1/tenants/quarantine/rows?table=transactions", su)
+	expect(t, r, http.StatusOK, "")
+	if rows := r.data().([]any); len(rows) != 1 {
+		t.Errorf("quarantined transactions: %s", r.raw)
+	} else {
+		row := rows[0].(map[string]any)
+		tr := row["trace"].(map[string]any)
+		step := tr["steps"].([]any)[0].(map[string]any)
+		if row["id"] != ledger || row["legacyDocId"] != "tx_q" || row["label"] != "insurance annual" || tr["outcome"] != "chain_exhausted" ||
+			step["link"] != "truck" || step["rowId"] != nil || step["quarantined"] != false {
+			t.Errorf("transaction row: %s", r.raw)
+		}
+	}
+	// ... and never re-homed: the ledger is immutable (409 immutable_ledger, nothing written); an id outside Q is 404.
+	w.noEvent(func() resp {
+		r := w.send(http.MethodPost, "/v1/tenants/quarantine/rows/transactions/"+ledger+"/rehome", pa, map[string]any{"tenantId": w.O})
+		expect(t, r, http.StatusConflict, "failed_precondition")
+		if reason(r) != "immutable_ledger" {
+			t.Errorf("ledger re-home: %s", r.raw)
+		}
+		return r
+	})
+	if v := w.id(`SELECT tenant_id::text FROM transactions WHERE id = $1`, ledger); v != w.Q {
+		t.Errorf("ledger entry moved: %s", v)
+	}
+	expect(t, w.send(http.MethodPost, "/v1/tenants/quarantine/rows/transactions/"+task+"/rehome", pa, map[string]any{"tenantId": w.O}),
+		http.StatusNotFound, "not_found")
 	expect(t, w.get("/v1/tenants/quarantine/rows?table=users", pa), http.StatusUnprocessableEntity, "invalid_argument")
 	expect(t, w.get("/v1/tenants/quarantine/rows?nope=1", pa), http.StatusBadRequest, "bad_request")
 

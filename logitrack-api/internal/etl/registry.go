@@ -17,13 +17,18 @@ type mapper func(c *docCtx) error
 
 // collectionSpec is one collection of the load order. prepare (optional) runs before the collection's documents
 // with every document of the run, so a mapper can decide across documents (the hub that wins a duplicated
-// source_id); after (optional) runs once the collection's documents are applied, with the documents this run
-// applied, for the links that point forward in the load order (drivers.current_assignment_id after the truck
-// assignments, the task number counters after the tasks).
+// source_id); full is true when docs is the whole collection as the source holds it now (a load: a dump always
+// reads whole collections, and --since / the watermark filter only after prepare), false for one stored document
+// (quarantine resolve --action=retry). reapply (optional) names documents prepare decided must be applied even when
+// their _updateTime is unchanged or before the --since mark (a hub duplicate that takes the row over once the
+// winner was deleted at source). after (optional) runs once the collection's documents are applied, with the
+// documents this run applied, for the links that point forward in the load order (drivers.current_assignment_id
+// after the truck assignments, the task number counters after the tasks).
 type collectionSpec struct {
 	name    string
 	mapper  mapper
-	prepare func(c *docCtx, docs []dump.Doc) error
+	prepare func(c *docCtx, docs []dump.Doc, full bool) error
+	reapply func(r *runState, path string) bool
 	after   func(r *runState, coll string) error
 }
 
@@ -43,7 +48,7 @@ func mappedCollections() []collectionSpec {
 		{name: "standby_rate_entries", mapper: loadStandbyRate},
 		{name: "fuel_daily_snapshots", mapper: loadFuelDaily},
 		{name: "fuel_monthly_snapshots", mapper: loadFuelMonthly},
-		{name: "hubs", mapper: loadHub, prepare: prepareHubs},
+		{name: "hubs", mapper: loadHub, prepare: prepareHubs, reapply: hubTakesOver},
 		{name: "hub_soc_distances", mapper: loadDistance},
 		{name: "soc_hub_distances", mapper: loadDistance},
 		{name: "metadata", mapper: loadMetadata},

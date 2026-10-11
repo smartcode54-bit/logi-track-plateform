@@ -16,7 +16,9 @@ import (
 
 // `etl quarantine list|resolve` (main spec §13.2): findings are listed with filters and resolved per document:
 // retry re-applies the document from etl.source_docs.raw (after a fix in a dependency, or a mapping change; a row
-// already outside the quarantine tenant keeps its tenant, main spec §13.5), skip accepts the findings as they are,
+// already outside the quarantine tenant keeps its tenant, main spec §13.5) and then runs the after-hooks for it, so
+// the links that point forward in the load order (a driver's home truck after a retried assignment, a truck's active
+// maintenance, a payroll run's ledger entry) are set as a load sets them; skip accepts the findings as they are,
 // and rehome moves a quarantined row with its children and their files to a tenant through tenancy.Rehome, the
 // service of POST /v1/tenants/quarantine/rows/{table}/{id}/rehome, appends tenant_rehomed in the same transaction
 // and settles only the tenant_unresolved finding of each moved document: its field findings (driver, trip number,
@@ -155,7 +157,8 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 			}
 			r := e.newRun(ctx, tx, nil)
 			if spec.prepare != nil {
-				if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, run: r}, []dump.Doc{doc}); err != nil {
+				// One stored document is not the whole collection: every stored document stays a candidate.
+				if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, run: r}, []dump.Doc{doc}, false); err != nil {
 					return err
 				}
 			}
@@ -164,6 +167,16 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 				return err
 			}
 			if err := e.record(c, exported); err != nil {
+				return err
+			}
+			if c.outcome == Loaded || c.outcome == Quarantined {
+				r.applied[o.Collection] = append(r.applied[o.Collection], doc)
+			}
+			// The links that point forward in the load order are finished for the re-applied document as a load
+			// finishes them: every after-hook runs, and each touches only the links of the documents this run
+			// applied (a retried assignment sets its driver's home truck, a retried driver gets its home truck and
+			// active task back).
+			if err := e.runAfterHooks(r); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {

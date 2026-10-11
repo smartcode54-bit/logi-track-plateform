@@ -234,7 +234,9 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		r = e.newRun(ctx, tx, rep)
 	}
 	if spec.prepare != nil {
-		if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, run: r}, docs); err != nil {
+		// docs is the whole collection of the dump (a dump reads whole collections; --since and the watermark
+		// filter below, after prepare), so a stored document it lacks was deleted at source.
+		if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, run: r}, docs, true); err != nil {
 			return stats, err
 		}
 	}
@@ -260,7 +262,10 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		ut := doc.UpdateTime.Truncate(time.Microsecond)
 		beforeMark := (!since.IsZero() && !ut.After(since)) ||
 			(o.SinceWatermark && !mark.at.IsZero() && ut.Before(mark.at.Add(-watermarkOverlap)))
-		if beforeMark && !pending[doc.Path] {
+		// reapply: prepare decided this document must be applied although Firestore did not change it (a hub
+		// duplicate that takes the row over once the winner was deleted at source).
+		reapply := spec.reapply != nil && spec.reapply(r, doc.Path)
+		if beforeMark && !pending[doc.Path] && !reapply {
 			stats.BeforeMark++
 			continue
 		}
@@ -279,7 +284,7 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		case errors.Is(err, pgx.ErrNoRows):
 		case err != nil:
 			return stats, fmt.Errorf("etl: %s: read source doc: %w", doc.Path, err)
-		case !o.Force && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
+		case !o.Force && !reapply && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
 			// A pending document waits for its mapping: it is applied by the first load that has one.
 			stats.Unchanged++
 			if storedStatus != string(Pending) {

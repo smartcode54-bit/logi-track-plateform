@@ -34,6 +34,21 @@ func (e *Engine) newRun(ctx context.Context, tx pgx.Tx, rep *Report) *runState {
 	return &runState{ctx: ctx, tx: tx, e: e, rep: rep, applied: map[string][]dump.Doc{}, prep: map[string]any{}, d5: map[string]bool{}}
 }
 
+// runAfterHooks runs every collection's after-hook in load order for the documents of r (quarantine resolve
+// --action=retry: the one document it re-applied). Each hook touches only the links of the documents the run applied,
+// so the hooks of unrelated collections do nothing.
+func (e *Engine) runAfterHooks(r *runState) error {
+	for _, s := range mappedCollections() {
+		if s.after == nil {
+			continue
+		}
+		if err := s.after(r, s.name); err != nil {
+			return fmt.Errorf("etl: %s: %w", s.name, err)
+		}
+	}
+	return nil
+}
+
 // The three unique indexes of 0010_d5_unique_constraints (Appendix A §A.4 D5).
 const (
 	d5FuelTaxInv      = "vehicle_expenses_fuel_taxinv"

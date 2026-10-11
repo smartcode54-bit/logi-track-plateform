@@ -104,6 +104,12 @@ var quarantineQueries = map[string]string{
 	"payroll_runs":     driverChain("payroll_runs", "t.pay_period || ' ' || t.pay_round"),
 	"leave_requests":   driverChain("leave_requests", "t.leave_type"),
 	"chats":            driverChain("chats", "t.status"),
+	// A renewal entry of a truck that did not resolve or is itself quarantined (a payout always lands on the billing
+	// carrier). The ledger is immutable: listed for the review, never re-homed (409 immutable_ledger); the raw truckId
+	// stays in the ETL's truck_unresolved finding, since the row keeps no legacy truck reference.
+	"transactions": `SELECT t.id, t.legacy_doc_id, t.tx_type || coalesce(' ' || t.sub_type, ''), t.created_at, jsonb_build_array(
+		  jsonb_build_object('link', 'truck', 'rowId', t.truck_id, 'tenantId', k.tenant_id))
+		FROM transactions t LEFT JOIN trucks k ON k.id = t.truck_id`,
 }
 
 func driverChain(table, label string) string {
@@ -112,11 +118,20 @@ func driverChain(table, label string) string {
 		FROM ` + table + ` t LEFT JOIN drivers d ON d.id = t.driver_id`
 }
 
-// QuarantineTables are the tables a quarantined row can live in (tenancy.RehomeTables), sorted.
+// QuarantineTables are the tables a quarantined row can live in, sorted: every table tenancy.Rehome supports plus the
+// immutable transactions ledger, which is listed but never moved.
 func QuarantineTables() []string {
-	out := tenancy.RehomeTables()
+	out := make([]string, 0, len(quarantineQueries))
+	for t := range quarantineQueries {
+		out = append(out, t)
+	}
 	slices.Sort(out)
 	return out
+}
+
+// rehomable reports whether tenancy.Rehome can move rows of a listed table.
+func rehomable(table string) bool {
+	return slices.Contains(tenancy.RehomeTables(), table)
 }
 
 // ListQuarantineRows is GET /v1/tenants/quarantine/rows (?table&limit&cursor): the rows of the quarantine tenant,
@@ -231,13 +246,31 @@ type RehomeInput struct {
 // platform admin: no API key holds a platform key): tenancy.Rehome moves the row to tenantId (tenant_source 'form'), its children
 // with the link they follow and the files they own, under app.tenant_move, and tenant_rehomed is appended in the
 // same transaction (actor the platform admin; details {table, id, fromTenantId, toTenantId, moved[], via}, the shape
-// `etl quarantine resolve --action=rehome` writes). 404: an unknown table or a row not in the quarantine tenant; 422:
+// `etl quarantine resolve --action=rehome` writes). 404: an unknown table or a row not in the quarantine tenant; 409
+// failed_precondition immutable_ledger: a transactions row (listed for review only, the ledger is never moved); 422:
 // tenantId missing, unknown or the quarantine tenant; 409 failed_precondition: the row cannot hold outside the
 // quarantine tenant (its driver or truck did not resolve: needs_reference) or a link it keeps is still quarantined
 // (re-home the parent task or trip first: linked_row_quarantined).
 func (a *Admin) RehomeQuarantineRow(c call, table string, id uuid.UUID, in RehomeInput) ([]tenancy.Moved, error) {
 	if _, ok := quarantineQueries[table]; !ok {
 		return nil, httpx.ErrNotFound()
+	}
+	if !rehomable(table) {
+		// The append-only ledger (transactions_immutable): a quarantined entry is corrected by a new entry on the right
+		// tenant, never moved. Nothing is written; a row outside the quarantine tenant is 404 as for every table.
+		var found bool
+		err := db.WithSystem(c.ctx, a.pool, nil, func(tx pgx.Tx) error {
+			// The table name is a key of quarantineQueries (checked above), never request data.
+			return tx.QueryRow(c.ctx, `SELECT EXISTS (SELECT 1 FROM `+pgx.Identifier{table}.Sanitize()+
+				` WHERE id = $1 AND tenant_id = app_quarantine_tenant_id())`, id).Scan(&found)
+		})
+		switch {
+		case err != nil:
+			return nil, mapDBError(err)
+		case !found:
+			return nil, httpx.ErrNotFound()
+		}
+		return nil, errFailedPrecondition("immutable_ledger", "ledger entries are immutable and never re-homed; record a correcting entry on the right tenant")
 	}
 	if in.TenantID == nil || *in.TenantID == uuid.Nil {
 		return nil, errInvalid(violation("tenantId", "required"))

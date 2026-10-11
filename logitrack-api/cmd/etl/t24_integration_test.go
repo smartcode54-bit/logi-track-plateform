@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -430,5 +431,201 @@ func TestAPIRehomeSettlesTheBookkeeping(t *testing.T) {
 	}
 	if out := h.mustRun("reconcile", "--fixtures"); !strings.Contains(out, "reconcile: match") {
 		t.Errorf("reconcile after an API re-home: %s", out)
+	}
+}
+
+// quarantine resolve --action=retry finishes the links that point forward in the load order as a load does: an
+// assignment rejected while its truck sat in the quarantine tenant, retried after the truck's re-home, sets its driver's
+// home truck, and a retried driver document gets the link back (review T24L).
+func TestRetryRunsTheAfterHooks(t *testing.T) {
+	h := newP0Harness(t)
+	h.mustRun("load", "--fixtures")
+	t1 := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
+	d := writeDump(t, t1.Add(time.Hour),
+		collection{"drivers", []dump.Doc{doc("drivers/drv_x", t1, map[string]any{"firstName": "X", "lastName": "Ray", "mobile": "0810000099",
+			"status": "Active", "currentAssignment": map[string]any{"assignmentId": "ta_x", "truckId": "trk_orphan"}})}},
+		collection{"truckAssignment", []dump.Doc{doc("truckAssignment/ta_x", t1, map[string]any{"truckId": "trk_orphan",
+			"driverId": "drv_x", "status": "active"})}})
+	h.mustRun("load", "--dump", d, "--since", "watermark")
+	home := func() any {
+		t.Helper()
+		return h.scalar(`SELECT coalesce(a.legacy_doc_id, 'null') FROM drivers d LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id
+			WHERE d.legacy_doc_id = 'drv_x'`)
+	}
+	if v := h.scalar(`SELECT sd.status || ' ' || q.reason_code FROM etl.source_docs sd JOIN etl.quarantine q ON q.doc_path = sd.doc_path
+		AND q.resolved_at IS NULL WHERE sd.doc_path = 'truckAssignment/ta_x'`); v != "rejected tenant_unresolved" {
+		t.Fatalf("ta_x on a quarantined truck: %v", v)
+	}
+	if v := home(); v != "null" {
+		t.Fatalf("home truck before the retry: %v", v)
+	}
+	h.mustRun("quarantine", "resolve", "--collection", "trucks", "--doc", "trucks/trk_orphan", "--action", "rehome", "--tenant", ownFleet)
+	if out := h.mustRun("quarantine", "resolve", "--collection", "truckAssignment", "--doc", "truckAssignment/ta_x", "--action", "retry"); !strings.Contains(out, "loaded") {
+		t.Fatalf("retry: %s", out)
+	}
+	if v := home(); v != "ta_x" {
+		t.Errorf("home truck after the retried assignment: %v, want ta_x", v)
+	}
+	// A retried driver document runs the assignments' hook for itself too.
+	h.system(`UPDATE drivers SET current_assignment_id = NULL WHERE legacy_doc_id = 'drv_x'`)
+	h.mustRun("quarantine", "resolve", "--collection", "drivers", "--doc", "drivers/drv_x", "--action", "retry")
+	if v := home(); v != "ta_x" {
+		t.Errorf("home truck after the retried driver: %v, want ta_x", v)
+	}
+	// Nothing else moved: the fixture driver keeps its home truck and its active task.
+	if v := h.scalar(`SELECT a.legacy_doc_id || ' ' || k.legacy_doc_id FROM drivers d JOIN truck_assignments a ON a.id = d.current_assignment_id
+		JOIN tasks k ON k.id = d.active_task_id WHERE d.legacy_doc_id = 'drv_own'`); v != "ta_1 task_1" {
+		t.Errorf("drv_own: %v", v)
+	}
+}
+
+// A sent or paid statement is the period lock pricing reads (R17), so the R19 guard covers it: one that cannot load
+// (here an invoice number another statement holds) aborts the load with exit 2 and commits nothing, while a draft with
+// the same defect is only rejected (duplicate_natural_key) (Appendix A §A.3.0, §A.3.9).
+func TestSentStatementThatCannotLoadAborts(t *testing.T) {
+	h := newP0Harness(t)
+	h.mustRun("load", "--fixtures")
+	t1 := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
+	statement := func(id, status string) string {
+		return writeDump(t, t1.Add(time.Hour), collection{"billing_statements", []dump.Doc{doc("billing_statements/"+id, t1, map[string]any{
+			"customerId": "cust_cjsf", "invoiceNumber": "CJSF-202609-001", "period": map[string]any{"month": 9.0, "year": 2026.0},
+			"totalAmount": 100.0, "withholdingTax": 1.0, "netAmount": 99.0, "status": status})}})
+	}
+	code, _, errb := h.run("load", "--dump", statement("st_dup_sent", "sent"), "--since", "watermark")
+	if code != 2 || !strings.Contains(errb, "run aborted at billing_statements/st_dup_sent (duplicate_natural_key)") {
+		t.Fatalf("sent duplicate: exit %d\n%s", code, errb)
+	}
+	if v := h.scalar(`SELECT count(*) FROM etl.source_docs WHERE doc_path = 'billing_statements/st_dup_sent'`); v != int64(0) {
+		t.Errorf("an aborted load committed the document: %v", v)
+	}
+	h.mustRun("load", "--dump", statement("st_dup_draft", "draft"), "--since", "watermark")
+	if v := h.scalar(`SELECT sd.status || ' ' || q.field || ' ' || q.reason_code FROM etl.source_docs sd JOIN etl.quarantine q
+		ON q.doc_path = sd.doc_path AND q.resolved_at IS NULL WHERE sd.doc_path = 'billing_statements/st_dup_draft'`); v != "rejected invoiceNumber duplicate_natural_key" {
+		t.Errorf("draft duplicate: %v", v)
+	}
+}
+
+// Duplicate hubs fixed at source by deleting a document (reimport-hubs-dev.js): a document missing from a full dump was
+// deleted at source and is no candidate any more, so the surviving duplicate takes the row over (same row id, so
+// legacy references keep resolving), merged or unchanged, through a delta load and a forced one (Appendix A §A.3.3).
+func TestHubDuplicateDeletedAtSource(t *testing.T) {
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	hy1 := map[string]any{"source_id": "HUBY", "source_name_th": "ฮับ วาย เก่า", "source_name_en": "Hub Y", "latitude": 13.1, "longitude": 100.1}
+	hy2 := map[string]any{"source_id": "HUBY", "source_name_th": "ฮับ วาย"}
+	first := func(t *testing.T) (*harness, any) {
+		h := newHarness(t)
+		h.mustRun("load", "--dump", writeDump(t, t0.Add(time.Hour), collection{"hubs", []dump.Doc{doc("hubs/hy1", t0, hy1), doc("hubs/hy2", t0, hy2)}}))
+		if v := h.scalar(`SELECT legacy_doc_id || ' ' || name_th FROM hubs WHERE source_id = 'HUBY'`); v != "hy1 ฮับ วาย เก่า" {
+			t.Fatalf("first load: %v", v)
+		}
+		return h, h.scalar(`SELECT id::text FROM hubs WHERE source_id = 'HUBY'`)
+	}
+	after := func(t *testing.T, h *harness, id any, want string) {
+		t.Helper()
+		if v := h.scalar(`SELECT legacy_doc_id || ' ' || name_th || ' ' || (id::text = $1)::text FROM hubs WHERE source_id = 'HUBY'`, id); v != want+" true" {
+			t.Errorf("hub row: %v, want %s on the same row", v, want)
+		}
+		if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'hubs/hy2'`); v != "loaded" {
+			t.Errorf("hubs/hy2: %v", v)
+		}
+	}
+	t.Run("the survivor is merged at source", func(t *testing.T) {
+		h, id := first(t)
+		merged := map[string]any{"source_id": "HUBY", "source_name_th": "ฮับ วาย ใหม่", "source_name_en": "Hub Y", "latitude": 13.2, "longitude": 100.2}
+		d := writeDump(t, t0.Add(48*time.Hour), collection{"hubs", []dump.Doc{doc("hubs/hy2", t0.Add(24*time.Hour), merged)}})
+		h.mustRun("load", "--dump", d, "--since", "watermark")
+		after(t, h, id, "hy2 ฮับ วาย ใหม่")
+		h.mustRun("load", "--dump", d, "--force")
+		after(t, h, id, "hy2 ฮับ วาย ใหม่")
+	})
+	t.Run("the more complete duplicate is deleted, the survivor unchanged", func(t *testing.T) {
+		h, id := first(t)
+		d := writeDump(t, t0.Add(48*time.Hour), collection{"hubs", []dump.Doc{doc("hubs/hy2", t0, hy2)}})
+		if out := h.mustRun("load", "--dump", d, "--since", "watermark"); !strings.Contains(out, "1 document(s) applied") {
+			t.Errorf("takeover load: %s", out)
+		}
+		after(t, h, id, "hy2 ฮับ วาย")
+		if out := h.mustRun("load", "--dump", d, "--since", "watermark"); !strings.Contains(out, "0 document(s) applied") {
+			t.Errorf("a second load re-applied the survivor: %s", out)
+		}
+		if out := h.mustRun("reconcile", "--dump", d); !strings.Contains(out, "reconcile: match") {
+			t.Errorf("reconcile: %s", out)
+		}
+	})
+}
+
+// The winner of a duplicated source_id is the most complete document that can load (a Thai name): a richer
+// English-only duplicate never keeps the hub out of the table; when no document of the source_id can load, each is
+// rejected on its own and none maps to a row that does not exist (Appendix A §A.3.3).
+func TestHubWinnerMustLoad(t *testing.T) {
+	h := newHarness(t)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	h.mustRun("load", "--dump", writeDump(t, t0.Add(time.Hour), collection{"hubs", []dump.Doc{
+		doc("hubs/hx1", t0, map[string]any{"source_id": "HUBX", "source_name_en": "Hub X", "latitude": 13.5, "longitude": 100.5,
+			"station_type": "HUB", "createdByDriver": true, "extra1": "a", "extra2": "b"}),
+		doc("hubs/hx2", t0, map[string]any{"source_id": "HUBX", "source_name_th": "ฮับ เอ็กซ์"}),
+		doc("hubs/hz1", t0, map[string]any{"source_id": "HUBZ", "source_name_en": "Hub Z", "latitude": 13.6}),
+		doc("hubs/hz2", t0, map[string]any{"source_id": "HUBZ", "hubName": "Hub Z old"}),
+	}}))
+	if v := h.scalar(`SELECT legacy_doc_id || ' ' || name_th FROM hubs WHERE source_id = 'HUBX'`); v != "hx2 ฮับ เอ็กซ์" {
+		t.Errorf("HUBX: %v", v)
+	}
+	if v := h.scalar(`SELECT sd.status || ' ' || q.reason_code || ' ' || (sd.target_id = h.id::text)::text FROM etl.source_docs sd
+		JOIN etl.quarantine q ON q.doc_path = sd.doc_path JOIN hubs h ON h.source_id = 'HUBX' WHERE sd.doc_path = 'hubs/hx1'`); v != "rejected duplicate_hub_source_id true" {
+		t.Errorf("hubs/hx1: %v", v)
+	}
+	if v := h.scalar(`SELECT count(*) FROM hubs WHERE source_id = 'HUBZ'`); v != int64(0) {
+		t.Errorf("HUBZ rows: %v", v)
+	}
+	if v := h.scalar(`SELECT string_agg(sd.doc_path || ' ' || sd.status || ' ' || q.reason_code || ' ' || coalesce(sd.target_id, 'null'), ', '
+		ORDER BY sd.doc_path) FROM etl.source_docs sd JOIN etl.quarantine q ON q.doc_path = sd.doc_path WHERE sd.doc_path LIKE 'hubs/hz%'`); v !=
+		"hubs/hz1 rejected missing_required null, hubs/hz2 rejected missing_required null" {
+		t.Errorf("HUBZ documents: %v", v)
+	}
+}
+
+// A subcontractor company's carrier is never guessed (R11, Appendix C rule 3): the carrier whose tax id or id-card
+// number is the taxId, else the one carrier with the same Thai name and no contradicting number; same-name carriers or
+// a contradicting number leave the company in the quarantine tenant with tenant_unresolved (Appendix A §A.3.2).
+func TestCompanyCarrierIsNeverGuessed(t *testing.T) {
+	h := newHarness(t)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	sub := func(id, name, typ string, extra map[string]any) dump.Doc {
+		f := map[string]any{"name": name, "type": typ, "status": "active"}
+		maps.Copy(f, extra)
+		return doc("subcontractors/"+id, t0, f)
+	}
+	co := func(id, name, taxID string) dump.Doc {
+		return doc("companies/"+id, t0, map[string]any{"nameTh": name, "taxId": taxID, "branchType": "headquarters", "address": "x",
+			"companyType": "subcontractor", "accountNumber": "000-" + id})
+	}
+	h.mustRun("load", "--dump", writeDump(t, t0.Add(time.Hour),
+		collection{"subcontractors", []dump.Doc{
+			sub("sub_a", "สมชาย ใจดี", "individual", map[string]any{"idCardNumber": "3100000000001"}),
+			sub("sub_b", "สมชาย ใจดี", "individual", map[string]any{"idCardNumber": "3100000000002"}),
+			sub("sub_c", "Charlie Co", "company", map[string]any{"taxId": "0105555000777"}),
+			sub("sub_d1", "ดวงดี ขนส่ง", "individual", nil),
+			sub("sub_d2", "ดวงดี ขนส่ง", "individual", nil),
+			sub("sub_e", "Echo", "individual", nil),
+		}},
+		collection{"companies", []dump.Doc{
+			co("co_b", "สมชาย ใจดี", "3100000000002"),     // sub_b by its id-card number, not sub_a by name
+			co("co_n", "สมชาย ใจดี", "3100000000009"),     // both same-name carriers carry another number
+			co("co_c", "Charlie Co", "0105555000888"),     // the only same-name carrier has another tax id
+			co("co_c2", "Charlie Group", "0105555000777"), // sub_c by tax id
+			co("co_d", "ดวงดี ขนส่ง", "0105555000555"),    // two same-name carriers without numbers
+			co("co_e", "Echo", "0105555000444"),           // one same-name carrier without a number
+		}}))
+	if v := h.scalar(`SELECT string_agg(c.legacy_doc_id || ' ' || coalesce(t.legacy_doc_id, 'Q') || ' ' || c.tenant_source, ', ' ORDER BY c.legacy_doc_id)
+		FROM companies c JOIN tenants t ON t.id = c.tenant_id`); v !=
+		"co_b sub_b self, co_c Q quarantine, co_c2 sub_c self, co_d Q quarantine, co_e sub_e self, co_n Q quarantine" {
+		t.Errorf("company tenants: %v", v)
+	}
+	if v := h.scalar(`SELECT string_agg(doc_path || ': ' || split_part(detail, ';', 1), ' | ' ORDER BY doc_path) FROM etl.quarantine
+		WHERE collection = 'companies' AND reason_code = 'tenant_unresolved' AND field IS NULL AND resolved_at IS NULL`); v !=
+		"companies/co_c: a carrier tenant has this Thai name but another tax id or id-card number than the company's taxId | "+
+			"companies/co_d: several carrier tenants match this taxId or Thai name | "+
+			"companies/co_n: a carrier tenant has this Thai name but another tax id or id-card number than the company's taxId" {
+		t.Errorf("tenant_unresolved findings: %v", v)
 	}
 }
