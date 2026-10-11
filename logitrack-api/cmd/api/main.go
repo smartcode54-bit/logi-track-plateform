@@ -50,7 +50,9 @@ func main() {
 // deps.APIKeys), the customers and companies (T20, deps.Parties) and the hubs, distances and
 // POST /v1/jobs/distances.compute (T21, deps.Hubs) and the trucks (T22, deps.Fleet) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
-// from deps.Storage; extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
+// from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
+// installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
+// API keys); extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
 // only register handlers and never read a service, so the table needs no database, Redis or signing
 // key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
@@ -67,6 +69,8 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)
+	groups = append(groups, app.MobileGroups(deps)...)
+	groups = append(groups, app.MobileReleaseGroups(deps)...)
 	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }
 

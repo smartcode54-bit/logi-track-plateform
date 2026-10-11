@@ -20,6 +20,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -51,15 +52,24 @@ type APIDeps struct {
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
+	// Mobile is the driver app's installations, version gate and releases (T52): /v1/mobile/settings,
+	// /v1/mobile/heartbeat, /v1/app-installations*, /v1/app-releases*.
+	Mobile *mobileapp.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
 }
 
-// EventGroups are GET /v1/events (internal, behind auth.RequireAuth) and GET /v1/mobile/events (public,
-// SSE ticket) of T12 (main spec §8, Appendix B §B.2.20, §B.2.21).
+// EventGroups is GET /v1/events (internal, behind auth.RequireAuth) of T12 (main spec §8, Appendix B §B.2.20). GET
+// /v1/mobile/events (public, SSE ticket) is mounted by MobileGroups, the one /v1/mobile group.
 func EventGroups(d APIDeps) []ingress.Group {
-	return d.Events.Groups(d.Auth.RequireAuth())
+	var out []ingress.Group
+	for _, g := range d.Events.Groups(d.Auth.RequireAuth()) {
+		if g.Prefix != MobilePrefix {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // SSELease is how long an SSE stream holds its slot in rl:sse_conns:{userId} without a renewal: three
@@ -233,8 +243,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// The driver app's fleet (T52): installations under RLS, the version gate through cache:settings:mobile_app, the
+	// APKs in the public bucket through the storage service.
+	mobile, err := mobileapp.New(mobileapp.Deps{Pool: pool, Storage: st, Cache: caches, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Jobs: jobSvc, Storage: st, Events: events, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
+		Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

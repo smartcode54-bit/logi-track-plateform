@@ -1,0 +1,5 @@
+# Environment allow-list of cmd/release (the operator runs `run-app.sh release publish ...` on the VM, README
+# "Publishing a driver-app APK"). Exactly the developer-spec.md §16.1 names with consumer release (checked by
+# `make env-check`): the internal listener (from kit.conf when the .env has none) and the release_publisher key.
+GO_API_INTERNAL_URL
+RELEASE_API_KEY

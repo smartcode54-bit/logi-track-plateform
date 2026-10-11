@@ -57,9 +57,14 @@ type GetOptions struct {
 }
 
 // PutOptions tune a presigned upload. APIPath asks the local backend for a path on the Go API (web through the
-// BFF) instead of an absolute URL under LOCAL_MEDIA_PUBLIC_BASE_URL (driver app); the S3 backend ignores it.
+// BFF, cmd/release on the private network) instead of an absolute URL under LOCAL_MEDIA_PUBLIC_BASE_URL (driver
+// app); the S3 backend ignores it. CacheControl and Metadata are stored with the object by the S3 backend, which
+// signs them as headers the client must send (Cache-Control, x-amz-meta-{name}); the local backend serves
+// app_releases/ with PublicCacheControl and keeps size, type and sha256 in its sidecar, so it ignores both.
 type PutOptions struct {
-	APIPath bool
+	APIPath      bool
+	CacheControl string
+	Metadata     map[string]string
 }
 
 // Backend is one storage implementation. Every method takes the row's bucket and key; a key has passed

@@ -37,7 +37,8 @@ var EventTypes = []string{
 	"tenant_updated", "tenant_contractor_changed", "tenant_rehomed",
 	"platform_cross_tenant_access",
 	"login_failed", "login_lockout", "password_reset_requested", "tenant_orphans_detected",
-	"trip_record_renamed", "mobile_floor_changed", "queue_replayed", "evidence_viewed", "webhook_signature_failed",
+	"trip_record_renamed", "mobile_floor_changed", "mobile_release_published", "queue_replayed", "evidence_viewed",
+	"webhook_signature_failed",
 }
 
 // KnownType reports whether t is in EventTypes.

@@ -250,6 +250,65 @@ func (q *Queries) InsertPending(ctx context.Context, arg InsertPendingParams) (F
 	return i, err
 }
 
+const insertPendingPublic = `-- name: InsertPendingPublic :one
+INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, content_type, size_bytes, sha256, visibility,
+                          status, uploaded_by, expires_at, storage_backend)
+VALUES ($1, $2, NULL, $3, $4::text, $5::bigint, $6::text, 'public',
+        'pending', $7::uuid, $8::timestamptz, $9)
+RETURNING id, bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256, visibility, status, legacy_url, uploaded_by, expires_at, committed_at, created_at, deleted_at, storage_backend
+`
+
+type InsertPendingPublicParams struct {
+	Bucket         string
+	ObjectKey      string
+	Purpose        string
+	ContentType    string
+	SizeBytes      int64
+	Sha256         string
+	UploadedBy     *uuid.UUID
+	ExpiresAt      time.Time
+	StorageBackend string
+}
+
+// PresignPublic (APKs of cmd/release, main spec §9.7): a pending platform object (tenant NULL) of the public bucket,
+// committed by the release it becomes; uploaded_by is NULL for an API key, which has no users row.
+func (q *Queries) InsertPendingPublic(ctx context.Context, arg InsertPendingPublicParams) (FileObject, error) {
+	row := q.db.QueryRow(ctx, insertPendingPublic,
+		arg.Bucket,
+		arg.ObjectKey,
+		arg.Purpose,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Sha256,
+		arg.UploadedBy,
+		arg.ExpiresAt,
+		arg.StorageBackend,
+	)
+	var i FileObject
+	err := row.Scan(
+		&i.ID,
+		&i.Bucket,
+		&i.ObjectKey,
+		&i.TenantID,
+		&i.Purpose,
+		&i.OwnerKind,
+		&i.OwnerID,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.Sha256,
+		&i.Visibility,
+		&i.Status,
+		&i.LegacyUrl,
+		&i.UploadedBy,
+		&i.ExpiresAt,
+		&i.CommittedAt,
+		&i.CreatedAt,
+		&i.DeletedAt,
+		&i.StorageBackend,
+	)
+	return i, err
+}
+
 const isDirectSubtenant = `-- name: IsDirectSubtenant :one
 SELECT EXISTS (SELECT 1 FROM tenants WHERE id = $1 AND contractor_tenant_id = $2::uuid)
 `
