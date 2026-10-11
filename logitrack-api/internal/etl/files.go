@@ -40,7 +40,8 @@ func ParseStorageURL(raw string) (bucket, key, legacyURL string, ok bool) {
 	return bucket, key, u.String(), true
 }
 
-// fileRef registers the object behind a legacy URL field in file_objects (R1) and returns its id. The row is
+// fileRef registers the object behind a legacy URL field in file_objects (R1) and returns its id (an empty ownerKind
+// registers an object without owner, e.g. the receipt of a renewal whose truck did not resolve). The row is
 // 'missing_at_source' until `etl media-copy` copies the object from GCS under the identical key and commits it;
 // the referencing row keeps its FK either way (§13.6). One row per key: a key referenced twice (the check-in
 // screenshot a trip photo copies, ADR 0019) keeps its first owner. A URL that is not a Firebase Storage download
@@ -59,6 +60,11 @@ func (c *docCtx) fileRef(field string, value any, purpose, ownerKind string, own
 	if tenant != uuid.Nil {
 		tid = &tenant
 	}
+	var kind *string
+	var owner *uuid.UUID
+	if ownerKind != "" && ownerID != uuid.Nil {
+		kind, owner = &ownerKind, &ownerID
+	}
 	var id uuid.UUID
 	err := c.tx.QueryRow(c.ctx, `WITH ins AS (
 		  INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, owner_kind, owner_id, visibility, status, legacy_url,
@@ -66,7 +72,7 @@ func (c *docCtx) fileRef(field string, value any, purpose, ownerKind string, own
 		  VALUES ($1, $2, $3, $4, $5, $6, 'private', 'missing_at_source', $7, 's3')
 		  ON CONFLICT (bucket, object_key) DO NOTHING RETURNING id)
 		SELECT id FROM ins UNION ALL SELECT id FROM file_objects WHERE bucket = $1 AND object_key = $2 LIMIT 1`,
-		c.e.cfg.Bucket, key, tid, purpose, ownerKind, ownerID, legacy).Scan(&id)
+		c.e.cfg.Bucket, key, tid, purpose, kind, owner, legacy).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("etl: %s: register %s: %w", c.doc.Path, field, err)
 	}

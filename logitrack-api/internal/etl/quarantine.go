@@ -16,7 +16,9 @@ import (
 
 // `etl quarantine list|resolve` (main spec §13.2): findings are listed with filters and resolved per document:
 // retry re-applies the document from etl.source_docs.raw (after a fix in a dependency, or a mapping change; a row
-// already outside the quarantine tenant keeps its tenant, main spec §13.5), skip accepts the findings as they are,
+// already outside the quarantine tenant keeps its tenant, main spec §13.5) and then runs the after-hooks for it, so
+// the links that point forward in the load order (a driver's home truck after a retried assignment, a truck's active
+// maintenance, a payroll run's ledger entry) are set as a load sets them; skip accepts the findings as they are,
 // and rehome moves a quarantined row with its children and their files to a tenant through tenancy.Rehome, the
 // service of POST /v1/tenants/quarantine/rows/{table}/{id}/rehome, appends tenant_rehomed in the same transaction
 // and settles only the tenant_unresolved finding of each moved document: its field findings (driver, trip number,
@@ -41,6 +43,9 @@ type FindingFilter struct {
 func (e *Engine) ListFindings(ctx context.Context, f FindingFilter) ([]FindingRow, error) {
 	var out []FindingRow
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, `SELECT id, collection, doc_path, coalesce(field, ''), reason_code, coalesce(detail, ''),
 			  coalesce(resolution, ''), created_at, resolved_at
 			FROM etl.quarantine
@@ -134,8 +139,8 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 			res.Resolved, err = resolve("skipped", o.Collection, o.DocPath)
 			return err
 		case ActionRetry:
-			spec := collectionSpec{name: o.Collection}
-			spec.mapper, _ = mapperOf(o.Collection)
+			spec, _ := specOf(o.Collection)
+			spec.name = o.Collection
 			if spec.mapper == nil {
 				return fmt.Errorf("etl: %s has no mapping in this release; nothing to retry", o.Collection)
 			}
@@ -150,11 +155,28 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 			if created != nil {
 				doc.CreateTime = *created
 			}
-			c := &docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, doc: doc, f: fields, billable: hasBillingEvidence(o.Collection, fields)}
+			r := e.newRun(ctx, tx, nil)
+			if spec.prepare != nil {
+				// One stored document is not the whole collection: every stored document stays a candidate.
+				if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, run: r}, []dump.Doc{doc}, false); err != nil {
+					return err
+				}
+			}
+			c := &docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, doc: doc, f: fields, billable: hasBillingEvidence(o.Collection, fields), run: r}
 			if err := e.apply(c, spec); err != nil {
 				return err
 			}
 			if err := e.record(c, exported); err != nil {
+				return err
+			}
+			if c.outcome == Loaded || c.outcome == Quarantined {
+				r.applied[o.Collection] = append(r.applied[o.Collection], doc)
+			}
+			// The links that point forward in the load order are finished for the re-applied document as a load
+			// finishes them: every after-hook runs, and each touches only the links of the documents this run
+			// applied (a retried assignment sets its driver's home truck, a retried driver gets its home truck and
+			// active task back).
+			if err := e.runAfterHooks(r); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
@@ -217,6 +239,9 @@ func (e *Engine) Status(ctx context.Context) ([]CollectionStatus, error) {
 	}
 	now := e.cfg.Now()
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, `SELECT collection, status, count(*) FROM etl.source_docs GROUP BY 1, 2`)
 		if err != nil {
 			return err

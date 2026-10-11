@@ -1,0 +1,2 @@
+{"_id": "cust_cjsf_202609", "_path": "billing_counters/cust_cjsf_202609", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"lastSeq": 1, "customerCode": "CJSF"}}
+{"_id": "cust_spx_202608", "_path": "billing_counters/cust_spx_202608", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "_note": "no customerCode: the party's code", "fields": {"lastSeq": 0}}

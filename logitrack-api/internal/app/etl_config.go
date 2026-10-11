@@ -30,8 +30,12 @@ type ETLConfig struct {
 	S3AccessKeyID       string `env:"S3_ACCESS_KEY_ID"`
 	S3SecretAccessKey   string `env:"S3_SECRET_ACCESS_KEY"`
 	S3Bucket            string `env:"S3_BUCKET" envDefault:"logitrack"`
-	S3UsePathStyle      bool   `env:"S3_USE_PATH_STYLE" envDefault:"true"`
-	S3UseSSL            bool   `env:"S3_USE_SSL"`
+	// S3PublicBucket labels the legacy APK's file_objects row (settings/mobile_app, visibility public, R23, T24);
+	// S3PublicBaseURL is the base `rewrite-urls --apply` gives its committed copy.
+	S3PublicBucket  string `env:"S3_PUBLIC_BUCKET" envDefault:"logitrack-public"`
+	S3PublicBaseURL string `env:"S3_PUBLIC_BASE_URL"`
+	S3UsePathStyle  bool   `env:"S3_USE_PATH_STYLE" envDefault:"true"`
+	S3UseSSL        bool   `env:"S3_USE_SSL"`
 	// PlatformAdminEmails marks the auth-import report lines that seed bootstrap-platform-admins grants (T19).
 	PlatformAdminEmails string `env:"PLATFORM_ADMIN_EMAILS"`
 	// FIREBASE_SCRYPT_* are the Console "Password hash parameters" of auth-weak-scan (Appendix C §C.5.2, §C.5.7).
@@ -69,6 +73,14 @@ func (c *ETLConfig) Validate() error {
 	}
 	if !bucketRx.MatchString(c.S3Bucket) {
 		errs = append(errs, config.Invalidf("S3_BUCKET", "must be a bucket name (3-63 lower-case letters, digits, dots, hyphens)"))
+	}
+	if !bucketRx.MatchString(c.S3PublicBucket) {
+		errs = append(errs, config.Invalidf("S3_PUBLIC_BUCKET", "must be a bucket name (3-63 lower-case letters, digits, dots, hyphens)"))
+	} else if c.S3PublicBucket == c.S3Bucket {
+		errs = append(errs, "S3_BUCKET, S3_PUBLIC_BUCKET: must differ")
+	}
+	if c.S3PublicBaseURL != "" && !absoluteURL(c.S3PublicBaseURL) {
+		errs = append(errs, config.Invalidf("S3_PUBLIC_BASE_URL", "must be an absolute http(s) URL without query"))
 	}
 	if c.S3Endpoint != "" && (c.S3Region == "" || c.S3AccessKeyID == "" || c.S3SecretAccessKey == "") {
 		errs = append(errs, "S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY: required with S3_ENDPOINT")

@@ -297,6 +297,8 @@ var stampTables = map[string]string{
 	tenancy.Tasks: "tasks", tenancy.TripRecords: "trip_records", tenancy.StandbyRecords: "standby_records",
 	tenancy.IncidentReport: "incident_reports", tenancy.Drivers: "drivers", tenancy.Trucks: "trucks",
 	tenancy.VehicleExpenses: "vehicle_expenses", tenancy.Maintenance: "maintenance_records",
+	tenancy.DriverPenalties: "driver_penalties", tenancy.Payroll: "payroll_runs", tenancy.LeaveRequests: "leave_requests",
+	tenancy.Chats: "chats", tenancy.Transactions: "transactions",
 }
 
 // stamp resolves the tenant of a tenant-stamped row through the pure resolver (tenancy.Resolve). When the chain
@@ -325,6 +327,15 @@ func (c *docCtx) stampWith(collection string, fields map[string]any, l tenancy.L
 	if err != nil {
 		return uuid.Nil, err
 	}
+	return c.settle(cur, found, tenant, source, why), nil
+}
+
+// settle applies the frozen-tenant rule of main spec §13.5 to a resolved chain (tenant, source; why is the
+// tenant_unresolved detail when the chain ran out): an existing row outside the quarantine tenant keeps its tenant
+// (drift is reported, never moved), a chain that ran out sends the row to the quarantine tenant, and a row leaving the
+// quarantine tenant marks c.leaving so its children follow it after the upsert. Mappers of tables tenancy.Resolve
+// has no chain for (companies, truck assignments, mobile installations) resolve their tenant themselves and call it.
+func (c *docCtx) settle(cur stampedRow, found bool, tenant uuid.UUID, source tenancy.Source, why string) uuid.UUID {
 	switch {
 	case found && cur.tenant != c.e.quar:
 		// Drift through a task or trip link is a re-link: keepLink reports it on the link and drops it.
@@ -333,15 +344,15 @@ func (c *docCtx) stampWith(collection string, fields map[string]any, l tenancy.L
 				tenant, source, cur.tenant), tenant.String())
 		}
 		c.tenantSource = cur.source
-		return cur.tenant, nil
+		return cur.tenant
 	case why != "":
 		c.find("", ReasonTenantUnresolved, why, nil)
-		return c.toQuarantine(), nil
+		return c.toQuarantine()
 	case found:
 		c.leaving = tenant
 	}
 	c.tenantSource = source
-	return tenant, nil
+	return tenant
 }
 
 // resolveTenant runs the chain; why is the tenant_unresolved detail when the row belongs in the quarantine tenant.
