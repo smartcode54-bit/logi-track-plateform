@@ -87,12 +87,15 @@ type Period struct {
 	Month int32 `json:"month"`
 }
 
-// DocumentRef is one rendered document of a statement (statement_documents, R14); the download is
-// GET /v1/billing/statements/{id}/documents/{kind} (T39).
+// DocumentRef is one rendered document of a statement (statement_documents, R14). url, present once the document is
+// ready, is its download route GET /v1/billing/statements/{id}/documents/{kind} (T39), which answers 302 to a
+// short-lived signed URL of the stored file; the web calls it under the BFF prefix. The route rather than a signed URL
+// keeps the detail cacheable (a signed URL expires in 15 minutes).
 type DocumentRef struct {
 	Kind       string     `json:"kind"`
 	Status     string     `json:"status"`
 	Error      *string    `json:"error,omitempty"`
+	URL        *string    `json:"url,omitempty"`
 	RenderedAt *time.Time `json:"renderedAt"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
 }
@@ -343,8 +346,13 @@ func (s *Service) GetStatement(ctx context.Context, p *authz.Principal, id uuid.
 		docs, err := q.StatementDocuments(ctx, id)
 		out.Documents = make([]DocumentRef, 0, len(docs))
 		for _, d := range docs {
-			out.Documents = append(out.Documents, DocumentRef{Kind: d.Kind, Status: d.Status, Error: d.Error,
-				RenderedAt: utc(d.RenderedAt), UpdatedAt: d.UpdatedAt.UTC()})
+			ref := DocumentRef{Kind: d.Kind, Status: d.Status, Error: d.Error, RenderedAt: utc(d.RenderedAt),
+				UpdatedAt: d.UpdatedAt.UTC()}
+			if d.Status == statusReady {
+				u := BillingPrefix + "/statements/" + id.String() + "/documents/" + d.Kind
+				ref.URL = &u
+			}
+			out.Documents = append(out.Documents, ref)
 		}
 		return err
 	})

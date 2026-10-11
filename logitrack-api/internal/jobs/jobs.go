@@ -52,15 +52,25 @@ const TypeDistancesCompute = "distances.compute"
 // TypeBangchakSnapshot is the Bangchak fuel price snapshot (POST /v1/jobs/bangchak.snapshot and the 05:00 cron, T37).
 const TypeBangchakSnapshot = "bangchak.snapshot"
 
+// TypeDocumentsRegenerate re-renders a statement's documents (POST /v1/billing/statements/{id}/documents/regenerate,
+// T39); TypeDocumentsShopeeReport renders the Shopee Express report PDF (started by GET /v1/billing/shopee-report.pdf,
+// T39). Both run in the documents.render queue.
+const (
+	TypeDocumentsRegenerate   = "documents.regenerate"
+	TypeDocumentsShopeeReport = "documents.shopee-report"
+)
+
 // TypeCapabilities maps each job type a per-type POST /v1/jobs/{type} route submits to the capability
 // that route checks (Appendix B §B.2.20, developer-spec.md §7.5): staff of the job's tenant
 // (EffectiveTenant() = jobs.tenant_id) holding it read the job besides its owner and the platform. T21
-// registers distances.compute, T37 bangchak.snapshot; T38 and T44 add their types here. Types without a row
-// (queue.replay) stay owner + platform; a cron fire of a listed type has no owner and no tenant, so only the platform
-// reads it.
+// registers distances.compute, T37 bangchak.snapshot, T39 the two documents.render jobs; T38 and T44 add their types
+// here. Types without a row (queue.replay) stay owner + platform; a cron fire of a listed type has no owner and no
+// tenant, so only the platform reads it.
 var TypeCapabilities = map[string]authz.Cap{
-	TypeDistancesCompute: authz.OperationsCalcDistances,
-	TypeBangchakSnapshot: authz.AccountingEditRateCard,
+	TypeDistancesCompute:      authz.OperationsCalcDistances,
+	TypeBangchakSnapshot:      authz.AccountingEditRateCard,
+	TypeDocumentsRegenerate:   authz.AccountingManageStatements,
+	TypeDocumentsShopeeReport: authz.AccountingShopeeReport,
 }
 
 var typeRx = regexp.MustCompile(`^[a-z]+(\.[a-z0-9-]+)+$`) // the CHECK of jobs.type

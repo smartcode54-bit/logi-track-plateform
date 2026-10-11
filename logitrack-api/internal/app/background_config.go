@@ -99,6 +99,10 @@ type WorkerConfig struct {
 	// bangchak.snapshot (T37): the daily and monthly fuel price snapshots (off without BANGCHAK_API_BASE_URL).
 	Bangchak
 
+	// documents.render (T39, R69): the directory of Sarabun-Regular.ttf and Sarabun-Bold.ttf; empty = the copies built
+	// into the binary (logitrack-web/public/fonts).
+	PDFFontDir string `env:"PDF_FONT_DIR"`
+
 	// Groups is WORKER_CONSUMERS resolved by Validate ("all" = every group).
 	Groups []string `env:"-"`
 }
@@ -113,6 +117,9 @@ func (c *WorkerConfig) Validate() error {
 	c.AMQPEnv.validate(&errs)
 	c.Storage.validate(&errs)
 	c.Bangchak.validate(&errs)
+	if d := strings.TrimSpace(c.PDFFontDir); d != "" && !strings.HasPrefix(d, "/") {
+		errs = append(errs, config.Invalidf("PDF_FONT_DIR", "must be an absolute directory (or empty for the built-in Sarabun)"))
+	}
 	if c.Prefetch < 0 || c.Prefetch > 1000 {
 		errs = append(errs, config.Invalidf("RABBITMQ_PREFETCH", "must be between 0 and 1000"))
 	}

@@ -6,6 +6,8 @@ package billingdb
 
 import (
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type FuelDailySnapshot struct {
@@ -29,4 +31,12 @@ type FuelMonthlySnapshot struct {
 	ErrorMessage *string
 	Items        []byte
 	UpdatedAt    time.Time
+}
+
+type TripBillingStopBreakdown struct {
+	TripID          uuid.UUID
+	StopIndex       int32
+	DestinationCode string
+	BaseRateThb     float64
+	FinalRateThb    float64
 }

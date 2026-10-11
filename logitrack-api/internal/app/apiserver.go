@@ -278,7 +278,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	}
 	// Billing (T37): rate tables, statements and invoice numbers, fuel snapshots, under RLS (db.WithPrincipal); the
 	// rate-card bundle and the Bangchak retail prices through the cache: layer (UI only); POST
-	// /v1/jobs/bangchak.snapshot submits through the jobs service (the worker runs it).
+	// /v1/jobs/bangchak.snapshot submits through the jobs service (the worker runs it). T39: the read aggregates, and
+	// the documents the worker renders, downloaded through signed URLs of the storage service.
 	feed, err := cfg.BangchakClient()
 	if err != nil {
 		closeAll()
@@ -287,7 +288,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	if feed == nil {
 		log.Info().Msg("Bangchak prices off: BANGCHAK_API_BASE_URL is unset (GET /v1/fuel/retail answers 503)")
 	}
-	billingSvc, err := billing.New(billing.Deps{Pool: pool, Cache: caches, Jobs: jobSvc, Bangchak: feed, Log: log})
+	billingSvc, err := billing.New(billing.Deps{Pool: pool, Cache: caches, Jobs: jobSvc, Bangchak: feed, Files: st, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

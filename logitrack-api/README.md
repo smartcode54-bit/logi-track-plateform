@@ -72,9 +72,10 @@ internal/etl/dump            dump format: NDJSON(.gz) per collection with Firest
 internal/etl/gcp             Firestore v1 REST (read, get, patch) and Cloud Storage downloads, no Admin SDK; gcptest = in-process fake Google
 internal/etl/objstore        S3_BUCKET put/get/stat/list for dumps and media copies (minio-go)
 internal/platform/tenancy    tenancy.Resolve (port of tenantResolve.ts + the R75 chains), tenancy.Rehome (quarantine re-home) and tenancy.MoveDriver (the broker-carrier move, T23)
-internal/billing             billing data layer (T37): rate tables /v1/billing/{rate-entries,fuel-adjustments,service-fees,standby-rates}*, statements with gap-free invoice numbers /v1/billing/statements*, PeriodLock and LoadPricingTables for the pricing transaction, fuel snapshots /v1/fuel/*, POST /v1/jobs/bangchak.snapshot and the bangchak.snapshot consumer (billingdb)
+internal/billing             billing data layer (T37) and read aggregates and documents (T39): rate tables /v1/billing/{rate-entries,fuel-adjustments,service-fees,standby-rates}*, statements with gap-free invoice numbers /v1/billing/statements*, PeriodLock and LoadPricingTables for the pricing transaction, fuel snapshots /v1/fuel/*, POST /v1/jobs/bangchak.snapshot and the bangchak.snapshot consumer (billingdb)
 internal/billing/compute     the billing engine (T36): pure port of lib/billingCompute.ts + the pure pricing rules
-internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items (renderers: T39)
+internal/billing/documents   pure invoice layout rules: axis date, price rounds, line items, detail rows, Thai texts (FormatTHB, BahtText)
+internal/billing/render      the document renderers (T39): invoice / receipt PDF (gopdf, built-in Sarabun), detail XLSX (excelize), bundle ZIP, Shopee report PDF
 internal/golden              test-only runner for testdata/golden vectors
 tools/vmenv                  the staging VM's .env: generates every secret on the VM, role SCRAM verifiers, container env-files (OPSVM)
 deploy/vm/                   staging VM kit for showkhun.co: pm2 + nginx, provision.sh, deploy.sh, rollout.sh, runbook (OPSVM)
@@ -503,6 +504,21 @@ Rate tables, statements and fuel snapshots on the internal listener behind `auth
 - **Bangchak** (`billing.FuelJob`, queue `bangchak.snapshot`, group `integrations`): on success the day's row is inserted unless captured already (insert-only) and the month's row upserted, with the job's success, in one transaction; a failed fetch, an empty price list or the feed off ends the job failed and writes no snapshot, so the month keeps its previous row (fixes `persistFuelMonthlySnapshot.ts:88-96`). The 05:00 Asia/Bangkok cron is `scheduler.Gated` behind `FUEL_MONTHLY_SNAPSHOT_ENABLED`; only the leader fires and `lock:cron` guards the slot, so two replicas run it once.
 
 Tests: `go test ./internal/platform/bangchak/` (the parser on the legacy shapes and JavaScript `Number`, the client against `httptest`, the local WireMock answer) and `make test-integration` (`internal/billing/*_integration_test.go`: real logins as `logitrack_app`, Redis, every T37 acceptance criterion; `internal/scheduler`: `TestBangchakSnapshotFiresOncePerSlot`).
+
+## Billing reads and documents (T39, main spec §6.14, §9.9, Appendix B §B.2.14)
+
+| Routes | Guard | Notes |
+|---|---|---|
+| `GET /v1/billing/rows` (`?customerId=<id>\|all&year&month&types&categories&plate&vehicleClass&reviewMonth`) | `accounting:billing_document`, own fleet only | one request for the Billing Document page: priced rows resolved for display, `inInvoiceSet` (the statement's lines for the toggles), `inPreview` (review filters only), flags, unpriced rows with `reason` (`stored`, else a dry run of the pricing rules: `not_computed`, `task_missing`, `multi_insufficient_stops` besides the stored codes), invoice and preview totals, counts, filter options, `outsideReach`, `documentable` |
+| `GET /v1/billing/rows/missing-billing-date`, `GET /v1/billing/standby-diagnostics` | `accounting:billing_document`, own fleet only | trips delivered in the month without `billing_date`; unpriced standby of the month with reasons, plus every record without `ended_at` (1000 at most, truncation reported) |
+| `GET /v1/billing/shopee-report`, `GET /v1/billing/shopee-report.pdf` (`?customerId&year&month&half`) | `accounting:shopee_report` | rows under RLS (the customer resolved per trip, un-billed trips included, no price); the PDF: `302` to the newest render while its rows version is current, else `202 {jobId}` (`documents.shopee-report`) |
+| `GET /v1/billing/statements/{id}/documents/{kind}` | `accounting:billing_result` | `302` to a signed GET of the stored file (15 min, `Content-Disposition: attachment`); `409 failed_precondition` with `details.status` while not ready; a receipt only once paid |
+| `POST /v1/billing/statements/{id}/documents/regenerate` | `accounting:manage_statements`, own fleet only | `202 {jobId}` (`documents.regenerate`; `409 already_exists` while one runs) |
+
+- **documents.render** (`billing.DocumentJob`, group `documents`): `statement.created` renders `invoice_summary.pdf`, `invoice_detail.xlsx` and `bundle.zip`; `statement.status_changed` to `paid` the receipt; `job.documents.regenerate` all of them again; `job.documents.shopee-report` the Shopee report. Objects go to `documents/statements/{statementId}/{renderId}/` (or `documents/reports/{jobId}/`) through `storage.PutServerObject`, then one transaction registers them (`storage.RegisterServerObject`), points `statement_documents` at them and claims the message (`consumer_inbox`) or succeeds the job. Fonts: Sarabun built in (`internal/billing/render/fonts`), `PDF_FONT_DIR` overrides.
+- **Income (#50 / T30):** `billing.TripBillingOf(ctx, tx, tripIDs)` is the billing projection `GET /v1/trips` attaches when `billing.IncomeBillingVisible(p)` (`accounting:view_income`, never a dispatcher).
+
+Tests: `go test ./internal/billing/documents/ ./internal/billing/render/` (V8 vectors of `Intl` th-TH and `bahttext@2.4.0`, the PDF layouts as recorded text operations, the XLSX read back, the ZIP, image limits, fonts) and `make test-integration` (`internal/billing/rows_integration_test.go`, `documents_integration_test.go`: the invoice set equal to the statement's lines, preview filters, reasons, outside reach, stored re-downloads, receipt on paid, regenerate, failures and retries, the Shopee report and its render reuse).
 
 ## Async processing (T10, main spec §7, Appendix B §B.5)
 
