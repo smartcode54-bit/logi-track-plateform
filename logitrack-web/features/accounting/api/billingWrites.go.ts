@@ -12,19 +12,18 @@
  * | plan date | `PATCH /v1/tasks/{id}` `{date}` | T34 (T28 shipped only the tenant reassignment) |
  * | delivered time | `PATCH /v1/trips/{id}` `{deliveredAt}` | T34 |
  *
- * The routes are the catalogue's contracts. Until their owners merge they fail with a Go error, which the
- * pages show like any other (measured on mv-go against the mounted route groups):
+ * The routes are the catalogue's contracts. T38 serves the trip and standby billing routes and the three billing
+ * jobs. Until the other owners merge their routes fail with a Go error, which the pages show like any other
+ * (measured on mv-go against the mounted route groups):
  * - plan date: `PATCH /v1/tasks/{id}` exists as T28's reassignment-only route, so `{date}` gets
  *   `422 invalid_argument` (`date: not_supported`, `tenantId: required`), or `403 permission_denied`
  *   without `operations:manage_tasks`; it can never reassign a task (unknown fields are refused);
- * - delivered time and the three billing jobs: `GET /v1/trips/:id` and `GET /v1/jobs/:id` exist, so
- *   `PATCH /v1/trips/{id}` and `POST /v1/jobs/billing.*` get `405 method_not_allowed` (`Allow: GET, HEAD`);
- * - trip and standby recompute, manual price, standby customer: `404 not_found`.
+ * - delivered time: `GET /v1/trips/:id` exists, so `PATCH /v1/trips/{id}` gets `405 method_not_allowed`.
  * Each write invalidates the keys it changes: the month's billing prefix and `['income']` (R89: never the
  * whole cache).
  */
 import type { QueryClient } from "@tanstack/react-query";
-import { goFetch, goPath } from "@/lib/goFetch";
+import { goFetch, goPath, isApiError } from "@/lib/goFetch";
 import { getQueryClient } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import { invalidateBillingMonth } from "./billing.go";
@@ -56,19 +55,41 @@ async function afterBillingWrite(month: BillingMonthRef | null, client: QueryCli
 }
 
 /**
- * `skipInvalidate` leaves the cache alone (a loop over many trips invalidates once, with its last call).
+ * `skipInvalidate` leaves the cache alone (a loop over many trips invalidates once, with its last call). A forced
+ * recompute whose old or new period is sent or paid is `409 billing_period_locked` with
+ * `details.blockedInvoiceNumber` (T38, main spec §6.10 state 6); it is answered here in the callable's shape
+ * (`{ok: false, blockedInvoiceNumber}`), which the pages count as blocked rather than failed. Nothing was written, so
+ * nothing is invalidated.
  */
 export async function computeTripBilling(
     tripId: string,
     opts: { forceRecompute?: boolean; month?: BillingMonthRef | null; skipInvalidate?: boolean } = {},
     client: QueryClient = getQueryClient()
 ): Promise<ComputeBillingResult> {
-    const out = await goFetch<ComputeBillingResult>(goPath`/v1/trips/${tripId}/billing/compute`, {
-        method: "POST",
-        body: opts.forceRecompute ? { forceRecompute: true } : {},
-    });
+    let out: ComputeBillingResult;
+    try {
+        out = await goFetch<ComputeBillingResult>(goPath`/v1/trips/${tripId}/billing/compute`, {
+            method: "POST",
+            body: opts.forceRecompute ? { forceRecompute: true } : {},
+        });
+    } catch (e) {
+        const locked = periodLocked(e);
+        if (locked) return locked;
+        throw e;
+    }
     if (!opts.skipInvalidate) await afterBillingWrite(opts.month ?? null, client);
     return out;
+}
+
+/** The callable-shaped answer of a `409 billing_period_locked`, or null for any other error. */
+export function periodLocked(e: unknown): ComputeBillingResult | null {
+    if (!isApiError(e) || e.code !== "billing_period_locked") return null;
+    const invoice = e.details.blockedInvoiceNumber;
+    return {
+        ok: false,
+        blockedInvoiceNumber: typeof invoice === "string" ? invoice : "",
+        error: e.message,
+    };
 }
 
 /** The single manual-price exception (`accounting:override_price`, R17): `manual_override=true`. */

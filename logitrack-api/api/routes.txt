@@ -101,6 +101,9 @@ GET /v1/incidents internal
 GET /v1/jobs internal
 GET /v1/jobs/:id internal
 POST /v1/jobs/bangchak.snapshot internal
+POST /v1/jobs/billing.backfill-standby internal
+POST /v1/jobs/billing.backfill-trips internal
+POST /v1/jobs/billing.impact-report internal
 POST /v1/jobs/distances.compute internal
 POST /v1/jobs/payroll.run internal
 GET /v1/maintenance internal
@@ -118,6 +121,7 @@ GET /v1/me/tenants internal
 GET /v1/mobile/events internal,public
 POST /v1/mobile/heartbeat internal,public
 GET /v1/mobile/settings internal,public
+POST /v1/mobile/trips/:id/billing/compute internal,public
 GET /v1/payroll internal
 GET /v1/payroll/:id internal
 POST /v1/payroll/:id/approve internal
@@ -134,6 +138,8 @@ GET /v1/security-events internal
 GET /v1/security/overview internal
 GET /v1/security/status internal
 GET /v1/standby internal
+POST /v1/standby/:id/billing/compute internal
+PATCH /v1/standby/:id/customer internal
 GET /v1/stats/users-by-role internal
 GET /v1/subcontractors internal
 POST /v1/subcontractors internal
@@ -155,6 +161,9 @@ GET /v1/tenants/quarantine/rows internal
 POST /v1/tenants/quarantine/rows/:table/:id/rehome internal
 GET /v1/trips internal
 GET /v1/trips/:id internal
+POST /v1/trips/:id/billing/compute internal
+PUT /v1/trips/:id/billing/manual internal
+POST /v1/trips/:id/job-category internal
 GET /v1/trips/:id/photos internal
 GET /v1/trips/by-no/:tripNo internal
 GET /v1/trips/monitor internal

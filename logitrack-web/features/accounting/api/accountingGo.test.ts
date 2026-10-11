@@ -516,6 +516,19 @@ describe("billing aggregates and statements", () => {
         expect(await startBillingJob("billing.backfill-trips", { fromDateStr: "2026-09-01", toDateStr: "2026-09-30", customerId: undefined, forceRecompute: undefined })).toEqual({ jobId: "j1" });
         expect(web.calls[1].body).toEqual({ fromDateStr: "2026-09-01", toDateStr: "2026-09-30" });
     });
+
+    it("answers a forced recompute in a sent or paid period as blocked, not failed (409 billing_period_locked, T38)", async () => {
+        const web = fakeWeb();
+        web.on("POST", "/api/go/v1/trips/t2/billing/compute", () =>
+            goErr(409, "billing_period_locked", { blockedInvoiceNumber: "TTP-202609-001", periodYear: 2026, periodMonth: 9 })
+        );
+        const out = await computeTripBilling("t2", { forceRecompute: true, month: { customerId: "c1", year: 2026, month: 9 } });
+        expect(out.ok).toBe(false);
+        expect(out.blockedInvoiceNumber).toBe("TTP-202609-001");
+        // Any other error still throws.
+        web.on("POST", "/api/go/v1/trips/t3/billing/compute", () => goErr(403, "permission_denied"));
+        await expect(computeTripBilling("t3", { forceRecompute: true })).rejects.toMatchObject({ status: 403, code: "permission_denied" });
+    });
 });
 
 describe("fuel price history", () => {

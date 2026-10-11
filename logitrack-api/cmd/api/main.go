@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
@@ -57,7 +58,10 @@ func main() {
 // POST /v1/jobs/distances.compute (T21, deps.Hubs), the trucks (T22, deps.Fleet) with the truck assignments and
 // the drivers (T23, deps.Fleet, deps.Drivers), the vehicle expenses and maintenance with the PM check below /v1/trucks
 // (T40, deps.Expenses, deps.Maintenance), the billing rate tables, statements, fuel snapshots and POST
-// /v1/jobs/bangchak.snapshot (T37, deps.Billing), the R13 task reassignment (T28, deps.Operations) and the payroll runs,
+// /v1/jobs/bangchak.snapshot (T37, deps.Billing), the compute-on-delivery routes of T38 (deps.Billing: the trip and
+// standby billing routes below /v1/trips and /v1/standby, mounted by operations.Groups, POST
+// /v1/jobs/billing.{backfill-trips,backfill-standby,impact-report} and the shim target below /v1/mobile), the R13 task
+// reassignment (T28, deps.Operations) and the payroll runs,
 // penalties, compensation config versions and POST /v1/jobs/payroll.run (T44, deps.HR) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
@@ -81,7 +85,11 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, expenses.Groups(deps.Expenses, deps.Auth.RequireAuth())...)
 	groups = append(groups, maintenance.Groups(deps.Maintenance, deps.Auth.RequireAuth())...)
 	groups = append(groups, billing.Groups(deps.Billing, deps.Auth.RequireAuth())...)
-	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth())...)
+	groups = append(groups, billing.JobGroups(deps.Billing, deps.Auth.RequireAuth())...)
+	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth(), operations.Mounts{
+		Trips:   []func(fiber.Router){billing.TripRoutes(deps.Billing, deps.Auth.RequireAuth())},
+		Standby: []func(fiber.Router){billing.StandbyRoutes(deps.Billing, deps.Auth.RequireAuth())},
+	})...)
 	groups = append(groups, hr.Groups(deps.HR, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)

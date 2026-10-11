@@ -443,6 +443,9 @@ func loadTrip(c *docCtx) error {
 		set("review_reason", c.text("reviewReason")).set("resubmitted_at", c.ts("resubmittedAt")).
 		set("line_delivered_notified_at", c.ts("lineDeliveredNotifiedAt")).set("evidence_token", c.text("evidenceToken")).
 		set("created_at", createdAt).setPresent("updated_at", c.ts("updatedAt"))
+	if c.billingOwned() {
+		r.unset("billing_party_id", "billing_date")
+	}
 	id, err := upsertLegacy(c, r)
 	if err != nil {
 		return err
@@ -456,8 +459,11 @@ func loadTrip(c *docCtx) error {
 	if err := c.tripStops(id, tenant); err != nil {
 		return err
 	}
-	if err := c.tripSnapshot(id, party, task); err != nil {
-		return err
+	// Once billing is PostgreSQL-owned the price is the pricer's (billing.compute), projected back by firestore.shadow.
+	if !c.billingOwned() {
+		if err := c.tripSnapshot(id, party, task); err != nil {
+			return err
+		}
 	}
 	c.done("trip_records", id)
 	return nil
@@ -797,6 +803,13 @@ func (c *docCtx) tripStops(id, tenant uuid.UUID) error {
 	return nil
 }
 
+// billingOwned reports a mirror sweep once the billing domain is PostgreSQL-owned (P3, T38): the billing fields of the
+// Firestore-written trips and standby records (billingCustomerId, billingDate, the billing* snapshot) are then the
+// pricer's: billing.compute writes them in PostgreSQL and firestore.shadow projects them onto the document
+// (shadow_billing.go), so the mirror leaves them as PostgreSQL holds them (one writer per field, no echo loop). A load
+// (P1) and a sweep before P3 still apply them.
+func (c *docCtx) billingOwned() bool { return c.run != nil && c.run.owned["billing"] }
+
 // tripSnapshot loads trip_billing_snapshots iff billingEstimateThb is a number or any billing* field is present
 // ("stamped but unpriced"). Legacy prices are never recomputed (R15): computed_by 'etl', compute_version 0. The
 // tenant is the billing carrier, the own fleet today (form, R61). billingRateImportId stays in rate_import_id and
@@ -1032,6 +1045,10 @@ func loadStandby(c *docCtx) error {
 		return err
 	}
 	r.set("truck_id", refID(tr))
+	if c.billingOwned() {
+		r.unset("billing_estimate_thb", "billing_party_id", "billing_rate_source", "billing_rate_entry_id",
+			"billing_effective_from_date", "billing_unpriced_reason", "billing_computed_at")
+	}
 	c.times(r)
 	id, err := upsertLegacy(c, r)
 	if err != nil {

@@ -45,7 +45,10 @@ const (
 // The task type of a task is checked too: operations:view_first_mile reads first-mile tasks, operations:view_line_haul
 // line-haul ones (dispatch:view_operations both). A dispatcher or a customer-scope principal is served from the scope_*
 // projections (Appendix C §C.3.7).
-func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
+//
+// more are routes other packages serve below these prefixes (one group per prefix): the billing routes of T38 below
+// /v1/trips and /v1/standby (internal/billing TripRoutes, StandbyRoutes).
+func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
 	return []ingress.Group{
@@ -65,14 +68,30 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/by-no/:tripNo", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome), h.tripByNo)
 			r.Get("/:id", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome), h.getTrip)
 			r.Get("/:id/photos", requireAuth, need(authz.OperationsViewDriverMon), h.tripPhotos)
+			for _, m := range more {
+				for _, mount := range m.Trips {
+					mount(r)
+				}
+			}
 		}},
 		{Prefix: StandbyPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.DispatchViewOperations), h.listStandby)
+			for _, m := range more {
+				for _, mount := range m.Standby {
+					mount(r)
+				}
+			}
 		}},
 		{Prefix: IncidentsPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewIncidents, authz.DispatchViewOperations), h.listIncidents)
 		}},
 	}
+}
+
+// Mounts are routes another package serves below the trips and standby prefixes (fleet.Groups' truckRoutes pattern).
+type Mounts struct {
+	Trips   []func(r fiber.Router)
+	Standby []func(r fiber.Router)
 }
 
 // staffOrDriver is RequireCap(caps...) that also admits a driver acting as itself (driver:self, R33): the service then

@@ -34,6 +34,17 @@ func (r *row) set(col string, v any) *row {
 	return r
 }
 
+// unset drops columns from the row, so an update leaves them as they are (and an insert gives them their default).
+func (r *row) unset(cols ...string) *row {
+	for _, col := range cols {
+		if i := slices.Index(r.cols, col); i >= 0 {
+			r.cols = slices.Delete(r.cols, i, i+1)
+			r.vals = slices.Delete(r.vals, i, i+1)
+		}
+	}
+	return r
+}
+
 // setPresent adds a column only when v is not nil, so a NOT NULL column with a default keeps it (insert) or its
 // current value (update) when the legacy document has no value.
 func (r *row) setPresent(col string, v any) *row {

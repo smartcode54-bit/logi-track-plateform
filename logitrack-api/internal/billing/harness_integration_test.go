@@ -185,6 +185,10 @@ func newWorld(t *testing.T) *world {
 	deps := app.APIDeps{Auth: svc, Jobs: jobSvc, Billing: w.svc}
 	groups := append(svc.Groups(), billing.Groups(w.svc, svc.RequireAuth())...)
 	groups = append(groups, app.JobGroups(deps)...)
+	// T38: the trip and standby billing routes (mounted by operations.Groups in cmd/api) and the billing jobs.
+	groups = append(groups, billing.JobGroups(w.svc, svc.RequireAuth())...)
+	groups = append(groups, ingress.Group{Prefix: "/v1/trips", Mount: billing.TripRoutes(w.svc, svc.RequireAuth())},
+		ingress.Group{Prefix: "/v1/standby", Mount: billing.StandbyRoutes(w.svc, svc.RequireAuth())})
 	groups = append(groups, ingress.Group{Prefix: "/v1/billingtest", Mount: w.testRoutes(svc.RequireAuth())})
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
