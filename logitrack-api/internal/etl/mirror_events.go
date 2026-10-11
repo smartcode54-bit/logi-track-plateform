@@ -26,6 +26,12 @@ import (
 // because the Firestore-side writer (the legacy callables, or the Go write-back handler, which emits its own event)
 // owns the notification (internal/notify).
 //
+// The payload is thin (Appendix B §B.4.1): entity, id, tenantId, at (the document's Firestore update time, the moment of
+// the write), legacyDocId, source, created, changed[] and the extras below; the relay keeps only the thin keys on the
+// realtime topics and strips what a dispatcher may not read from dispatch:{partyId}:* (realtime.Project, T33). The
+// dispatch topics are those of every party the row involves after the version and, for an update, before it (T33): a
+// row whose party changed leaves the boards of the parties it no longer involves.
+//
 // What an applied version emits (at most one event per routing key, a row in the quarantine tenant never emits; a
 // row that leaves it counts as created):
 //   - tasks: task.created; else task.cancelled (status became cancelled), task.assigned (driver set), task.reassigned
@@ -79,12 +85,15 @@ type opsState struct {
 	tenant uuid.UUID
 	row    map[string]json.RawMessage
 	digest string
+	// parties are the billing parties the row involved before the apply (opsBefore only): its dispatch topics.
+	parties []uuid.UUID
 }
 
 func (s opsState) exists() bool { return s.id != uuid.Nil }
 
 // opsBefore reads the row the document is about to update (none for a new document, or one outside the operations
-// collections). A renamed trip's row still holds its former id: the rename is an update of that row (renamedFrom).
+// collections) and the parties it involves before the apply. A renamed trip's row still holds its former id: the
+// rename is an update of that row (renamedFrom).
 func opsBefore(c *docCtx) (opsState, error) {
 	t, ok := opsTables[c.coll]
 	if !ok {
@@ -103,7 +112,12 @@ func opsBefore(c *docCtx) (opsState, error) {
 	if err != nil {
 		return opsState{}, fmt.Errorf("etl: %s: the row before: %w", c.doc.Path, err)
 	}
-	return readOps(c, t, id)
+	s, err := readOps(c, t, id)
+	if err != nil || s.tenant == c.e.quar {
+		return s, err // a row in the quarantine tenant is on no dispatcher's board (RLS never shows it)
+	}
+	s.parties, err = opsParties(c, c.coll, s)
+	return s, err
 }
 
 func readOps(c *docCtx, t opsTable, id uuid.UUID) (opsState, error) {
@@ -213,9 +227,10 @@ func emitOpsEvents(c *docCtx, before opsState) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	parties = unionParties(parties, before.parties)
 	for _, key := range keys {
 		payload := map[string]any{"entity": t.aggregate, "id": after.id, "tenantId": after.tenant, "legacyDocId": c.doc.ID,
-			"source": "mirror", "created": created, "changed": nonNil(changed)}
+			"at": c.doc.UpdateTime.UTC(), "source": "mirror", "created": created, "changed": nonNil(changed)}
 		opsPayload(c, payload, before, after)
 		ev := outbox.Event{RoutingKey: key, AggregateType: t.aggregate, AggregateID: after.id.String(), TenantID: &after.tenant,
 			Payload: payload, Topics: opsTopics(key, after, before, parties), Headers: map[string]string{outbox.HeaderOrigin: outbox.OriginMirror}}
@@ -224,6 +239,17 @@ func emitOpsEvents(c *docCtx, before opsState) (int, error) {
 		}
 	}
 	return len(keys), nil
+}
+
+// unionParties adds the parties of before that after does not hold, sorted like opsParties.
+func unionParties(after, before []uuid.UUID) []uuid.UUID {
+	for _, p := range before {
+		if !slices.Contains(after, p) {
+			after = append(after, p)
+		}
+	}
+	slices.SortFunc(after, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	return after
 }
 
 func nonNil(s []string) []string {
@@ -377,8 +403,9 @@ func opsParties(c *docCtx, coll string, s opsState) ([]uuid.UUID, error) {
 }
 
 // opsTopics are the realtime topics of one event (Appendix B §B.4.2): the tenant's family and the dispatch topic of
-// every party for the operational events, the drivers' queues for task events; the billing-only keys
-// (trip.delivered_at_changed, standby.customer_assigned) have no topic.
+// every party (after and before the version) for the operational events, the drivers' queues for task events; the
+// billing-only keys (trip.delivered_at_changed, standby.customer_assigned) have no topic. What each topic carries of
+// the payload is the relay's projection (realtime.Project).
 func opsTopics(key string, after, before opsState, parties []uuid.UUID) []string {
 	tenant := after.tenant.String()
 	var topics []string
