@@ -60,6 +60,7 @@ func TestMain(m *testing.M) {
 
 type world struct {
 	t      *testing.T
+	db     *pgtest.Database
 	pool   *pgxpool.Pool
 	etl    *pgx.Conn
 	rdb    *redis.Client
@@ -79,7 +80,7 @@ func newWorld(t *testing.T) *world {
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{t: t, pool: d.Pool(t, db.RoleApp)}
+	w := &world{t: t, db: d, pool: d.Pool(t, db.RoleApp)}
 	var err error
 	if w.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
