@@ -44,6 +44,7 @@ import {
     FILTER_NONE,
     INVOICE_CATEGORIES,
     INVOICE_TYPES,
+    invalidateBillingMonth,
     missingBillingDateQuery,
     standbyDiagnosticsQuery,
     type BillingRowDTO,
@@ -53,9 +54,7 @@ import {
     type StatementDTO,
 } from "../../api/billing.go";
 import { assignStandbyCustomer, computeStandbyBilling, computeTripBilling } from "../../api/billingWrites.go";
-import { invalidateBillingMonth } from "../../api/billing.go";
 
-const computeTripBillingInvalidate = (p: LoadedPeriod) => invalidateBillingMonth(p.customerId, p.year, p.month);
 import { JobCategoryBadge } from "./badges";
 import { ApiErrorAlert, CustomerSelect, formatDateTime, formatDay, formatThb, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
 import { StatementDocumentsDialog } from "./StatementDocumentsDialog";
@@ -65,6 +64,9 @@ interface LoadedPeriod {
     year: number;
     month: number;
 }
+
+/** Makes the period's billing keys stale (a repair whose last call failed before it could). */
+const computeTripBillingInvalidate = (p: LoadedPeriod) => invalidateBillingMonth(p.customerId, p.year, p.month);
 
 const TYPE_COLORS: Record<string, string> = { trip: "bg-blue-500", standby: "bg-orange-500", multidrop: "bg-purple-500" };
 
