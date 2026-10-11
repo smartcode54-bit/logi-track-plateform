@@ -1,10 +1,11 @@
 // T18 (R50; developer-spec.md §10.4 steps 3-4, §10.8; Appendix E §E.5 row 20): the session stream that
-// replaces the users/{uid}.forceLogoutAt listener. EventSource is a fake that the tests drive frame by
-// frame; timers are captured and run by hand.
+// replaces the users/{uid}.forceLogoutAt listener; TW5 (Appendix E §E.5.1): its state, resume after a
+// network drop, and the domain events on the same stream. EventSource is a fake that the tests drive
+// frame by frame; timers are captured and run by hand.
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../apiError";
-import { CLOSED, REOPEN_MAX_MS, RealtimeStream, type EventSourceLike } from "./realtimeStream";
+import { CLOSED, CONNECTING, REOPEN_MAX_MS, RealtimeStream, type EventSourceLike } from "./realtimeStream";
 import { handleSessionRevoked } from "./sessionRevoked";
 import { createSessionStream, EVENTS_URL, EVENT_SESSION_REVOKED } from "./sessionStream";
 
@@ -118,6 +119,153 @@ describe("RealtimeStream", () => {
     });
 });
 
+describe("RealtimeStream: state and resume (TW5)", () => {
+    function stream(h: ReturnType<typeof harness>, over: Partial<ConstructorParameters<typeof RealtimeStream>[0]> = {}) {
+        const statuses: string[] = [];
+        const s = new RealtimeStream({
+            url: "/s",
+            refresh: async () => true,
+            onSessionLost: vi.fn(),
+            onResync: vi.fn(),
+            onEvent: vi.fn(),
+            onStatus: (st) => statuses.push(st),
+            ...h,
+            ...over,
+        });
+        return { s, statuses };
+    }
+
+    it("reports connecting, open, connecting while the browser retries, open again, idle when closed", () => {
+        const h = harness();
+        const { s, statuses } = stream(h);
+        s.open();
+        h.sources[0].open();
+        // A network drop the browser retries itself: readyState stays CONNECTING, nothing is recreated.
+        h.sources[0].readyState = CONNECTING;
+        h.sources[0].onerror?.call(h.sources[0] as unknown as EventSource, new Event("error"));
+        expect(s.status).toBe("connecting");
+        h.sources[0].open();
+        s.close();
+        expect(statuses).toEqual(["connecting", "open", "connecting", "open", "idle"]);
+        expect(h.sources).toHaveLength(1);
+        expect(h.timers).toHaveLength(0);
+    });
+
+    it("a stream that closed is down until it reopens from the last id it saw", async () => {
+        const h = harness();
+        const onEvent = vi.fn();
+        const { s, statuses } = stream(h, { onEvent });
+        s.listen(["truck.updated"]);
+        s.open();
+        h.sources[0].open();
+        h.sources[0].emit("truck.updated", { type: "truck.updated", topic: "tenant:t:fleet", eventId: "e5", data: {} }, "5");
+        h.sources[0].fail();
+        expect(s.status).toBe("down");
+        await h.runTimers();
+        expect(h.sources[1].url).toBe("/s?lastEventId=5");
+        h.sources[1].open();
+        expect(statuses).toEqual(["connecting", "open", "down", "connecting", "open"]);
+    });
+
+    it("resume() cuts the backoff short (back online); it does nothing while open or refreshing", async () => {
+        const h = harness();
+        let release: (ok: boolean) => void = () => undefined;
+        const refresh = vi.fn(() => new Promise<boolean>((r) => (release = r)));
+        const { s } = stream(h, { refresh });
+        s.open();
+        s.resume(); // connecting: nothing to cut short
+        h.sources[0].open();
+        s.resume(); // open
+        expect(refresh).not.toHaveBeenCalled();
+        h.sources[0].fail();
+        expect(h.timers).toHaveLength(1);
+        s.resume();
+        expect(refresh).toHaveBeenCalledTimes(1);
+        s.resume(); // the refresh is in flight
+        expect(refresh).toHaveBeenCalledTimes(1);
+        release(true);
+        await flush();
+        expect(h.sources).toHaveLength(2);
+    });
+
+    it("a reopen without a position (closed before its first event) resyncs once the new stream is open", async () => {
+        const h = harness();
+        const onResync = vi.fn();
+        const { s } = stream(h, { onResync });
+        s.open();
+        h.sources[0].open();
+        h.sources[0].fail();
+        await h.runTimers();
+        expect(h.sources[1].url).toBe("/s");
+        expect(onResync).not.toHaveBeenCalled();
+        h.sources[1].open();
+        expect(onResync).toHaveBeenCalledTimes(1);
+        // The browser's own reconnect of that stream replays: no second resync.
+        h.sources[1].readyState = CONNECTING;
+        h.sources[1].onerror?.call(h.sources[1] as unknown as EventSource, new Event("error"));
+        h.sources[1].open();
+        expect(onResync).toHaveBeenCalledTimes(1);
+    });
+
+    it("event: reconnect carries the id of the frame Go writes at connect, so the reopen replays", async () => {
+        const h = harness();
+        const onResync = vi.fn();
+        const { s } = stream(h, { onResync });
+        s.open();
+        h.sources[0].open();
+        // No event yet: the reconnect frame has no id line, its lastEventId is the id-only frame's.
+        h.sources[0].emit("reconnect", { reason: "token_expiring" }, "120");
+        await h.runTimers();
+        expect(h.sources[1].url).toBe("/s?lastEventId=120");
+        h.sources[1].open();
+        expect(onResync).not.toHaveBeenCalled();
+    });
+
+    it("reopen() during a pending refresh wins: the refresh does not open a second stream", async () => {
+        const h = harness();
+        let release: (ok: boolean) => void = () => undefined;
+        const { s } = stream(h, { refresh: () => new Promise<boolean>((r) => (release = r)) });
+        s.open();
+        h.sources[0].fail();
+        await h.runTimers(); // the refresh starts
+        s.reopen(); // claims changed meanwhile
+        release(true);
+        await flush();
+        expect(h.sources).toHaveLength(2);
+        expect(h.sources[1].closed).toBe(false);
+    });
+
+    it("network drop: offline refreshes fail and back off; back online it reopens with lastEventId and delivers the replay", async () => {
+        const h = harness();
+        const frames: string[] = [];
+        let online = false;
+        const refresh = vi.fn(async () => {
+            if (!online) throw new ApiError({ status: 0, code: "network_error", message: "offline" });
+            return true;
+        });
+        const { s } = stream(h, { refresh, onEvent: (f) => frames.push(`${f.id}:${f.event}`) });
+        s.listen(["hubs.changed"]);
+        s.open();
+        h.sources[0].open();
+        h.sources[0].emit("hubs.changed", { type: "hubs.changed", topic: "global", eventId: "a", data: { ids: ["h1"] } }, "41");
+        // The BFF cannot be reached: the browser gives up on the stream (CLOSED).
+        h.sources[0].fail();
+        await h.runTimers(); // refresh rejects -> another backoff
+        await h.runTimers();
+        expect(refresh).toHaveBeenCalledTimes(2);
+        expect(h.sources).toHaveLength(1);
+        expect(s.status).toBe("down");
+        online = true;
+        s.resume(); // window 'online'
+        await flush();
+        expect(h.sources[1].url).toBe("/s?lastEventId=41");
+        h.sources[1].open();
+        h.sources[1].emit("hubs.changed", { type: "hubs.changed", topic: "global", eventId: "b", data: { ids: ["h2"] } }, "42");
+        expect(frames).toEqual(["41:hubs.changed", "42:hubs.changed"]);
+        expect(s.status).toBe("open");
+    });
+});
+
 describe("handleSessionRevoked", () => {
     it("claims_changed: a forced refresh, and the user stays signed in", async () => {
         const deps = { forcedRefresh: vi.fn(async () => true), checkSession: vi.fn(), endSession: vi.fn() };
@@ -215,5 +363,33 @@ describe("createSessionStream", () => {
         h.sources[0].fail();
         await h.runTimers();
         expect(end).toHaveBeenCalledWith(expect.objectContaining({ code: "unauthenticated" }));
+    });
+
+    it("delivers the domain events it listens to on the same stream; session.revoked never reaches onEvent", async () => {
+        const h = harness();
+        const seen: string[] = [];
+        const statuses: string[] = [];
+        const stream = createSessionStream({
+            onResync: vi.fn(),
+            checkSession: vi.fn(async () => null),
+            refresh: async () => true,
+            events: ["truck.updated", "job.updated"],
+            onEvent: (f) => seen.push(f.event),
+            onStatus: (st) => statuses.push(st),
+            createEventSource: h.createEventSource,
+            setTimer: h.setTimer,
+            clearTimer: h.clearTimer,
+            random: h.random,
+        });
+        stream.open();
+        h.sources[0].open();
+        h.sources[0].emit("truck.updated", { type: "truck.updated", topic: "tenant:t:fleet", eventId: "e1", data: { entity: "truck", id: "x" } }, "1");
+        h.sources[0].emit(EVENT_SESSION_REVOKED, { type: EVENT_SESSION_REVOKED, topic: "user:u", eventId: "e2", data: { reason: "logout", sessionIds: ["other"] } }, "2");
+        h.sources[0].emit("job.updated", { type: "job.updated", topic: "user:u", eventId: "e3", data: { id: "j", status: "running" } }, "3");
+        h.sources[0].emit("not.listened", { type: "not.listened", topic: "global", eventId: "e4", data: {} }, "4");
+        await flush();
+        expect(seen).toEqual(["truck.updated", "job.updated"]);
+        expect(statuses).toEqual(["connecting", "open"]);
+        expect(stream.lastId).toBe("3");
     });
 });
