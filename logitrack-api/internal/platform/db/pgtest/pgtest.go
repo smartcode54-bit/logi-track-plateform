@@ -148,6 +148,18 @@ func (c *Cluster) SuperExec(ctx context.Context, sql string) error {
 	return err
 }
 
+// Exec runs a command inside the container (as root; `--username=postgres` reaches the server over the
+// local socket) and returns its exit code and combined output: the server's own client tools of the
+// same major version, e.g. pg_dump and pg_restore for a backup-and-restore test.
+func (c *Cluster) Exec(ctx context.Context, cmd ...string) (int, string, error) {
+	code, out, err := c.ctr.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		return 0, "", err
+	}
+	raw, err := io.ReadAll(out)
+	return code, string(raw), err
+}
+
 func (c *Cluster) url(user, password, dbName string) string {
 	u := url.URL{
 		Scheme:   "postgres",

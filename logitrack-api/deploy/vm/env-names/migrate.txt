@@ -1,0 +1,8 @@
+# Environment allow-list of cmd/migrate (rollout.sh, every deploy).
+# Exactly the developer-spec.md §16.1 names with consumer migrate or all-go (checked by `make env-check`).
+# run-app.sh exports each from the VM's shared .env, or keeps the per-process value that
+# ecosystem.config.cjs gave the pm2 app, and unsets every other .env name.
+APP_ENV
+LOG_FORMAT
+LOG_LEVEL
+MIGRATE_DATABASE_URL

@@ -12,9 +12,12 @@
 //     column lists it (so api, worker and scheduler get only DATABASE_URL and
 //     seed gets all three DB URLs, R66/R87);
 //   - `web` receives exactly the web-server names and is built with web-public
-//     names only; `caddy` receives exactly the caddy names (TW2).
+//     names only; `caddy` receives exactly the caddy names (TW2);
+//   - with -vm-env and -vm-names, the staging VM kit (deploy/vm, OPSVM): the
+//     names-only template env.vm.example and the per-program allow-lists of
+//     run-app.sh (vm.go).
 //
-// Usage: docker compose ... --profile '*' config --format json | envcheck -spec ../developer-spec.md -env .env.example -compose - -compose-file deploy/docker-compose.yml
+// Usage: docker compose ... --profile '*' config --format json | envcheck -spec ../developer-spec.md -env .env.example -compose - -compose-file deploy/docker-compose.yml [-vm-env deploy/vm/env.vm.example -vm-names deploy/vm/env-names]
 package main
 
 import (
@@ -65,6 +68,8 @@ func main() {
 	envPath := flag.String("env", ".env.example", "env template")
 	composePath := flag.String("compose", "", "compose config JSON (\"-\" for stdin); empty skips the compose checks")
 	composeFile := flag.String("compose-file", "", "raw compose file whose ${NAME} interpolations must be in -env; empty skips")
+	vmEnv := flag.String("vm-env", "", "names-only template of the staging VM's .env (deploy/vm/env.vm.example); empty skips")
+	vmNames := flag.String("vm-names", "", "directory of the VM kit's per-program allow-lists (deploy/vm/env-names); empty skips")
 	flag.Parse()
 
 	spec, err := os.ReadFile(*specPath)
@@ -92,6 +97,19 @@ func main() {
 		problems = append(problems, checkCompose(cfg, inv)...)
 	}
 
+	var vmChecked []string
+	if *vmEnv != "" {
+		vmLines, err := dotenv.Read(*vmEnv)
+		must(err)
+		p, _ := checkVMEnv(*vmEnv, vmLines, inv, banned, bannedPrefixes)
+		problems = append(problems, p...)
+		vmChecked = append(vmChecked, *vmEnv)
+	}
+	if *vmNames != "" {
+		problems = append(problems, checkVMNames(*vmNames, inv)...)
+		vmChecked = append(vmChecked, *vmNames)
+	}
+
 	sort.Strings(problems)
 	if len(problems) > 0 {
 		for _, p := range problems {
@@ -106,6 +124,9 @@ func main() {
 	}
 	if *composePath != "" {
 		fmt.Print(", compose environments of ", strings.Join(append(slices.Clone(goServices), "web", "caddy"), ", "))
+	}
+	if len(vmChecked) > 0 {
+		fmt.Print(", VM kit ", strings.Join(vmChecked, " and "))
 	}
 	fmt.Println(")")
 }

@@ -55,8 +55,8 @@ func Map(lines []Line) map[string]string {
 	return m
 }
 
-// Write renders lines, replacing values from set, with the given permissions.
-func Write(path string, lines []Line, set map[string]string, perm os.FileMode) error {
+// Render returns the file content of lines, replacing values from set.
+func Render(lines []Line, set map[string]string) string {
 	var b strings.Builder
 	for _, l := range lines {
 		if l.Key == "" {
@@ -68,6 +68,12 @@ func Write(path string, lines []Line, set map[string]string, perm os.FileMode) e
 		}
 		b.WriteByte('\n')
 	}
+	return b.String()
+}
+
+// Write renders lines, replacing values from set, with the given permissions.
+func Write(path string, lines []Line, set map[string]string, perm os.FileMode) error {
+	content := Render(lines, set)
 	// OpenFile applies perm only when it creates the file; Chmod first so an
 	// existing, more permissive file never holds the new content.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
@@ -78,7 +84,7 @@ func Write(path string, lines []Line, set map[string]string, perm os.FileMode) e
 		_ = f.Close()
 		return err
 	}
-	if _, err := f.WriteString(b.String()); err != nil {
+	if _, err := f.WriteString(content); err != nil {
 		_ = f.Close()
 		return err
 	}

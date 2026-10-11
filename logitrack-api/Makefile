@@ -30,7 +30,7 @@ GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16
 .PHONY: help env dev-keys dev-db up api-reload down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
         migrate migrate-up-to migrate-apply migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
         seed seed-verify seed-budget etl-fixtures etl-fixtures-check \
-        test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke
+        test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke vm-check
 
 help: ## list targets
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -184,9 +184,13 @@ web: .env ## run the Next.js dev server on localhost:3000 against the local api 
 	  pnpm --filter logi-track dev
 
 ## --- checks ---------------------------------------------------------------------------------
-env-check: ## .env.example and compose environments match developer-spec.md §16
+vm-check: ## the staging VM kit (deploy/vm): script tests with stub commands, nginx -t and routing under nginx 1.24, shellcheck (containers)
+	DOCKER_HOST=$(DOCKER_HOST) go test -race -count=1 -tags=integration ./deploy/vm/ ./tools/vmenv/ ./tools/envcheck/ ./tools/internal/scram/
+
+env-check: ## .env.example, compose environments and the staging VM kit (deploy/vm) match developer-spec.md §16
 	docker compose -f deploy/docker-compose.yml --env-file .env.example --profile '*' config --format json \
-	  | go run ./tools/envcheck -spec ../developer-spec.md -env .env.example -compose - -compose-file deploy/docker-compose.yml
+	  | go run ./tools/envcheck -spec ../developer-spec.md -env .env.example -compose - -compose-file deploy/docker-compose.yml \
+	      -vm-env deploy/vm/env.vm.example -vm-names deploy/vm/env-names
 
 secrets-scan: ## gitleaks over the files git would commit here (.env and dev-secrets are ignored); no allow-list (§16.5 rule 6)
 	@lists=$$(git ls-files --cached --others --exclude-standard . | grep -E '(^|/)\.gitleaks(ignore|\.toml)$$' || true); \

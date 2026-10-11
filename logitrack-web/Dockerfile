@@ -47,6 +47,14 @@ COPY logitrack-web logitrack-web
 RUN pnpm --filter logi-track build \
  && pnpm --filter logi-track check:standalone
 
+# The standalone server as plain files, for hosts that run it outside this image (the staging VM's pm2,
+# logitrack-api/deploy/vm/deploy.sh): docker buildx build --target standalone --output type=local,dest=DIR.
+# Same layout as /app of the runtime stage. The default target stays `runtime` (the last stage).
+FROM scratch AS standalone
+COPY --from=build /repo/logitrack-web/.next/standalone/ /
+COPY --from=build /repo/logitrack-web/.next/static /logitrack-web/.next/static
+COPY --from=build /repo/logitrack-web/public /logitrack-web/public
+
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \
     PORT=3000 \

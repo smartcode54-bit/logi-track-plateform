@@ -9,11 +9,6 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/pbkdf2"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"net/url"
@@ -21,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/tools/internal/dotenv"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/tools/internal/scram"
 )
 
 var urls = []struct{ env, role string }{
@@ -58,7 +54,7 @@ func main() {
 		if !ok || pw == "" {
 			fail(u.env + " has no password")
 		}
-		verifier, err := scramVerifier(pw)
+		verifier, err := scram.Verifier(pw)
 		if err != nil {
 			fail(err.Error())
 		}
@@ -70,32 +66,4 @@ func main() {
 func fail(msg string) {
 	fmt.Fprintln(os.Stderr, "devdb:", msg)
 	os.Exit(1)
-}
-
-// scramVerifier returns the PostgreSQL SCRAM-SHA-256 verifier for password
-// (RFC 5802/7677, 4096 iterations, 16-byte random salt):
-// SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>. PostgreSQL stores
-// a verifier given to ALTER ROLE ... PASSWORD as is. Passwords made by `make
-// env` are ASCII, so SASLprep leaves them unchanged.
-func scramVerifier(password string) (string, error) {
-	const iterations = 4096
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		return "", err
-	}
-	salted, err := pbkdf2.Key(sha256.New, password, salt, iterations, sha256.Size)
-	if err != nil {
-		return "", err
-	}
-	clientKey := mac(salted, "Client Key")
-	storedKey := sha256.Sum256(clientKey)
-	serverKey := mac(salted, "Server Key")
-	enc := base64.StdEncoding.EncodeToString
-	return fmt.Sprintf("SCRAM-SHA-256$%d:%s$%s:%s", iterations, enc(salt), enc(storedKey[:]), enc(serverKey)), nil
-}
-
-func mac(key []byte, msg string) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(msg))
-	return h.Sum(nil)
 }
