@@ -33,6 +33,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/apikey"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/google"
@@ -76,6 +77,9 @@ type Config struct {
 	// zero value means the bucket's design default. The other auth buckets are code constants
 	// (ratelimit.Bucket.Default).
 	LoginIP ratelimit.Limit
+	// APIKeyPepper is API_KEY_PEPPER (Appendix C §C.4.11): the pepper of api_keys.key_hash. Unset, API keys
+	// are off: every X-Api-Key is 401 invalid_token (and internal/iam issues none).
+	APIKeyPepper apikey.Pepper
 }
 
 // CapabilityResolver returns the effective capability keys of a principal for GET /v1/me (T07:
@@ -158,6 +162,8 @@ type Service struct {
 	// rt_put); the security-relevant ones are retried in the background (Apply).
 	postCommitFailed *prometheus.CounterVec
 	retry            *retrier
+	// keyUsage writes api_keys.last_used_at in the background (T32).
+	keyUsage apiKeyUsage
 	// kdf, when set (tests), observes every memory-hard computation of the login path.
 	kdf func(kind string)
 }
@@ -221,9 +227,12 @@ func (s *Service) Register(reg prometheus.Registerer) error {
 	return nil
 }
 
-// Close stops the background retries of post-commit writes and waits for them; call it before the
-// Redis client is closed.
-func (s *Service) Close() { s.retry.close(s) }
+// Close stops the background retries of post-commit writes and the api_keys.last_used_at writes and
+// waits for them; call it before the Redis client and the pool are closed.
+func (s *Service) Close() {
+	s.closeKeyUsage()
+	s.retry.close(s)
+}
 
 // clock returns the current instant at PostgreSQL precision.
 func (s *Service) clock() time.Time { return s.now().UTC().Truncate(time.Microsecond) }

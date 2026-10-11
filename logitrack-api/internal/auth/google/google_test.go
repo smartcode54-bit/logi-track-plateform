@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -255,18 +256,64 @@ func TestUnreachableGoogleIsUnavailable(t *testing.T) {
 		t.Fatalf("a key fetch failure must not be an InvalidError: %v", err)
 	}
 	p.SetKeysFailing(false)
-	if _, err := v.Verify(ctx, tok()); err != nil {
-		t.Fatalf("after recovery: %v", err)
-	}
+	eventually(t, "after recovery", func() error {
+		_, err := v.Verify(ctx, tok())
+		return err
+	})
 
 	// With the keys cached, a token naming an unknown kid refetches; Google being down then is 503.
+	// Retried for the same reason: the recovery fetch may not have stored its keys yet. A verifier that
+	// never caches keeps failing while Google is down, so the retry cannot hide that.
 	p.SetDown(true)
-	if _, err := v.Verify(ctx, tok()); err != nil {
-		t.Fatalf("cached key must not need the network: %v", err)
-	}
+	eventually(t, "cached key must not need the network", func() error {
+		_, err := v.Verify(ctx, tok())
+		return err
+	})
 	unknown := googletest.SignWith(t, googletest.NewKey(t), "rotated-in", "RS256", googletest.Claims(webClient, "s", "a@example.com", c.Now()))
-	if _, err := v.Verify(ctx, unknown); !errors.Is(err, google.ErrUnavailable) {
-		t.Fatalf("unknown kid while down: %v", err)
+	// The same go-oidc window: until the recovery fetch has cleared its in-flight slot, the refetch joins
+	// it and gets the old key set (a signature failure) without asking Google. Only such a call, one
+	// that sent no /keys request, is retried; a refetch that reached the (down) network must be 503.
+	eventually(t, "unknown kid while down", func() error {
+		before := keysRequests(p)
+		_, err := v.Verify(ctx, unknown)
+		if errors.Is(err, google.ErrUnavailable) {
+			return nil
+		}
+		if keysRequests(p) != before {
+			t.Fatalf("unknown kid while down: %v", err)
+		}
+		return fmt.Errorf("joined the recovery fetch: %v", err)
+	})
+}
+
+// keysRequests counts the JWKS requests the provider has seen, served or failed.
+func keysRequests(p *googletest.Provider) int {
+	n := 0
+	for _, path := range p.Requests() {
+		if path == "/keys" {
+			n++
+		}
+	}
+	return n
+}
+
+// eventually calls f every 10 ms until it returns nil, failing the test with what and the last error
+// after 2 s. go-oidc's RemoteKeySet (v3.21.0, keysFromRemote) hands a finished key fetch to its waiters
+// before it clears the in-flight slot, so a Verify made straight after a fetch can still join it and get
+// its result (the error of a failed fetch after recovery); only a later call is sure to start a fresh
+// one. Asserting on the first call after recovery is therefore a race, not a property of the verifier.
+func eventually(t *testing.T, what string, f func() error) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := f()
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: %v", what, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -343,8 +343,8 @@ var uniqueFields = map[string]string{
 	"users_email": "email", "tenants_code": "code", "drivers_user": "driverId", "device_tokens_token": "token",
 }
 
-// mapDBError turns the constraint violations a race can still reach into the API's codes; anything else is
-// returned as is (500 for an unknown database error).
+// mapDBError turns the constraint violations a race can still reach, and a NUL byte that reached a text
+// column, into the API's codes; anything else is returned as is (500 for an unknown database error).
 func mapDBError(err error) error {
 	var pe *pgconn.PgError
 	if !errors.As(err, &pe) {
@@ -360,6 +360,9 @@ func mapDBError(err error) error {
 		return httpx.ErrInvalidArgument(violation(pe.ConstraintName, "not_found")).Wrap(err)
 	case "23514":
 		return httpx.ErrInvalidArgument(violation(pe.ConstraintName, "invalid")).Wrap(err)
+	case "22021":
+		// character_not_in_repertoire: a NUL (0x00) a validator let through; PostgreSQL text cannot hold it.
+		return httpx.ErrInvalidArgument(violation("body", "invalid_encoding")).Wrap(err)
 	}
 	return err
 }
