@@ -102,6 +102,7 @@ GET /v1/jobs internal
 GET /v1/jobs/:id internal
 POST /v1/jobs/bangchak.snapshot internal
 POST /v1/jobs/distances.compute internal
+POST /v1/jobs/payroll.run internal
 GET /v1/maintenance internal
 POST /v1/maintenance internal
 PATCH /v1/maintenance/:id internal
@@ -117,6 +118,15 @@ GET /v1/me/tenants internal
 GET /v1/mobile/events internal,public
 POST /v1/mobile/heartbeat internal,public
 GET /v1/mobile/settings internal,public
+GET /v1/payroll internal
+GET /v1/payroll/:id internal
+POST /v1/payroll/:id/approve internal
+POST /v1/payroll/:id/status internal
+GET /v1/payroll/config internal
+POST /v1/payroll/config internal
+GET /v1/penalties internal
+POST /v1/penalties internal
+POST /v1/penalties/:id/cancel internal
 GET /v1/roles internal
 GET /v1/roles/matrix internal
 PUT /v1/roles/matrix internal

@@ -121,7 +121,7 @@ LEFT JOIN (SELECT a.penalty_id, sum(a.applied_thb) AS applied, count(*) AS n
            FROM payroll_penalty_applications a JOIN payroll_runs r ON r.id = a.payroll_run_id
            WHERE r.status IN ('approved','paid') GROUP BY 1) x ON x.penalty_id = p.id
 WHERE (p.legacy_doc_id IS NULL AND p.status <> 'cancelled'
-       AND (p.remaining_thb <> p.total_thb - COALESCE(x.applied, 0) OR p.installments_paid <> COALESCE(x.n, 0)))
+       AND (p.remaining_thb <> p.total_thb - COALESCE(x.applied, 0) OR p.installments_paid <> LEAST(COALESCE(x.n, 0), p.installments_total)))
    OR (p.status = 'cleared' AND p.remaining_thb <> 0)
    OR (p.status IN ('pending','partially_deducted') AND p.remaining_thb = 0)`
 

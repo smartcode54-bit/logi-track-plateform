@@ -1,0 +1,1120 @@
+{
+  "source": "logitrack-web/lib/compensationCompute.test.ts",
+  "sourceCommit": "4f552099",
+  "note": "Ported from the Vitest file (one case per `it`); want = the TypeScript output after the test's assertions accepted it. Regenerate with export.mjs; never edit by hand.",
+  "cases": [
+    {
+      "name": "roundTHB > rounds half-up to whole baht",
+      "line": 42,
+      "checks": [
+        {
+          "fn": "roundTHB",
+          "args": [
+            949.5
+          ],
+          "want": 950
+        },
+        {
+          "fn": "roundTHB",
+          "args": [
+            949.4
+          ],
+          "want": 949
+        },
+        {
+          "fn": "roundTHB",
+          "args": [
+            950
+          ],
+          "want": 950
+        }
+      ]
+    },
+    {
+      "name": "assignRound > days 1-15 are R1, 16-end are R2 (Bangkok)",
+      "line": 50,
+      "checks": [
+        {
+          "fn": "assignRound",
+          "args": [
+            {
+              "$date": "2026-06-15T16:00:00.000Z"
+            }
+          ],
+          "want": "R1"
+        },
+        {
+          "fn": "assignRound",
+          "args": [
+            {
+              "$date": "2026-06-15T17:30:00.000Z"
+            }
+          ],
+          "want": "R2"
+        },
+        {
+          "fn": "assignRound",
+          "args": [
+            {
+              "$date": "2026-06-01T01:00:00.000Z"
+            }
+          ],
+          "want": "R1"
+        },
+        {
+          "fn": "assignRound",
+          "args": [
+            {
+              "$date": "2026-06-30T01:00:00.000Z"
+            }
+          ],
+          "want": "R2"
+        }
+      ]
+    },
+    {
+      "name": "makeHolidayChecker > treats Sunday as holiday",
+      "line": 60,
+      "checks": [
+        {
+          "fn": "isHoliday",
+          "args": [
+            [
+              "2026-06-16"
+            ],
+            {
+              "$date": "2026-01-04T03:00:00.000Z"
+            }
+          ],
+          "want": true
+        }
+      ]
+    },
+    {
+      "name": "makeHolidayChecker > treats listed public holidays as holiday",
+      "line": 64,
+      "checks": [
+        {
+          "fn": "isHoliday",
+          "args": [
+            [
+              "2026-06-16"
+            ],
+            {
+              "$date": "2026-06-16T03:00:00.000Z"
+            }
+          ],
+          "want": true
+        }
+      ]
+    },
+    {
+      "name": "makeHolidayChecker > treats a normal weekday as non-holiday",
+      "line": 67,
+      "checks": [
+        {
+          "fn": "isHoliday",
+          "args": [
+            [
+              "2026-06-16"
+            ],
+            {
+              "$date": "2026-06-17T03:00:00.000Z"
+            }
+          ],
+          "want": false
+        }
+      ]
+    },
+    {
+      "name": "computeBasePay > excludes standby + multi-stop, splits weekday/holiday, sums via roundTHB",
+      "line": 83,
+      "checks": [
+        {
+          "fn": "computeBasePay",
+          "args": [
+            [
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-02T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-03T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-04T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-05T01:00:00.000Z"
+                },
+                "isStandby": true,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-06T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": true
+              }
+            ],
+            {
+              "weekdayRateThb": 300,
+              "holidayRateThb": 350,
+              "payStandby": false
+            },
+            {
+              "keys": [
+                "2026-06-04"
+              ]
+            }
+          ],
+          "want": {
+            "weekdayTrips": 2,
+            "holidayTrips": 1,
+            "excludedTrips": 2,
+            "basePayThb": 950
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeBasePay > includes standby when payStandby is true",
+      "line": 92,
+      "checks": [
+        {
+          "fn": "computeBasePay",
+          "args": [
+            [
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-02T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-03T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-04T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-05T01:00:00.000Z"
+                },
+                "isStandby": true,
+                "isMultiStop": false
+              },
+              {
+                "deliveredAt": {
+                  "$date": "2026-06-06T01:00:00.000Z"
+                },
+                "isStandby": false,
+                "isMultiStop": true
+              }
+            ],
+            {
+              "weekdayRateThb": 300,
+              "holidayRateThb": 350,
+              "payStandby": true
+            },
+            {
+              "never": true
+            }
+          ],
+          "want": {
+            "weekdayTrips": 4,
+            "holidayTrips": 0,
+            "excludedTrips": 1,
+            "basePayThb": 1200
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeFuelIncentive > maps km/L to the highest reached tier when eligible",
+      "line": 103,
+      "checks": [
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            10,
+            6,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 1000,
+            "eligible": true
+          }
+        },
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            13.9,
+            6,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 1400,
+            "eligible": true
+          }
+        },
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            14,
+            6,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 1800,
+            "eligible": true
+          }
+        },
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            20,
+            6,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 1800,
+            "eligible": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeFuelIncentive > returns 0 below the lowest tier",
+      "line": 109,
+      "checks": [
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            9.9,
+            6,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 0,
+            "eligible": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeFuelIncentive > gates the whole incentive on > minRefuels",
+      "line": 112,
+      "checks": [
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            14,
+            5,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 0,
+            "eligible": false
+          }
+        },
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            14,
+            6,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 1800,
+            "eligible": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeFuelIncentive > returns 0 when km/L is null",
+      "line": 116,
+      "checks": [
+        {
+          "fn": "computeFuelIncentive",
+          "args": [
+            null,
+            10,
+            [
+              {
+                "min": 10,
+                "amountThb": 1000
+              },
+              {
+                "min": 11,
+                "amountThb": 1100
+              },
+              {
+                "min": 12,
+                "amountThb": 1200
+              },
+              {
+                "min": 13,
+                "amountThb": 1400
+              },
+              {
+                "min": 14,
+                "amountThb": 1800
+              }
+            ],
+            5
+          ],
+          "want": {
+            "amountThb": 0,
+            "eligible": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "computeTripVolumeIncentive > uses the highest reached tier only (not additive)",
+      "line": 122,
+      "checks": [
+        {
+          "fn": "computeTripVolumeIncentive",
+          "args": [
+            49,
+            [
+              {
+                "min": 50,
+                "amountThb": 1000
+              },
+              {
+                "min": 60,
+                "amountThb": 1500
+              },
+              {
+                "min": 70,
+                "amountThb": 2000
+              }
+            ]
+          ],
+          "want": 0
+        },
+        {
+          "fn": "computeTripVolumeIncentive",
+          "args": [
+            50,
+            [
+              {
+                "min": 50,
+                "amountThb": 1000
+              },
+              {
+                "min": 60,
+                "amountThb": 1500
+              },
+              {
+                "min": 70,
+                "amountThb": 2000
+              }
+            ]
+          ],
+          "want": 1000
+        },
+        {
+          "fn": "computeTripVolumeIncentive",
+          "args": [
+            65,
+            [
+              {
+                "min": 50,
+                "amountThb": 1000
+              },
+              {
+                "min": 60,
+                "amountThb": 1500
+              },
+              {
+                "min": 70,
+                "amountThb": 2000
+              }
+            ]
+          ],
+          "want": 1500
+        },
+        {
+          "fn": "computeTripVolumeIncentive",
+          "args": [
+            70,
+            [
+              {
+                "min": 50,
+                "amountThb": 1000
+              },
+              {
+                "min": 60,
+                "amountThb": 1500
+              },
+              {
+                "min": 70,
+                "amountThb": 2000
+              }
+            ]
+          ],
+          "want": 2000
+        },
+        {
+          "fn": "computeTripVolumeIncentive",
+          "args": [
+            100,
+            [
+              {
+                "min": 50,
+                "amountThb": 1000
+              },
+              {
+                "min": 60,
+                "amountThb": 1500
+              },
+              {
+                "min": 70,
+                "amountThb": 2000
+              }
+            ]
+          ],
+          "want": 2000
+        }
+      ]
+    },
+    {
+      "name": "computeSso > is 0 while in probation",
+      "line": 133,
+      "checks": [
+        {
+          "fn": "computeSso",
+          "args": [
+            {
+              "hireDate": {
+                "$date": "2023-12-31T17:00:00.000Z"
+              },
+              "birthDate": null,
+              "probationPassed": false
+            },
+            {
+              "ratePercent": 5,
+              "baseExistingThb": 15000,
+              "baseNewThb": 12000,
+              "existingHiredBeforeYear": 2026,
+              "maxAgeInclusive": 55
+            },
+            {
+              "$date": "2026-06-30T05:00:00.000Z"
+            }
+          ],
+          "want": 0
+        }
+      ]
+    },
+    {
+      "name": "computeSso > existing (hired before cutoff) uses 15000 base @5% = 750",
+      "line": 136,
+      "checks": [
+        {
+          "fn": "computeSso",
+          "args": [
+            {
+              "hireDate": {
+                "$date": "2025-04-30T17:00:00.000Z"
+              },
+              "birthDate": {
+                "$date": "1989-12-31T17:00:00.000Z"
+              },
+              "probationPassed": true
+            },
+            {
+              "ratePercent": 5,
+              "baseExistingThb": 15000,
+              "baseNewThb": 12000,
+              "existingHiredBeforeYear": 2026,
+              "maxAgeInclusive": 55
+            },
+            {
+              "$date": "2026-06-30T05:00:00.000Z"
+            }
+          ],
+          "want": 750
+        }
+      ]
+    },
+    {
+      "name": "computeSso > new (hired in/after cutoff) uses 12000 base @5% = 600",
+      "line": 139,
+      "checks": [
+        {
+          "fn": "computeSso",
+          "args": [
+            {
+              "hireDate": {
+                "$date": "2026-01-31T17:00:00.000Z"
+              },
+              "birthDate": {
+                "$date": "1989-12-31T17:00:00.000Z"
+              },
+              "probationPassed": true
+            },
+            {
+              "ratePercent": 5,
+              "baseExistingThb": 15000,
+              "baseNewThb": 12000,
+              "existingHiredBeforeYear": 2026,
+              "maxAgeInclusive": 55
+            },
+            {
+              "$date": "2026-06-30T05:00:00.000Z"
+            }
+          ],
+          "want": 600
+        }
+      ]
+    },
+    {
+      "name": "computeSso > is 0 when older than maxAgeInclusive",
+      "line": 142,
+      "checks": [
+        {
+          "fn": "computeSso",
+          "args": [
+            {
+              "hireDate": {
+                "$date": "2024-12-31T17:00:00.000Z"
+              },
+              "birthDate": {
+                "$date": "1968-12-31T17:00:00.000Z"
+              },
+              "probationPassed": true
+            },
+            {
+              "ratePercent": 5,
+              "baseExistingThb": 15000,
+              "baseNewThb": 12000,
+              "existingHiredBeforeYear": 2026,
+              "maxAgeInclusive": 55
+            },
+            {
+              "$date": "2026-06-30T05:00:00.000Z"
+            }
+          ],
+          "want": 0
+        }
+      ]
+    },
+    {
+      "name": "computeSso > missing hireDate is treated as existing",
+      "line": 145,
+      "checks": [
+        {
+          "fn": "computeSso",
+          "args": [
+            {
+              "hireDate": null,
+              "birthDate": null,
+              "probationPassed": true
+            },
+            {
+              "ratePercent": 5,
+              "baseExistingThb": 15000,
+              "baseNewThb": 12000,
+              "existingHiredBeforeYear": 2026,
+              "maxAgeInclusive": 55
+            },
+            {
+              "$date": "2026-06-30T05:00:00.000Z"
+            }
+          ],
+          "want": 750
+        }
+      ]
+    },
+    {
+      "name": "computeHelperPay > multiplies eligible helper days by the daily rate",
+      "line": 151,
+      "checks": [
+        {
+          "fn": "computeHelperPay",
+          "args": [
+            3,
+            400
+          ],
+          "want": 1200
+        },
+        {
+          "fn": "computeHelperPay",
+          "args": [
+            0,
+            400
+          ],
+          "want": 0
+        },
+        {
+          "fn": "computeHelperPay",
+          "args": [
+            -2,
+            400
+          ],
+          "want": 0
+        }
+      ]
+    },
+    {
+      "name": "helperWindowKey > keys the window 12:00 D → 11:59 D+1 to day D",
+      "line": 163,
+      "checks": [
+        {
+          "fn": "helperWindowKey",
+          "args": [
+            {
+              "$date": "2026-06-15T05:00:00.000Z"
+            }
+          ],
+          "want": "2026-06-15"
+        },
+        {
+          "fn": "helperWindowKey",
+          "args": [
+            {
+              "$date": "2026-06-15T06:00:00.000Z"
+            }
+          ],
+          "want": "2026-06-15"
+        },
+        {
+          "fn": "helperWindowKey",
+          "args": [
+            {
+              "$date": "2026-06-15T19:00:00.000Z"
+            }
+          ],
+          "want": "2026-06-15"
+        },
+        {
+          "fn": "helperWindowKey",
+          "args": [
+            {
+              "$date": "2026-06-16T04:59:00.000Z"
+            }
+          ],
+          "want": "2026-06-15"
+        }
+      ]
+    },
+    {
+      "name": "helperWindowKey > rolls to the next window at exactly 12:00",
+      "line": 169,
+      "checks": [
+        {
+          "fn": "helperWindowKey",
+          "args": [
+            {
+              "$date": "2026-06-16T05:00:00.000Z"
+            }
+          ],
+          "want": "2026-06-16"
+        }
+      ]
+    },
+    {
+      "name": "helperWindowKey > an 11:00 check-in on the 16th belongs to the 15th (R1, not R2)",
+      "line": 172,
+      "checks": [
+        {
+          "fn": "helperWindowKey",
+          "args": [
+            {
+              "$date": "2026-06-16T04:00:00.000Z"
+            }
+          ],
+          "want": "2026-06-15"
+        }
+      ]
+    },
+    {
+      "name": "eligibleHelperDayKeys > counts one helper-day per window key (dedupes multiple helper tasks same window)",
+      "line": 178,
+      "checks": [
+        {
+          "fn": "eligibleHelperDayKeys",
+          "args": [
+            [
+              "2026-06-02",
+              "2026-06-02",
+              "2026-06-03"
+            ],
+            []
+          ],
+          "want": [
+            "2026-06-02",
+            "2026-06-03"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "eligibleHelperDayKeys > excludes days the driver had a delivered trip (driving days pay as trips)",
+      "line": 182,
+      "checks": [
+        {
+          "fn": "eligibleHelperDayKeys",
+          "args": [
+            [
+              "2026-06-02",
+              "2026-06-03"
+            ],
+            [
+              "2026-06-03"
+            ]
+          ],
+          "want": [
+            "2026-06-02"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "eligibleHelperDayKeys > returns empty when every helper day is also a driving day",
+      "line": 186,
+      "checks": [
+        {
+          "fn": "eligibleHelperDayKeys",
+          "args": [
+            [
+              "2026-06-05"
+            ],
+            [
+              "2026-06-05"
+            ]
+          ],
+          "want": []
+        }
+      ]
+    },
+    {
+      "name": "eligibleHelperDayKeys > ignores empty keys and handles no helper tasks",
+      "line": 189,
+      "checks": [
+        {
+          "fn": "eligibleHelperDayKeys",
+          "args": [
+            [
+              "",
+              "2026-06-07"
+            ],
+            []
+          ],
+          "want": [
+            "2026-06-07"
+          ]
+        },
+        {
+          "fn": "eligibleHelperDayKeys",
+          "args": [
+            [],
+            [
+              "2026-06-01"
+            ]
+          ],
+          "want": []
+        }
+      ]
+    },
+    {
+      "name": "eligibleHelperDayKeys > accepts a Set for delivered keys",
+      "line": 193,
+      "checks": [
+        {
+          "fn": "eligibleHelperDayKeys",
+          "args": [
+            [
+              "2026-06-10",
+              "2026-06-11"
+            ],
+            [
+              "2026-06-11"
+            ]
+          ],
+          "want": [
+            "2026-06-10"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "applyDeductions > deducts SSO then penalty; net = earnings - sso - penalty",
+      "line": 200,
+      "checks": [
+        {
+          "fn": "applyDeductions",
+          "args": [
+            5000,
+            750,
+            [
+              {
+                "id": "p1",
+                "remainingThb": 3000,
+                "installmentThb": 3000
+              }
+            ]
+          ],
+          "want": {
+            "ssoAppliedThb": 750,
+            "penaltiesAppliedThb": 3000,
+            "perPenalty": [
+              {
+                "id": "p1",
+                "appliedThb": 3000,
+                "remainingAfterThb": 0
+              }
+            ],
+            "netThb": 1250
+          }
+        }
+      ]
+    },
+    {
+      "name": "applyDeductions > never goes negative; unpaid penalty carries forward",
+      "line": 207,
+      "checks": [
+        {
+          "fn": "applyDeductions",
+          "args": [
+            1000,
+            750,
+            [
+              {
+                "id": "p1",
+                "remainingThb": 3000,
+                "installmentThb": 3000
+              }
+            ]
+          ],
+          "want": {
+            "ssoAppliedThb": 750,
+            "penaltiesAppliedThb": 250,
+            "perPenalty": [
+              {
+                "id": "p1",
+                "appliedThb": 250,
+                "remainingAfterThb": 2750
+              }
+            ],
+            "netThb": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "applyDeductions > honors a split installment smaller than the balance",
+      "line": 214,
+      "checks": [
+        {
+          "fn": "applyDeductions",
+          "args": [
+            5000,
+            0,
+            [
+              {
+                "id": "p1",
+                "remainingThb": 3000,
+                "installmentThb": 1000
+              }
+            ]
+          ],
+          "want": {
+            "ssoAppliedThb": 0,
+            "penaltiesAppliedThb": 1000,
+            "perPenalty": [
+              {
+                "id": "p1",
+                "appliedThb": 1000,
+                "remainingAfterThb": 2000
+              }
+            ],
+            "netThb": 4000
+          }
+        }
+      ]
+    }
+  ]
+}
