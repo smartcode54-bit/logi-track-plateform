@@ -601,6 +601,63 @@ sql:
             go_type:
               type: float64
               pointer: true
+  # T37: the rate tables (customer_rate_entries, customer_fuel_rate_adjustments, customer_service_fees,
+  # standby_rate_entries), billing statements with their lines, next_invoice_seq() and the period-lock read, and the
+  # Bangchak fuel snapshots. Requests run in db.WithPrincipal (RLS G-tenant for the billing tables; the fuel snapshots are
+  # RLS-exempt); the rate-card bundle loads READ ONLY in db.WithSystem, and the pricing reads (FOR SHARE) and the
+  # bangchak.snapshot consumer run in the caller's system transaction. Dates are calendar days (time.Time at UTC
+  # midnight); NUMERIC reads as float64 (money has two decimals, written back as exact decimal text).
+  - name: billing
+    engine: postgresql
+    schema: migrations
+    queries: internal/billing/queries
+    gen:
+      go:
+        package: billingdb
+        out: internal/billing/billingdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: date
+            go_type: time.Time
+          - db_type: date
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: pg_catalog.numeric
+            go_type: float64
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type:
+              type: float64
+              pointer: true
+          - db_type: citext
+            go_type: string
+          - db_type: citext
+            nullable: true
+            go_type:
+              type: string
+              pointer: true
   # T40: vehicle expenses (W8 server filter, staff entries, audit, toll import) under db.WithPrincipal (RLS G-tenant).
   # Exported query texts (emit_exported_queries) let the integration test EXPLAIN the list as served. Instants are
   # time.Time, calendar days time.Time at UTC midnight, NUMERIC amounts float64 (two decimals at most, checked in Go).

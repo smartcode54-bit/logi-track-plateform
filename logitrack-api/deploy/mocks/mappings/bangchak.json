@@ -1,0 +1,13 @@
+{
+  "request": { "method": "GET", "urlPathPattern": "/bangchak/ApiOilPrice2/(th|en)" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": [
+      {
+        "OilDateNow": "mock",
+        "OilList": "[{\"OilName\":\"ไฮดีเซล S\",\"PriceToday\":\"32.94\",\"Unit\":\"บาท/ลิตร\"},{\"OilName\":\"แก๊สโซฮอล์ 95 S EVO\",\"PriceToday\":\"35.05\",\"Unit\":\"บาท/ลิตร\"},{\"OilName\":\"แก๊สโซฮอล์ E20 S EVO\",\"PriceToday\":\"32.24\",\"Unit\":\"บาท/ลิตร\"}]"
+      }
+    ]
+  }
+}

@@ -278,6 +278,8 @@ type APIConfig struct {
 	// web domain flags of GET /v1/config/web-flags (internal/webcfg, R35, R41).
 	PGOwnedDomains   string `env:"PG_OWNED_DOMAINS"`
 	WebFlagOverrides string `env:"WEB_FLAG_OVERRIDES"`
+	// Bangchak serves GET /v1/fuel/retail (T37; off without BANGCHAK_API_BASE_URL).
+	Bangchak
 
 	// TrustedProxies is TrustedProxyCIDRs parsed by Validate.
 	TrustedProxies []netip.Prefix `env:"-"`
@@ -297,6 +299,7 @@ func (c *APIConfig) Validate() error {
 	c.Realtime.validate(&errs)
 	c.Storage.validate(&errs)
 	c.StorageAPI.validate(c.Storage, &errs)
+	c.Bangchak.validate(&errs)
 	if err := c.RateLimit.Validate(); err != nil {
 		var cerr *config.Error
 		if errors.As(err, &cerr) {

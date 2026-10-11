@@ -41,7 +41,7 @@ type Querier interface {
 	// The driver's own reports (GET /v1/mobile/incidents; incident_reports_driver), optionally of one trip.
 	DriverIncidents(ctx context.Context, arg DriverIncidentsParams) ([]IncidentReport, error)
 	// The driver's history (GET /v1/mobile/standby, trip_history_page.dart:84-87; standby_records_driver). A driver never
-	// sees the billing columns, so no billing_tenant_id here.
+	// sees the billing columns, so no entry_tenant_id here.
 	DriverStandby(ctx context.Context, arg DriverStandbyParams) ([]StandbyRecord, error)
 	// The driver's queue (GET /v1/mobile/tasks, P7a): own and helper tasks (R28), optionally by status; the queue order
 	// of ADR 0028 is applied by the service (tasks_driver_status + tasks_helper_plan).
@@ -75,11 +75,11 @@ type Querier interface {
 	// (standby_photos). Tenant-stamped ('task' | 'trip' | 'driver' | 'quarantine'; a standby on its task's tenant, else its
 	// trip's: deferred standby_records_tenant_check); RLS: staff of the reach, the driver's own rows (p_driver_read,
 	// p_driver_insert; no driver update), scope principals through scope_standby. The billing columns are inline (R61) and
-	// the service shows them only to the billing carrier's principals (Appendix C §C.3.4): every read returns
-	// billing_tenant_id, the tenant owning the standby_rate_entries row the record names (billing_rate_entry_id: an
-	// immutable reference to a row that is never deleted); the zero uuid when the record names none (unpriced, a service
-	// fee, a legacy rate not linked yet) or when that row is outside the caller's reach, and the service decides
-	// (operations.BillingVisible). A service-fee price names no fee row (the 0004 CHECK) and the party's fee may since have
+	// the service shows them only to the billing carrier's principals (Appendix C §C.3.4): the carrier stored with the price
+	// (billing_tenant_id, 0015, T37) when there is one; else every read returns entry_tenant_id, the tenant owning the
+	// standby_rate_entries row the record names (billing_rate_entry_id: an immutable reference to a row that is never
+	// deleted); the zero uuid when the record names none (unpriced, a service fee, a legacy rate not linked yet) or when that
+	// row is outside the caller's reach, and the service decides (operations.BillingVisible). A service-fee price names no fee row (the 0004 CHECK) and the party's fee may since have
 	// changed hands, so it is never resolved through customer_service_fees.
 	//
 	// Indexes -> live query: standby_records_tenant_created / standby_records_created (the standby page, I33),
