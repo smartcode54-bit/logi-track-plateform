@@ -437,14 +437,14 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 				ToAt: to, OriginHubs: []uuid.UUID{}, DestinationHubs: []uuid.UUID{}, AfterCreated: &cursorAt, AfterID: trip,
 				RowLimit: 201})
 			return err
-		}, []string{"trip_records_tenant_created"}},
+		}, []string{"trip_records_tenant_created", "trip_records_created"}},
 		{"MonitorTrips/filters", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TenantIds: reachO, FromAt: from, ToAt: to,
 				Statuses: []string{"incident"}, IncidentStatus: true, JobType: ptr("first_mile"), PlateRaw: ptr("1กข-10"),
 				VehicleClass: ptr("6WH"), OriginOn: true, OriginHubs: []uuid.UUID{w.hubSrc}, DestinationOn: true,
 				DestinationHubs: []uuid.UUID{}, DestinationSoc: ptr("SOCE"), Q: ptr("TRIP-1"), RowLimit: 201})
 			return err
-		}, []string{"trip_records_tenant_created"}},
+		}, []string{"trip_records_tenant_created", "trip_records_created"}},
 		{"MonitorTrips/all", all, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{AllTenants: true, TenantIds: []uuid.UUID{}, FromAt: from,
 				ToAt: to, OriginHubs: []uuid.UUID{}, DestinationHubs: []uuid.UUID{}, RowLimit: 201})
@@ -453,7 +453,7 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 		{"MonitorFacets", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.MonitorFacets(ctx, operationsdb.MonitorFacetsParams{TenantIds: reachO, FromAt: from, ToAt: to})
 			return err
-		}, []string{"trip_records_tenant_created"}},
+		}, []string{"trip_records_tenant_created", "trip_records_created"}},
 		{"TripStopsOf", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.TripStopsOf(ctx, tripIDs)
 			return err

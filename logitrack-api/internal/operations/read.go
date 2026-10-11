@@ -333,8 +333,8 @@ func (s *Service) directory(ctx context.Context, p *authz.Principal) (directory,
 // the linked customer's name (each only when it is not the code itself), else the code; a SOC key no hub carries
 // shows its SOC_DESTINATIONS name.
 func (d directory) label(code string) string {
-	for _, id := range d.byCode[strings.ToUpper(code)] {
-		h := d.byID[id]
+	if ids := d.byCode[strings.ToUpper(code)]; len(ids) > 0 { // hubs.source_id is unique: one hub per code
+		h := d.byID[ids[0]]
 		for _, v := range []*string{&h.NameTh, h.NameEn, h.LinkedCustomerName} {
 			if v != nil {
 				if s := strings.TrimSpace(*v); s != "" && s != strings.TrimSpace(h.Code) {

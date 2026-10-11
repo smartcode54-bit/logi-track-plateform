@@ -247,9 +247,9 @@ func (d directory) monitorQuery(p *authz.Principal, in MonitorInput) (monitorQue
 	default:
 		ck.add("plate", "invalid")
 	}
-	switch v := strings.TrimSpace(in.VehicleClass); {
-	case v == "" || v == "all":
-	case v == BucketNone:
+	switch v := strings.TrimSpace(in.VehicleClass); v {
+	case "", "all":
+	case BucketNone:
 		m.vehicleClassNone = true
 	default:
 		u := strings.ToUpper(v)
