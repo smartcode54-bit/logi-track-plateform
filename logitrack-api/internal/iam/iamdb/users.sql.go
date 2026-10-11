@@ -104,6 +104,88 @@ func (q *Queries) DeleteScopesNotIn(ctx context.Context, arg DeleteScopesNotInPa
 	return err
 }
 
+const deleteUserMemberships = `-- name: DeleteUserMemberships :many
+DELETE FROM memberships WHERE user_id = $1 RETURNING tenant_id, role
+`
+
+type DeleteUserMembershipsRow struct {
+	TenantID uuid.UUID
+	Role     string
+}
+
+func (q *Queries) DeleteUserMemberships(ctx context.Context, userID uuid.UUID) ([]DeleteUserMembershipsRow, error) {
+	rows, err := q.db.Query(ctx, deleteUserMemberships, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeleteUserMembershipsRow{}
+	for rows.Next() {
+		var i DeleteUserMembershipsRow
+		if err := rows.Scan(&i.TenantID, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteUserPlatformRoles = `-- name: DeleteUserPlatformRoles :many
+DELETE FROM user_platform_roles WHERE user_id = $1 RETURNING role
+`
+
+func (q *Queries) DeleteUserPlatformRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteUserPlatformRoles, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		items = append(items, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteUserScopes = `-- name: DeleteUserScopes :many
+DELETE FROM user_scopes WHERE user_id = $1 RETURNING kind, billing_party_id
+`
+
+type DeleteUserScopesRow struct {
+	Kind           string
+	BillingPartyID uuid.UUID
+}
+
+func (q *Queries) DeleteUserScopes(ctx context.Context, userID uuid.UUID) ([]DeleteUserScopesRow, error) {
+	rows, err := q.db.Query(ctx, deleteUserScopes, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeleteUserScopesRow{}
+	for rows.Next() {
+		var i DeleteUserScopesRow
+		if err := rows.Scan(&i.Kind, &i.BillingPartyID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const driverOfUser = `-- name: DriverOfUser :one
 SELECT id, tenant_id FROM drivers WHERE user_id = $1::uuid FOR UPDATE
 `
@@ -870,6 +952,22 @@ type SetDriverUserParams struct {
 
 func (q *Queries) SetDriverUser(ctx context.Context, arg SetDriverUserParams) error {
 	_, err := q.db.Exec(ctx, setDriverUser, arg.UserID, arg.ID)
+	return err
+}
+
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users SET status = 'deleted', deleted_at = $1::timestamptz WHERE id = $2
+`
+
+type SoftDeleteUserParams struct {
+	At time.Time
+	ID uuid.UUID
+}
+
+// DELETE /v1/users/{id} (T51): the row stays (history, audit and the legacy uid keep pointing at it); the email
+// leaves the unique index users_email (WHERE status <> 'deleted'), so the address can be given to a new account.
+func (q *Queries) SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) error {
+	_, err := q.db.Exec(ctx, softDeleteUser, arg.At, arg.ID)
 	return err
 }
 

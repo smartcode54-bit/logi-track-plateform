@@ -226,3 +226,17 @@ SELECT kind, status FROM tenants WHERE id = sqlc.arg(id) FOR KEY SHARE;
 -- name: TenantExists :one
 -- The read of GET /v1/tenants/{id}/members (no lock).
 SELECT EXISTS (SELECT 1 FROM tenants WHERE id = sqlc.arg(id))::boolean AS found;
+
+-- name: SoftDeleteUser :exec
+-- DELETE /v1/users/{id} (T51): the row stays (history, audit and the legacy uid keep pointing at it); the email
+-- leaves the unique index users_email (WHERE status <> 'deleted'), so the address can be given to a new account.
+UPDATE users SET status = 'deleted', deleted_at = sqlc.arg(at)::timestamptz WHERE id = sqlc.arg(id);
+
+-- name: DeleteUserMemberships :many
+DELETE FROM memberships WHERE user_id = sqlc.arg(user_id) RETURNING tenant_id, role;
+
+-- name: DeleteUserScopes :many
+DELETE FROM user_scopes WHERE user_id = sqlc.arg(user_id) RETURNING kind, billing_party_id;
+
+-- name: DeleteUserPlatformRoles :many
+DELETE FROM user_platform_roles WHERE user_id = sqlc.arg(user_id) RETURNING role;

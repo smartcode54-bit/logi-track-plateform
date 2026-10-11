@@ -33,6 +33,7 @@ const (
 	EventUserScopeChanged      = "user_scope_changed"
 	EventUserDisabled          = "user_disabled"
 	EventUserEnabled           = "user_enabled"
+	EventUserDeleted           = "user_deleted" // T51: DELETE /v1/users/{id} (soft delete)
 	EventUserSessionsRevoked   = "user_sessions_revoked"
 	EventUserTemporaryPassword = "user_password_temporary_issued"
 	EventDriverLinked          = "driver_linked"
@@ -97,6 +98,7 @@ type Admin struct {
 	pool  db.Beginner
 	auth  *auth.Service
 	files Files
+	rbac  *RBAC
 	log   zerolog.Logger
 	now   func() time.Time
 }
@@ -108,8 +110,11 @@ type AdminDeps struct {
 	// Auth performs the revocations, status and password changes and the Firebase mirror.
 	Auth  *auth.Service
 	Files Files // optional
-	Log   zerolog.Logger
-	Now   func() time.Time // optional, defaults to time.Now
+	// RBAC increments rbac:ver after a role matrix save (T51) and pings Redis for the status section of
+	// GET /v1/security/overview; optional (without it a save is effective within CapsTTL).
+	RBAC *RBAC
+	Log  zerolog.Logger
+	Now  func() time.Time // optional, defaults to time.Now
 }
 
 // NewAdmin builds the administration.
@@ -117,7 +122,7 @@ func NewAdmin(d AdminDeps) (*Admin, error) {
 	if d.Pool == nil || d.Auth == nil {
 		return nil, errors.New("iam: the administration needs a pool and the auth service")
 	}
-	a := &Admin{pool: d.Pool, auth: d.Auth, files: d.Files, log: d.Log, now: d.Now}
+	a := &Admin{pool: d.Pool, auth: d.Auth, files: d.Files, rbac: d.RBAC, log: d.Log, now: d.Now}
 	if a.now == nil {
 		a.now = time.Now
 	}
@@ -254,7 +259,7 @@ func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid
 	actor := c.p.UserID
 	sev := security.SeverityInfo
 	switch eventType {
-	case EventPlatformRoleGranted, EventPlatformRoleRevoked, EventUserDisabled, EventUserSessionsRevoked,
+	case EventPlatformRoleGranted, EventPlatformRoleRevoked, EventUserDisabled, EventUserDeleted, EventUserSessionsRevoked,
 		EventUserTemporaryPassword:
 		sev = security.SeverityWarning
 	}
@@ -266,12 +271,18 @@ func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid
 
 // emit appends an outbox event in the change's transaction.
 func emit(c call, tx pgx.Tx, routingKey, aggType, aggID string, tenant *uuid.UUID, payload any) error {
+	return emitTopics(c, tx, routingKey, aggType, aggID, tenant, payload, nil)
+}
+
+// emitTopics is emit with realtime topics (Appendix B §B.4.2): the relay also publishes the event on them.
+func emitTopics(c call, tx pgx.Tx, routingKey, aggType, aggID string, tenant *uuid.UUID, payload any, topics []string) error {
 	var headers map[string]string
 	if c.rid != "" {
 		headers = map[string]string{"requestId": c.rid}
 	}
 	_, err := outbox.Append(c.ctx, tx, outbox.Event{
 		RoutingKey: routingKey, AggregateType: aggType, AggregateID: aggID, TenantID: tenant, Payload: payload, Headers: headers,
+		Topics: topics,
 	})
 	return err
 }
