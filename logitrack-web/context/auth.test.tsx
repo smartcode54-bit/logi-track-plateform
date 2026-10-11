@@ -634,8 +634,8 @@ describe("source guards", () => {
             .flatMap((d) => walk(path.join(root, d)))
             .filter((f) => /PERMISSIONS_CONFIG|["']permissions_config["']/.test(readFileSync(f, "utf8")))
             .map((f) => path.relative(root, f));
-        // lib/collections.ts names the collection; the matrix page edits it until T51/T54 (`/v1/roles/matrix`).
-        expect(users.sort()).toEqual(["app/app/security-center/roles/page.tsx", "lib/collections.ts"]);
+        // lib/collections.ts names the collection; the Firestore matrix page (shown while the `security` flag is off, T54S) edits it until TW7.
+        expect(users.sort()).toEqual(["features/security-center/legacy/LegacyRolesPage.tsx", "lib/collections.ts"]);
     });
 
     it("the auth context no longer calls setAdminClaims, listens to forceLogoutAt or to the Firebase auth state (T18)", async () => {

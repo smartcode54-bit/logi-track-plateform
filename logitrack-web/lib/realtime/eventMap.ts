@@ -17,9 +17,12 @@
  * - `global`: `hubs.changed`, `customers.changed`, `companies.changed` (T20, T21);
  * - `tenant:{tid}:fleet`: the truck, assignment, driver and maintenance events (T22, T23; maintenance
  *   from T40), which make the fleet lists stale (drivers and trucks also poll, rows 23 and 30).
+ * - the Security Center slice pulled forward from M6 (T54S, owner request 2026-10-11): `roles.changed`
+ *   on `tenant:{tid}:config` (T51's matrix save) and `mobile_settings.changed` on `global` (T52S's floor
+ *   write and release publish).
  * Still to come: tasks and trips with the 2 s monitor window (M2), billing, expenses and income (M3),
- * HR and holidays (M4), chats and the explicit `chat:{id}` topic (M5), roles, mobile settings,
- * vehicle locations, `platform:security` and badges (M6).
+ * HR and holidays (M4), chats and the explicit `chat:{id}` topic (M5), vehicle locations,
+ * `platform:security` (no producer yet: the security pages poll) and badges (M6).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
@@ -118,6 +121,24 @@ export const FLEET_EVENTS = [
     "maintenance.driver_submitted",
 ] as const;
 
+// --- Security Center (T54S) ------------------------------------------------------------------------
+
+/**
+ * `roles.changed` (`tenant:{tid}:config`, a matrix save of the tenant's layer or the platform-wide one):
+ * the caller's own capabilities may have changed (`['me']`) and every matrix view is stale (`['roles']`).
+ */
+export const ROLES_CHANGED_KEYS: readonly QueryKey[] = [queryKeys.me(), queryKeys.roles.all()];
+
+/**
+ * `mobile_settings.changed` (`global`, a floor change or a publish): the gate (`['mobileSettings']`), the
+ * release page that shows it (`['mobileReleases']`), and every installation, whose status follows it.
+ */
+export const MOBILE_SETTINGS_KEYS: readonly QueryKey[] = [
+    queryKeys.mobileSettings(),
+    queryKeys.mobileReleases(),
+    queryKeys.installations.all(),
+];
+
 // --- the map ---------------------------------------------------------------------------------------
 
 const RULES = new Map<string, EventRule>([
@@ -126,6 +147,9 @@ const RULES = new Map<string, EventRule>([
     ["hubs.changed", { invalidate: [queryKeys.hubs.all()] }], // ['hubs','maps'] included
     ["customers.changed", { invalidate: [queryKeys.customers.all()] }],
     ["companies.changed", { invalidate: [queryKeys.companies.all()] }],
+    ["mobile_settings.changed", { invalidate: MOBILE_SETTINGS_KEYS }],
+    // tenant:{tid}:config
+    ["roles.changed", { invalidate: ROLES_CHANGED_KEYS }],
     ...FLEET_EVENTS.map((name) => [name, { invalidate: FLEET_KEYS }] as [string, EventRule]),
 ]);
 
