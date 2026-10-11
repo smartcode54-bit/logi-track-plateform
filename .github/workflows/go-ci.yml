@@ -151,8 +151,9 @@ jobs:
       # through testcontainers (internal/platform/db/pgtest). Golden vectors are ordinary tests.
       - run: make test-shard SHARD=${{ matrix.shard }} SHARDS=3 TESTFLAGS=-count=1
       # T16 AC: seed --profile smoke < 5 s. The race detector slows hashing and encoding, so the budget is
-      # asserted in this second run of the smoke test without it, at the .env.example Argon2id cost.
-      - if: matrix.shard == 1
+      # asserted in this second run of the smoke test without it, at the .env.example Argon2id cost. It
+      # runs in the last shard: testshard puts the heaviest package in shard 1, which ends last anyway.
+      - if: matrix.shard == 3
         run: make seed-budget
 
   goldens:
