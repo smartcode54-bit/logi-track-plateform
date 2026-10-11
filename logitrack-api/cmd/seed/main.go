@@ -1,6 +1,6 @@
 // Command seed loads the deterministic seed profiles and checks them (developer-spec.md §14, Appendix D):
-// uuid v5 ids, the smoke fixture of §D.4, the generated demo and load identities, placeholder media, and the
-// twelve --verify invariants. Writes go through ETL_DATABASE_URL as logitrack_etl inside db.WithSystem,
+// uuid v5 ids, the smoke fixture of §D.4, the generated demo and load identities and master data, placeholder
+// media, and the twelve --verify invariants. Writes go through ETL_DATABASE_URL as logitrack_etl inside db.WithSystem,
 // --reset and the schema check through MIGRATE_DATABASE_URL, the --verify isolation role-play through
 // DATABASE_URL as logitrack_app (R66, R87); nothing uses SET ROLE. Profile loads, --reset and --verify refuse
 // APP_ENV=prod; dev needs --allow-shared and loads in upsert mode.

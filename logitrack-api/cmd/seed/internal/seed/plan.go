@@ -28,7 +28,7 @@ import (
 type Profile string
 
 // The three profiles: smoke is the §D.4 fixture verbatim, demo adds the generated multi-tenant
-// identities, load adds the load-scale generators.
+// identities (T16) and master data (T26), load adds the load-scale generators.
 const (
 	ProfileSmoke Profile = "smoke"
 	ProfileDemo  Profile = "demo"
@@ -200,9 +200,18 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 	switch o.Profile {
 	case ProfileDemo:
 		addDemo(p, o)
+		if err := addDemoMaster(p, o); err != nil {
+			return nil, err
+		}
 	case ProfileLoad:
 		addDemo(p, o)
+		if err := addDemoMaster(p, o); err != nil {
+			return nil, err
+		}
 		addLoad(p, o)
+		if err := addLoadMaster(p, o); err != nil {
+			return nil, err
+		}
 	}
 	if err := objects(p, o); err != nil {
 		return nil, err

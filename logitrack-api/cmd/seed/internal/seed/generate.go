@@ -10,7 +10,8 @@ import (
 // Generators of the demo and load profiles. Every generated id is uuid v5 of the row's natural key in the seed
 // namespace, like the fixture's, and every generated value comes from the generator's own PCG stream, so two
 // runs write the same rows (invariant 12). T16 ships the identity and tenancy generator the owner asked for
-// (multi-tenancy visible at once, issue #36); the volume generators of §D.1.2 join with T26, T35 and T43.
+// (multi-tenancy visible at once, issue #36); T26 the master data (master.go, issue #46); the operations and billing
+// volume generators of §D.1.2 join with T35 and T43.
 
 // persona is one generated user: a membership in a tenant, scopes, or a platform role.
 type persona struct {

@@ -202,8 +202,9 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	}
 }
 
-// The demo profile shows the own fleet and two carriers at once (owner addition to issue #36) and passes
-// the invariants on the local disk backend; every carrier principal is role-played.
+// The demo profile shows the own fleet and two carriers at once (owner addition to issue #36), with master data and
+// driver logins in every tenant (T26, issue #46), and passes the invariants on the local disk backend; every carrier
+// principal is role-played, the two R24 brokers included.
 func TestDemoLoadVerify(t *testing.T) {
 	s := newStack(t, "local")
 	s.mustSeed(t, "--profile", "demo")
@@ -213,9 +214,16 @@ func TestDemoLoadVerify(t *testing.T) {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v.stdout)
 	}
 	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator; TTP tenant_admin,
-	// operation_staff. Drivers: the TTP driver D7 and the broker D6. Every readable RLS table is classified.
-	if !strings.Contains(v.stdout, "8 carrier principal(s) (6 staff, 2 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)") {
-		t.Errorf("the demo carriers are not all role-played over every RLS table:\n%s", v.stdout)
+	// operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR -> TTP) and d13
+	// (TTP -> NWR, T26), each with its own history in the tenant it left. Every readable RLS table is classified.
+	for _, want := range []string{
+		"10 carrier principal(s) (6 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
+		"d13.thawisak@logitrack.test (NWR, driver): memberships 1, truck_assignments 1",
+		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
+	} {
+		if !strings.Contains(v.stdout, want) {
+			t.Errorf("the demo carriers are not all role-played over every RLS table (no %q):\n%s", want, v.stdout)
+		}
 	}
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, s.d.SuperURL())
@@ -229,8 +237,8 @@ func TestDemoLoadVerify(t *testing.T) {
 		Scan(&perTenant); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"NWR:tenant_admin", "NWR:operation_staff", "TTP:tenant_admin", "TTP:operation_staff",
-		"WRT:tenant_admin", "WRT:operation_staff"} {
+	for _, want := range []string{"NWR:tenant_admin", "NWR:operation_staff", "NWR:driver", "TTP:tenant_admin",
+		"TTP:operation_staff", "TTP:driver", "WRT:tenant_admin", "WRT:operation_staff", "WRT:driver"} {
 		if !strings.Contains(perTenant, want) {
 			t.Errorf("demo has no %s (have %s)", want, perTenant)
 		}
@@ -242,6 +250,48 @@ func TestDemoLoadVerify(t *testing.T) {
 	}
 	if dispatchers < 3 || customers < 3 {
 		t.Errorf("demo has %d dispatcher and %d customer scopes, want a dispatcher per tenant and three customers", dispatchers, customers)
+	}
+	// Master data as the API reads it (T26): every truck carries the class of its type, every active assignment is
+	// its driver's home truck, and every hub with coordinates has its SOC pairs in both directions.
+	var badClass, badHome, missingPairs int
+	if err := conn.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM trucks WHERE vehicle_class IS NULL),
+		(SELECT count(*) FROM truck_assignments a JOIN drivers d ON d.id = a.driver_id
+		  WHERE a.status = 'active' AND d.current_assignment_id IS DISTINCT FROM a.id),
+		(SELECT count(*) FROM hubs h CROSS JOIN (SELECT DISTINCT soc_key FROM hub_soc_distances) s
+		   CROSS JOIN (VALUES ('hub_to_soc'), ('soc_to_hub')) dir(d)
+		  WHERE h.station_type = 'HUB' AND h.network = 'SPX' AND h.latitude IS NOT NULL
+		    AND NOT EXISTS (SELECT 1 FROM hub_soc_distances x WHERE x.hub_id = h.id AND x.soc_key = s.soc_key AND x.direction = dir.d))`).
+		Scan(&badClass, &badHome, &missingPairs); err != nil {
+		t.Fatal(err)
+	}
+	if badClass != 0 || badHome != 0 || missingPairs != 0 {
+		t.Errorf("demo master data: %d trucks without a class, %d active assignments that are not the home truck, %d missing hub-SOC pairs",
+			badClass, badHome, missingPairs)
+	}
+}
+
+// A database seeded with a smaller profile takes the demo rows with --mode upsert, as the staging VM seeded with an
+// older demo takes the T26 master data: the top-up inserts only what is missing, passes --verify, and ends with the
+// fingerprint of a fresh demo load.
+func TestDemoUpsertOverSmaller(t *testing.T) {
+	s := newStack(t, "local")
+	s.mustSeed(t, "--profile", "smoke")
+	r := s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
+	if strings.Contains(r.stdout, "created with a temporary password") {
+		t.Errorf("the top-up inserted the must-change-password user again:\n%s", r.stdout)
+	}
+	topped := s.mustSeed(t, "--verify", "--profile", "demo")
+	if n := len(passLine.FindAllString(topped.stdout, -1)); n != 12 || !strings.Contains(topped.stdout, "counts: 59 tables match the demo manifest") {
+		t.Fatalf("after the top-up:\n%s", topped.stdout)
+	}
+	if again := s.mustSeed(t, "--profile", "demo", "--mode", "upsert"); !strings.Contains(again.stdout, ": 0 rows") {
+		t.Errorf("a second top-up wrote rows:\n%s", again.stdout)
+	}
+	fresh := newStack(t, "local")
+	fresh.mustSeed(t, "--profile", "demo")
+	if a, b := fingerprintBlock(t, topped.stdout), fingerprintBlock(t, fresh.mustSeed(t, "--verify", "--profile", "demo").stdout); a != b {
+		t.Fatalf("a topped-up and a fresh demo differ:\n%s\nvs\n%s", a, b)
 	}
 }
 
