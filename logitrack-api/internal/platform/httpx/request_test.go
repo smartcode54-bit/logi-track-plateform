@@ -40,6 +40,11 @@ func TestDecodeJSONAndInvalidArgument(t *testing.T) {
 		{`"text"`, 400, `"bad_request"`},
 		{`{"name":`, 400, `"bad_request"`},
 		{`{"name":"x"} {"name":"y"}`, 400, `"bad_request"`},
+		{`{"name":"x"}}`, 400, `"bad_request"`}, // trailing data that json.Decoder.More() does not report
+		{`{"name":"x"}]`, 400, `"bad_request"`},
+		{`{"name":"x"}]junk`, 400, `"bad_request"`},
+		{`{"name":"x"} 1`, 400, `"bad_request"`},
+		{" {\"name\":\"x\"}\n ", 200, `"name":"x"`},
 		{`{"name":5}`, 400, `"bad_request"`},
 	}
 	for _, tc := range cases {

@@ -18,10 +18,13 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/forms"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
@@ -80,9 +83,17 @@ type APIDeps struct {
 	// Mobile is the driver app's installations, version gate and releases (T52): /v1/mobile/settings,
 	// /v1/mobile/heartbeat, /v1/app-installations*, /v1/app-releases*.
 	Mobile *mobileapp.Service
+	// Locations are the truck positions of T53: GET /v1/vehicle-locations, GET /v1/admin/cartrack/probe.
+	Locations *locations.Service
+	// Dashboard is the W8 aggregates of T53: GET /v1/dashboard/summary, GET /v1/badges.
+	Dashboard *dashboard.Service
+	// Forms are the anonymous landing forms of T53 and the waitlist: /v1/waitlist*, POST /v1/partner-interest.
+	Forms *forms.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
+	// PublicFormsLimit is RATE_LIMIT_PUBLIC_FORMS (the public_form_ip bucket of the forms, T53); zero = the default.
+	PublicFormsLimit ratelimit.Limit
 }
 
 // EventGroups is GET /v1/events (internal, behind auth.RequireAuth) of T12 (main spec §8, Appendix B §B.2.20). GET
@@ -347,10 +358,28 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// T53: the truck positions (the probe submits a cartrack.sync job the worker runs: the api holds no Cartrack
+	// credential), the dashboard aggregates under RLS, and the anonymous forms (exempt tables, the service writes).
+	locSvc, err := locations.New(locations.Deps{Pool: pool, Jobs: jobSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	dashSvc, err := dashboard.New(dashboard.Deps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	formSvc, err := forms.New(forms.Deps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
 		Storage: st,
-		Events:  events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
+		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Limiter: limiter,
+		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP)})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

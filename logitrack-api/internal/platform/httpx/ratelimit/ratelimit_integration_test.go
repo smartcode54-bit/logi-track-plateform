@@ -219,3 +219,34 @@ func TestMiddlewareDisabledAndFailOpen(t *testing.T) {
 		}
 	}
 }
+
+// Check spends a bucket from inside a handler: allowed, then the Denied answer of Middleware (details.bucket,
+// details.retryAfterSeconds); with Redis gone it lets the request through.
+func TestCheckSpendsDeniesAndFailsOpen(t *testing.T) {
+	rdb, ks := cachetest.NewClient(t)
+	l := ratelimit.New(rdb, ks, zerolog.Nop())
+	ctx := context.Background()
+	if err := l.Check(ctx, true, ratelimit.PublicFormEmail, ratelimit.Limit{}, "subject"); err != nil {
+		t.Fatalf("first check: %v", err)
+	}
+	err := l.Check(ctx, true, ratelimit.PublicFormEmail, ratelimit.Limit{}, "subject")
+	var he *httpx.Error
+	if !errors.As(err, &he) || he.Status != 429 || he.Code != httpx.CodeResourceExhaust || he.Details["bucket"] != "public_form_email" {
+		t.Fatalf("second check: %v", err)
+	}
+	if secs, _ := he.Details["retryAfterSeconds"].(int); secs < 86000 {
+		t.Fatalf("retryAfterSeconds %v, want about a day", he.Details["retryAfterSeconds"])
+	}
+	if err := l.Check(ctx, true, ratelimit.PublicFormEmail, ratelimit.Limit{}, "another"); err != nil {
+		t.Fatalf("another subject: %v", err)
+	}
+
+	srv := cachetest.StartDedicated(t)
+	down, dks := srv.Client(t)
+	if err := srv.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ratelimit.New(down, dks, zerolog.Nop()).Check(ctx, true, ratelimit.PublicFormEmail, ratelimit.Limit{}, "subject"); err != nil {
+		t.Fatalf("Redis stopped: %v, want the request let through", err)
+	}
+}
