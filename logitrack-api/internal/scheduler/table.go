@@ -32,9 +32,18 @@ var Pending = []struct{ Name, Spec, Issue, Gate string }{
 	{"cartrack.sync", "*/3 * * * *", "T53", "CARTRACK_SYNC_ENABLED"},
 	{"bangchak.snapshot", "0 5 * * *", "T37", "FUEL_MONTHLY_SNAPSHOT_ENABLED"},
 	{"billing.safety-net", "*/15 * * * *", "T38", ""},
-	{"etl.sync", "*/5 * * * *", "T24", "ETL_SYNC_ENABLED"},
 	{"tenancy.orphan-scan", "0 3 * * *", "T28", ""},
 }
+
+// Gated lists the command crons whose consumer has landed but that run only while their env gate is on (main spec
+// §7.4): the scheduler adds each to the table then. etl.sync (T24): the FS->PG mirror sweep, every ETL_SYNC_INTERVAL
+// (*/5 by default) while ETL_SYNC_ENABLED is true; the worker's etl.sync consumer runs it.
+var Gated = []struct{ Name, Spec, Issue, Gate string }{
+	{"etl.sync", "*/5 * * * *", "T24", "ETL_SYNC_ENABLED"},
+}
+
+// ETLSync is the etl.sync command cron at spec (ETL_SYNC_INTERVAL as five cron fields).
+func ETLSync(spec string) Job { return Job{Name: "etl.sync", Spec: spec, Kind: Command} }
 
 // Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, and the
 // command crons whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc

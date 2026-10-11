@@ -106,8 +106,10 @@ type LoadOptions struct {
 
 // CollectionStats count one collection of a run.
 type CollectionStats struct {
-	Name       string
-	Mapped     bool
+	Name   string
+	Mapped bool
+	// Mode is the mirror mode of a sweep's collection (MirrorFull, MirrorFields); empty for a load.
+	Mode       string
 	Total      int // documents in the dump
 	Unchanged  int // _updateTime not newer than etl.source_docs (skipped)
 	BeforeMark int // filtered out by --since / the watermark
@@ -463,6 +465,15 @@ func (e *Engine) record(c *docCtx, exportedAt time.Time) error {
 	if err != nil {
 		return fmt.Errorf("etl: %s: record source doc: %w", c.doc.Path, err)
 	}
+	if c.findingScope != nil {
+		rowLevel := slices.ContainsFunc(c.findings, func(f Finding) bool { return f.Field == "" })
+		if _, err := c.tx.Exec(c.ctx, `DELETE FROM etl.quarantine WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL
+			AND ((field IS NULL AND $4) OR field = ANY($3) OR split_part(field, '.', 1) = ANY($3))`,
+			c.coll, c.doc.Path, c.findingScope, rowLevel); err != nil {
+			return fmt.Errorf("etl: %s: clear findings: %w", c.doc.Path, err)
+		}
+		return insertFindings(c.ctx, c.tx, c.coll, c.doc.Path, c.findings)
+	}
 	return writeFindings(c.ctx, c.tx, c.coll, c.doc.Path, c.findings)
 }
 
@@ -470,6 +481,10 @@ func writeFindings(ctx context.Context, tx pgx.Tx, coll, path string, findings [
 	if _, err := tx.Exec(ctx, `DELETE FROM etl.quarantine WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL`, coll, path); err != nil {
 		return fmt.Errorf("etl: %s: clear findings: %w", path, err)
 	}
+	return insertFindings(ctx, tx, coll, path, findings)
+}
+
+func insertFindings(ctx context.Context, tx pgx.Tx, coll, path string, findings []Finding) error {
 	for _, f := range findings {
 		var field, detail *string
 		if f.Field != "" {

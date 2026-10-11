@@ -64,7 +64,7 @@ func TestVMNames(t *testing.T) {
 	inv, _, _ := fixtureInventory(t)
 	good := map[string]string{
 		"api":       "# api\nAPP_ENV\nDATABASE_URL\nAPI_PUBLIC_ADDR\nJWT_ISSUER\n",
-		"worker":    "APP_ENV\nDATABASE_URL\n",
+		"worker":    "APP_ENV\nDATABASE_URL\nETL_DATABASE_URL\n",
 		"scheduler": "APP_ENV\nDATABASE_URL\n",
 		"migrate":   "APP_ENV\nMIGRATE_DATABASE_URL\n",
 		"seed":      "APP_ENV\nDATABASE_URL\nMIGRATE_DATABASE_URL\nETL_DATABASE_URL\n",
@@ -87,12 +87,12 @@ func TestVMNames(t *testing.T) {
 		mutate func(m map[string]string)
 		want   string
 	}{
-		"web gets a Go secret":  {func(m map[string]string) { m["web"] += "DATABASE_URL\n" }, "web.txt: DATABASE_URL is not a §16.1 name of web"},
-		"api misses a name":     {func(m map[string]string) { m["api"] = "APP_ENV\nDATABASE_URL\nAPI_PUBLIC_ADDR\n" }, "api.txt: JWT_ISSUER is missing"},
-		"worker gets every URL": {func(m map[string]string) { m["worker"] += "ETL_DATABASE_URL\n" }, "worker.txt: ETL_DATABASE_URL is not a §16.1 name"},
-		"missing file":          {func(m map[string]string) { delete(m, "seed") }, "seed.txt is missing"},
-		"unknown program":       {func(m map[string]string) { m["etl"] = "APP_ENV\n" }, "etl.txt is not a program"},
-		"not a name":            {func(m map[string]string) { m["migrate"] += "APP_ENV=dev\n" }, "expected one variable name per line"},
+		"web gets a Go secret":       {func(m map[string]string) { m["web"] += "DATABASE_URL\n" }, "web.txt: DATABASE_URL is not a §16.1 name of web"},
+		"api misses a name":          {func(m map[string]string) { m["api"] = "APP_ENV\nDATABASE_URL\nAPI_PUBLIC_ADDR\n" }, "api.txt: JWT_ISSUER is missing"},
+		"scheduler gets the ETL URL": {func(m map[string]string) { m["scheduler"] += "ETL_DATABASE_URL\n" }, "scheduler.txt: ETL_DATABASE_URL is not a §16.1 name"},
+		"missing file":               {func(m map[string]string) { delete(m, "seed") }, "seed.txt is missing"},
+		"unknown program":            {func(m map[string]string) { m["etl"] = "APP_ENV\n" }, "etl.txt is not a program"},
+		"not a name":                 {func(m map[string]string) { m["migrate"] += "APP_ENV=dev\n" }, "expected one variable name per line"},
 	}
 	for name, c := range cases {
 		files := map[string]string{}

@@ -14,7 +14,7 @@ const specFixture = "### 16.1 Canonical table\n" +
 	"| `APP_ENV` | no | all-go | P0 / — | MISSING | |\n" +
 	"| `DATABASE_URL` | yes | api, worker, scheduler, seed | P0 / — | MISSING | |\n" +
 	"| `MIGRATE_DATABASE_URL` | yes | migrate, seed | P0 / — | MISSING | |\n" +
-	"| `ETL_DATABASE_URL` | yes | etl, seed | P0 / — | MISSING | |\n" +
+	"| `ETL_DATABASE_URL` | yes | etl, seed, worker | P0 / — | MISSING | |\n" +
 	"| `API_PUBLIC_ADDR` | no | api, caddy | P0 / — | MISSING | |\n" +
 	"| `JWT_ISSUER` | no | api, web-server | P0 / — | MISSING | |\n" +
 	"| `GO_API_INTERNAL_URL` | no | web-server, release | P0 / — | MISSING | |\n" +
@@ -108,7 +108,7 @@ func goodCompose() composeConfig {
 		cfg.Services[svc] = s
 	}
 	set("api", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "API_PUBLIC_ADDR": str(""), "JWT_ISSUER": str("")}, nil)
-	set("worker", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str("")}, nil)
+	set("worker", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "ETL_DATABASE_URL": str("")}, nil)
 	set("scheduler", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str("")}, nil)
 	set("migrate", map[string]*string{"APP_ENV": str(""), "MIGRATE_DATABASE_URL": str("")}, nil)
 	set("seed", map[string]*string{"APP_ENV": str(""), "DATABASE_URL": str(""), "MIGRATE_DATABASE_URL": str(""), "ETL_DATABASE_URL": str("")}, nil)
@@ -136,6 +136,7 @@ func TestCompose(t *testing.T) {
 		"caddy gets more":           {func(c composeConfig) { c.Services["caddy"].Environment["JWT_ISSUER"] = str("") }, "caddy receives JWT_ISSUER"},
 		"caddy misses upstream":     {func(c composeConfig) { delete(c.Services["caddy"].Environment, "API_PUBLIC_ADDR") }, "caddy does not receive API_PUBLIC_ADDR"},
 		"api gets every DB URL":     {func(c composeConfig) { c.Services["api"].Environment["ETL_DATABASE_URL"] = str("") }, "api DB URLs"},
+		"worker gets the migrator":  {func(c composeConfig) { c.Services["worker"].Environment["MIGRATE_DATABASE_URL"] = str("") }, "worker DB URLs"},
 	}
 	for name, c := range cases {
 		cfg := goodCompose()

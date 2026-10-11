@@ -346,6 +346,12 @@ publish reaches `GET /v1/mobile/settings` only.
   `UPLOAD_MAX_BYTES` needs the same `client_max_body_size` in both vhosts (`nginx/`).
 - Web domain flags: P0 state, `WEB_FLAG_OVERRIDES=auth=go` with `PG_OWNED_DOMAINS` empty (every other domain on
   the dev Firebase project); change them in the `.env` and reload `logitrack-api` (no web rebuild).
+- Coexistence consumers (T24S): the VM runs PostgreSQL only, so `ETL_SYNC_ENABLED` and `COMPAT_PROJECTION_ENABLED`
+  stay `false`: the worker then opens no ETL pool and no Firestore client, and its `etl.sync` and `firestore.shadow`
+  queues drain without effect (a sweep command fails its job naming the switch, an event is answered unprojected).
+  The worker's allow-list carries `ETL_DATABASE_URL` because the mirror is the ETL load path (R66); it is read only
+  when `ETL_SYNC_ENABLED` is `true`. Turning either switch on against a real Firestore project is an owner step
+  (logitrack-api README "Coexistence").
 - Cloudflare ranges: `nginx/logitrack-cloudflare-realip.conf` holds the list of
   https://www.cloudflare.com/ips/; update it there and run `deploy.sh --provision`.
 - Switching storage to S3 later: fill `S3_*`, set `STORAGE_BACKEND=s3`, keep `LOCAL_MEDIA_*` while local rows

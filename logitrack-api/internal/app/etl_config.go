@@ -24,12 +24,14 @@ type ETLConfig struct {
 	FirestoreProjectID  string `env:"ETL_FIRESTORE_PROJECT_ID"`
 	FirestoreDatabaseID string `env:"FIRESTORE_DATABASE_ID" envDefault:"(default)"`
 	GCSBucket           string `env:"ETL_GCS_BUCKET"`
-	GoogleCredentials   string `env:"GOOGLE_APPLICATION_CREDENTIALS"`
-	S3Endpoint          string `env:"S3_ENDPOINT"`
-	S3Region            string `env:"S3_REGION"`
-	S3AccessKeyID       string `env:"S3_ACCESS_KEY_ID"`
-	S3SecretAccessKey   string `env:"S3_SECRET_ACCESS_KEY"`
-	S3Bucket            string `env:"S3_BUCKET" envDefault:"logitrack"`
+	// MirrorCollections is the default pin of `etl mirror` and `etl reconcile-sync` (the worker's ETL_MIRROR_COLLECTIONS).
+	MirrorCollections string `env:"ETL_MIRROR_COLLECTIONS"`
+	GoogleCredentials string `env:"GOOGLE_APPLICATION_CREDENTIALS"`
+	S3Endpoint        string `env:"S3_ENDPOINT"`
+	S3Region          string `env:"S3_REGION"`
+	S3AccessKeyID     string `env:"S3_ACCESS_KEY_ID"`
+	S3SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY"`
+	S3Bucket          string `env:"S3_BUCKET" envDefault:"logitrack"`
 	// S3PublicBucket labels the legacy APK's file_objects row (settings/mobile_app, visibility public, R23, T24);
 	// S3PublicBaseURL is the base `rewrite-urls --apply` gives its committed copy.
 	S3PublicBucket  string `env:"S3_PUBLIC_BUCKET" envDefault:"logitrack-public"`

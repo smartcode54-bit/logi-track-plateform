@@ -157,7 +157,7 @@ SELECT h.id, h.source_id::text AS source_id, h.station_type, h.network, h.latitu
        h.longitude::float8 AS longitude
 FROM hubs h
 WHERE h.latitude IS NOT NULL AND h.longitude IS NOT NULL
-ORDER BY h.legacy_doc_id COLLATE "C" NULLS LAST, h.created_at, h.id
+ORDER BY nullif(h.legacy_doc_id, h.id::text) COLLATE "C" NULLS LAST, h.created_at, h.id
 `
 
 type ListDistancePointsRow struct {
@@ -170,7 +170,8 @@ type ListDistancePointsRow struct {
 }
 
 // The job input (getHubsAndSocs, fn:distances.ts): hubs and SOCs with coordinates, in the legacy document order
-// (Firestore doc ids, byte order) so the first SOC of a duplicated key wins as it did; rows created in Go follow.
+// (Firestore doc ids, byte order) so the first SOC of a duplicated key wins as it did; rows created in Go follow, also
+// once the Firestore projection minted their document id (legacy_doc_id = id::text, R25, T24).
 func (q *Queries) ListDistancePoints(ctx context.Context) ([]ListDistancePointsRow, error) {
 	rows, err := q.db.Query(ctx, listDistancePoints)
 	if err != nil {

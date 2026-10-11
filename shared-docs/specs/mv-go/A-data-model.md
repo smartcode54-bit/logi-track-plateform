@@ -3405,7 +3405,7 @@ Draft synonyms are never written: `tenant_orphan` → `tenant_unresolved` (it su
 
 | Case | Rule |
 |---|---|
-| Row inserted in PG (class A/B) and projected | `id` from `uuidv7()`; the same transaction sets `legacy_doc_id = id::text` before the outbox event; the projection upserts doc `{legacy_doc_id}` |
+| Row inserted in PG (class A/B) and projected | `id` from `uuidv7()`; the same transaction sets `legacy_doc_id = id::text` before the outbox event; the projection upserts doc `{legacy_doc_id}`. As built (T24S): the projection mints it in its own transaction, which commits only after the Firestore write (`legacy_doc_id` stays NULL until the row's first projection; the references the projection writes, such as `driverId` or `linkedCustomerId`, use `coalesce(legacy_doc_id, id::text)`, which is the id the row gets), so the services that create rows stay unchanged; a Hub-SOC distance pair is minted with its natural id `{hub}_{soc}` / `{soc}_{hub}` (the 3.x app reads a pair by that id), not its uuid |
 | Write-back of a Firestore-owned doc (class C, P2–P7b) | Go creates the doc with a fresh uuidv7 string as id; the mirror loads it with `id` = `legacy_doc_id` = that string, so identity round-trips without a lookup |
 | User created in Go while `AUTH_FIREBASE_BRIDGE_MODE` is not `off` (a driver or own-fleet user, mirrored account) or minting its first web custom token (own-fleet staff, platform_admin) | Firebase uid = `users.id::text`, also stored in `users.legacy_auth_uid` (Appendix C §C.6.3, §C.6.4) |
 | Legacy doc (Firestore auto-id or driver-typed trip id) | `id` = new `uuidv7()`; `legacy_doc_id` = original doc id |

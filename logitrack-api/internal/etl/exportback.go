@@ -27,11 +27,20 @@ type FirestoreWriter interface {
 	Patch(ctx context.Context, path string, fields map[string]any, mask []string, pre gcp.Precondition) (dump.Doc, error)
 }
 
-// ExportDoc is one encoded legacy document.
+// ExportDoc is one encoded legacy document (export-back and the firestore.shadow projection share the encoders).
 type ExportDoc struct {
 	Path   string
 	Fields map[string]any
 	Mask   []string // the fields the encoder owns
+	// Equiv decides, per field, whether a stored value means what PostgreSQL holds (cur, and whether the field is
+	// stored at all), so the projection keeps a legacy spelling instead of rewriting it (Diff).
+	Equiv map[string]func(cur any, has bool) bool
+	// Keep names, from the whole stored document, the fields the projection leaves as they are: a value PostgreSQL
+	// holds no row for because the load could not resolve it (an unknown linked party, a duplicate GPS id or carrier
+	// code, an assignment that did not load) stays in Firestore instead of being deleted.
+	Keep func(cur map[string]any) []string
+	// Skip, when set, says why the row is not written (a quarantined row, a hub a driver created in Firestore).
+	Skip string
 }
 
 // ExportOptions select an export-back run.
@@ -49,7 +58,10 @@ type ExportResult struct {
 
 // exportEncoders are the class A collections export-back can write.
 var exportEncoders = map[string]func(context.Context, pgx.Tx) ([]ExportDoc, error){
-	"customers": encodeCustomers,
+	// The projection's encoder (shadow_encode.go) over every row, without minting: export-back never writes PostgreSQL.
+	"customers": func(ctx context.Context, tx pgx.Tx) ([]ExportDoc, error) {
+		return encodeCustomerDocs(ctx, tx, selection{all: true, ids: []uuid.UUID{}, hubs: []uuid.UUID{}}, false)
+	},
 }
 
 // ExportCollections lists the collections export-back supports.
@@ -88,6 +100,9 @@ func (e *Engine) ExportBack(ctx context.Context, w FirestoreWriter, o ExportOpti
 	}
 	res := &ExportResult{}
 	for _, d := range docs {
+		if d.Skip != "" {
+			continue
+		}
 		cur, err := w.Get(ctx, d.Path)
 		var pre gcp.Precondition
 		switch {
@@ -108,87 +123,4 @@ func (e *Engine) ExportBack(ctx context.Context, w FirestoreWriter, o ExportOpti
 		res.Written = append(res.Written, d.Path)
 	}
 	return res, nil
-}
-
-// customerFields are the fields of a customers doc the encoder owns (validate/customerSchema.ts).
-var customerFields = []string{"code", "name", "description", "logoUrl", "driverIdTypes", "address", "taxId", "branchType",
-	"branchNumber", "contactName", "contactPhone", "billingEmail", "paymentTermsDays", "invoiceNote", "billingDateBasis",
-	"lineGroupId", "createdAt", "updatedAt"}
-
-// encodeCustomers: customers + billing_parties + customer_driver_id_types + the logo's legacy URL -> customers/{id}.
-// branch_type hq/branch become สำนักงานใหญ่/สาขา again; driverIdTypes is written even when empty (the schema's
-// default).
-func encodeCustomers(ctx context.Context, tx pgx.Tx) ([]ExportDoc, error) {
-	rows, err := tx.Query(ctx, `SELECT c.id, coalesce(c.legacy_doc_id, c.id::text), c.code::text, c.name, c.description, f.legacy_url, c.address,
-		  c.tax_id, c.branch_type, c.branch_number, c.contact_name, c.contact_phone, c.billing_email::text, c.payment_terms_days,
-		  c.invoice_note, bp.billing_date_basis, c.line_group_id, c.created_at, c.updated_at
-		FROM customers c LEFT JOIN billing_parties bp ON bp.customer_id = c.id LEFT JOIN file_objects f ON f.id = c.logo_file_id
-		ORDER BY 2`)
-	if err != nil {
-		return nil, err
-	}
-	type cust struct {
-		id                                                                               uuid.UUID
-		docID, code, name                                                                string
-		desc, logo, addr, tax, branch, branchNo, cname, cphone, email, note, basis, line *string
-		terms                                                                            *int32
-		created, updated                                                                 time.Time
-	}
-	var cs []cust
-	for rows.Next() {
-		var c cust
-		if err := rows.Scan(&c.id, &c.docID, &c.code, &c.name, &c.desc, &c.logo, &c.addr, &c.tax, &c.branch, &c.branchNo, &c.cname,
-			&c.cphone, &c.email, &c.terms, &c.note, &c.basis, &c.line, &c.created, &c.updated); err != nil {
-			return nil, err
-		}
-		cs = append(cs, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	var out []ExportDoc
-	for _, c := range cs {
-		f := map[string]any{"code": c.code, "name": c.name,
-			"createdAt": dump.Timestamp{Time: c.created.UTC()}, "updatedAt": dump.Timestamp{Time: c.updated.UTC()}}
-		put := func(k string, v *string) {
-			if v != nil {
-				f[k] = *v
-			}
-		}
-		put("description", c.desc)
-		put("logoUrl", c.logo)
-		put("address", c.addr)
-		put("taxId", c.tax)
-		put("branchNumber", c.branchNo)
-		put("contactName", c.cname)
-		put("contactPhone", c.cphone)
-		put("billingEmail", c.email)
-		put("invoiceNote", c.note)
-		put("billingDateBasis", c.basis)
-		put("lineGroupId", c.line)
-		if c.branch != nil {
-			f["branchType"] = map[string]string{"hq": "สำนักงานใหญ่", "branch": "สาขา"}[*c.branch]
-		}
-		if c.terms != nil {
-			f["paymentTermsDays"] = int64(*c.terms)
-		}
-		types := []any{}
-		trows, err := tx.Query(ctx, `SELECT key, label FROM customer_driver_id_types WHERE customer_id = $1 ORDER BY position, key`, c.id)
-		if err != nil {
-			return nil, err
-		}
-		for trows.Next() {
-			var k, l string
-			if err := trows.Scan(&k, &l); err != nil {
-				return nil, err
-			}
-			types = append(types, map[string]any{"key": k, "label": l})
-		}
-		if err := trows.Err(); err != nil {
-			return nil, err
-		}
-		f["driverIdTypes"] = types
-		out = append(out, ExportDoc{Path: "customers/" + c.docID, Fields: f, Mask: customerFields})
-	}
-	return out, nil
 }

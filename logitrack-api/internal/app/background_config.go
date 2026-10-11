@@ -3,9 +3,11 @@ package app
 import (
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
@@ -67,8 +69,25 @@ type WorkerConfig struct {
 	DistanceMatrixEnabled  bool   `env:"DISTANCE_MATRIX_ENABLED"`
 	GoogleMapsServerAPIKey string `env:"GOOGLE_MAPS_SERVER_API_KEY"`
 
+	// The coexistence consumers of group sync (T24, developer-spec.md §13.7-§13.8): which collections are mirrored or
+	// projected follows from PG_OWNED_DOMAINS; the pins narrow it. The mirror (ETL_SYNC_ENABLED) is the ETL load path
+	// and logs in as logitrack_etl through ETL_DATABASE_URL (R66); the projection (COMPAT_PROJECTION_ENABLED, the kill
+	// switch) uses DATABASE_URL. Both reach ETL_FIRESTORE_PROJECT_ID with the GOOGLE_APPLICATION_CREDENTIALS key. Off
+	// (the default, and the staging VM, which runs PostgreSQL only) neither needs a database URL or a key.
+	PGOwnedDomains              string `env:"PG_OWNED_DOMAINS"`
+	ETLSyncEnabled              bool   `env:"ETL_SYNC_ENABLED"`
+	ETLDatabaseURL              string `env:"ETL_DATABASE_URL"`
+	ETLMirrorCollections        string `env:"ETL_MIRROR_COLLECTIONS"`
+	CompatProjectionEnabled     bool   `env:"COMPAT_PROJECTION_ENABLED"`
+	CompatProjectionCollections string `env:"COMPAT_PROJECTION_COLLECTIONS"`
+	FirestoreProjectID          string `env:"ETL_FIRESTORE_PROJECT_ID"`
+	FirestoreDatabaseID         string `env:"FIRESTORE_DATABASE_ID" envDefault:"(default)"`
+	GoogleCredentials           string `env:"GOOGLE_APPLICATION_CREDENTIALS"`
+
 	// Groups is WORKER_CONSUMERS resolved by Validate ("all" = every group).
 	Groups []string `env:"-"`
+	// Coexist is the coexistence plan resolved by Validate.
+	Coexist coexist.Plan `env:"-"`
 }
 
 // Validate implements config.Validator.
@@ -118,6 +137,21 @@ func (c *WorkerConfig) Validate() error {
 	if c.DistanceMatrixEnabled && strings.TrimSpace(c.GoogleMapsServerAPIKey) == "" {
 		errs = append(errs, config.Invalidf("GOOGLE_MAPS_SERVER_API_KEY", "required when DISTANCE_MATRIX_ENABLED is true"))
 	}
+	plan, perrs := coexist.ParsePlan(c.PGOwnedDomains, c.ETLMirrorCollections, c.CompatProjectionCollections)
+	errs = append(errs, perrs...)
+	c.Coexist = plan
+	if c.ETLSyncEnabled {
+		if c.ETLDatabaseURL == "" {
+			errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "is required when ETL_SYNC_ENABLED is true (the mirror logs in as logitrack_etl, R66)"))
+		} else if !strings.HasPrefix(c.ETLDatabaseURL, "postgres://") && !strings.HasPrefix(c.ETLDatabaseURL, "postgresql://") {
+			errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be a postgres:// URL"))
+		}
+	}
+	if c.ETLSyncEnabled || c.CompatProjectionEnabled {
+		if c.FirestoreProjectID == "" || c.GoogleCredentials == "" {
+			errs = append(errs, "ETL_FIRESTORE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS: required when ETL_SYNC_ENABLED or COMPAT_PROJECTION_ENABLED is true")
+		}
+	}
 	if c.FCMEnabled {
 		if !push.ValidProjectID(c.FCMProjectID) {
 			errs = append(errs, config.Invalidf("FCM_PROJECT_ID", "must be a Firebase project id when FCM_ENABLED is true"))
@@ -146,6 +180,24 @@ type SchedulerConfig struct {
 	// JWTAccessTTL is the life of the revoked-session markers the relay re-applies from
 	// user.sessions_revoked (+ 30 s leeway, Appendix C §C.4.7): the same value the api signs with.
 	JWTAccessTTL time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`
+	// ETLSyncEnabled schedules the etl.sync sweep every ETLSyncInterval (main spec §7.4; T24); the interval is whole
+	// minutes that divide an hour, so the slots are Bangkok clock minutes (*/5 * * * * by default).
+	ETLSyncEnabled  bool          `env:"ETL_SYNC_ENABLED"`
+	ETLSyncInterval time.Duration `env:"ETL_SYNC_INTERVAL" envDefault:"5m"`
+}
+
+// ETLSyncSpec is the cron spec of ETL_SYNC_INTERVAL ("" when it is not whole minutes that divide an hour).
+func ETLSyncSpec(d time.Duration) string {
+	m := int(d / time.Minute)
+	switch {
+	case d%time.Minute != 0 || m < 1 || m > 60 || 60%m != 0:
+		return ""
+	case m == 60:
+		return "0 * * * *"
+	case m == 1:
+		return "* * * * *"
+	}
+	return "*/" + strconv.Itoa(m) + " * * * *"
 }
 
 // Validate implements config.Validator.
@@ -170,6 +222,9 @@ func (c *SchedulerConfig) Validate() error {
 	}
 	if c.JWTAccessTTL < time.Minute || c.JWTAccessTTL > time.Hour {
 		errs = append(errs, config.Invalidf("JWT_ACCESS_TTL", "must be between 1m and 1h"))
+	}
+	if ETLSyncSpec(c.ETLSyncInterval) == "" {
+		errs = append(errs, config.Invalidf("ETL_SYNC_INTERVAL", "must be whole minutes that divide an hour (1m ... 60m)"))
 	}
 	if len(errs) > 0 {
 		return &config.Error{Invalid: errs}

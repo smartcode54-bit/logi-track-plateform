@@ -9,8 +9,9 @@
 //   - every ${NAME} interpolated in the compose file is listed in .env.example,
 //     so `make env` yields a complete .env;
 //   - each Go service in compose receives exactly the names whose consumer
-//     column lists it (so api, worker and scheduler get only DATABASE_URL and
-//     seed gets all three DB URLs, R66/R87);
+//     column lists it (so api and scheduler get only DATABASE_URL, the worker
+//     also ETL_DATABASE_URL for its etl.sync mirror (T24) and seed gets all
+//     three DB URLs, R66/R87);
 //   - `web` receives exactly the web-server names and is built with web-public
 //     names only; `caddy` receives exactly the caddy names (TW2);
 //   - with -vm-env and -vm-names, the staging VM kit (deploy/vm, OPSVM): the
@@ -243,9 +244,10 @@ func checkCompose(cfg composeConfig, inv inventory) []string {
 		}
 		exact(svc, s.Environment, liveWith(svc, "all-go"), "§16.1 consumer "+svc)
 	}
-	// The explicit R66/R87 rule, reported on its own for clarity.
+	// The explicit R66/R87 rule, reported on its own for clarity. The worker's etl.sync mirror is the ETL load path
+	// (T24S): it logs in as logitrack_etl, the only login that reaches schema etl.
 	dbRule := map[string][]string{
-		"api": {"DATABASE_URL"}, "worker": {"DATABASE_URL"}, "scheduler": {"DATABASE_URL"},
+		"api": {"DATABASE_URL"}, "worker": {"DATABASE_URL", "ETL_DATABASE_URL"}, "scheduler": {"DATABASE_URL"},
 		"migrate": {"MIGRATE_DATABASE_URL"}, "etl": {"ETL_DATABASE_URL"},
 		"seed": {"DATABASE_URL", "ETL_DATABASE_URL", "MIGRATE_DATABASE_URL"},
 	}

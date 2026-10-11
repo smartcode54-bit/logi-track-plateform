@@ -44,8 +44,17 @@ func TestTableAndPending(t *testing.T) {
 			t.Fatalf("pending %+v", p)
 		}
 	}
-	if len(table)+len(Pending) != 12 {
-		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + pending %d", len(table), len(Pending))
+	for _, g := range Gated {
+		if _, err := parser.Parse(g.Spec); err != nil || slices.Contains(names, g.Name) || g.Gate == "" ||
+			slices.ContainsFunc(Pending, func(p struct{ Name, Spec, Issue, Gate string }) bool { return p.Name == g.Name }) {
+			t.Fatalf("gated %+v", g)
+		}
+	}
+	if len(table)+len(Pending)+len(Gated) != 12 {
+		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + pending %d + gated %d", len(table), len(Pending), len(Gated))
+	}
+	if j := ETLSync("*/5 * * * *"); j.Kind != Command || j.Name != "etl.sync" {
+		t.Fatalf("etl.sync cron %+v", j)
 	}
 	if _, err := NewCron(nil, nil, []Job{{Name: "x.y", Spec: "every day", Kind: Command}}, zerolog.Nop(), nil); err == nil {
 		t.Fatal("a bad spec was accepted")
