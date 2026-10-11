@@ -18,7 +18,7 @@ func TestParsePlan(t *testing.T) {
 		t.Fatalf("P1 plan %+v %v", p, errs)
 	}
 	p, errs = ParsePlan("all", "", "")
-	if len(errs) != 0 || len(p.Projection) != 10 {
+	if len(errs) != 0 || len(p.Projection) != 11 || p.Projection[10] != "settings" {
 		t.Fatalf("all: %+v %v", p, errs)
 	}
 	_, errs = ParsePlan("masterdata,bogus_zz", "tasks,users_zz", "projected_zz")

@@ -110,12 +110,14 @@ var MobileOwnedFields = map[string][]string{
 	"drivers": {"fcmToken", "activeTruck", "currentTruckId", "truckId", "updatedAt"},
 }
 
-// ProjectedCollections are the collections firestore.shadow writes in this release (T24): the master data installed
-// APKs read (class B) and the customers, carrier profiles and companies Cloud Functions read until P5 (R71); metadata is
-// the distances_last_calculated document of the distance matrix. holidays, broadcasts, settings/mobile_app and the
-// billing fields of trips and standby records join with their phases.
+// ProjectedCollections are the collections firestore.shadow writes in this release (T24, T52): the master data
+// installed APKs read (class B) and the customers, carrier profiles and companies Cloud Functions read until P5 (R71);
+// metadata is the distances_last_calculated document of the distance matrix, settings the version gate
+// settings/mobile_app installed APKs read (class B, domain mobile_release: projected once that domain is
+// PostgreSQL-owned, P6). holidays, broadcasts and the billing fields of trips and standby records join with their
+// phases.
 var ProjectedCollections = []string{"subcontractors", "customers", "companies", "hubs", "hub_soc_distances", "soc_hub_distances",
-	"metadata", "trucks", "drivers", "truckAssignment"}
+	"metadata", "trucks", "drivers", "truckAssignment", "settings"}
 
 // MirrorEntry is one collection of a sweep.
 type MirrorEntry struct {

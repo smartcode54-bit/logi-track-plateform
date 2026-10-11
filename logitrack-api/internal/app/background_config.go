@@ -108,15 +108,18 @@ type WorkerConfig struct {
 	// (COMPAT_PROJECTION_ENABLED, the kill switch) uses DATABASE_URL. Both reach ETL_FIRESTORE_PROJECT_ID with the
 	// GOOGLE_APPLICATION_CREDENTIALS key. Off (the default, and the staging VM, which runs PostgreSQL only) neither
 	// needs a database URL or a key.
-	PGOwnedDomains              string `env:"PG_OWNED_DOMAINS"`
-	ETLSyncEnabled              bool   `env:"ETL_SYNC_ENABLED"`
-	ETLDatabaseURL              string `env:"ETL_DATABASE_URL"`
-	ETLMirrorCollections        string `env:"ETL_MIRROR_COLLECTIONS"`
-	CompatProjectionEnabled     bool   `env:"COMPAT_PROJECTION_ENABLED"`
-	CompatProjectionCollections string `env:"COMPAT_PROJECTION_COLLECTIONS"`
-	FirestoreProjectID          string `env:"ETL_FIRESTORE_PROJECT_ID"`
-	FirestoreDatabaseID         string `env:"FIRESTORE_DATABASE_ID" envDefault:"(default)"`
-	GoogleCredentials           string `env:"GOOGLE_APPLICATION_CREDENTIALS"`
+	PGOwnedDomains       string `env:"PG_OWNED_DOMAINS"`
+	ETLSyncEnabled       bool   `env:"ETL_SYNC_ENABLED"`
+	ETLDatabaseURL       string `env:"ETL_DATABASE_URL"`
+	ETLMirrorCollections string `env:"ETL_MIRROR_COLLECTIONS"`
+	// ETLListenInterval is how often the mirror's listeners poll the operations collections between sweeps (T29;
+	// main spec §13.7); 0 turns them off and leaves the sweep alone.
+	ETLListenInterval           time.Duration `env:"ETL_LISTEN_INTERVAL" envDefault:"2s"`
+	CompatProjectionEnabled     bool          `env:"COMPAT_PROJECTION_ENABLED"`
+	CompatProjectionCollections string        `env:"COMPAT_PROJECTION_COLLECTIONS"`
+	FirestoreProjectID          string        `env:"ETL_FIRESTORE_PROJECT_ID"`
+	FirestoreDatabaseID         string        `env:"FIRESTORE_DATABASE_ID" envDefault:"(default)"`
+	GoogleCredentials           string        `env:"GOOGLE_APPLICATION_CREDENTIALS"`
 
 	// documents.render (T39, R69): the directory of Sarabun-Regular.ttf and Sarabun-Bold.ttf; empty = the copies built
 	// into the binary (logitrack-web/public/fonts).
@@ -197,6 +200,9 @@ func (c *WorkerConfig) Validate() error {
 	case !mirror && c.ETLDatabaseURL != "":
 		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be empty unless this replica runs the mirror (ETL_SYNC_ENABLED, "+
 			"WORKER_CONSUMERS=sync): the logitrack_etl login bypasses RLS (R66)"))
+	}
+	if c.ETLListenInterval != 0 && (c.ETLListenInterval < 500*time.Millisecond || c.ETLListenInterval > time.Minute) {
+		errs = append(errs, config.Invalidf("ETL_LISTEN_INTERVAL", "must be 0 (listeners off) or between 500ms and 1m"))
 	}
 	if (c.ETLSyncEnabled || c.CompatProjectionEnabled) && slices.Contains(c.Groups, "sync") {
 		if c.FirestoreProjectID == "" || c.GoogleCredentials == "" {

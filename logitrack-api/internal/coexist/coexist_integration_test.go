@@ -25,6 +25,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp/gcptest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
@@ -32,7 +33,11 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
 )
 
-func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
+func TestMain(m *testing.M) {
+	code := pgtest.Main(m)
+	cachetest.TerminateShared()
+	os.Exit(code)
+}
 
 type fixture struct {
 	ctx      context.Context
@@ -80,16 +85,22 @@ func newFixture(t *testing.T, loaded bool) *fixture {
 // command enqueues an etl.sync job as the scheduler's cron does and returns its delivery.
 func (f *fixture) command(t *testing.T) (*mq.Delivery, uuid.UUID) {
 	t.Helper()
+	return f.commandOf(t, TypeSync)
+}
+
+// commandOf enqueues a job of the sync queue (etl.sync, etl.reconcile) and returns its delivery.
+func (f *fixture) commandOf(t *testing.T, typ string) (*mq.Delivery, uuid.UUID) {
+	t.Helper()
 	var job jobs.Job
 	if err := db.WithSystem(f.ctx, f.app, nil, func(tx pgx.Tx) error {
 		var err error
-		job, err = jobs.Enqueue(f.ctx, tx, jobs.NewInput{Type: TypeSync})
+		job, err = jobs.Enqueue(f.ctx, tx, jobs.NewInput{Type: typ})
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	body, _ := json.Marshal(jobs.Command{JobID: job.ID, Type: TypeSync})
-	return &mq.Delivery{Queue: QueueSync, RoutingKey: RouteSync, Body: body}, job.ID
+	body, _ := json.Marshal(jobs.Command{JobID: job.ID, Type: typ})
+	return &mq.Delivery{Queue: QueueSync, RoutingKey: "job." + typ, Body: body}, job.ID
 }
 
 func (f *fixture) job(t *testing.T, id uuid.UUID) jobs.Job {

@@ -24,6 +24,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/inbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 )
 
@@ -54,6 +55,14 @@ var pendingRoutes = map[string]string{
 	RouteChatMessageCreated: "T47",
 	RouteBroadcastCreated:   "T48",
 	RouteLeaveDecided:       "T45",
+}
+
+// FromMirror reports whether a delivery is a domain event the FS->PG mirror appended (header origin=etl.sync). While
+// Firestore writes the operations collections the mirror's task, trip and standby events feed SSE and billing.compute;
+// the notify consumers ack them without a push or a message, since the writer in Firestore notified already.
+func FromMirror(d *mq.Delivery) bool {
+	v, ok := d.Headers[outbox.HeaderOrigin].(string)
+	return ok && v == outbox.OriginMirror
 }
 
 // Delivery statuses (notification_deliveries.status). queued is never written: a row is inserted once
@@ -182,6 +191,12 @@ func (f *FCM) planner(key string) (planner, bool) {
 func (f *FCM) Handle(ctx context.Context, d *mq.Delivery) error {
 	if !f.Enabled {
 		f.logger(ctx).Debug().Msg("FCM_ENABLED is false: nothing sent")
+		return nil
+	}
+	if FromMirror(d) {
+		// The FS->PG mirror re-tells what a Firestore writer did (T29): that writer (a legacy callable, or the Go
+		// write-back handler with its own event) owns the push, so a second one is never sent.
+		f.logger(ctx).Debug().Msg("notify.fcm: an event of the FS->PG mirror: no push")
 		return nil
 	}
 	if f.Sender == nil {

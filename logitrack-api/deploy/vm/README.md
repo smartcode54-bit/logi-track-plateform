@@ -334,9 +334,13 @@ With the Gradle `output-metadata.json` next to the APK, `--metadata=FILE` replac
 `--build-number` and refuses a split-per-ABI build, another version and the other flavor's applicationId. A
 published version is immutable (bump the version); `--force` only replaces an upload that was never published.
 If a publish is cut off before it answers (an SSH drop), rerun the same command: a build that was published
-already answers "Already published" without uploading again. Until the coexistence projection of
-`settings/mobile_app` exists (T24), installed 3.x APKs keep reading their floor and link from Firestore; this
-publish reaches `GET /v1/mobile/settings` only.
+already answers "Already published" without uploading again. Installed 3.x APKs read their floor and link
+from Firestore `settings/mobile_app`, which the `firestore.shadow` consumer projects from this gate (T52R) only
+where `COMPAT_PROJECTION_ENABLED` is on and `PG_OWNED_DOMAINS` holds `mobile_release`; this VM runs PostgreSQL
+only (both off), so here a publish or a floor reaches `GET /v1/mobile/settings` only, and
+`WEB_FLAG_OVERRIDES=mobile_release=go` alone is safe because its Firestore project is empty. A deployment whose
+Firestore project serves a fleet switches the flag, the domain and the projection together after freezing the
+gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alone.
 
 ## Operations
 
@@ -359,7 +363,9 @@ publish reaches `GET /v1/mobile/settings` only.
   the mirror logs in as the BYPASSRLS `logitrack_etl` (R66) only on its own replica, `worker-sync`
   (`WORKER_CONSUMERS=sync`), which this VM does not run, and a worker refuses to start holding that URL without the
   mirror. Turning either switch on against a real Firestore project is an owner step (logitrack-api README
-  "Coexistence").
+  "Coexistence"). `ETL_LISTEN_INTERVAL` (T29, the mirror's listeners) is in the worker's allow-list and
+  `env.vm.example` but does nothing here: the listeners run only on `worker-sync` with `ETL_SYNC_ENABLED`, and so
+  does the daily `etl.reconcile` cron.
 - Cloudflare ranges: `nginx/logitrack-cloudflare-realip.conf` holds the list of
   https://www.cloudflare.com/ips/; update it there and run `deploy.sh --provision`.
 - Switching storage to S3 later: fill `S3_*`, set `STORAGE_BACKEND=s3`, keep `LOCAL_MEDIA_*` while local rows

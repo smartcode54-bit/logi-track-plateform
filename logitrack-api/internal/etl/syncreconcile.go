@@ -23,8 +23,12 @@ import (
 //     mirror applies (activeTruck, fcmToken; the maintenance fields of a truck; a login's last sign-in and tokens) equal
 //     the PostgreSQL columns;
 //   - projection: every row a projected collection writes has its document, and the document's PostgreSQL-owned
-//     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted);
-//     documents no row projects to are reported (informational: legacy duplicates such as a losing hub document);
+//     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted), and
+//     no document is held (ExportDoc.Hold); documents no row projects to are reported (informational: legacy
+//     duplicates such as a losing hub document), except in the one-document collections (metadata, settings);
+//   - operations (T29, syncreconcile_ops.go): per document of tasks, trip_records, standby_records and incidentReport,
+//     the columns the boards, the monitor and billing read equal what the load transforms read from the document, and
+//     the rows whose document Firestore no longer has are listed;
 //   - findings: the open findings per reason code against the last matching run, as `reconcile` does.
 // The run is stored in etl.reconciliation_runs (kind sync), so `--accept-findings` and the baseline work as for a dump
 // reconciliation.
@@ -33,6 +37,12 @@ import (
 type SyncReconcileOptions struct {
 	Mirror     MirrorPlan
 	Projection []string
+	// ReadAt is the Firestore read time every collection is read at (a SnapshotSource). The daily etl.reconcile job
+	// passes the read time of the sweep it runs first (Report.ReadAt), so it compares exactly the snapshot that sweep
+	// applied: a document written since (a 3.x write the next sweep or a listener applies) is neither "not mirrored
+	// yet" nor a difference. Zero: the first read's time, shared by every collection (a source without read times, a
+	// dump, reads each collection as it is), the strict comparison of a hand-run `etl reconcile-sync` after a sweep.
+	ReadAt time.Time
 	// AcceptFindingsBy records the owner's sign-off of the open findings (as ReconcileOptions).
 	AcceptFindingsBy string
 }
@@ -58,8 +68,19 @@ func (e *Engine) ReconcileSync(ctx context.Context, src DocSource, o SyncReconci
 			names = append(names, c)
 		}
 	}
+	at := o.ReadAt
+	ss, snapshot := src.(SnapshotSource)
+	if !at.IsZero() && !snapshot {
+		return nil, errors.New("etl: reconcile-sync: a read time needs a source that reads at one (the Firestore client)")
+	}
 	for _, n := range names {
-		ds, err := src.Documents(ctx, n, groupCollections[n])
+		var ds []dump.Doc
+		var err error
+		if snapshot {
+			ds, at, err = ss.DocumentsAt(ctx, n, groupCollections[n], at)
+		} else {
+			ds, err = src.Documents(ctx, n, groupCollections[n])
+		}
 		if err != nil {
 			return nil, fmt.Errorf("etl: reconcile-sync: read %s: %w", n, err)
 		}
@@ -71,7 +92,7 @@ func (e *Engine) ReconcileSync(ctx context.Context, src DocSource, o SyncReconci
 			return err
 		}
 		for _, m := range o.Mirror.Entries {
-			if err := reconcileMirror(ctx, tx, m, docs[m.Name], o.Mirror.Owned, rec); err != nil {
+			if err := reconcileMirror(ctx, tx, m, docs[m.Name], o.Mirror.Owned, at, rec); err != nil {
 				return err
 			}
 		}
@@ -101,14 +122,18 @@ func (e *Engine) ReconcileSync(ctx context.Context, src DocSource, o SyncReconci
 }
 
 // reconcileMirror: the collection's documents are recorded at their update time; in MirrorFields mode the applied
-// fields equal the row.
-func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.Doc, owned map[string]bool, rec *Reconciliation) error {
+// fields equal the row. at is the read time of docs (zero: unknown). A document recorded at a newer version than the
+// snapshot's was applied since the read (a listener): it is mirrored. The entries Firestore no longer has are reported
+// (deleted_at_source) except the tombstones the mirror settled (renamed, removed) and the entries written after the
+// read (a document created since, which the snapshot cannot hold).
+func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.Doc, owned map[string]bool, at time.Time, rec *Reconciliation) error {
 	rows, err := tx.Query(ctx, `SELECT doc_path, source_update_time, status FROM etl.source_docs WHERE collection = $1`, m.Name)
 	if err != nil {
 		return err
 	}
 	stored := map[string]time.Time{}
 	pending := map[string]bool{}
+	settled := map[string]bool{}
 	for rows.Next() {
 		var p, status string
 		var t time.Time
@@ -118,6 +143,7 @@ func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.
 		}
 		stored[p] = t
 		pending[p] = status == string(Pending)
+		settled[p] = tombstone(status) || (!at.IsZero() && t.After(at))
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -167,9 +193,14 @@ func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.
 		n := len(docs) - len(behind) - len(held)
 		rec.add("mirror_fields", m.Name, n, n-len(differ), len(differ) == 0, note)
 	}
+	if m.Mode == MirrorFull {
+		if err := reconcileOps(ctx, tx, m.Name, docs, at, rec); err != nil {
+			return err
+		}
+	}
 	gone := 0
 	for p := range stored {
-		if !inSource[p] {
+		if !inSource[p] && !settled[p] {
 			gone++
 		}
 	}
@@ -353,6 +384,12 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 			missing = append(missing, w.Path)
 			continue
 		}
+		if w.Hold != nil {
+			if reason := w.Hold(cur.Fields); reason != "" {
+				differ = append(differ, w.Path+" held: "+reason)
+				continue
+			}
+		}
 		if _, mask := w.without(foreign).Diff(cur.Fields); len(mask) > 0 {
 			differ = append(differ, w.Path+" "+strings.Join(mask, "/"))
 		}
@@ -367,6 +404,9 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 		note = "differ: " + listed(differ)
 	}
 	rec.add("projection", coll, rows, rows-len(missing)-len(differ), len(missing)+len(differ) == 0, note)
+	if singleDocument[coll] {
+		return nil // the collection's other documents are settings keys the projection does not own
+	}
 	var orphans []string
 	for _, d := range docs {
 		if !projected[d.Path] {

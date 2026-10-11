@@ -188,7 +188,7 @@ Holder abbreviations: TA tenant_admin, MG manager, OS operation_staff, OP operat
 | 34 | `accounting:audit_expense` | tenant | Approve / reject vehicle expenses | TA MG OS | `accounting_audit_expense` (:53); row (:179) |
 | 35 | `accounting:view_rate_card` | tenant | Rate entries, fuel adjustments, service fees, standby rates | TA MG OS | `accounting_view_rate_card` (:54) |
 | 36 | `accounting:edit_rate_card` | tenant | Create / void rate entries and fuel adjustments; fees; standby rates (own fleet only while it is the only billing carrier, T37: `403 own_fleet_only` for another tenant; `POST /v1/jobs/bangchak.snapshot` also needs a steward) | TA MG | `accounting_edit_rate_card` (:55) |
-| 37 | `accounting:view_income` | tenant | Income page, missing-billing tab, billing rows | TA MG OS | `accounting_view_income` (:56) |
+| 37 | `accounting:view_income` | tenant | Income page and its missing-billing tab (the trip and standby `billing` blocks; the month's billing rows, `GET /v1/billing/rows`, need row 38, Appendix B §B.2.14, so with this row alone the tab lists the loaded rows without a price, T42) | TA MG OS | `accounting_view_income` (:56) |
 | 38 | `accounting:billing_document` | tenant | Generate statements and documents | TA MG | `accounting_billing_document` (:57) |
 | 39 | `accounting:billing_result` | tenant | Statement registry read | TA MG | `accounting_billing_result` (:58) |
 | 40 | `accounting:shopee_report` | tenant | Shopee Express report | TA MG | `accounting_shopee_report` (:59) |
