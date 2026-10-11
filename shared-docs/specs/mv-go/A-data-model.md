@@ -3628,6 +3628,8 @@ The rule is §A.3.0 "File URL → object key". Per-collection URL fields and the
 
 Money comparisons are exact except the legacy multi-drop total and `netAmount` (0.005 THB, R20).
 
+As built (T41): `reconcile --finance` adds the finance cut-over checks of main spec §13.10 (rate tables against their documents with the Bangkok effective date and the void, a legacy pricing row deleted at source but still selectable failing, the D5 fee dedupe, legacy statements as stored, counts and subtotals included, with WHT `0.0100` and no lines, counters with the next invoice number free, fuel snapshots) and the parity dry run of §6.17 over the last closed months, `parity-{ts}.csv` beside the report; the dump must hold every collection those checks read (`finance_inputs`). Statement totals against subtotals and the period's priced rows stay reported only.
+
 ## A.4 Data-model decisions D1-D8 (resolved)
 
 The data-model design left eight owner decisions (DM §4). The plan (R1–R35) and the resolutions (R36–R90) settle the mechanism of all eight; the remaining owner inputs are open questions of [main spec](../../../developer-spec.md) §19.2 ("question N"; "Qn" elsewhere in this appendix is a legacy quirk of the fact-base reports).
