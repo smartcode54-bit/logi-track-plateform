@@ -23,7 +23,7 @@ func TestCronRunsInBangkok(t *testing.T) {
 }
 
 func TestTableAndPending(t *testing.T) {
-	table := Table(nil, nil)
+	table := Table(nil, nil, Gates{})
 	var names []string
 	for _, j := range table {
 		// Local jobs run in the scheduler; command jobs (storage.gc, T11) only publish job.{name}.
@@ -48,8 +48,19 @@ func TestTableAndPending(t *testing.T) {
 			t.Fatalf("pending %+v", p)
 		}
 	}
-	if len(table)+len(Pending) != 12 {
-		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + pending %d", len(table), len(Pending))
+	for _, g := range Gated {
+		if _, err := parser.Parse(g.Spec); err != nil || slices.Contains(names, g.Name) || g.Gate == "" {
+			t.Fatalf("gated %+v", g)
+		}
+	}
+	if len(table)+len(Gated)+len(Pending) != 12 {
+		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + gated %d + pending %d", len(table), len(Gated), len(Pending))
+	}
+	// FUEL_MONTHLY_SNAPSHOT_ENABLED adds bangchak.snapshot at 05:00 Asia/Bangkok as a command cron (T37, R70).
+	on := Table(nil, nil, Gates{FuelMonthlySnapshot: true})
+	last := on[len(on)-1]
+	if len(on) != len(table)+1 || last.Name != "bangchak.snapshot" || last.Spec != "0 5 * * *" || last.Kind != Command {
+		t.Fatalf("gated table: %+v", last)
 	}
 	if _, err := NewCron(nil, nil, []Job{{Name: "x.y", Spec: "every day", Kind: Command}}, zerolog.Nop(), nil); err == nil {
 		t.Fatal("a bad spec was accepted")

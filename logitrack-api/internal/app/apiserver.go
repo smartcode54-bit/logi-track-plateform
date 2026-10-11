@@ -16,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
@@ -60,6 +61,9 @@ type APIDeps struct {
 	Expenses *expenses.Service
 	// Maintenance is the maintenance records of T40: /v1/maintenance* and POST /v1/trucks/{id}/pm-check.
 	Maintenance *maintenance.Service
+	// Billing is the billing data layer of T37: /v1/billing/{rate-entries,fuel-adjustments,service-fees,standby-rates,
+	// statements}*, /v1/fuel/*, POST /v1/jobs/bangchak.snapshot.
+	Billing *billing.Service
 	// Operations are the operations routes: PATCH /v1/tasks/{id} with tenantId, the R13 reassignment (T28); the read
 	// APIs (T30) and the write-back (T31) join it.
 	Operations *operations.Service
@@ -276,6 +280,22 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Billing (T37): rate tables, statements and invoice numbers, fuel snapshots, under RLS (db.WithPrincipal); the
+	// rate-card bundle and the Bangchak retail prices through the cache: layer (UI only); POST
+	// /v1/jobs/bangchak.snapshot submits through the jobs service (the worker runs it).
+	feed, err := cfg.BangchakClient()
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	if feed == nil {
+		log.Info().Msg("Bangchak prices off: BANGCHAK_API_BASE_URL is unset (GET /v1/fuel/retail answers 503)")
+	}
+	billingSvc, err := billing.New(billing.Deps{Pool: pool, Cache: caches, Jobs: jobSvc, Bangchak: feed, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// Operations (T27 data layer; T28 the R13 task reassignment, performed by iam.TaskMover in a system transaction
 	// after Go authorization).
 	taskMover, err := iam.NewTaskMover(iam.TaskMoverDeps{Pool: pool, Log: log})
@@ -296,8 +316,9 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Operations: opsSvc, Jobs: jobSvc, Storage: st,
-		Events: events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
+		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, Jobs: jobSvc,
+		Storage: st,
+		Events:  events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

@@ -165,6 +165,11 @@ func TestStandbyBillingProjection(t *testing.T) {
 	serviceFee := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("service_fee"), BillingPartyID: ptr(uuid.New())}
 	// A legacy standby rate the ETL has not linked yet (billing_rate_entry_id NULL): the own fleet's too.
 	unlinked := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("standby_rate"), BillingPartyID: ptr(uuid.New())}
+	// The carrier stored with the price (0015) decides over the entry and the own-fleet default.
+	storedCarrier := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("service_fee"), BillingPartyID: ptr(uuid.New()),
+		BillingTenantID: ptr(carrier)}
+	storedOwn := priced
+	storedOwn.BillingTenantID = ptr(own)
 	for _, c := range []struct {
 		name   string
 		p      *authz.Principal
@@ -182,6 +187,10 @@ func TestStandbyBillingProjection(t *testing.T) {
 		{"service fee: a carrier, even holding the party's fee now", carrierStaff, serviceFee, carrier, false},
 		{"unlinked legacy rate: the own fleet", ownStaff, unlinked, uuid.Nil, true},
 		{"unlinked legacy rate: a carrier", carrierStaff, unlinked, carrier, false},
+		{"stored carrier: that carrier", carrierStaff, storedCarrier, uuid.Nil, true},
+		{"stored carrier: not the own fleet", ownStaff, storedCarrier, uuid.Nil, false},
+		{"stored own fleet over a carrier's entry", carrierStaff, storedOwn, carrier, false},
+		{"stored own fleet", ownStaff, storedOwn, carrier, true},
 		{"driver", driver, priced, own, false},
 		{"dispatcher", dispatcher, priced, own, false},
 		{"X-Act-On-Tenant: *", all, priced, own, true},
@@ -191,7 +200,7 @@ func TestStandbyBillingProjection(t *testing.T) {
 			t.Errorf("%s: billing %t, want %t", c.name, v.Billing, c.want)
 		}
 		if !v.Billing && (v.Standby.BillingEstimateThb != nil || v.Standby.BillingRateSource != nil ||
-			v.Standby.BillingPartyID != nil || v.Standby.BillingUnpricedReason != nil) {
+			v.Standby.BillingPartyID != nil || v.Standby.BillingUnpricedReason != nil || v.Standby.BillingTenantID != nil) {
 			t.Errorf("%s: billing columns left in %+v", c.name, v.Standby)
 		}
 	}
