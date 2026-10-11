@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -30,7 +31,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy/orphanscan"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
@@ -153,7 +156,7 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 					log.Warn().Err(err).Msg("redis close")
 				}
 			}
-			regs, err := workerRegistrations(cfg, pool, st, rdb, ks, log)
+			regs, err := workerRegistrations(cfg, pool, st, rdb, ks, m.Registry, log)
 			if err != nil {
 				closeAll()
 				return background{}, err
@@ -182,7 +185,8 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 
 // workerRegistrations are the consumers of the selected groups. Queues of those groups whose
 // consumer arrives with a later issue are not consumed (their messages wait in the queue).
-func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace, log zerolog.Logger) ([]mq.Registration, error) {
+func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace,
+	reg prometheus.Registerer, log zerolog.Logger) ([]mq.Registration, error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
 	if cfg.EmailEnabled {
@@ -251,6 +255,17 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 		return nil, err
 	}
 	available[billing.QueueBangchak] = fuel.Registration()
+
+	// security.audit (T28): the consumer-written security_events rows (login_failed, login_lockout,
+	// password_reset_requested, tenant_orphans_detected, ...); tenancy.orphan-scan (T28): the daily quarantine
+	// counts and broker-drift report, tenant_orphan_rows_total on this process's /metrics.
+	audit := &security.Audit{Pool: pool, Log: log}
+	available[security.QueueAudit] = audit.Registration()
+	scan, err := orphanscan.New(orphanscan.Deps{Pool: pool, Registerer: reg, Log: log})
+	if err != nil {
+		return nil, err
+	}
+	available[orphanscan.Queue] = scan.Registration()
 
 	var regs []mq.Registration
 	var waiting []string

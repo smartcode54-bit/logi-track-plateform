@@ -118,7 +118,7 @@ func TestFullLoadOfEveryCollection(t *testing.T) {
 	check("task stops", `SELECT string_agg(s.stop_index || ' ' || s.destination_raw || ' ' || s.status, ', ' ORDER BY s.stop_index)
 		FROM task_delivery_stops s JOIN tasks t ON t.id = s.task_id WHERE t.legacy_doc_id = 'task_md'`, "1 SOCE delivered, 2 HUBB pending")
 	check("task number counters", `SELECT string_agg(task_type || ' ' || plan_date || ' ' || last_seq, ', ' ORDER BY task_type, plan_date)
-		FROM task_number_counters`, "first_mile 2026-09-01 3, line_haul 2026-09-01 1, line_haul 2026-09-05 12")
+		FROM task_number_counters`, "first_mile 2026-07-20 7, first_mile 2026-09-01 3, line_haul 2026-09-01 1, line_haul 2026-09-05 12")
 	check("trip stops in completion order", `SELECT string_agg(s.stop_index || '@' || s.completed_seq, ', ' ORDER BY s.completed_seq)
 		FROM trip_delivery_stops s JOIN trip_records r ON r.id = s.trip_id WHERE r.legacy_doc_id = 'TRIP_MD'`, "2@1, 1@2")
 	check("stop photo linked to its stop", `SELECT s.stop_index FROM trip_photos p JOIN trip_delivery_stops s ON s.id = p.stop_id

@@ -123,15 +123,16 @@ func Follow(ctx context.Context, tx pgx.Tx, table string, id, to uuid.UUID) ([]M
 	if err != nil {
 		return nil, err
 	}
-	files, err := moveFiles(ctx, tx, append([]Moved{{Table: table, ID: id}}, children...), to, q)
+	files, err := moveFilesBetween(ctx, tx, append([]Moved{{Table: table, ID: id}}, children...), to, q)
 	if err != nil {
 		return nil, err
 	}
 	return append(children, files...), nil
 }
 
-// moveFiles moves the files the owners own from the quarantine tenant to `to`.
-func moveFiles(ctx context.Context, tx pgx.Tx, owners []Moved, to, q uuid.UUID) ([]Moved, error) {
+// moveFilesBetween moves the files the owners own from tenant `from` to `to` (a key another tenant registered keeps its
+// tenant).
+func moveFilesBetween(ctx context.Context, tx pgx.Tx, owners []Moved, to, from uuid.UUID) ([]Moved, error) {
 	kinds, ids := make([]string, 0, len(owners)), make([]uuid.UUID, 0, len(owners))
 	for _, o := range owners {
 		if k, ok := fileOwnerKinds[o.Table]; ok {
@@ -144,7 +145,7 @@ func moveFiles(ctx context.Context, tx pgx.Tx, owners []Moved, to, q uuid.UUID) 
 	rows, err := tx.Query(ctx, `UPDATE file_objects f SET tenant_id = $1
 		FROM unnest($3::text[], $4::uuid[]) AS m(kind, id)
 		WHERE f.tenant_id = $2 AND f.owner_kind = m.kind AND f.owner_id = m.id
-		RETURNING f.id`, to, q, kinds, ids)
+		RETURNING f.id`, to, from, kinds, ids)
 	if err != nil {
 		return nil, fmt.Errorf("tenancy: move the files of %s %s: %w", owners[0].Table, owners[0].ID, err)
 	}

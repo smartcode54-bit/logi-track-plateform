@@ -151,13 +151,17 @@ type Deps struct {
 	Log  zerolog.Logger
 	// Now is the clock of the writes that stamp a time (tests pin it); nil = time.Now.
 	Now func() time.Time
+	// Reassigner performs the R13 task reassignment in its system transaction (iam.TaskMover, T28); nil answers
+	// PATCH /v1/tasks/{id} with a 500 (the route is listed but not wired).
+	Reassigner Reassigner
 }
 
 // Service serves the principal reads of the operations tables and opens the request transactions of their writes.
 type Service struct {
-	pool db.Beginner
-	log  zerolog.Logger
-	now  func() time.Time
+	pool  db.Beginner
+	log   zerolog.Logger
+	now   func() time.Time
+	mover Reassigner
 }
 
 // New builds the service.
@@ -169,7 +173,7 @@ func New(d Deps) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{pool: d.Pool, log: d.Log, now: now}, nil
+	return &Service{pool: d.Pool, log: d.Log, now: now, mover: d.Reassigner}, nil
 }
 
 // Now is the service clock.

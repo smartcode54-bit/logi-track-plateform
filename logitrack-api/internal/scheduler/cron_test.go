@@ -32,9 +32,13 @@ func TestTableAndPending(t *testing.T) {
 		}
 		names = append(names, j.Name)
 	}
-	want := []string{"storage.gc", "auth.token-cleanup", "outbox.prune", "inbox.prune", "jobs.prune", "idempotency.prune", "rtlog.trim"}
+	want := []string{"storage.gc", "tenancy.orphan-scan", "auth.token-cleanup", "outbox.prune", "inbox.prune", "jobs.prune",
+		"idempotency.prune", "rtlog.trim"}
 	if table[0].Kind != Command || table[0].Spec != "0 * * * *" {
 		t.Fatalf("storage.gc is the hourly command cron of Appendix B §B.5.6: %+v", table[0])
+	}
+	if table[1].Kind != Command || table[1].Spec != "0 3 * * *" {
+		t.Fatalf("tenancy.orphan-scan is the daily 03:00 command cron of Appendix C §C.3.10 (T28): %+v", table[1])
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("live table %v, want %v", names, want)
