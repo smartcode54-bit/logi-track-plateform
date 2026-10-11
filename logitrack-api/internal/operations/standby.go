@@ -96,10 +96,11 @@ type StandbyView struct {
 
 // BillingVisible reports whether p reads the billing columns of a standby record (Appendix C §C.3.4): only the billing
 // carrier's principals do. The billing carrier is fixed by what the record itself names, never by today's fee
-// table:
+// table; the statement's invoice set applies the same rule (internal/billing, T37):
 //
-//   - a record priced from a standby rate entry (billing_rate_entry_id set) belongs to the tenant owning that entry
-//     (billingTenant, read through the caller's RLS: the zero uuid when the entry is outside the caller's reach);
+//   - a record that stores its carrier (billing_tenant_id, written with the price since 0015) belongs to it;
+//   - otherwise a record priced from a standby rate entry (billing_rate_entry_id set) belongs to the tenant owning that
+//     entry (entryTenant, read through the caller's RLS: the zero uuid when the entry is outside the caller's reach);
 //     the entry is immutable in that respect and never deleted (standby_rate_entries_no_delete);
 //   - a record that names no rate entry (unpriced, priced from the party's standby service fee, or a legacy rate the
 //     ETL has not linked yet) belongs to the own fleet, the billing carrier of today's rate tables (R61, D6). A
@@ -108,7 +109,7 @@ type StandbyView struct {
 //     the columns to whoever holds the fee now.
 //
 // X-Act-On-Tenant: * reads everything; a driver, a customer scope or a dispatcher never.
-func BillingVisible(p *authz.Principal, rec Standby, billingTenant uuid.UUID) bool {
+func BillingVisible(p *authz.Principal, rec Standby, entryTenant uuid.UUID) bool {
 	if p.ActOnAll {
 		return true
 	}
@@ -116,19 +117,23 @@ func BillingVisible(p *authz.Principal, rec Standby, billingTenant uuid.UUID) bo
 	if t == nil || !p.EffectiveRole().IsStaff() || p.Dispatcher {
 		return false
 	}
+	if rec.BillingTenantID != nil {
+		return *rec.BillingTenantID == *t
+	}
 	if rec.BillingRateEntryID == nil {
 		return p.TenantKind == "own_fleet"
 	}
-	return billingTenant != uuid.Nil && billingTenant == *t
+	return entryTenant != uuid.Nil && entryTenant == *t
 }
 
 // Project applies BillingVisible: the billing columns of a record the principal may not price are cleared.
-func Project(p *authz.Principal, rec Standby, billingTenant uuid.UUID) StandbyView {
-	if BillingVisible(p, rec, billingTenant) {
+func Project(p *authz.Principal, rec Standby, entryTenant uuid.UUID) StandbyView {
+	if BillingVisible(p, rec, entryTenant) {
 		return StandbyView{Standby: rec, Billing: true}
 	}
 	rec.BillingEstimateThb, rec.BillingPartyID, rec.BillingRateSource, rec.BillingRateEntryID = nil, nil, nil, nil
 	rec.BillingEffectiveFromDate, rec.BillingUnpricedReason, rec.BillingComputedAt = nil, nil, nil
+	rec.BillingTenantID = nil
 	return StandbyView{Standby: rec}
 }
 
@@ -144,7 +149,7 @@ func (s *Service) GetStandby(ctx context.Context, p *authz.Principal, id uuid.UU
 		if err != nil {
 			return notFound(err)
 		}
-		view = Project(p, row.StandbyRecord, row.BillingTenantID)
+		view = Project(p, row.StandbyRecord, row.EntryTenantID)
 		photos, err = q.StandbyPhotos(ctx, id)
 		return err
 	})
@@ -192,7 +197,7 @@ func (s *Service) ListStandby(ctx context.Context, p *authz.Principal, f Standby
 				TenantIds: r.tenants(), FromAt: f.From, ToAt: f.To, DriverID: f.DriverID, CustomerID: f.CustomerID,
 				AfterEnded: c.at(), AfterID: c.id(), RowLimit: int32(limit + 1)})
 			for _, row := range res {
-				rows = append(rows, Project(p, row.StandbyRecord, row.BillingTenantID))
+				rows = append(rows, Project(p, row.StandbyRecord, row.EntryTenantID))
 			}
 			return err
 		}
@@ -200,7 +205,7 @@ func (s *Service) ListStandby(ctx context.Context, p *authz.Principal, f Standby
 			TenantIds: r.tenants(), FromAt: f.From, ToAt: f.To, DriverID: f.DriverID, CustomerID: f.CustomerID,
 			AfterCreated: c.at(), AfterID: c.id(), RowLimit: int32(limit + 1)})
 		for _, row := range res {
-			rows = append(rows, Project(p, row.StandbyRecord, row.BillingTenantID))
+			rows = append(rows, Project(p, row.StandbyRecord, row.EntryTenantID))
 		}
 		return err
 	})

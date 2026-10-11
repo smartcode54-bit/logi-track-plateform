@@ -174,7 +174,7 @@ const jobsPkg = `"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/
 // jobs.Service.Submit, are reported outside Allowed; inbox.Claim, a Submit without a hook, a read of
 // InTx and an InTx field of another type are not.
 func TestSystemHandOffs(t *testing.T) {
-	pre := "package billing\n\nimport "
+	pre := "package expenses\n\nimport "
 	run := pre + inboxPkg + "\n\nvar f = inbox.Run\n"                                                         // 1
 	runRenamed := pre + "ib " + inboxPkg + "\n\nfunc g() { _, _ = ib.Run(nil, nil, nil, nil) }\n"             // 1
 	runDot := pre + ". " + inboxPkg + "\n\nvar f = Run\n"                                                     // 1
@@ -186,27 +186,27 @@ func TestSystemHandOffs(t *testing.T) {
 	hookWrite := pre + jobsPkg + "\n\nfunc g() { var in jobs.SubmitInput; in.InTx = nil; _ = in }\n"
 	noHook := pre + jobsPkg + "\n\ntype own struct{ InTx func() }\n\n" +
 		"var in = jobs.SubmitInput{Command: true}\n\nvar o = own{InTx: nil}\n\nfunc g(in *jobs.SubmitInput) bool { return in.InTx != nil }\n" // clean
-	noImport := "package billing\n\ntype own struct{ InTx func() }\n\nfunc g(o *own) { o.InTx = nil; _ = []own{{InTx: nil}} }\n" // clean
+	noImport := "package expenses\n\ntype own struct{ InTx func() }\n\nfunc g(o *own) { o.InTx = nil; _ = []own{{InTx: nil}} }\n" // clean
 	root := write(t, map[string]string{
-		"go.mod":                           "module example\n",
-		"internal/billing/run.go":          run,
-		"internal/billing/run_renamed.go":  runRenamed,
-		"internal/billing/run_dot.go":      runDot,
-		"internal/billing/claim.go":        claim,
-		"internal/billing/hook.go":         hook,
-		"internal/billing/hook_ptr.go":     hookPtr,
-		"internal/billing/hook_dot.go":     hookDot,
-		"internal/billing/hook_elided.go":  hookElided,
-		"internal/billing/hook_write.go":   hookWrite,
-		"internal/billing/no_hook.go":      noHook,
-		"internal/billing/no_import.go":    noImport,
-		"internal/billing/hook_test.go":    hook, // test files are exempt
-		"internal/billing/consume_test.go": run,
+		"go.mod":                            "module example\n",
+		"internal/expenses/run.go":          run,
+		"internal/expenses/run_renamed.go":  runRenamed,
+		"internal/expenses/run_dot.go":      runDot,
+		"internal/expenses/claim.go":        claim,
+		"internal/expenses/hook.go":         hook,
+		"internal/expenses/hook_ptr.go":     hookPtr,
+		"internal/expenses/hook_dot.go":     hookDot,
+		"internal/expenses/hook_elided.go":  hookElided,
+		"internal/expenses/hook_write.go":   hookWrite,
+		"internal/expenses/no_hook.go":      noHook,
+		"internal/expenses/no_import.go":    noImport,
+		"internal/expenses/hook_test.go":    hook, // test files are exempt
+		"internal/expenses/consume_test.go": run,
 		// allowed where they belong
-		"internal/notify/email.go":        strings.Replace(run, "package billing", "package notify", 1),
-		"internal/jobs/http.go":           strings.Replace(hook, "package billing", "package jobs", 1),
-		"cmd/worker/consumers/billing.go": strings.Replace(run, "package billing", "package consumers", 1),
-		"internal/scheduler/replay.go":    strings.Replace(hookWrite, "package billing", "package scheduler", 1),
+		"internal/notify/email.go":        strings.Replace(run, "package expenses", "package notify", 1),
+		"internal/jobs/http.go":           strings.Replace(hook, "package expenses", "package jobs", 1),
+		"cmd/worker/consumers/billing.go": strings.Replace(run, "package expenses", "package consumers", 1),
+		"internal/scheduler/replay.go":    strings.Replace(hookWrite, "package expenses", "package scheduler", 1),
 	})
 	findings, err := Check(root, Allowed)
 	if err != nil {
@@ -217,9 +217,9 @@ func TestSystemHandOffs(t *testing.T) {
 		count[f]++
 	}
 	want := map[string]int{
-		"internal/billing/run.go": 1, "internal/billing/run_renamed.go": 1, "internal/billing/run_dot.go": 1,
-		"internal/billing/hook.go": 1, "internal/billing/hook_ptr.go": 1, "internal/billing/hook_dot.go": 1,
-		"internal/billing/hook_elided.go": 1, "internal/billing/hook_write.go": 1,
+		"internal/expenses/run.go": 1, "internal/expenses/run_renamed.go": 1, "internal/expenses/run_dot.go": 1,
+		"internal/expenses/hook.go": 1, "internal/expenses/hook_ptr.go": 1, "internal/expenses/hook_dot.go": 1,
+		"internal/expenses/hook_elided.go": 1, "internal/expenses/hook_write.go": 1,
 	}
 	if !maps.Equal(count, want) {
 		for _, f := range findings {

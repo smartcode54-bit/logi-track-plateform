@@ -86,6 +86,7 @@ type StandbyRecord struct {
 	ClientOpID                *uuid.UUID
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
+	BillingTenantID           *uuid.UUID
 }
 
 type Task struct {

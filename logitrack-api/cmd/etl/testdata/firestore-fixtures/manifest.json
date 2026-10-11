@@ -32,12 +32,12 @@
     {
       "name": "drivers",
       "file": "drivers.ndjson",
-      "count": 4
+      "count": 5
     },
     {
       "name": "tasks",
       "file": "tasks.ndjson",
-      "count": 8
+      "count": 9
     },
     {
       "name": "trip_records",

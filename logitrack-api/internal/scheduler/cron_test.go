@@ -23,7 +23,7 @@ func TestCronRunsInBangkok(t *testing.T) {
 }
 
 func TestTableAndPending(t *testing.T) {
-	table := Table(nil, nil)
+	table := Table(nil, nil, Gates{})
 	var names []string
 	for _, j := range table {
 		// Local jobs run in the scheduler; command jobs (storage.gc, T11) only publish job.{name}.
@@ -32,9 +32,13 @@ func TestTableAndPending(t *testing.T) {
 		}
 		names = append(names, j.Name)
 	}
-	want := []string{"storage.gc", "auth.token-cleanup", "outbox.prune", "inbox.prune", "jobs.prune", "idempotency.prune", "rtlog.trim"}
+	want := []string{"storage.gc", "tenancy.orphan-scan", "auth.token-cleanup", "outbox.prune", "inbox.prune", "jobs.prune",
+		"idempotency.prune", "rtlog.trim"}
 	if table[0].Kind != Command || table[0].Spec != "0 * * * *" {
 		t.Fatalf("storage.gc is the hourly command cron of Appendix B §B.5.6: %+v", table[0])
+	}
+	if table[1].Kind != Command || table[1].Spec != "0 3 * * *" {
+		t.Fatalf("tenancy.orphan-scan is the daily 03:00 command cron of Appendix C §C.3.10 (T28): %+v", table[1])
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("live table %v, want %v", names, want)
@@ -45,16 +49,26 @@ func TestTableAndPending(t *testing.T) {
 		}
 	}
 	for _, g := range Gated {
-		if _, err := parser.Parse(g.Spec); err != nil || slices.Contains(names, g.Name) || g.Gate == "" ||
-			slices.ContainsFunc(Pending, func(p struct{ Name, Spec, Issue, Gate string }) bool { return p.Name == g.Name }) {
+		if _, err := parser.Parse(g.Spec); err != nil || slices.Contains(names, g.Name) || g.Gate == "" {
 			t.Fatalf("gated %+v", g)
 		}
 	}
-	if len(table)+len(Pending)+len(Gated) != 12 {
-		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + pending %d + gated %d", len(table), len(Pending), len(Gated))
+	if len(table)+len(Gated)+len(Pending) != 12 {
+		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + gated %d + pending %d", len(table), len(Gated), len(Pending))
 	}
-	if j := ETLSync("*/5 * * * *"); j.Kind != Command || j.Name != "etl.sync" {
-		t.Fatalf("etl.sync cron %+v", j)
+	// FUEL_MONTHLY_SNAPSHOT_ENABLED adds bangchak.snapshot at 05:00 Asia/Bangkok as a command cron (T37, R70).
+	on := Table(nil, nil, Gates{FuelMonthlySnapshot: true})
+	last := on[len(on)-1]
+	if len(on) != len(table)+1 || last.Name != "bangchak.snapshot" || last.Spec != "0 5 * * *" || last.Kind != Command {
+		t.Fatalf("gated table: %+v", last)
+	}
+	// ETL_SYNC_ENABLED adds the etl.sync sweep at ETL_SYNC_INTERVAL (every 5 minutes by default) (T24S).
+	for spec, want := range map[string]string{"": "*/5 * * * *", "*/15 * * * *": "*/15 * * * *"} {
+		on = Table(nil, nil, Gates{ETLSync: true, ETLSyncSpec: spec})
+		last = on[len(on)-1]
+		if len(on) != len(table)+1 || last.Name != "etl.sync" || last.Spec != want || last.Kind != Command {
+			t.Fatalf("etl.sync %q: %+v", spec, last)
+		}
 	}
 	if _, err := NewCron(nil, nil, []Job{{Name: "x.y", Spec: "every day", Kind: Command}}, zerolog.Nop(), nil); err == nil {
 		t.Fatal("a bad spec was accepted")

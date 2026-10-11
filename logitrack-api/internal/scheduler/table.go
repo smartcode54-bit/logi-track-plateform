@@ -30,27 +30,35 @@ const (
 // env gate where §7.4 names one). Firing them now would only pile commands up in an unconsumed queue.
 var Pending = []struct{ Name, Spec, Issue, Gate string }{
 	{"cartrack.sync", "*/3 * * * *", "T53", "CARTRACK_SYNC_ENABLED"},
-	{"bangchak.snapshot", "0 5 * * *", "T37", "FUEL_MONTHLY_SNAPSHOT_ENABLED"},
 	{"billing.safety-net", "*/15 * * * *", "T38", ""},
-	{"tenancy.orphan-scan", "0 3 * * *", "T28", ""},
 }
 
-// Gated lists the command crons whose consumer has landed but that run only while their env gate is on (main spec
-// §7.4): the scheduler adds each to the table then. etl.sync (T24): the FS->PG mirror sweep, every ETL_SYNC_INTERVAL
-// (*/5 by default) while ETL_SYNC_ENABLED is true; the worker's etl.sync consumer runs it.
-var Gated = []struct{ Name, Spec, Issue, Gate string }{
-	{"etl.sync", "*/5 * * * *", "T24", "ETL_SYNC_ENABLED"},
+// Gated lists the command crons whose consumer has landed but which run only while their env gate is on (main spec
+// §7.4): Table adds each one whose Gates field is set.
+var Gated = []struct{ Name, Spec, Gate string }{
+	{"bangchak.snapshot", "0 5 * * *", "FUEL_MONTHLY_SNAPSHOT_ENABLED"}, // T37, R70: worker consumer bangchak.snapshot
+	{"etl.sync", "*/5 * * * *", "ETL_SYNC_ENABLED"},                     // T24S: worker consumer etl.sync; ETL_SYNC_INTERVAL sets the spec
 }
 
-// ETLSync is the etl.sync command cron at spec (ETL_SYNC_INTERVAL as five cron fields).
-func ETLSync(spec string) Job { return Job{Name: "etl.sync", Spec: spec, Kind: Command} }
+// Gates are the env gates of the Gated crons (SchedulerConfig).
+type Gates struct {
+	// FuelMonthlySnapshot is FUEL_MONTHLY_SNAPSHOT_ENABLED: bangchak.snapshot daily at 05:00 Asia/Bangkok.
+	FuelMonthlySnapshot bool
+	// ETLSync is ETL_SYNC_ENABLED: the FS->PG mirror sweep (T24S) at ETLSyncSpec, ETL_SYNC_INTERVAL as five cron
+	// fields (empty: the Gated default, every 5 minutes).
+	ETLSync     bool
+	ETLSyncSpec string
+}
 
-// Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, and the
-// command crons whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc
-// queue, Appendix B §B.5.6).
-func Table(pool *pgxpool.Pool, rt *realtime.Writer) []Job {
-	return []Job{
+// Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, the command crons
+// whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc queue, Appendix B
+// §B.5.6; tenancy.orphan-scan, T28: daily at 03:00 job.tenancy.orphan-scan to the worker's tenancy.orphan-scan queue,
+// Appendix C §C.3.10), and the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S). Only the leader fires, and lock:cron guards
+// each slot, so two scheduler replicas fire a slot once.
+func Table(pool *pgxpool.Pool, rt *realtime.Writer, gates Gates) []Job {
+	jobs := []Job{
 		{Name: "storage.gc", Spec: "0 * * * *", Kind: Command},
+		{Name: "tenancy.orphan-scan", Spec: "0 3 * * *", Kind: Command},
 		{Name: "auth.token-cleanup", Spec: "*/10 * * * *", Kind: Local, Run: func(ctx context.Context) (any, error) {
 			return TokenCleanup(ctx, pool, time.Now())
 		}},
@@ -85,6 +93,17 @@ func Table(pool *pgxpool.Pool, rt *realtime.Writer) []Job {
 			return map[string]any{"streams": n}, err
 		}},
 	}
+	if gates.FuelMonthlySnapshot {
+		jobs = append(jobs, Job{Name: Gated[0].Name, Spec: Gated[0].Spec, Kind: Command})
+	}
+	if gates.ETLSync {
+		spec := gates.ETLSyncSpec
+		if spec == "" {
+			spec = Gated[1].Spec
+		}
+		jobs = append(jobs, Job{Name: Gated[1].Name, Spec: spec, Kind: Command})
+	}
+	return jobs
 }
 
 // prune repeats one batched delete until a batch comes back short.

@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
@@ -33,7 +35,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy/orphanscan"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
@@ -170,7 +174,7 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 					log.Warn().Err(err).Msg("redis close")
 				}
 			}
-			regs, err := workerRegistrations(cfg, pool, etlPool, st, rdb, ks, log, m)
+			regs, err := workerRegistrations(cfg, pool, etlPool, st, rdb, ks, m.Registry, log)
 			if err != nil {
 				closeAll()
 				return background{}, err
@@ -200,7 +204,7 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 // workerRegistrations are the consumers of the selected groups. Queues of those groups whose
 // consumer arrives with a later issue are not consumed (their messages wait in the queue).
 func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace,
-	log zerolog.Logger, m *telemetry.Metrics) ([]mq.Registration, error) {
+	reg prometheus.Registerer, log zerolog.Logger) ([]mq.Registration, error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
 	if cfg.EmailEnabled {
@@ -258,10 +262,33 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 	}
 	available[hubs.QueueDistances] = distances.Registration()
 
+	// bangchak.snapshot (T37, R70): the Bangchak client only when BANGCHAK_API_BASE_URL is set (no I/O here).
+	feed, err := cfg.BangchakClient()
+	if err != nil {
+		return nil, err
+	}
+	log.Info().Bool("bangchak_enabled", feed != nil).Msg("bangchak.snapshot")
+	fuel, err := billing.NewFuelJob(billing.FuelJobDeps{Pool: pool, Bangchak: feed, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, err
+	}
+	available[billing.QueueBangchak] = fuel.Registration()
+
+	// security.audit (T28): the consumer-written security_events rows (login_failed, login_lockout,
+	// password_reset_requested, tenant_orphans_detected, ...); tenancy.orphan-scan (T28): the daily quarantine
+	// counts and broker-drift report, tenant_orphan_rows_total on this process's /metrics.
+	audit := &security.Audit{Pool: pool, Log: log}
+	available[security.QueueAudit] = audit.Registration()
+	scan, err := orphanscan.New(orphanscan.Deps{Pool: pool, Registerer: reg, Log: log})
+	if err != nil {
+		return nil, err
+	}
+	available[orphanscan.Queue] = scan.Registration()
+
 	// etl.sync and firestore.shadow (T24): registered whenever group sync runs, so their queues drain; with their
 	// switches off they answer without touching Firestore (a sweep command fails its job, an event is dropped).
 	if slices.Contains(cfg.Groups, "sync") {
-		regs, err := coexistRegistrations(cfg, pool, etlPool, log, m)
+		regs, err := coexistRegistrations(cfg, pool, etlPool, reg, log)
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +319,7 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 
 // coexistRegistrations builds the two coexistence consumers (internal/coexist). The Firestore client needs no I/O: the
 // access token is fetched on the first request, so the worker starts while Google is unreachable.
-func coexistRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, log zerolog.Logger, m *telemetry.Metrics) ([]mq.Registration, error) {
+func coexistRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, reg prometheus.Registerer, log zerolog.Logger) ([]mq.Registration, error) {
 	var fs *gcp.Firestore
 	if cfg.ETLSyncEnabled || cfg.CompatProjectionEnabled {
 		sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
@@ -304,7 +331,7 @@ func coexistRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, log ze
 			return nil, &config.Error{Invalid: []string{err.Error()}}
 		}
 	}
-	metrics := coexist.NewMetrics(m.Registry)
+	metrics := coexist.NewMetrics(reg)
 	sc := coexist.SyncConfig{Enabled: cfg.ETLSyncEnabled, AppPool: pool, Plan: cfg.Coexist.Mirror, Bucket: cfg.S3Bucket,
 		PublicBucket: cfg.S3PublicBucket, Log: log, Metrics: metrics}
 	shc := coexist.ShadowConfig{Enabled: cfg.CompatProjectionEnabled, Pool: pool, Plan: cfg.Coexist, Log: log, Metrics: metrics}
@@ -395,10 +422,8 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 			}
 			locks := jobs.NewRedisLocker(rdb, ks)
 			rt := realtime.NewWriter(rdb, ks, cfg.RTLogMaxLen, cfg.RTLogTTL)
-			table := scheduler.Table(pool, rt)
-			if cfg.ETLSyncEnabled { // the FS->PG mirror sweep (T24), every ETL_SYNC_INTERVAL
-				table = append(table, scheduler.ETLSync(ETLSyncSpec(cfg.ETLSyncInterval)))
-			}
+			table := scheduler.Table(pool, rt, scheduler.Gates{FuelMonthlySnapshot: cfg.FuelMonthlySnapshotEnabled,
+				ETLSync: cfg.ETLSyncEnabled, ETLSyncSpec: ETLSyncSpec(cfg.ETLSyncInterval)})
 			log.Info().Bool("etl_sync_enabled", cfg.ETLSyncEnabled).Dur("etl_sync_interval", cfg.ETLSyncInterval).Msg("etl.sync cron")
 			cron, err := scheduler.NewCron(pool, locks, table, log, m.Registry)
 			if err != nil {
@@ -411,6 +436,10 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 				pending[i] = p.Name + " (" + p.Issue + ")"
 			}
 			log.Info().Strs("pending_crons", pending).Msg("cron jobs whose consumer lands later are not scheduled")
+			for _, g := range scheduler.Gated {
+				log.Info().Str("cron", g.Name).Str("gate", g.Gate).Bool("scheduled", slices.ContainsFunc(table,
+					func(j scheduler.Job) bool { return j.Name == g.Name })).Msg("gated cron")
+			}
 			relayMetrics := outbox.NewRelayMetrics(m.Registry)
 			hooks := map[string]outbox.Hook{
 				auth.RouteSessionsRevoked: auth.RevocationHook(pool, auth.NewStore(rdb, ks.Prefix()), cfg.JWTAccessTTL, log),
