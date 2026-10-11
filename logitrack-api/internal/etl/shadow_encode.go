@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -431,6 +432,118 @@ func encodeMetadata(ctx context.Context, tx pgx.Tx, _ selection, _ bool) ([]Expo
 		}
 	}
 	return nil, nil
+}
+
+// --- settings/mobile_app -----------------------------------------------------------------------------------------
+
+// The fields of settings/mobile_app loadMobileAppSettings reads (map_platform.go), by kind: the encoder's mask.
+var (
+	mobileAppTextFields = []string{"minAllowedVersion", "minAllowedVersionSetBy", "latestVersion", "latestBuildNumber",
+		"apkDownloadUrl", "apkSha256", "releaseNotes", "releasedBy"}
+	mobileAppTimeFields = []string{"minAllowedVersionSetAt", "releasedAt"}
+)
+
+// encodeMobileAppSettings: settings('mobile_app') -> settings/mobile_app (§A.3.10 inverse; ADR 0007), the version gate
+// installed 3.x APKs read (mobile_app_version_service.dart: minAllowedVersion and apkDownloadUrl, nothing else) and the
+// legacy mobile-release page reads whole. Both halves of the two writers are written as the legacy writers stored
+// them: strings, the two instants as Timestamps (the page reads only a Timestamp), apkSizeBytes as an integer. A floor
+// removed in Go (minAllowedVersion null) deletes the field, which the app reads as no floor and which clears the floor
+// it cached; the floor and its link always travel in the same write. A value of another JSON type than the loader
+// writes (a hand edit) is left as Firestore has it, neither written nor deleted. The flavor names the fleet the gate
+// serves: the document of a Firestore project whose stored flavor is another one is held (ExportDoc.Hold), never
+// rewritten, so a floor is never pushed onto the fleet of another flavor with the other flavor's APK (ADR 0007 §3:
+// the legacy script never published a build into the other flavor's project); no flavor in PostgreSQL keeps the
+// stored one.
+func encodeMobileAppSettings(ctx context.Context, tx pgx.Tx, _ selection, _ bool) ([]ExportDoc, error) {
+	var raw []byte
+	err := tx.QueryRow(ctx, `SELECT value FROM settings WHERE key = $1`, settingMobileApp).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("etl: encode settings/%s: %w", settingMobileApp, err)
+	}
+	d, err := mobileAppSettingsDoc(raw)
+	if err != nil {
+		return nil, err
+	}
+	return []ExportDoc{d}, nil
+}
+
+// mobileAppSettingsDoc encodes the JSON value of settings('mobile_app').
+func mobileAppSettingsDoc(raw []byte) (ExportDoc, error) {
+	var v map[string]any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ExportDoc{}, fmt.Errorf("etl: settings %s: %w", settingMobileApp, err)
+	}
+	b := newDoc("settings/" + settingMobileApp)
+	for _, k := range mobileAppTextFields {
+		switch x := v[k].(type) {
+		case nil:
+			b.set(k, nil)
+		case string:
+			b.set(k, x).eq(k, sameText(x))
+		}
+	}
+	for _, k := range mobileAppTimeFields {
+		switch x := v[k].(type) {
+		case nil:
+			b.set(k, nil)
+		case string:
+			if t, ok := toTime(x); ok {
+				b.set(k, t)
+			}
+		}
+	}
+	switch x := v["apkSizeBytes"].(type) {
+	case nil:
+		b.set("apkSizeBytes", nil).eq("apkSizeBytes", noSize)
+	case float64:
+		if x > 0 && x < 1<<53 && x == math.Trunc(x) {
+			b.set("apkSizeBytes", int64(x))
+		}
+	}
+	flavor, _ := v["flavor"].(string)
+	if !validMobileFlavor(flavor) {
+		flavor = ""
+	}
+	b.set("flavor", flavor).eq("flavor", func(cur any, has bool) bool {
+		s, _ := cur.(string)
+		return flavor == "" || (has && canon(s) == flavor)
+	})
+	if flavor != "" {
+		b.d.Hold = func(cur map[string]any) string {
+			s, _ := cur["flavor"].(string)
+			if stored := canon(s); stored != "" && stored != flavor {
+				return fmt.Sprintf("the stored gate is the %s fleet's and PostgreSQL's gate serves %s: "+
+					"ETL_FIRESTORE_PROJECT_ID must name the %s project", stored, flavor, flavor)
+			}
+			return ""
+		}
+	}
+	return b.doc(), nil
+}
+
+// validMobileFlavor is a flavor of the driver app (mobile_app_releases.flavor).
+func validMobileFlavor(f string) bool { return f == "dev" || f == "prod" }
+
+// sameText: a stored value whose text form (docCtx.text: a string verbatim, a number or a boolean in its JSON form) is
+// want; a blank want matches an absent or blank value.
+func sameText(want string) func(cur any, has bool) bool {
+	return func(cur any, has bool) bool {
+		got := (&docCtx{f: map[string]any{"v": cur}}).text("v")
+		if strings.TrimSpace(want) == "" {
+			return got == nil
+		}
+		return has && got != nil && *got == want
+	}
+}
+
+// noSize: PostgreSQL holds no APK size, and the stored one is absent or one the loader reads as none (not a number,
+// or not above 0).
+func noSize(cur any, has bool) bool {
+	f, ok := toFloat(cur)
+	return !has || blank(cur) || !ok || f <= 0
 }
 
 // --- trucks -----------------------------------------------------------------------------------------------------
