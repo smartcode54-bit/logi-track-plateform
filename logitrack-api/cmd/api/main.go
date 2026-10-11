@@ -26,6 +26,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
@@ -50,7 +51,8 @@ func main() {
 // administration (T19, deps.Admin, with the carrier profiles of T20), the API keys administration (T32K,
 // deps.APIKeys), the customers and companies (T20, deps.Parties) and the hubs, distances and
 // POST /v1/jobs/distances.compute (T21, deps.Hubs), the trucks (T22, deps.Fleet) with the truck assignments and
-// the drivers (T23, deps.Fleet, deps.Drivers) sit behind
+// the drivers (T23, deps.Fleet, deps.Drivers), the billing rate tables, statements, fuel snapshots and POST
+// /v1/jobs/bangchak.snapshot (T37, deps.Billing) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
 // installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
@@ -69,6 +71,7 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, hubs.Groups(deps.Hubs, deps.Auth.RequireAuth())...)
 	groups = append(groups, fleet.Groups(deps.Fleet, deps.Auth.RequireAuth())...)
 	groups = append(groups, drivers.Groups(deps.Drivers, deps.Auth.RequireAuth())...)
+	groups = append(groups, billing.Groups(deps.Billing, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)

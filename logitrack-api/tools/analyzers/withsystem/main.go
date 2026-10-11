@@ -84,6 +84,7 @@ var Allowed = []string{
 	"internal/notify",    // notify.* consumers (worker, T10)
 	"internal/scheduler", // scheduler jobs (T10)
 	"internal/hubs",      // read-only loads of the shared hub caches, the distances.compute consumer (T21)
+	"internal/billing",   // read-only loads of the rate-card bundle, the bangchak.snapshot consumer (T37); pricing (T38)
 	"cmd/worker",
 	"cmd/scheduler",
 	"cmd/etl",
