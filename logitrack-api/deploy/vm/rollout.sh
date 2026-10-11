@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # rollout.sh: the VM side of deploy.sh (deploy/vm/README.md). Run as root from inside a release:
 #
-#   /opt/logitrack/releases/<id>/deploy/vm/rollout.sh activate [--pending] [--dry-run] [--no-auto-rollback]
+#   /opt/logitrack/releases/<id>/deploy/vm/rollout.sh activate [--pending] [--reseed] [--dry-run] [--no-auto-rollback]
 #       migrate up with this release's binary; while no release has gone live yet, seed --profile demo and
 #       seed --bootstrap-admin; switch `current` to this release; pm2 startOrReload; on-VM health checks
 #       (a failure switches back to the previous release); then record the release as live and keep the
 #       newest kit_keep_releases releases. --pending (deploy.sh) stops after the on-VM checks: the release
 #       is recorded only by `confirm` once deploy.sh's public checks pass, so a release that fails them
-#       never enters the history.
+#       never enters the history. --reseed also runs seed --profile demo on a later deploy (upsert: only
+#       missing rows), before the switch, for a release whose seed generators add rows; a failed top-up
+#       stops the activation with `current` unchanged.
 #   /opt/logitrack/current/deploy/vm/rollout.sh confirm <id>
 #       record the current release <id> as live (shared/releases.log; the first one also marks the first
 #       deploy as done) and prune.
@@ -27,13 +29,14 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: rollout.sh activate [--pending] [--dry-run] [--no-auto-rollback] | confirm ID | rollback [--to ID] [--dry-run] | status | pm2 ARGS..." >&2
+  echo "usage: rollout.sh activate [--pending] [--reseed] [--dry-run] [--no-auto-rollback] | confirm ID | rollback [--to ID] [--dry-run] | status | pm2 ARGS..." >&2
   exit "${1:-2}"
 }
 cmd=""
 dry=0
 auto_rollback=1
 pending=0
+reseed=0
 to=""
 confirm_id=""
 prefix=""
@@ -63,6 +66,7 @@ while [ $# -gt 0 ]; do
       ;;
     --dry-run) dry=1 ;;
     --pending) pending=1 ;;
+    --reseed) reseed=1 ;;
     --no-auto-rollback) auto_rollback=0 ;;
     --to)
       [ $# -ge 2 ] || usage
@@ -265,13 +269,18 @@ activate() {
 
   # The schema first, with the new binary; the running release keeps serving (expand/contract).
   run as_user "$rel" migrate up
-  if [ -e "$first_marker" ]; then
-    say "not the first deploy: no seed"
-  else
+  if [ ! -e "$first_marker" ]; then
     # Until a release has gone live (record_live writes the marker), so a first deploy that failed a check
     # is seeded again by the next one.
     run as_user "$rel" seed --profile demo --allow-shared
     run as_user "$rel" seed --bootstrap-admin
+  elif [ "$reseed" = 1 ]; then
+    # The top-up of a release whose seed generators add rows (README section 4): APP_ENV=dev loads in upsert
+    # mode, so only missing rows are written; the admin bootstrap stays a first-deploy step.
+    say "not the first deploy: --reseed tops up the demo seed"
+    run as_user "$rel" seed --profile demo --allow-shared
+  else
+    say "not the first deploy: no seed"
   fi
 
   switch_to "$id"

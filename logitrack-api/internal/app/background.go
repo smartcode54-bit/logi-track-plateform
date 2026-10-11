@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -16,8 +17,11 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/render"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
@@ -150,14 +154,28 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 				}
 				return background{}, err
 			}
+			// The etl.sync mirror is the ETL load path: its own pool on ETL_DATABASE_URL (logitrack_etl, R66), opened only
+			// when the sync runs in this replica (T24).
+			var etlPool *pgxpool.Pool
+			if cfg.ETLSyncEnabled && slices.Contains(cfg.Groups, "sync") {
+				if etlPool, err = db.NewPool(ctx, cfg.ETLDatabaseURL, "logitrack-worker-etl", db.Options{MaxConns: 2}); err != nil {
+					st.Close()
+					pool.Close()
+					_ = rdb.Close()
+					return background{}, &config.Error{Invalid: []string{"ETL_DATABASE_URL: " + err.Error()}}
+				}
+			}
 			closeAll := func() {
 				st.Close()
 				pool.Close()
+				if etlPool != nil {
+					etlPool.Close()
+				}
 				if err := rdb.Close(); err != nil {
 					log.Warn().Err(err).Msg("redis close")
 				}
 			}
-			regs, err := workerRegistrations(cfg, pool, st, rdb, ks, m.Registry, log)
+			regs, err := workerRegistrations(cfg, pool, etlPool, st, rdb, ks, m.Registry, log)
 			if err != nil {
 				closeAll()
 				return background{}, err
@@ -186,7 +204,7 @@ func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
 
 // workerRegistrations are the consumers of the selected groups. Queues of those groups whose
 // consumer arrives with a later issue are not consumed (their messages wait in the queue).
-func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace,
+func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace,
 	reg prometheus.Registerer, log zerolog.Logger) ([]mq.Registration, error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
@@ -268,6 +286,18 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 	}
 	available[orphanscan.Queue] = scan.Registration()
 
+	// etl.sync and firestore.shadow (T24): registered whenever group sync runs, so their queues drain; with their
+	// switches off they answer without touching Firestore (a sweep command fails its job, an event is dropped).
+	if slices.Contains(cfg.Groups, "sync") {
+		regs, err := coexistRegistrations(cfg, pool, etlPool, reg, log)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range regs {
+			available[r.Queue] = r
+		}
+	}
+
 	// documents.render (T39, R69): statement documents and the Shopee report, stored through the storage service. The
 	// fonts are read (and parsed) once here, so a bad PDF_FONT_DIR stops the start instead of every render.
 	if st != nil && slices.Contains(cfg.Groups, "documents") {
@@ -301,6 +331,44 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 	}
 	log.Info().Strs("groups", cfg.Groups).Strs("consuming", names).Strs("no_consumer_yet", waiting).Msg("worker queues")
 	return regs, nil
+}
+
+// coexistRegistrations builds the two coexistence consumers (internal/coexist). The Firestore client needs no I/O: the
+// access token is fetched on the first request, so the worker starts while Google is unreachable.
+func coexistRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, reg prometheus.Registerer, log zerolog.Logger) ([]mq.Registration, error) {
+	var fs *gcp.Firestore
+	if cfg.ETLSyncEnabled || cfg.CompatProjectionEnabled {
+		sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
+		if err != nil { // names the variable, never the content
+			return nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+		client := &http.Client{Timeout: 2 * time.Minute}
+		if fs, err = gcp.NewFirestore(cfg.FirestoreProjectID, cfg.FirestoreDatabaseID, client, sa.TokenSource(client, gcp.FirestoreScope)); err != nil {
+			return nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+	}
+	metrics := coexist.NewMetrics(reg)
+	sc := coexist.SyncConfig{Enabled: cfg.ETLSyncEnabled, AppPool: pool, Plan: cfg.Coexist.Mirror, Bucket: cfg.S3Bucket,
+		PublicBucket: cfg.S3PublicBucket, Log: log, Metrics: metrics}
+	shc := coexist.ShadowConfig{Enabled: cfg.CompatProjectionEnabled, Pool: pool, Plan: cfg.Coexist, Log: log, Metrics: metrics}
+	if fs != nil {
+		sc.Source, shc.FS = fs, fs
+	}
+	if etlPool != nil {
+		sc.ETLPool = etlPool
+	}
+	syncC, err := coexist.NewSync(sc)
+	if err != nil {
+		return nil, err
+	}
+	shadow, err := coexist.NewShadow(shc)
+	if err != nil {
+		return nil, err
+	}
+	log.Info().Bool("etl_sync_enabled", cfg.ETLSyncEnabled).Strs("mirror", cfg.Coexist.Mirror.Names()).
+		Bool("compat_projection_enabled", cfg.CompatProjectionEnabled).Strs("projection", cfg.Coexist.Projection).
+		Msg("coexistence consumers")
+	return []mq.Registration{syncC.Registration(), shadow.Registration()}, nil
 }
 
 // runConsumers asserts the topology and runs every registration plus the dead-letter monitor on conn.
@@ -370,7 +438,9 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 			}
 			locks := jobs.NewRedisLocker(rdb, ks)
 			rt := realtime.NewWriter(rdb, ks, cfg.RTLogMaxLen, cfg.RTLogTTL)
-			table := scheduler.Table(pool, rt, scheduler.Gates{FuelMonthlySnapshot: cfg.FuelMonthlySnapshotEnabled})
+			table := scheduler.Table(pool, rt, scheduler.Gates{FuelMonthlySnapshot: cfg.FuelMonthlySnapshotEnabled,
+				ETLSync: cfg.ETLSyncEnabled, ETLSyncSpec: ETLSyncSpec(cfg.ETLSyncInterval)})
+			log.Info().Bool("etl_sync_enabled", cfg.ETLSyncEnabled).Dur("etl_sync_interval", cfg.ETLSyncInterval).Msg("etl.sync cron")
 			cron, err := scheduler.NewCron(pool, locks, table, log, m.Registry)
 			if err != nil {
 				pool.Close()

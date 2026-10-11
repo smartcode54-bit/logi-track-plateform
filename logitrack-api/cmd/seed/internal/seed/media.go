@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"strconv"
+	"sync"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -32,10 +33,20 @@ const (
 	APKSHA256 = "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58"
 )
 
-// Media draws the placeholders with the embedded Sarabun Regular (OFL, cmd/seed/assets).
+// Media draws the placeholders with the embedded Sarabun Regular (OFL, cmd/seed/assets). It keeps what it drew:
+// an object's bytes depend only on its content type, key and overlay, so a later plan of the same process that
+// draws the same object takes the bytes from the memo instead of drawing again. cmd/seed keeps one Media per
+// process; its integration tests load the demo's ~3,600 photos several times under the race detector, where each
+// draw costs about 30 s of CPU (T35). The returned bytes are shared: callers never modify them. Safe for concurrent
+// use (drawAll draws on every CPU).
 type Media struct {
 	font *opentype.Font
+	mu   sync.Mutex
+	memo map[drawn][]byte
 }
+
+// drawn identifies one drawing: the content type it was encoded as, the object key and the overlay line.
+type drawn struct{ kind, key, overlay string }
 
 // NewMedia parses the TrueType font the overlays are drawn with.
 func NewMedia(ttf []byte) (*Media, error) {
@@ -44,6 +55,29 @@ func NewMedia(ttf []byte) (*Media, error) {
 		return nil, fmt.Errorf("seed: overlay font: %w", err)
 	}
 	return &Media{font: f}, nil
+}
+
+// memoized returns the bytes drawn earlier for (kind, key, overlay), else draws and keeps them. Two workers that
+// draw the same object at once both draw it; the bytes are the same either way.
+func (m *Media) memoized(kind, key, overlay string, draw func() ([]byte, error)) ([]byte, error) {
+	id := drawn{kind: kind, key: key, overlay: overlay}
+	m.mu.Lock()
+	b, ok := m.memo[id]
+	m.mu.Unlock()
+	if ok {
+		return b, nil
+	}
+	b, err := draw()
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	if m.memo == nil {
+		m.memo = map[drawn][]byte{}
+	}
+	m.memo[id] = b
+	m.mu.Unlock()
+	return b, nil
 }
 
 // background is a light colour derived from the object key.
@@ -92,39 +126,45 @@ func (m *Media) text(img *image.RGBA, s string, w, y int, size float64, c color.
 
 // JPEG is a 640x480 placeholder photo (quality 70).
 func (m *Media) JPEG(key, overlay string) ([]byte, error) {
-	img, err := m.canvas(PhotoWidth, PhotoHeight, key, overlay)
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return m.memoized("image/jpeg", key, overlay, func() ([]byte, error) {
+		img, err := m.canvas(PhotoWidth, PhotoHeight, key, overlay)
+		if err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	})
 }
 
 // PNG is a 512x512 placeholder company asset (logo, stamp, signature).
 func (m *Media) PNG(key, overlay string) ([]byte, error) {
-	img, err := m.canvas(AssetSize, AssetSize, key, overlay)
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	enc := png.Encoder{CompressionLevel: png.BestSpeed}
-	if err := enc.Encode(&buf, img); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return m.memoized("image/png", key, overlay, func() ([]byte, error) {
+		img, err := m.canvas(AssetSize, AssetSize, key, overlay)
+		if err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		enc := png.Encoder{CompressionLevel: png.BestSpeed}
+		if err := enc.Encode(&buf, img); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	})
 }
 
 // PDF is a one-page A4 placeholder document showing a placeholder JPEG. The statement renderer of
 // documents.render arrives with T39; until then the seed writes this page for statement_documents.
 func (m *Media) PDF(key, overlay string) ([]byte, error) {
-	jpg, err := m.JPEG(key, overlay)
-	if err != nil {
-		return nil, err
-	}
-	return pdfWithJPEG(jpg, PhotoWidth, PhotoHeight), nil
+	return m.memoized("application/pdf", key, overlay, func() ([]byte, error) {
+		jpg, err := m.JPEG(key, overlay)
+		if err != nil {
+			return nil, err
+		}
+		return pdfWithJPEG(jpg, PhotoWidth, PhotoHeight), nil
+	})
 }
 
 // pdfWithJPEG writes a minimal PDF 1.4 file: one A4 page whose content draws the JPEG (DCTDecode) across the

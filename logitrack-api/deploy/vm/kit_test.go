@@ -359,6 +359,15 @@ func TestTemplateStartsEveryProgram(t *testing.T) {
 			if (program == "migrate" || program == "seed") && strings.HasPrefix(n, "OTEL_") {
 				continue
 			}
+			// The worker binary reads ETL_DATABASE_URL only as worker-sync, the replica of the etl.sync mirror (§16.1
+			// consumer worker-sync, R66): the VM runs PostgreSQL only and never that replica, so its worker never
+			// receives the BYPASSRLS URL (and refuses to start holding it without the mirror).
+			if program == "worker" && n == "ETL_DATABASE_URL" {
+				if slices.Contains(allowed, n) {
+					t.Error("env-names/worker.txt exports ETL_DATABASE_URL: only the mirror replica (worker-sync) may hold it (R66)")
+				}
+				continue
+			}
 			if !slices.Contains(allowed, n) {
 				t.Errorf("%s reads %s, which env-names/%s.txt does not export", program, n, program)
 			}
@@ -928,6 +937,17 @@ func TestDeploy(t *testing.T) {
 	if !strings.Contains(out, "NEXT_PUBLIC_FIREBASE_API_KEY") || !strings.Contains(out, "[dry-run] would") {
 		t.Errorf("dry run prints no plan:\n%s", out)
 	}
+	if strings.Contains(out, "activate --pending --reseed") {
+		t.Errorf("a deploy without --reseed tops up the seed:\n%s", out)
+	}
+	// --reseed (README section 4) reaches the activation; it belongs to a deploy only.
+	if out, code = s.run(t, script, "--web-build-env", webEnv, "--dry-run", "--allow-dirty", "--reseed"); code != 0 ||
+		!strings.Contains(out, "rollout.sh activate --pending --reseed") {
+		t.Errorf("deploy --reseed --dry-run: exit %d\n%s", code, out)
+	}
+	if out, code = s.run(t, script, "--status", "--reseed"); code == 0 {
+		t.Errorf("--status --reseed was accepted:\n%s", out)
+	}
 
 	out, code = s.run(t, script, "--web-build-env", webEnv, "--allow-dirty")
 	if code != 0 {
@@ -1173,6 +1193,21 @@ func TestRolloutFirstDeploySeedsUntilLive(t *testing.T) {
 	}
 	if out, code := activate("3333333333333333333333333333333333333333"); code != 0 || strings.Contains(s.read(t, "programs.log"), "seed") {
 		t.Fatalf("a later deploy seeded again: exit %d\n%s", code, out)
+	}
+	// --reseed (README section 4): a later deploy tops up the demo seed before the switch, without the admin
+	// bootstrap; a dry run says so and changes nothing.
+	out, code := activate("4444444444444444444444444444444444444444", "--reseed", "--dry-run")
+	if code != 0 || s.read(t, "programs.log") != "" || !strings.Contains(out, "seed --profile demo --allow-shared") ||
+		strings.Contains(out, "seed --bootstrap-admin") {
+		t.Fatalf("--reseed --dry-run: exit %d, programs %q\n%s", code, s.read(t, "programs.log"), out)
+	}
+	if out, code := activate("4444444444444444444444444444444444444444", "--reseed"); code != 0 {
+		t.Fatalf("--reseed: exit %d\n%s", code, out)
+	}
+	progs := s.read(t, "programs.log")
+	migrated, toppedUp := strings.Index(progs, "migrate up"), strings.Index(progs, "seed --profile demo --allow-shared")
+	if migrated < 0 || toppedUp < migrated || strings.Contains(progs, "seed --bootstrap-admin") {
+		t.Errorf("--reseed on a later deploy: want migrate up, then the demo seed and no bootstrap:\n%s", progs)
 	}
 }
 

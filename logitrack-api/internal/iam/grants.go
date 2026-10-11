@@ -365,7 +365,7 @@ func sameSet(a, b []uuid.UUID) bool {
 // LinkDriver is PUT /v1/users/{id}/driver-link {driverId} (drivers:edit + users:manage): one transaction
 // moves the link (Appendix C §C.1.4): the user's previous driver row is cleared, drivers.user_id is set, the
 // driver membership in the driver's tenant is written (a user holding another role there is 409), and
-// driver_linked is recorded. A driver linked to another user is 409; the driver must be in the caller's reach, and
+// driver_linked and driver.updated (changed: userId, for the driver and for the one the link left) are recorded. A driver linked to another user is 409; the driver must be in the caller's reach, and
 // so must the user's current driver row (409 failed_precondition linked_in_other_tenant otherwise).
 func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
@@ -410,6 +410,9 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 			if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: nil, ID: prev.ID}); err != nil {
 				return err
 			}
+			if err := emitDriverLinkChanged(c, tx, prev.ID, prev.TenantID); err != nil {
+				return err
+			}
 		}
 		actor := c.p.UserID
 		if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: user, TenantID: d.TenantID,
@@ -417,6 +420,9 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 			return err
 		}
 		if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: &user, ID: d.ID}); err != nil {
+			return err
+		}
+		if err := emitDriverLinkChanged(c, tx, d.ID, d.TenantID); err != nil {
 			return err
 		}
 		if err := a.claimsChanged(c, tx, user, keep); err != nil {
@@ -428,7 +434,8 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 }
 
 // UnlinkDriver is DELETE /v1/users/{id}/driver-link: clears drivers.user_id (404 without a link in reach);
-// the driver membership stays (a role change is a separate act); driver_unlinked is recorded.
+// the driver membership stays (a role change is a separate act); driver_unlinked and driver.updated (changed:
+// userId) are recorded.
 func (a *Admin) UnlinkDriver(c call, user uuid.UUID) error {
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
@@ -442,6 +449,9 @@ func (a *Admin) UnlinkDriver(c call, user uuid.UUID) error {
 			return err
 		}
 		if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: nil, ID: d.ID}); err != nil {
+			return err
+		}
+		if err := emitDriverLinkChanged(c, tx, d.ID, d.TenantID); err != nil {
 			return err
 		}
 		if err := a.claimsChanged(c, tx, user, keep); err != nil {

@@ -6,12 +6,14 @@ import (
 	"net/http"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 )
 
 // FirebaseToken is the 200 body of POST /v1/bridge/firebase-token.
@@ -34,7 +36,7 @@ func (s *Service) FirebaseCustomToken(ctx context.Context, p *authz.Principal) (
 	}
 	var uid string
 	var claims map[string]any
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		u, err := q.GetBridgeUser(ctx, p.UserID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errInvalidToken()
@@ -53,7 +55,7 @@ func (s *Service) FirebaseCustomToken(ctx context.Context, p *authz.Principal) (
 			return errPermissionDenied("no Firestore session for this principal (Appendix C §C.6.3)")
 		}
 		claims = g.claims
-		uid, err = firebaseUID(ctx, q, u)
+		uid, err = firebaseUID(ctx, tx, q, u)
 		return err
 	})
 	if err != nil {
@@ -69,12 +71,16 @@ func (s *Service) FirebaseCustomToken(ctx context.Context, p *authz.Principal) (
 
 // firebaseUID returns the user's Firebase uid, giving a user created in Go its users.id first (C.6.3,
 // C.6.4). A concurrent request that assigned it first leaves no row to update; the uid it wrote is read
-// back (read committed: the next statement sees it).
-func firebaseUID(ctx context.Context, q *authdb.Queries, u authdb.GetBridgeUserRow) (string, error) {
+// back (read committed: the next statement sees it). A uid assigned here is followed by driver.updated for
+// the user's driver (driverLoginChanged).
+func firebaseUID(ctx context.Context, tx pgx.Tx, q *authdb.Queries, u authdb.GetBridgeUserRow) (string, error) {
 	if u.LegacyAuthUid != nil {
 		return *u.LegacyAuthUid, nil
 	}
 	uid, err := q.AssignLegacyAuthUID(ctx, u.ID)
+	if err == nil {
+		return uid, driverLoginChanged(ctx, tx, q, u.ID)
+	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return uid, err
 	}
@@ -87,6 +93,27 @@ func firebaseUID(ctx context.Context, q *authdb.Queries, u authdb.GetBridgeUserR
 	}
 	return *again.LegacyAuthUid, nil
 }
+
+// driverLoginChanged queues driver.updated (changed: login; topic tenant:{tid}:fleet, Appendix B §B.5.2) for the
+// driver linked to user, if any, in the transaction that gave the user its Firebase uid: the projected drivers
+// document carries that uid as authId, by which the installed 3.x app finds its driver (internal/etl
+// encodeDrivers), so firestore.shadow projects the driver again.
+func driverLoginChanged(ctx context.Context, tx pgx.Tx, q *authdb.Queries, user uuid.UUID) error {
+	d, err := q.DriverOfLogin(ctx, &user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return insertOutbox(ctx, tx, outboxEvent{RoutingKey: routeDriverUpdated, AggregateType: "driver", AggregateID: d.ID.String(),
+		TenantID: &d.TenantID, Payload: map[string]any{"entity": "driver", "id": d.ID.String(), "changed": []string{"login"}},
+		Topics: []string{realtime.TenantTopic(d.TenantID.String(), realtime.FamilyFleet)}})
+}
+
+// routeDriverUpdated is the outbox key of a driver change (Appendix B §B.5.2; internal/drivers and internal/iam emit
+// it for their writes).
+const routeDriverUpdated = "driver.updated"
 
 // mountBridge registers /v1/bridge (internal only). Like the other mount functions it never reads s
 // while registering: the mode is checked per request.

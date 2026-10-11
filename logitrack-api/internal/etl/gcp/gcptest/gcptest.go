@@ -17,6 +17,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -99,6 +100,41 @@ func (b *Backend) Put(d dump.Doc) {
 	defer b.mu.Unlock()
 	b.now() // every write is one tick
 	b.store(d)
+}
+
+// Set writes fields as the whole document at path the way a client's set() does (the 3.x app, a legacy web page): the
+// server stamps the update time, and the create time of a new document, with the next tick.
+func (b *Backend) Set(path string, fields map[string]any) dump.Doc {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	parts := strings.Split(path, "/")
+	d := dump.Doc{ID: parts[len(parts)-1], Path: path, CreateTime: now, UpdateTime: now, Fields: maps.Clone(fields)}
+	if cur, ok := b.docs[path]; ok {
+		d.CreateTime = cur.CreateTime
+	}
+	b.store(d)
+	return d
+}
+
+// Merge is a client's set(..., merge: true) / update(): the given fields replace the stored ones, a nil value deletes
+// its field (FieldValue.delete()), the other fields stay; the document is created when missing.
+func (b *Backend) Merge(path string, fields map[string]any) dump.Doc {
+	b.mu.Lock()
+	cur, ok := b.docs[path]
+	b.mu.Unlock()
+	next := map[string]any{}
+	if ok {
+		next = maps.Clone(cur.Fields)
+	}
+	for k, v := range fields {
+		if v == nil {
+			delete(next, k)
+			continue
+		}
+		next[k] = v
+	}
+	return b.Set(path, next)
 }
 
 // store records d as the current document and as the version of the current tick.

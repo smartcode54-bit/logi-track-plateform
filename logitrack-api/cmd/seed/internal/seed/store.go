@@ -152,42 +152,98 @@ func checkObjects(ctx context.Context, tx pgx.Tx, be Backends) ([]string, int, e
 	}); err != nil {
 		return nil, 0, err
 	}
-	var problems []string
-	for _, o := range list {
-		b, err := be.For(o.backend)
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("%s: %v", o.key, err))
-			continue
-		}
-		obj := storage.Object{Bucket: o.bucket, Key: o.key}
-		info, err := b.Stat(ctx, obj)
-		switch {
-		case o.status == "missing_at_source":
-			if err == nil {
-				problems = append(problems, o.key+": missing_at_source but the object exists")
-			} else if !errors.Is(err, storage.ErrObjectNotFound) {
-				return nil, 0, fmt.Errorf("stat %s: %w", o.key, err)
+	problems, err := checkObjectRows(ctx, list, be)
+	return problems, len(list), err
+}
+
+// checkParallelism bounds the concurrent object reads of invariant 9: the demo's 3,674 objects one after another
+// took most of a --verify (T35).
+const checkParallelism = 8
+
+// checkObjectRows checks the objects of rows on checkParallelism workers; the problems come back in the order of
+// rows, and the first error a backend returns stops the check.
+func checkObjectRows(ctx context.Context, rows []objectRow, be Backends) ([]string, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	found := make([]string, len(rows)) // the problem of each row, "" for none
+	var (
+		mu       sync.Mutex
+		firstErr error
+		wg       sync.WaitGroup
+	)
+	work := make(chan int)
+	for range min(checkParallelism, len(rows)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range work {
+				p, err := checkObject(ctx, rows[i], be)
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+						cancel()
+					}
+					mu.Unlock()
+					continue
+				}
+				found[i] = p
 			}
-			continue
-		case errors.Is(err, storage.ErrObjectNotFound):
-			problems = append(problems, fmt.Sprintf("%s: %s but no object", o.key, o.status))
-			continue
-		case err != nil:
-			return nil, 0, fmt.Errorf("stat %s: %w", o.key, err)
+		}()
+	}
+	for i := range rows {
+		if ctx.Err() != nil {
+			break
 		}
-		if o.size == nil || info.Size != *o.size {
-			problems = append(problems, fmt.Sprintf("%s: size %d, recorded %s", o.key, info.Size, showInt(o.size)))
-			continue
-		}
-		sum, err := hashObject(ctx, b, obj)
-		if err != nil {
-			return nil, 0, fmt.Errorf("read %s: %w", o.key, err)
-		}
-		if o.sha == nil || sum != *o.sha {
-			problems = append(problems, fmt.Sprintf("%s: sha256 %s, recorded %s", o.key, sum, show(o.sha)))
+		work <- i
+	}
+	close(work)
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	var problems []string
+	for _, p := range found {
+		if p != "" {
+			problems = append(problems, p)
 		}
 	}
-	return problems, len(list), nil
+	return problems, nil
+}
+
+// checkObject is invariant 9 for one row: a problem to report, or an error when the backend cannot answer.
+func checkObject(ctx context.Context, o objectRow, be Backends) (string, error) {
+	b, err := be.For(o.backend)
+	if err != nil {
+		return fmt.Sprintf("%s: %v", o.key, err), nil
+	}
+	obj := storage.Object{Bucket: o.bucket, Key: o.key}
+	info, err := b.Stat(ctx, obj)
+	switch {
+	case o.status == "missing_at_source":
+		if err == nil {
+			return o.key + ": missing_at_source but the object exists", nil
+		}
+		if !errors.Is(err, storage.ErrObjectNotFound) {
+			return "", fmt.Errorf("stat %s: %w", o.key, err)
+		}
+		return "", nil
+	case errors.Is(err, storage.ErrObjectNotFound):
+		return fmt.Sprintf("%s: %s but no object", o.key, o.status), nil
+	case err != nil:
+		return "", fmt.Errorf("stat %s: %w", o.key, err)
+	}
+	if o.size == nil || info.Size != *o.size {
+		return fmt.Sprintf("%s: size %d, recorded %s", o.key, info.Size, showInt(o.size)), nil
+	}
+	sum, err := hashObject(ctx, b, obj)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", o.key, err)
+	}
+	if o.sha == nil || sum != *o.sha {
+		return fmt.Sprintf("%s: sha256 %s, recorded %s", o.key, sum, show(o.sha)), nil
+	}
+	return "", nil
 }
 
 func hashObject(ctx context.Context, b storage.Backend, o storage.Object) (string, error) {
