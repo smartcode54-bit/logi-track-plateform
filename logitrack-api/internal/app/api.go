@@ -23,6 +23,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
 // HeaderActOnTenant is the platform cross-tenant header; it is refused on the
@@ -105,9 +106,10 @@ const UploadReadTimeout = 5 * time.Minute
 // uploadLimit gives a PUT below an upload route (the local storage backend's uploads, T11) its own body limit and
 // read timeout when the route's check passes on the request head: fasthttp calls HeaderReceived after the headers
 // and before it reads (or allocates for) the body. The check verifies the upload signature, which covers the
-// declared size, so the limit is that size (at most UPLOAD_MAX_BYTES). Every other request, an unsigned or
-// tampered upload included, keeps the 4 MiB / 30 s defaults and is refused with 413 above 4 MiB before its body
-// is buffered; the handler verifies the signature again.
+// declared size, so the limit is that size (at most UPLOAD_MAX_BYTES, or storage.MaxReleaseBytes for an APK on the
+// internal API route, T52). Every other request, an unsigned or tampered upload included, keeps the 4 MiB / 30 s
+// defaults and is refused with 413 above 4 MiB before its body is buffered; the handler verifies the signature
+// again.
 func (a *API) uploadLimit(app *fiber.App, uploads []ingress.Upload) {
 	if len(uploads) == 0 || a.cfg.UploadMaxBytes <= 0 {
 		return
@@ -122,7 +124,7 @@ func (a *API) uploadLimit(app *fiber.App, uploads []ingress.Upload) {
 				continue
 			}
 			n := u.Limit(ingress.UploadHead{Path: p, Query: q, ContentType: string(h.ContentType()), ContentLength: h.ContentLength()})
-			if n > 0 && n <= a.cfg.UploadMaxBytes {
+			if n > 0 && n <= max(a.cfg.UploadMaxBytes, storage.MaxReleaseBytes) {
 				return fasthttp.RequestConfig{MaxRequestBodySize: int(n), ReadTimeout: UploadReadTimeout}
 			}
 			return fasthttp.RequestConfig{}

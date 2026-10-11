@@ -12,8 +12,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/tools/internal/dotenv"
 )
 
-// The staging VM kit (deploy/vm, issue OPSVM) runs api, worker, scheduler and web under pm2 and migrate
-// and seed from the deploy script. Its env.vm.example is the names-only template of the VM's .env:
+// The staging VM kit (deploy/vm, issue OPSVM) runs api, worker, scheduler and web under pm2, migrate and seed
+// from the deploy script, and cmd/release for the operator (T52). Its env.vm.example is the names-only template of
+// the VM's .env:
 //
 //   - every key is a live §16.1 name consumed by one of those programs, or an infra name of the one
 //     container that reads the .env (RabbitMQ); secret names are blank;
@@ -32,6 +33,7 @@ var vmPrograms = map[string][]string{
 	"migrate":   {"migrate", "all-go"},
 	"seed":      {"seed", "all-go"},
 	"web":       {"web-server"},
+	"release":   {"release"},
 }
 
 // vmInfra are the infra names the VM's .env holds: provision.sh renders the RabbitMQ container's env-file

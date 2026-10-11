@@ -58,7 +58,7 @@ Tree on the VM:
 | `provision.sh` | one-time, idempotent set-up as root (`--dry-run` prints the plan) |
 | `deploy.sh` | build and ship from the operator's machine (`--dry-run`, `--rollback`, `--status`, `--provision`, `--kit`) |
 | `rollout.sh` | the VM side of a deploy: migrate, first-deploy seed, switch, pm2, checks, rollback, pruning; `rollout.sh pm2 ...` |
-| `run-app.sh` | starts a program with its names from `shared/.env`, read at exec time |
+| `run-app.sh` | starts a program with its names from `shared/.env`, read at exec time (also `release`, section 8) |
 | `ecosystem.config.cjs` | the four pm2 apps and their per-process listener settings |
 | `nginx/` | the two vhosts, the Cloudflare real-IP and proxy-header snippets, the access-log format |
 | `pm2-logitrack.service` | the systemd unit of the user's pm2 daemon |
@@ -287,6 +287,50 @@ with `tar -C /opt/logitrack/shared -xzf <media archive>`. On a rebuilt VM, put `
 and sets the role passwords from them. Redis and RabbitMQ are not backed up: Redis holds caches and hot copies
 (idempotency keys are also durable rows in PostgreSQL), and RabbitMQ holds work in flight; inspect its
 dead-letter queues before a restore if they matter.
+
+## 8. Publishing a driver-app APK
+
+`bin/release` (cmd/release, T52) replaces `logitrack-web/scripts/publish-mobile-release.mjs`. It runs here, on the
+private network: it reads only `GO_API_INTERNAL_URL` (`run-app.sh` gives it the internal listener of `kit.conf`)
+and `RELEASE_API_KEY`, uploads the APK to the api's internal listener (`STORAGE_BACKEND=local`: the file lands
+under `shared/media/public/app_releases/`), checks that `https://logi.showkhun.co/media/app_releases/...` serves
+it, and records the release. **Publishing never changes the version floor** (ADR 0007): a person raises it on the
+Security Center's mobile-release page (`PUT /v1/app-releases/floor`, which refuses API keys).
+
+Once: a platform admin creates the key, `{"name": "release-vm", "scope": "release_publisher", "capabilities":
+["security:manage_mobile_release"]}` posted to `POST /v1/api-keys` (the Security Center's API-keys page, or that
+call from the admin's signed-in browser through the BFF, `/api/go/v1/api-keys`). The secret is shown once: put it
+in the `.env` as root (`RELEASE_API_KEY=`, an editor, never a command line). Revoking the key (`DELETE
+/v1/api-keys/{id}`) or rotating `API_KEY_PEPPER` stops publishing until a new key is set.
+
+Each release (the APK readable by the `logitrack` user, e.g. copied to `/tmp`): `release status` shows the gate
+this deployment serves, a dry run hashes the APK and prints what the publish would do to that gate (it exits 1
+with the reason and the next step when the api would refuse the publish), then the publish.
+
+```sh
+runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release status
+runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release publish --flavor=dev --apk=/tmp/app-dev-release.apk --version=3.6.0 --build-number=1 --switch-flavor --dry-run
+runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release publish --flavor=dev --apk=/tmp/app-dev-release.apk --version=3.6.0 --build-number=1 --switch-flavor --notes="..."
+```
+
+The deployment serves one flavor (the first publish sets it). Publishing the other one is refused
+(`flavor_mismatch`) unless `--switch-flavor`, and a switch is refused while a version floor is set (`floor_set`):
+the floor applies to the served flavor only, so the switch would put it on the other fleet without anyone
+choosing to. **The demo seed serves `prod` with the floor 3.4.0**, so the first `dev` publish above takes two
+steps: a platform admin removes the floor (`PUT /v1/app-releases/floor` with `{"minAllowedVersion": null}`, from
+the signed-in browser through the BFF at `/api/go/v1/app-releases/floor`, as for the key; the mobile-release page
+does it once it reads Go, T54), then the publish with `--switch-flavor` (once: later `dev` publishes drop it). Set
+a floor for the `dev` fleet afterwards, when it is ready. A publish never writes the floor; it is also refused when
+the new version would become the latest below the floor (`floor_above_version`). `release status --flavor=prod`
+on a `dev` deployment shows the empty gate `prod` devices see and names the flavor served.
+
+With the Gradle `output-metadata.json` next to the APK, `--metadata=FILE` replaces `--apk`, `--version` and
+`--build-number` and refuses a split-per-ABI build, another version and the other flavor's applicationId. A
+published version is immutable (bump the version); `--force` only replaces an upload that was never published.
+If a publish is cut off before it answers (an SSH drop), rerun the same command: a build that was published
+already answers "Already published" without uploading again. Until the coexistence projection of
+`settings/mobile_app` exists (T24), installed 3.x APKs keep reading their floor and link from Firestore; this
+publish reaches `GET /v1/mobile/settings` only.
 
 ## Operations
 

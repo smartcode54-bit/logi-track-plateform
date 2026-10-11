@@ -69,6 +69,7 @@ func TestVMNames(t *testing.T) {
 		"migrate":   "APP_ENV\nMIGRATE_DATABASE_URL\n",
 		"seed":      "APP_ENV\nDATABASE_URL\nMIGRATE_DATABASE_URL\nETL_DATABASE_URL\n",
 		"web":       "JWT_ISSUER\nGO_API_INTERNAL_URL\nWEB_PUBLIC_ORIGIN\nPORT\nHOSTNAME\n",
+		"release":   "GO_API_INTERNAL_URL\n",
 	}
 	write := func(t *testing.T, files map[string]string) string {
 		dir := t.TempDir()

@@ -150,7 +150,7 @@ func processEnv(t *testing.T) map[string]map[string]string {
 		"scheduler": {"METRICS_ADDR": lb("kit_scheduler_metrics_port")},
 		"web": {"GO_API_INTERNAL_URL": "http://" + lb("kit_api_internal_port"), "PORT": k["kit_web_port"],
 			"HOSTNAME": "127.0.0.1", "NODE_ENV": "production"},
-		"migrate": {}, "seed": {},
+		"migrate": {}, "seed": {}, "release": {},
 	}
 }
 
@@ -513,7 +513,7 @@ func TestRunAppEnvironment(t *testing.T) {
 	rel := fakeRelease(t, s, "0123456789abcdef0123456789abcdef01234567")
 	sec := secrets(t, env, "")
 	procEnv := processEnv(t)
-	for _, program := range []string{"api", "worker", "scheduler", "migrate", "seed", "web"} {
+	for _, program := range []string{"api", "worker", "scheduler", "migrate", "seed", "release", "web"} {
 		cmd := exec.Command("bash", filepath.Join(rel, "deploy", "vm", "run-app.sh"), program, "--flag")
 		base := s.env()
 		// An inherited secret of another program must not survive (the web never sees DATABASE_URL).
@@ -542,6 +542,10 @@ func TestRunAppEnvironment(t *testing.T) {
 		if !strings.Contains(s.read(t, "programs.log"), program+" --flag") {
 			t.Errorf("%s was not executed with its arguments", program)
 		}
+	}
+	// cmd/release reaches the internal listener at the kit's port (per-process, never a key of the .env).
+	if got := s.read(t, "url-release"); strings.TrimSpace(got) != "http://127.0.0.1:"+readKit(t)["kit_api_internal_port"] {
+		t.Errorf("release got GO_API_INTERNAL_URL %q", got)
 	}
 	webDir, err := filepath.EvalSymlinks(filepath.Join(rel, "web", "logitrack-web"))
 	if err != nil {
@@ -573,6 +577,9 @@ func fakeRelease(t *testing.T, s *sandbox, id string) string {
 	for _, p := range []string{"api", "worker", "scheduler", "migrate", "seed"} {
 		writeFile(t, filepath.Join(rel, "bin", p), strings.Replace(record(p), " cwd=$(pwd)", "", 1), 0o755)
 	}
+	// cmd/release also records the internal listener's URL it was given (not a secret).
+	writeFile(t, filepath.Join(rel, "bin", "release"), strings.Replace(record("release"), " cwd=$(pwd)", "", 1)+
+		"printf '%s\\n' \"$GO_API_INTERNAL_URL\" >\""+s.state+"/url-release\"\n", 0o755)
 	writeFile(t, filepath.Join(rel, "web", "logitrack-web", "server.js"), "// standalone server", 0o644)
 	// The web's node: a recording program first on PATH (its first argument is server.js).
 	writeFile(t, filepath.Join(s.bin, "node"), "#!/bin/sh\n[ \"$1\" = server.js ] && shift\n"+strings.TrimPrefix(record("web"), "#!/bin/sh\n"), 0o755)
