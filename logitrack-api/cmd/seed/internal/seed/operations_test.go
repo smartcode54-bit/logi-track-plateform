@@ -552,9 +552,13 @@ func TestOperationsConventions(t *testing.T) {
 			t.Errorf("object %s: id, status or owner", f.Str("object_key"))
 		}
 	}
+	own := p.Symbols.MustID(ownFleetSymbol).String()
 	for _, r := range generated(t, p, "standby_records") {
 		if (r["legacy_doc_id"] == nil) != (r["client_op_id"] != nil) {
 			t.Errorf("standby %s: a native record carries a client_op_id, a legacy one none", r.Str("id"))
+		}
+		if priced := r["billing_estimate_thb"] != nil; priced != (r.Str("billing_tenant_id") == own) {
+			t.Errorf("standby %s: a priced record bills on the own fleet (0015), an unpriced one names no carrier", r.Str("id"))
 		}
 	}
 	for _, r := range generated(t, p, "incident_reports") {

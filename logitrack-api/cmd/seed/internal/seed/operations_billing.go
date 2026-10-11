@@ -45,8 +45,14 @@ func priceOperations(p *Plan) error {
 			return fmt.Errorf("seed: price %s: %w", ot.trip.Str("trip_no"), err)
 		}
 	}
+	// The billing carrier of a priced standby record (0015, R61): the tenant of the standby rate it names, else the own
+	// fleet, the only billing carrier today (the rule of the 0015 backfill and of operations.BillingVisible).
+	carrier := map[string]string{}
+	for _, r := range p.Tables["standby_rate_entries"] {
+		carrier[r.Str("id")] = r.Str("tenant_id")
+	}
 	for _, sb := range p.ops.standby {
-		if err := priceStandby(in, sb); err != nil {
+		if err := priceStandby(in, sb, carrier, own); err != nil {
 			return fmt.Errorf("seed: price standby %s: %w", sb.row.Str("id"), err)
 		}
 	}
@@ -172,7 +178,7 @@ func priceTrip(p *Plan, in *engineInputs, ot *opsTrip, own string) error {
 	return nil
 }
 
-func priceStandby(in *engineInputs, sb *opsStandby) error {
+func priceStandby(in *engineInputs, sb *opsStandby, carrier map[string]string, own string) error {
 	r := sb.row
 	var sin compute.StandbyInput
 	var err error
@@ -212,9 +218,12 @@ func priceStandby(in *engineInputs, sb *opsStandby) error {
 		return nil
 	}
 	r["billing_estimate_thb"], r["billing_party_id"] = money(res.Price.EstimateTHB), res.Price.PartyID
-	r["billing_rate_source"] = res.Price.RateSource
+	r["billing_rate_source"], r["billing_tenant_id"] = res.Price.RateSource, own
 	if res.Price.RateEntryID != "" {
 		r["billing_rate_entry_id"] = res.Price.RateEntryID
+		if t := carrier[res.Price.RateEntryID]; t != "" {
+			r["billing_tenant_id"] = t
+		}
 	}
 	if res.Price.EffectiveFromDate != "" {
 		r["billing_effective_from_date"] = res.Price.EffectiveFromDate
