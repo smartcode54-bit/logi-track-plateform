@@ -24,6 +24,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -41,17 +42,18 @@ func main() {
 // newAPI is the single place where the route registry meets the listeners: serving and
 // `api routes` both build the API here, so the checked table is the served one. Domain route
 // groups are added to this call: the auth groups (T05), the jobs groups (T10) and the SSE streams
-// (T12) come from deps, which app.BuildAPI wires, GET /v1/roles (T07) and the users and tenants
-// administration (T19, deps.Admin, with the carrier profiles of T20) and the customers and companies (T20,
-// deps.Parties) sit behind deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
-// from deps.Storage; extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
-// only register handlers and never read a service, so the table needs no database, Redis or signing
-// key.
+// (T12) come from deps, which app.BuildAPI wires, GET /v1/roles (T07), the users and tenants
+// administration (T19, deps.Admin, with the carrier profiles of T20), the customers and companies
+// (T20, deps.Parties) and the trucks (T22, deps.Fleet) sit behind deps.Auth.RequireAuth, the web
+// flags (T17) come from the configuration and the storage groups (T11) from deps.Storage; extra
+// exists for tests. `api routes` passes zero deps: Groups and RequireAuth only register handlers
+// and never read a service, so the table needs no database, Redis or signing key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
 	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
 	groups = append(groups, iam.RoleGroups(deps.Auth.RequireAuth())...)
 	groups = append(groups, iam.AdminGroups(deps.Admin, deps.Auth.RequireAuth())...)
 	groups = append(groups, parties.Groups(deps.Parties, deps.Auth.RequireAuth())...)
+	groups = append(groups, fleet.Groups(deps.Fleet, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)

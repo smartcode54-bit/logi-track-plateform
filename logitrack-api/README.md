@@ -2,7 +2,7 @@
 
 Go backend for the LogiTrack migration off Firebase (`mv-go`). Design: [`developer-spec.md`](../developer-spec.md) §2, routes in [Appendix B](../shared-docs/specs/mv-go/B-api-catalog.md). Branch policy: work lands by PR into `mv-go`, never `main` (R90).
 
-Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T12 SSE + T15 ETL framework + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + TW3 web BFF and JWKS + T19 users and tenants administration, users ETL and platform bootstrap + OPSVM staging VM kit + T20 customers, carrier profiles and companies**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `/v1/users*` and `/v1/tenants*` (T19), `/v1/customers*`, `/v1/subcontractors*` and `/v1/companies*` (T20), `GET /v1/config/web-flags` (T17), the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12) and `GET /.well-known/jwks.json` (TW3).
+Status: **T01 scaffold + T02 local stack + T03 migrations + T04 core schema + T05 own auth + T06 Google sign-in + T07 RBAC + T08 Firebase bridge + T10 async + T11 object storage + T12 SSE + T15 ETL framework + T16 seed + T36 billing engine + TW2 edge (web container + Caddy) + T14 CI + T17 web flags + TW3 web BFF and JWKS + T19 users and tenants administration, users ETL and platform bootstrap + OPSVM staging VM kit + T20 customers, carrier profiles and companies + T22 trucks, renewals and the truck import**. One module, seven binaries, shared `internal/`; the first routes are `/v1/auth/*` and `/v1/me*` (T05), `/v1/roles` (T07), `/v1/users*` and `/v1/tenants*` (T19), `/v1/customers*`, `/v1/subcontractors*` and `/v1/companies*` (T20), `/v1/trucks*` (T22), `GET /v1/config/web-flags` (T17), the SSE streams `GET /v1/events` / `GET /v1/mobile/events` (T12) and `GET /.well-known/jwks.json` (TW3).
 
 ## Layout
 
@@ -25,6 +25,8 @@ internal/authz               request principal; 81-key catalog, role defaults, r
 internal/authz/tsgen         writes the catalog to ../shared-docs/schemas/capabilities.ts (go generate)
 internal/iam                 per-request authorization (RBAC: overrides under rbac:ver, steward, contractor reach, X-Act-On-Tenant) + GET /v1/roles (T07); users and tenants administration /v1/users*, /v1/tenants* and the platform bootstrap (T19)
 internal/parties             customers + billing parties and companies (T20): /v1/customers*, /v1/companies* under db.WithPrincipal (partiesdb); carrier profiles /v1/subcontractors* live in internal/iam
+internal/fleet               trucks (T22): /v1/trucks*, status history, truck files, renewals + the transactions ledger, the import, under db.WithPrincipal (fleetdb)
+internal/fleet/vehicleclass  the one mapper truck type -> vehicle class (lib/truckType.ts through the billing fold; unknown = nil, R15); the ETL uses it too
 internal/scope               dispatcher / customer-scope reads: scope_* views only (repo/scope_*.sql -> scopedb, sqlc vet rule scope-views-only)
 internal/security            the only writer of security_events: security.Append in the caller's transaction (T05)
 internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
@@ -46,6 +48,7 @@ internal/platform/mq         RabbitMQ topology (Appendix B §B.5), Declare, conf
 internal/platform/outbox     outbox.Append (the only way to emit) and the relay: LISTEN + tick, SKIP LOCKED, confirms (T10)
 internal/platform/inbox      consumer_inbox claim in the side-effect transaction (T10)
 internal/platform/realtime   SSE topics and the Redis writer: INCR rtlog:seq, XADD {seq}-0, PUBLISH rt:{topic} (T10); per replica the Hub (PSUBSCRIBE rt:*), the replay Reader and the SSE event names (T12)
+internal/platform/xlsx       spreadsheet uploads (excelize): first sheet of an XLSX or a CSV with row numbers, bounded unzip and rows; Excel-serial / Thai dates, numbers (T22)
 internal/platform/email      SMTP sender (multipart, UTF-8) for notify.email (T10)
 internal/platform/push       FCM HTTP v1 client (service-account JWT grant, 16 in flight) + pushtest stand-in (T13)
 internal/platform/asynctest  test-only RabbitMQ, Redis and Mailpit containers with the compose images (T10)
@@ -235,6 +238,29 @@ Master data of who pays and who invoices, on the internal listener behind `auth.
 - **Events:** outbox `customers.changed` / `companies.changed` (`{ids}`, SSE `global`; a customer write also drops `cache:customer:{id}` after COMMIT), `tenant.created` / `tenant.updated` with `tenant_created` / `tenant_updated` (`details.source = "subcontractors"`) in the transaction. A PATCH that changes nothing writes nothing.
 
 Tests: `go test ./internal/parties/ ./internal/iam/` (validation, cursors, error mapping) and `make test-integration` (`internal/parties/parties_integration_test.go`: real logins as `logitrack_app`, the local storage backend; every T20 acceptance criterion: checksum 422s, one billing party per customer and carrier, company assets only through presigned GETs, the customer scope's single party (API and RLS), carrier staff refused on customers by the capability and by RLS; plus companies' reach, owner rules, carrier-profile edits and documents).
+
+## Trucks, renewals and the truck import (T22, Appendix B §B.2.8)
+
+The truck master on the internal listener behind `auth.RequireAuth`, `internal/fleet`, every statement in `db.WithPrincipal` (RLS G-tenant: own tenant + the carriers working for it; the list, detail and renewal queries name the same reach, `authz.Principal.TenantReach`):
+
+| Routes | Guard | Notes |
+|---|---|---|
+| `GET /v1/trucks` (`?ownership&tenantId&status&type&q&limit&cursor`) | `fleet:view_trucks` \| `dispatch:view_operations` | keyset `(created_at, id)`, no cap; a dispatcher (or customer scope) reads `scope_trucks` by plate (`internal/scope`) |
+| `POST /v1/trucks` | `fleet:create_truck` | truck form rules; `tenantId` = the effective tenant or a carrier of its contractor reach; ownership from that tenant |
+| `POST /v1/trucks/import` | `fleet:create_truck` (+ `fleet:edit_truck` to update an existing plate) | multipart `file` (XLSX or CSV, first sheet) or JSON `{rows[]}`; `tenantId`, `dryRun`; at most 2000 rows |
+| `GET /v1/trucks/renewals` (`?due&ownership&status&tenantId&q&limit&cursor`) | `fleet:view_renewals` | most urgent first, states on the Bangkok calendar |
+| `GET /v1/trucks/{id}`, `PATCH /v1/trucks/{id}` | `fleet:view_trucks`, `fleet:edit_truck` | detail = truck + status history + current assignments + files |
+| `POST /v1/trucks/{id}/renewals` | `fleet:manage_renewals` | completed: truck fields + receipt + `status_history` + `transactions` row; `pending` / `in_progress`: truck fields only |
+
+- **Plates (AC):** the truck form's rule (`^([ก-ฮ]{2}|[0-9][ก-ฮ]{2})-?[0-9]{1,4}$`, at least six characters) on every new or changed plate (a legacy plate sent back unchanged stays editable); unique per tenant (`trucks_plate_per_tenant`, `409 already_exists` `field: licensePlate`); the GPS vehicle id is unique too. A plate is trimmed, never otherwise normalised (`lib/truckPlate.ts`).
+- **Vehicle class (AC):** `vehicleclass.Of(type)` derives `vehicle_class` on create and on every type change; an unknown type is `NULL`, never 4WJ (R15).
+- **Status history (AC):** create, a status change (`statusNote` = the reason) and a completed renewal (`tax_renewed` / `insurance_renewed`) append `status_history` rows; `UPDATE` / `DELETE` are revoked from the writing roles and refused by `trg_forbid_mutation` (the integration test proves both). The same holds for the `transactions` ledger.
+- **Files:** `files: {kind: [keys]}` (kinds `imageFrontRight`, `imageFrontLeft`, `imageBackRight`, `imageBackLeft`, `documentTax`, `documentRegister`, `taxReceipt`, `insuranceReceipt`, `insuranceDocument`, `legacyImage`, `other`; purposes `truck_photo`, `truck_document`, `truck_receipt`, `insurance_document`) replaces the kinds present; keys the truck already links stay linked whoever uploaded them (`FileIDsByKey` before the transaction), new keys are committed; URLs are signed after the transaction.
+- **Cost fields:** `taxExpenseThb`, `insurancePremiumThb`, `paymentMethod` are `null` unless the caller also holds `fleet:view_renewals`, `fleet:manage_renewals` or `fleet:edit_truck`.
+- **Import (AC):** rows are validated like `POST /v1/trucks` and written one savepoint each: `{created, updated, unchanged, errors: [{row, licensePlate, fields: [{field, reason}]}], dryRun}`; `row` is the spreadsheet row (header = 1) or the index of `rows[]`; headers are the legacy template's, the API's field names or Thai; dates are Excel serials, `yyyy-MM-dd` or `dd/MM/yyyy` (Buddhist years converted).
+- **Events:** outbox `truck.created`, `truck.updated` (`changed[]`), `truck.renewed` with `{entity: "truck", id}` on `tenant:{tid}:fleet`.
+
+Tests: `go test ./internal/fleet/... ./internal/platform/xlsx/` and `make test-integration` (`internal/fleet/fleet_integration_test.go`: real logins as `logitrack_app`; every T22 acceptance criterion: the plate rule and per-tenant uniqueness, unknown type -> NULL class, status history immutable for the app role and the owner, per-row import reasons (JSON and XLSX), 150 trucks through the cursor; plus tenant isolation, the dispatcher projection, files, renewals and the ledger, and the one- and two-connection pool regression).
 
 ## Firebase bridge (T08, main spec §4.9, Appendix C §C.6)
 
