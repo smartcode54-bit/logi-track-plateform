@@ -1,6 +1,8 @@
 // TW8 (issue #88; developer-spec.md §10.10 W9, §10.14 item 9): the virtualised table keeps a bounded
 // number of rows in the DOM whatever the list size (AC: a 5,000-row list keeps < 100 DOM rows), still
-// reaches the last row by scrolling, and pages a keyset list as the window nears its end.
+// reaches the last row by scrolling, and pages a keyset list as the window nears its end (never over a
+// running fetch, never again after a failed page: features/trucks/components/AssignmentHistory.test.tsx
+// runs the same against a Go origin with latency).
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import { createColumnHelper } from "@tanstack/react-table";
@@ -106,6 +108,54 @@ describe("VirtualTable", () => {
         scrollViewport(viewportOf(), "end", ROW, 250);
         expect(fetchNextPage).toHaveBeenCalledTimes(2);
         expect(screen.getByText("Row 249")).toBeInTheDocument();
+    });
+
+    it("asks for no page while the query fetches or after a failed next page, and never cancels a refetch", () => {
+        const fetchNextPage = vi.fn();
+        type State = { isFetching?: boolean; isFetchNextPageError?: boolean };
+        const view = (state: State) => (
+            <VirtualTable
+                data={items(100)}
+                columns={columns}
+                getRowId={(r) => r.id}
+                aria-label="Rows"
+                estimateRowHeight={ROW}
+                maxHeight={VIEWPORT}
+                infinite={{ hasNextPage: true, isFetchingNextPage: false, ...state, fetchNextPage }}
+            />
+        );
+        // A background refetch (an invalidation, window focus) is in flight when the window reaches the end.
+        const { rerender } = render(view({ isFetching: true }));
+        scrollViewport(viewportOf(), "end", ROW, 100);
+        expect(fetchNextPage).not.toHaveBeenCalled();
+        // It settled: the page follows without another scroll, and would not cancel a fetch it raced.
+        rerender(view({ isFetching: false }));
+        expect(fetchNextPage).toHaveBeenCalledTimes(1);
+        expect(fetchNextPage).toHaveBeenCalledWith({ cancelRefetch: false });
+
+        // That page failed: settling again (and further scrolling) asks for nothing; LoadMore is the retry.
+        rerender(view({ isFetching: false, isFetchNextPageError: true }));
+        scrollViewport(viewportOf(), 100 * ROW - VIEWPORT - 5, ROW, 100);
+        scrollViewport(viewportOf(), "end", ROW, 100);
+        expect(fetchNextPage).toHaveBeenCalledTimes(1);
+        // A page succeeded (the retry or a refetch): paging resumes.
+        rerender(view({ isFetching: false, isFetchNextPageError: false }));
+        expect(fetchNextPage).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows the error state instead of the empty state when the query failed with no row", () => {
+        const view = (data: Item[], error: boolean) => (
+            <VirtualTable data={data} columns={columns} getRowId={(r) => r.id} aria-label="Rows" emptyState="Nothing" error={error} errorState="Failed" />
+        );
+        const { rerender, container } = render(view([], true));
+        expect(screen.getByText("Failed").closest("td")).toHaveAttribute("colspan", "2");
+        expect(screen.queryByText("Nothing")).toBeNull();
+        rerender(view([], false));
+        expect(screen.getByText("Nothing")).toBeInTheDocument();
+        // Rows on screen stay on screen when a later fetch fails (a refetch or a next page).
+        rerender(view(items(3), true));
+        expect(screen.queryByText("Failed")).toBeNull();
+        expect(bodyRows(container)).toHaveLength(3);
     });
 
     it("shows the loading and empty states in one full-width row", () => {

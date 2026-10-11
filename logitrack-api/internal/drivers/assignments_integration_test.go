@@ -308,6 +308,14 @@ func TestTruckAssignmentSearch(t *testing.T) {
 		t.Errorf("%s", r.raw)
 	}
 	expect(t, w.get("/v1/truck-assignments?"+q(strings.Repeat("ก", 100)), ta), http.StatusOK, "")
+	// Text PostgreSQL cannot hold (not UTF-8, NUL) and control characters are 422 q invalid before SQL, never a 500.
+	for _, bad := range []string{"\xff", "a\x00b", "a\x01b"} {
+		r := w.get("/v1/truck-assignments?"+q(bad), ta)
+		expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+		if r.fields()["q"] != "invalid" {
+			t.Errorf("q=%q: %s", bad, r.raw)
+		}
+	}
 }
 
 // AC: activeTruck (the truck of the running job), currentAssignment (the home truck) and tasks.truck_id (the truck of

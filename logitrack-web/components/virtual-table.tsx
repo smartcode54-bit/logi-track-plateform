@@ -10,12 +10,18 @@
  *
  * With `infinite` (a `useInfiniteQuery` over a keyset list), the next page is fetched when the window
  * comes within `fetchAheadRows` of the last loaded row, so scrolling reaches the end of the list without
- * a click; the page keeps its `LoadMore` footer for the count and the keyboard. Filters belong in the
- * query key and the request (W9), never over the loaded rows: a row the server has not sent yet cannot
- * be filtered in the browser.
+ * a click; the page keeps its `LoadMore` footer for the count, the keyboard and the retry. The automatic
+ * request waits while the query fetches anything (a background refetch is never cancelled: the query runs
+ * one fetch at a time, and a next page started over it would drop the refetched rows) and stops after a
+ * failed next page (no request loop; `LoadMore` retries it, and paging resumes once a page succeeds).
+ * Filters belong in the query key and the request (W9), never over the loaded rows: a row the server has
+ * not sent yet cannot be filtered in the browser.
  *
  *   <VirtualTable data={rows} columns={columns} getRowId={(r) => r.id}
- *                 infinite={{ hasNextPage, isFetchingNextPage, fetchNextPage }} aria-label={t("…")} />
+ *                 infinite={{ hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError, fetchNextPage }}
+ *                 error={isError} errorState={t("…")} aria-label={t("…")} />
+ *
+ * (A `useInfiniteQuery` result carries every field of `infinite`, so `infinite={query}` works too.)
  */
 import { useEffect, useRef, type ReactNode } from "react";
 import {
@@ -45,7 +51,11 @@ declare module "@tanstack/react-table" {
 export interface VirtualTableInfinite {
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
-    fetchNextPage: () => unknown;
+    /** Any fetch of the query, a background refetch included (an infinite query runs one fetch at a time). */
+    isFetching?: boolean;
+    /** The last next-page request failed: the table asks for no more pages; the page's `LoadMore` retries. */
+    isFetchNextPageError?: boolean;
+    fetchNextPage: (options?: { cancelRefetch?: boolean }) => unknown;
 }
 
 export const VIRTUAL_TABLE_DEFAULTS = {
@@ -79,6 +89,9 @@ export interface VirtualTableProps<TData> {
     loadingState?: ReactNode;
     /** Shown when there is no row. */
     emptyState?: ReactNode;
+    /** The query failed: with no row to show, `errorState` replaces `emptyState` (a failure is not an empty list). */
+    error?: boolean;
+    errorState?: ReactNode;
     /** The viewport scrolls back to the top when this value changes (a new filter or search). */
     resetScrollKey?: unknown;
     className?: string;
@@ -101,6 +114,8 @@ export function VirtualTable<TData>({
     loading = false,
     loadingState,
     emptyState,
+    error = false,
+    errorState,
     resetScrollKey,
     className,
     headerClassName,
@@ -134,14 +149,19 @@ export function VirtualTable<TData>({
     const items = virtualizer.getVirtualItems();
     const lastIndex = items.length > 0 ? items[items.length - 1].index : -1;
 
-    // Infinite paging: the window reached the last `fetchAheadRows` loaded rows.
+    // Infinite paging: the window reached the last `fetchAheadRows` loaded rows. Not while the query fetches
+    // (`isFetching` is in the deps, so the request follows once a refetch settles), and not after a failed next
+    // page: `hasNextPage` stays true then, and asking again on every settle would loop for as long as the
+    // window stays at the end. `cancelRefetch: false` covers the render before the observer reports a refetch.
     const hasNextPage = infinite?.hasNextPage ?? false;
     const isFetchingNextPage = infinite?.isFetchingNextPage ?? false;
+    const isFetching = infinite?.isFetching ?? false;
+    const nextPageFailed = infinite?.isFetchNextPageError ?? false;
     const fetchNextPage = infinite?.fetchNextPage;
     useEffect(() => {
-        if (!fetchNextPage || !hasNextPage || isFetchingNextPage || lastIndex < 0) return;
-        if (lastIndex >= rows.length - 1 - fetchAheadRows) void fetchNextPage();
-    }, [fetchNextPage, hasNextPage, isFetchingNextPage, lastIndex, rows.length, fetchAheadRows]);
+        if (!fetchNextPage || !hasNextPage || isFetchingNextPage || isFetching || nextPageFailed || lastIndex < 0) return;
+        if (lastIndex >= rows.length - 1 - fetchAheadRows) void fetchNextPage({ cancelRefetch: false });
+    }, [fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, nextPageFailed, lastIndex, rows.length, fetchAheadRows]);
 
     // A new filter starts at the top of its list.
     const firstReset = useRef(true);
@@ -156,7 +176,7 @@ export function VirtualTable<TData>({
     const columnCount = table.getVisibleLeafColumns().length;
     const paddingTop = items.length > 0 ? items[0].start : 0;
     const paddingBottom = items.length > 0 ? virtualizer.getTotalSize() - items[items.length - 1].end : 0;
-    const placeholder = loading ? loadingState : rows.length === 0 ? emptyState : null;
+    const placeholder = loading ? loadingState : rows.length === 0 ? (error ? errorState : emptyState) : null;
 
     return (
         <div

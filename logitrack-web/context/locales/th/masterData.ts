@@ -7,6 +7,7 @@ const masterData: Record<string, string> = {
     "masterData.list.loadMore": "โหลดเพิ่ม",
     "masterData.list.allLoaded": "โหลดครบทุกรายการแล้ว",
     "masterData.list.loadError": "โหลดรายการไม่สำเร็จ กรุณาลองใหม่",
+    "masterData.list.loadMoreError": "โหลดรายการถัดไปไม่สำเร็จ",
     "masterData.list.showing": "แสดง {from} ถึง {to} จาก {total} รายการที่โหลด",
 
     // The task boards' source filter over every hub (TW8, Appendix E §E.10 row 7).

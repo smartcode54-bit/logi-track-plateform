@@ -20,6 +20,12 @@ const column = createColumnHelper<TruckAssignmentDTO>();
 
 /** A history row with its avatar and badge (`py-4` cells), px: the virtualiser's estimate before it measures. */
 export const HISTORY_ROW_HEIGHT = 57;
+
+/**
+ * The longest search Go takes (`GET /v1/truck-assignments?q`, Appendix B §B.2.8: more characters is
+ * `422 q too_long`). `maxLength` counts UTF-16 units and Go counts characters, so this never sends more.
+ */
+export const ASSIGNMENT_SEARCH_MAX = 100;
 const HEAD = "text-xs font-semibold tracking-wider text-muted-foreground uppercase";
 
 interface AssignmentHistoryProps {
@@ -131,6 +137,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                             placeholder={t("assignments.filter.search")}
                             aria-label={t("assignments.filter.search")}
                             value={search}
+                            maxLength={ASSIGNMENT_SEARCH_MAX}
                             onChange={(e) => setSearch(e.target.value)}
                             className="pl-9 w-full md:w-[250px] bg-background/50"
                         />
@@ -160,6 +167,8 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                 loading={history.isPending}
                 loadingState={t("assignments.table.loading")}
                 emptyState={t("assignments.table.noHistory")}
+                error={history.isError}
+                errorState={t("masterData.list.loadError")}
                 resetScrollKey={`${statusParam}|${q}`}
                 headerRowClassName="bg-muted/30 hover:bg-muted/30 border-border/50"
                 rowClassName="border-border/50 hover:bg-muted/30 transition-colors"
@@ -169,6 +178,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                     loaded={history.rows.length}
                     hasNextPage={history.hasNextPage}
                     isFetchingNextPage={history.isFetchingNextPage}
+                    error={history.isFetchNextPageError}
                     onLoadMore={() => void history.fetchNextPage()}
                 />
             </div>

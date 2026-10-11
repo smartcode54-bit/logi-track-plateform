@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -80,7 +79,7 @@ type ListAssignmentsInput struct {
 
 // ListAssignments is GET /v1/truck-assignments (fleet:view_assignments): the assignments of the caller's tenant
 // reach, newest first, keyset (the history list of the truck-assignment page, W9; the legacy page read every
-// document and kept 20). q (TW8, at most 100 characters) matches a substring of the plate, model, driver name or
+// document and kept 20). q (TW8, at most 100 characters, see searchParam) matches a substring of the plate, model, driver name or
 // admin label, case-insensitive: the page's search, on the server rather than over the pages it has loaded.
 func (s *Service) ListAssignments(ctx context.Context, p *authz.Principal, in ListAssignmentsInput) ([]TruckAssignment, string, error) {
 	var ck checker
@@ -102,13 +101,7 @@ func (s *Service) ListAssignments(ctx context.Context, p *authz.Principal, in Li
 		return &u
 	}
 	truck, driver := id("truckId", in.TruckID), id("driverId", in.DriverID)
-	var q *string
-	if v := strings.TrimSpace(in.Q); v != "" {
-		if utf8.RuneCountInString(v) > 100 {
-			ck.add("q", "too_long")
-		}
-		q = &v
-	}
+	q := searchParam(&ck, "q", in.Q)
 	limit := pageLimit(&ck, in.Limit)
 	var after cursor
 	if in.Cursor != "" {

@@ -543,6 +543,13 @@ func TestRenewalOverview(t *testing.T) {
 	}
 	expect(t, w.get("/v1/trucks/renewals?due=400", op), http.StatusUnprocessableEntity, "invalid_argument")
 	expect(t, w.get("/v1/trucks/renewals?due=x", op), http.StatusUnprocessableEntity, "invalid_argument")
+	for _, query := range []string{"q=%FF", "q=a%00b"} {
+		r := w.get("/v1/trucks/renewals?"+query, op)
+		expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+		if r.fields()["q"] != "invalid" {
+			t.Errorf("%s: %s", query, r.raw)
+		}
+	}
 	expect(t, w.get("/v1/trucks/renewals", w.login("us.o")), http.StatusForbidden, "permission_denied")
 	if got := w.get("/v1/trucks/renewals?ownership=subcontractor", op).list(); len(got) != 1 || str(got[0]["truckId"]) != missing {
 		t.Fatalf("ownership filter: %v", got)
@@ -1033,6 +1040,14 @@ func TestTruckListPaging(t *testing.T) {
 	expect(t, w.get("/v1/trucks?cursor=bad", taO), http.StatusUnprocessableEntity, "invalid_argument")
 	expect(t, w.get("/v1/trucks?status=parked", taO), http.StatusUnprocessableEntity, "invalid_argument")
 	expect(t, w.get("/v1/trucks?sort=plate", taO), http.StatusBadRequest, "bad_request")
+	// Text PostgreSQL cannot hold (not UTF-8, NUL) is refused before SQL as 422, never a 500 (TW8).
+	for _, query := range []string{"q=%FF", "q=a%00b", "type=%FF", "type=a%00b"} {
+		r := w.get("/v1/trucks?"+query, taO)
+		expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+		if f := r.fields(); f["q"] != "invalid" && f["type"] != "invalid" {
+			t.Errorf("%s: %s", query, r.raw)
+		}
+	}
 }
 
 // A dispatcher reads trucks through the scope_trucks projection only (Appendix C §C.3.7, R85): its own organisation's
