@@ -16,9 +16,10 @@ const insertSecurityEvent = `-- name: InsertSecurityEvent :exec
 
 INSERT INTO security_events (event_type, severity, summary, details, actor_user_id, actor_email, target_user_id,
                              tenant_id, request_id, created_at)
-VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, $9,
-        $10)
+VALUES ($1, $2, $3, $4, $5::uuid,
+        coalesce($6::text,
+                 (SELECT u.email::text FROM users u WHERE u.id = $5::uuid)),
+        $7, $8, $9, $10)
 `
 
 type InsertSecurityEventParams struct {
@@ -36,6 +37,9 @@ type InsertSecurityEventParams struct {
 
 // security_events (Appendix A 0008_platform, Appendix C §C.4.13, R85): append-only; this package is its
 // only writer. Rows are appended in the caller's WithSystem transaction, with the change they describe.
+// actor_email is the actor's address when the event is written, as the legacy feed recorded it: the caller's value
+// (the sign-in events pass the address that was typed), else the users row of actor_user_id (every caller runs in
+// WithSystem or as the ETL role, so RLS does not hide it). A later email change does not rewrite history.
 func (q *Queries) InsertSecurityEvent(ctx context.Context, arg InsertSecurityEventParams) error {
 	_, err := q.db.Exec(ctx, insertSecurityEvent,
 		arg.EventType,
@@ -50,4 +54,126 @@ func (q *Queries) InsertSecurityEvent(ctx context.Context, arg InsertSecurityEve
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const listSecurityEvents = `-- name: ListSecurityEvents :many
+
+SELECT id, created_at, event_type, severity, summary, details, actor_user_id, actor_email, actor_legacy_uid,
+       target_user_id, tenant_id, request_id
+FROM security_events
+WHERE (cardinality($1::text[]) = 0 OR event_type = ANY ($1::text[]))
+  AND ($2::text IS NULL OR severity = $2::text)
+  AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+  AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
+  AND ($5::timestamptz IS NULL
+    OR (created_at, id) < ($5::timestamptz, $6::uuid))
+ORDER BY created_at DESC, id DESC
+LIMIT $7
+`
+
+type ListSecurityEventsParams struct {
+	Types        []string
+	Severity     *string
+	FromAt       *time.Time
+	ToAt         *time.Time
+	AfterCreated *time.Time
+	AfterID      uuid.UUID
+	RowLimit     int32
+}
+
+type ListSecurityEventsRow struct {
+	ID             uuid.UUID
+	CreatedAt      time.Time
+	EventType      string
+	Severity       string
+	Summary        string
+	Details        []byte
+	ActorUserID    *uuid.UUID
+	ActorEmail     *string
+	ActorLegacyUid *string
+	TargetUserID   *uuid.UUID
+	TenantID       *uuid.UUID
+	RequestID      *string
+}
+
+// Reads (T51, GET /v1/security-events and the overview of GET /v1/security/overview) run in the caller's
+// db.WithPrincipal transaction, so RLS decides the rows (Appendix C §C.3.5 0008_platform): tenant staff read the
+// rows of their tenant (p_staff_read), a platform principal under X-Act-On-Tenant: * every row (p_bypass,
+// read-only), under X-Act-On-Tenant: <uuid> the rows of that tenant.
+// Keyset page, newest first (created_at DESC, id DESC: index security_events_feed, Appendix B §B.1.5).
+func (q *Queries) ListSecurityEvents(ctx context.Context, arg ListSecurityEventsParams) ([]ListSecurityEventsRow, error) {
+	rows, err := q.db.Query(ctx, listSecurityEvents,
+		arg.Types,
+		arg.Severity,
+		arg.FromAt,
+		arg.ToAt,
+		arg.AfterCreated,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSecurityEventsRow{}
+	for rows.Next() {
+		var i ListSecurityEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.EventType,
+			&i.Severity,
+			&i.Summary,
+			&i.Details,
+			&i.ActorUserID,
+			&i.ActorEmail,
+			&i.ActorLegacyUid,
+			&i.TargetUserID,
+			&i.TenantID,
+			&i.RequestID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const securityEventAges = `-- name: SecurityEventAges :many
+SELECT floor(extract(epoch FROM ($1::timestamptz - created_at)) / 3600)::int AS age_hours,
+       severity, count(*)::int AS events
+FROM security_events
+WHERE created_at > $1::timestamptz - interval '7 days' AND created_at <= $1::timestamptz
+GROUP BY 1, 2
+`
+
+type SecurityEventAgesRow struct {
+	AgeHours int32
+	Severity string
+	Events   int32
+}
+
+// The overview histogram: the events of the 7 days before now visible to the caller, by whole hours of age and
+// severity (at most 168 x 3 groups).
+func (q *Queries) SecurityEventAges(ctx context.Context, now time.Time) ([]SecurityEventAgesRow, error) {
+	rows, err := q.db.Query(ctx, securityEventAges, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SecurityEventAgesRow{}
+	for rows.Next() {
+		var i SecurityEventAgesRow
+		if err := rows.Scan(&i.AgeHours, &i.Severity, &i.Events); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

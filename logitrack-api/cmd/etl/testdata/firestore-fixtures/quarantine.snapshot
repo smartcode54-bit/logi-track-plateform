@@ -52,6 +52,11 @@ incidentReport	incidentReport/inc2	loaded	driver
 legacy_tmp	legacy_tmp/x1	dropped	-
 maintenance	maintenance/mnt1	loaded	truck
 maintenance	maintenance/mnt2	quarantined	quarantine
+permissions_config	permissions_config/admin	pending	-
+permissions_config	permissions_config/customer	pending	-
+permissions_config	permissions_config/driver	pending	-
+permissions_config	permissions_config/manager	pending	-
+permissions_config	permissions_config/operator	pending	-
 settings	settings/tenancy	pending	-
 standby_records	standby_records/sb1	loaded	task
 standby_records	standby_records/sb2	loaded	driver

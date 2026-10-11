@@ -168,6 +168,58 @@ func cmdAuthWeakScan(e *env, args []string) int {
 	return app.ExitOK
 }
 
+// cmdAuthRBAC is `etl auth-rbac` (T51, Appendix C §C.2.6): the permissions_config documents of a dump become
+// own-fleet override rows where the saved boolean differs from the new default, unknown keys are quarantined with
+// unknown_capability_key, and migration_rbac_report.csv is the owner's sign-off before the Security Center cut-over.
+func cmdAuthRBAC(e *env, args []string) int {
+	fl := flag.NewFlagSet("auth-rbac", flag.ContinueOnError)
+	fl.SetOutput(e.stderr)
+	src := fl.String("dump", "", "dump directory or s3:etl/dumps/{ts} with the permissions_config collection")
+	useFixtures := fl.Bool("fixtures", false, "read the committed fixture dump")
+	actor := fl.String("actor", "", "email of the users row recorded as updated_by and audit actor (default: the first PLATFORM_ADMIN_EMAILS address)")
+	reportPath := fl.String("report", "", "write migration_rbac_report.csv to this file ('-': stdout)")
+	dry := fl.Bool("dry-run", false, "write the report, commit nothing")
+	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
+		return usageError(e.stderr, "auth-rbac takes --dump or --fixtures")
+	}
+	who := strings.ToLower(strings.TrimSpace(*actor))
+	if who == "" && len(e.cfg.AdminEmails) > 0 {
+		who = e.cfg.AdminEmails[0]
+	}
+	if who == "" {
+		return usageError(e.stderr, "auth-rbac needs --actor or PLATFORM_ADMIN_EMAILS (role_capability_overrides.updated_by)")
+	}
+	d, cleanup, code := e.openDump(*src, *useFixtures)
+	defer cleanup()
+	if code != app.ExitOK {
+		return code
+	}
+	eng, closeDB, code := e.engine()
+	if code != app.ExitOK {
+		return code
+	}
+	defer closeDB()
+	rep, err := eng.AuthRBAC(e.ctx, etl.AuthRBACOptions{Dump: d, ActorEmail: who, DryRun: *dry})
+	if err != nil {
+		return e.abortCode(err, "auth-rbac failed")
+	}
+	mode := "committed"
+	if *dry {
+		mode = "dry run: rolled back"
+	}
+	_, _ = fmt.Fprintf(e.stdout, "auth-rbac: %d key(s) (%s): %s; %d override row(s) changed\n", len(rep.Lines), mode,
+		countList(rep.Counts()), len(rep.Changes))
+	if len(rep.Changes) > 0 && !*dry {
+		_, _ = fmt.Fprintln(e.stdout, "the api's cached role sets refresh within 10 minutes (rbac:caps TTL; cmd/etl has no Redis)")
+	}
+	if *reportPath != "" {
+		if err := writeTo(*reportPath, e.stdout, rep.WriteCSV); err != nil {
+			return e.fail(app.ExitRuntimeError, err, "write report")
+		}
+	}
+	return app.ExitOK
+}
+
 func countList(m map[string]int) string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

@@ -10,6 +10,11 @@
       "count": 1
     },
     {
+      "name": "permissions_config",
+      "file": "permissions_config.ndjson",
+      "count": 5
+    },
+    {
       "name": "subcontractors",
       "file": "subcontractors.ndjson",
       "count": 2
