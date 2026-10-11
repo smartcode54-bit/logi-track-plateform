@@ -9,18 +9,23 @@
 # runs everything, so every mv-go commit gets its image (§17.2, §17.4) whatever it touched; so
 # does a range that cannot be compared (new branch, force push, tag).
 #
-# The workflow triggers on every push and pull request of mv-go and mv-go-** (no `paths:` filter),
-# so the aggregate `go-ci` check always reports and can be a required check on mv-go: a workflow
-# skipped by a path filter would leave a required check pending forever.
+# The workflow triggers on every push to mv-go and pull request into mv-go and mv-go-** (a feature
+# branch runs through its pull request) with no `paths:` filter, so the aggregate `go-ci` check
+# always reports and can be a required check on mv-go: a workflow skipped by a path filter would
+# leave a required check pending forever.
+#
+# Second output, ci_yml: true when a pull request changes .github/workflows/ci.yml. CI's
+# pull_request path filter cannot list that file (the entry is shared with main, R90), so go-ci's
+# web-ci job (go-ci-web-ci.sh) fails such a pull request when no CI run started for it.
 #
 # Inputs (environment): GITHUB_EVENT_NAME, GITHUB_REF, GITHUB_SHA, GITHUB_OUTPUT, and BASE_SHA +
-# HEAD_SHA (pull_request) or BEFORE (push).
+# HEAD_SHA (pull_request) or BEFORE (push). go-ci-selftest.sh checks it on throwaway repositories.
 set -euo pipefail
 
 pattern='^(logitrack-api/|shared-docs/schemas/|shared-docs/specs/mv-go/|developer-spec\.md$|logitrack-web/app/app/|logitrack-web/lib/capabilities\.ts$|\.github/workflows/|\.github/actions/|\.github/scripts/go-ci-)'
 
 if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/mv-go ]; then
-  echo "go=true" >> "$GITHUB_OUTPUT"
+  printf 'go=true\nci_yml=false\n' >> "$GITHUB_OUTPUT"
   echo "push to mv-go: every job runs and the image is pushed as :$GITHUB_SHA"
   exit 0
 fi
@@ -39,13 +44,17 @@ case "$GITHUB_EVENT_NAME" in
 esac
 
 if [ -z "$range" ]; then
-  echo "go=true" >> "$GITHUB_OUTPUT"
+  printf 'go=true\nci_yml=false\n' >> "$GITHUB_OUTPUT"
   echo "no comparable range ($GITHUB_EVENT_NAME $GITHUB_REF): every job runs"
   exit 0
 fi
 
 files=$(git diff --name-only "$range")
 if grep -Eq "$pattern" <<<"$files"; then go=true; else go=false; fi
-echo "go=$go" >> "$GITHUB_OUTPUT"
-echo "go=$go: $(grep -c . <<<"$files" || true) file(s) changed in $range"
+ci_yml=false
+if [ "$GITHUB_EVENT_NAME" = pull_request ] && grep -qx '\.github/workflows/ci\.yml' <<<"$files"; then
+  ci_yml=true
+fi
+printf 'go=%s\nci_yml=%s\n' "$go" "$ci_yml" >> "$GITHUB_OUTPUT"
+echo "go=$go ci_yml=$ci_yml: $(grep -c . <<<"$files" || true) file(s) changed in $range"
 grep -E "$pattern" <<<"$files" | head -50 || true
