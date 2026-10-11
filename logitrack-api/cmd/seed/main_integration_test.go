@@ -161,6 +161,11 @@ func fingerprintBlock(t *testing.T, out string) string {
 
 var passLine = regexp.MustCompile(`(?m)^ ?\d+ PASS `)
 
+// coldMedia gives the loads of a test that asserts a time budget a drawer with an empty memo (main.go: media), so the
+// budget counts drawing every placeholder whatever loads ran before in this process. Budgets are asserted without the
+// race detector only; under it the tests share the process drawer, which draws the demo's photos once (T35).
+func coldMedia() { media = processMedia() }
+
 // The smoke profile loads in under five seconds, passes the twelve invariants, and a second run gives the
 // same ids, counts and fingerprint (Appendix D §D.1.7, invariant 12).
 func TestSmokeLoadVerifyTwice(t *testing.T) {
@@ -168,6 +173,7 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if !raceEnabled {
 		// The production cost of .env.example, so the five-second budget includes real Argon2id hashing.
 		argon = []string{"ARGON2_MEMORY_KB=65536", "ARGON2_ITERATIONS=3", "ARGON2_PARALLELISM=2"}
+		coldMedia()
 	}
 	s := newStack(t, "s3", argon...)
 	first := s.mustSeed(t, "--profile", "smoke")
@@ -207,7 +213,14 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 // principal is role-played, the two R24 brokers included.
 func TestDemoLoadVerify(t *testing.T) {
 	s := newStack(t, "local")
-	s.mustSeed(t, "--profile", "demo")
+	if !raceEnabled {
+		coldMedia()
+	}
+	load := s.mustSeed(t, "--profile", "demo")
+	t.Logf("demo load: %s (%s)", load.took, strings.TrimSpace(load.stdout))
+	if !raceEnabled && load.took >= 2*time.Minute { // Appendix D §D.1.2 budget, its 3,674 objects included (T35)
+		t.Errorf("seed --profile demo took %s, want < 2 min", load.took)
+	}
 	v := s.mustSeed(t, "--verify", "--profile", "demo")
 	t.Log("\n" + v.stdout)
 	if n := len(passLine.FindAllString(v.stdout, -1)); n != 12 {
@@ -215,11 +228,13 @@ func TestDemoLoadVerify(t *testing.T) {
 	}
 	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator, user (nwr.user, T26);
 	// TTP tenant_admin, operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR ->
-	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left. Every readable RLS table is
-	// classified.
+	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left: d13's TTP work of the 42 days
+	// before its move (T35: tasks, trips, photos and their objects, an incident, a standby wait). Every readable RLS
+	// table is classified.
 	for _, want := range []string{
 		"11 carrier principal(s) (7 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
-		"d13.thawisak@logitrack.test (NWR, driver): memberships 1, truck_assignments 1",
+		"d13.thawisak@logitrack.test (NWR, driver): file_objects 186, incident_reports 1, memberships 1, standby_records 1, " +
+			"tasks 42, trip_photos 183, trip_records 42, truck_assignments 1",
 		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
 	} {
 		if !strings.Contains(v.stdout, want) {
@@ -275,13 +290,48 @@ func TestDemoLoadVerify(t *testing.T) {
 			"%d drivers on duty (want the 7 generated drivers with a truck), %d missing hub-SOC pairs",
 			badClass, badHome, onDuty, missingPairs)
 	}
+	// Operations as the API reads them (T35, issue #55): today's first-mile board of Appendix D §D.2 #1 on the anchor
+	// day, the drivers with a task under way pointing at it (back-filled after the load), every delivered trip with
+	// its snapshot, and the task counters past every padded number of a day.
+	var board string
+	if err := conn.QueryRow(ctx, `SELECT string_agg(status || ':' || n, ',' ORDER BY status) FROM (
+		SELECT status, count(*) AS n FROM tasks WHERE task_type = 'first_mile' AND plan_date = DATE '2026-09-30' GROUP BY status) x`).
+		Scan(&board); err != nil {
+		t.Fatal(err)
+	}
+	if want := "assigned:8,cancelled:2,checked_in:2,completed:4,in_transit:3,pending:6"; board != want {
+		t.Errorf("today's first-mile board\n have %s\n want %s", board, want)
+	}
+	var active, badActive, unsnapped, behind int
+	if err := conn.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM drivers WHERE active_task_id IS NOT NULL),
+		(SELECT count(*) FROM drivers d LEFT JOIN tasks k ON k.id = d.active_task_id LEFT JOIN trucks tr ON tr.id = k.truck_id
+		  WHERE (d.active_task_id IS NULL) <> (d.active_truck_id IS NULL)
+		     OR (d.active_task_id IS NULL) <> (d.active_started_at IS NULL)
+		     OR (d.active_task_id IS NOT NULL AND (k.driver_id <> d.id OR k.status NOT IN ('checked_in','in_transit')
+		         OR d.active_truck_id IS DISTINCT FROM k.truck_id OR d.active_truck_plate IS DISTINCT FROM tr.license_plate
+		         OR d.active_started_at IS DISTINCT FROM k.check_in_at))),
+		(SELECT count(*) FROM trip_records t WHERE t.status = 'delivered'
+		  AND NOT EXISTS (SELECT 1 FROM trip_billing_snapshots s WHERE s.trip_id = t.id)),
+		(SELECT count(*) FROM tasks k JOIN task_number_counters c ON c.task_type = k.task_type AND c.plan_date = k.plan_date
+		  WHERE k.task_no ~ '-[0-9]{3,}$' AND (regexp_match(k.task_no, '-([0-9]+)$'))[1]::int > c.last_seq)`).
+		Scan(&active, &badActive, &unsnapped, &behind); err != nil {
+		t.Fatal(err)
+	}
+	// Smoke D1, D2 and D7 hold TK17, TK18 and TK24; the demo adds the four drivers under way today (the board's
+	// second check-in is the smoke TK24). Each holds its task's truck as its active truck (activeTruck: truck, plate,
+	// task and start set together at check-in, as GET /v1/drivers/{id} reads them), and no other driver holds one.
+	if active != 7 || badActive != 0 || unsnapped != 0 || behind != 0 {
+		t.Errorf("demo operations: %d drivers with a task under way (want 7), %d whose active task or truck is not its task "+
+			"under way, %d delivered trips without a snapshot, %d task numbers past their counter", active, badActive, unsnapped, behind)
+	}
 }
 
 // A database seeded with a smaller profile takes the demo rows with --mode upsert, as the staging VM seeded with an
 // older demo takes the T26 master data: the top-up inserts only what is missing, passes --verify, and ends with the
 // fingerprint of a fresh demo load.
 func TestDemoUpsertOverSmaller(t *testing.T) {
-	s := newStack(t, "local")
+	s := newStack(t, "s3") // MinIO: the local backend's fsync per object is slow on macOS (TestDemoLoadVerify covers it)
 	s.mustSeed(t, "--profile", "smoke")
 	r := s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
 	if strings.Contains(r.stdout, "created with a temporary password") {
@@ -294,7 +344,7 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 	if again := s.mustSeed(t, "--profile", "demo", "--mode", "upsert"); !strings.Contains(again.stdout, ": 0 rows") {
 		t.Errorf("a second top-up wrote rows:\n%s", again.stdout)
 	}
-	fresh := newStack(t, "local")
+	fresh := newStack(t, "s3")
 	fresh.mustSeed(t, "--profile", "demo")
 	if a, b := fingerprintBlock(t, topped.stdout), fingerprintBlock(t, fresh.mustSeed(t, "--verify", "--profile", "demo").stdout); a != b {
 		t.Fatalf("a topped-up and a fresh demo differ:\n%s\nvs\n%s", a, b)
@@ -518,10 +568,13 @@ func TestUpsertIsIdempotent(t *testing.T) {
 	}
 }
 
-// An upsert recomputes only the prices it writes: a shared database where someone edited a seeded price by
-// hand, or imported a later rate round, still takes a top-up (the app never re-prices those rows either).
+// An upsert recomputes only the prices it writes: a shared database where someone edited a seeded price by hand, or
+// imported a later rate round, still takes a top-up (the app never re-prices those rows either). The demo's generated
+// operations rows are priced from what that database holds (Appendix D §D.1.7): after the later RE01 round and a rate
+// card for one of the demo's "need a rate card" routes, the staging VM's top-up (seed --profile demo, upsert) lands,
+// and its trips take both.
 func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
-	s := newStack(t, "local")
+	s := newStack(t, "s3") // the demo top-up writes its objects: MinIO is the fast backend (TestDemoUpsertOverSmaller)
 	s.mustSeed(t)
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, s.d.SuperURL())
@@ -529,8 +582,8 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close(ctx) }()
-	plan, err := seed.Build(ctx, seed.FixtureFS{FS: fixtures, Registry: "testdata/registry.json", Smoke: "testdata/smoke"},
-		seed.Options{Profile: seed.ProfileSmoke, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "local"})
+	fx := seed.FixtureFS{FS: fixtures, Registry: "testdata/registry.json", Smoke: "testdata/smoke"}
+	plan, err := seed.Build(ctx, fx, seed.Options{Profile: seed.ProfileSmoke, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,6 +610,84 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 	if r := s.mustSeed(t, "--mode", "upsert"); !strings.Contains(r.stdout, ": 0 rows") {
 		t.Errorf("upsert after a rate import wrote rows:\n%s", r.stdout)
 	}
+
+	// A rate card, effective after the window, for a route the demo leaves unpriced (no_rate): the engine's oldest-entry
+	// fallback prices the window's trips of that route with it.
+	demo, err := seed.Build(ctx, fx, seed.Options{Profile: seed.ProfileDemo, RandomSeed: 20261009, Bucket: "logitrack",
+		PublicBucket: "logitrack-public", Backend: "s3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	party, hub, dest, class := noRateRoute(t, ctx, conn, demo)
+	if _, err := conn.Exec(ctx, `INSERT INTO customer_rate_entries (tenant_id, tenant_source, billing_party_id, import_id,
+		hub_code, raw_hub_name, destination_code, vehicle_class, rate_thb, job_category, effective_from_date, effective_from_at,
+		imported_at, created_by, created_at, voided)
+		SELECT tenant_id, tenant_source, $2, 'rc_1791090000000', $3, $3, $4, $5, 1234.00, 'PRIMARY', '2026-10-05',
+		       '2026-10-05T00:00:00+07:00', '2026-10-04T09:00:00+07:00', created_by, '2026-10-04T09:00:00+07:00', false
+		FROM customer_rate_entries WHERE id = $1`, sym("RE01"), party, hub, dest, class); err != nil {
+		t.Fatal(err)
+	}
+	s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
+	var trips, laterRound, newCard int
+	if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM trip_records),
+		(SELECT count(*) FROM trip_billing_snapshots s JOIN customer_rate_entries e ON e.id = s.rate_entry_id
+		  WHERE e.import_id = 'rc_1783213200000'),
+		(SELECT count(*) FROM trip_billing_snapshots s JOIN customer_rate_entries e ON e.id = s.rate_entry_id
+		  WHERE e.import_id = 'rc_1791090000000' AND s.estimate_thb IS NOT NULL)`).Scan(&trips, &laterRound, &newCard); err != nil {
+		t.Fatal(err)
+	}
+	if trips != 790 || laterRound == 0 || newCard == 0 {
+		t.Errorf("after the top-up: %d trips (want 790), %d priced on the later RE01 round, %d on the new card (want both > 0)",
+			trips, laterRound, newCard)
+	}
+}
+
+// noRateRoute is a route the demo's generated trips leave unpriced (no_rate) for a billing party the smoke database
+// already holds: party, the lookup hub and destination codes, and the vehicle class.
+func noRateRoute(t *testing.T, ctx context.Context, conn *pgx.Conn, demo *seed.Plan) (party, hub, dest, class string) {
+	t.Helper()
+	parties := map[string]bool{}
+	rows, err := conn.Query(ctx, `SELECT id::text FROM billing_parties`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		parties[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	tasks, trips := map[string]seed.Row{}, map[string]seed.Row{}
+	for _, r := range demo.Tables["tasks"] {
+		tasks[r.Str("id")] = r
+	}
+	for _, r := range demo.Tables["trip_records"] {
+		trips[r.Str("id")] = r
+	}
+	generatedTrip := regexp.MustCompile(`^ZX[JZ]B[0-9]{6}2[0-9]{4}$`) // the T35 range, outside the fixture's numbers
+	for _, sn := range demo.Tables["trip_billing_snapshots"] {
+		tr := trips[sn.Str("trip_id")]
+		if !generatedTrip.MatchString(tr.Str("trip_no")) {
+			continue
+		}
+		k := tasks[tr.Str("task_id")]
+		p := k.Str("billing_party_id")
+		for _, c := range []string{"source_linked_party_id", "destination_linked_party_id"} {
+			if p == "" {
+				p = k.Str(c)
+			}
+		}
+		if sn.Str("unpriced_reason") == "no_rate" && k.Str("job_category") == "PRIMARY" && k.Str("truck_type") != "" &&
+			sn.Str("lookup_hub_code") != "" && parties[p] {
+			return p, sn.Str("lookup_hub_code"), sn.Str("lookup_destination_code"), k.Str("truck_type")
+		}
+	}
+	t.Fatal("the demo plan has no unpriced no_rate route of a smoke billing party")
+	return "", "", "", ""
 }
 
 // A database seeded in another SEED_NAMESPACE is refused with a clear message: the natural keys and the
