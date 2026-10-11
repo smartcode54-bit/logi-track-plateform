@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -197,19 +196,7 @@ func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTru
 	}
 	ownership := opt("ownership", in.Ownership, Ownerships)
 	status := opt("status", in.Status, TruckStatuses)
-	var typ, q *string
-	if v := strings.TrimSpace(in.Type); v != "" {
-		if utf8.RuneCountInString(v) > 100 {
-			ck.add("type", "too_long")
-		}
-		typ = &v
-	}
-	if v := strings.TrimSpace(in.Q); v != "" {
-		if utf8.RuneCountInString(v) > 100 {
-			ck.add("q", "too_long")
-		}
-		q = &v
-	}
+	typ, q := searchParam(&ck, "type", in.Type), searchParam(&ck, "q", in.Q)
 	var tenant *uuid.UUID
 	if in.TenantID != "" {
 		id, err := uuid.Parse(in.TenantID)

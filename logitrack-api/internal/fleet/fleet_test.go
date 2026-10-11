@@ -1,17 +1,21 @@
 package fleet
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/fleetdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/xlsx"
 )
@@ -221,6 +225,47 @@ func TestCheckFiles(t *testing.T) {
 		"document_register", "tax_receipt", "insurance_receipt", "insurance_document", "legacy_image", "other"}
 	if got := slices.Sorted(maps.Keys(kindByDB)); !slices.Equal(got, slices.Sorted(slices.Values(db))) {
 		t.Fatalf("kinds %v", got)
+	}
+}
+
+// TestSearchParam: a list's ?q / ?type is trimmed, blank is no filter, and what PostgreSQL text cannot take (not
+// UTF-8, NUL) or what the search box cannot send (a control character) is a 422 before SQL, never a 500 (TW8).
+func TestSearchParam(t *testing.T) {
+	for _, c := range []struct {
+		in, want, bad string
+	}{
+		{"  กข-5101 ", "กข-5101", ""},
+		{"   ", "", ""},
+		{"", "", ""},
+		{strings.Repeat("ก", MaxSearchRunes), strings.Repeat("ก", MaxSearchRunes), ""},
+		{strings.Repeat("ก", MaxSearchRunes+1), "", "too_long"},
+		{"\xff", "", "invalid"},
+		{"a\x00b", "", "invalid"},
+		{"a\x01b", "", "invalid"},
+		{"a\x7fb", "", "invalid"},
+		{"a\tb", "", "invalid"},
+	} {
+		var ck checker
+		got := searchParam(&ck, "q", c.in)
+		if bad := fields(&ck)["q"]; bad != c.bad {
+			t.Errorf("searchParam(%q): reason %q, want %q", c.in, bad, c.bad)
+		}
+		if (got == nil) != (c.want == "") || (got != nil && *got != c.want) {
+			t.Errorf("searchParam(%q) = %v, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestMapDBError(t *testing.T) {
+	plain := errors.New("x")
+	if !errors.Is(mapDBError(plain), plain) {
+		t.Error("non-database errors pass through")
+	}
+	for code, want := range map[string]int{"23505": http.StatusConflict, "23503": http.StatusUnprocessableEntity,
+		"23514": http.StatusUnprocessableEntity, "22021": http.StatusUnprocessableEntity, "42501": http.StatusForbidden} {
+		if e := httpx.AsError(mapDBError(&pgconn.PgError{Code: code, ConstraintName: "c"})); e.Status != want {
+			t.Errorf("%s: %d", code, e.Status)
+		}
 	}
 }
 

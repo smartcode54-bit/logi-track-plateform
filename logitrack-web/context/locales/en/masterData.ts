@@ -7,7 +7,13 @@ const masterData: Record<string, string> = {
     "masterData.list.loadMore": "Load more",
     "masterData.list.allLoaded": "All rows loaded",
     "masterData.list.loadError": "The list could not be loaded. Please try again.",
+    "masterData.list.loadMoreError": "The next rows could not be loaded.",
     "masterData.list.showing": "Showing {from} to {to} of {total} loaded",
+
+    // The task boards' source filter over every hub (TW8, Appendix E §E.10 row 7).
+    "masterData.hubFilter.search": "Search by name or code...",
+    "masterData.hubFilter.noResults": "No location found.",
+    "masterData.hubFilter.clear": "Show every location",
 
     "masterData.fieldReason.required": "This field is required.",
     "masterData.fieldReason.invalid": "This value is not valid.",

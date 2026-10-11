@@ -26,6 +26,7 @@ import {
     assignTruck,
     ASSIGNMENT_WRITE_KEYS,
     revokeAssignment,
+    type AssignmentHistoryFilter,
     type TruckAssignmentDTO,
 } from "./truckAssignments";
 
@@ -78,9 +79,12 @@ export function useActiveAssignments(enabled = true) {
     return { ...query, assignments: query.data ?? NO_ASSIGNMENTS };
 }
 
-/** `['truckAssignments', {view:'history'}]` (infinite). */
-export function useAssignmentHistory() {
-    const query = useInfiniteQuery(assignmentHistoryQuery);
+/**
+ * `['truckAssignments', {view:'history', status, q}]` (infinite, server-filtered). The previous filter's
+ * rows stay on screen while a new one loads.
+ */
+export function useAssignmentHistory(filter: AssignmentHistoryFilter) {
+    const query = useInfiniteQuery({ ...assignmentHistoryQuery(filter), placeholderData: keepPreviousData });
     const rows = useMemo(() => query.data?.pages.flatMap((p) => p.data ?? []) ?? NO_ASSIGNMENTS, [query.data]);
     return { ...query, rows };
 }
