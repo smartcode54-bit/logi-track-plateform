@@ -20,12 +20,21 @@
  * - the Security Center slice pulled forward from M6 (T54S, owner request 2026-10-11): `roles.changed`
  *   on `tenant:{tid}:config` (T51's matrix save) and `mobile_settings.changed` on `global` (T52S's floor
  *   write and release publish).
- * Still to come: tasks and trips with the 2 s monitor window (M2), billing, expenses and income (M3),
- * HR and holidays (M4), chats and the explicit `chat:{id}` topic (M5), vehicle locations,
- * `platform:security` (no producer yet: the security pages poll) and badges (M6).
+ * - the M3 slice (T42, the accounting pages): `tenant:{tid}:billing` (`ratecard.changed` makes only the
+ *   touched `['rateCard', table, customer]` key stale; `statement.created`, `statement.status_changed`,
+ *   `documents.rendered` the statements), `tenant:{tid}:expenses` (`expense.*`: the expense lists and
+ *   the badges), the priced events on `tenant:{tid}:trips` (`trip.priced`, `trip.repriced`,
+ *   `standby.priced`: `['income']` with the 2 s window, `standby.priced` also the standby diagnostics;
+ *   never `['billing','rows' | 'missingDate']`, R89) and the success keys of the billing, document and
+ *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery); until it merges they never
+ *   arrive and the pages refetch after their own writes.
+ * Still to come: tasks and trips with the 2 s monitor window (M2), HR and holidays (M4), chats and the
+ * explicit `chat:{id}` topic (M5), vehicle locations, `platform:security` (no producer yet: the security
+ * pages poll) and badges (M6).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
+import { isRateCardTable, rateCardChangedKeys } from "@/features/accounting/api/rateCardKeys";
 import type { RealtimeFrame } from "./realtimeStream";
 
 /** Coalescing window of a list invalidation (Appendix E §E.5.1 "Backpressure": 500 ms). */
@@ -76,6 +85,13 @@ const TERMINAL_JOB_STATUSES = new Set(["succeeded", "failed"]);
 export const JOB_SUCCESS_KEYS: ReadonlyMap<string, readonly QueryKey[]> = new Map<string, readonly QueryKey[]>([
     // POST /v1/distances/compute (T21): the hub-SOC distance matrix and its meta.
     ["distances.compute", [queryKeys.distances.all()]],
+    // T42 (M3): the Bangchak snapshot (rate card, fuel pages), the billing backfills (income, billing
+    // aggregates), a document regeneration (the statement) and the Shopee report render.
+    ["bangchak.snapshot", [["fuel"]]],
+    ["billing.backfill-trips", [["income"], ["billing"]]],
+    ["billing.backfill-standby", [["income"], ["billing"]]],
+    ["documents.regenerate", [queryKeys.statements.all()]],
+    ["documents.shopee-report", [["billing", "shopee"]]],
 ]);
 
 /**
@@ -139,6 +155,30 @@ export const MOBILE_SETTINGS_KEYS: readonly QueryKey[] = [
     queryKeys.installations.all(),
 ];
 
+// --- billing and expenses (T42, M3) ---------------------------------------------------------------
+
+/**
+ * `ratecard.changed {billingPartyId, customerId, table}` (tenant:{tid}:billing): only the matching
+ * `['rateCard', table, customer]` key (and that table's `all` view) is stale (R51); an unknown table
+ * makes the whole rate card stale rather than none of it.
+ */
+function rateCardEffects(data: unknown): CacheEffects {
+    if (!isRecord(data)) return { invalidate: invalidations([queryKeys.rateCard.all()]), write: [] };
+    const customerId = typeof data.customerId === "string" && data.customerId !== "" ? data.customerId : null;
+    const keys = isRateCardTable(data.table) ? rateCardChangedKeys(data.table, customerId) : [queryKeys.rateCard.all()];
+    return { invalidate: invalidations(keys), write: [] };
+}
+
+/** `statement.*` and `documents.rendered`: every statement list and detail (R89). */
+export const STATEMENT_EVENTS = ["statement.created", "statement.status_changed", "documents.rendered"] as const;
+
+/** `expense.*` (tenant:{tid}:expenses): the expense lists and the audit badge. */
+export const EXPENSE_EVENTS = ["expense.created", "expense.updated", "expense.approved", "expense.status_changed"] as const;
+export const EXPENSE_KEYS: readonly QueryKey[] = [["expenses"], queryKeys.badges()];
+
+/** The priced events reach `['income']` (2 s window); never the billing rows or missing-date keys. */
+export const PRICED_EVENTS = ["trip.priced", "trip.repriced"] as const;
+
 // --- the map ---------------------------------------------------------------------------------------
 
 const RULES = new Map<string, EventRule>([
@@ -151,6 +191,14 @@ const RULES = new Map<string, EventRule>([
     // tenant:{tid}:config
     ["roles.changed", { invalidate: ROLES_CHANGED_KEYS }],
     ...FLEET_EVENTS.map((name) => [name, { invalidate: FLEET_KEYS }] as [string, EventRule]),
+    // tenant:{tid}:billing (T42)
+    ["ratecard.changed", { effects: rateCardEffects }],
+    ...STATEMENT_EVENTS.map((name) => [name, { invalidate: [queryKeys.statements.all()] }] as [string, EventRule]),
+    // tenant:{tid}:expenses (T42)
+    ...EXPENSE_EVENTS.map((name) => [name, { invalidate: EXPENSE_KEYS }] as [string, EventRule]),
+    // tenant:{tid}:trips, the priced events (T42; producer T38)
+    ...PRICED_EVENTS.map((name) => [name, { invalidate: [["income"]], windowMs: MONITOR_WINDOW_MS }] as [string, EventRule]),
+    ["standby.priced", { invalidate: [["income"], ["billing", "standbyDiag"]], windowMs: MONITOR_WINDOW_MS }],
 ]);
 
 /** Every event name the provider listens to (besides `session.revoked` and the control events). */
