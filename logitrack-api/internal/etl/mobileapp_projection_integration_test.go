@@ -3,18 +3,22 @@
 // The projection of the version gate settings('mobile_app') to Firestore settings/mobile_app (T52R, issue #72) on
 // postgres:18-alpine, against the in-process Firestore stand-in: the fixture's legacy gate round-trips unchanged, the
 // writes of internal/mobileapp (the floor half, the release half, the floor removed) reach the document field by
-// field, the projection runs only once mobile_release is PostgreSQL-owned, and the reconciliation sees a held gate.
+// field, the projection runs only once mobile_release is PostgreSQL-owned, the reconciliation sees a held gate, and two
+// handlers of two quick changes of the gate leave the later one in Firestore.
 package etl
 
 import (
+	"context"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 )
 
 // mergeGate merges one writer's half into settings('mobile_app') exactly as mobileapp's MergeMobileAppSettings does.
@@ -137,5 +141,105 @@ func TestProjectionOfTheVersionGate(t *testing.T) {
 	writes = len(h.fs.Writes())
 	if st := h.projectGate(proj); st.Written+st.Unchanged+st.Skipped != 0 || len(h.fs.Writes()) != writes {
 		t.Fatalf("no gate: %+v", st)
+	}
+}
+
+// stallFS stalls the first call of one Firestore operation ("get" or "patch") of one firestore.shadow handler: it
+// closes entered when the call starts and goes on once release is closed.
+type stallFS struct {
+	FirestoreWriter
+	op               string
+	once             sync.Once
+	entered, release chan struct{}
+}
+
+func (f *stallFS) stall(op string) {
+	if op != f.op {
+		return
+	}
+	f.once.Do(func() {
+		close(f.entered)
+		<-f.release
+	})
+}
+
+func (f *stallFS) Get(ctx context.Context, path string) (dump.Doc, error) {
+	f.stall("get")
+	return f.FirestoreWriter.Get(ctx, path)
+}
+
+func (f *stallFS) Patch(ctx context.Context, path string, fields map[string]any, mask []string, pre gcp.Precondition) (dump.Doc, error) {
+	f.stall("patch")
+	return f.FirestoreWriter.Patch(ctx, path, fields, mask, pre)
+}
+
+// Two quick changes of the gate (a floor raised, then removed: the owner withdraws a broken build) reach two
+// firestore.shadow handlers that run side by side (prefetch 4). The handler of the raise encodes first and then
+// stalls on Firestore, either reading the document (its Get) or writing it (its Patch); the handler of the removal
+// runs meanwhile. Whatever the interleaving, Firestore must end where PostgreSQL is (no floor): a floor left behind
+// would block every installed 3.x APK below it with the update dialog, pointing at the build just withdrawn, and no
+// later event would correct it.
+func TestProjectionOfTheVersionGateKeepsTheLaterChange(t *testing.T) {
+	for _, op := range []string{"get", "patch"} {
+		t.Run(op, func(t *testing.T) {
+			h := newSyncHarness(t)
+			p6 := owned("auth", "masterdata", "mobile_release")
+			proj := h.projector(p6)
+
+			// The raise commits; its handler encodes floor 3.2.0, then its Firestore call stalls.
+			h.mergeGate(`{"minAllowedVersion":"3.2.0","minAllowedVersionSetAt":"2026-10-11T09:30:00Z","minAllowedVersionSetBy":"owner@example.test"}`)
+			fs := &stallFS{FirestoreWriter: h.client, op: op, entered: make(chan struct{}), release: make(chan struct{})}
+			raise := *proj
+			raise.FS = fs
+			var raiseErr error
+			raiseDone := make(chan struct{})
+			go func() {
+				defer close(raiseDone)
+				_, raiseErr = raise.Project(h.ctx, ShadowTarget{Collection: "settings", All: true})
+			}()
+			select {
+			case <-fs.entered:
+			case <-raiseDone:
+				t.Fatalf("the raise did not reach Firestore: %v", raiseErr)
+			}
+
+			// The removal commits and its handler runs: to completion, or until it waits for the stalled one.
+			h.mergeGate(`{"minAllowedVersion":null,"minAllowedVersionSetAt":"2026-10-11T09:31:00Z","minAllowedVersionSetBy":"owner@example.test"}`)
+			var removeErr error
+			removeDone := make(chan struct{})
+			go func() {
+				defer close(removeDone)
+				_, removeErr = proj.Project(h.ctx, ShadowTarget{Collection: "settings", All: true})
+			}()
+			deadline := time.Now().Add(10 * time.Second)
+			for waiting := false; !waiting; {
+				select {
+				case <-removeDone:
+					waiting = true
+				default:
+					waiting = h.scalar(`SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+						AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`).(int64) > 0
+				}
+				if !waiting && time.Now().After(deadline) {
+					t.Fatal("the removal neither finished nor waited for the stalled projection")
+				}
+				if !waiting {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+
+			close(fs.release)
+			<-raiseDone
+			<-removeDone
+			if raiseErr != nil || removeErr != nil {
+				t.Fatalf("raise: %v; removal: %v", raiseErr, removeErr)
+			}
+			if v, ok := h.doc("settings/mobile_app")["minAllowedVersion"]; ok {
+				t.Fatalf("Firestore keeps floor %v after PostgreSQL removed it", v)
+			}
+			if c := h.reconcileGate(p6); !c.OK {
+				t.Fatalf("reconciliation %+v", c)
+			}
+		})
 	}
 }

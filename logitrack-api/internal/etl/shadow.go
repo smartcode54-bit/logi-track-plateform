@@ -28,7 +28,9 @@ import (
 //     ones whose stored value differs: a legacy spelling that means the same value (a lower-case code, 'RETURN_CENTER'
 //     for SOC, a yyyy-MM-dd string for a date, a download URL with its token) is kept, and a document that already
 //     says what PostgreSQL says is not written at all, so the mirror sees no change from it (no echo loop);
-//   - writes under a precondition on the update time it compared with (a concurrent writer makes it retry);
+//   - writes under a precondition on the update time it compared with (a concurrent writer makes it retry), and
+//     projects a one-document collection (settings/mobile_app, metadata/distances_last_calculated) one projection at
+//     a time, so an older snapshot of it never replaces a newer one (projectOne);
 //   - mints the document id of a row born in PostgreSQL (R25): legacy_doc_id = id::text, or the natural key of a
 //     distance pair ({hub}_{soc}, {soc}_{hub}: the 3.x app reads distances by that id,
 //     hub_soc_distances_repository.dart, minted again when the hub's code changes); the minting transaction commits
@@ -334,8 +336,12 @@ func (p *Projector) ProjectAll(ctx context.Context) (map[string]ProjectStats, er
 }
 
 // project encodes the selection in one transaction, which mints the document ids of rows born in PostgreSQL and
-// commits, then writes each document that differs: a sweep that reads a projected document finds its row.
+// commits, then writes each document that differs: a sweep that reads a projected document finds its row. A
+// one-document collection is projected by projectOne.
 func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel selection) (ProjectStats, error) {
+	if singleDocument[coll] {
+		return p.projectOne(ctx, coll, enc, sel)
+	}
 	var docs []ExportDoc
 	if err := p.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
@@ -345,6 +351,33 @@ func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel s
 		return ProjectStats{}, err
 	}
 	return p.write(ctx, coll, docs)
+}
+
+// projectOne projects a one-document collection (singleDocument: the version gate settings/mobile_app, the distance
+// matrix's metadata/distances_last_calculated) one projection at a time: a transaction advisory lock on the collection
+// is held over the encode, the Get and the Patch, so every projection encodes after the previous one wrote. Each
+// event rewrites the same document and firestore.shadow runs handlers side by side (prefetch 4; `etl project` too), so
+// without it two quick changes (a floor raised, then removed) could leave the earlier one in Firestore with nothing to
+// follow and correct it: the handler that encoded first could Get the document after the other one wrote it and put
+// its older snapshot back (its precondition starts at its own Get), or Patch after the other one found the document
+// already as PostgreSQL holds it and wrote nothing. The encode mints nothing (the document id is the settings key), so
+// the transaction writes no row a sweep would wait for while it stays open over the two Firestore calls (each bounded
+// by the Firestore client's timeout); a projection waiting for the lock holds its connection meanwhile, which the
+// rarity of these events (a floor change, a publish, a distance-matrix run) keeps to a handful.
+func (p *Projector) projectOne(ctx context.Context, coll string, enc encoder, sel selection) (ProjectStats, error) {
+	var st ProjectStats
+	err := p.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('lt-firestore-shadow:' || $1::text, 0))`, coll); err != nil {
+			return fmt.Errorf("etl: project %s: lock: %w", coll, err)
+		}
+		docs, err := enc(ctx, tx, sel, false)
+		if err != nil {
+			return err
+		}
+		st, err = p.write(ctx, coll, docs)
+		return err
+	})
+	return st, err
 }
 
 // write writes each document of docs that differs from Firestore's.
