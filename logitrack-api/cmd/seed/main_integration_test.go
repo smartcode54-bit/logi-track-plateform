@@ -161,6 +161,11 @@ func fingerprintBlock(t *testing.T, out string) string {
 
 var passLine = regexp.MustCompile(`(?m)^ ?\d+ PASS `)
 
+// coldMedia gives the loads of a test that asserts a time budget a drawer with an empty memo (main.go: media), so the
+// budget counts drawing every placeholder whatever loads ran before in this process. Budgets are asserted without the
+// race detector only; under it the tests share the process drawer, which draws the demo's photos once (T35).
+func coldMedia() { media = processMedia() }
+
 // The smoke profile loads in under five seconds, passes the twelve invariants, and a second run gives the
 // same ids, counts and fingerprint (Appendix D §D.1.7, invariant 12).
 func TestSmokeLoadVerifyTwice(t *testing.T) {
@@ -168,6 +173,7 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if !raceEnabled {
 		// The production cost of .env.example, so the five-second budget includes real Argon2id hashing.
 		argon = []string{"ARGON2_MEMORY_KB=65536", "ARGON2_ITERATIONS=3", "ARGON2_PARALLELISM=2"}
+		coldMedia()
 	}
 	s := newStack(t, "s3", argon...)
 	first := s.mustSeed(t, "--profile", "smoke")
@@ -207,6 +213,9 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 // principal is role-played, the two R24 brokers included.
 func TestDemoLoadVerify(t *testing.T) {
 	s := newStack(t, "local")
+	if !raceEnabled {
+		coldMedia()
+	}
 	load := s.mustSeed(t, "--profile", "demo")
 	t.Logf("demo load: %s (%s)", load.took, strings.TrimSpace(load.stdout))
 	if !raceEnabled && load.took >= 2*time.Minute { // Appendix D §D.1.2 budget, its 3,674 objects included (T35)
