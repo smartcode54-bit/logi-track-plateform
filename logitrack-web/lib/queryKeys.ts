@@ -104,8 +104,8 @@ export const queryKeys = {
         list: <P extends Params>(params: P) => ["trucks", params] as const,
         detail: (id: string) => ["trucks", "detail", id] as const,
     },
-    renewals: <P extends Params>(params: P) => ["renewals", params] as const,
-    truckAssignments: <P extends Params>(params: P) => ["truckAssignments", params] as const,
+    renewals: <P extends Params>(params?: P) => listKey("renewals", params),
+    truckAssignments: <P extends Params>(params?: P) => listKey("truckAssignments", params),
 
     tasks: {
         all: () => ["tasks"] as const,

@@ -19,7 +19,7 @@ vi.mock("firebase/firestore", async (importOriginal) => ({
 }));
 
 import { AuthProvider, useAuth } from "./auth";
-import { RealtimeProvider } from "./realtime";
+import { RealtimeProvider } from "@/lib/realtime/RealtimeProvider";
 import { type MeDTO } from "@/features/auth/api/me";
 import { usePermission } from "@/hooks/usePermission";
 import { useCustomerScope } from "@/hooks/useCustomerScope";
