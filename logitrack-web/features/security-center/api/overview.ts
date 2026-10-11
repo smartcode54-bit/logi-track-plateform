@@ -11,15 +11,16 @@
  * - `['security','status']`: `GET /v1/security/status` (`security:view_status`, no tenant context).
  *
  * Freshness: 60 s / 5 min with a focus refetch (no `users.changed` / `installations.updated` event,
- * Appendix B §B.4.2); the status (30 s / 5 min) polls every 60 s while its page is visible (Appendix E
- * §E.6).
+ * Appendix B §B.4.2), stale only after 5 min for a platform principal (each of its reads is an audit
+ * row, `reachPollMs`); the status (30 s / 5 min, no tenant context, so never audited) polls every 60 s
+ * while its page is visible (Appendix E §E.6).
  */
 import { useQuery } from "@tanstack/react-query";
 
 import { goQueryFn } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { POLL_INTERVAL_MS, pollWhileVisible } from "@/lib/realtime/polling";
-import { reachHeaders, type SecurityReach } from "./reach";
+import { reachHeaders, reachPollMs, type SecurityReach } from "./reach";
 
 export const SECURITY_OVERVIEW_PATH = "/v1/security/overview";
 export const USERS_BY_ROLE_PATH = "/v1/stats/users-by-role";
@@ -107,7 +108,8 @@ export function useSecurityOverview(reach: SecurityReach | undefined, enabled = 
     return useQuery({
         queryKey: securityOverviewKey(reach ?? "tenant"),
         queryFn: goQueryFn<SecurityOverviewDTO, OverviewKey>(SECURITY_OVERVIEW_PATH, { headers: ([, , p]) => reachHeaders(p.reach) }),
-        ...QUERY_POLICY.list,
+        gcTime: QUERY_POLICY.list.gcTime,
+        staleTime: reachPollMs(reach, QUERY_POLICY.list.staleTime),
         refetchOnWindowFocus: true,
         enabled: enabled && reach !== undefined,
     });
@@ -118,7 +120,8 @@ export function useUsersByRole(reach: SecurityReach | undefined, enabled = true)
     return useQuery({
         queryKey: usersByRoleKey(reach ?? "tenant"),
         queryFn: goQueryFn<UsersByRoleDTO, UsersByRoleKey>(USERS_BY_ROLE_PATH, { headers: ([, , p]) => reachHeaders(p.reach) }),
-        ...QUERY_POLICY.list,
+        gcTime: QUERY_POLICY.list.gcTime,
+        staleTime: reachPollMs(reach, QUERY_POLICY.list.staleTime),
         refetchOnWindowFocus: true,
         enabled: enabled && reach !== undefined,
     });

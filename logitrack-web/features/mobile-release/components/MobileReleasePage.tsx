@@ -58,9 +58,12 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 export function floorBlockedReason(gate: GateViewDTO, candidate: string | null, t: Translate): string | null {
     if (candidate === null) return gate.minAllowedVersion ? null : t("securityCenter.mobileRelease.noFloorToRemove");
     if (!RELEASE_VERSION_RX.test(candidate)) return t("securityCenter.mobileRelease.invalidVersion");
-    // ADR 0007 §4: a floor without a download link leaves every blocked driver on a dialog with no way out.
-    if (!gate.apkDownloadUrl?.trim()) return t("securityCenter.mobileRelease.forceDisabledNoUrl");
+    // Nothing published yet: the remedy is a publish, not a link (the same order as the force card).
     if (!parseSemver(gate.latestVersion)) return t("securityCenter.mobileRelease.forceDisabledNoLatest");
+    // ADR 0007 §4: a floor without a download link leaves every blocked driver on a dialog with no way
+    // out. This page has no link field (only cmd/release writes the release half), so the copy names
+    // the remedy: publish the build again.
+    if (!gate.apkDownloadUrl?.trim()) return t("securityCenter.mobileRelease.noDownloadLinkGo");
     const above = compareSemver(candidate, gate.latestVersion);
     if (above !== null && above > 0) return t("securityCenter.mobileRelease.aboveLatest", { latest: gate.latestVersion ?? "" });
     if (candidate === gate.minAllowedVersion) return t("securityCenter.mobileRelease.sameFloor");
@@ -124,7 +127,7 @@ export function MobileReleasePage() {
     const latest = gate.latestVersion ?? "";
     const forceReason = (() => {
         if (!parseSemver(latest)) return t("securityCenter.mobileRelease.forceDisabledNoLatest");
-        if (!gate.apkDownloadUrl?.trim()) return t("securityCenter.mobileRelease.forceDisabledNoUrl");
+        if (!gate.apkDownloadUrl?.trim()) return t("securityCenter.mobileRelease.noDownloadLinkGo");
         const cmp = compareSemver(latest, gate.minAllowedVersion);
         if (cmp !== null && cmp <= 0) return t("securityCenter.mobileRelease.forceDisabledUpToDate");
         return null;

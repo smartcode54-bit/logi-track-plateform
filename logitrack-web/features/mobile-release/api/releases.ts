@@ -25,8 +25,12 @@ import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 export const RELEASES_PATH = "/v1/app-releases";
 export const FLOOR_PATH = "/v1/app-releases/floor";
 export const RELEASES_LIMIT = 20;
-/** The version form of a floor and of a release (`mobileapp.releaseVersionRx`). */
-export const RELEASE_VERSION_RX = /^\d+\.\d+\.\d+$/;
+/**
+ * The version form of a floor and of a release, exactly Go's `mobileapp.releaseVersionRx`: canonical
+ * MAJOR.MINOR.PATCH, no leading zeros, at most nine digits a part. A laxer form would pass "3.1.00"
+ * (numerically the 3.1.0 floor) through every client guard and fail only at the PUT.
+ */
+export const RELEASE_VERSION_RX = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
 
 /** The staff view of `settings('mobile_app')` (Go `mobileapp.GateView`); null where unset. */
 export interface GateViewDTO {

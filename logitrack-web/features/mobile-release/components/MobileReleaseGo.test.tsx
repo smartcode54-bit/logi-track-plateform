@@ -1,6 +1,8 @@
-// T54S (issue #74, security-center slice): mobile-clients and mobile-release over Go (T52S routes). No
-// Firebase on these pages; the ADR 0007 guards are kept (no floor without a download link, none above
-// the latest release, a typed confirmation with the impact before a floor that blocks more drivers).
+// T54S (issue #74, security-center slice): mobile-clients and mobile-release over Go (T52S routes). These
+// page modules import no Firebase module (the mocks below throw on a static import;
+// features/security-center/firebaseImports.test.ts walks the graph; the auth bridge still loads the SDK
+// on every /app route until TW7). The ADR 0007 guards are kept (no floor without a download link, none
+// above the latest release, a typed confirmation with the impact before a floor that blocks more drivers).
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -76,10 +78,20 @@ const t = (key: string, params?: Record<string, string | number>) => (params ? `
 describe("floor rules (ADR 0007)", () => {
     it("refuses a floor without a download link, above the latest release, malformed or unchanged", () => {
         expect(floorBlockedReason(GATE, "3.2.0", t)).toBeNull();
-        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: null }, "3.2.0", t)).toBe("securityCenter.mobileRelease.forceDisabledNoUrl");
-        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: " " }, "3.2.0", t)).toBe("securityCenter.mobileRelease.forceDisabledNoUrl");
+        // The Go page has no link field: the copy names the remedy (publish again with cmd/release).
+        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: null }, "3.2.0", t)).toBe("securityCenter.mobileRelease.noDownloadLinkGo");
+        expect(floorBlockedReason({ ...GATE, apkDownloadUrl: " " }, "3.2.0", t)).toBe("securityCenter.mobileRelease.noDownloadLinkGo");
+        // Nothing published yet: "publish a build first", not "set a link".
+        expect(floorBlockedReason({ ...GATE, latestVersion: null, apkDownloadUrl: null }, "3.2.0", t)).toBe("securityCenter.mobileRelease.forceDisabledNoLatest");
         expect(floorBlockedReason(GATE, "3.3.0", t)).toContain("securityCenter.mobileRelease.aboveLatest");
         expect(floorBlockedReason(GATE, "3.2", t)).toBe("securityCenter.mobileRelease.invalidVersion");
+        // Go's releaseVersionRx: canonical parts only (no leading zeros, at most nine digits), so a
+        // spelling Go refuses never reaches the impact count or the typed confirmation.
+        for (const v of ["3.02.0", "3.1.00", "03.1.0", "1234567890.0.0", "3.1.0-rc1", " 3.1.0"]) {
+            expect(floorBlockedReason(GATE, v, t), v).toBe("securityCenter.mobileRelease.invalidVersion");
+        }
+        expect(floorBlockedReason({ ...GATE, latestVersion: "999999999.0.0" }, "999999999.0.0", t)).toBeNull();
+        expect(floorBlockedReason({ ...GATE, latestVersion: "3.2.0" }, "0.0.0", t)).toBeNull();
         expect(floorBlockedReason(GATE, "3.1.0", t)).toBe("securityCenter.mobileRelease.sameFloor");
         // Lifting the floor is always possible while there is one.
         expect(floorBlockedReason({ ...GATE, apkDownloadUrl: null }, null, t)).toBeNull();
@@ -159,7 +171,7 @@ describe("Mobile release (Go)", () => {
         web.on("PUT", "/api/go/v1/app-releases/floor", () => json(200, { data: { ...GATE, minAllowedVersion: null }, meta: { changed: true, blocked7d: 0 } }));
         renderWithProviders(<MobileReleasePage />);
         const u = userEvent.setup();
-        expect(await screen.findByTestId("force-blocked")).toHaveTextContent("Set the APK download URL first");
+        expect(await screen.findByTestId("force-blocked")).toHaveTextContent("The published build has no download link. Publish it again with cmd/release");
         expect(screen.getByRole("button", { name: "Force all drivers to 3.2.0" })).toBeDisabled();
         await u.type(screen.getByLabelText("New minimum version"), "3.0.0");
         expect(screen.getByRole("button", { name: "Set minimum" })).toBeDisabled();
@@ -169,6 +181,18 @@ describe("Mobile release (Go)", () => {
         await u.click(within(dialog).getByRole("button", { name: "Remove minimum" }));
         await waitFor(() => expect(web.count("PUT", "/api/go/v1/app-releases/floor")).toBe(1));
         expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({ minAllowedVersion: null });
+    });
+
+    it("keeps Set disabled for a version spelling Go refuses, without asking for its impact", async () => {
+        const web = setup();
+        routes(web);
+        renderWithProviders(<MobileReleasePage />);
+        const u = userEvent.setup();
+        await screen.findByTestId("published-build");
+        await u.type(screen.getByLabelText("New minimum version"), "3.1.00");
+        expect(screen.getByText("Enter a version like 1.2.3")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Set minimum" })).toBeDisabled();
+        expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/app-installations/stats"))).toBe(false);
     });
 });
 

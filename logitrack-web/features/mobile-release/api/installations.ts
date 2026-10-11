@@ -8,16 +8,18 @@
  * staff their carriers too, a platform principal every tenant through `X-Act-On-Tenant: *`.
  *
  * Freshness: `['installations',...]` 60 s / 5 min, the list polled every 60 s while visible (no
- * `installations.updated` event, Appendix B §B.4.2); `mobile_settings.changed` makes them stale too,
- * because each row's status follows the gate.
+ * `installations.updated` event, Appendix B §B.4.2) and only while it holds its first page
+ * (`pollHeadWhileVisible`: TanStack refetches every loaded page); a platform principal, whose every
+ * read is a `platform_cross_tenant_access` row, polls every 5 min (`reachPollMs`).
+ * `mobile_settings.changed` makes them stale too, because each row's status follows the gate.
  */
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { goFetch } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { POLL_INTERVAL_MS, pollWhileVisible } from "@/lib/realtime/polling";
-import { reachHeaders, type SecurityReach } from "@/features/security-center/api/reach";
+import { POLL_INTERVAL_MS, pollHeadWhileVisible } from "@/lib/realtime/polling";
+import { reachHeaders, reachPollMs, type SecurityReach } from "@/features/security-center/api/reach";
 
 export const INSTALLATIONS_PATH = "/v1/app-installations";
 export const INSTALLATION_STATS_PATH = "/v1/app-installations/stats";
@@ -68,7 +70,10 @@ export function installationsKey(filter: InstallationsFilter, reach: SecurityRea
 
 type InstallationsKey = ReturnType<typeof installationsKey>;
 
-/** `['installations',{flavor,reach}]`: the keyset list, polled every 60 s while visible. */
+/**
+ * `['installations',{flavor,reach}]`: the keyset list, polled while visible and while it holds one
+ * page: every 60 s, every 5 min for a platform principal.
+ */
 export function useInstallations(filter: InstallationsFilter, reach: SecurityReach | undefined, enabled = true) {
     return useInfiniteQuery({
         queryKey: installationsKey(filter, reach ?? "tenant"),
@@ -78,8 +83,9 @@ export function useInstallations(filter: InstallationsFilter, reach: SecurityRea
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
-        ...QUERY_POLICY.list,
-        ...pollWhileVisible(POLL_INTERVAL_MS),
+        gcTime: QUERY_POLICY.list.gcTime,
+        staleTime: reachPollMs(reach, QUERY_POLICY.list.staleTime),
+        ...pollHeadWhileVisible(reachPollMs(reach, POLL_INTERVAL_MS)),
         enabled: enabled && reach !== undefined,
     });
 }
@@ -99,7 +105,11 @@ export function installationStatsKey(params: InstallationStatsParams, reach: Sec
     return queryKeys.installations.stats({ since: params.since, belowVersion: params.belowVersion, reach });
 }
 
-/** `['installations','stats',{since,belowVersion,reach}]` (60 s / 5 min, focus). */
+/**
+ * `['installations','stats',{since,belowVersion,reach}]` (60 s / 5 min, focus). The summary goes stale
+ * only after 5 min for a platform principal (an audited read); the impact count of a candidate floor
+ * (`belowVersion`) keeps 60 s, because a typed confirmation shows it.
+ */
 export function useInstallationStats(params: InstallationStatsParams, reach: SecurityReach | undefined, enabled = true) {
     return useQuery({
         queryKey: installationStatsKey(params, reach ?? "tenant"),
@@ -109,7 +119,8 @@ export function useInstallationStats(params: InstallationStatsParams, reach: Sec
                 query: { since: params.since || undefined, belowVersion: params.belowVersion || undefined },
                 headers: reachHeaders(reach ?? "tenant"),
             }),
-        ...QUERY_POLICY.list,
+        gcTime: QUERY_POLICY.list.gcTime,
+        staleTime: params.belowVersion ? QUERY_POLICY.list.staleTime : reachPollMs(reach, QUERY_POLICY.list.staleTime),
         refetchOnWindowFocus: true,
         enabled: enabled && reach !== undefined,
     });

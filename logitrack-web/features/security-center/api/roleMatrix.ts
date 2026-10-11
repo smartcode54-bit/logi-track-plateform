@@ -9,7 +9,16 @@
  * Layers: the caller's effective tenant (default), another tenant (`?tenantId`, platform_admin), or the
  * platform-wide layer (`?layer=platform`, platform_admin). The key is `['roles','matrix',{layer,
  * tenantId}]`; a save invalidates `['roles']` and `['me']` (the caller's own capabilities may change).
+ *
+ * The PUT replaces the layer's whole override set and carries no version (T51), and the cached matrix
+ * may be minutes old (10 min stale; `roles.changed` reaches only the saved layer's own tenant, so a
+ * platform admin editing another tenant's layer never hears it). `saveRoleMatrixFresh` therefore reads
+ * the layer again right before the PUT, refuses with `MatrixChangedError` when it no longer matches
+ * what the page showed (the refreshed matrix is then on screen, the edits kept), and builds the body
+ * from the fresh read, so a save never deletes a row another admin wrote meanwhile. An `If-Match` on
+ * the PUT would close the remaining window of one round trip (a T51 / Appendix B follow-up).
  */
+import type { QueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 
 import { goFetchEnvelope } from "@/lib/goFetch";
@@ -66,14 +75,19 @@ export function matrixQuery(target: MatrixTarget): Record<string, string | undef
     return {};
 }
 
+/** The query options of `['roles','matrix',{layer,tenantId}]` (shared by the hook and the save's fresh read). */
+export function roleMatrixQuery(target: MatrixTarget) {
+    return {
+        queryKey: roleMatrixKey(target),
+        queryFn: async ({ signal }: { signal?: AbortSignal }) =>
+            (await goFetchEnvelope<RoleMatrixDTO>(ROLE_MATRIX_PATH, { signal, query: matrixQuery(target) })).data,
+        ...QUERY_POLICY.masterData,
+    };
+}
+
 /** `['roles','matrix',{layer,tenantId}]` (10 min; `roles.changed` and the save invalidate it). */
 export function useRoleMatrix(target: MatrixTarget, enabled = true) {
-    return useQuery({
-        queryKey: roleMatrixKey(target),
-        queryFn: async ({ signal }) => (await goFetchEnvelope<RoleMatrixDTO>(ROLE_MATRIX_PATH, { signal, query: matrixQuery(target) })).data,
-        ...QUERY_POLICY.masterData,
-        enabled,
-    });
+    return useQuery({ ...roleMatrixQuery(target), enabled });
 }
 
 /** One row of `PUT /v1/roles/matrix`. */
@@ -142,4 +156,42 @@ export async function saveRoleMatrix(target: MatrixTarget, overrides: MatrixOver
     });
     const changes = typeof env.meta?.changes === "number" ? env.meta.changes : 0;
     return { matrix: env.data, changes };
+}
+
+/**
+ * What a matrix holds, for comparing two reads of one layer: every cell's effective value and whether
+ * the layer overrides it, in a stable order (the catalog defaults and `overridable` follow from those).
+ */
+export function matrixSignature(matrix: RoleMatrixDTO): string {
+    const cells: string[] = [];
+    for (const r of matrix.roles) {
+        for (const [capability, cell] of Object.entries(r.capabilities)) {
+            cells.push(`${r.role}/${capability}=${cell.effective ? 1 : 0}${cell.overridden ? "o" : ""}${cell.platformOverride === undefined ? "" : cell.platformOverride ? "p1" : "p0"}`);
+        }
+    }
+    return `${matrix.layer}|${matrix.tenantId ?? ""}|${cells.sort().join(",")}`;
+}
+
+/** The layer changed between the page's read and the save: nothing was written. */
+export class MatrixChangedError extends Error {
+    constructor() {
+        super("the role matrix changed since it was loaded");
+        this.name = "MatrixChangedError";
+    }
+}
+
+/**
+ * Saves `edits` over the layer as it is now: reads the layer again (the read lands in the cache, so the
+ * page shows it), throws `MatrixChangedError` without writing when it differs from `shown` (what the
+ * admin looked at), else sends the complete override set built from the fresh read.
+ */
+export async function saveRoleMatrixFresh(
+    client: QueryClient,
+    target: MatrixTarget,
+    shown: RoleMatrixDTO,
+    edits: MatrixEdits
+): Promise<SaveMatrixResult> {
+    const fresh = await client.fetchQuery({ ...roleMatrixQuery(target), staleTime: 0 });
+    if (matrixSignature(fresh) !== matrixSignature(shown)) throw new MatrixChangedError();
+    return saveRoleMatrix(target, matrixOverrides(fresh, edits));
 }

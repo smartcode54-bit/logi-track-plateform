@@ -551,4 +551,12 @@ export default {
     "securityCenter.mobileRelease.removeImpact": "หลังจากนี้จะไม่มีเครื่องใดถูกบล็อก",
     "securityCenter.mobileRelease.floorSet": "เวอร์ชันขั้นต่ำเป็น {version} แล้ว (มี {blocked} เครื่องที่พบใน 7 วันต่ำกว่านี้)",
     "securityCenter.mobileRelease.floorRemoved": "ยกเลิกเวอร์ชันขั้นต่ำแล้ว",
+    "securityCenter.ownReads.label": "แสดงการอ่านข้ามองค์กรของฉันเอง ({count})",
+    "securityCenter.ownReads.hiddenHint": "ซ่อนไว้เท่านั้น ไม่ได้ลบ: ทุกคำขอที่คุณอ่านข้อมูลทุกองค์กรจะถูกบันทึกเป็นแถวการเข้าถึงข้ามองค์กร",
+    "securityCenter.overview.recentOnlyOwn": "เหตุการณ์ล่าสุด {count} รายการเป็นการอ่านข้ามองค์กรของคุณเองทั้งหมด",
+    "securityCenter.overview.histogramIncludesOwnReads": "ตัวเลขนี้รวมแถวบันทึกจากการอ่านข้อมูลทุกองค์กรของคุณเองด้วย",
+    "securityCenter.pollPaused": "หยุดรีเฟรชอัตโนมัติขณะโหลดหน้าเก่าไว้ กดรีเฟรชเพื่ออัปเดต",
+    "securityCenter.mobileClients.refresh": "รีเฟรช",
+    "securityCenter.mobileRelease.noDownloadLinkGo": "บิลด์ที่เผยแพร่ไม่มีลิงก์ดาวน์โหลด ต้องเผยแพร่ใหม่ด้วย cmd/release (คีย์ผู้เผยแพร่แอป) ก่อนตั้งเวอร์ชันขั้นต่ำ ถ้าตั้งโดยไม่มีลิงก์ คนขับจะติดอยู่หน้า dialog ที่ออกไม่ได้",
+    "securityCenter.roles.changedElsewhere": "มีผู้อื่นแก้ไขตารางสิทธิ์นี้หลังจากที่โหลดไว้ ตอนนี้ตารางแสดงการแก้ไขของเขาพร้อมการแก้ไขของคุณ กรุณาตรวจสอบแล้วบันทึกอีกครั้ง",
 };

@@ -14,7 +14,7 @@ import { CAPABILITY_CATALOG, type CapabilityClass, type CapabilityInfo } from "s
 import { goFetch, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { reachHeaders, type SecurityReach } from "./reach";
+import { reachHeaders, reachPollMs, type SecurityReach } from "./reach";
 
 export const API_KEYS_PATH = "/v1/api-keys";
 export const API_KEYS_PAGE_SIZE = 50;
@@ -71,7 +71,10 @@ export function apiKeysKey(reach: SecurityReach) {
 
 type ApiKeysKey = ReturnType<typeof apiKeysKey>;
 
-/** `['apiKeys',{reach}]`: the keyset list (60 s / 5 min, focus refetch; own mutations invalidate it). */
+/**
+ * `['apiKeys',{reach}]`: the keyset list (60 s / 5 min, focus refetch; own mutations invalidate it); a
+ * platform principal's read is audited, so it goes stale only after 5 min (`reachPollMs`).
+ */
 export function useApiKeys(reach: SecurityReach | undefined, enabled = true) {
     return useInfiniteQuery({
         queryKey: apiKeysKey(reach ?? "tenant"),
@@ -81,7 +84,8 @@ export function useApiKeys(reach: SecurityReach | undefined, enabled = true) {
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
-        ...QUERY_POLICY.list,
+        gcTime: QUERY_POLICY.list.gcTime,
+        staleTime: reachPollMs(reach, QUERY_POLICY.list.staleTime),
         enabled: enabled && reach !== undefined,
     });
 }

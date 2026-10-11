@@ -1,13 +1,38 @@
-// T54S: the pure parts of the Security Center over Go (role-matrix save body, API-key capability
-// rules, the audit CSV and range, the overview distribution).
-import { describe, expect, it } from "vitest";
+// T54S: the pure parts of the Security Center over Go (role-matrix save body and its fresh read,
+// API-key capability rules, the audit CSV and range, the viewer's own cross-tenant reads, the platform
+// poll, the overview distribution).
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CAPABILITY_CATALOG } from "shared-docs/schemas/capabilities";
+import { createQueryClient } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
+import { fakeWeb, json } from "@/test-utils/fakeWeb";
 import { grantableCapabilities, RELEASE_PUBLISHER_CAPABILITY, expiresAtFromInput } from "./apiKeys";
-import { eventActor, eventsCsv, eventTarget, rangeStart, securityEventsQuery, type SecurityEventDTO } from "./events";
+import {
+    eventActor,
+    eventsCsv,
+    eventTarget,
+    isOwnCrossTenantRead,
+    rangeStart,
+    securityEventsQuery,
+    withoutOwnReads,
+    type SecurityEventDTO,
+} from "./events";
 import { roleDistribution, systemHealthy, type SystemStatusDTO } from "./overview";
-import { cellValue, changedCells, matrixOverrides, matrixQuery, roleMatrixKey, type RoleMatrixDTO } from "./roleMatrix";
+import { PLATFORM_POLL_MS, reachPollMs } from "./reach";
+import {
+    cellValue,
+    changedCells,
+    MatrixChangedError,
+    matrixOverrides,
+    matrixQuery,
+    matrixSignature,
+    roleMatrixKey,
+    saveRoleMatrixFresh,
+    type RoleMatrixDTO,
+} from "./roleMatrix";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const cell = (over: Partial<{ default: boolean; effective: boolean; overridden: boolean; overridable: boolean; platformOverride: boolean }> = {}) => ({
     default: false,
@@ -79,6 +104,50 @@ describe("role matrix save body (PUT /v1/roles/matrix, complete override set)", 
         expect(roleMatrixKey({ layer: "tenant", tenantId: "t1" })).toEqual(["roles", "matrix", { layer: "tenant", tenantId: "t1" }]);
         // The save invalidates ['roles'], which reaches every layer's matrix.
         expect(queryKeys.roles.matrix()).toEqual(["roles", "matrix"]);
+    });
+});
+
+describe("role matrix save against the layer as it is now", () => {
+    it("compares two reads of a layer by content, not by order", () => {
+        const a = matrix();
+        const b = { ...matrix(), roles: [...matrix().roles].reverse() };
+        expect(matrixSignature(b)).toBe(matrixSignature(a));
+        const c = matrix();
+        c.roles[1].capabilities["hr:view_payroll"] = cell({ default: false, effective: true, overridden: true });
+        expect(matrixSignature(c)).not.toBe(matrixSignature(a));
+        expect(matrixSignature({ ...a, tenantId: "t-other" })).not.toBe(matrixSignature(a));
+    });
+
+    it("never deletes a row another admin added after the page loaded: it stops, then saves over the fresh read", async () => {
+        // 10:00 the page loads; 10:02 another admin denies hr:view_payroll for the manager; 10:05 this
+        // admin toggles an unrelated cell and saves from the 10:00 matrix.
+        const shown = matrix();
+        const fresh = matrix();
+        fresh.roles[1].capabilities["hr:view_payroll"] = cell({ default: true, effective: false, overridden: true });
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/roles/matrix", () => json(200, { data: fresh }));
+        web.on("PUT", "/api/go/v1/roles/matrix", () => json(200, { data: fresh, meta: { changes: 1 } }));
+        const client = createQueryClient();
+        const target = { layer: "default" } as const;
+        client.setQueryData(roleMatrixKey(target), shown);
+        const edits = { manager: { "fleet:view_trucks": false } };
+
+        // The stale body would have dropped the other admin's row:
+        expect(matrixOverrides(shown, edits)).not.toContainEqual({ role: "manager", capability: "hr:view_payroll", allowed: false });
+
+        await expect(saveRoleMatrixFresh(client, target, shown, edits)).rejects.toBeInstanceOf(MatrixChangedError);
+        expect(web.count("PUT", "/api/go/v1/roles/matrix")).toBe(0);
+        // The fresh read is what the page shows now; the second save goes out with both rows.
+        const onScreen = client.getQueryData<RoleMatrixDTO>(roleMatrixKey(target))!;
+        expect(matrixSignature(onScreen)).toBe(matrixSignature(fresh));
+        await expect(saveRoleMatrixFresh(client, target, onScreen, edits)).resolves.toMatchObject({ changes: 1 });
+        expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({
+            overrides: [
+                { role: "manager", capability: "fleet:view_trucks", allowed: false },
+                { role: "manager", capability: "accounting:view_income", allowed: false },
+                { role: "manager", capability: "hr:view_payroll", allowed: false },
+            ],
+        });
     });
 });
 
@@ -174,6 +243,50 @@ describe("security events helpers", () => {
         expect(line).toContain(`"'=HYPERLINK(""http://evil"")"`);
         expect(line).toContain(`"'+cmd"`);
         expect(line.startsWith('"2026-10-11T01:02:03Z"')).toBe(true);
+    });
+});
+
+describe("the viewer's own cross-tenant reads", () => {
+    const access = (over: Partial<SecurityEventDTO> = {}, details: Record<string, unknown> = {}): SecurityEventDTO => ({
+        id: "a",
+        createdAt: "2026-10-11T03:00:00Z",
+        type: "platform_cross_tenant_access",
+        severity: "warning",
+        summary: "platform principal used X-Act-On-Tenant",
+        details: { method: "GET", path: "/v1/security-events", act_on_tenant: "*", outcome: "accepted", ...details },
+        actorUserId: "u-me",
+        actorEmail: "me@platform.test",
+        actorLegacyUid: null,
+        targetUserId: null,
+        tenantId: null,
+        requestId: "r",
+        ...over,
+    });
+
+    it("matches only the viewer's own accepted GET/HEAD rows", () => {
+        expect(isOwnCrossTenantRead(access(), "u-me")).toBe(true);
+        expect(isOwnCrossTenantRead(access({}, { method: "HEAD" }), "u-me")).toBe(true);
+        expect(isOwnCrossTenantRead(access({ actorUserId: "u-other" }), "u-me")).toBe(false); // someone else's access
+        expect(isOwnCrossTenantRead(access({}, { outcome: "refused" }), "u-me")).toBe(false); // a refused attempt
+        expect(isOwnCrossTenantRead(access({}, { method: "POST", outcome: "refused" }), "u-me")).toBe(false);
+        expect(isOwnCrossTenantRead(access({}, { outcome: undefined }), "u-me")).toBe(false);
+        expect(isOwnCrossTenantRead(access({ type: "login_failed" }), "u-me")).toBe(false);
+        expect(isOwnCrossTenantRead(access(), undefined)).toBe(false);
+    });
+
+    it("hides them unless asked, and counts them either way", () => {
+        const rows = [access({ id: "1" }), access({ id: "2", type: "login_lockout", severity: "warning" }), access({ id: "3" })];
+        expect(withoutOwnReads(rows, "u-me", false)).toEqual({ rows: [rows[1]], own: 2 });
+        expect(withoutOwnReads(rows, "u-me", true)).toEqual({ rows, own: 2 });
+        expect(withoutOwnReads(rows, "u-other", false)).toEqual({ rows, own: 0 });
+    });
+
+    it("a platform principal's reads refresh by themselves at most every 5 min; a tenant's keep their interval", () => {
+        expect(PLATFORM_POLL_MS).toBe(300_000);
+        expect(reachPollMs("tenant", 30_000)).toBe(30_000);
+        expect(reachPollMs(undefined, 30_000)).toBe(30_000);
+        expect(reachPollMs("all", 30_000)).toBe(300_000);
+        expect(reachPollMs("all", 600_000)).toBe(600_000);
     });
 });
 

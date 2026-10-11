@@ -137,9 +137,11 @@ export function usersQuery(filter: Pick<UsersFilter, "q" | "role" | "status">) {
 /**
  * `['users', filter]`: the keyset list, newest sign-in first, 50 per page, polled while visible. A
  * platform principal passes `reach: "all"` (`usersReach(me)`): every poll then writes one
- * `platform_cross_tenant_access` audit row in Go (Appendix B §B.2.5 web contract).
+ * `platform_cross_tenant_access` audit row in Go (Appendix B §B.2.5 web contract). `pollMs` (also the
+ * stale time) lets a caller poll less often, e.g. the Security Center's active-users panel for a
+ * platform principal (T54S).
  */
-export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach = "tenant") {
+export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach = "tenant", pollMs: number = USERS_POLL_MS) {
     return useInfiniteQuery({
         queryKey: usersQueryKey(filter, reach),
         queryFn: goInfiniteQueryFn<UserDTO, UsersKey>(USERS_PATH, {
@@ -148,9 +150,9 @@ export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach 
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
-        staleTime: USERS_POLL_MS,
+        staleTime: pollMs,
         gcTime: 5 * 60_000,
-        ...pollWhileVisible(USERS_POLL_MS),
+        ...pollWhileVisible(pollMs),
         enabled,
     });
 }

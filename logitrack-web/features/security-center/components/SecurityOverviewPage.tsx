@@ -7,6 +7,11 @@
  * distribution (no seven count queries), `GET /v1/security-events?limit=8` the recent events (30 s
  * poll), and the active-users panel `GET /v1/users` (60 s poll). Permission checks are selectors over
  * `['me']` (no `permissions_config` read).
+ *
+ * A platform principal reads every tenant with `X-Act-On-Tenant: *`, and each such request is a
+ * `platform_cross_tenant_access` warning row that the next feed read returns. For it the page polls
+ * every 5 min, reads the 50 newest events and shows the 8 newest that are not its own cross-tenant
+ * reads (a toggle with their count shows them), and says that the server counters include them.
  */
 import Link from "next/link";
 import { useState } from "react";
@@ -14,18 +19,18 @@ import { formatDistanceToNow } from "date-fns";
 import { Activity, AlertTriangle, Check, Loader2, LogIn, Smartphone, Users } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
-import { useCan } from "@/features/auth/api/useMe";
+import { useCan, useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { eventRows, NO_EVENT_FILTER, RECENT_EVENTS_LIMIT, useSecurityEvents } from "../api/events";
+import { eventRows, NO_EVENT_FILTER, RECENT_EVENTS_FETCH_PLATFORM, RECENT_EVENTS_LIMIT, useSecurityEvents, withoutOwnReads } from "../api/events";
 import { roleDistribution, systemHealthy, useSecurityOverview, useUsersByRole } from "../api/overview";
 import { useSecurityReach } from "../api/reach";
 import { ActiveUsersPanel } from "./ActiveUsersPanel";
-import { eventTypeLabel, formatCompactInt, severityColor, severityIcon } from "./eventDisplay";
+import { eventTypeLabel, formatCompactInt, OwnReadsToggle, severityColor, severityIcon } from "./eventDisplay";
 
 function Spinner({ className = "h-8 w-8" }: { className?: string }) {
     return <Loader2 className={`${className} animate-spin text-muted-foreground`} />;
@@ -63,14 +68,17 @@ function StatCard({
 export function SecurityOverviewPage() {
     const { t } = useLanguage();
     const reach = useSecurityReach();
+    const viewerId = useMe().data?.id;
     const canViewAudit = useCan("security:view_audit").allowed;
     const canViewUsers = useCan("users:view").allowed;
     const canViewStatus = useCan("security:view_status").allowed;
     const canViewMobile = useCan("security:view_mobile_clients").allowed;
     const overview = useSecurityOverview(reach);
     const byRole = useUsersByRole(reach);
-    const recent = useSecurityEvents(NO_EVENT_FILTER, reach, { pageSize: RECENT_EVENTS_LIMIT, enabled: canViewAudit });
+    const recentFetch = reach === "all" ? RECENT_EVENTS_FETCH_PLATFORM : RECENT_EVENTS_LIMIT;
+    const recent = useSecurityEvents(NO_EVENT_FILTER, reach, { pageSize: recentFetch, enabled: canViewAudit });
     const [range, setRange] = useState<"24h" | "7d">("24h");
+    const [showOwnReads, setShowOwnReads] = useState(false);
 
     const o = overview.data;
     const histogram = o ? (range === "7d" ? o.events.daily7d : o.events.hourly24h) : [];
@@ -81,7 +89,9 @@ export function SecurityOverviewPage() {
         dist && dist.total > 0
             ? `conic-gradient(rgb(59 130 246) 0% ${pct(dist.drivers)}%, rgb(249 115 22) ${pct(dist.drivers)}% ${pct(dist.drivers) + pct(dist.operations)}%, hsl(var(--muted)) ${pct(dist.drivers) + pct(dist.operations)}% 100%)`
             : "conic-gradient(hsl(var(--muted)) 0% 100%)";
-    const recentRows = eventRows(recent.data?.pages).slice(0, RECENT_EVENTS_LIMIT);
+    const recentLoaded = eventRows(recent.data?.pages);
+    const recentVisible = withoutOwnReads(recentLoaded, viewerId, showOwnReads);
+    const recentRows = recentVisible.rows.slice(0, RECENT_EVENTS_LIMIT);
 
     return (
         <div className="p-6 space-y-6">
@@ -216,9 +226,16 @@ export function SecurityOverviewPage() {
                                 <AlertDescription>{apiErrorText(recent.error, t)}</AlertDescription>
                             </Alert>
                         ) : recentRows.length === 0 ? (
-                            <Alert>
-                                <AlertDescription>{t("securityCenter.overview.auditFeedEmptyGo")}</AlertDescription>
-                            </Alert>
+                            <div className="space-y-3">
+                                <Alert>
+                                    <AlertDescription>
+                                        {recentVisible.own > 0
+                                            ? t("securityCenter.overview.recentOnlyOwn", { count: recentLoaded.length })
+                                            : t("securityCenter.overview.auditFeedEmptyGo")}
+                                    </AlertDescription>
+                                </Alert>
+                                <OwnReadsToggle own={recentVisible.own} show={showOwnReads} onChange={setShowOwnReads} t={t} />
+                            </div>
                         ) : (
                             <ul className="space-y-3" data-testid="recent-events">
                                 {recentRows.map((ev) => {
@@ -242,6 +259,11 @@ export function SecurityOverviewPage() {
                                 })}
                             </ul>
                         )}
+                        {recentRows.length > 0 ? (
+                            <div className="mt-3">
+                                <OwnReadsToggle own={recentVisible.own} show={showOwnReads} onChange={setShowOwnReads} t={t} />
+                            </div>
+                        ) : null}
                     </CardContent>
                 </Card>
 
@@ -284,6 +306,11 @@ export function SecurityOverviewPage() {
                                             warning: o.events.bySeverity24h.warning ?? 0,
                                         })}
                                     </p>
+                                    {reach === "all" ? (
+                                        <p className="mt-1 text-xs text-muted-foreground" data-testid="histogram-own-reads">
+                                            {t("securityCenter.overview.histogramIncludesOwnReads")}
+                                        </p>
+                                    ) : null}
                                 </>
                             )}
                         </CardContent>

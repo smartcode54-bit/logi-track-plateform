@@ -540,4 +540,12 @@ export default {
     "securityCenter.mobileRelease.removeImpact": "No installation is blocked after this.",
     "securityCenter.mobileRelease.floorSet": "Minimum version is now {version} ({blocked} installations seen in 7 days are below it).",
     "securityCenter.mobileRelease.floorRemoved": "The minimum version has been removed.",
+    "securityCenter.ownReads.label": "Show my own cross-tenant reads ({count})",
+    "securityCenter.ownReads.hiddenHint": "Hidden, not deleted: every request you make with all-tenant reach is audited as a cross-tenant access row.",
+    "securityCenter.overview.recentOnlyOwn": "The {count} newest events are all your own cross-tenant reads.",
+    "securityCenter.overview.histogramIncludesOwnReads": "These counts include the audit rows of your own all-tenant reads.",
+    "securityCenter.pollPaused": "Auto-refresh is paused while older pages are loaded. Use Refresh to update.",
+    "securityCenter.mobileClients.refresh": "Refresh",
+    "securityCenter.mobileRelease.noDownloadLinkGo": "The published build has no download link. Publish it again with cmd/release (release-publisher key) before setting a minimum version: a minimum without a link traps drivers on a dialog with no way out.",
+    "securityCenter.roles.changedElsewhere": "Someone else changed this matrix after it loaded. It now shows their changes with your edits on top: review them and save again.",
 };

@@ -8,10 +8,12 @@
  * (`PUT /v1/roles/matrix`), which Go writes with `role_matrix_saved` and `roles.changed` in one
  * transaction. Rows are the catalog keys a tenant role can hold (shared-docs/schemas/capabilities.ts,
  * generated from Go), columns the six tenant roles; `tenant_admin` and the cells the layer cannot
- * override are read-only. A platform_admin picks the layer: platform-wide or any tenant.
+ * override are read-only. A platform_admin picks the layer: platform-wide or any tenant. A save reads
+ * the layer again first and stops, keeping the edits over the refreshed matrix, when someone else
+ * changed it meanwhile (`saveRoleMatrixFresh`): the PUT replaces the whole set.
  */
 import { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,8 +40,8 @@ import {
     cellValue,
     changedCells,
     MATRIX_ROLES,
-    matrixOverrides,
-    saveRoleMatrix,
+    MatrixChangedError,
+    saveRoleMatrixFresh,
     useRoleMatrix,
     type MatrixEdits,
     type MatrixTarget,
@@ -68,6 +70,7 @@ const PLATFORM_VALUE = "platform";
 
 export function RoleMatrixPage() {
     const { t, language } = useLanguage();
+    const client = useQueryClient();
     const me = useMe().data;
     const platformAdmin = isPlatformAdmin(me);
     const reach = useSecurityReach();
@@ -88,13 +91,16 @@ export function RoleMatrixPage() {
     const [edits, setEdits] = useState<MatrixEdits>({});
     const [search, setSearch] = useState("");
     const save = useMutation({
-        mutationFn: (m: RoleMatrixDTO) => saveRoleMatrix(target, matrixOverrides(m, edits)),
+        mutationFn: (m: RoleMatrixDTO) => saveRoleMatrixFresh(client, target, m, edits),
         meta: { invalidates: [queryKeys.roles.all(), queryKeys.me()] },
         onSuccess: (res) => {
             setEdits({});
             toast.success(t("securityCenter.roles.savedChanges", { count: res.changes }));
         },
-        onError: (e) => toast.error(`${t("securityCenter.roles.failedSave")}: ${apiErrorText(e, t)}`),
+        onError: (e) =>
+            e instanceof MatrixChangedError
+                ? toast.warning(t("securityCenter.roles.changedElsewhere"))
+                : toast.error(`${t("securityCenter.roles.failedSave")}: ${apiErrorText(e, t)}`),
     });
 
     const m = matrix.data;

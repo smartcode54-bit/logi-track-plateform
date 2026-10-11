@@ -5,13 +5,17 @@
  * `/app/security-center/audit`, §E.10). The keyset `GET /v1/security-events` replaces the 500-row
  * `getDocs`: the date range, type and severity go to Go and are in the key; "load more" pages back
  * without a cap; the text search runs over the loaded rows, with a "loaded N" indicator so it never
- * pretends to cover rows that were not fetched. Polled every 30 s while visible.
+ * pretends to cover rows that were not fetched. Polled every 30 s while visible and only while one page
+ * is loaded (every 5 min for a platform principal); after "load more", Refresh updates. The viewer's own
+ * cross-tenant reads (`isOwnCrossTenantRead`, one audit row per request of a platform principal) are
+ * hidden from the list, the KPIs and the export by default, behind a toggle with their count.
  */
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ChevronDown, FileDown, Loader2, RefreshCw, Search, Shield, TrendingUp, Users } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -29,11 +33,12 @@ import {
     eventTypesOf,
     rangeStart,
     useSecurityEvents,
+    withoutOwnReads,
     type EventRange,
     type SecurityEventDTO,
 } from "../api/events";
 import { useSecurityReach } from "../api/reach";
-import { eventTypeLabel, SeverityBadge } from "./eventDisplay";
+import { eventTypeLabel, OwnReadsToggle, SeverityBadge } from "./eventDisplay";
 
 const ALL = "all";
 const SEVERITIES = ["info", "warning", "critical"] as const;
@@ -48,6 +53,8 @@ export function eventMatches(r: SecurityEventDTO, q: string): boolean {
 export function SecurityAuditPage() {
     const { t } = useLanguage();
     const reach = useSecurityReach();
+    const viewerId = useMe().data?.id;
+    const [showOwnReads, setShowOwnReads] = useState(false);
     const [range, setRange] = useState<EventRange>("last7");
     const [type, setType] = useState(ALL);
     const [severity, setSeverity] = useState(ALL);
@@ -56,8 +63,10 @@ export function SecurityAuditPage() {
     const events = useSecurityEvents({ type: type === ALL ? "" : type, severity: severity === ALL ? "" : severity, from, to: "" }, reach);
 
     const loaded = eventRows(events.data?.pages);
+    const visible = withoutOwnReads(loaded, viewerId, showOwnReads);
     const q = search.trim().toLowerCase();
-    const rows = loaded.filter((r) => eventMatches(r, q));
+    const rows = visible.rows.filter((r) => eventMatches(r, q));
+    const pollPaused = (events.data?.pages.length ?? 0) > 1;
     const types = eventTypesOf(events.data?.pages);
     const kpis = {
         total: rows.length,
@@ -193,6 +202,7 @@ export function SecurityAuditPage() {
                         {t("securityCenter.audit.searchLoadedOnly", { count: loaded.length })}
                     </p>
                 ) : null}
+                <OwnReadsToggle own={visible.own} show={showOwnReads} onChange={setShowOwnReads} t={t} />
             </div>
 
             <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -245,6 +255,7 @@ export function SecurityAuditPage() {
                 <div className="flex flex-col items-start justify-between gap-2 border-t bg-muted/20 px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center">
                     <span data-testid="loaded-count">
                         {t("securityCenter.audit.loadedRows", { shown: rows.length, loaded: loaded.length })}
+                        {pollPaused ? <span className="block text-xs" data-testid="poll-paused">{t("securityCenter.pollPaused")}</span> : null}
                     </span>
                     {events.hasNextPage ? (
                         <Button variant="outline" size="sm" onClick={() => void events.fetchNextPage()} disabled={events.isFetchingNextPage}>

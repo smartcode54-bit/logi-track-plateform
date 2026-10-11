@@ -44,17 +44,38 @@ describe("DomainPage", () => {
         expect(await screen.findByText("go page")).toBeInTheDocument();
     });
 
-    it("renders the Firestore page while the flag is off, and when the flags cannot be read", async () => {
+    it("renders the Firestore page while the flag is off", async () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: flags("firebase") }));
         renderPage();
         expect(await screen.findByText("firestore page")).toBeInTheDocument();
-        vi.unstubAllGlobals();
+        expect(screen.queryByText("go page")).toBeNull();
+    });
 
+    // One render per test (RTL cleans up after each), so a page left over from another render cannot
+    // satisfy the assertions.
+    it("renders the Firestore page when the flags cannot be read", async () => {
         const down = fakeWeb();
         down.on("GET", "/api/go/v1/config/web-flags", () => goErr(503, "unavailable"));
         renderPage();
-        expect((await screen.findAllByText("firestore page")).length).toBeGreaterThan(0);
+        expect(await screen.findByText("firestore page")).toBeInTheDocument();
+        expect(screen.queryByText("go page")).toBeNull();
+        expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("stays on the Go page when a later flags refetch fails (loaded flags win over the error)", async () => {
+        const web = fakeWeb();
+        let up = true;
+        web.on("GET", "/api/go/v1/config/web-flags", () => (up ? json(200, { data: flags("go") }) : goErr(503, "unavailable")));
+        const client = renderPage();
+        expect(await screen.findByText("go page")).toBeInTheDocument();
+        up = false;
+        await act(async () => {
+            await client.refetchQueries({ queryKey: WEB_FLAGS_KEY });
+        });
+        expect(client.getQueryState(WEB_FLAGS_KEY)?.status).toBe("error");
+        expect(screen.getByText("go page")).toBeInTheDocument();
+        expect(screen.queryByText("firestore page")).toBeNull();
     });
 
     it("switches the page when the flag flips (an env change on the api)", async () => {

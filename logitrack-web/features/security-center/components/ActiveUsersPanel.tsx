@@ -2,7 +2,8 @@
 
 /**
  * Recently active users over Go (T54S; Appendix E §E.5 row 29: `SessionManagementActiveUsers.tsx:148`
- * becomes `GET /v1/users?sort=last_login_at`, polled every 60 s while visible). The rows are Go users,
+ * becomes `GET /v1/users?sort=last_login_at`, polled every 60 s while visible; every 5 min for a
+ * platform principal, whose every read is a `platform_cross_tenant_access` row). The rows are Go users,
  * so a revoke names the user itself (no legacy `users/{uid}` lookup, no email match). Opening a row
  * lists its live sessions (`GET /v1/users/{id}/sessions`) with a per-session revoke and "sign out
  * everywhere" (`DELETE /v1/users/{id}/sessions[/{sid}]`, `users:revoke_sessions`). The Firestore
@@ -18,7 +19,7 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { useCan, useMe } from "@/features/auth/api/useMe";
-import { revokeUserSessions, useUsers, USERS_KEY, type UserDTO } from "@/features/users/api/users";
+import { revokeUserSessions, useUsers, USERS_KEY, USERS_POLL_MS, type UserDTO } from "@/features/users/api/users";
 import { apiErrorText } from "@/lib/apiError";
 import { queryKeys } from "@/lib/queryKeys";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -26,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-import { useSecurityReach } from "../api/reach";
+import { reachPollMs, useSecurityReach } from "../api/reach";
 import { revokeUserSession, useUserSessions } from "../api/sessions";
 import { formatDateTime } from "./eventDisplay";
 
@@ -50,7 +51,7 @@ export function ActiveUsersPanel() {
     const reach = useSecurityReach();
     const canView = useCan("users:view").allowed;
     const canRevoke = useCan("users:revoke_sessions").allowed;
-    const users = useUsers(ACTIVE_FILTER, canView && reach !== undefined, reach ?? "tenant");
+    const users = useUsers(ACTIVE_FILTER, canView && reach !== undefined, reach ?? "tenant", reachPollMs(reach, USERS_POLL_MS));
     const [selected, setSelected] = useState<UserDTO | null>(null);
     const sessions = useUserSessions(canRevoke ? (selected?.id ?? null) : null, reach);
     const [busy, setBusy] = useState<string | null>(null);

@@ -3,13 +3,14 @@
 /**
  * Mobile clients over Go (T54S; `GET /v1/app-installations[/stats]`, T52S; Appendix E §E.2.4 row
  * `/app/security-center/mobile-clients`, §E.5 row 28). The keyset list replaces the collection-group
- * listener capped at 200 (100 per page, "load more", polled every 60 s while visible); each row's
+ * listener capped at 200 (100 per page, "load more", polled every 60 s while visible and while one page
+ * is loaded, every 5 min for a platform principal; Refresh updates after "load more"); each row's
  * version status comes from Go (the gate's floor and latest release), and the summary is one grouped
  * read over the installations seen in the last 7 days. RLS scopes the rows (a carrier's tenant_admin
  * its own tenant): no `partnerScopeId` claim is involved any more.
  */
 import { useState } from "react";
-import { Loader2, Smartphone } from "lucide-react";
+import { Loader2, RefreshCw, Smartphone } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { useSecurityReach } from "@/features/security-center/api/reach";
@@ -40,6 +41,7 @@ export function MobileClientsPage() {
     const list = useInstallations({ flavor: flavor === ALL ? "" : flavor }, reach);
     const stats = useInstallationStats({ since: ACTIVE_WINDOW, belowVersion: "" }, reach);
     const rows = installationRows(list.data?.pages);
+    const pollPaused = (list.data?.pages.length ?? 0) > 1;
     const s = stats.data;
 
     return (
@@ -154,14 +156,28 @@ export function MobileClientsPage() {
                             </Table>
                         </div>
                     )}
-                    <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-                        <span>{t("securityCenter.mobileClients.loaded", { count: rows.length })}</span>
-                        {list.hasNextPage ? (
-                            <Button variant="outline" size="sm" onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-                                {list.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                {t("securityCenter.audit.loadMore")}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                        <span>
+                            {t("securityCenter.mobileClients.loaded", { count: rows.length })}
+                            {pollPaused ? <span className="block text-xs" data-testid="poll-paused">{t("securityCenter.pollPaused")}</span> : null}
+                        </span>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void Promise.all([list.refetch(), stats.refetch()])}
+                                disabled={list.isFetching}
+                            >
+                                <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
+                                {t("securityCenter.mobileClients.refresh")}
                             </Button>
-                        ) : null}
+                            {list.hasNextPage ? (
+                                <Button variant="outline" size="sm" onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
+                                    {list.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    {t("securityCenter.audit.loadMore")}
+                                </Button>
+                            ) : null}
+                        </div>
                     </div>
                 </CardContent>
             </Card>

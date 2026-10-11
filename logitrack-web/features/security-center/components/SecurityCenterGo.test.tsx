@@ -1,11 +1,15 @@
-// T54S (issue #74, security-center slice): the Security Center pages over Go. Firebase is not reachable
-// from these pages at all (the module mocks below throw on import); every request goes to the BFF
-// (/api/go/v1/...), a tenant principal reads its own reach and a platform principal every tenant
-// with X-Act-On-Tenant: *.
+// T54S (issue #74, security-center slice): the Security Center pages over Go. These page modules import
+// no Firebase module (the module mocks below throw if one is imported statically); the bridge's SDK
+// loader is replaced in beforeEach, so the bridge's own lazy import of the SDK, which stays on every
+// /app route until TW7, is not covered here (firebaseImports.test.ts walks the pages' import graph).
+// Every request goes to the BFF (/api/go/v1/...), a tenant principal reads its own reach and a
+// platform principal every tenant with X-Act-On-Tenant: *, whose own audit rows the pages hide behind
+// a counted toggle.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 
 vi.mock("@/firebase/client", () => {
     throw new Error("the Go Security Center pages must not load the Firebase client");
@@ -48,6 +52,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     configureFirebaseBridge(undefined);
 });
 
@@ -185,6 +190,66 @@ describe("Security overview (Go)", () => {
             expect(calls.length, path).toBeGreaterThan(0);
             expect(calls.every((c) => c.headers["x-act-on-tenant"] === "*"), path).toBe(true);
         }
+        // Enough rows that the 8 newest events other than the viewer's own reads are among them.
+        expect(web.calls.find((c) => c.url.startsWith("/api/go/v1/security-events"))?.url).toBe("/api/go/v1/security-events?limit=50");
+        expect(screen.getByTestId("histogram-own-reads")).toHaveTextContent("include the audit rows of your own all-tenant reads");
+    });
+
+    it("a platform principal's recent events leave out its own cross-tenant reads, counted behind a toggle", async () => {
+        const { web } = setup(PLATFORM);
+        overviewRoutes(web);
+        // What Go returns under *: the request's own access row on top (it commits before the read),
+        // earlier reads of the same tab, someone else's access, a refused attempt of the viewer, a real event.
+        const own = (n: number, details: Record<string, unknown> = {}) =>
+            event(n, {
+                type: "platform_cross_tenant_access",
+                severity: "warning",
+                summary: `own read ${n}`,
+                actorUserId: "u-self",
+                tenantId: null,
+                details: { method: "GET", path: "/v1/security-events", act_on_tenant: "*", outcome: "accepted", ...details },
+            });
+        web.handlers.unshift((c) =>
+            c.method === "GET" && c.url.startsWith("/api/go/v1/security-events")
+                ? json(200, {
+                      data: [
+                          own(0),
+                          own(1),
+                          event(2, { type: "platform_cross_tenant_access", severity: "warning", summary: "support read", actorUserId: "u-support", details: { method: "GET", outcome: "accepted" } }),
+                          own(3, { outcome: "refused" }),
+                          event(4, { type: "refresh_token_reuse", severity: "critical", summary: "token reuse" }),
+                          own(5),
+                      ],
+                  })
+                : undefined
+        );
+        renderWithProviders(<SecurityOverviewPage />);
+        const u = userEvent.setup();
+        const list = await screen.findByTestId("recent-events");
+        expect(within(list).getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent)).toEqual(["support read", "own read 3", "token reuse"]);
+        expect(screen.getByTestId("own-reads")).toHaveTextContent("Show my own cross-tenant reads (3)");
+        expect(screen.getByTestId("own-reads")).toHaveTextContent("Hidden, not deleted");
+
+        await u.click(within(screen.getByTestId("own-reads")).getByRole("checkbox"));
+        await waitFor(() => expect(within(screen.getByTestId("recent-events")).getAllByRole("listitem")).toHaveLength(6));
+        expect(screen.getByTestId("own-reads")).not.toHaveTextContent("Hidden, not deleted");
+    });
+
+    it("says so when the newest events are all the viewer's own reads", async () => {
+        const { web } = setup(PLATFORM);
+        overviewRoutes(web);
+        web.handlers.unshift((c) =>
+            c.method === "GET" && c.url.startsWith("/api/go/v1/security-events")
+                ? json(200, {
+                      data: [0, 1].map((n) =>
+                          event(n, { type: "platform_cross_tenant_access", actorUserId: "u-self", tenantId: null, details: { method: "GET", outcome: "accepted" } })
+                      ),
+                  })
+                : undefined
+        );
+        renderWithProviders(<SecurityOverviewPage />);
+        expect(await screen.findByText("The 2 newest events are all your own cross-tenant reads.")).toBeInTheDocument();
+        expect(screen.getByTestId("own-reads")).toHaveTextContent("(2)");
     });
 
     it("lists a user's live sessions and ends one, or all of them; never the caller's own", async () => {
@@ -270,10 +335,48 @@ describe("Role matrix (Go)", () => {
                 { role: "operator", capability: "operations:manage_tasks", allowed: false },
             ],
         });
-        // The save invalidates ['roles'] and ['me']: both are read again.
-        await waitFor(() => expect(web.count("GET", "/api/go/v1/roles/matrix")).toBe(2));
+        // The save reads the layer once more before the PUT, and its success invalidates ['roles'] and
+        // ['me']: both are read again.
+        const put = web.calls.findIndex((c) => c.method === "PUT");
+        expect(web.calls.slice(0, put).filter((c) => c.method === "GET" && c.url.startsWith("/api/go/v1/roles/matrix"))).toHaveLength(2);
+        await waitFor(() => expect(web.count("GET", "/api/go/v1/roles/matrix")).toBe(3));
         await waitFor(() => expect(web.count("GET", "/api/go/v1/me")).toBeGreaterThan(1));
         expect(onlyBff(web.calls)).toBe(true);
+    });
+
+    it("a save over a matrix someone else changed meanwhile writes nothing, shows their change and keeps the edit", async () => {
+        const { web } = setup();
+        web.on("GET", "/api/go/v1/stats/users-by-role", () => json(200, { data: BY_ROLE }));
+        let current = roleMatrix();
+        web.on("GET", "/api/go/v1/roles/matrix", () => json(200, { data: current }));
+        web.on("PUT", "/api/go/v1/roles/matrix", () => json(200, { data: current, meta: { changes: 1 } }));
+        const warn = vi.spyOn(toast, "warning");
+        renderWithProviders(<RoleMatrixPage />);
+        const u = userEvent.setup();
+        await screen.findAllByTestId("matrix-row");
+
+        // Another admin denies "View first mile" for the operator after this page loaded.
+        current = roleMatrix();
+        const operator = current.roles.find((r) => r.role === "operator")!;
+        operator.capabilities["operations:view_first_mile"] = { default: true, effective: false, overridden: true, overridable: true };
+
+        await u.click(screen.getByRole("checkbox", { name: "Manager: Manage tasks" }));
+        await u.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("Someone else changed this matrix after it loaded")));
+        expect(web.count("PUT", "/api/go/v1/roles/matrix")).toBe(0);
+        // Their row is on screen now, and the edit is still pending.
+        await waitFor(() => expect(screen.getByRole("checkbox", { name: "Operator: View First Mile" })).not.toBeChecked());
+        expect(screen.getByTestId("pending-changes")).toHaveTextContent("1 unsaved changes");
+
+        await u.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(web.count("PUT", "/api/go/v1/roles/matrix")).toBe(1));
+        expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({
+            overrides: [
+                { role: "manager", capability: "operations:manage_tasks", allowed: false },
+                { role: "operator", capability: "operations:view_first_mile", allowed: false },
+                { role: "operator", capability: "operations:manage_tasks", allowed: false },
+            ],
+        });
     });
 
     it("a platform admin without a tenant edits the platform-wide layer and may pick a tenant", async () => {
@@ -323,6 +426,37 @@ describe("Security audit (Go)", () => {
             expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/security-events") && new URL(c.url, "http://web.test").searchParams.get("severity") === "critical")).toBe(true)
         );
         expect(onlyBff(web.calls)).toBe(true);
+    });
+});
+
+describe("Security audit (Go): a platform principal's own reads and the poll", () => {
+    it("hides the viewer's own cross-tenant reads from the rows, the KPIs and the export unless asked, and stops polling after load more", async () => {
+        const { web } = setup(PLATFORM);
+        const own = (n: number) =>
+            event(n, { type: "platform_cross_tenant_access", severity: "warning", summary: `own ${n}`, actorUserId: "u-self", tenantId: null, details: { method: "GET", outcome: "accepted" } });
+        web.on("GET", "/api/go/v1/security-events", (c) => {
+            const url = new URL(c.url, "http://web.test");
+            if (url.searchParams.get("cursor") === "next-1") return json(200, { data: [own(5), event(6, { summary: "older" })] });
+            return json(200, { data: [own(1), own(2), event(3, { summary: "real", severity: "critical" })], nextCursor: "next-1", meta: { types: [] } });
+        });
+        renderWithProviders(<SecurityAuditPage />);
+        const u = userEvent.setup();
+        await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(1));
+        expect(screen.getByText("Warning / critical").parentElement).toHaveTextContent("1"); // the critical one, not the 2 own warnings
+        expect(screen.getByTestId("own-reads")).toHaveTextContent("(2)");
+        expect(screen.getByTestId("loaded-count")).toHaveTextContent("Showing 1 of 3 loaded rows");
+        expect(screen.queryByTestId("poll-paused")).toBeNull();
+
+        await u.click(within(screen.getByTestId("own-reads")).getByRole("checkbox"));
+        await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(3));
+        expect(screen.getByText("Warning / critical").parentElement).toHaveTextContent("3");
+        await u.click(within(screen.getByTestId("own-reads")).getByRole("checkbox"));
+
+        await u.click(screen.getByRole("button", { name: "Load more" }));
+        await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(2));
+        expect(screen.getByTestId("own-reads")).toHaveTextContent("(3)");
+        expect(screen.getByTestId("poll-paused")).toHaveTextContent("Auto-refresh is paused while older pages are loaded");
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/security-events")).every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
     });
 });
 

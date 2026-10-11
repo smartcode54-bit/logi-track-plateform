@@ -5,21 +5,33 @@
  * `getDocs` (`audit/page.tsx:94-130`): a keyset list, newest first, 100 per page with "load more",
  * the type, severity and date range in the key and in the request (RLS decides the rows). Polled every
  * 30 s while the tab is visible (no web topic carries `security.event` to tenant staff, Appendix B
- * §B.4.2; a platform principal's `platform:security` stream has no producer yet).
+ * §B.4.2; a platform principal's `platform:security` stream has no producer yet), only while one page is
+ * loaded (`pollHeadWhileVisible`), and every 5 min for a platform principal (`reachPollMs`).
+ *
+ * A platform principal reads with `X-Act-On-Tenant: *`, so each of its requests adds one
+ * `platform_cross_tenant_access` warning row that the next read returns (the row commits before the
+ * handler reads). `isOwnCrossTenantRead` names those rows of the viewer, so the pages can hide them by
+ * default behind a visible toggle with a count (never a silent drop); the server counters of
+ * `GET /v1/security/overview` still include them (developer-spec.md §19.2 question 20).
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 import type { GoPage } from "@/lib/goQuery";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { pollWhileVisible } from "@/lib/realtime/polling";
-import { reachHeaders, type SecurityReach } from "./reach";
+import { pollHeadWhileVisible } from "@/lib/realtime/polling";
+import { reachHeaders, reachPollMs, type SecurityReach } from "./reach";
 
 export const SECURITY_EVENTS_PATH = "/v1/security-events";
 /** Rows per page of the audit list (developer-spec.md §10.10). */
 export const SECURITY_EVENTS_PAGE_SIZE = 100;
 /** The overview's "recent events" card. */
 export const RECENT_EVENTS_LIMIT = 8;
+/**
+ * The rows the overview reads for that card for a platform principal: enough that the 8 newest
+ * events other than the viewer's own cross-tenant reads are usually among them.
+ */
+export const RECENT_EVENTS_FETCH_PLATFORM = 50;
 /** Poll while visible (Appendix E §E.5 row 31). */
 export const SECURITY_EVENTS_POLL_MS = 30_000;
 
@@ -79,7 +91,11 @@ export interface UseSecurityEventsOptions {
     enabled?: boolean;
 }
 
-/** The keyset feed; disabled until the reach is known. */
+/**
+ * The keyset feed; disabled until the reach is known. It polls only while it holds its first page
+ * (TanStack refetches every loaded page, and for a platform principal each request is an audit row):
+ * every 30 s for a tenant principal, every 5 min (poll and focus) for a platform principal.
+ */
 export function useSecurityEvents(
     filter: SecurityEventsFilter,
     reach: SecurityReach | undefined,
@@ -93,10 +109,39 @@ export function useSecurityEvents(
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
-        ...QUERY_POLICY.live,
-        ...pollWhileVisible(SECURITY_EVENTS_POLL_MS),
+        gcTime: QUERY_POLICY.live.gcTime,
+        staleTime: reachPollMs(reach, QUERY_POLICY.live.staleTime),
+        ...pollHeadWhileVisible(reachPollMs(reach, SECURITY_EVENTS_POLL_MS)),
         enabled: enabled && reach !== undefined,
     });
+}
+
+/** The audit row Go writes for each `X-Act-On-Tenant` request (Appendix C §C.3.9). */
+export const CROSS_TENANT_ACCESS = "platform_cross_tenant_access";
+
+/**
+ * Whether `e` records one of the viewer's own accepted cross-tenant reads (a `GET` or `HEAD` that a
+ * Security Center page of theirs sent with `X-Act-On-Tenant`). A refused, repeated or malformed
+ * attempt, a write, and anyone else's access are never matched.
+ */
+export function isOwnCrossTenantRead(e: Pick<SecurityEventDTO, "type" | "actorUserId" | "details">, viewerId: string | null | undefined): boolean {
+    if (!viewerId || e.type !== CROSS_TENANT_ACCESS || e.actorUserId !== viewerId) return false;
+    const d = e.details ?? {};
+    const method = typeof d.method === "string" ? d.method.toUpperCase() : "";
+    return (method === "GET" || method === "HEAD") && d.outcome === "accepted";
+}
+
+/**
+ * The rows a page shows: all of them when `showOwn`, else those that are not the viewer's own
+ * cross-tenant reads; `own` counts the viewer's rows among `rows` either way (the toggle shows it).
+ */
+export function withoutOwnReads(
+    rows: readonly SecurityEventDTO[],
+    viewerId: string | null | undefined,
+    showOwn: boolean
+): { rows: SecurityEventDTO[]; own: number } {
+    const others = rows.filter((r) => !isOwnCrossTenantRead(r, viewerId));
+    return { rows: showOwn ? [...rows] : others, own: rows.length - others.length };
 }
 
 /** Every row of the loaded pages, in order. */

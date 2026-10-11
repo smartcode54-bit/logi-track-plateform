@@ -19,7 +19,8 @@ export function PageLoading() {
  * Renders a page from its domain's source (T54S): the Go page while the web flag of `domain` is `go`,
  * the Firestore page otherwise (developer-spec.md §10.6, §10.13; R35, R41). Pass both through
  * `next/dynamic`, so a route loads only the source it renders: the Firestore SDK stays out of a Go
- * page's chunks, and a flip (an env change on the api) swaps the page within 60 s, no rebuild.
+ * page's chunks (the auth bridge still loads it on every /app route until TW7), and a flip (an env
+ * change on the api) swaps the page within 60 s, no rebuild.
  */
 export function DomainPage({ domain, go: Go, firestore: Firestore }: { domain: WebDomain; go: ComponentType; firestore: ComponentType }) {
     const source = useDomainPageSource(domain);
