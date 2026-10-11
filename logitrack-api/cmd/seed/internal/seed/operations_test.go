@@ -3,6 +3,8 @@ package seed
 import (
 	"context"
 	"fmt"
+	"path"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -20,16 +22,44 @@ import (
 // 11) hold on the plan before anything is written, under the default anchor, the integration tests' seed and an
 // anchor set to a later day; the integration tests then load the same plans and run --verify (all twelve).
 
-// opsPlans are the demo plans the tests check: two seeds and a later anchor.
+// opsPlans are the demo plans the tests check: two seeds, a later anchor, and both together (the integration tests'
+// SEED_RANDOM_SEED, which deploy/vm/env.vm.example also sets, with an anchor of the staging VM's days: it once crashed
+// today() on an unexpanded demo-hub route).
 func opsPlans(t *testing.T) map[string]*Plan {
 	t.Helper()
-	later, err := Build(context.Background(), testFixture(), Options{Profile: ProfileDemo, Bucket: "logitrack",
-		PublicBucket: "logitrack-public", Backend: "s3", Anchor: time.Date(2026, 10, 11, 0, 0, 0, 0, clock.Bangkok)})
-	if err != nil {
-		t.Fatal(err)
-	}
+	later := time.Date(2026, 10, 11, 0, 0, 0, 0, clock.Bangkok)
 	return map[string]*Plan{"default": plan(t, ProfileDemo), "integration-seed": planSeed(t, ProfileDemo, integrationSeed),
-		"anchor-2026-10-11": later}
+		"anchor-2026-10-11": planAt(t, 0, later), "integration-seed-anchor-2026-10-11": planAt(t, integrationSeed, later)}
+}
+
+// planAt builds the demo plan of a SEED_RANDOM_SEED (0: the default) and SEED_ANCHOR_DATE.
+func planAt(t *testing.T, seed uint64, anchor time.Time) *Plan {
+	t.Helper()
+	p, err := Build(context.Background(), testFixture(), Options{Profile: ProfileDemo, RandomSeed: seed, Bucket: "logitrack",
+		PublicBucket: "logitrack-public", Backend: "s3", Anchor: anchor})
+	if err != nil {
+		t.Fatalf("seed %d, anchor %s: %v", seed, clock.DateString(anchor), err)
+	}
+	return p
+}
+
+// The generator builds under any SEED_RANDOM_SEED and SEED_ANCHOR_DATE (Appendix D §D.1.4 suggests the anchor be today
+// for live-looking boards): a sweep over seeds and the staging VM's October days, each plan with today's drivers and
+// one trip at a time per driver. Before the fix, 11 of the 30 October anchors crashed under the VM's seed.
+func TestOperationsBuildUnderSeedsAndAnchors(t *testing.T) {
+	seeds := []uint64{0, integrationSeed, 1, 2, 3, 5, 8, 13}
+	anchors := []time.Time{time.Date(2026, 10, 9, 0, 0, 0, 0, clock.Bangkok), time.Date(2026, 10, 12, 0, 0, 0, 0, clock.Bangkok),
+		time.Date(2026, 10, 15, 0, 0, 0, 0, clock.Bangkok), time.Date(2026, 10, 27, 0, 0, 0, 0, clock.Bangkok)}
+	for _, seed := range seeds {
+		for _, anchor := range anchors {
+			t.Run(fmt.Sprintf("%d-%s", seed, clock.DateString(anchor)), func(t *testing.T) {
+				t.Parallel()
+				p := planAt(t, seed, anchor)
+				checkTodayDrivers(t, p, clock.DateString(anchor))
+				checkDriverTimelines(t, p)
+			})
+		}
+	}
 }
 
 // generated are the rows of table the demo appends to smoke.
@@ -228,10 +258,12 @@ func hasFailedStop(p *Plan, tripID string) bool {
 }
 
 // checkTodayDrivers: a driver with a task under way today points at it (drivers.active_task_id), holds one at most,
-// and that task is checked in or in transit.
+// and that task is checked in or in transit; it holds the task's truck as its active truck from the check-in on
+// (activeTruck is one concept: truck, plate, task and start set together, as GET /v1/drivers/{id} reads them), and a
+// driver without a task under way holds none of the four.
 func checkTodayDrivers(t *testing.T, p *Plan, anchor string) {
 	t.Helper()
-	tasks := byID(p.Tables["tasks"])
+	tasks, trucks := byID(p.Tables["tasks"]), byID(p.Tables["trucks"])
 	active, underWay := 0, 0
 	for _, k := range generated(t, p, "tasks") {
 		if (k.Str("status") == "checked_in" || k.Str("status") == "in_transit") && k.Str("plan_at")[:10] == anchor {
@@ -241,6 +273,9 @@ func checkTodayDrivers(t *testing.T, p *Plan, anchor string) {
 	for _, d := range generated(t, p, "drivers") {
 		id := d.Str("active_task_id")
 		if id == "" {
+			if d["active_truck_id"] != nil || d["active_truck_plate"] != nil || d["active_started_at"] != nil {
+				t.Errorf("driver %s holds an active truck without a task under way", d.Str("id_card"))
+			}
 			continue
 		}
 		active++
@@ -248,6 +283,12 @@ func checkTodayDrivers(t *testing.T, p *Plan, anchor string) {
 		if k == nil || k.Str("driver_id") != d.Str("id") || (k.Str("status") != "checked_in" && k.Str("status") != "in_transit") ||
 			k.Str("plan_at")[:10] != anchor {
 			t.Errorf("driver %s points at %s, which is not its task under way today", d.Str("id_card"), id)
+			continue
+		}
+		if tr := trucks[k.Str("truck_id")]; tr == nil || d.Str("active_truck_id") != tr.Str("id") ||
+			d.Str("active_truck_plate") != tr.Str("license_plate") || d.Str("active_started_at") != k.Str("check_in_at") {
+			t.Errorf("driver %s: active truck %q (%q) since %q, want its task's truck %s and check-in %s", d.Str("id_card"),
+				d.Str("active_truck_id"), d.Str("active_truck_plate"), d.Str("active_started_at"), k.Str("truck_id"), k.Str("check_in_at"))
 		}
 	}
 	if active != underWay || active == 0 {
@@ -504,9 +545,19 @@ func TestOperationsGoldenPrices(t *testing.T) {
 // Generated rows follow the conventions of the fixture: uuid v5 ids of their natural keys (task and trip numbers,
 // "<trip_no>:<photo_type>", "<bucket>:<object key>"), object keys from the internal/storage templates, client_op_id on
 // every native driver-created row (R63) and none on staff or legacy rows, and task numbers that never repeat one the
-// plan already holds.
+// plan already holds. Rows that stand for ETL-migrated data keep the legacy shapes (Appendix D §D.1.3 #5, §D.1.6).
 func TestOperationsConventions(t *testing.T) {
-	p := plan(t, ProfileDemo)
+	for name, p := range opsPlans(t) {
+		t.Run(name, func(t *testing.T) {
+			checkConventions(t, p)
+			checkLegacyRows(t, p)
+			checkCreatedAtCheckIn(t, p)
+		})
+	}
+}
+
+func checkConventions(t *testing.T, p *Plan) {
+	t.Helper()
 	ns := DefaultNamespace
 	numbers := map[string]int{}
 	for _, k := range p.Tables["tasks"] {
@@ -547,9 +598,18 @@ func TestOperationsConventions(t *testing.T) {
 		}
 	}
 	for _, f := range generated(t, p, "file_objects") {
-		if f.Str("id") != ID(ns, "file_objects", "logitrack:"+f.Str("object_key")).String() || f.Str("status") != "committed" ||
-			!strings.Contains(f.Str("object_key"), f.Str("owner_id")) {
-			t.Errorf("object %s: id, status or owner", f.Str("object_key"))
+		if f.Str("id") != ID(ns, "file_objects", "logitrack:"+f.Str("object_key")).String() || f.Str("status") != "committed" {
+			t.Errorf("object %s: id or status", f.Str("object_key"))
+		}
+		switch tr := trips[f.Str("owner_id")]; {
+		case f["legacy_url"] != nil: // an object the ETL copied: its legacy key under the trip's legacy doc id, no uploader
+			if tr == nil || tr.Str("legacy_doc_id") == "" || f.Str("object_key") != "trip_records/"+tr.Str("legacy_doc_id")+"/"+
+				strings.TrimSuffix(path.Base(f.Str("object_key")), ".jpg")+".jpg" || f["uploaded_by"] != nil ||
+				f.Str("legacy_url") != legacyStorageURL+strings.ReplaceAll(f.Str("object_key"), "/", "%2F")+"?alt=media" {
+				t.Errorf("legacy object %s: key, URL or uploader", f.Str("object_key"))
+			}
+		case !strings.Contains(f.Str("object_key"), f.Str("owner_id")) || f["uploaded_by"] == nil:
+			t.Errorf("object %s: a native upload names its owner in its key and its uploader", f.Str("object_key"))
 		}
 	}
 	own := p.Symbols.MustID(ownFleetSymbol).String()
@@ -568,6 +628,93 @@ func TestOperationsConventions(t *testing.T) {
 	}
 }
 
+// checkLegacyRows: the generated rows that stand for ETL-migrated data look as the ETL writes them. Their photos are
+// the objects it copied (trip_records/{doc}/{type}.jpg, legacy_url, no uploader), a legacy task has no check-in photo,
+// and the driver's auth uid they carry (driver_ref_match auth_uid, R12) is the one its driver and user hold (R55),
+// never made of its national ID (drivers.id_card is behind drivers:view_pii, legacy_driver_ref is not).
+func checkLegacyRows(t *testing.T, p *Plan) {
+	t.Helper()
+	drivers, users, objects := byID(p.Tables["drivers"]), byID(p.Tables["users"]), byID(p.Tables["file_objects"])
+	var nids []string
+	for _, d := range p.Tables["drivers"] {
+		if n := d.Str("id_card"); n != "" {
+			nids = append(nids, n)
+		}
+	}
+	refs := 0
+	for _, table := range []string{"tasks", "trip_records", "standby_records"} {
+		for _, r := range generated(t, p, table) {
+			if r.Str("driver_ref_match") != "auth_uid" {
+				continue
+			}
+			refs++
+			uid, d := r.Str("legacy_driver_ref"), drivers[r.Str("driver_id")]
+			if d == nil || len(uid) != 28 || !strings.HasPrefix(uid, "SEEDUID") || d.Str("legacy_auth_uid") != uid ||
+				users[d.Str("user_id")].Str("legacy_auth_uid") != uid {
+				t.Errorf("%s %s: legacy_driver_ref %q is not the auth uid its driver and user hold", table, r.Str("id"), uid)
+			}
+			for _, n := range nids {
+				if strings.Contains(uid, n) {
+					t.Errorf("%s %s: legacy_driver_ref %q holds a national ID", table, r.Str("id"), uid)
+				}
+			}
+		}
+	}
+	legacyTrips, photos := 0, 0
+	byTrip := map[string][]Row{}
+	for _, ph := range p.Tables["trip_photos"] {
+		byTrip[ph.Str("trip_id")] = append(byTrip[ph.Str("trip_id")], ph)
+	}
+	for _, tr := range generated(t, p, "trip_records") {
+		if tr.Str("legacy_doc_id") == "" {
+			continue
+		}
+		legacyTrips++
+		for _, ph := range byTrip[tr.Str("id")] {
+			photos++
+			f := objects[ph.Str("file_id")]
+			if f == nil || !strings.HasPrefix(f.Str("object_key"), "trip_records/"+tr.Str("legacy_doc_id")+"/") || f["legacy_url"] == nil ||
+				f["uploaded_by"] != nil {
+				t.Errorf("legacy trip %s: photo %s is not an object the ETL copied", tr.Str("trip_no"), ph.Str("photo_type"))
+			}
+		}
+	}
+	for _, k := range generated(t, p, "tasks") {
+		if k.Str("legacy_doc_id") != "" && (k["check_in_photo_file_id"] != nil || k["check_in_app_screenshot_file_id"] != nil) {
+			t.Errorf("legacy task %s carries a check-in photo", k.Str("task_no"))
+		}
+	}
+	if refs != 11 || legacyTrips != 5 || photos == 0 {
+		t.Errorf("%d generated rows name their driver by auth uid (want 11: 5 tasks, 5 trips, 1 standby), %d legacy trips "+
+			"(want 5) with %d photos", refs, legacyTrips, photos)
+	}
+}
+
+// checkCreatedAtCheckIn: a driver creates its own task as part of the check-in (R63), so the task is created in the
+// minutes before the check-in (never after it), and before the check-in photo it owns.
+func checkCreatedAtCheckIn(t *testing.T, p *Plan) {
+	t.Helper()
+	objects := byID(p.Tables["file_objects"])
+	n := 0
+	for _, k := range generated(t, p, "tasks") {
+		if k.Str("tenant_source") != "driver" || k.Str("check_in_at") == "" {
+			continue
+		}
+		n++
+		created := parseTS(t, k.Str("created_at"))
+		if lead := parseTS(t, k.Str("check_in_at")).Sub(created); lead < 0 || lead > 5*time.Minute {
+			t.Errorf("driver-created task %s: created %s, check-in %s: not created at its check-in", k.Str("task_no"),
+				k.Str("created_at"), k.Str("check_in_at"))
+		}
+		if f := objects[k.Str("check_in_photo_file_id")]; f != nil && parseTS(t, f.Str("created_at")).Before(created) {
+			t.Errorf("driver-created task %s: check-in photo taken %s, before the task", k.Str("task_no"), f.Str("created_at"))
+		}
+	}
+	if n == 0 {
+		t.Error("no driver-created task checked in")
+	}
+}
+
 func userOf(p *Plan, driverID string) string {
 	for _, d := range p.Tables["drivers"] {
 		if d.Str("id") == driverID {
@@ -575,4 +722,117 @@ func userOf(p *Plan, driverID string) string {
 		}
 	}
 	return ""
+}
+
+// An upsert into a shared database prices the generated rows from the database's pricing inputs (repricedTables,
+// Appendix D §D.1.7). With inputs equal to the plan's nothing changes. With a rate card the plan lacks (an admin priced
+// one of the "need a rate card" routes on the staging VM), the generated trips of that route take it through the
+// engine's oldest-entry fallback, every other generated row keeps its price, the smoke rows stay, and the plan itself
+// is left as it was (Load writes the copies).
+func TestRepricedTables(t *testing.T) {
+	p := plan(t, ProfileDemo)
+	in, err := planEngineInputs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := repricedTables(p, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(same, p.Tables) {
+		t.Fatal("repricing from the plan's own inputs changed the plan's rows")
+	}
+
+	tasks, trips := byID(p.Tables["tasks"]), byID(p.Tables["trip_records"])
+	var target Row
+	for _, s := range generated(t, p, "trip_billing_snapshots") {
+		k := tasks[trips[s.Str("trip_id")].Str("task_id")]
+		if s.Str("unpriced_reason") == "no_rate" && k.Str("truck_type") != "" && k.Str("job_category") == "PRIMARY" {
+			target = s
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("the demo has no unpriced no_rate trip")
+	}
+	k := tasks[trips[target.Str("trip_id")].Str("task_id")]
+	party, _ := compute.ResolveTaskParty(compute.TaskParties{BillingPartyID: k.Str("billing_party_id"),
+		SourceLinkedPartyID: k.Str("source_linked_party_id"), DestinationLinkedPartyID: k.Str("destination_linked_party_id")})
+	route := func(s Row) bool {
+		kk := tasks[trips[s.Str("trip_id")].Str("task_id")]
+		return s.Str("lookup_hub_code") == target.Str("lookup_hub_code") && s.Str("lookup_destination_code") ==
+			target.Str("lookup_destination_code") && kk.Str("truck_type") == k.Str("truck_type") &&
+			firstNonEmpty(kk.Str("billing_party_id"), kk.Str("source_linked_party_id"), kk.Str("destination_linked_party_id")) == party
+	}
+	card := compute.RateEntry{ID: "00000000-0000-7000-8000-0000000c0de1", CreatedAt: time.Date(2026, 10, 4, 9, 0, 0, 0, clock.Bangkok),
+		PartyID: party, ImportID: "rc_1791090000000", HubCode: target.Str("lookup_hub_code"),
+		DestinationCode: target.Str("lookup_destination_code"), VehicleClass: k.Str("truck_type"), RateTHB: 1234,
+		EffectiveFrom: time.Date(2026, 10, 5, 0, 0, 0, 0, clock.Bangkok), JobCategory: compute.Primary}
+	in.parties[party].rates = append(in.parties[party].rates, card)
+	out, err := repricedTables(p, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(p.Tables, plan(t, ProfileDemo).Tables) {
+		t.Fatal("repricedTables changed the plan")
+	}
+	for _, table := range []string{"trip_records", "trip_billing_snapshots", "trip_billing_stop_breakdown", "standby_records"} {
+		if len(out[table]) != len(p.Tables[table]) {
+			t.Errorf("%s: %d rows after repricing, %d before", table, len(out[table]), len(p.Tables[table]))
+		}
+	}
+	before := map[string]Row{}
+	for _, s := range p.Tables["trip_billing_snapshots"] {
+		before[s.Str("trip_id")] = s
+	}
+	moved := 0
+	for _, s := range out["trip_billing_snapshots"] {
+		b := before[s.Str("trip_id")]
+		switch {
+		case b.Str("unpriced_reason") == "no_rate" && route(b):
+			moved++
+			if s.Str("rate_entry_id") != card.ID || s.Str("base_rate_thb") != "1234.00" || s["unpriced_reason"] != nil {
+				t.Errorf("trip %s on the priced route: rate %s, base %s, reason %v", trips[s.Str("trip_id")].Str("trip_no"),
+					s.Str("rate_entry_id"), s.Str("base_rate_thb"), s["unpriced_reason"])
+			}
+			if tr := tripOf(out, s.Str("trip_id")); tr.Str("billing_party_id") != party || tr.Str("billing_date") == "" {
+				t.Errorf("trip %s: billing party %q, date %q after repricing", tr.Str("trip_no"), tr.Str("billing_party_id"), tr.Str("billing_date"))
+			}
+		case !reflect.DeepEqual(s, b):
+			t.Errorf("trip %s off the route was repriced", trips[s.Str("trip_id")].Str("trip_no"))
+		}
+	}
+	if moved == 0 {
+		t.Error("no trip took the new rate card")
+	}
+}
+
+func tripOf(tables map[string][]Row, id string) Row {
+	for _, r := range tables["trip_records"] {
+		if r.Str("id") == id {
+			return r
+		}
+	}
+	return nil
+}
+
+// Load prices an upsert's generated rows once every pricing input is in: each table the engine reads loads before the
+// first table that carries a generated price.
+func TestPricingInputsLoadFirst(t *testing.T) {
+	first := len(LoadOrder)
+	for i, table := range LoadOrder {
+		if pricedTables[table] {
+			first = min(first, i)
+		}
+	}
+	for _, table := range pricingInputs {
+		if i := slices.Index(LoadOrder, table); i < 0 || i >= first {
+			t.Errorf("%s loads at %d, the first priced table at %d", table, i, first)
+		}
+	}
+	for table := range pricedTables {
+		if !slices.Contains(LoadOrder, table) {
+			t.Errorf("priced table %s is not in the load order", table)
+		}
+	}
 }

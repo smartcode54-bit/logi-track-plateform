@@ -3,7 +3,7 @@
 # §17.4). Run on the operator's machine from a checkout of mv-go; it reaches the VM over ssh as root
 # (ssh config host showkhun.co) and never prints a secret.
 #
-#   deploy.sh --web-build-env FILE [--dry-run] [--allow-dirty] [--host HOST]
+#   deploy.sh --web-build-env FILE [--reseed] [--dry-run] [--allow-dirty] [--host HOST]
 #       Build the Go binaries (linux/amd64, CGO off) and the web standalone (logitrack-web/Dockerfile,
 #       docker buildx --platform linux/amd64) from a clean export of HEAD (git archive), so the release is
 #       exactly the commit it is named after; upload them as /opt/logitrack/releases/<git-sha>, then
@@ -14,6 +14,8 @@
 #       A checkout with changes or untracked files under the release paths (logitrack-api, logitrack-web,
 #       shared-docs and the workspace manifests) is refused; --allow-dirty builds the working tree as it
 #       is, untracked files included, under the id <git-sha>-dirty-<UTC time>.
+#       --reseed tops up the demo seed on a later deploy too (rollout.sh activate --reseed: seed --profile
+#       demo, upsert, before the switch), for a release whose seed generators add rows.
 #       FILE holds the web's NEXT_PUBLIC_* build arguments (KEY=VALUE, gitignored: e.g.
 #       deploy/vm/.env.web-build); it is read without echo, and the values reach docker through its
 #       environment (`--build-arg NAME`), never through a command line.
@@ -38,6 +40,7 @@ mode=deploy
 dry=0
 plan=0
 allow_dirty=0
+reseed=0
 web_env=""
 to=""
 kit_out=""
@@ -52,6 +55,7 @@ while [ $# -gt 0 ]; do
     --dry-run) dry=1 ;;
     --plan) plan=1 ;;
     --allow-dirty) allow_dirty=1 ;;
+    --reseed) reseed=1 ;;
     --host)
       [ $# -ge 2 ] || usage
       host_flag=$2
@@ -76,6 +80,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# --reseed belongs to a deploy (the activation of a new release).
+[ "$reseed" = 0 ] || [ "$mode" = deploy ] || usage
 
 kit_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 api_dir=$(cd -P "$kit_dir/../.." && pwd)
@@ -269,7 +275,11 @@ deploy() {
     would "build bin/{api,worker,scheduler,migrate,seed,etl,release,vmenv} for linux/amd64 (CGO_ENABLED=0, Version=$release_id)"
     would "build the web standalone with docker buildx --platform linux/amd64 (target standalone of logitrack-web/Dockerfile, NODE_IMAGE $kit_web_node_image)"
     would "upload the release to $host:$rel"
-    would "run on $host: bash $rel/deploy/vm/rollout.sh activate --pending (migrate up; until a first deploy has gone live: seed --profile demo --allow-shared and seed --bootstrap-admin; switch current; pm2 startOrReload; checks of the internal /readyz, worker and scheduler /readyz, public /healthz, public /v1/tasks = 404, web /login)"
+    if [ "$reseed" = 1 ]; then
+      would "run on $host: bash $rel/deploy/vm/rollout.sh activate --pending --reseed (migrate up; until a first deploy has gone live: seed --profile demo --allow-shared and seed --bootstrap-admin, on a later deploy seed --profile demo --allow-shared only; switch current; pm2 startOrReload; checks of the internal /readyz, worker and scheduler /readyz, public /healthz, public /v1/tasks = 404, web /login)"
+    else
+      would "run on $host: bash $rel/deploy/vm/rollout.sh activate --pending (migrate up; until a first deploy has gone live: seed --profile demo --allow-shared and seed --bootstrap-admin; switch current; pm2 startOrReload; checks of the internal /readyz, worker and scheduler /readyz, public /healthz, public /v1/tasks = 404, web /login)"
+    fi
     would "check https://$kit_api_host/healthz = 200, https://$kit_web_host/login = 200, https://$kit_api_host/v1/tasks = 404; then rollout.sh confirm $release_id (record it as live, keep $kit_keep_releases releases); on failure: rollout.sh rollback (to the newest live release)"
     return 0
   fi
@@ -292,7 +302,11 @@ rm -rf \"\$d.upload\" \"\$d\"
 mkdir -p \"\$d.upload\"
 tar -xzf - -C \"\$d.upload\" --no-same-owner
 mv \"\$d.upload\" \"\$d\""
-  vm "bash $rel/deploy/vm/rollout.sh activate --pending"
+  if [ "$reseed" = 1 ]; then
+    vm "bash $rel/deploy/vm/rollout.sh activate --pending --reseed"
+  else
+    vm "bash $rel/deploy/vm/rollout.sh activate --pending"
+  fi
   if ! public_checks; then
     # The release was never recorded as live, so the rollback goes to the newest live one and a later
     # --rollback never returns to this release.

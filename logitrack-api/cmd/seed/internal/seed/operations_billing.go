@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"time"
@@ -18,16 +19,32 @@ import (
 // over every generated delivered trip and standby record; the load's engine check then recomputes them from the
 // database and rolls the load back on any difference, so the two readers cannot drift apart unnoticed. A later
 // generator that adds rate rows (T43) runs before this pass, and the prices follow.
+//
+// An upsert into a shared database (the staging VM) prices them again inside the load transaction, from the tables
+// the database holds once the plan's rate and hub rows are in (repricedTables): a rate card, fuel round, fee, standby
+// rate, billing basis or hub alias someone added or edited there wins over the plan's, as it would for the engine
+// writing a delivered trip there, so the top-up lands and the engine check holds by construction (Appendix D §D.1.7).
 
 // opsResult are the rows the operations generator leaves for the pricing pass.
 type opsResult struct {
 	trips   []*opsTrip
 	standby []*opsStandby
+	// baseTrips and baseStandby are the generated trip and standby rows by id as the generator left them, before the
+	// pricing pass set their billing columns: repricedTables prices copies of them again.
+	baseTrips, baseStandby map[string]Row
+}
+
+// opsPrices are what the engine returns for the generated rows: the columns it sets on each trip and standby record
+// (by id), and the snapshot and multi-drop breakdown rows it adds.
+type opsPrices struct {
+	set       map[string]Row
+	snapshots []Row
+	breakdown []Row
 }
 
 // priceOperations writes the billing snapshot of every generated delivered trip (priced, or with the unpriced reason
 // the engine returns, R62), its multi-drop breakdown, the trip's billing party and billing date, and the inline price
-// of every generated standby record.
+// of every generated standby record, from the plan's own pricing inputs.
 func priceOperations(p *Plan) error {
 	if p.ops == nil {
 		return nil
@@ -36,27 +53,78 @@ func priceOperations(p *Plan) error {
 	if err != nil {
 		return fmt.Errorf("seed: pricing inputs: %w", err)
 	}
+	pr, err := priceOps(p, in)
+	if err != nil {
+		return err
+	}
+	p.ops.baseTrips, p.ops.baseStandby = map[string]Row{}, map[string]Row{}
+	for _, ot := range p.ops.trips {
+		p.ops.baseTrips[ot.trip.Str("id")] = ot.trip.clone()
+		maps.Copy(ot.trip, pr.set[ot.trip.Str("id")])
+	}
+	for _, sb := range p.ops.standby {
+		p.ops.baseStandby[sb.row.Str("id")] = sb.row.clone()
+		maps.Copy(sb.row, pr.set[sb.row.Str("id")])
+	}
+	p.Tables["trip_billing_snapshots"] = append(p.Tables["trip_billing_snapshots"], pr.snapshots...)
+	p.Tables["trip_billing_stop_breakdown"] = append(p.Tables["trip_billing_stop_breakdown"], pr.breakdown...)
+	return nil
+}
+
+// repricedTables are the plan's tables with the generated operations rows priced from in instead of the plan's own
+// inputs (an upsert into a shared database, Load): copies of the generated trips and standby records carry the billing
+// columns in gives, and the snapshots and breakdown rows of the generated trips are replaced. Every other row, and p
+// itself, stays as it is.
+func repricedTables(p *Plan, in *engineInputs) (map[string][]Row, error) {
+	if p.ops == nil {
+		return p.Tables, nil
+	}
+	pr, err := priceOps(p, in)
+	if err != nil {
+		return nil, err
+	}
+	out := maps.Clone(p.Tables)
+	for table, base := range map[string]map[string]Row{"trip_records": p.ops.baseTrips, "standby_records": p.ops.baseStandby} {
+		rows := make([]Row, len(p.Tables[table]))
+		for i, r := range p.Tables[table] {
+			rows[i] = r
+			if b, ok := base[r.Str("id")]; ok {
+				rows[i] = b.clone()
+				maps.Copy(rows[i], pr.set[r.Str("id")])
+			}
+		}
+		out[table] = rows
+	}
+	for table, add := range map[string][]Row{"trip_billing_snapshots": pr.snapshots, "trip_billing_stop_breakdown": pr.breakdown} {
+		var rows []Row
+		for _, r := range p.Tables[table] {
+			if _, generated := p.ops.baseTrips[r.Str("trip_id")]; !generated {
+				rows = append(rows, r)
+			}
+		}
+		out[table] = append(rows, add...)
+	}
+	return out, nil
+}
+
+// priceOps runs the billing engine with the inputs in over every generated delivered trip and standby record.
+func priceOps(p *Plan, in *engineInputs) (*opsPrices, error) {
+	pr := &opsPrices{set: map[string]Row{}}
 	own := p.Symbols.MustID(ownFleetSymbol).String()
 	for _, ot := range p.ops.trips {
 		if ot.trip.Str("status") != "delivered" {
 			continue
 		}
-		if err := priceTrip(p, in, ot, own); err != nil {
-			return fmt.Errorf("seed: price %s: %w", ot.trip.Str("trip_no"), err)
+		if err := priceTrip(pr, in, ot, own); err != nil {
+			return nil, fmt.Errorf("seed: price %s: %w", ot.trip.Str("trip_no"), err)
 		}
-	}
-	// The billing carrier of a priced standby record (0015, R61): the tenant of the standby rate it names, else the own
-	// fleet, the only billing carrier today (the rule of the 0015 backfill and of operations.BillingVisible).
-	carrier := map[string]string{}
-	for _, r := range p.Tables["standby_rate_entries"] {
-		carrier[r.Str("id")] = r.Str("tenant_id")
 	}
 	for _, sb := range p.ops.standby {
-		if err := priceStandby(in, sb, carrier, own); err != nil {
-			return fmt.Errorf("seed: price standby %s: %w", sb.row.Str("id"), err)
+		if err := priceStandby(pr, in, sb, own); err != nil {
+			return nil, fmt.Errorf("seed: price standby %s: %w", sb.row.Str("id"), err)
 		}
 	}
-	return nil
+	return pr, nil
 }
 
 // tripInput is the engine input of a generated trip, built as loadSnapshots builds it from the database.
@@ -101,7 +169,9 @@ func tripInput(ot *opsTrip) (compute.TripInput, error) {
 	return in, nil
 }
 
-func priceTrip(p *Plan, in *engineInputs, ot *opsTrip, own string) error {
+// priceTrip prices one generated delivered trip: the billing party and date (and, for a legacy task, the category
+// billing resolved) on the trip, its snapshot and its multi-drop breakdown.
+func priceTrip(pr *opsPrices, in *engineInputs, ot *opsTrip, own string) error {
 	tin, err := tripInput(ot)
 	if err != nil {
 		return err
@@ -111,12 +181,13 @@ func priceTrip(p *Plan, in *engineInputs, ot *opsTrip, own string) error {
 	if err != nil {
 		return err
 	}
-	t := ot.trip
+	t, set := ot.trip, Row{}
+	pr.set[t.Str("id")] = set
 	if res.PartyID != "" {
-		t["billing_party_id"] = res.PartyID
+		set["billing_party_id"] = res.PartyID
 	}
 	if !res.BillingDate.IsZero() {
-		t["billing_date"] = ts(res.BillingDate.In(clock.Bangkok))
+		set["billing_date"] = ts(res.BillingDate.In(clock.Bangkok))
 	}
 	at := tin.DeliveredAt.Add(time.Minute)
 	by := "mobile_delivery"
@@ -142,44 +213,46 @@ func priceTrip(p *Plan, in *engineInputs, ot *opsTrip, own string) error {
 			s["lookup_hub_code"] = compute.ExtractHubID(in.hubs.ResolveNameToCode(tin.Task.SourceHub))
 			s["lookup_destination_code"] = compute.NormalizeDestinationCode(in.hubs.ResolveNameToCode(tin.Task.Destination))
 		}
-		p.Tables["trip_billing_snapshots"] = append(p.Tables["trip_billing_snapshots"], s)
+		pr.snapshots = append(pr.snapshots, s)
 		return nil
 	}
-	pr := res.Price
-	s["estimate_thb"], s["base_rate_thb"] = money(pr.EstimateTHB), money(pr.BaseRateTHB)
-	s["rate_entry_id"], s["rate_import_id"] = pr.RateEntryID, pr.RateImportID
-	s["lookup_hub_code"], s["lookup_destination_code"] = pr.LookupHubCode, pr.LookupDestinationCode
-	s["rate_multiplier"] = strconv.FormatFloat(pr.RateMultiplier, 'f', 6, 64)
-	s["add_thb_per_trip"] = money(pr.AddTHBPerTrip)
-	if pr.FuelAdjustmentID != "" {
-		s["fuel_adjustment_id"], s["fuel_effective_from_date"] = pr.FuelAdjustmentID, pr.FuelEffectiveFromDate
+	price := res.Price
+	s["estimate_thb"], s["base_rate_thb"] = money(price.EstimateTHB), money(price.BaseRateTHB)
+	s["rate_entry_id"], s["rate_import_id"] = price.RateEntryID, price.RateImportID
+	s["lookup_hub_code"], s["lookup_destination_code"] = price.LookupHubCode, price.LookupDestinationCode
+	s["rate_multiplier"] = strconv.FormatFloat(price.RateMultiplier, 'f', 6, 64)
+	s["add_thb_per_trip"] = money(price.AddTHBPerTrip)
+	if price.FuelAdjustmentID != "" {
+		s["fuel_adjustment_id"], s["fuel_effective_from_date"] = price.FuelAdjustmentID, price.FuelEffectiveFromDate
 	}
-	s["round_effective_from_date"] = pr.RoundEffectiveFromDate
-	if pr.FuelBandLowerTHB != nil {
-		s["fuel_band_lower_thb"], s["fuel_band_upper_thb"] = money(*pr.FuelBandLowerTHB), money(*pr.FuelBandUpperTHB)
+	s["round_effective_from_date"] = price.RoundEffectiveFromDate
+	if price.FuelBandLowerTHB != nil {
+		s["fuel_band_lower_thb"], s["fuel_band_upper_thb"] = money(*price.FuelBandLowerTHB), money(*price.FuelBandUpperTHB)
 	}
-	if pr.ReferenceFuelPriceTHB != nil {
-		s["reference_fuel_price_thb"] = money(*pr.ReferenceFuelPriceTHB)
+	if price.ReferenceFuelPriceTHB != nil {
+		s["reference_fuel_price_thb"] = money(*price.ReferenceFuelPriceTHB)
 	}
-	s["is_multi_delivery"], s["manual_override"] = pr.IsMultiDelivery, pr.ManualOverride
-	s["job_category_at_pricing"] = string(pr.JobCategory)
-	if pr.IsMultiDelivery {
-		s["stop_charge_thb"] = money(pr.StopChargeTHB)
+	s["is_multi_delivery"], s["manual_override"] = price.IsMultiDelivery, price.ManualOverride
+	s["job_category_at_pricing"] = string(price.JobCategory)
+	if price.IsMultiDelivery {
+		s["stop_charge_thb"] = money(price.StopChargeTHB)
 	}
 	if tin.JobCategory == "" { // a legacy task: the trip holds the category billing resolved (invariant 3)
-		t["job_category"] = string(pr.JobCategory)
+		set["job_category"] = string(price.JobCategory)
 	}
-	p.Tables["trip_billing_snapshots"] = append(p.Tables["trip_billing_snapshots"], s)
-	for _, st := range pr.Stops {
-		p.Tables["trip_billing_stop_breakdown"] = append(p.Tables["trip_billing_stop_breakdown"], Row{"trip_id": t.Str("id"),
+	pr.snapshots = append(pr.snapshots, s)
+	for _, st := range price.Stops {
+		pr.breakdown = append(pr.breakdown, Row{"trip_id": t.Str("id"),
 			"stop_index": intNum(st.StopIndex), "destination_code": st.DestinationCode, "base_rate_thb": money(st.BaseRateTHB),
 			"final_rate_thb": money(st.FinalRateTHB)})
 	}
 	return nil
 }
 
-func priceStandby(in *engineInputs, sb *opsStandby, carrier map[string]string, own string) error {
-	r := sb.row
+// priceStandby prices one generated standby record (its inline billing columns).
+func priceStandby(pr *opsPrices, in *engineInputs, sb *opsStandby, own string) error {
+	r, set := sb.row, Row{}
+	pr.set[r.Str("id")] = set
 	var sin compute.StandbyInput
 	var err error
 	sin.CustomerPartyID = r.Str("customer_party_id")
@@ -212,21 +285,23 @@ func priceStandby(in *engineInputs, sb *opsStandby, carrier map[string]string, o
 		}
 	}
 	res := compute.PriceStandby(sin, rates, fee)
-	r["billing_computed_at"] = ts(at.Add(time.Minute).In(clock.Bangkok))
+	set["billing_computed_at"] = ts(at.Add(time.Minute).In(clock.Bangkok))
 	if res.Price == nil {
-		r["billing_unpriced_reason"] = string(res.Reason)
+		set["billing_unpriced_reason"] = string(res.Reason)
 		return nil
 	}
-	r["billing_estimate_thb"], r["billing_party_id"] = money(res.Price.EstimateTHB), res.Price.PartyID
-	r["billing_rate_source"], r["billing_tenant_id"] = res.Price.RateSource, own
+	set["billing_estimate_thb"], set["billing_party_id"] = money(res.Price.EstimateTHB), res.Price.PartyID
+	set["billing_rate_source"], set["billing_tenant_id"] = res.Price.RateSource, own
 	if res.Price.RateEntryID != "" {
-		r["billing_rate_entry_id"] = res.Price.RateEntryID
-		if t := carrier[res.Price.RateEntryID]; t != "" {
-			r["billing_tenant_id"] = t
+		set["billing_rate_entry_id"] = res.Price.RateEntryID
+		// The billing carrier of a priced standby record (0015, R61): the tenant of the standby rate it names, else the
+		// own fleet, the only billing carrier today (the rule of the 0015 backfill and of operations.BillingVisible).
+		if t := in.standbyTenants[res.Price.RateEntryID]; t != "" {
+			set["billing_tenant_id"] = t
 		}
 	}
 	if res.Price.EffectiveFromDate != "" {
-		r["billing_effective_from_date"] = res.Price.EffectiveFromDate
+		set["billing_effective_from_date"] = res.Price.EffectiveFromDate
 	}
 	return nil
 }
@@ -235,7 +310,7 @@ func priceStandby(in *engineInputs, sb *opsStandby, carrier map[string]string, o
 // every party's basis, rate entries, fuel rounds and standby rates ordered by (party, created_at, id), the first
 // service fee of each type, and the hub names in (created_at, id) order with their aliases.
 func planEngineInputs(p *Plan) (*engineInputs, error) {
-	in := &engineInputs{parties: map[string]*partyTables{}}
+	in := &engineInputs{parties: map[string]*partyTables{}, standbyTenants: map[string]string{}}
 	party := func(id string) *partyTables {
 		pt, ok := in.parties[id]
 		if !ok {
@@ -293,6 +368,7 @@ func planEngineInputs(p *Plan) (*engineInputs, error) {
 			Voided: r["voided_at"] != nil}
 		pt := party(s.PartyID)
 		pt.standbys = append(pt.standbys, s)
+		in.standbyTenants[s.ID] = r.Str("tenant_id")
 	}
 	aliases := map[string][]Row{}
 	for _, r := range p.Tables["hub_name_aliases"] {

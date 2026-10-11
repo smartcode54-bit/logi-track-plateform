@@ -223,7 +223,9 @@ func prepare(table string, r Row, cols map[string]column) (Row, Row, error) {
 // engine check over the priced rows this load inserted (every seeded one in insert mode), so a price the
 // engine does not reproduce rolls everything back (Appendix D §D.1.4, §D.1.5). An upsert leaves rows that
 // already exist alone, prices included: they are not this load's output, and the application never
-// re-prices a frozen or manually edited snapshot either.
+// re-prices a frozen or manually edited snapshot either. The generated operations rows an upsert writes are
+// priced from the database's pricing inputs once the plan's own are in (repricedTables), so a shared database
+// whose rate tables, fees, standby rates, billing basis or hubs differ from the plan's still takes the top-up.
 func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult, error) {
 	start := time.Now()
 	res := LoadResult{Inserted: map[string]int{}}
@@ -242,8 +244,22 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 		}
 		var later []backfill
 		inserted := map[string]map[string]bool{} // table -> keys (rowKey) written by this load
+		tables, repriced := p.Tables, false
 		for _, table := range LoadOrder {
-			rows := p.Tables[table]
+			if mode == ModeUpsert && !repriced && pricedTables[table] && p.ops != nil {
+				// Every pricing input is in by now (TestPricingInputsLoadFirst): the database's rows, where an id or
+				// alias the plan also holds kept the database's version (ON CONFLICT DO NOTHING), and the plan's rows
+				// for the rest.
+				in, err := loadEngineInputs(ctx, tx)
+				if err != nil {
+					return fmt.Errorf("seed: engine inputs: %w", err)
+				}
+				if tables, err = repricedTables(p, in); err != nil {
+					return err
+				}
+				repriced = true
+			}
+			rows := tables[table]
 			if mode == ModeUpsert {
 				rows = keepWritable(table, rows, inserted)
 			}
@@ -293,7 +309,7 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 				return err
 			}
 		}
-		if res.Counters, err = deriveCounters(ctx, tx, ids(p.Tables["tasks"])); err != nil {
+		if res.Counters, err = deriveCounters(ctx, tx, ids(tables["tasks"])); err != nil {
 			return err
 		}
 		res.TemporaryUserInserted = p.TemporaryUserID != "" && inserted["users"][p.TemporaryUserID]
@@ -307,7 +323,7 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 				standby = map[string]bool{}
 			}
 		}
-		mism, err := CheckEngine(ctx, tx, engineTrips(p, trips), engineStandby(p, standby))
+		mism, err := CheckEngine(ctx, tx, engineTrips(tables, trips), engineStandby(tables, standby))
 		if err != nil {
 			return err
 		}
@@ -324,6 +340,15 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 	res.Duration = time.Since(start)
 	return res, err
 }
+
+// pricedTables are the tables whose generated rows carry engine prices (the trips' billing party and date, their
+// snapshots and multi-drop breakdown, the standby records' inline price): an upsert prices them from the database
+// before the first of them is written. pricingInputs are what the engine reads (loadEngineInputs).
+var (
+	pricedTables  = map[string]bool{"trip_records": true, "trip_billing_snapshots": true, "trip_billing_stop_breakdown": true, "standby_records": true}
+	pricingInputs = []string{"billing_parties", "hubs", "hub_name_aliases", "customer_rate_entries",
+		"customer_fuel_rate_adjustments", "customer_service_fees", "standby_rate_entries"}
+)
 
 // upsertParents are children whose insert trigger refuses a parent that is no longer a draft: the lines of
 // a payroll run are writable only while the run is draft (BEFORE INSERT fires before ON CONFLICT is
@@ -464,9 +489,9 @@ func ids(rows []Row) []uuid.UUID {
 // manual_edit, which stand for legacy writers and are inserted verbatim), limited to the trips in only when
 // it is not nil (an upsert checks the snapshots it inserted). Never nil: a nil slice selects every row of
 // the database in CheckEngine.
-func engineTrips(p *Plan, only map[string]bool) []uuid.UUID {
+func engineTrips(tables map[string][]Row, only map[string]bool) []uuid.UUID {
 	out := []uuid.UUID{}
-	for _, r := range p.Tables["trip_billing_snapshots"] {
+	for _, r := range tables["trip_billing_snapshots"] {
 		if by := r.Str("computed_by"); by == "etl" || by == "manual_edit" {
 			continue
 		}
@@ -482,9 +507,9 @@ func engineTrips(p *Plan, only map[string]bool) []uuid.UUID {
 
 // engineStandby are the seeded completed standby records with a price or a stored reason, limited to the
 // records in only when it is not nil. Never nil, like engineTrips.
-func engineStandby(p *Plan, only map[string]bool) []uuid.UUID {
+func engineStandby(tables map[string][]Row, only map[string]bool) []uuid.UUID {
 	out := []uuid.UUID{}
-	for _, r := range p.Tables["standby_records"] {
+	for _, r := range tables["standby_records"] {
 		if r.Str("status") != "completed" || (r["billing_estimate_thb"] == nil && r["billing_unpriced_reason"] == nil) {
 			continue
 		}

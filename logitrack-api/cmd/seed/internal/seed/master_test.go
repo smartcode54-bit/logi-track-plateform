@@ -23,8 +23,8 @@ import (
 
 // generatedTables are the tables whose demo and load counts the generators make exact: the identities of T16 and the
 // master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) are exact in demo; load carries
-// the demo rows of them until a load-scale operations generator lands (its column stays a target). T43 adds its tables
-// when its generator lands.
+// the demo rows of them until T35V, the load-scale operations generator (developer-spec §18.3), lands (its column stays
+// a target). T43 adds its tables when its generator lands.
 var generatedTables = []string{"tenants", "billing_parties", "customers", "companies", "users", "memberships",
 	"auth_identities", "user_platform_roles", "user_scopes", "role_capability_overrides", "hubs", "hub_name_aliases",
 	"hub_soc_distances", "drivers", "trucks", "truck_assignments"}

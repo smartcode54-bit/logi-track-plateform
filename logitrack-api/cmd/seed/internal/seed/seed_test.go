@@ -195,9 +195,30 @@ func TestSmokePlan(t *testing.T) {
 }
 
 // Native object keys follow the purpose templates of internal/storage (main spec §9.2): uuid of the owner,
-// variant, millisecond stamp of the upload; legacy keys stay as the ETL copies them.
+// variant, millisecond stamp of the upload; legacy keys stay as the ETL copies them. The demo's generated objects
+// (T35) are checked as well: every one but the photos of its legacy trips, which keep their legacy keys.
 func TestNativeKeysFollowPurposes(t *testing.T) {
-	p := plan(t, ProfileSmoke)
+	smoke := plan(t, ProfileSmoke)
+	demo := plan(t, ProfileDemo)
+	generated := 0
+	for _, r := range demo.Tables["file_objects"][len(smoke.Tables["file_objects"]):] {
+		if r["legacy_url"] == nil {
+			generated++
+		}
+	}
+	if generated < 3000 {
+		t.Fatalf("the demo generates %d native objects", generated)
+	}
+	for _, tc := range []struct {
+		p    *Plan
+		want int
+	}{{smoke, 11}, {demo, 11 + generated}} {
+		checkNativeKeys(t, tc.p, tc.want)
+	}
+}
+
+func checkNativeKeys(t *testing.T, p *Plan, want int) {
+	t.Helper()
 	checked := 0
 	for _, r := range p.Tables["file_objects"] {
 		key := r.Str("object_key")
@@ -238,8 +259,8 @@ func TestNativeKeysFollowPurposes(t *testing.T) {
 		}
 		checked++
 	}
-	if checked != 11 {
-		t.Errorf("checked %d native keys, want 11", checked)
+	if checked != want {
+		t.Errorf("%s: checked %d native keys, want %d", p.Profile, checked, want)
 	}
 }
 

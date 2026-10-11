@@ -103,6 +103,7 @@ type opsSpan struct {
 // opsDriver is a generated driver with a login and the trucks it held.
 type opsDriver struct {
 	key, id, user string // national ID (the natural key), drivers.id, users.id
+	uid           string // the SEEDUID… auth uid of its legacy rows ("" until it gets one, opsGen.legacyUID)
 	spans         []opsSpan
 	queue         int // last run_order
 	row           Row
@@ -139,6 +140,7 @@ type opsGen struct {
 	start   time.Time // Bangkok midnight of window day 0
 	hubs    map[string]Row
 	users   map[string]string // e-mail -> users.id
+	userRow map[string]Row    // users.id -> its row
 	tenants map[string]string // tenant id -> code
 	drivers []*opsDriver
 	taskSeq map[string]int // task type + Bangkok day -> last sequence
@@ -157,7 +159,8 @@ type opsGen struct {
 // generators, so the load profile carries the same rows; the prices come later (priceOperations).
 func addDemoOps(p *Plan, o Options) error {
 	g := &opsGen{p: p, o: o, r: rng(o, "demo-operations"), s: p.Symbols, hubs: map[string]Row{}, users: map[string]string{},
-		tenants: map[string]string{}, taskSeq: map[string]int{}, tripSeq: map[string]int{}, labels: map[string]string{}}
+		userRow: map[string]Row{}, tenants: map[string]string{}, taskSeq: map[string]int{}, tripSeq: map[string]int{},
+		labels: map[string]string{}}
 	anchor := time.Date(o.Anchor.Year(), o.Anchor.Month(), o.Anchor.Day(), 0, 0, 0, 0, clock.Bangkok)
 	g.start = anchor.AddDate(0, 0, -(opsDays - 1))
 	for _, r := range p.Tables["hubs"] {
@@ -165,6 +168,7 @@ func addDemoOps(p *Plan, o Options) error {
 	}
 	for _, r := range p.Tables["users"] {
 		g.users[r.Str("email")] = r.Str("id")
+		g.userRow[r.Str("id")] = r
 	}
 	for _, r := range p.Tables["tenants"] {
 		g.tenants[r.Str("id")] = r.Str("code")
@@ -242,7 +246,9 @@ func (g *opsGen) collectDrivers() error {
 // planTaskNoRx reads every task number of the plan, padded or not, so generated numbers never repeat one.
 var planTaskNoRx = regexp.MustCompile(`^(FM|LH)-([0-9]{8})-([0-9]+)$`)
 
-// collectSequences records the highest task sequence the plan holds per type and Bangkok day (padded or not).
+// collectSequences records the highest task sequence the plan holds per type and Bangkok day (padded or not). The plan's,
+// not a shared database's: the numbers are natural keys (uuid v5 ids, overlay labels), so an upsert cannot renumber,
+// and a number the application already gave a task there on a day of the window can repeat (Appendix D §D.1.2).
 func (g *opsGen) collectSequences() {
 	for _, r := range g.p.Tables["tasks"] {
 		if m := planTaskNoRx.FindStringSubmatch(r.Str("task_no")); m != nil {
@@ -443,6 +449,9 @@ func (g *opsGen) trip(q tripReq) (time.Time, *opsTrip, error) {
 	}
 	delivered := std.Add(dur)
 	task["check_in_at"] = ts(checkIn)
+	if task.Str("tenant_source") == "driver" { // the driver creates the task as part of its check-in (R63)
+		task["created_at"] = ts(checkIn.Add(-2 * time.Minute))
+	}
 
 	date := clock.DateString(q.plan)
 	g.tripSeq[date]++
@@ -490,7 +499,7 @@ func (g *opsGen) trip(q tripReq) (time.Time, *opsTrip, error) {
 	}
 	if legacy {
 		trip["legacy_doc_id"], trip["legacy_task_ref"], trip["task_ref_match"] = tripNo, task.Str("legacy_doc_id"), "doc_id"
-		trip["legacy_driver_ref"], trip["driver_ref_match"] = legacyUID(q.d.key), "auth_uid"
+		trip["legacy_driver_ref"], trip["driver_ref_match"] = g.legacyUID(q.d), "auth_uid"
 	}
 	switch q.outcome {
 	case "delivered":
@@ -637,11 +646,10 @@ func (g *opsGen) task(q taskReq) Row {
 		q.d.queue++
 		r["run_order"] = intNum(q.d.queue)
 		if q.legacy {
-			r["legacy_driver_ref"], r["driver_ref_match"] = legacyUID(q.d.key), "auth_uid"
+			r["legacy_driver_ref"], r["driver_ref_match"] = g.legacyUID(q.d), "auth_uid"
 		}
 	}
-	if q.manual {
-		created = q.plan.Add(10 * time.Minute)
+	if q.manual { // created at the check-in: trip() sets created_at once it has drawn the check-in time
 		r["tenant_source"] = "driver"
 		if !q.legacy {
 			r["created_by"] = q.d.user
@@ -680,9 +688,24 @@ func (g *opsGen) staffOf(tenant string) string {
 	return g.s.MustID("U_WRT_OPS").String()
 }
 
-// legacyUID is a synthetic 28-character Firebase auth uid of a driver (SEEDUID…, Appendix D §D.1.3).
-func legacyUID(nid string) string {
-	return "SEEDUID" + strings.Repeat("0", 28-7-len(nid)) + nid
+// legacyUID is the Firebase auth uid a legacy row names its driver by (driver_ref_match auth_uid, R12): the one the
+// driver already holds, else a synthetic 28-character SEEDUID… (Appendix D §D.1.3 #5) made from the driver's uuid, never
+// from its national ID (drivers.id_card is PII behind drivers:view_pii, and legacy_driver_ref is not). The first legacy
+// row of a driver stamps the uid on the driver and its user (drivers.legacy_auth_uid, users.legacy_auth_uid, R55), where
+// the ETL's driver lookup (doc id, then auth uid) resolves it.
+func (g *opsGen) legacyUID(d *opsDriver) string {
+	if d.uid != "" {
+		return d.uid
+	}
+	d.uid = d.row.Str("legacy_auth_uid")
+	if d.uid == "" {
+		d.uid = "SEEDUID" + strings.ToUpper(strings.ReplaceAll(d.id, "-", ""))[:28-len("SEEDUID")]
+		d.row["legacy_auth_uid"] = d.uid
+	}
+	if u := g.userRow[d.user]; u != nil && u.Str("legacy_auth_uid") == "" {
+		u["legacy_auth_uid"] = d.uid
+	}
+	return d.uid
 }
 
 // stops appends the delivery progress of a multi-drop trip in completion order (not plan order) and moves the task's
@@ -732,7 +755,8 @@ func (g *opsGen) stops(ot *opsTrip, stops []string, mode string, std, delivered 
 
 // photos appends the trip photos of a trip and their objects by outcome: loading (runsheet, pre_close on every third
 // trip, closing, seal; a trip cancelled after loading keeps its runsheet only), then delivery (arrived, opening on every
-// fourth); a multi-drop trip takes stop_{n}_arrived per delivered stop instead, linked to the stop.
+// fourth); a multi-drop trip takes stop_{n}_arrived per delivered stop instead, linked to the stop. The photos of a
+// legacy trip are the objects the ETL copied (legacyObject), not uploads through the API.
 func (g *opsGen) photos(ot *opsTrip, q tripReq, std, delivered time.Time) error {
 	n := g.nTrip
 	type shot struct {
@@ -765,8 +789,11 @@ func (g *opsGen) photos(ot *opsTrip, q tripReq, std, delivered time.Time) error 
 	}
 	tripID := uuid.MustParse(ot.trip.Str("id"))
 	for pos, sh := range shots {
-		fid, err := g.object("trip_photo", tripID, sh.typ, sh.at, ot.trip.Str("tenant_id"), q.d.user)
-		if err != nil {
+		var fid string
+		var err error
+		if ot.legacy {
+			fid = g.legacyObject("trip_photo", tripID, ot.trip.Str("legacy_doc_id"), sh.typ, sh.at, ot.trip.Str("tenant_id"))
+		} else if fid, err = g.object("trip_photo", tripID, sh.typ, sh.at, ot.trip.Str("tenant_id"), q.d.user); err != nil {
 			return err
 		}
 		ph := Row{"id": g.id("trip_photos", ot.trip.Str("trip_no")+":"+sh.typ), "trip_id": tripID.String(),
@@ -785,9 +812,9 @@ func (g *opsGen) photos(ot *opsTrip, q tripReq, std, delivered time.Time) error 
 
 // checkInPhotos attach the check-in photo (and, every other task, the app screenshot of ADR 0019) to the tasks of the
 // last two weeks: the driver app requires them since the check-in flow moved to the API; older tasks keep none, as
-// the ETL finds them.
+// the ETL finds them, and so does a legacy task whatever its day (the legacy app took no check-in photo).
 func (g *opsGen) checkInPhotos(task Row, d *opsDriver, srcHub string, plan, at time.Time) error {
-	if plan.Before(g.day(opsDays - 14)) {
+	if plan.Before(g.day(opsDays-14)) || task.Str("legacy_doc_id") != "" {
 		return nil
 	}
 	id := uuid.MustParse(task.Str("id"))
@@ -833,6 +860,22 @@ func (g *opsGen) object(purpose string, owner uuid.UUID, variant string, at time
 	g.add("file_objects", r)
 	return id, nil
 }
+
+// legacyObject appends the object of a photo the ETL copied from Firebase Storage (Appendix D §D.1.6, Appendix A §A.3
+// file URL -> object key): the legacy key trip_records/{doc}/{photo_type}.jpg kept verbatim under the trip's legacy doc
+// id, the download URL it came from in legacy_url, and no uploader (uploaded_by NULL), as FO_TR03_SEAL of the fixture.
+func (g *opsGen) legacyObject(purpose string, owner uuid.UUID, doc, typ string, at time.Time, tenant string) string {
+	key := "trip_records/" + doc + "/" + typ + ".jpg"
+	id := g.id("file_objects", "logitrack:"+key)
+	g.add("file_objects", Row{"id": id, "bucket": "logitrack", "object_key": key, "content_type": "image/jpeg",
+		"size_bytes": "$seed:generated", "sha256": "$seed:generated", "purpose": purpose,
+		"owner_kind": storage.Purposes[purpose].OwnerKind, "owner_id": owner.String(), "tenant_id": tenant, "status": "committed",
+		"legacy_url": legacyStorageURL + strings.ReplaceAll(key, "/", "%2F") + "?alt=media", "created_at": ts(at)})
+	return id
+}
+
+// legacyStorageURL is the Firebase Storage download prefix of the fixture's legacy objects (a synthetic bucket).
+const legacyStorageURL = "https://firebasestorage.googleapis.com/v0/b/seed-legacy-bucket/o/"
 
 // incident appends an incident report on a trip: by the driver in transit (client_op_id, R63), by the office (two),
 // or after delivery (one: the LINE delay note). Today's in-transit incidents leave the trip in status incident.
@@ -953,7 +996,7 @@ func (g *opsGen) maybeStandby(i, k int, d *opsDriver, truck Row, from time.Time)
 	}
 	if sp.legacy { // the legacy app never closed it: no ended_at, so no billing axis (R19)
 		r["legacy_doc_id"] = legacyDocID("StbDoc", fmt.Sprintf("G%02d", i))
-		r["legacy_driver_ref"], r["driver_ref_match"] = legacyUID(d.key), "auth_uid"
+		r["legacy_driver_ref"], r["driver_ref_match"] = g.legacyUID(d), "auth_uid"
 	} else {
 		r["ended_at"], r["duration_minutes"] = ts(ended), intNum(int(ended.Sub(started).Minutes()))
 		r["client_op_id"] = ClientOpID(g.o.Namespace, "standby_records:"+natural).String()
@@ -968,8 +1011,9 @@ func (g *opsGen) maybeStandby(i, k int, d *opsDriver, truck Row, from time.Time)
 
 // today generates the board of the anchor day (Appendix D §D.2 #1): first-mile tasks pending 6, assigned 8, checked in
 // 2, in transit 3 (one trip in transit, two stopped by an incident), completed 4, cancelled 2, counting the smoke tasks
-// that fall on that day; plus a line-haul multi-drop task assigned with its stops pending. The drivers with a task under way point at it
-// (drivers.active_task_id, back-filled after the load, Appendix D §D.1.5).
+// that fall on that day; plus a line-haul multi-drop task assigned with its stops pending. The drivers with a task under
+// way hold it as their active truck (underWay: drivers.active_truck_*, active_started_at and active_task_id, the last
+// back-filled after the load, Appendix D §D.1.5).
 func (g *opsGen) today() error {
 	day := g.day(opsDays - 1)
 	av := g.available(day)
@@ -1012,7 +1056,7 @@ func (g *opsGen) today() error {
 		free[d] = next.Add(20 * time.Minute)
 		count[map[string]string{"delivered": "completed", "in_transit": "in_transit", "incident": "in_transit"}[outcome]]++
 		if outcome != "delivered" {
-			d.row["active_task_id"] = ot.task.Str("id")
+			underWay(d, ot.task, tr)
 		}
 		return nil
 	}
@@ -1056,14 +1100,16 @@ func (g *opsGen) today() error {
 		busy[d] = true
 		tr := d.truckOn(day)
 		at := maxTime(free[d], day.Add(9*time.Hour+50*time.Minute))
-		route := pickFM(tr, kindOf(d))
+		// Expanded here, not only inside task(): the check-in photo below needs the drawn source hub of a demo-hub route
+		// (task() then keeps it as it is, so both see the same hub).
+		route := g.expand(pickFM(tr, kindOf(d)))
 		t := g.task(taskReq{d: d, truck: tr, tenant: tr.Str("tenant_id"), route: route, plan: at, status: "checked_in", today: true})
 		checkIn := at.Add(15 * time.Minute)
 		t["check_in_at"] = ts(checkIn)
 		if err := g.checkInPhotos(t, d, route.src[0], at, checkIn); err != nil {
 			return err
 		}
-		d.row["active_task_id"] = t.Str("id")
+		underWay(d, t, tr)
 		free[d] = checkIn
 		count["checked_in"]++
 	}
@@ -1108,6 +1154,15 @@ func (g *opsGen) today() error {
 		c2["cancelled_at"], c2["cancel_reason"] = ts(day.Add(9*time.Hour+30*time.Minute)), cancelReasons[1]
 	}
 	return nil
+}
+
+// underWay records on d the task it checked in for, as the check-in does: activeTruck {truck, plate, task, started at}
+// is one concept, set together at check-in and cleared at trip end (0003_master, drivers.active_*). The task id is
+// back-filled after the load (drivers load before tasks, Appendix D §D.1.5); the truck loads before the drivers.
+func underWay(d *opsDriver, task, truck Row) {
+	d.row["active_task_id"] = task.Str("id")
+	d.row["active_truck_id"], d.row["active_truck_plate"] = truck.Str("id"), truck.Str("license_plate")
+	d.row["active_started_at"] = task.Str("check_in_at")
 }
 
 func (g *opsGen) add(table string, r Row) { g.p.Tables[table] = append(g.p.Tables[table], r) }
