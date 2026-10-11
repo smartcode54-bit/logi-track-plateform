@@ -514,7 +514,10 @@ func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id 
 		var truckLegacy *string
 		if t := in.TruckID; t.Set {
 			if t.Null || strings.TrimSpace(t.V) == "" {
-				if cur.TruckID != nil {
+				switch {
+				case cur.TruckID != nil && cur.DriverID == nil: // a row needs a driver or a truck
+					ck.add("truckId", "required")
+				case cur.TruckID != nil:
 					truckID, plate = nil, nil
 					changed = append(changed, "truckId")
 				}

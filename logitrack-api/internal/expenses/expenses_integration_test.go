@@ -440,6 +440,10 @@ func TestCreateAndPatch(t *testing.T) {
 	if r.data()["tenantId"] != w.A || *w.str(`SELECT tenant_source FROM vehicle_expenses WHERE id = $1`, r.data()["id"]) != "truck" {
 		t.Errorf("truck-only entry %s", r.raw)
 	}
+	r = w.patch("/v1/expenses/"+str(r.data()["id"]), mg, map[string]any{"truckId": nil})
+	if r.fields()["truckId"] != "required" {
+		t.Errorf("a row needs a driver or a truck: %s", r.raw)
+	}
 	// An approved fuel entry with an odometer reading runs the PM check, as an approval does.
 	r = w.post("/v1/expenses", mg, map[string]any{"type": "fuel", "driverId": w.dO, "date": "2026-10-10", "amountThb": 1,
 		"odometerKm": 99000})
