@@ -62,6 +62,14 @@ func TestTableAndPending(t *testing.T) {
 	if len(on) != len(table)+1 || last.Name != "bangchak.snapshot" || last.Spec != "0 5 * * *" || last.Kind != Command {
 		t.Fatalf("gated table: %+v", last)
 	}
+	// ETL_SYNC_ENABLED adds the etl.sync sweep at ETL_SYNC_INTERVAL (every 5 minutes by default) (T24S).
+	for spec, want := range map[string]string{"": "*/5 * * * *", "*/15 * * * *": "*/15 * * * *"} {
+		on = Table(nil, nil, Gates{ETLSync: true, ETLSyncSpec: spec})
+		last = on[len(on)-1]
+		if len(on) != len(table)+1 || last.Name != "etl.sync" || last.Spec != want || last.Kind != Command {
+			t.Fatalf("etl.sync %q: %+v", spec, last)
+		}
+	}
 	if _, err := NewCron(nil, nil, []Job{{Name: "x.y", Spec: "every day", Kind: Command}}, zerolog.Nop(), nil); err == nil {
 		t.Fatal("a bad spec was accepted")
 	}

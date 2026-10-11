@@ -167,6 +167,14 @@ x-env-worker: &env-worker
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
   OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-}
   SENTRY_DSN: ${SENTRY_DSN:-}
+# The replica that runs the etl.sync mirror (T24S, R66): the worker with group sync alone and ETL_DATABASE_URL, the
+# logitrack_etl login the mirror needs (it is the ETL load path); no other replica holds that URL, and the worker
+# refuses one unless it runs the mirror. Profile coexist, started with ETL_SYNC_ENABLED=true while the worker's
+# WORKER_CONSUMERS leaves sync out (developer-spec.md §13.7).
+x-env-worker-sync: &env-worker-sync
+  <<: *env-worker
+  WORKER_CONSUMERS: sync
+  ETL_DATABASE_URL: ${ETL_DATABASE_URL:-}
 x-env-scheduler: &env-scheduler
   APP_ENV: ${APP_ENV:-}
   LOG_LEVEL: ${LOG_LEVEL:-}
@@ -436,6 +444,16 @@ services:
     <<: *go
     command: ["/app/bin/worker"]
     environment: *env-worker
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      retries: 12
+
+  worker-sync:
+    <<: *go
+    profiles: [coexist]
+    command: ["/app/bin/worker"]
+    environment: *env-worker-sync
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
       interval: 5s

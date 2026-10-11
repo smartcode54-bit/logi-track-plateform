@@ -90,6 +90,10 @@ func Parse(pgOwnedDomains, overrides string) (Flags, []string) {
 	return f, errs
 }
 
+// ParseOwned reads PG_OWNED_DOMAINS alone (the worker's coexistence plans, T24): the listed domains, or every domain
+// for "all". The error names the rule, never the value.
+func ParseOwned(v string) ([]string, error) { return parseOwned(v) }
+
 func entries(v string) []string {
 	var out []string
 	for e := range strings.SplitSeq(v, ",") {

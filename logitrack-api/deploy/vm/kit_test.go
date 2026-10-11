@@ -359,6 +359,15 @@ func TestTemplateStartsEveryProgram(t *testing.T) {
 			if (program == "migrate" || program == "seed") && strings.HasPrefix(n, "OTEL_") {
 				continue
 			}
+			// The worker binary reads ETL_DATABASE_URL only as worker-sync, the replica of the etl.sync mirror (§16.1
+			// consumer worker-sync, R66): the VM runs PostgreSQL only and never that replica, so its worker never
+			// receives the BYPASSRLS URL (and refuses to start holding it without the mirror).
+			if program == "worker" && n == "ETL_DATABASE_URL" {
+				if slices.Contains(allowed, n) {
+					t.Error("env-names/worker.txt exports ETL_DATABASE_URL: only the mirror replica (worker-sync) may hold it (R66)")
+				}
+				continue
+			}
 			if !slices.Contains(allowed, n) {
 				t.Errorf("%s reads %s, which env-names/%s.txt does not export", program, n, program)
 			}
