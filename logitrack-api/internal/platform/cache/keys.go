@@ -23,7 +23,7 @@ const (
 	NSRateLimit   Namespace = "rl"    // GCRA buckets and connection counters (httpx/ratelimit)
 	NSRealtime    Namespace = "rt"    // pub/sub channels: SSE fan-out, cache invalidation
 	NSRealtimeLog Namespace = "rtlog" // streams for SSE replay and the global sequence
-	NSLock        Namespace = "lock"  // job and cron duplicate-submission guards (internal/jobs)
+	NSLock        Namespace = "lock"  // job and cron duplicate-submission guards (internal/jobs), the mirror listeners' lease
 )
 
 // Namespaces lists every namespace in the order of Appendix B §B.6.1.
@@ -310,6 +310,10 @@ func (k Keyspace) RealtimeMarks() string { return k.Key(NSRealtimeLog, "marks") 
 
 // JobLock guards one job type and scope against duplicate submission.
 func (k Keyspace) JobLock(jobType, scope string) string { return k.Key(NSLock, "job", jobType, scope) }
+
+// MirrorListenLock is the lease of the mirror's listeners (T29): the worker-sync replica holding it polls the
+// operations collections, any other waits (single-active, main spec §13.7).
+func (k Keyspace) MirrorListenLock() string { return k.Key(NSLock, "mirror", "listen") }
 
 // CronLock is the second guard of a scheduler run next to the PostgreSQL advisory lock.
 func (k Keyspace) CronLock(job, scheduledFor string) string {

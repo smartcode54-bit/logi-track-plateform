@@ -134,6 +134,9 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 				WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL`, coll, path, o.By, resolution)
 			return int(tag.RowsAffected()), err
 		}
+		if tombstone(status) && o.Action != ActionSkip {
+			return fmt.Errorf("etl: %s is %s: Firestore no longer has it and the mirror settled it; nothing to %s", o.DocPath, status, o.Action)
+		}
 		switch o.Action {
 		case ActionSkip:
 			res.Resolved, err = resolve("skipped", o.Collection, o.DocPath)

@@ -235,8 +235,8 @@ func (e *Engine) reconcileCounts(ctx context.Context, tx pgx.Tx, d *dump.Dump, d
 		}
 		rec.add("counts", n, len(docs[n]), accounted, accounted == len(docs[n]) || pendingOK, note)
 		gone := 0
-		for p := range stored {
-			if !inDump[p] {
+		for p, x := range stored {
+			if !inDump[p] && !tombstone(x.status) { // a tombstone is a delete the mirror settled (renamed, removed)
 				gone++
 			}
 		}

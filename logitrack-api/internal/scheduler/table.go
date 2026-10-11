@@ -38,6 +38,7 @@ var Pending = []struct{ Name, Spec, Issue, Gate string }{
 var Gated = []struct{ Name, Spec, Gate string }{
 	{"bangchak.snapshot", "0 5 * * *", "FUEL_MONTHLY_SNAPSHOT_ENABLED"}, // T37, R70: worker consumer bangchak.snapshot
 	{"etl.sync", "*/5 * * * *", "ETL_SYNC_ENABLED"},                     // T24S: worker consumer etl.sync; ETL_SYNC_INTERVAL sets the spec
+	{"etl.reconcile", "30 2 * * *", "ETL_SYNC_ENABLED"},                 // T29: the daily reconcile-sync, worker consumer etl.sync
 }
 
 // Gates are the env gates of the Gated crons (SchedulerConfig).
@@ -53,7 +54,8 @@ type Gates struct {
 // Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, the command crons
 // whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc queue, Appendix B
 // §B.5.6; tenancy.orphan-scan, T28: daily at 03:00 job.tenancy.orphan-scan to the worker's tenancy.orphan-scan queue,
-// Appendix C §C.3.10), and the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S). Only the leader fires, and lock:cron guards
+// Appendix C §C.3.10), and the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S; etl.reconcile, T29:
+// the daily coexistence reconciliation at 02:30 on the same worker). Only the leader fires, and lock:cron guards
 // each slot, so two scheduler replicas fire a slot once.
 func Table(pool *pgxpool.Pool, rt *realtime.Writer, gates Gates) []Job {
 	jobs := []Job{
@@ -101,7 +103,8 @@ func Table(pool *pgxpool.Pool, rt *realtime.Writer, gates Gates) []Job {
 		if spec == "" {
 			spec = Gated[1].Spec
 		}
-		jobs = append(jobs, Job{Name: Gated[1].Name, Spec: spec, Kind: Command})
+		jobs = append(jobs, Job{Name: Gated[1].Name, Spec: spec, Kind: Command},
+			Job{Name: Gated[2].Name, Spec: Gated[2].Spec, Kind: Command})
 	}
 	return jobs
 }

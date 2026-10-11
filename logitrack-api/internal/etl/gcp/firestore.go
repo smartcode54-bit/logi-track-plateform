@@ -126,16 +126,71 @@ func (f *Firestore) CollectionIDs(ctx context.Context) ([]string, error) {
 // so no --since=watermark load built on this dump can filter it out. Firestore accepts a past readTime for one
 // hour (seven days with point-in-time recovery); a read that runs longer fails instead of mixing instants.
 func (f *Firestore) Documents(ctx context.Context, collection string, group bool) ([]dump.Doc, error) {
-	var docs []dump.Doc
-	last, readTime := "", ""
-	for {
-		q := map[string]any{
-			"from":    []any{map[string]any{"collectionId": collection, "allDescendants": group}},
-			"orderBy": []any{map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
-			"limit":   pageSize,
+	docs, _, err := f.DocumentsAt(ctx, collection, group, time.Time{})
+	return docs, err
+}
+
+// DocumentsAt is Documents at the read time at (zero: the first response's), and returns the read time it used, so
+// a mirror sweep reads every collection at one instant (T29: a trip renamed in the same batch that re-points its
+// incident reports is seen renamed in both collections, or in neither).
+func (f *Firestore) DocumentsAt(ctx context.Context, collection string, group bool, at time.Time) ([]dump.Doc, time.Time, error) {
+	q := map[string]any{
+		"from":    []any{map[string]any{"collectionId": collection, "allDescendants": group}},
+		"orderBy": []any{map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
+		"limit":   pageSize,
+	}
+	return f.query(ctx, collection, group, q, at, func(d dump.Doc) []any {
+		return []any{map[string]any{"referenceValue": f.root + "/" + d.Path}}
+	})
+}
+
+// Changed reads the documents of a top-level collection whose timestamp field is at or after since, ordered by that
+// field and then by name, paged with a cursor, at one read time (at, or the first response's), which it returns. A
+// document whose field is missing or holds no timestamp is not returned: the mirror's sweep, which reads whole
+// collections, applies it (main spec §13.7, T29: the listeners poll this query between sweeps). The query needs only
+// the single-field index Firestore keeps by default.
+func (f *Firestore) Changed(ctx context.Context, collection, field string, since, at time.Time) ([]dump.Doc, time.Time, error) {
+	if field == "" || since.IsZero() {
+		return nil, time.Time{}, errors.New("gcp: Changed needs a field and an instant")
+	}
+	fp := quoteFieldPath(field)
+	q := map[string]any{
+		"from": []any{map[string]any{"collectionId": collection, "allDescendants": false}},
+		"where": map[string]any{"fieldFilter": map[string]any{"field": map[string]any{"fieldPath": fp}, "op": "GREATER_THAN_OR_EQUAL",
+			"value": map[string]any{"timestampValue": since.UTC().Format(time.RFC3339Nano)}}},
+		"orderBy": []any{
+			map[string]any{"field": map[string]any{"fieldPath": fp}, "direction": "ASCENDING"},
+			map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"},
+		},
+		"limit": pageSize,
+	}
+	var bad error
+	docs, read, err := f.query(ctx, collection, false, q, at, func(d dump.Doc) []any {
+		ts, ok := d.Fields[field].(dump.Timestamp)
+		if !ok {
+			bad = fmt.Errorf("gcp: runQuery %s answered %s without a timestamp %s", collection, d.Path, field)
 		}
-		if last != "" {
-			q["startAt"] = map[string]any{"values": []any{map[string]any{"referenceValue": last}}, "before": false}
+		return []any{map[string]any{"timestampValue": ts.UTC().Format(time.RFC3339Nano)},
+			map[string]any{"referenceValue": f.root + "/" + d.Path}}
+	})
+	if err == nil && bad != nil {
+		err = bad
+	}
+	return docs, read, err
+}
+
+// query pages one structured query at one read time; cursor gives the startAt values after a page's last document.
+func (f *Firestore) query(ctx context.Context, collection string, group bool, q map[string]any, at time.Time,
+	cursor func(dump.Doc) []any) ([]dump.Doc, time.Time, error) {
+	var docs []dump.Doc
+	var last *dump.Doc
+	readTime := ""
+	if !at.IsZero() {
+		readTime = at.UTC().Format(time.RFC3339Nano)
+	}
+	for {
+		if last != nil {
+			q["startAt"] = map[string]any{"values": cursor(*last), "before": false}
 		}
 		body := map[string]any{"structuredQuery": q}
 		if readTime != "" {
@@ -146,13 +201,13 @@ func (f *Firestore) Documents(ctx context.Context, collection string, group bool
 			ReadTime string   `json:"readTime"`
 		}
 		if err := do(ctx, f.client, f.tokens, "runQuery", http.MethodPost, f.base+":runQuery", body, &out); err != nil {
-			return nil, err
+			return nil, time.Time{}, err
 		}
 		n := 0
 		for _, r := range out {
 			if readTime == "" && r.ReadTime != "" {
 				if _, err := time.Parse(time.RFC3339Nano, r.ReadTime); err != nil {
-					return nil, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, r.ReadTime, err)
+					return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, r.ReadTime, err)
 				}
 				readTime = r.ReadTime
 			}
@@ -160,23 +215,48 @@ func (f *Firestore) Documents(ctx context.Context, collection string, group bool
 				continue // the readTime-only element of an empty page
 			}
 			n++
-			last = r.Document.Name
 			d, err := f.decodeDoc(*r.Document)
 			if err != nil {
-				return nil, err
+				return nil, time.Time{}, err
 			}
 			if d.Collection() != collection || (!group && d.ParentPath() != "") {
-				return nil, fmt.Errorf("gcp: runQuery %s answered %s", collection, d.Path)
+				return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s answered %s", collection, d.Path)
 			}
 			docs = append(docs, d)
+			last = &docs[len(docs)-1]
 		}
 		if n < pageSize {
-			return docs, nil
+			if readTime == "" {
+				return docs, time.Time{}, nil
+			}
+			rt, err := time.Parse(time.RFC3339Nano, readTime)
+			if err != nil {
+				return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, readTime, err)
+			}
+			return docs, rt.UTC(), nil
 		}
 		if readTime == "" {
-			return nil, fmt.Errorf("gcp: runQuery %s: a full page without readTime cannot be continued as one snapshot", collection)
+			return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s: a full page without readTime cannot be continued as one snapshot", collection)
 		}
 	}
+}
+
+// Lookup reads one document at the read time at (zero: now); ok false when it does not exist then.
+func (f *Firestore) Lookup(ctx context.Context, path string, at time.Time) (dump.Doc, bool, error) {
+	u := f.base + "/" + escapePath(path)
+	if !at.IsZero() {
+		u += "?" + url.Values{"readTime": {at.UTC().Format(time.RFC3339Nano)}}.Encode()
+	}
+	var out restDoc
+	err := do(ctx, f.client, f.tokens, "get", http.MethodGet, u, nil, &out)
+	if errors.Is(err, ErrNotFound) {
+		return dump.Doc{}, false, nil
+	}
+	if err != nil {
+		return dump.Doc{}, false, err
+	}
+	d, err := f.decodeDoc(out)
+	return d, err == nil, err
 }
 
 // Get reads one document; ErrNotFound when it does not exist.

@@ -28,13 +28,71 @@ type runState struct {
 	// owned are the PostgreSQL-owned domains of a mirror sweep (nil for a load): the field mappers apply the
 	// ForeignFields of it.
 	owned map[string]bool
+	// present are the document paths of each collection as the source holds it now, for runs that read whole
+	// collections (a load, a sweep); a run that reads only changes (the listeners) asks lookup instead, and a run
+	// with neither (a retry) cannot tell (T29: the rename check of loadTrip).
+	present map[string]map[string]bool
+	// lookup says whether a document exists at the run's read time (the listeners, gcp.Firestore.Lookup).
+	lookup func(path string) (bool, error)
+	// events is set on mirror runs: the operations collections emit their domain events (mirror_events.go, T29).
+	events bool
+	// mirror is set on the runs of the FS->PG mirror (a sweep, a listener's poll): they overlap one another, so the
+	// documents they settle keep a tombstone (tombstones).
+	mirror bool
+	// tombs caches whether etl.source_docs takes the mirror's tombstones (0018 applied; tombstones).
+	tombs *bool
+}
+
+// tombstones reports whether a document this run settles keeps a tombstone in etl.source_docs (renamed, removed;
+// 0018): on a mirror run once 0018 is applied. A mirror run reads Firestore before it takes the load lock, so another
+// one may still hold a copy of the document read before it was settled; the tombstone makes the update-time guard
+// refuse that copy. A load holds the load lock from its first read and never overlaps another run, and the P1 load runs
+// at the P0 schema (up-to 9, apply 11; Appendix A §A.1 phase placement), 0018 coming with the runbook's `migrate up`
+// after it: it deletes the entry as before 0018, so its report is the same at either schema.
+func (r *runState) tombstones() (bool, error) {
+	if !r.mirror {
+		return false, nil
+	}
+	if r.tombs != nil {
+		return *r.tombs, nil
+	}
+	v, err := tombstonesEnabled(r.ctx, r.tx)
+	if err != nil {
+		return false, err
+	}
+	r.tombs = &v
+	return v, nil
+}
+
+func tombstonesEnabled(ctx context.Context, tx pgx.Tx) (bool, error) {
+	var v bool
+	err := tx.QueryRow(ctx, `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%''renamed''%'), false) FROM pg_constraint
+		WHERE conrelid = 'etl.source_docs'::regclass AND conname = 'source_docs_status_check'`).Scan(&v)
+	if err != nil {
+		return false, fmt.Errorf("etl: the statuses of etl.source_docs: %w", err)
+	}
+	return v, nil
+}
+
+// exists reports whether the source holds the document at path (of collection coll) now; known is false when the run
+// cannot tell.
+func (r *runState) exists(coll, path string) (found, known bool, err error) {
+	if set, ok := r.present[coll]; ok {
+		return set[path], true, nil
+	}
+	if r.lookup != nil {
+		found, err := r.lookup(path)
+		return found, err == nil, err
+	}
+	return false, false, nil
 }
 
 func (e *Engine) newRun(ctx context.Context, tx pgx.Tx, rep *Report) *runState {
 	if rep == nil {
 		rep = &Report{}
 	}
-	return &runState{ctx: ctx, tx: tx, e: e, rep: rep, applied: map[string][]dump.Doc{}, prep: map[string]any{}, d5: map[string]bool{}}
+	return &runState{ctx: ctx, tx: tx, e: e, rep: rep, applied: map[string][]dump.Doc{}, prep: map[string]any{}, d5: map[string]bool{},
+		present: map[string]map[string]bool{}}
 }
 
 // runAfterHooks runs every collection's after-hook in load order for the documents of r (quarantine resolve
