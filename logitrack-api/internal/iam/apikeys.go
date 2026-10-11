@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -237,7 +238,7 @@ type apiKeyRequest struct {
 
 // validateCreate checks the body of POST /v1/api-keys (422 invalid_argument, Appendix C §C.4.11):
 //
-//   - name: 1 to 100 characters; scope: one of the CHECK list (R82);
+//   - name: 1 to 100 characters after trimming, no control characters; scope: one of the CHECK list (R82);
 //   - capabilities: at least one, every one a catalog key, never platform:* or dispatch:*; a tenant key holds
 //     tenant-class keys only, a platform key global-class and mobile:* keys only;
 //   - cf_shim and release_publisher are platform keys (tenantId null); cf_shim holds only mobile:* keys,
@@ -252,6 +253,10 @@ func validateCreate(in CreateAPIKeyInput, now time.Time) (apiKeyRequest, []httpx
 		bad = append(bad, violation("name", "required"))
 	case n > maxAPIKeyName:
 		bad = append(bad, violation("name", "too_long"))
+	case strings.IndexFunc(r.name, unicode.IsControl) >= 0:
+		// A key name is a one-line label: no control characters, NUL among them (PostgreSQL text cannot hold
+		// 0x00, so it would fail the insert instead of the request).
+		bad = append(bad, violation("name", "invalid"))
 	}
 	r.scope = authz.APIKeyScope(in.Scope)
 	scopeOK := slices.Contains(APIKeyScopes, r.scope)

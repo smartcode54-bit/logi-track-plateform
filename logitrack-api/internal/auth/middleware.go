@@ -60,6 +60,26 @@ func (s *Service) RequireAuth(opts ...AuthOption) fiber.Handler {
 	}
 }
 
+// refuseAPIKeys guards the two /v1/auth routes that authenticate their caller themselves instead of
+// through RequireAuth (POST /v1/auth/logout, POST /v1/auth/password/change): a request that carries
+// X-Api-Key gets exactly the answer RequireAuth() without AllowAPIKeys gives (Appendix B §B.1.4,
+// Appendix C §C.4.3 (3)) before the handler reads the bearer: 401 invalid_token for an unknown, dead or
+// repeated key or a key sent with an Authorization header (details.reason multiple_credentials), 403
+// permission_denied (api_key_scope) for a genuine key alone. Without the guard the key was ignored and
+// the bearer's user signed out or changed the password. Anonymous routes ignore the header.
+func (s *Service) refuseAPIKeys(c fiber.Ctx) error {
+	keys := c.Request().Header.PeekAll(HeaderAPIKey)
+	if len(keys) == 0 {
+		return c.Next()
+	}
+	withAuthorization := strings.TrimSpace(c.Get(fiber.HeaderAuthorization)) != ""
+	if _, err := s.authenticateAPIKey(c, keys, withAuthorization, authPolicy{}); err != nil {
+		return err
+	}
+	// Not reached: a policy without key scopes admits no key.
+	return authz.ErrPermissionDenied("this route does not accept API keys").WithDetails(map[string]any{"reason": ReasonKeyScope})
+}
+
 func setPrincipal(c fiber.Ctx, p *authz.Principal) {
 	authz.SetPrincipal(c, p)
 	lc := zerolog.Ctx(c.Context()).With()

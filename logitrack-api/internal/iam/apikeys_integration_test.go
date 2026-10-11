@@ -259,6 +259,9 @@ func TestAPIKeyCreateValidation(t *testing.T) {
 		"scope outside the CHECK list": {ta, map[string]any{"name": "x", "scope": "admin", "capabilities": []string{"users:view"}, "tenantId": w.O}, "scope", "one_of"},
 		"scope missing":                {ta, map[string]any{"name": "x", "capabilities": []string{"users:view"}, "tenantId": w.O}, "scope", "one_of"},
 		"name missing":                 {ta, map[string]any{"scope": "script", "capabilities": []string{"users:view"}, "tenantId": w.O}, "name", "required"},
+		"name with NUL":                {pa, map[string]any{"name": "a\x00b", "scope": "script", "capabilities": []string{"waitlist:view"}}, "name", "invalid"},
+		"tenant key name with NUL":     {ta, map[string]any{"name": "a\x00b", "scope": "script", "capabilities": []string{"users:view"}, "tenantId": w.O}, "name", "invalid"},
+		"name with control character":  {pa, map[string]any{"name": "a\x01b\nc", "scope": "script", "capabilities": []string{"waitlist:view"}}, "name", "invalid"},
 		"no capabilities":              {ta, map[string]any{"name": "x", "scope": "script", "capabilities": []string{}, "tenantId": w.O}, "capabilities", "required"},
 		"unknown capability":           {ta, map[string]any{"name": "x", "scope": "script", "capabilities": []string{"users:everything"}, "tenantId": w.O}, "capabilities", "unknown"},
 		"platform capability":          {pa, map[string]any{"name": "x", "scope": "script", "capabilities": []string{"platform:manage_tenants"}}, "capabilities", "not_allowed"},
@@ -588,4 +591,67 @@ func TestAPIKeyRateLimit(t *testing.T) {
 	if res.StatusCode != http.StatusTooManyRequests || res.Header.Get("Retry-After") == "" {
 		t.Fatalf("third request: %d, Retry-After %q", res.StatusCode, res.Header.Get("Retry-After"))
 	}
+}
+
+// The two /v1/auth routes that authenticate their caller themselves (logout, password change) refuse an
+// X-Api-Key like every RequireAuth route without AllowAPIKeys (Appendix B §B.1.4, Appendix C §C.4.3 (3)):
+// a key with a bearer is 401 (multiple_credentials, or the dead key's reason), a key alone 403
+// api_key_scope, and the bearer's session and password stay as they were. Anonymous routes ignore it.
+func TestAPIKeyRefusedOnSelfAuthenticatingAuthRoutes(t *testing.T) {
+	w := newWorld(t)
+	const email = "ta.o@example.test"
+	ta := w.login(email)
+	revokedID, revoked := w.mustKey(ta, map[string]any{"name": "old", "scope": "script", "capabilities": []string{"users:view"}, "tenantId": w.O})
+	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+revokedID, ta, nil), http.StatusNoContent, "")
+	_, secret := w.mustKey(ta, map[string]any{"name": "nightly", "scope": "script", "capabilities": []string{"users:view"}, "tenantId": w.O})
+	change := map[string]any{"currentPassword": pw, "newPassword": "another long passphrase 2"}
+	ticket := map[string]any{"passwordChangeTicket": "not-a-ticket", "newPassword": "another long passphrase 2"}
+
+	for _, tc := range []struct {
+		name, path, bearer, key string
+		body                    map[string]any
+		status                  int
+		code, reason            string
+	}{
+		{"logout, bearer + key", "/v1/auth/logout", ta, secret, map[string]any{}, http.StatusUnauthorized, auth.CodeInvalidToken, auth.ReasonMultipleCreds},
+		{"logout, bearer + revoked key", "/v1/auth/logout", ta, revoked, map[string]any{}, http.StatusUnauthorized, auth.CodeInvalidToken, auth.ReasonKeyRevoked},
+		{"logout, bearer + unknown key", "/v1/auth/logout", ta, "not-a-key", map[string]any{}, http.StatusUnauthorized, auth.CodeInvalidToken, ""},
+		{"logout, key alone", "/v1/auth/logout", "", secret, map[string]any{}, http.StatusForbidden, authz.CodePermissionDenied, auth.ReasonKeyScope},
+		{"password change, bearer + key", "/v1/auth/password/change", ta, secret, change, http.StatusUnauthorized, auth.CodeInvalidToken, auth.ReasonMultipleCreds},
+		{"password change, bearer + revoked key", "/v1/auth/password/change", ta, revoked, change, http.StatusUnauthorized, auth.CodeInvalidToken, auth.ReasonKeyRevoked},
+		{"password change, key alone", "/v1/auth/password/change", "", secret, change, http.StatusForbidden, authz.CodePermissionDenied, auth.ReasonKeyScope},
+		{"password change ticket form, key alone", "/v1/auth/password/change", "", secret, ticket, http.StatusForbidden, authz.CodePermissionDenied, auth.ReasonKeyScope},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := w.send(http.MethodPost, tc.path, tc.bearer, tc.body, auth.HeaderAPIKey, tc.key)
+			expect(t, r, tc.status, tc.code)
+			if reason(r) != tc.reason {
+				t.Fatalf("want reason %q: %s", tc.reason, r.raw)
+			}
+		})
+	}
+	// Nothing was done as the bearer's user: the session is live and the password unchanged.
+	expect(t, w.get("/v1/me", ta), http.StatusOK, "")
+	_ = w.login(email)
+	if n := w.securityEvents("password_changed"); n != 0 {
+		t.Fatalf("%d password_changed events", n)
+	}
+
+	// The public listener refuses the key the same way.
+	r := w.call(w.public, http.MethodPost, "/v1/auth/logout", "", auth.HeaderAPIKey, secret)
+	expect(t, r, http.StatusForbidden, authz.CodePermissionDenied)
+	if reason(r) != auth.ReasonKeyScope {
+		t.Fatalf("public listener: %s", r.raw)
+	}
+
+	// Anonymous routes ignore the header: a login with a key is a login.
+	login := w.send(http.MethodPost, "/v1/auth/login", "", map[string]any{"email": email, "password": pw, "platform": "web"},
+		auth.HeaderAPIKey, secret)
+	expect(t, login, http.StatusOK, "")
+
+	// Without a key both routes work as before.
+	expect(t, w.send(http.MethodPost, "/v1/auth/password/change", ta, change), http.StatusNoContent, "")
+	ta2 := w.login2(email, "another long passphrase 2")
+	expect(t, w.send(http.MethodPost, "/v1/auth/logout", ta2, map[string]any{}), http.StatusNoContent, "")
+	expect(t, w.get("/v1/me", ta2), http.StatusUnauthorized, auth.CodeSessionRevoked)
 }
