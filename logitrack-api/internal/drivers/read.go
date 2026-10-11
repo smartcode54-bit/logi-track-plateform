@@ -28,7 +28,9 @@ type ActiveTruck struct {
 }
 
 // CurrentAssignment is drivers.currentAssignment: the home truck, from the driver's active truck assignment (a
-// default at task assignment, never a filter). The truck columns are null when the caller cannot read the truck.
+// default at task assignment, never a filter). The truck columns are null when the caller cannot read the assignment
+// or the truck (an assignment carries its truck's tenant); a current_assignment_id naming a row that is no longer
+// active (loaded data) is no home truck and shows as null.
 type CurrentAssignment struct {
 	ID         uuid.UUID  `json:"id"`
 	TruckID    *uuid.UUID `json:"truckId"`
@@ -171,6 +173,7 @@ type joined struct {
 	AssignmentTruckPlate                   *string
 	AssignmentTruckModel                   *string
 	AssignmentCreatedAt                    *time.Time
+	AssignmentStatus                       *string // NULL when the caller cannot read the assignment
 }
 
 func driverOf(d driversdb.Driver, j joined) Driver {
@@ -186,7 +189,7 @@ func driverOf(d driversdb.Driver, j joined) Driver {
 		out.ActiveTruck = &ActiveTruck{TruckID: *d.ActiveTruckID, TruckPlate: d.ActiveTruckPlate, TaskID: d.ActiveTaskID,
 			StartedAt: d.ActiveStartedAt}
 	}
-	if d.CurrentAssignmentID != nil {
+	if d.CurrentAssignmentID != nil && (j.AssignmentStatus == nil || *j.AssignmentStatus == "active") {
 		out.CurrentAssignment = &CurrentAssignment{ID: *d.CurrentAssignmentID, TruckID: j.AssignmentTruckID,
 			TruckPlate: j.AssignmentTruckPlate, TruckModel: j.AssignmentTruckModel, AssignedAt: j.AssignmentCreatedAt}
 	}
@@ -293,7 +296,7 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) (a
 	out := make([]Driver, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, driverOf(r.Driver, joined{r.TenantNameTh, r.TenantNameEn, r.TenantKind, r.AssignmentTruckID,
-			r.AssignmentTruckPlate, r.AssignmentTruckModel, r.AssignmentCreatedAt}))
+			r.AssignmentTruckPlate, r.AssignmentTruckModel, r.AssignmentCreatedAt, r.AssignmentStatus}))
 	}
 	return out, next, meta, nil
 }
@@ -402,7 +405,7 @@ func (s *Service) Get(ctx context.Context, p *authz.Principal, id uuid.UUID) (*D
 	}
 	d := r.Driver
 	out := &DriverDetail{Driver: driverOf(d, joined{r.TenantNameTh, r.TenantNameEn, r.TenantKind, r.AssignmentTruckID,
-		r.AssignmentTruckPlate, r.AssignmentTruckModel, r.AssignmentCreatedAt}),
+		r.AssignmentTruckPlate, r.AssignmentTruckModel, r.AssignmentCreatedAt, r.AssignmentStatus}),
 		CustomerDriverIDs: make([]CustomerDriverID, 0, len(codes)), StatusHistory: make([]StatusEntry, 0, len(hist))}
 	for _, c := range codes {
 		out.CustomerDriverIDs = append(out.CustomerDriverIDs, CustomerDriverID{CustomerID: c.CustomerID,

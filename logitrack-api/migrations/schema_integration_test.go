@@ -619,13 +619,15 @@ func TestAnnouncementRowsAreVoidOnly(t *testing.T) {
 	}
 }
 
-// Counters are reachable only through the SECURITY DEFINER allocators (R10, R61, R66, R67).
+// Counters are reachable only through the SECURITY DEFINER allocators (R10, R61, R66, R67). The helpers of 0013
+// (T23) are handed over the same way, to logitrack_app only.
 func TestSecurityDefinerAllocators(t *testing.T) {
 	d, _ := migrated(t)
 	owner := connect(t, d, db.RoleMigrator)
 	for _, fn := range []string{"next_task_seq(text,date)", "next_invoice_seq(uuid,uuid,integer,integer,text)",
 		"app_task_stops_in_scope(uuid)", "app_task_in_scope(uuid)", "app_trip_in_scope(uuid)",
-		"app_recent_work_in_scope(uuid,uuid)", "driver_directory()", "trg_driver_link_membership()"} {
+		"app_recent_work_in_scope(uuid,uuid)", "driver_directory()", "trg_driver_link_membership()",
+		"driver_active_assignment(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamptz)"} {
 		got := scalar[string](t, owner, `SELECT format('owner=%s secdef=%s public=%s', pg_get_userbyid(proowner), prosecdef,
 			proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(proacl) a WHERE a.grantee = 0))
 			FROM pg_proc WHERE oid = $1::regprocedure`, fn)
@@ -644,6 +646,12 @@ func TestSecurityDefinerAllocators(t *testing.T) {
 		{db.RoleReadonly, "app_task_in_scope(uuid)", true},
 		{db.RoleETL, "app_task_in_scope(uuid)", false},
 		{db.RoleETL, "driver_directory()", false},
+		{db.RoleApp, "driver_active_assignment(uuid)", true},
+		{db.RoleETL, "driver_active_assignment(uuid)", false},
+		{db.RoleReadonly, "driver_active_assignment(uuid)", false},
+		{db.RoleApp, "assignment_release_driver(uuid,uuid,text,text,timestamptz)", true},
+		{db.RoleETL, "assignment_release_driver(uuid,uuid,text,text,timestamptz)", false},
+		{db.RoleReadonly, "assignment_release_driver(uuid,uuid,text,text,timestamptz)", false},
 	} {
 		if got := scalar[bool](t, owner, `SELECT has_function_privilege($1, $2, 'EXECUTE')`, p.role, p.fn); got != p.want {
 			t.Errorf("%s EXECUTE %s = %t, want %t", p.role, p.fn, got, p.want)

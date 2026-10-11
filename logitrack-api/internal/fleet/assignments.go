@@ -35,9 +35,9 @@ const (
 	AssignmentRevoked = "revoked"
 )
 
-// Driver statuses an assignment moves between (drivers.status): on_duty while the driver holds one.
+// Driver statuses an assignment reads and writes (drivers.status): on_duty while the driver holds one; a revoke's
+// move back to active is assignment_release_driver's (0013).
 const (
-	driverActive   = "active"
 	driverInactive = "inactive"
 	driverOnDuty   = "on_duty"
 )
@@ -202,9 +202,9 @@ func statusEntry(ctx context.Context, q *fleetdb.Queries, p *authz.Principal, dr
 
 // CreateAssignment is POST /v1/truck-assignments (fleet:manage_assignments), the legacy createAssignment transaction
 // (truck-assignment/actions.client.ts:70-135) in one PostgreSQL transaction: the driver is locked first (two
-// assignments of one driver serialise), must not be inactive and must not hold an active assignment (409
-// failed_precondition driver_inactive / driver_assigned; several drivers may share a truck), the truck must be in the
-// caller's reach and in the driver's tenant or one linked to it by contractor_tenant_id (422 driverId
+// assignments of one driver serialise), must not be inactive and must not hold an active assignment in any tenant
+// (409 failed_precondition driver_inactive / driver_assigned; several drivers may share a truck), the truck must be in
+// the caller's reach and in the driver's tenant or one linked to it by contractor_tenant_id (422 driverId
 // not_in_truck_tenant); then the assignment row (tenant of the truck, tenant_source 'truck'), the driver's
 // current_assignment_id and status on_duty (with its status_history entry) and outbox assignment.created. Any
 // failure rolls all of it back. drivers.active_truck_* and tasks.truck_id are never touched.
@@ -242,8 +242,10 @@ func (s *Service) CreateAssignment(ctx context.Context, p *authz.Principal, rid 
 		if d.Status == driverInactive {
 			return errAssignment("driver_inactive", "the driver is inactive", nil)
 		}
-		// The driver's active row decides (current_assignment_id may still name a revoked row of loaded data).
-		held, err := q.DriverActiveAssignment(ctx, fleetdb.DriverActiveAssignmentParams{DriverID: driverID})
+		// The driver's active row decides, in whichever tenant it lies (DriverActiveAssignment does not read under the
+		// caller's RLS: a carrier's staff cannot see the own fleet's row that holds their driver), not
+		// current_assignment_id (it may still name a revoked row of loaded data, or miss a legacy active row).
+		held, err := q.DriverActiveAssignment(ctx, driverID)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 		case err != nil:
@@ -293,10 +295,13 @@ func (s *Service) CreateAssignment(ctx context.Context, p *authz.Principal, rid 
 
 // RevokeAssignment is POST /v1/truck-assignments/{id}/revoke (fleet:manage_assignments), the legacy
 // terminateAssignment transaction (actions.client.ts:151-200) in one PostgreSQL transaction: an active assignment of
-// the caller's reach (404 outside it, 409 failed_precondition not_active otherwise) becomes revoked; when it was the
-// driver's home truck, the driver's current_assignment_id moves to its other active assignment (legacy rows), else
-// clears, and an on_duty driver left without one becomes active (status_history entry); outbox assignment.revoked.
-// Unlike the legacy code it never reactivates an inactive driver.
+// the caller's reach (404 outside it, 409 failed_precondition not_active otherwise) becomes revoked, and the driver is
+// released in the same transaction whether or not the caller can read it (ReleaseAssignmentDriver: a carrier may
+// revoke the row of its truck that binds an own-fleet driver). When the driver's current_assignment_id names this
+// row, a row that is no longer active, or nothing, it moves to the driver's other active assignment in any tenant
+// (legacy rows) or clears, and an on_duty driver left without one becomes active (status_history entry); a pointer at
+// another active assignment stays. Outbox assignment.revoked goes to the fleet topics of the row's tenant and the
+// driver's. Unlike the legacy code it never reactivates an inactive driver.
 func (s *Service) RevokeAssignment(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID) (*TruckAssignment, error) {
 	if _, err := writeTenant(p); err != nil {
 		return nil, err
@@ -316,41 +321,13 @@ func (s *Service) RevokeAssignment(ctx context.Context, p *authz.Principal, rid 
 		if err := q.RevokeAssignment(ctx, fleetdb.RevokeAssignmentParams{At: now, ID: id}); err != nil {
 			return err
 		}
-		tenants := []uuid.UUID{a.TenantID}
-		d, err := q.LockAssignDriver(ctx, a.DriverID)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows): // the driver is outside the caller's reach: only the assignment changes
-		case err != nil:
+		user, label := actor(p)
+		driverTenant, err := q.ReleaseAssignmentDriver(ctx, fleetdb.ReleaseAssignmentDriverParams{AssignmentID: id,
+			UserID: user, Label: label, Reason: "truck assignment revoked", At: now})
+		if err != nil {
 			return err
-		case d.CurrentAssignmentID == nil || *d.CurrentAssignmentID == id:
-			tenants = append(tenants, d.TenantID)
-			var next *uuid.UUID
-			other, err := q.DriverActiveAssignment(ctx, fleetdb.DriverActiveAssignmentParams{DriverID: a.DriverID, ExceptID: id})
-			switch {
-			case errors.Is(err, pgx.ErrNoRows):
-			case err != nil:
-				return err
-			default:
-				next = &other
-			}
-			status := d.Status
-			if next == nil && status == driverOnDuty {
-				status = driverActive
-			}
-			if !eq(next, d.CurrentAssignmentID) || status != d.Status {
-				if err := q.SetDriverAssignment(ctx, fleetdb.SetDriverAssignmentParams{AssignmentID: next, Status: status,
-					ID: a.DriverID}); err != nil {
-					return err
-				}
-			}
-			if status != d.Status {
-				if err := statusEntry(ctx, q, p, a.DriverID, status, d.Status, "truck assignment revoked", now); err != nil {
-					return err
-				}
-			}
-		default:
-			tenants = append(tenants, d.TenantID)
 		}
+		tenants := []uuid.UUID{a.TenantID, driverTenant}
 		return emitAssignment(ctx, tx, RouteAssignmentRevoked, id, a.TruckID, a.DriverID, tenants, rid)
 	})
 	if err != nil {

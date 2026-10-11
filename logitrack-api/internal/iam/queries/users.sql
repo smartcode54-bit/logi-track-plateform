@@ -178,13 +178,29 @@ SELECT user_id FROM drivers WHERE id = sqlc.arg(id);
 
 -- name: LockMoveDriver :one
 -- PATCH /v1/drivers/{id} {tenantId} (the broker-carrier move, Appendix C §C.1.4, T23): the driver, its login and
--- whether it still holds a truck (a home truck or the truck of a running job), which the move refuses.
-SELECT d.id, d.tenant_id, d.user_id, d.current_assignment_id, d.active_truck_id,
+-- whether it still holds a truck (an active truck assignment in any tenant, or the truck of a running job), which the
+-- move refuses. current_assignment_id alone does not count: without an active row it names a revoked or cancelled one
+-- (loaded data), which the move clears (ClearStaleDriverAssignment).
+SELECT d.id, d.tenant_id, d.user_id, d.status, d.current_assignment_id, d.active_truck_id,
        EXISTS (SELECT 1 FROM truck_assignments a WHERE a.driver_id = d.id AND a.status = 'active')::boolean
          AS has_active_assignment
 FROM drivers d
 WHERE d.id = sqlc.arg(id)
 FOR UPDATE OF d;
+
+-- name: ClearStaleDriverAssignment :exec
+-- The move of a driver whose current_assignment_id names an assignment that is no longer active: the pointer (a row of
+-- the former tenant) clears and an on_duty driver becomes active, as the revoke would have left it.
+UPDATE drivers SET current_assignment_id = NULL, status = sqlc.arg(status) WHERE id = sqlc.arg(id);
+
+-- name: InsertDriverStatusHistory :exec
+-- changed_by_label snapshots the actor's display name or e-mail, like the drivers and fleet services' entries.
+INSERT INTO status_history (entity_type, entity_id, status, previous_status, changed_at, changed_by_user_id,
+                            changed_by_label, reason)
+VALUES ('driver', sqlc.arg(driver_id), sqlc.arg(status), sqlc.arg(previous_status), sqlc.arg(changed_at)::timestamptz,
+        sqlc.arg(user_id),
+        (SELECT coalesce(u.display_name, u.email::text) FROM users u WHERE u.id = sqlc.arg(user_id)),
+        sqlc.arg(reason));
 
 -- name: SetDriverUser :exec
 UPDATE drivers SET user_id = sqlc.narg(user_id) WHERE id = sqlc.arg(id);

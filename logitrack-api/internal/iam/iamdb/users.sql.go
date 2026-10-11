@@ -38,6 +38,22 @@ func (q *Queries) ActiveTenantMembers(ctx context.Context, tenantID uuid.UUID) (
 	return items, nil
 }
 
+const clearStaleDriverAssignment = `-- name: ClearStaleDriverAssignment :exec
+UPDATE drivers SET current_assignment_id = NULL, status = $1 WHERE id = $2
+`
+
+type ClearStaleDriverAssignmentParams struct {
+	Status string
+	ID     uuid.UUID
+}
+
+// The move of a driver whose current_assignment_id names an assignment that is no longer active: the pointer (a row of
+// the former tenant) clears and an on_duty driver becomes active, as the revoke would have left it.
+func (q *Queries) ClearStaleDriverAssignment(ctx context.Context, arg ClearStaleDriverAssignmentParams) error {
+	_, err := q.db.Exec(ctx, clearStaleDriverAssignment, arg.Status, arg.ID)
+	return err
+}
+
 const countOtherScopes = `-- name: CountOtherScopes :one
 SELECT count(*)::int FROM user_scopes WHERE user_id = $1 AND kind <> $2
 `
@@ -371,6 +387,37 @@ func (q *Queries) InsertAdminUser(ctx context.Context, arg InsertAdminUserParams
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertDriverStatusHistory = `-- name: InsertDriverStatusHistory :exec
+INSERT INTO status_history (entity_type, entity_id, status, previous_status, changed_at, changed_by_user_id,
+                            changed_by_label, reason)
+VALUES ('driver', $1, $2, $3, $4::timestamptz,
+        $5,
+        (SELECT coalesce(u.display_name, u.email::text) FROM users u WHERE u.id = $5),
+        $6)
+`
+
+type InsertDriverStatusHistoryParams struct {
+	DriverID       uuid.UUID
+	Status         string
+	PreviousStatus *string
+	ChangedAt      time.Time
+	UserID         *uuid.UUID
+	Reason         *string
+}
+
+// changed_by_label snapshots the actor's display name or e-mail, like the drivers and fleet services' entries.
+func (q *Queries) InsertDriverStatusHistory(ctx context.Context, arg InsertDriverStatusHistoryParams) error {
+	_, err := q.db.Exec(ctx, insertDriverStatusHistory,
+		arg.DriverID,
+		arg.Status,
+		arg.PreviousStatus,
+		arg.ChangedAt,
+		arg.UserID,
+		arg.Reason,
+	)
+	return err
 }
 
 const insertPlatformRole = `-- name: InsertPlatformRole :execrows
@@ -971,7 +1018,7 @@ func (q *Queries) LockAdminUser(ctx context.Context, id uuid.UUID) (LockAdminUse
 }
 
 const lockMoveDriver = `-- name: LockMoveDriver :one
-SELECT d.id, d.tenant_id, d.user_id, d.current_assignment_id, d.active_truck_id,
+SELECT d.id, d.tenant_id, d.user_id, d.status, d.current_assignment_id, d.active_truck_id,
        EXISTS (SELECT 1 FROM truck_assignments a WHERE a.driver_id = d.id AND a.status = 'active')::boolean
          AS has_active_assignment
 FROM drivers d
@@ -983,13 +1030,16 @@ type LockMoveDriverRow struct {
 	ID                  uuid.UUID
 	TenantID            uuid.UUID
 	UserID              *uuid.UUID
+	Status              string
 	CurrentAssignmentID *uuid.UUID
 	ActiveTruckID       *uuid.UUID
 	HasActiveAssignment bool
 }
 
 // PATCH /v1/drivers/{id} {tenantId} (the broker-carrier move, Appendix C §C.1.4, T23): the driver, its login and
-// whether it still holds a truck (a home truck or the truck of a running job), which the move refuses.
+// whether it still holds a truck (an active truck assignment in any tenant, or the truck of a running job), which the
+// move refuses. current_assignment_id alone does not count: without an active row it names a revoked or cancelled one
+// (loaded data), which the move clears (ClearStaleDriverAssignment).
 func (q *Queries) LockMoveDriver(ctx context.Context, id uuid.UUID) (LockMoveDriverRow, error) {
 	row := q.db.QueryRow(ctx, lockMoveDriver, id)
 	var i LockMoveDriverRow
@@ -997,6 +1047,7 @@ func (q *Queries) LockMoveDriver(ctx context.Context, id uuid.UUID) (LockMoveDri
 		&i.ID,
 		&i.TenantID,
 		&i.UserID,
+		&i.Status,
 		&i.CurrentAssignmentID,
 		&i.ActiveTruckID,
 		&i.HasActiveAssignment,

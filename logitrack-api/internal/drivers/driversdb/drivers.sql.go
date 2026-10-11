@@ -245,7 +245,7 @@ const getDriver = `-- name: GetDriver :one
 SELECT d.id, d.legacy_doc_id, d.legacy_auth_uid, d.tenant_id, d.tenant_source, d.user_id, d.first_name, d.last_name, d.full_name_th, d.mobile, d.email, d.profile_file_id, d.birth_date, d.id_card, d.id_card_expired_date, d.id_card_file_id, d.truck_license_id, d.license_type, d.license_expired_date, d.license_file_id, d.employment_type, d.contract_years, d.employment_start, d.employment_end, d.hire_date, d.probation_passed, d.status, d.assign_to_project, d.current_assignment_id, d.active_truck_id, d.active_truck_plate, d.active_task_id, d.active_started_at, d.created_at, d.updated_at,
        t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
-       a.created_at AS assignment_created_at
+       a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
 LEFT JOIN tenants t ON t.id = d.tenant_id
 LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id
@@ -268,6 +268,7 @@ type GetDriverRow struct {
 	AssignmentTruckPlate *string
 	AssignmentTruckModel *string
 	AssignmentCreatedAt  *time.Time
+	AssignmentStatus     *string
 }
 
 // GET /v1/drivers/{id} names the reach too: a dispatcher's scope branch (p_scope_read) opens in-scope drivers of
@@ -318,6 +319,7 @@ func (q *Queries) GetDriver(ctx context.Context, arg GetDriverParams) (GetDriver
 		&i.AssignmentTruckPlate,
 		&i.AssignmentTruckModel,
 		&i.AssignmentCreatedAt,
+		&i.AssignmentStatus,
 	)
 	return i, err
 }
@@ -464,7 +466,7 @@ const listDrivers = `-- name: ListDrivers :many
 SELECT d.id, d.legacy_doc_id, d.legacy_auth_uid, d.tenant_id, d.tenant_source, d.user_id, d.first_name, d.last_name, d.full_name_th, d.mobile, d.email, d.profile_file_id, d.birth_date, d.id_card, d.id_card_expired_date, d.id_card_file_id, d.truck_license_id, d.license_type, d.license_expired_date, d.license_file_id, d.employment_type, d.contract_years, d.employment_start, d.employment_end, d.hire_date, d.probation_passed, d.status, d.assign_to_project, d.current_assignment_id, d.active_truck_id, d.active_truck_plate, d.active_task_id, d.active_started_at, d.created_at, d.updated_at,
        t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
-       a.created_at AS assignment_created_at
+       a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
 LEFT JOIN tenants t ON t.id = d.tenant_id
 LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id
@@ -504,6 +506,7 @@ type ListDriversRow struct {
 	AssignmentTruckPlate *string
 	AssignmentTruckModel *string
 	AssignmentCreatedAt  *time.Time
+	AssignmentStatus     *string
 }
 
 // Drivers: the driver master of a tenant (Appendix B §B.2.7, Appendix A §A.2.2). Tenant-stamped (tenant_source 'self':
@@ -518,7 +521,9 @@ type ListDriversRow struct {
 // check-in, cleared at the end of the trip, by the driver app), tasks.truck_id the truck of one job. Nothing here
 // writes either of the first two.
 // GET /v1/drivers, newest first; keyset (created_at, id). q matches the names, the licence number, the mobile and
-// the e-mail. The joins read under the caller's RLS: a tenant or truck the caller cannot see stays NULL.
+// the e-mail. The joins read under the caller's RLS: a tenant, assignment or truck the caller cannot see stays NULL.
+// assignment_status tells a home truck apart from a pointer at a revoked or cancelled row (loaded data), which the
+// payload does not show.
 func (q *Queries) ListDrivers(ctx context.Context, arg ListDriversParams) ([]ListDriversRow, error) {
 	rows, err := q.db.Query(ctx, listDrivers,
 		arg.AllTenants,
@@ -580,6 +585,7 @@ func (q *Queries) ListDrivers(ctx context.Context, arg ListDriversParams) ([]Lis
 			&i.AssignmentTruckPlate,
 			&i.AssignmentTruckModel,
 			&i.AssignmentCreatedAt,
+			&i.AssignmentStatus,
 		); err != nil {
 			return nil, err
 		}

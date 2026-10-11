@@ -46,21 +46,17 @@ func (q *Queries) AssignTruck(ctx context.Context, arg AssignTruckParams) (Assig
 }
 
 const driverActiveAssignment = `-- name: DriverActiveAssignment :one
-SELECT id FROM truck_assignments
-WHERE driver_id = $1 AND status = 'active' AND id <> $2::uuid
-ORDER BY created_at DESC, id DESC
-LIMIT 1
+SELECT h.id::uuid AS id
+FROM driver_active_assignment($1::uuid) AS h (id)
+WHERE h.id IS NOT NULL
 `
 
-type DriverActiveAssignmentParams struct {
-	DriverID uuid.UUID
-	ExceptID uuid.UUID
-}
-
-// An active assignment of the driver other than the one named (legacy rows may hold one without
-// current_assignment_id). All rows: RLS hides other tenants' rows only from a caller who cannot see them anyway.
-func (q *Queries) DriverActiveAssignment(ctx context.Context, arg DriverActiveAssignmentParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, driverActiveAssignment, arg.DriverID, arg.ExceptID)
+// The driver's newest active assignment in any tenant; no row when it holds none (legacy rows may hold one without
+// current_assignment_id). Not under the caller's RLS: a row carries its truck's tenant, so the own fleet's truck
+// holding a carrier's driver is invisible to that carrier's staff and still binds the driver. The SECURITY DEFINER
+// helper driver_active_assignment (0013) answers only staff that reach the driver (asked after LockAssignDriver).
+func (q *Queries) DriverActiveAssignment(ctx context.Context, driverID uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, driverActiveAssignment, driverID)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -172,7 +168,7 @@ type InsertAssignmentDriverStatusParams struct {
 	Reason         *string
 }
 
-// The driver's status entry of an assignment that changed its status (status_history, entity 'driver').
+// The driver's status entry of a new assignment that changed its status (status_history, entity 'driver').
 func (q *Queries) InsertAssignmentDriverStatus(ctx context.Context, arg InsertAssignmentDriverStatusParams) error {
 	_, err := q.db.Exec(ctx, insertAssignmentDriverStatus,
 		arg.DriverID,
@@ -235,7 +231,9 @@ type ListAssignmentsRow struct {
 // (staff of the tenant reach; a driver reads its own rows). trucks.currentAssignments[] is derived from
 // status='active' (R14); drivers.current_assignment_id points at the driver's active row. An assignment never
 // touches drivers.active_truck_* (the truck of the job running now) nor tasks.truck_id (the truck of one job):
-// three separate concepts (.vibe-rules.md "Vehicle identity"). Every statement runs in db.WithPrincipal.
+// three separate concepts (.vibe-rules.md "Vehicle identity"). Every statement runs in db.WithPrincipal; the driver's
+// side that the caller's RLS may hide (the driver's active row in another tenant, a driver outside the revoker's
+// reach) goes through the two SECURITY DEFINER helpers of 0013, which check the caller themselves.
 // GET /v1/truck-assignments, newest first; keyset (created_at, id). The truck and driver columns read under the
 // caller's RLS (NULL / ” when not visible).
 func (q *Queries) ListAssignments(ctx context.Context, arg ListAssignmentsParams) ([]ListAssignmentsRow, error) {
@@ -281,32 +279,27 @@ func (q *Queries) ListAssignments(ctx context.Context, arg ListAssignmentsParams
 }
 
 const lockAssignDriver = `-- name: LockAssignDriver :one
-SELECT id, tenant_id, status, current_assignment_id FROM drivers WHERE id = $1 FOR UPDATE
+SELECT id, tenant_id, status FROM drivers WHERE id = $1 FOR UPDATE
 `
 
 type LockAssignDriverRow struct {
-	ID                  uuid.UUID
-	TenantID            uuid.UUID
-	Status              string
-	CurrentAssignmentID *uuid.UUID
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	Status   string
 }
 
-// The driver an assignment binds, locked first: two assignments of one driver serialise here (the second sees the
-// first's current_assignment_id). Staff in reach only (p_tenant_staff applies to FOR UPDATE).
+// The driver of a new assignment, locked first: two assignments of one driver serialise here, and so do an assignment
+// and a revoke's release (assignment_release_driver takes the same lock). Staff in reach only (p_tenant_staff applies
+// to FOR UPDATE).
 func (q *Queries) LockAssignDriver(ctx context.Context, id uuid.UUID) (LockAssignDriverRow, error) {
 	row := q.db.QueryRow(ctx, lockAssignDriver, id)
 	var i LockAssignDriverRow
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.Status,
-		&i.CurrentAssignmentID,
-	)
+	err := row.Scan(&i.ID, &i.TenantID, &i.Status)
 	return i, err
 }
 
 const lockAssignment = `-- name: LockAssignment :one
-SELECT id, tenant_id, truck_id, driver_id, status FROM truck_assignments WHERE id = $1 FOR UPDATE
+SELECT id, tenant_id, truck_id, driver_id, status FROM truck_assignments WHERE id = $1 FOR NO KEY UPDATE
 `
 
 type LockAssignmentRow struct {
@@ -317,6 +310,8 @@ type LockAssignmentRow struct {
 	Status   string
 }
 
+// FOR NO KEY UPDATE, the lock of the revoke's own UPDATE: a release that moves another driver's pointer onto this row
+// (its foreign key takes FOR KEY SHARE) does not wait for it while this transaction waits for that driver.
 func (q *Queries) LockAssignment(ctx context.Context, id uuid.UUID) (LockAssignmentRow, error) {
 	row := q.db.QueryRow(ctx, lockAssignment, id)
 	var i LockAssignmentRow
@@ -328,6 +323,40 @@ func (q *Queries) LockAssignment(ctx context.Context, id uuid.UUID) (LockAssignm
 		&i.Status,
 	)
 	return i, err
+}
+
+const releaseAssignmentDriver = `-- name: ReleaseAssignmentDriver :one
+SELECT assignment_release_driver($1::uuid, $2::uuid,
+         coalesce($3::text,
+                  (SELECT coalesce(u.display_name, u.email::text) FROM users u WHERE u.id = $2::uuid)),
+         $4::text, $5::timestamptz)::uuid AS driver_tenant_id
+`
+
+type ReleaseAssignmentDriverParams struct {
+	AssignmentID uuid.UUID
+	UserID       *uuid.UUID
+	Label        *string
+	Reason       string
+	At           time.Time
+}
+
+// The driver's side of a revoke, after RevokeAssignment in the same transaction: the SECURITY DEFINER helper
+// assignment_release_driver (0013) locks the driver whatever the caller can read (a carrier revoking the row of its
+// truck that binds an own-fleet driver cannot read that driver), moves a current_assignment_id that names this row,
+// a non-active row or nothing to the driver's newest active row in any tenant or clears it, turns on_duty without one
+// into active with its status entry, and returns the driver's tenant. The label is resolved here, under the caller's
+// RLS (a person reads its own users row), as in InsertAssignmentDriverStatus.
+func (q *Queries) ReleaseAssignmentDriver(ctx context.Context, arg ReleaseAssignmentDriverParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, releaseAssignmentDriver,
+		arg.AssignmentID,
+		arg.UserID,
+		arg.Label,
+		arg.Reason,
+		arg.At,
+	)
+	var driver_tenant_id uuid.UUID
+	err := row.Scan(&driver_tenant_id)
+	return driver_tenant_id, err
 }
 
 const revokeAssignment = `-- name: RevokeAssignment :exec
@@ -355,7 +384,8 @@ type SetDriverAssignmentParams struct {
 	ID           uuid.UUID
 }
 
-// The driver's home truck and status (on_duty while it holds an assignment, back to active when it ends).
+// The driver's home truck and status on_duty of a new assignment (a revoke releases the driver through
+// ReleaseAssignmentDriver).
 func (q *Queries) SetDriverAssignment(ctx context.Context, arg SetDriverAssignmentParams) error {
 	_, err := q.db.Exec(ctx, setDriverAssignment, arg.AssignmentID, arg.Status, arg.ID)
 	return err

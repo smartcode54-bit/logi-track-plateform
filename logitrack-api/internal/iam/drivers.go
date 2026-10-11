@@ -22,6 +22,12 @@ const EventDriverTenantMoved = "driver_tenant_moved"
 // RouteDriverUpdated is the outbox key a move emits (Appendix B §B.5.2; internal/drivers emits it for its writes).
 const RouteDriverUpdated = "driver.updated"
 
+// Driver statuses a move reads (drivers.status): on_duty while the driver holds a truck assignment (internal/fleet).
+const (
+	driverActive = "active"
+	driverOnDuty = "on_duty"
+)
+
 // ReasonDriverHoldsTruck is the 409 failed_precondition reason of a move refused while the driver still holds a truck
 // (an active truck assignment, or the truck of a running job): revoke the assignment or end the job first.
 const ReasonDriverHoldsTruck = "driver_holds_truck"
@@ -35,8 +41,10 @@ const ReasonDriverHoldsTruck = "driver_holds_truck"
 //     steward its tenant and the carriers working for it): a driver outside it is 404, a target outside it
 //     422 tenantId not_in_reach, an unknown or quarantine target 422 tenantId not_found, a pending or suspended one
 //     409 failed_precondition tenant_inactive;
-//   - the driver holds no truck: no active truck assignment and no active truck (409 failed_precondition
-//     driver_holds_truck; an assignment and a running job belong to the former tenant's trucks);
+//   - the driver holds no truck: no active truck assignment in any tenant and no active truck (409
+//     failed_precondition driver_holds_truck; an assignment and a running job belong to the former tenant's trucks);
+//     a current_assignment_id naming an assignment that is no longer active (loaded data) does not count: it clears,
+//     and an on_duty driver becomes active with its status entry, as the revoke would have left it;
 //   - a linked user moves its driver membership in the same transaction (409 failed_precondition role_in_tenant when
 //     it holds another role in the target tenant), with auth_version++ and claims_changed (its sessions re-pick the
 //     tenant at the next refresh);
@@ -94,11 +102,29 @@ func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, 
 		if from == to {
 			return nil
 		}
-		if d.HasActiveAssignment || d.CurrentAssignmentID != nil || d.ActiveTruckID != nil {
+		if d.HasActiveAssignment || d.ActiveTruckID != nil {
 			return errFailedPrecondition(ReasonDriverHoldsTruck,
 				"the driver still holds a truck assignment or an active truck; revoke it or end the job first")
 		}
 		details := map[string]any{"driverId": driverID, "from": from, "to": to}
+		if d.CurrentAssignmentID != nil { // no active row: a stale pointer into the former tenant
+			status := d.Status
+			if status == driverOnDuty {
+				status = driverActive
+			}
+			if err := q.ClearStaleDriverAssignment(ctx, iamdb.ClearStaleDriverAssignmentParams{Status: status,
+				ID: driverID}); err != nil {
+				return err
+			}
+			if status != d.Status {
+				prev, actor, reason := d.Status, p.UserID, "stale truck assignment cleared on tenant move"
+				if err := q.InsertDriverStatusHistory(ctx, iamdb.InsertDriverStatusHistoryParams{DriverID: driverID,
+					Status: status, PreviousStatus: &prev, ChangedAt: a.clock(), UserID: &actor, Reason: &reason}); err != nil {
+					return err
+				}
+			}
+			details["clearedAssignmentId"] = *d.CurrentAssignmentID
+		}
 		if d.UserID != nil {
 			uid := *d.UserID
 			m, err := q.GetMembership(ctx, iamdb.GetMembershipParams{UserID: uid, TenantID: to})

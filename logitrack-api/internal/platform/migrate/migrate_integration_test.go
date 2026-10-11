@@ -330,7 +330,7 @@ func TestHeldVersionIsTheOnlyAllowedGap(t *testing.T) {
 }
 
 // Every object belongs to logitrack_migrator (R66), except the SECURITY DEFINER functions that 0009
-// hands to logitrack_rls_definer (Appendix C §C.3.3).
+// (and 0013, T23) hand to logitrack_rls_definer (Appendix C §C.3.3).
 func TestChainObjectsBelongToTheMigrator(t *testing.T) {
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
@@ -354,7 +354,8 @@ func TestChainObjectsBelongToTheMigrator(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := []string{"app_recent_work_in_scope(uuid,uuid)", "app_task_in_scope(uuid)", "app_task_stops_in_scope(uuid)",
-		"app_trip_in_scope(uuid)", "driver_directory()", "next_invoice_seq(uuid,uuid,integer,integer,text)",
+		"app_trip_in_scope(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamp with time zone)",
+		"driver_active_assignment(uuid)", "driver_directory()", "next_invoice_seq(uuid,uuid,integer,integer,text)",
 		"next_task_seq(text,date)", "trg_driver_link_membership()"}; strings.Join(definer, " ") != strings.Join(want, " ") {
 		t.Fatalf("functions of logitrack_rls_definer = %v, want %v", definer, want)
 	}

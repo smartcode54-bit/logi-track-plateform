@@ -12,11 +12,13 @@
 
 -- name: ListDrivers :many
 -- GET /v1/drivers, newest first; keyset (created_at, id). q matches the names, the licence number, the mobile and
--- the e-mail. The joins read under the caller's RLS: a tenant or truck the caller cannot see stays NULL.
+-- the e-mail. The joins read under the caller's RLS: a tenant, assignment or truck the caller cannot see stays NULL.
+-- assignment_status tells a home truck apart from a pointer at a revoked or cancelled row (loaded data), which the
+-- payload does not show.
 SELECT sqlc.embed(d),
        t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
-       a.created_at AS assignment_created_at
+       a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
 LEFT JOIN tenants t ON t.id = d.tenant_id
 LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id
@@ -57,7 +59,7 @@ ORDER BY d.status;
 SELECT sqlc.embed(d),
        t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
-       a.created_at AS assignment_created_at
+       a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
 LEFT JOIN tenants t ON t.id = d.tenant_id
 LEFT JOIN truck_assignments a ON a.id = d.current_assignment_id
