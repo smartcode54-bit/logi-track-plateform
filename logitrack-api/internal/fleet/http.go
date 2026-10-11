@@ -19,6 +19,9 @@ import (
 // TrucksPrefix is the route prefix of T22 (Appendix B §B.2.8, internal listener).
 const TrucksPrefix = "/v1/trucks"
 
+// AssignmentsPrefix is the route prefix of T23's truck assignments (Appendix B §B.2.8, internal listener).
+const AssignmentsPrefix = "/v1/truck-assignments"
+
 // Groups are the routes of T22 on the internal listener behind requireAuth (auth.Service.RequireAuth, which resolves
 // the principal through iam.RBAC.Authorize). s may be nil while the route table is only listed. The static paths
 // (import, renewals) are registered before /{id}.
@@ -30,6 +33,12 @@ const TrucksPrefix = "/v1/trucks"
 //	GET   /v1/trucks/{id}            fleet:view_trucks
 //	PATCH /v1/trucks/{id}            fleet:edit_truck
 //	POST  /v1/trucks/{id}/renewals   fleet:manage_renewals
+//
+// and the truck assignments of T23:
+//
+//	GET   /v1/truck-assignments              fleet:view_assignments
+//	POST  /v1/truck-assignments              fleet:manage_assignments
+//	POST  /v1/truck-assignments/{id}/revoke  fleet:manage_assignments
 func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
@@ -41,6 +50,10 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 		r.Get("/:id", requireAuth, need(authz.FleetViewTrucks), h.get)
 		r.Patch("/:id", requireAuth, need(authz.FleetEditTruck), h.patch)
 		r.Post("/:id/renewals", requireAuth, need(authz.FleetManageRenewals), h.renew)
+	}}, {Prefix: AssignmentsPrefix, Mount: func(r fiber.Router) {
+		r.Get("", requireAuth, need(authz.FleetViewAssignments), h.listAssignments)
+		r.Post("", requireAuth, need(authz.FleetManageAssignments), h.assign)
+		r.Post("/:id/revoke", requireAuth, need(authz.FleetManageAssignments), h.revoke)
 	}}}
 }
 
@@ -279,6 +292,58 @@ func (h handlers) importTrucks(c fiber.Ctx) error {
 		in = ImportInput{TenantID: strings.TrimSpace(body.TenantID), DryRun: body.DryRun, Rows: RowsFromJSON(body.Rows)}
 	}
 	out, err := h.s.ImportTrucks(c.Context(), p, httpx.RequestIDFrom(c), in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h handlers) listAssignments(c fiber.Ctx) error {
+	p, err := principal(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c, "status", "truckId", "driverId", "limit", "cursor"); err != nil {
+		return err
+	}
+	limit, err := queryLimit(c)
+	if err != nil {
+		return err
+	}
+	out, next, err := h.s.ListAssignments(c.Context(), p, ListAssignmentsInput{Status: c.Query("status"),
+		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Limit: limit, Cursor: c.Query("cursor")})
+	if err != nil {
+		return err
+	}
+	return httpx.Page(c, out, next, nil)
+}
+
+func (h handlers) assign(c fiber.Ctx) error {
+	p, err := principal(c)
+	if err != nil {
+		return err
+	}
+	var in AssignInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	out, err := h.s.CreateAssignment(c.Context(), p, httpx.RequestIDFrom(c), in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusCreated, out)
+}
+
+func (h handlers) revoke(c fiber.Ctx) error {
+	p, err := principal(c)
+	if err != nil {
+		return err
+	}
+	id, err := pathID(c)
+	if err != nil {
+		return err
+	}
+	out, err := h.s.RevokeAssignment(c.Context(), p, httpx.RequestIDFrom(c), id)
 	if err != nil {
 		return err
 	}
