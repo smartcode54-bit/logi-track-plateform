@@ -15,36 +15,84 @@ import (
 // mapper loads one document; it sets the outcome, the target row and the findings of its docCtx.
 type mapper func(c *docCtx) error
 
+// collectionSpec is one collection of the load order. prepare (optional) runs before the collection's documents
+// with every document of the run, so a mapper can decide across documents (the hub that wins a duplicated
+// source_id); full is true when docs is the whole collection as the source holds it now (a load: a dump always
+// reads whole collections, and --since / the watermark filter only after prepare), false for one stored document
+// (quarantine resolve --action=retry). reapply (optional) names documents prepare decided must be applied even when
+// their _updateTime is unchanged or before the --since mark (a hub duplicate that takes the row over once the
+// winner was deleted at source). after (optional) runs once the collection's documents are applied, with the
+// documents this run applied, for the links that point forward in the load order (drivers.current_assignment_id
+// after the truck assignments, the task number counters after the tasks).
 type collectionSpec struct {
-	name   string
-	mapper mapper
+	name    string
+	mapper  mapper
+	prepare func(c *docCtx, docs []dump.Doc, full bool) error
+	reapply func(r *runState, path string) bool
+	after   func(r *runState, coll string) error
 }
 
-// mappedCollections are the collections this release loads, in the load order of Appendix A §A.3.0 (tenants,
-// customers and parties before everything that links to them; trucks before drivers; tasks -> trips -> standby
-// -> incidents so links are stamped before fallbacks, tenantResolve.ts:88-93).
+// mappedCollections are the collections this release loads, in the load order of Appendix A §A.3.0: tenants,
+// customers, companies and the rate tables before everything that links to them (snapshot FKs point at the rate
+// rows); hubs and their distances before tasks; trucks before drivers before the assignments and installations;
+// tasks -> trips -> standby -> incidents so links are stamped before fallbacks (tenantResolve.ts:88-93); payroll
+// before the payout transactions, chats before their messages; the platform rows last.
 func mappedCollections() []collectionSpec {
 	return []collectionSpec{
-		{"subcontractors", loadSubcontractor},
-		{"customers", loadCustomer},
-		{"trucks", loadTruck},
-		{"drivers", loadDriver},
-		{"tasks", loadTask},
-		{"trip_records", loadTrip},
-		{"standby_records", loadStandby},
-		{"incidentReport", loadIncident},
-		{"vehicle_expenses", loadExpense},
-		{"maintenance", loadMaintenance},
+		{name: "subcontractors", mapper: loadSubcontractor},
+		{name: "customers", mapper: loadCustomer},
+		{name: "companies", mapper: loadCompany},
+		{name: "customer_rate_entries", mapper: loadRateEntry},
+		{name: "customer_fuel_rate_adjustments", mapper: loadFuelAdjustment},
+		{name: "customer_service_fees", mapper: loadServiceFee},
+		{name: "standby_rate_entries", mapper: loadStandbyRate},
+		{name: "fuel_daily_snapshots", mapper: loadFuelDaily},
+		{name: "fuel_monthly_snapshots", mapper: loadFuelMonthly},
+		{name: "hubs", mapper: loadHub, prepare: prepareHubs, reapply: hubTakesOver},
+		{name: "hub_soc_distances", mapper: loadDistance},
+		{name: "soc_hub_distances", mapper: loadDistance},
+		{name: "metadata", mapper: loadMetadata},
+		{name: "trucks", mapper: loadTruck},
+		{name: "drivers", mapper: loadDriver},
+		{name: "truckAssignment", mapper: loadTruckAssignment, after: afterTruckAssignments},
+		{name: "mobile_installations", mapper: loadInstallation},
+		{name: "tasks", mapper: loadTask, after: afterTasks},
+		{name: "trip_records", mapper: loadTrip},
+		{name: "standby_records", mapper: loadStandby},
+		{name: "incidentReport", mapper: loadIncident},
+		{name: "billing_statements", mapper: loadStatement, after: afterStatements},
+		{name: "billing_counters", mapper: loadCounter},
+		{name: "vehicle_expenses", mapper: loadExpense},
+		{name: "maintenance", mapper: loadMaintenance, after: afterMaintenance},
+		{name: "driver_compensation_config", mapper: loadCompensationConfig},
+		{name: "driver_penalties", mapper: loadPenalty},
+		{name: "payroll", mapper: loadPayroll},
+		{name: "transactions", mapper: loadTransaction, after: afterTransactions},
+		{name: "chats", mapper: loadChat},
+		{name: "messages", mapper: loadChatMessage},
+		{name: "broadcasts", mapper: loadBroadcast},
+		{name: "leave_requests", mapper: loadLeaveRequest},
+		{name: "holidays", mapper: loadHoliday},
+		{name: "security_events", mapper: loadSecurityEvent},
+		{name: "vehicle_locations", mapper: loadVehicleLocation},
+		{name: "waitlist", mapper: loadWaitlist},
+		{name: "partner-interest", mapper: loadPartnerInterest},
+		{name: "settings", mapper: loadSetting},
 	}
+}
+
+func specOf(name string) (collectionSpec, bool) {
+	for _, s := range mappedCollections() {
+		if s.name == name {
+			return s, true
+		}
+	}
+	return collectionSpec{}, false
 }
 
 func mapperOf(name string) (mapper, bool) {
-	for _, s := range mappedCollections() {
-		if s.name == name {
-			return s.mapper, true
-		}
-	}
-	return nil, false
+	s, ok := specOf(name)
+	return s.mapper, ok
 }
 
 // MappedCollections lists the collections this release loads, in load order.
@@ -59,22 +107,12 @@ func MappedCollections() []string {
 // droppedCollections are intentionally not migrated (Appendix A §A.3.10): kept only in etl.source_docs.
 var droppedCollections = map[string]bool{"checkin": true}
 
-// laterCollections are in the Appendix A mapping but load with a later task (T24 the P1 initial load of every
-// remaining collection): their documents are recorded with status pending and no finding, and the first load that
-// maps the collection applies them. The users documents are read by `etl auth-import` (T19), which joins them with
-// the Firebase Auth export (Appendix C §C.5), and the permissions_config documents by `etl auth-rbac` (T51,
-// Appendix C §C.2.6); `load` keeps both pending, since the users rows belong to PostgreSQL from P0 and only their
-// mirrored fields load later (main spec §13.9), and the role matrix is a separate, signed-off step.
-var laterCollections = map[string]bool{
-	"users": true, "permissions_config": true, "companies": true, "hubs": true, "hub_soc_distances": true,
-	"soc_hub_distances": true, "metadata": true, "truckAssignment": true, "mobile_installations": true,
-	"customer_rate_entries": true, "customer_fuel_rate_adjustments": true, "customer_service_fees": true,
-	"standby_rate_entries": true, "fuel_daily_snapshots": true, "fuel_monthly_snapshots": true,
-	"billing_statements": true, "billing_counters": true, "payroll": true, "driver_penalties": true,
-	"driver_compensation_config": true, "transactions": true, "holidays": true, "broadcasts": true, "chats": true,
-	"messages": true, "security_events": true, "vehicle_locations": true, "waitlist": true, "partner-interest": true,
-	"settings": true, "leave_requests": true,
-}
+// separateCollections are in the Appendix A mapping but loaded by their own, signed-off step instead of `load`:
+// the users documents by `etl auth-import` (T19), which joins them with the Firebase Auth export (Appendix C §C.5;
+// the users rows belong to PostgreSQL from P0, R49), and the permissions_config documents by `etl auth-rbac` (T51,
+// Appendix C §C.2.6). `load` records them pending (no finding, no watermark) and reconcile accepts pending for them
+// only.
+var separateCollections = map[string]bool{"users": true, "permissions_config": true}
 
 // docCtx is the state of one document while its mapper runs.
 type docCtx struct {
@@ -93,6 +131,21 @@ type docCtx struct {
 	// leaving is the resolved tenant of a row that exists in the quarantine tenant and whose chain resolves now
 	// (a fix at source): after the upsert its children and files follow it (Engine.follow).
 	leaving uuid.UUID
+	// run is the state of the load (or retry) the document belongs to.
+	run *runState
+}
+
+// sub is a context over a nested map of the document (activeTruck, a photo's geocoding, a stop): its findings stay
+// on the sub context until the caller copies them with prefix.
+func (c *docCtx) sub(f map[string]any) *docCtx {
+	return &docCtx{ctx: c.ctx, tx: c.tx, e: c.e, coll: c.coll, doc: c.doc, f: f, run: c.run}
+}
+
+// adopt copies the findings of a sub context onto c, their fields prefixed.
+func (c *docCtx) adopt(sub *docCtx, prefix string) {
+	for _, f := range sub.findings {
+		c.find(prefix+f.Field, f.Reason, f.Detail, f.Raw)
+	}
 }
 
 // find records a finding.
@@ -119,8 +172,14 @@ type billableSet struct {
 }
 
 // hasBillingEvidence: a billingEstimateThb number, any billing* field, deliveredTimestamp on a delivered trip,
-// or a standby endedAt (Appendix A §A.3.0 guard).
+// or a standby endedAt (Appendix A §A.3.0 guard). A sent or paid billing statement is billing evidence too: it is
+// the period lock pricing reads (R17), so a statement that cannot load stops the run instead of unlocking a period.
 func hasBillingEvidence(coll string, f map[string]any) bool {
+	if coll == "billing_statements" {
+		s, _ := f["status"].(string)
+		s = canon(s)
+		return s == "sent" || s == "paid"
+	}
 	for k, v := range f {
 		if strings.HasPrefix(k, "billing") && v != nil {
 			return true
@@ -138,7 +197,7 @@ func hasBillingEvidence(coll string, f map[string]any) bool {
 
 func (b billableSet) has(coll string, d dump.Doc) bool {
 	switch coll {
-	case "trip_records", "standby_records":
+	case "trip_records", "standby_records", "billing_statements":
 		return hasBillingEvidence(coll, d.Fields)
 	case "tasks":
 		no, _ := d.Fields["taskId"].(string)

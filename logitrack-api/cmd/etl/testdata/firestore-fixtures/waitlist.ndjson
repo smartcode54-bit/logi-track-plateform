@@ -1,0 +1,1 @@
+{"_id": "wl_1", "_path": "waitlist/wl_1", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"email": "fleet@example.test", "name": "Fleet Co", "countryCode": "+66", "phone": "0800000000", "createdAt": {"$ts": "2026-08-01T00:00:00Z"}}}

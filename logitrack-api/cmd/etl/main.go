@@ -64,9 +64,11 @@ Database (ETL_DATABASE_URL, logged in as logitrack_etl):
   export-back --collection=customers --frozen-at=RFC3339 [--overwrite-after-freeze] [--out=DIR]
         class A rollback to Firestore in the legacy shape (--out writes the documents to a dump instead)
   media-copy [--limit=N] [--verify]
-        GCS ETL_GCS_BUCKET -> S3_BUCKET under the identical key; --verify compares size and sha256
-  rewrite-urls
-        list columns that still hold Firebase Storage URLs; exit 2 when any does
+        GCS ETL_GCS_BUCKET -> S3_BUCKET (the APK: S3_PUBLIC_BUCKET) under the identical key; --verify compares
+        size and sha256
+  rewrite-urls [--apply]
+        list columns that still hold Firebase Storage URLs; exit 2 when any does; --apply first points
+        settings(mobile_app).apkDownloadUrl at S3_PUBLIC_BASE_URL once media-copy committed the APK
   quarantine list [--collection=C] [--reason=R] [--all]
   quarantine resolve --collection=C --doc=PATH --action=retry|skip|rehome [--tenant=UUID] [--by=NAME]
   status
@@ -183,7 +185,8 @@ func (e *env) engine() (*etl.Engine, func(), int) {
 		_, _ = fmt.Fprintf(e.stderr, "etl: runs as %s through ETL_DATABASE_URL (R66), not as %s\n", db.RoleETL, l.RoleName)
 		return nil, nil, app.ExitConfigError
 	}
-	eng, err := etl.New(etl.Config{Tx: systemTx(pool), OwnFleetTenantID: e.cfg.OwnFleet, Bucket: e.cfg.S3Bucket, Log: e.log, Now: e.deps.now})
+	eng, err := etl.New(etl.Config{Tx: systemTx(pool), OwnFleetTenantID: e.cfg.OwnFleet, Bucket: e.cfg.S3Bucket,
+		PublicBucket: e.cfg.S3PublicBucket, Log: e.log, Now: e.deps.now})
 	if err != nil {
 		pool.Close()
 		return nil, nil, e.fail(app.ExitConfigError, err, "etl configuration")
@@ -679,14 +682,31 @@ func cmdMediaCopy(e *env, args []string) int {
 }
 
 func cmdRewriteURLs(e *env, args []string) int {
-	if len(args) != 0 {
-		return usageError(e.stderr, "rewrite-urls takes no arguments")
+	fl := flag.NewFlagSet("rewrite-urls", flag.ContinueOnError)
+	fl.SetOutput(e.stderr)
+	apply := fl.Bool("apply", false, "point settings(mobile_app).apkDownloadUrl at S3_PUBLIC_BASE_URL once the APK is committed")
+	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
+		return usageError(e.stderr, "rewrite-urls takes only --apply")
+	}
+	if *apply && e.cfg.S3PublicBaseURL == "" {
+		_, _ = fmt.Fprintln(e.stderr, "etl: rewrite-urls --apply needs S3_PUBLIC_BASE_URL")
+		return app.ExitConfigError
 	}
 	eng, closeDB, code := e.engine()
 	if code != app.ExitOK {
 		return code
 	}
 	defer closeDB()
+	if *apply {
+		res, err := eng.ApplyURLRewrites(e.ctx, e.cfg.S3PublicBaseURL)
+		if err != nil {
+			return e.fail(app.ExitRuntimeError, err, "rewrite-urls --apply failed")
+		}
+		for _, p := range res.Pending {
+			_, _ = fmt.Fprintf(e.stdout, "PENDING\t%s (not committed yet: run media-copy)\n", p)
+		}
+		_, _ = fmt.Fprintf(e.stdout, "rewrite-urls --apply: %d rewritten\n", res.Rewritten)
+	}
 	hits, err := eng.RewriteURLs(e.ctx)
 	if err != nil {
 		return e.fail(app.ExitRuntimeError, err, "rewrite-urls failed")
