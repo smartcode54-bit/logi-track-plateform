@@ -35,7 +35,7 @@
  *
  * Removed by T18: the Firebase auth listener, `setAdminClaims` on every load (`context/auth.tsx:51-59`
  * before), and the `users/{uid}.forceLogoutAt` listener (`:91-129`), replaced by SSE `session.revoked`
- * (context/realtime.tsx).
+ * (lib/realtime/RealtimeProvider.tsx).
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";

@@ -7,15 +7,25 @@
  * Wire format (internal/sse): every event is `id: <seq>`, `event: <name>`, `data:
  * {"type","topic","eventId","data"}`; the control events `reconnect` and `resync` carry `{reason}`.
  *
+ * - A network drop the browser can retry itself (`error` while `CONNECTING`): nothing is done. The
+ *   browser reconnects after the server's `retry:` (3 s) and sends its own `Last-Event-ID`, which also
+ *   counts the id-only frame Go writes at connect, so Go replays what the tab missed (R52).
  * - `reconnect` (drain, or the access token's `exp`): an unforced shared refresh, then reopen after a
  *   jittered 1-3 s with `?lastEventId=`, which the BFF turns into `Last-Event-ID` (§10.3).
  * - `resync` (the id is older than the replay window): the owner refetches its active queries.
  * - `error` with `readyState === CLOSED` (EventSource hides the status: a 401 of an expired token,
- *   a 429 past `SSE_MAX_CONN_PER_USER`, the api down): refresh, then reopen with a backoff that
- *   doubles from 1-3 s up to 60 s; a refused refresh means the session is gone. While the browser
- *   is reconnecting by itself (`CONNECTING`) nothing is done.
+ *   a 429 past `SSE_MAX_CONN_PER_USER`, the api or the BFF down): refresh, then reopen with a backoff
+ *   that doubles from 1-3 s up to 60 s; a refused refresh means the session is gone. `resume()` (the
+ *   browser is back online, the tab is visible again) cuts the wait short.
+ * - A reopen after an error or `reconnect` resumes from the last id the tab saw. Every dispatched
+ *   event carries the stream's current id (`MessageEvent.lastEventId`, the id-only frame at connect
+ *   included), but an error carries none: a stream that closed before its first event has no
+ *   position, so the reopened stream cannot replay the gap and the owner is told to resync once it
+ *   is open (`onResync`).
  * - Every other named event goes to `onEvent`; the names to listen to are registered with `listen`
  *   (EventSource delivers a named event only to listeners of that name).
+ * - `onStatus` follows the stream's state (lib/realtime/status.ts): queries whose disposition is SSE
+ *   poll while it is not `open` (Appendix E §E.5.1 "Backpressure").
  */
 
 /** The parts of `EventSource` the stream uses (a fake in tests). */
@@ -42,6 +52,12 @@ export interface RealtimeFrame<T = unknown> {
     receivedAt: number;
 }
 
+/**
+ * The stream's state: `idle` (no stream: signed out, closed), `connecting` (opening, or the browser
+ * retrying by itself), `open`, `down` (closed, waiting to reopen or refreshing first).
+ */
+export type RealtimeStatus = "idle" | "connecting" | "open" | "down";
+
 export interface RealtimeStreamDeps {
     url: string;
     createEventSource: (url: string) => EventSourceLike;
@@ -49,16 +65,20 @@ export interface RealtimeStreamDeps {
     refresh: (since: number) => Promise<boolean>;
     /** The session is gone (a refused refresh): end it in this tab. */
     onSessionLost: () => void;
-    /** `event: resync`. */
+    /** `event: resync`, and a reopened stream that had no position to resume from. */
     onResync: () => void;
     /** Every other registered event. */
     onEvent: (frame: RealtimeFrame) => void;
+    /** Every change of `status`. */
+    onStatus?: (status: RealtimeStatus) => void;
     now?: () => number;
     random?: () => number;
     setTimer?: (fn: () => void, ms: number) => unknown;
     clearTimer?: (handle: unknown) => void;
 }
 
+export const CONNECTING = 0;
+export const OPEN = 1;
 export const CLOSED = 2;
 /** First reopen delay: a jittered 1-3 s (§10.8). */
 export const REOPEN_MIN_MS = 1_000;
@@ -95,7 +115,10 @@ export class RealtimeStream {
     private lastEventId = "";
     private failures = 0;
     private timer: unknown = null;
+    /** Trigger time of the reopen the timer waits for (the refresh's `since`). */
+    private pendingSince = 0;
     private stopped = true;
+    private current: RealtimeStatus = "idle";
     private readonly now: () => number;
     private readonly random: () => number;
     private readonly setTimer: (fn: () => void, ms: number) => unknown;
@@ -113,6 +136,11 @@ export class RealtimeStream {
         return !this.stopped;
     }
 
+    /** The stream's state. */
+    get status(): RealtimeStatus {
+        return this.current;
+    }
+
     /** The last event id seen (sent as `lastEventId` when the stream is recreated). */
     get lastId(): string {
         return this.lastEventId;
@@ -122,7 +150,7 @@ export class RealtimeStream {
     open(): void {
         if (!this.stopped) return;
         this.stopped = false;
-        this.connect();
+        this.connect(false);
     }
 
     /** Closes the stream for good (sign-out, unmount). */
@@ -130,15 +158,29 @@ export class RealtimeStream {
         this.stopped = true;
         this.cancelTimer();
         this.detach();
+        this.setStatus("idle");
     }
 
-    /** Recreates the stream now (new claims, a tenant switch): the implicit topics come from the new token. */
+    /**
+     * Recreates the stream now (new claims, a tenant switch): the implicit topics come from the new
+     * token. Its owner refetches what the change made stale, so no catch-up is asked for.
+     */
     reopen(): void {
         if (this.stopped) return;
         this.cancelTimer();
         this.detach();
         this.failures = 0;
-        this.connect();
+        this.connect(false);
+    }
+
+    /**
+     * Reopens at once when the stream is waiting out its backoff (the browser is back online, the tab
+     * is visible again). Nothing to do while it is open, connecting, or refreshing before a reopen.
+     */
+    resume(): void {
+        if (this.stopped || this.timer === null) return;
+        this.cancelTimer();
+        this.attempt(this.pendingSince);
     }
 
     /** Adds event names to deliver to `onEvent`. */
@@ -151,20 +193,40 @@ export class RealtimeStream {
         }
     }
 
+    private setStatus(next: RealtimeStatus): void {
+        if (this.current === next) return;
+        this.current = next;
+        this.deps.onStatus?.(next);
+    }
+
     private url(): string {
         if (!this.lastEventId) return this.deps.url;
         const sep = this.deps.url.includes("?") ? "&" : "?";
         return `${this.deps.url}${sep}lastEventId=${encodeURIComponent(this.lastEventId)}`;
     }
 
-    private connect(): void {
+    /** `catchUp`: a reopen without a position, so the owner resyncs once the new stream is open. */
+    private connect(catchUp: boolean): void {
         const source = this.deps.createEventSource(this.url());
         this.source = source;
+        this.setStatus("connecting");
+        let pendingCatchUp = catchUp;
         source.onopen = () => {
-            if (this.source === source) this.failures = 0;
+            if (this.source !== source) return;
+            this.failures = 0;
+            this.setStatus("open");
+            if (pendingCatchUp) {
+                pendingCatchUp = false;
+                this.deps.onResync();
+            }
         };
         source.onerror = () => {
-            if (this.source !== source || source.readyState !== CLOSED) return;
+            if (this.source !== source) return;
+            if (source.readyState !== CLOSED) {
+                // The browser reconnects by itself and replays from its own Last-Event-ID.
+                this.setStatus("connecting");
+                return;
+            }
             this.detach();
             this.recover(this.now());
         };
@@ -215,29 +277,40 @@ export class RealtimeStream {
         return Math.min(REOPEN_MAX_MS, base * 2 ** Math.min(this.failures, 6));
     }
 
-    /** Refresh, then reopen after the backoff; a planned `reconnect` does not count as a failure. */
+    /** Waits out the backoff, then refreshes and reopens; a planned `reconnect` does not count as a failure. */
     private recover(since: number, planned = false): void {
         if (this.stopped) return;
+        this.cancelTimer();
         const wait = this.delay();
         if (!planned) this.failures++;
+        this.pendingSince = since;
+        this.setStatus("down");
         this.timer = this.setTimer(() => {
             this.timer = null;
-            if (this.stopped) return;
-            this.deps.refresh(since).then(
-                (ok) => {
-                    if (this.stopped) return;
-                    if (!ok) {
-                        this.close();
-                        this.deps.onSessionLost();
-                        return;
-                    }
-                    this.connect();
-                },
-                () => {
-                    // The BFF is unreachable: try again later; nothing is ended.
-                    if (!this.stopped) this.recover(this.now());
-                }
-            );
+            this.attempt(since);
         }, wait);
+    }
+
+    /** Refresh, then reopen from the last id seen; a refused refresh ends the session. */
+    private attempt(since: number): void {
+        // Closed, or a stream already recreated (reopen(), or an earlier attempt that won a race).
+        if (this.stopped || this.source !== null) return;
+        this.setStatus("down");
+        this.deps.refresh(since).then(
+            (ok) => {
+                // Closed meanwhile, or already recreated by reopen().
+                if (this.stopped || this.source !== null) return;
+                if (!ok) {
+                    this.close();
+                    this.deps.onSessionLost();
+                    return;
+                }
+                this.connect(this.lastEventId === "");
+            },
+            () => {
+                // The BFF is unreachable: try again later; nothing is ended.
+                if (!this.stopped && this.source === null) this.recover(this.now());
+            }
+        );
     }
 }
