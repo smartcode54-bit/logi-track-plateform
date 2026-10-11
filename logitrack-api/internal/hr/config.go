@@ -268,7 +268,8 @@ func (c *checker) integer(field string, v, min, max float64) int32 {
 }
 
 // CreateConfig is POST /v1/payroll/config (hr:manage_payroll): appends a version to the caller's tenant (never edits
-// one; the latest effective_from_at <= the month end wins a run). 201 with the version.
+// one; a run uses the latest effective_from_at before the month's exclusive end, the version in effect on the month's
+// last Bangkok day, so a version dated the 1st first prices that month). 201 with the version.
 func (s *Service) CreateConfig(ctx context.Context, p *authz.Principal, in ConfigInput) (ConfigVersion, error) {
 	tenant, err := writeTenant(p)
 	if err != nil {

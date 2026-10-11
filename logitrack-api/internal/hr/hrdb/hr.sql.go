@@ -100,6 +100,53 @@ func (q *Queries) ConfigAt(ctx context.Context, arg ConfigAtParams) (DriverCompe
 	return i, err
 }
 
+const configForMonth = `-- name: ConfigForMonth :one
+SELECT id, legacy_doc_id, tenant_id, tenant_source, effective_from_at, effective_from_date, weekday_rate_thb, holiday_rate_thb, pay_standby, helper_day_rate_thb, fuel_incentive_tiers, fuel_min_refuels_per_month, trip_volume_tiers, sso_rate_percent, sso_base_existing_thb, sso_base_new_thb, sso_existing_hired_before_year, sso_max_age_inclusive, sso_probation_months, created_by, created_at FROM driver_compensation_configs
+WHERE tenant_id = $1 AND effective_from_at < $2
+ORDER BY effective_from_at DESC, id DESC
+LIMIT 1
+`
+
+type ConfigForMonthParams struct {
+	TenantID uuid.UUID
+	MonthEnd time.Time
+}
+
+// The version that prices a month's run: the latest effective_from_at before the month's exclusive end (Bangkok
+// midnight of the next month's 1st), so the version in effect on the month's last Bangkok day. A version dated the
+// 1st of the next month (POST /v1/payroll/config stores a Bangkok day as Bangkok midnight, exactly that bound) first
+// prices that month. Legacy compared <= (fn:driverCompensation.ts:92-102) with rows the config page saved at UTC
+// midnight (07:00 ICT, web:app/app/payroll/config/page.tsx:69), which never equal a Bangkok month end, so both select
+// the same version for every legacy row.
+func (q *Queries) ConfigForMonth(ctx context.Context, arg ConfigForMonthParams) (DriverCompensationConfig, error) {
+	row := q.db.QueryRow(ctx, configForMonth, arg.TenantID, arg.MonthEnd)
+	var i DriverCompensationConfig
+	err := row.Scan(
+		&i.ID,
+		&i.LegacyDocID,
+		&i.TenantID,
+		&i.TenantSource,
+		&i.EffectiveFromAt,
+		&i.EffectiveFromDate,
+		&i.WeekdayRateThb,
+		&i.HolidayRateThb,
+		&i.PayStandby,
+		&i.HelperDayRateThb,
+		&i.FuelIncentiveTiers,
+		&i.FuelMinRefuelsPerMonth,
+		&i.TripVolumeTiers,
+		&i.SsoRatePercent,
+		&i.SsoBaseExistingThb,
+		&i.SsoBaseNewThb,
+		&i.SsoExistingHiredBeforeYear,
+		&i.SsoMaxAgeInclusive,
+		&i.SsoProbationMonths,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const countRunsByStatus = `-- name: CountRunsByStatus :many
 SELECT r.status, count(*)::bigint AS n
 FROM payroll_runs r
@@ -443,7 +490,9 @@ type InsertPayoutRow struct {
 }
 
 // The payout ledger row of an approval: dated on the Bangkok calendar of the approval (fixes the UTC date of
-// fn:driverCompensation.ts:384, §6.18 #11); created_at is the same transaction instant.
+// fn:driverCompensation.ts:384, §6.18 #11); created_at is the same transaction instant. It carries the run's tenant
+// (tenant_source 'driver'): runs are per tenant with that tenant's config, so the run's tenant is the payer (the
+// own-fleet 'form' payout of Appendix C §C.3.4 waits for the owner, main spec §19.2 Q21).
 func (q *Queries) InsertPayout(ctx context.Context, arg InsertPayoutParams) (InsertPayoutRow, error) {
 	row := q.db.QueryRow(ctx, insertPayout,
 		arg.TenantID,
@@ -724,9 +773,15 @@ const listOpenPenalties = `-- name: ListOpenPenalties :many
 SELECT id, driver_id::uuid AS driver_id, type_code, type_name_snapshot, total_thb, remaining_thb, installments_total,
        installments_paid
 FROM driver_penalties
-WHERE driver_id = ANY ($1::uuid[]) AND status IN ('pending', 'partially_deducted')
+WHERE tenant_id = $1 AND driver_id = ANY ($2::uuid[])
+  AND status IN ('pending', 'partially_deducted')
 ORDER BY driver_id, incurred_at, id
 `
+
+type ListOpenPenaltiesParams struct {
+	TenantID  uuid.UUID
+	DriverIds []uuid.UUID
+}
 
 type ListOpenPenaltiesRow struct {
 	ID                uuid.UUID
@@ -739,9 +794,12 @@ type ListOpenPenaltiesRow struct {
 	InstallmentsPaid  int32
 }
 
-// Open penalties in deduction order (incurred_at, id; legacy: Firestore document order).
-func (q *Queries) ListOpenPenalties(ctx context.Context, driverIds []uuid.UUID) ([]ListOpenPenaltiesRow, error) {
-	rows, err := q.db.Query(ctx, listOpenPenalties, driverIds)
+// The tenant's open penalties of the drivers in deduction order (incurred_at, id; legacy: Firestore document order).
+// The consumer reads with the bypass, so the tenant is named here: a penalty keeps the tenant it was stamped with when
+// its driver moves (tenancy.MoveDriver), and the approval commits applications under the approver's RLS; a run never
+// schedules another tenant's (or a quarantined) penalty.
+func (q *Queries) ListOpenPenalties(ctx context.Context, arg ListOpenPenaltiesParams) ([]ListOpenPenaltiesRow, error) {
+	rows, err := q.db.Query(ctx, listOpenPenalties, arg.TenantID, arg.DriverIds)
 	if err != nil {
 		return nil, err
 	}
@@ -821,7 +879,9 @@ type ListPayrollDriversRow struct {
 	ProbationPassed bool
 }
 
-// Every driver of the tenant gets a run (keyed by drivers.id, §6.18 #21; legacy skipped drivers without an auth uid).
+// Every driver of the tenant gets a run (keyed by drivers.id, §6.18 #21; legacy skipped drivers without an auth uid,
+// §6.18 #29). Only the tenant's own drivers: drivers of a carrier working for it are paid by that carrier's own run
+// with its own config, where legacy paid every driver under one config (§6.18 #28, owner decision §19.2 Q21).
 func (q *Queries) ListPayrollDrivers(ctx context.Context, tenantID uuid.UUID) ([]ListPayrollDriversRow, error) {
 	rows, err := q.db.Query(ctx, listPayrollDrivers, tenantID)
 	if err != nil {

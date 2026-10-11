@@ -136,10 +136,11 @@ type RunResult struct {
 }
 
 // Handle runs one job.payroll.run command: the jobs row goes running, then one system transaction with the job's
-// tenant takes the advisory lock of (tenant, period, round), reads the config, holidays, drivers, trips, tasks and (R2)
-// open penalties, computes every driver's payslip (internal/hr/compute) and writes the draft runs, their line items
-// and penalty applications, and the job's success; lock:job is released at the end. A run that cannot compute (no
-// config, no tenant, bad parameters) ends failed without writing a run; a database failure is retried by the ladder.
+// tenant takes the advisory lock of (tenant, period, round), reads the config in effect on the month's last day,
+// holidays, drivers, trips, tasks and (R2) the tenant's open penalties, computes every driver's payslip
+// (internal/hr/compute) and writes the draft runs, their line items and penalty applications, and the job's success;
+// lock:job is released at the end. A run that cannot compute (no config, no tenant, bad parameters) ends failed
+// without writing a run; a database failure is retried by the ladder.
 func (j *PayrollJob) Handle(ctx context.Context, d *mq.Delivery) error {
 	if d.RoutingKey != RoutePayrollJob {
 		return mq.Permanent(fmt.Errorf("payroll.run: unexpected routing key %s", d.RoutingKey))
@@ -211,7 +212,9 @@ func (j *PayrollJob) run(ctx context.Context, job jobs.Job) (RunResult, string, 
 		if err := q.LockPayrollPeriod(ctx, "payroll.run:"+LockScope(tenant, period.Key, string(period.Round))); err != nil {
 			return err
 		}
-		cfg, err := q.ConfigAt(ctx, hrdb.ConfigAtParams{TenantID: tenant, At: period.MonthEnd})
+		// The version in effect on the month's last Bangkok day: MonthEnd is the exclusive bound, and a version dated the
+		// next month's 1st sits exactly on it (ConfigForMonth compares <).
+		cfg, err := q.ConfigForMonth(ctx, hrdb.ConfigForMonthParams{TenantID: tenant, MonthEnd: period.MonthEnd})
 		if errors.Is(err, pgx.ErrNoRows) {
 			cfg, err = q.EarliestConfig(ctx, tenant)
 		}
@@ -269,9 +272,10 @@ func bangkokDay(d *time.Time) *time.Time {
 	return &t
 }
 
-// load reads the round's inputs: the drivers of the tenant (each gets a run), the holidays visible to it, the drivers'
-// delivered trips of the month, their own and helper tasks planned within a day of the round (the window key decides,
-// ADR 0012) and, in R2, their open penalties.
+// load reads the round's inputs: the drivers of the tenant (each gets a run; not the drivers of carriers working for
+// it, §6.18 #28), the holidays visible to it, the drivers' delivered trips of the month, their own and helper tasks
+// planned within a day of the round (the window key decides, ADR 0012) and, in R2, the tenant's open penalties of
+// those drivers.
 func load(ctx context.Context, q *hrdb.Queries, tenant uuid.UUID, p compute.Period) (inputs, error) {
 	in := inputs{byDriver: map[uuid.UUID]compute.DriverInput{}}
 	drivers, err := q.ListPayrollDrivers(ctx, tenant)
@@ -329,7 +333,9 @@ func load(ctx context.Context, q *hrdb.Queries, tenant uuid.UUID, p compute.Peri
 	if p.Round != compute.R2 {
 		return in, nil
 	}
-	pens, err := q.ListOpenPenalties(ctx, in.drivers)
+	// The tenant's penalties only: a moved driver's penalties keep their frozen tenant (tenancy.MoveDriver), and the
+	// bypass of this transaction would otherwise schedule them (and quarantined ones) into this tenant's run.
+	pens, err := q.ListOpenPenalties(ctx, hrdb.ListOpenPenaltiesParams{TenantID: tenant, DriverIds: in.drivers})
 	if err != nil {
 		return in, err
 	}

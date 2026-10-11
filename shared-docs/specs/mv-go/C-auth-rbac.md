@@ -1230,7 +1230,7 @@ RLS is the safety net, not the only filter:
 | `truck_assignments` | `truck` (tenant of the assigned truck) | Appendix A §A.3.0; unresolved truck or driver -> `rejected` |
 | `vehicle_expenses`, `driver_penalties`, `payroll_runs`, `leave_requests`, `chats`, `mobile_installations` | `driver` (expenses without driver -> `truck`) | Appendix A ETL tenant derivation |
 | `maintenance_records`, `vehicle_locations`, `transactions` (truck shape) | `truck` | Appendix A ETL tenant derivation |
-| rate tables, `trip_billing_snapshots`, `billing_counters`, `billing_statements`, `driver_compensation_configs`, `transactions` (payout shape) | `form` = billing carrier / own fleet | C.3.4, R61 |
+| rate tables, `trip_billing_snapshots`, `billing_counters`, `billing_statements`, `driver_compensation_configs`, `transactions` (payout shape) | `form` = billing carrier / own fleet | C.3.4, R61. As built (T44): a config written through `POST /v1/payroll/config` takes the caller's tenant (`form`), and payroll runs per tenant with that tenant's config, so the approval stamps its payout row with the run's tenant (`tenant_source 'driver'`, the run's tenant being both the driver's and the payer's); the own-fleet `form` payout stays the shape the ETL loads, pending main spec §19.2 Q21 (§6.18 #28) |
 
 - The service asserts `app_tenant_in_reach(resolved tenant)` when a parent link exists: a tenant_admin cannot create a trip on another tenant's task (`403 truck_not_in_tenant` / `tenant_link_mismatch`).
 - Rows never take `tenant_id` from a request header or body, except the three audited move paths (R13 task reassignment, C.1.4 driver move, quarantine re-home below).

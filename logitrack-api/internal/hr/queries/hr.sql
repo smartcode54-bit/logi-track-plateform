@@ -23,6 +23,18 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND effective_from_at <= sqlc.arg(at)
 ORDER BY effective_from_at DESC, id DESC
 LIMIT 1;
 
+-- name: ConfigForMonth :one
+-- The version that prices a month's run: the latest effective_from_at before the month's exclusive end (Bangkok
+-- midnight of the next month's 1st), so the version in effect on the month's last Bangkok day. A version dated the
+-- 1st of the next month (POST /v1/payroll/config stores a Bangkok day as Bangkok midnight, exactly that bound) first
+-- prices that month. Legacy compared <= (fn:driverCompensation.ts:92-102) with rows the config page saved at UTC
+-- midnight (07:00 ICT, web:app/app/payroll/config/page.tsx:69), which never equal a Bangkok month end, so both select
+-- the same version for every legacy row.
+SELECT * FROM driver_compensation_configs
+WHERE tenant_id = sqlc.arg(tenant_id) AND effective_from_at < sqlc.arg(month_end)
+ORDER BY effective_from_at DESC, id DESC
+LIMIT 1;
+
 -- name: EarliestConfig :one
 -- The fallback of a run before the first effective instant (fn:driverCompensation.ts:99-102).
 SELECT * FROM driver_compensation_configs
@@ -164,7 +176,9 @@ WHERE id = sqlc.arg(id);
 
 -- name: InsertPayout :one
 -- The payout ledger row of an approval: dated on the Bangkok calendar of the approval (fixes the UTC date of
--- fn:driverCompensation.ts:384, §6.18 #11); created_at is the same transaction instant.
+-- fn:driverCompensation.ts:384, §6.18 #11); created_at is the same transaction instant. It carries the run's tenant
+-- (tenant_source 'driver'): runs are per tenant with that tenant's config, so the run's tenant is the payer (the
+-- own-fleet 'form' payout of Appendix C §C.3.4 waits for the owner, main spec §19.2 Q21).
 INSERT INTO transactions (tenant_id, tenant_source, tx_type, sub_type, amount_thb, tx_date, tx_date_source, driver_id,
   payroll_run_id, pay_period, pay_round, performed_by_user_id)
 VALUES (sqlc.arg(tenant_id), 'driver', 'driver_payout', 'Driver Compensation', sqlc.arg(amount_thb), bkk_date(now()), 'bangkok',
@@ -193,7 +207,9 @@ WHERE id = sqlc.arg(id);
 SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(key)::text, 0));
 
 -- name: ListPayrollDrivers :many
--- Every driver of the tenant gets a run (keyed by drivers.id, §6.18 #21; legacy skipped drivers without an auth uid).
+-- Every driver of the tenant gets a run (keyed by drivers.id, §6.18 #21; legacy skipped drivers without an auth uid,
+-- §6.18 #29). Only the tenant's own drivers: drivers of a carrier working for it are paid by that carrier's own run
+-- with its own config, where legacy paid every driver under one config (§6.18 #28, owner decision §19.2 Q21).
 SELECT id, hire_date, birth_date, probation_passed FROM drivers WHERE tenant_id = sqlc.arg(tenant_id) ORDER BY id;
 
 -- name: ListHolidayDates :many
@@ -225,11 +241,15 @@ WHERE helper_driver_id = ANY (sqlc.arg(driver_ids)::uuid[]) AND plan_at >= sqlc.
 ORDER BY helper_driver_id, plan_at, id;
 
 -- name: ListOpenPenalties :many
--- Open penalties in deduction order (incurred_at, id; legacy: Firestore document order).
+-- The tenant's open penalties of the drivers in deduction order (incurred_at, id; legacy: Firestore document order).
+-- The consumer reads with the bypass, so the tenant is named here: a penalty keeps the tenant it was stamped with when
+-- its driver moves (tenancy.MoveDriver), and the approval commits applications under the approver's RLS; a run never
+-- schedules another tenant's (or a quarantined) penalty.
 SELECT id, driver_id::uuid AS driver_id, type_code, type_name_snapshot, total_thb, remaining_thb, installments_total,
        installments_paid
 FROM driver_penalties
-WHERE driver_id = ANY (sqlc.arg(driver_ids)::uuid[]) AND status IN ('pending', 'partially_deducted')
+WHERE tenant_id = sqlc.arg(tenant_id) AND driver_id = ANY (sqlc.arg(driver_ids)::uuid[])
+  AND status IN ('pending', 'partially_deducted')
 ORDER BY driver_id, incurred_at, id;
 
 -- name: UpsertDraftRun :one

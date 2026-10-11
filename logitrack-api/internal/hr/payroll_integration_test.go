@@ -46,7 +46,7 @@ func (w *world) scenario() (penalties map[string]string) {
 	w.trip(w.O, w.dO, "T8", bkk(2026, 7, 1, 8, 0), false)   // July
 	w.exec(`INSERT INTO trip_records (tenant_id, tenant_source, trip_no, status, job_type, driver_id) VALUES ($1, 'trip', 'T9', 'in_transit', 'first_mile', $2)`, w.O, w.dO)
 	w.trip(w.O, w.dO2, "U1", bkk(2026, 6, 18, 10, 0), false) // dO2's only trip (R2)
-	w.trip(w.A, w.dA, "V1", bkk(2026, 6, 2, 10, 0), false)   // carrier A's driver: never in O's runs
+	w.trip(w.A, w.dA, "V1", bkk(2026, 6, 2, 10, 0), false)   // carrier A's driver: never in O's runs (per tenant, §6.18 #28)
 
 	// dO's own task on the 12th (cancelled, no trip): the window drives (keyed by drivers.id, the fix of
 	// fn:driverCompensation.ts:199-204: the legacy query matched the auth uid and missed it).
@@ -360,7 +360,7 @@ LEFT JOIN (SELECT a.penalty_id, sum(a.applied_thb) AS applied, count(*) AS n
            FROM payroll_penalty_applications a JOIN payroll_runs r ON r.id = a.payroll_run_id
            WHERE r.status IN ('approved','paid') GROUP BY 1) x ON x.penalty_id = p.id
 WHERE (p.legacy_doc_id IS NULL AND p.status <> 'cancelled'
-       AND (p.remaining_thb <> p.total_thb - COALESCE(x.applied, 0) OR p.installments_paid <> COALESCE(x.n, 0)))
+       AND (p.remaining_thb <> p.total_thb - COALESCE(x.applied, 0) OR p.installments_paid <> LEAST(COALESCE(x.n, 0), p.installments_total)))
    OR (p.status = 'cleared' AND p.remaining_thb <> 0)
    OR (p.status IN ('pending','partially_deducted') AND p.remaining_thb = 0)) v`
 
@@ -394,7 +394,8 @@ func TestPayrollTenancy(t *testing.T) {
 		expect(t, w.get("/v1/payroll/"+id, tok), http.StatusNotFound, "not_found")
 		expect(t, w.post("/v1/payroll/"+id+"/approve", tok, nil), http.StatusNotFound, "not_found")
 		expect(t, w.post("/v1/payroll/"+id+"/status", tok, map[string]any{"status": "cancelled"}), http.StatusNotFound, "not_found")
-		// No config in their tenant: a run of theirs is refused, and O's configs are out of reach.
+		// No config in their tenant: a run of theirs is refused, and O's configs are out of reach (runs are per tenant with
+		// the tenant's own config, so A's drivers wait for A's own config: §6.18 #28, owner question §19.2 Q21).
 		r := w.post("/v1/jobs/payroll.run", tok, map[string]any{"period": "2026-06", "round": "R1"})
 		expect(t, r, http.StatusConflict, "failed_precondition")
 		if r := w.get("/v1/payroll/config", tok); r.status != http.StatusOK || len(r.body["data"].([]any)) != 0 {
