@@ -91,6 +91,8 @@ PATCH /v1/tenants/:id internal
 GET /v1/tenants/:id/members internal
 DELETE /v1/tenants/:id/members/:userId internal
 PUT /v1/tenants/:id/members/:userId internal
+GET /v1/tenants/quarantine/rows internal
+POST /v1/tenants/quarantine/rows/:table/:id/rehome internal
 GET /v1/truck-assignments internal
 POST /v1/truck-assignments internal
 POST /v1/truck-assignments/:id/revoke internal
