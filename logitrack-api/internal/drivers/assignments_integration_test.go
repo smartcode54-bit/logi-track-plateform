@@ -5,6 +5,9 @@ package drivers_test
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -233,6 +236,78 @@ func TestTruckAssignmentRules(t *testing.T) {
 		expect(t, w.get("/v1/truck-assignments?"+q, ta), http.StatusUnprocessableEntity, "invalid_argument")
 	}
 	expect(t, w.post("/v1/truck-assignments/019a0000-0000-7000-8000-0000000000aa/revoke", ta, nil), http.StatusNotFound, "not_found")
+}
+
+// TW8: q is the history's search on the server. It matches a case-insensitive substring of the four columns the
+// page shows (plate, model, driver name as the Thai full name or first + last, admin label), combines with status,
+// follows the keyset across pages (newest first), ignores surrounding blanks, and refuses more than 100 characters.
+func TestTruckAssignmentSearch(t *testing.T) {
+	w := newWorld(t)
+	ta := w.login("ta.o")
+	t1, t2 := w.truck(w.O, "กข-5101"), w.truck(w.O, "ขค-5202")
+	w.exec(`UPDATE trucks SET model = 'FRR 210' WHERE id = $1`, t2)
+	d1, d2 := w.driver(w.O, "Somchai"), w.driver(w.O, "Mana")
+	d3 := w.driver(w.O, "Preecha", "full_name_th", "'ปรีชา ใจดี'")
+	rows := map[string]string{}
+	for _, p := range [][2]string{{t1, d1}, {t2, d2}, {t1, d3}} {
+		r := w.post("/v1/truck-assignments", ta, map[string]any{"truckId": p[0], "driverId": p[1]})
+		expect(t, r, http.StatusCreated, "")
+		rows[p[1]] = str(r.data()["id"])
+	}
+	w.exec(`UPDATE truck_assignments SET admin_label = 'Night Desk' WHERE id = $1`, rows[d2])
+
+	// drivers walks every page of the query and returns the drivers of the rows in order.
+	drivers := func(query string) []string {
+		t.Helper()
+		var out []string
+		cursor := ""
+		for {
+			path := "/v1/truck-assignments?" + query
+			if cursor != "" {
+				path += "&cursor=" + url.QueryEscape(cursor)
+			}
+			r := w.get(path, ta)
+			expect(t, r, http.StatusOK, "")
+			for _, it := range r.list() {
+				out = append(out, str(it["driverId"]))
+			}
+			if cursor = r.next(); cursor == "" {
+				return out
+			}
+		}
+	}
+	q := func(v string) string { return "q=" + url.QueryEscape(v) }
+	for _, c := range []struct {
+		query string
+		want  []string
+	}{
+		{q("5101"), []string{d3, d1}},              // plate, newest first
+		{q("frr"), []string{d2}},                   // model, any case
+		{q("SOMCHAI dee"), []string{d1}},           // first + last name
+		{q("ใจดี"), []string{d3}},                  // Thai full name
+		{q("night"), []string{d2}},                 // admin label
+		{q("  5202 "), []string{d2}},               // surrounding blanks trimmed
+		{q("   "), []string{d3, d2, d1}},           // blank: no filter
+		{q("nobody"), nil},                         // no match: an empty page
+		{q("5101") + "&limit=1", []string{d3, d1}}, // keyset pages of one keep the filter
+	} {
+		if got := drivers(c.query); !slices.Equal(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.query, got, c.want)
+		}
+	}
+	expect(t, w.post("/v1/truck-assignments/"+rows[d1]+"/revoke", ta, nil), http.StatusOK, "")
+	if got := drivers(q("5101") + "&status=active"); !slices.Equal(got, []string{d3}) {
+		t.Errorf("q with status: %v", got)
+	}
+	if got := drivers(q("5101") + "&status=revoked"); !slices.Equal(got, []string{d1}) {
+		t.Errorf("q with status revoked: %v", got)
+	}
+	r := w.get("/v1/truck-assignments?"+q(strings.Repeat("ก", 101)), ta)
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["q"] != "too_long" {
+		t.Errorf("%s", r.raw)
+	}
+	expect(t, w.get("/v1/truck-assignments?"+q(strings.Repeat("ก", 100)), ta), http.StatusOK, "")
 }
 
 // AC: activeTruck (the truck of the running job), currentAssignment (the home truck) and tasks.truck_id (the truck of

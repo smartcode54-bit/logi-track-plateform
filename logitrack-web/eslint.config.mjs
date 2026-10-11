@@ -35,6 +35,8 @@ const LAZY_MODULES = [
   "features/security-center/components/SessionLoginLocationMap.tsx",
   "features/dashboard/components/DashboardVehicleMapClient.tsx",
   "features/incident-reports/components/IncidentLocationMapClient.tsx",
+  // TW8: the virtualised list of a long FilterCombobox (@tanstack/react-virtual) loads on demand.
+  "components/filter-combobox-virtual-options.tsx",
 ];
 const lazyModuleName = (file) => file.split("/").pop().replace(/\.tsx?$/, "");
 const LAZY_MODULE_IMPORT = {

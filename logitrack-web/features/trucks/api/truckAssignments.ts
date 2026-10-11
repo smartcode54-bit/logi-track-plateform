@@ -5,7 +5,8 @@
  * Keys (`['truckAssignments', …]`; `assignment.*` and the other fleet events invalidate the prefix):
  * - `['truckAssignments', {status:'active'}]`: every active row (the page's table, the trucks list's
  *   driver column).
- * - `['truckAssignments', {view:'history'}]` (infinite, 100 per page): the page's history.
+ * - `['truckAssignments', {view:'history', status, q}]` (infinite, 100 per page): the page's history,
+ *   searched and filtered on the server (`?status&q`, TW8), rendered by the virtualised table.
  * - `['truckAssignments', {truckId}]` / `{driverId}`: one truck's or driver's history.
  *
  * Writes: `POST /v1/truck-assignments` and `POST /v1/truck-assignments/{id}/revoke`, one transaction
@@ -13,9 +14,9 @@
  * side is `./truckAssignments.firestore.ts`, loaded with `import()` only then.
  */
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { goFetch, goPath } from "@/lib/goFetch";
+import { goFetch, goFetchEnvelope, goPath } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
-import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
+import { goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
 
@@ -59,19 +60,49 @@ export const activeAssignmentsQuery = queryOptions({
     ...QUERY_POLICY.entity,
 });
 
-type HistoryKey = ReturnType<typeof queryKeys.truckAssignments<{ view: "history" }>>;
+/** The history's server filters: `status` (`""` = every status) and the search `q` (`GET /v1/truck-assignments?status&q`). */
+export type AssignmentHistoryFilter = {
+    status: AssignmentStatus | "";
+    q: string;
+};
 
-/** `['truckAssignments', {view:'history'}]` (infinite): newest first, keyset. */
-export const assignmentHistoryQuery = infiniteQueryOptions({
-    queryKey: queryKeys.truckAssignments({ view: "history" }) as HistoryKey,
-    queryFn: domainQueryFn<GoPage<TruckAssignmentDTO>, HistoryKey, string | undefined>("masterdata", {
-        firestore: async () => ({ data: await (await firestore()).listAssignmentHistoryFirestore() }),
-        go: goInfiniteQueryFn<TruckAssignmentDTO, HistoryKey>(TRUCK_ASSIGNMENTS_PATH, { query: { limit: ASSIGNMENTS_PAGE_SIZE } }),
-    }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: goNextPageParam,
-    ...QUERY_POLICY.entity,
-});
+type HistoryParams = AssignmentHistoryFilter & { view: "history" };
+type HistoryKey = readonly ["truckAssignments", HistoryParams];
+
+/**
+ * Rows of the history filter in the browser: the Firestore adapter's every row (flag off), the same
+ * columns Go's `q` searches (plate, model, driver name, admin label).
+ */
+export function matchesAssignmentHistory(row: TruckAssignmentDTO, filter: AssignmentHistoryFilter): boolean {
+    if (filter.status && row.status !== filter.status) return false;
+    const q = filter.q.trim().toLowerCase();
+    if (!q) return true;
+    return [row.truckPlate, row.truckModel, row.driverName, row.adminLabel].some((v) => (v ?? "").toLowerCase().includes(q));
+}
+
+/**
+ * `['truckAssignments', {view:'history', status, q}]` (infinite): newest first, keyset, 100 per page.
+ * The filters are in the key and the request (W9): a search reaches rows the browser has not loaded.
+ */
+export function assignmentHistoryQuery(filter: AssignmentHistoryFilter) {
+    const params: HistoryParams = { view: "history", status: filter.status, q: filter.q.trim() };
+    return infiniteQueryOptions({
+        queryKey: queryKeys.truckAssignments(params) as HistoryKey,
+        queryFn: domainQueryFn<GoPage<TruckAssignmentDTO>, HistoryKey, string | undefined>("masterdata", {
+            firestore: async ({ queryKey: [, p] }) => ({
+                data: (await (await firestore()).listAssignmentHistoryFirestore()).filter((row) => matchesAssignmentHistory(row, p)),
+            }),
+            go: ({ queryKey: [, p], signal, pageParam }) =>
+                goFetchEnvelope<TruckAssignmentDTO[]>(TRUCK_ASSIGNMENTS_PATH, {
+                    signal,
+                    query: { status: p.status || undefined, q: p.q || undefined, limit: ASSIGNMENTS_PAGE_SIZE, cursor: pageParam },
+                }),
+        }),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: goNextPageParam,
+        ...QUERY_POLICY.entity,
+    });
+}
 
 /** `['truckAssignments', {truckId}]` or `{driverId}`: one truck's or one driver's assignments. */
 export function assignmentsOfQuery(of: { truckId: string } | { driverId: string }) {
