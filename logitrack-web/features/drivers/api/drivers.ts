@@ -23,6 +23,8 @@ import { uploadToGo } from "@/lib/goUpload";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
 import { createUser, type CreateUserResult } from "@/features/users/api/users";
+import { fieldViolations } from "@/features/auth/utils/fieldErrors";
+import { isApiError } from "@/lib/apiError";
 import type { Driver } from "@/validate/driverSchema";
 import { apiDate, localDate } from "@/lib/calendarDate";
 
@@ -67,7 +69,7 @@ export interface DriverDTO {
     updatedAt: string | null;
     /** Firestore only: the list showed the stored photo (Go keeps files on the detail). */
     profileUrl?: string | null;
-    /** Firestore only: the driver's Firebase uid (the chat pages, P5, still key chats by it). */
+    /** The driver's legacy Firebase uid (Go: `drivers.legacy_auth_uid`; Firestore: `authId`): the chat pages, P5, still key chats by it. */
     legacyAuthUid?: string | null;
 }
 
@@ -365,29 +367,54 @@ export class DriverNotSyncedError extends Error {
 }
 
 /**
- * The PostgreSQL id of a driver shown from Firestore: the Go driver whose `legacyDocId` is the
+ * The PostgreSQL driver of a driver shown from Firestore: the Go driver whose `legacyDocId` is the
  * document id, found by a server search on the mobile number (or the name).
  */
-export async function resolveGoDriverId(d: Pick<DriverDTO, "id" | "mobile" | "fullNameTh" | "firstName">): Promise<string> {
+export async function resolveGoDriver(d: Pick<DriverDTO, "id" | "mobile" | "fullNameTh" | "firstName">): Promise<DriverDTO> {
     for (const q of [d.mobile, d.fullNameTh, d.firstName]) {
         if (!q) continue;
         const page = await goFetchEnvelope<DriverDTO[]>(DRIVERS_PATH, { query: { q, limit: 100 } });
         const match = (page.data ?? []).find((x) => x.legacyDocId === d.id || x.id === d.id);
-        if (match) return match.id;
+        if (match) return match;
     }
     throw new DriverNotSyncedError();
 }
 
+/** The input of `createDriverLogin`. */
+export interface DriverLoginInput {
+    /**
+     * The driver; `tenantId` is its tenant (Go; the carrier of a subcontractor driver), where the login's
+     * membership must be. Unset: the caller's active tenant. The Firestore source ignores it and uses
+     * the tenant of the resolved PostgreSQL driver.
+     */
+    driver: Pick<DriverDTO, "id" | "mobile" | "fullNameTh" | "firstName" | "lastName" | "displayName"> & { tenantId?: string | null };
+    email: string;
+    sendInvite?: boolean;
+}
+
 /**
  * Creates the driver's login through the users administration (`POST /v1/users {role:"driver",
- * driverId}`, Appendix C §C.8): Go generates a temporary password (shown once, R29) or mails an
- * invite. Users are PostgreSQL's from P0, so this is a Go call whatever the `masterdata` flag says.
+ * driverId, tenantId}`, Appendix C §C.8): Go generates a temporary password (shown once, R29) or
+ * mails an invite. Users are PostgreSQL's from P0, so this is a Go call whatever the `masterdata`
+ * flag says. `tenantId` is the driver's tenant: an own-fleet admin creates the login of a carrier's
+ * driver in that carrier (a tenant of its write reach, T25 review), where the driver link must be.
+ * The answer holds the temporary password: callers keep it in their own state, never in a query or
+ * mutation cache (`useCreateDriverLogin`).
  */
-export const createDriverLogin = domainMutationFn<
-    CreateUserResult,
-    { driver: Pick<DriverDTO, "id" | "mobile" | "fullNameTh" | "firstName" | "lastName" | "displayName">; email: string; sendInvite?: boolean }
->("masterdata", {
-    firestore: async ({ driver, email, sendInvite }) =>
-        createUser({ email, displayName: driverName(driver), role: "driver", driverId: await resolveGoDriverId(driver), sendInvite }),
-    go: ({ driver, email, sendInvite }) => createUser({ email, displayName: driverName(driver), role: "driver", driverId: driver.id, sendInvite }),
+export const createDriverLogin = domainMutationFn<CreateUserResult, DriverLoginInput>("masterdata", {
+    firestore: async ({ driver, email, sendInvite }) => {
+        const pg = await resolveGoDriver(driver);
+        return createUser({ email, displayName: driverName(driver), role: "driver", driverId: pg.id, tenantId: pg.tenantId || undefined, sendInvite });
+    },
+    go: ({ driver, email, sendInvite }) =>
+        createUser({ email, displayName: driverName(driver), role: "driver", driverId: driver.id, tenantId: driver.tenantId || undefined, sendInvite }),
 });
+
+/**
+ * Whether a failed login creation means the driver is outside what the caller may manage: a driver
+ * of another tenant (`422 driverId not_found`) or a tenant outside its reach (`403 platform_only`).
+ */
+export function isDriverLoginOutOfReach(error: unknown): boolean {
+    if (fieldViolations(error).some((v) => v.field === "driverId" && v.reason === "not_found")) return true;
+    return isApiError(error) && error.code === "permission_denied" && error.details.reason === "platform_only";
+}

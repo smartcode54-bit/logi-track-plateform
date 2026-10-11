@@ -2,10 +2,10 @@
  * Firestore source of the drivers module while the `masterdata` flag is off (developer-spec.md §10.6
  * "Domain adapter"): the `drivers` documents mapped to the Go DTOs, and the legacy profile writes
  * (`createDriverAccount` / `updateDriverAccount` callables, profile only: logins are created through
- * `POST /v1/users`, see `createDriverLogin`). Loaded only through `import()`. Deleted with the
- * Firebase SDK (TW7).
+ * `POST /v1/users`, see `createDriverLogin`; neither callable is ever given what would make it create
+ * a Firebase account). Loaded only through `import()`. Deleted with the Firebase SDK (TW7).
  */
-import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, orderBy, query, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, functions, storage } from "@/firebase/client";
@@ -204,6 +204,23 @@ export async function updateDriverFirestore(id: string, save: DriverSave): Promi
     // The form's synthetic fields are not stored.
     delete updates.id;
     delete updates.statusHistory;
+    // `updateDriverAccount` provisions a Firebase account (password = the mobile number's digits) and
+    // sets driver claims whenever `updates.email` is non-empty and the stored driver has no `authId`
+    // (functions/src/triggers.ts, branch 2b). Logins are `POST /v1/users` only (T25, Appendix C
+    // §C.6.4), so for a driver without one the e-mail never reaches the callable: it is written to the
+    // document directly (web admins may update `drivers`, firestore.rules). A driver that already has
+    // an account keeps the legacy sync of that account's address.
+    const stored = await getDoc(doc(db, COLLECTIONS.DRIVERS, id));
+    const data = (stored.data() ?? {}) as Record<string, unknown>;
+    const hasAccount = Boolean(text(data.authId) ?? text(data.authUid));
+    let email: unknown;
+    if (!hasAccount && "email" in updates) {
+        email = updates.email;
+        delete updates.email;
+    }
     const call = httpsCallable(functions, "updateDriverAccount");
     await call({ id, updates: removeUndefined(updates) });
+    if (email !== undefined && (text(email) ?? "") !== (text(data.email) ?? "")) {
+        await updateDoc(doc(db, COLLECTIONS.DRIVERS, id), { email: text(email) ?? "" });
+    }
 }

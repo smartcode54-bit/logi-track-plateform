@@ -1,6 +1,12 @@
 // TW4 / T25 (developer-spec.md §10.7; Appendix E §E.4): customers, subcontractors and the owner company
 // are read once per stale time for the whole tab, whichever page or dialog asks, from Firestore while the
-// `masterdata` flag is off, and their writes invalidate the cached copy.
+// `masterdata` flag is off, and their writes invalidate the cached copy. The writes go through the save
+// hooks the forms use (`useSaveCustomer`, `useSaveSubcontractor`, `useSaveCompany`): the write functions
+// themselves invalidate nothing, the hooks' `meta.invalidates` does (T25 review), so these tests fail
+// when a hook loses its meta.
+import React from "react";
+import { act, renderHook } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => ({ reads: [] as string[], writes: [] as string[] }));
@@ -40,11 +46,17 @@ vi.mock("firebase/firestore", () => {
     };
 });
 
-const { getCustomers, updateCustomer, customersQueryOptions, fetchCustomerOptions } = await import("./customers");
-const { fetchSubcontractorOptions, updateSubcontractor } = await import("@/features/subcontractors/api/subcontractors");
-const { getOwnerCompany, saveCompany, invalidateCompanies } = await import("@/features/companies/api/companies");
+const { getCustomers, customersQueryOptions, fetchCustomerOptions } = await import("./customers");
+const { useSaveCustomer } = await import("./useCustomers");
+const { fetchSubcontractorOptions } = await import("@/features/subcontractors/api/subcontractors");
+const { useSaveSubcontractor } = await import("@/features/subcontractors/api/useSubcontractors");
+const { getOwnerCompany } = await import("@/features/companies/api/companies");
+const { useSaveCompany } = await import("@/features/companies/api/useCompanies");
 const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
-const { queryKeys } = await import("@/lib/queryKeys");
+
+function wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={getQueryClient()}>{children}</QueryClientProvider>;
+}
 
 beforeEach(() => {
     store.reads = [];
@@ -63,22 +75,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("cached master data (masterdata flag off)", () => {
-    it("['customers']: fifteen callers, one read; a write refreshes it", async () => {
+    it("['customers']: fifteen callers, one read; a write through the form's hook refreshes it", async () => {
         expect(customersQueryOptions.queryKey).toEqual(["customers"]);
         expect(customersQueryOptions.staleTime).toBe(600_000);
         const lists = await Promise.all(Array.from({ length: 15 }, () => getCustomers()));
         expect(lists[14][0]).toMatchObject({ id: "c1", code: "CJ" });
         expect(store.reads).toEqual(["customers"]);
-        await updateCustomer({
-            id: "c1",
-            input: {
-                code: "CJ", name: "CJ", description: null, address: null, taxId: null, branchType: "branch", branchNumber: "00001",
-                contactName: null, contactPhone: null, billingEmail: null, paymentTermsDays: null, invoiceNote: null,
-                lineGroupId: null, billingDateBasis: "delivered", driverIdTypes: [],
-            },
-        });
+        const { result } = renderHook(() => useSaveCustomer(), { wrapper });
+        await act(() =>
+            result.current.update.mutateAsync({
+                id: "c1",
+                input: {
+                    code: "CJ", name: "CJ", description: null, address: null, taxId: null, branchType: "branch", branchNumber: "00001",
+                    contactName: null, contactPhone: null, billingEmail: null, paymentTermsDays: null, invoiceNote: null,
+                    lineGroupId: null, billingDateBasis: "delivered", driverIdTypes: [],
+                },
+            })
+        );
         expect(store.writes).toEqual(["customers"]);
-        await getQueryClient().invalidateQueries({ queryKey: queryKeys.customers.all() });
         await getCustomers();
         expect(store.reads).toEqual(["customers", "customers"]);
     });
@@ -90,24 +104,29 @@ describe("cached master data (masterdata flag off)", () => {
         expect(store.reads).toEqual(["customers"]);
     });
 
-    it("['subcontractors','options']: one read for the truck and driver forms", async () => {
+    it("['subcontractors','options']: one read for the truck and driver forms; a write through the form's hook refreshes it", async () => {
         const options = await fetchSubcontractorOptions();
         await fetchSubcontractorOptions();
         expect(options).toEqual([{ id: "s1", code: null, nameTh: "Carrier A", nameEn: null, status: "active" }]);
         expect(store.reads).toEqual(["subcontractors"]);
-        await updateSubcontractor({ id: "s1", values: { name: "Carrier B", type: "company", taxId: "", contactPerson: "a", phone: "1" } as never });
+        const { result } = renderHook(() => useSaveSubcontractor(), { wrapper });
+        await act(() =>
+            result.current.update.mutateAsync({ id: "s1", values: { name: "Carrier B", type: "company", taxId: "", contactPerson: "a", phone: "1" } as never })
+        );
         expect(store.writes).toEqual(["subcontractors"]);
+        await fetchSubcontractorOptions();
+        expect(store.reads).toEqual(["subcontractors", "subcontractors"]);
     });
 
-    it("['companies',{owner:true}]: shared by three pages; the profile form reads fresh", async () => {
+    it("['companies',{owner:true}]: shared by three pages; the profile form reads fresh; its save refreshes it", async () => {
         const owner = await getOwnerCompany();
         await getOwnerCompany();
         expect(owner).toMatchObject({ id: "co1", nameTh: "บริษัท", companyType: "owner", branchType: "headquarters" });
         expect(store.reads).toEqual(["companies"]);
         await getOwnerCompany({ fresh: true });
         expect(store.reads).toEqual(["companies", "companies"]);
-        await saveCompany({ id: "co1", values: { nameTh: "บริษัท" } as never });
-        await invalidateCompanies();
+        const { result } = renderHook(() => useSaveCompany(), { wrapper });
+        await act(() => result.current.mutateAsync({ id: "co1", values: { nameTh: "บริษัท" } as never }));
         await getOwnerCompany();
         expect(store.reads).toEqual(["companies", "companies", "companies"]);
     });

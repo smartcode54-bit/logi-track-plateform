@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Upload, FileText, Save, Loader2, CheckCircle2, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { fileUrl, formPaymentMethod, type TruckDetailDTO } from "../../api/trucks";
+import { fileUrl, formPaymentMethod, previewOfRef, truckFilePreviewUrls, type TruckDetailDTO } from "../../api/trucks";
 import { useTruckWrites } from "../../api/useTrucks";
 import { toastSaveError } from "@/lib/formServerErrors";
 
@@ -52,10 +52,12 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
     const [policyNumber, setPolicyNumber] = useState(truck.insurancePolicyNumber || "");
     const [coverageType, setCoverageType] = useState(truck.insuranceType || "");
     const [notes, setNotes] = useState(truck.insuranceNotes || "");
-    // Stored document URLs plus `blob:` URLs of files picked here; the new ones upload with the save.
+    // Stored document refs (keys; a document without a URL is kept and shown as unavailable) plus the
+    // `blob:` URLs of files picked here; the new ones upload with the save.
     const [uploadedDocs, setUploadedDocs] = useState<string[]>(
-        (truck.files.insuranceDocument ?? []).map((f) => f.url ?? "").filter(Boolean)
+        (truck.files.insuranceDocument ?? []).map((f) => f.key).filter(Boolean)
     );
+    const [previews] = useState(() => truckFilePreviewUrls(truck.files));
     const [newDocs] = useState<Map<string, File>>(() => new Map());
     const uploadingDoc = false;
 
@@ -104,7 +106,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                 policyId,
                 policyNumber,
                 coverage: coverageType,
-                notes,
+                insuranceNotes: notes,
                 documents: uploadedDocs.filter((u) => !u.startsWith("blob:")),
                 newDocuments: uploadedDocs.filter((u) => u.startsWith("blob:")).map((u) => newDocs.get(u)).filter((f): f is File => Boolean(f)),
                 actorLabel: currentUser.displayName || currentUser.email || "Unknown",
@@ -327,20 +329,28 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                     )}
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    {uploadedDocs.map((docUrl, index) => (
+                                    {uploadedDocs.map((docRef, index) => {
+                                        const docUrl = previewOfRef(previews, docRef);
+                                        return (
                                         <div
                                             key={index}
                                             className="relative aspect-[4/3] rounded-lg border-2 border-blue-500/50 bg-muted/30 flex flex-col items-center justify-center gap-2 group"
                                         >
                                             <FileText className="h-10 w-10 text-blue-500" />
-                                            <a
-                                                href={docUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-sm text-blue-500 hover:underline"
-                                            >
-                                                {t("masterData.trucks.documentN", { n: index + 1 })}
-                                            </a>
+                                            {docUrl ? (
+                                                <a
+                                                    href={docUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-sm text-blue-500 hover:underline"
+                                                >
+                                                    {t("masterData.trucks.documentN", { n: index + 1 })}
+                                                </a>
+                                            ) : (
+                                                <span className="text-sm text-muted-foreground">
+                                                    {t("masterData.trucks.documentN", { n: index + 1 })} · {t("masterData.files.unavailable")}
+                                                </span>
+                                            )}
                                             <button
                                                 type="button"
                                                 onClick={() => removeDoc(index)}
@@ -349,7 +359,8 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                                 ×
                                             </button>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
 
                                     <div className="relative aspect-[4/3] rounded-lg border-2 border-dashed border-input hover:bg-muted/50 transition-colors flex flex-col items-center justify-center gap-2 cursor-pointer">
                                         <input

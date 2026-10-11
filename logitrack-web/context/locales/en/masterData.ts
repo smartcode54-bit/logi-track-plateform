@@ -55,6 +55,7 @@ const masterData: Record<string, string> = {
     "masterData.trucks.noInsuranceDoc": "No insurance document uploaded.",
     "masterData.trucks.ownershipFixed": "A truck's owner (own fleet or carrier) is fixed once it is registered.",
     "masterData.trucks.documentN": "Document {n}",
+    "masterData.files.unavailable": "File unavailable",
 
     "masterData.renewals.noDate": "No date",
 
@@ -74,6 +75,7 @@ const masterData: Record<string, string> = {
     "masterData.drivers.login.temporaryExplain": "A temporary password is generated and shown once; the driver sets a new one at the first sign-in.",
     "masterData.drivers.login.notSynced": "This driver is not in the new system yet. Create the login from Security Center → Users once the driver appears there.",
     "masterData.drivers.login.createLater": "The driver was saved without a login. Create it from the driver's edit page or Security Center → Users.",
+    "masterData.drivers.login.outOfReach": "This driver belongs to an organisation you cannot manage. Ask its administrator to create the login.",
 };
 
 export default masterData;

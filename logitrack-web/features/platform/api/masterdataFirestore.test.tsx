@@ -12,6 +12,7 @@ const store = vi.hoisted(() => ({
     collections: {} as Record<string, Array<{ id: string; data: Record<string, unknown> }>>,
     reads: [] as string[],
     callables: [] as Array<{ name: string; data: unknown }>,
+    updates: [] as Array<{ name: string; id: string; data: Record<string, unknown> }>,
 }));
 
 vi.mock("@/firebase/client", () => ({ db: {}, auth: {}, functions: {}, storage: {} }));
@@ -40,14 +41,17 @@ vi.mock("firebase/firestore", () => {
             const d = (store.collections[ref.name] ?? []).find((x) => x.id === ref.id);
             return { id: ref.id, exists: () => Boolean(d), data: () => d?.data };
         },
+        updateDoc: async (ref: { name: string; id: string }, data: Record<string, unknown>) => {
+            store.updates.push({ name: ref.name, id: ref.id, data });
+        },
     };
 });
 
 const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
 const { useDriverPages } = await import("@/features/drivers/api/useDrivers");
-const { createDriverLogin, driverQuery, driverFormValues, driverBodyFromForm } = await import("@/features/drivers/api/drivers");
+const { createDriverLogin, driverQuery, driverFormValues, driverBodyFromForm, updateDriver } = await import("@/features/drivers/api/drivers");
 const { useTruckPages } = await import("@/features/trucks/api/useTrucks");
-const { truckQuery, truckFormValues, truckBodyFromForm, fileKeysByUrl } = await import("@/features/trucks/api/trucks");
+const { truckQuery, truckFormValues, truckBodyFromForm, storedFileKeys, truckFilePreviewUrls } = await import("@/features/trucks/api/trucks");
 const { customerQuery, customerFormValues, customerInputFromForm } = await import("@/features/customers/api/customers");
 const { subcontractorQuery, subcontractorFormValues } = await import("@/features/subcontractors/api/subcontractors");
 
@@ -57,6 +61,7 @@ beforeEach(() => {
     calls.length = 0;
     store.reads = [];
     store.callables = [];
+    store.updates = [];
     store.collections = {};
     resetQueryClientForTests();
     vi.stubGlobal(
@@ -67,7 +72,10 @@ beforeEach(() => {
             calls.push({ method, url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
             if (url === "/api/go/v1/config/web-flags") return new Response(JSON.stringify({ data: { domains: { masterdata: "firebase" } } }), { status: 200 });
             if (url.startsWith("/api/go/v1/drivers?")) {
-                return new Response(JSON.stringify({ data: [{ id: "pg-1", legacyDocId: "fs-1" }, { id: "pg-2", legacyDocId: "fs-2" }] }), { status: 200 });
+                return new Response(
+                    JSON.stringify({ data: [{ id: "pg-1", legacyDocId: "fs-1" }, { id: "pg-2", legacyDocId: "fs-2" }, { id: "pg-3", legacyDocId: "fs-3", tenantId: "carrier-a" }] }),
+                    { status: 200 }
+                );
             }
             if (url === "/api/go/v1/users" && method === "POST") return new Response(JSON.stringify({ data: { user: { id: "u-1", email: "a@b.c" }, temporaryPassword: "Tmp-9" } }), { status: 201 });
             throw new Error(`unexpected ${method} ${url}`);
@@ -124,7 +132,9 @@ describe("masterdata flag off: the Firestore adapters", () => {
         expect(dto.statusHistory[0]).toMatchObject({ status: "Tax Renewed", changedByLabel: "Admin", reason: "Expiry: x" });
         const values = truckFormValues(dto);
         expect(values).toMatchObject({ truckStatus: "insurance-claim", paymentMethod: "Company Credit", imageFrontRight: "https://s/fr.png", insuranceDocuments: ["https://s/ins1.pdf"], year: "2021" });
-        expect(fileKeysByUrl(dto.files)).toMatchObject({ "https://s/fr.png": "https://s/fr.png" });
+        // On Firestore a file's key is its URL: the form's refs are the stored URLs, as before.
+        expect(storedFileKeys(dto.files)).toMatchObject({ imageFrontRight: ["https://s/fr.png"], insuranceDocument: ["https://s/ins1.pdf"] });
+        expect(truckFilePreviewUrls(dto.files)).toMatchObject({ "https://s/fr.png": "https://s/fr.png" });
         expect(truckBodyFromForm(values as never)).toMatchObject({ status: "insurance_claim", year: 2021, maxLoadWeightKg: 6000, insurancePremiumThb: 20000 });
     });
 
@@ -150,6 +160,47 @@ describe("masterdata flag off: the Firestore adapters", () => {
         expect(go[1].body).toEqual({ email: "a@b.c", displayName: "เอ บี", role: "driver", driverId: "pg-2" });
         // No Firebase login callable was used.
         expect(store.callables).toEqual([]);
+    });
+
+    it("a carrier driver's login goes to the tenant of the resolved PostgreSQL driver", async () => {
+        store.collections.drivers = [{ id: "fs-3", data: { firstName: "C", lastName: "D", mobile: "0899999999", status: "Active", employmentType: "SUBCONTRACTOR", subcontractorId: "s-legacy" } }];
+        const d = (await getQueryClient().fetchQuery(driverQuery("fs-3")))!;
+        await createDriverLogin({ driver: d, email: "c@d.e" });
+        const post = calls.find((c) => c.method === "POST" && c.url === "/api/go/v1/users");
+        // The Firestore subcontractor id is not a tenant: the Go driver's tenant is used.
+        expect(post?.body).toEqual({ email: "c@d.e", displayName: "C D", role: "driver", driverId: "pg-3", tenantId: "carrier-a" });
+    });
+
+    it("a profile save never makes the legacy callable create a Firebase account (T25 review)", async () => {
+        // updateDriverAccount provisions an account (password: the mobile digits) when it gets an email
+        // for a driver without authId: the email is written to the document directly instead.
+        store.collections.drivers = [
+            { id: "fs-5", data: { firstName: "A", lastName: "B", fullNameTh: "เอ", mobile: "0812345678", email: "old@x.th", status: "Active", employmentType: "FULL_TIME" } },
+        ];
+        const d = (await getQueryClient().fetchQuery(driverQuery("fs-5")))!;
+        const values = { ...driverFormValues(d), email: "p@x.th", truckLicenseId: "12345678" };
+        await updateDriver({ id: "fs-5", values, files: { profile: null, idCard: null, license: null }, customerIdByCode: new Map(), previous: d });
+        expect(store.callables).toHaveLength(1);
+        const sent = store.callables[0].data as { id: string; updates: Record<string, unknown> };
+        expect(sent.id).toBe("fs-5");
+        expect(sent.updates).not.toHaveProperty("email");
+        expect(sent.updates).toMatchObject({ truckLicenseId: "12345678", mobile: "0812345678" });
+        expect(store.updates).toEqual([{ name: "drivers", id: "fs-5", data: { email: "p@x.th" } }]);
+
+        // An unchanged email is not rewritten.
+        store.callables = [];
+        store.updates = [];
+        store.collections.drivers[0].data.email = "p@x.th";
+        await updateDriver({ id: "fs-5", values, files: { profile: null, idCard: null, license: null }, customerIdByCode: new Map(), previous: d });
+        expect((store.callables[0].data as { updates: Record<string, unknown> }).updates).not.toHaveProperty("email");
+        expect(store.updates).toEqual([]);
+
+        // A driver that has an account keeps the legacy sync of the account's address.
+        store.callables = [];
+        store.collections.drivers[0].data.authId = "fb-uid";
+        await updateDriver({ id: "fs-5", values: { ...values, email: "new@x.th" }, files: { profile: null, idCard: null, license: null }, customerIdByCode: new Map(), previous: d });
+        expect((store.callables[0].data as { updates: Record<string, unknown> }).updates).toMatchObject({ email: "new@x.th" });
+        expect(store.updates).toEqual([]);
     });
 
     it("the driver form maps statuses, employment and customer ids by code", async () => {

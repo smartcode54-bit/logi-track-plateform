@@ -101,24 +101,34 @@ const pages = MASTER_DATA_ROUTES.flatMap((route) => walk(path.join(root, "app/ap
     .filter((f) => !EXCLUDED.has(f));
 
 describe("master-data pages without Firebase (T25)", () => {
-    it("finds the pages of issue #45", () => {
-        expect(pages).toEqual(
-            expect.arrayContaining([
-                "app/app/customers/page.tsx",
-                "app/app/customers/[id]/edit/page.tsx",
-                "app/app/subcontractors/[id]/page.tsx",
+    it("finds exactly the 22 pages of issue #45 (Appendix E §E.2.0, P1 masterdata)", () => {
+        // An exact list: a page that drops out of the walk loses its no-Firebase check, so it must fail here.
+        expect([...pages].sort()).toEqual(
+            [
                 "app/app/companies/page.tsx",
+                "app/app/customers/[id]/edit/page.tsx",
+                "app/app/customers/[id]/page.tsx",
+                "app/app/customers/new/page.tsx",
+                "app/app/customers/page.tsx",
+                "app/app/drivers/edit/page.tsx",
+                "app/app/drivers/new/page.tsx",
+                "app/app/drivers/page.tsx",
+                "app/app/drivers/view/page.tsx",
+                "app/app/renewals/page.tsx",
                 "app/app/settings/company-profile/page.tsx",
                 "app/app/sources/page.tsx",
+                "app/app/subcontractors/[id]/edit/page.tsx",
+                "app/app/subcontractors/[id]/page.tsx",
+                "app/app/subcontractors/new/page.tsx",
+                "app/app/subcontractors/page.tsx",
+                "app/app/truck-assignment/page.tsx",
+                "app/app/trucks/edit/page.tsx",
+                "app/app/trucks/new/page.tsx",
                 "app/app/trucks/page.tsx",
                 "app/app/trucks/renew/page.tsx",
-                "app/app/renewals/page.tsx",
-                "app/app/truck-assignment/page.tsx",
-                "app/app/drivers/page.tsx",
-                "app/app/drivers/edit/page.tsx",
-            ])
+                "app/app/trucks/view/page.tsx",
+            ].sort()
         );
-        expect(pages.length).toBeGreaterThanOrEqual(21);
     });
 
     it.each(pages)("%s loads no Firebase module and no Firestore adapter when it renders", (page) => {

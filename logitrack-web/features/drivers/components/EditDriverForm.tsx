@@ -4,8 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
-import { DriverNotSyncedError, driverFormValues, type DriverDetailDTO } from "@/features/drivers/api/drivers";
-import { useDriver, useDriverWrites } from "@/features/drivers/api/useDrivers";
+import { DriverNotSyncedError, driverFormValues, isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
+import { useCreateDriverLogin, useDriver, useDriverWrites } from "@/features/drivers/api/useDrivers";
 import { useCustomerOptions } from "@/features/customers/api/useCustomers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
@@ -71,7 +71,9 @@ export default function EditDriverForm() {
     // `['drivers','detail',id]` (T25) and the writes, by the `masterdata` flag; logins always go
     // through `POST /v1/users` (users are PostgreSQL's from P0, R49).
     const driverQuery = useDriver(driverId ?? "");
-    const { update, createLogin } = useDriverWrites();
+    const { update } = useDriverWrites();
+    // The temporary password stays in this component's state only (never a query or mutation cache).
+    const createLogin = useCreateDriverLogin();
     const isSubmitting = update.isPending;
     const isLoading = driverQuery.isPending && Boolean(driverId);
     const [loaded, setLoaded] = useState<DriverDetailDTO | null>(null);
@@ -164,12 +166,18 @@ export default function EditDriverForm() {
         if (!loaded || !accountEmail.trim()) return;
         try {
             // `POST /v1/users {role:"driver", driverId}`: Go generates a temporary password, shown once (R29).
-            const result = await createLogin.mutateAsync({ driver: loaded, email: accountEmail.trim() });
+            // In the driver's tenant (the carrier of a subcontractor driver), where its link must be.
+            const { id, tenantId, mobile, fullNameTh, firstName, lastName, displayName } = loaded;
+            const result = await createLogin.create({
+                driver: { id, tenantId, mobile, fullNameTh, firstName, lastName, displayName },
+                email: accountEmail.trim(),
+            });
             setCreatedLogin(result);
             setShowCreateAccount(false);
             toast.success(t("drivers.toast.accountCreated"));
         } catch (error) {
             if (error instanceof DriverNotSyncedError) toast.error(t("masterData.drivers.login.notSynced"));
+            else if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
             else toastSaveError(error, t, "drivers.toast.accountCreateError");
         }
     };

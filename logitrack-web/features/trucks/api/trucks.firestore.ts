@@ -300,7 +300,7 @@ export async function renewTruckFirestore(r: RenewalSave): Promise<void> {
         if (r.policyId) payload.insurancePolicyId = r.policyId;
         if (r.policyNumber) payload.insurancePolicyNumber = r.policyNumber;
         if (r.coverage) payload.insuranceType = r.coverage;
-        if (r.notes) payload.insuranceNotes = r.notes;
+        if (r.insuranceNotes) payload.insuranceNotes = r.insuranceNotes;
         if (r.expiryDate) payload.insuranceExpiryDate = r.expiryDate;
         if (r.startDate) payload.insuranceStartDate = r.startDate;
         if (completed && receiptUrl && !docs.includes(receiptUrl)) docs.push(receiptUrl);

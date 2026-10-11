@@ -13,8 +13,9 @@ interface TruckFileUploaderProps {
     /** Legacy storage folder (unused since T25: the save decides where the file goes). */
     folder?: string;
     onUploadComplete: (url: string) => void;
-    currentUrls?: string[];
-    onRemove?: (url: string) => void;
+    /** Preview URLs of the current files; null is a stored file that cannot be read (shown as unavailable). */
+    currentUrls?: Array<string | null>;
+    onRemove?: (url: string | null) => void;
     multiple?: boolean;
     /**
      * Receives the picked file and its local `blob:` URL; the form uploads it when it is saved
@@ -77,11 +78,14 @@ export default function TruckFileUploader({ label, onUploadComplete, currentUrls
         }
     };
 
+    const last = currentUrls.length > 0 ? currentUrls[currentUrls.length - 1] : undefined;
     const displayFileName = selectedFileName
         ? selectedFileName
-        : (currentUrls.length > 0
-            ? getFileNameFromUrl(currentUrls[currentUrls.length - 1])
-            : t("trucks.upload.noFileChosen"));
+        : last === undefined
+            ? t("trucks.upload.noFileChosen")
+            : last === null
+                ? t("masterData.files.unavailable")
+                : getFileNameFromUrl(last);
 
 
 
@@ -93,6 +97,31 @@ export default function TruckFileUploader({ label, onUploadComplete, currentUrls
             {currentUrls.length > 0 && (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 mb-2">
                     {currentUrls.map((url, index) => {
+                        if (url === null) {
+                            // A stored file without a readable object (missing at source): kept unless removed.
+                            return (
+                                <div key={index} className="relative group border rounded-md overflow-hidden bg-muted/30">
+                                    <div className="flex flex-col items-center justify-center aspect-square w-full p-4 gap-2 text-muted-foreground">
+                                        <FileText className="h-8 w-8" />
+                                        <span className="text-xs text-center">{t("masterData.files.unavailable")}</span>
+                                    </div>
+                                    {onRemove && (
+                                        <Button
+                                            variant="destructive"
+                                            size="icon"
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                onRemove(url);
+                                            }}
+                                            className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    )}
+                                </div>
+                            );
+                        }
                         const isImage = isImageUrl(url);
                         return (
                             <div key={index} className="relative group border rounded-md overflow-hidden bg-muted/30">

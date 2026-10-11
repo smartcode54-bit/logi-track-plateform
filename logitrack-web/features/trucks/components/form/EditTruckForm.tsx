@@ -30,7 +30,14 @@ import { MaintenanceSection } from "./MaintenanceSection";
 import { PhotosSection } from "./PhotosSection";
 import { InsuranceSection } from "./InsuranceSection";
 
-import { fileKeysByUrl, TRUCK_FIELD_MAP, truckFormValues } from "../../api/trucks";
+import {
+    previewOfRef,
+    storedFileKeys,
+    TRUCK_FIELD_MAP,
+    truckFilePreviewUrls,
+    truckFormValues,
+    type TruckFileKind,
+} from "../../api/trucks";
 import { useTruck, useTruckWrites } from "../../api/useTrucks";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
@@ -76,7 +83,11 @@ export default function EditTruckForm() {
     const { update } = useTruckWrites();
     const isSubmitting = update.isPending;
     const onGo = useDomainSource("masterdata") === "go";
-    const [keyByUrl, setKeyByUrl] = useState<Record<string, string>>({});
+    // The loaded truck's file refs (keys) and their preview URLs: the form holds refs, so a stored file
+    // without a URL (missing at source) is shown as unavailable and kept by the save (T25 review).
+    const [stored, setStored] = useState<Partial<Record<TruckFileKind, string[]>>>({});
+    const [previews, setPreviews] = useState<Record<string, string | null>>({});
+    const previewOf = (ref: string) => previewOfRef(previews, ref);
 
     const form = useForm<TruckFormValues>({
         resolver: zodResolver(truckSchema) as any,
@@ -91,7 +102,8 @@ export default function EditTruckForm() {
         // reset() replaces every value, so a key absent from the record would land as undefined
         // instead of falling back to defaultValues (ADR 0003): merge over the defaults.
         form.reset({ ...truckDefaultValues, ...truckFormValues(truckData) } as TruckFormValues);
-        setKeyByUrl(fileKeysByUrl(truckData.files));
+        setStored(storedFileKeys(truckData.files));
+        setPreviews(truckFilePreviewUrls(truckData.files));
         setLoadedId(truckData.id);
     }, [truckQuery.data, loadedId, form]);
 
@@ -115,7 +127,7 @@ export default function EditTruckForm() {
         setError(null);
         try {
             if (!currentUser) throw new Error(t("masterData.notSignedIn"));
-            await update.mutateAsync({ id: truckId, values: data, pending: filesToUpload, keyByUrl, userId: currentUser.uid });
+            await update.mutateAsync({ id: truckId, values: data, pending: filesToUpload, stored, userId: currentUser.uid });
             toast.success(t("trucks.edit.success"));
             setTimeout(() => {
                 router.push(`/app/trucks/view?id=${truckId}`);
@@ -222,8 +234,8 @@ export default function EditTruckForm() {
                         <EngineInformationSection />
                         <MaintenanceSection />
                         <RegistrationSection />
-                        <InsuranceSection onFileSelect={handleFileSelect} />
-                        <PhotosSection onFileSelect={handleFileSelect} />
+                        <InsuranceSection onFileSelect={handleFileSelect} previewOf={previewOf} />
+                        <PhotosSection onFileSelect={handleFileSelect} previewOf={previewOf} />
 
                         <div className="flex justify-end gap-4">
                             <Button type="button" variant="outline" asChild>

@@ -29,9 +29,16 @@ import { useLanguage } from "@/context/language";
 interface InsuranceSectionProps {
     /** The picked document and its `blob:` URL; uploaded when the form is saved (T25). */
     onFileSelect: (file: File, blobUrl: string) => void;
+    /**
+     * The preview URL of a document ref (a stored file's key, or a picked file's `blob:` URL); null
+     * when the stored file cannot be read (shown as unavailable, still kept). Default: the ref itself.
+     */
+    previewOf?: (ref: string) => string | null;
 }
 
-export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
+const identity = (ref: string) => ref;
+
+export function InsuranceSection({ onFileSelect, previewOf = identity }: InsuranceSectionProps) {
     const { control, watch, setValue } = useFormContext();
     // Documents upload with the form's save (T25); nothing is in flight here.
     const isUploading = false;
@@ -224,16 +231,24 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                 <div className="space-y-4">
                     <FormLabel>{t("trucks.section.insuranceDocs")}</FormLabel>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {insuranceDocuments.map((docUrl: string, index: number) => (
+                        {insuranceDocuments.map((docRef: string, index: number) => {
+                            const docUrl = previewOf(docRef);
+                            return (
                             <div key={index} className="relative aspect-[3/4] rounded-md overflow-hidden border bg-muted flex flex-col items-center justify-center p-2 group">
                                 <FileText className="h-8 w-8 text-primary mb-2" />
-                                <Link
-                                    href={docUrl}
-                                    target="_blank"
-                                    className="text-xs text-center text-primary hover:underline break-all px-2 line-clamp-2"
-                                >
-                                    Document {index + 1}
-                                </Link>
+                                {docUrl ? (
+                                    <Link
+                                        href={docUrl}
+                                        target="_blank"
+                                        className="text-xs text-center text-primary hover:underline break-all px-2 line-clamp-2"
+                                    >
+                                        {t("masterData.trucks.documentN", { n: index + 1 })}
+                                    </Link>
+                                ) : (
+                                    <span className="text-xs text-center text-muted-foreground px-2">
+                                        {t("masterData.trucks.documentN", { n: index + 1 })} · {t("masterData.files.unavailable")}
+                                    </span>
+                                )}
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <Button
                                         variant="destructive"
@@ -245,7 +260,8 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
                                     </Button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
 
                         <div className="relative aspect-[3/4] flex flex-col items-center justify-center border-2 border-dashed rounded-md hover:bg-muted/50 transition-colors cursor-pointer">
                             <input

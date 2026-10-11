@@ -217,19 +217,47 @@ const text = (v: unknown): string | null => {
     return s === "" ? null : s;
 };
 
-/** The URL of the first file of a kind ("" without one). */
+/** The URL of the first file of a kind ("" without one, or when it has no URL). For display only. */
 export function fileUrl(files: TruckDetailDTO["files"], kind: TruckFileKind): string {
     return files[kind]?.[0]?.url ?? "";
 }
 
-/** Each stored file's URL -> key (the form holds URLs; a Go write sends keys back). */
-export function fileKeysByUrl(files: TruckDetailDTO["files"]): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const list of Object.values(files)) for (const f of list ?? []) if (f.url) out[f.url] = f.key;
+/**
+ * The ref of the first file of a kind ("" without one): its key. Go lists every linked file with its
+ * key and a URL that may be null (`missing_at_source` after the ETL, an unsignable object), so the
+ * forms hold keys, never URLs: a file without a URL is still a file the save must keep (T25 review).
+ * On Firestore the key is the URL.
+ */
+export function fileRef(files: TruckDetailDTO["files"], kind: TruckFileKind): string {
+    return files[kind]?.[0]?.key ?? "";
+}
+
+/** The refs (keys) of a stored truck's files, per kind: what a save compares the form against. */
+export function storedFileKeys(files: TruckDetailDTO["files"]): Partial<Record<TruckFileKind, string[]>> {
+    const out: Partial<Record<TruckFileKind, string[]>> = {};
+    for (const [kind, list] of Object.entries(files) as Array<[TruckFileKind, TruckFile[] | undefined]>) {
+        out[kind] = (list ?? []).map((f) => f.key).filter(Boolean);
+    }
     return out;
 }
 
-/** The truck form's values for a stored truck (`EditTruckForm`). */
+/** Preview URL of each stored file ref; null when the file has no readable object (shown as unavailable). */
+export function truckFilePreviewUrls(files: TruckDetailDTO["files"]): Record<string, string | null> {
+    const out: Record<string, string | null> = {};
+    for (const list of Object.values(files)) for (const f of list ?? []) if (f.key) out[f.key] = f.url ?? null;
+    return out;
+}
+
+/**
+ * The preview of a form value: a picked file's `blob:` URL is itself, a stored ref resolves through
+ * `previews` (null: unavailable), anything else (a Firestore URL) is shown as it is.
+ */
+export function previewOfRef(previews: Readonly<Record<string, string | null>>, ref: string): string | null {
+    if (!ref || ref.startsWith("blob:")) return ref || null;
+    return ref in previews ? previews[ref] : ref;
+}
+
+/** The truck form's values for a stored truck (`EditTruckForm`); file fields hold refs (`fileRef`). */
 export function truckFormValues(t: TruckDetailDTO): Partial<TruckFormValues> {
     return {
         ownershipType: t.ownershipType,
@@ -253,12 +281,12 @@ export function truckFormValues(t: TruckDetailDTO): Partial<TruckFormValues> {
         registrationDate: t.registrationDate ?? undefined,
         buyingDate: t.buyingDate ?? undefined,
         notes: t.notes ?? "",
-        imageFrontRight: fileUrl(t.files, "imageFrontRight"),
-        imageFrontLeft: fileUrl(t.files, "imageFrontLeft"),
-        imageBackRight: fileUrl(t.files, "imageBackRight"),
-        imageBackLeft: fileUrl(t.files, "imageBackLeft"),
-        documentTax: fileUrl(t.files, "documentTax"),
-        documentRegister: fileUrl(t.files, "documentRegister"),
+        imageFrontRight: fileRef(t.files, "imageFrontRight"),
+        imageFrontLeft: fileRef(t.files, "imageFrontLeft"),
+        imageBackRight: fileRef(t.files, "imageBackRight"),
+        imageBackLeft: fileRef(t.files, "imageBackLeft"),
+        documentTax: fileRef(t.files, "documentTax"),
+        documentRegister: fileRef(t.files, "documentRegister"),
         taxExpiryDate: t.taxExpiryDate ?? undefined,
         lastServiceDate: t.lastServiceDate ?? undefined,
         nextServiceDate: t.nextServiceDate ?? undefined,
@@ -272,7 +300,7 @@ export function truckFormValues(t: TruckDetailDTO): Partial<TruckFormValues> {
         insuranceStartDate: t.insuranceStartDate ?? undefined,
         insuranceExpiryDate: t.insuranceExpiryDate ?? undefined,
         insurancePremium: t.insurancePremiumThb ?? undefined,
-        insuranceDocuments: (t.files.insuranceDocument ?? []).map((f) => f.url ?? "").filter(Boolean),
+        insuranceDocuments: (t.files.insuranceDocument ?? []).map((f) => f.key).filter(Boolean),
         insuranceNotes: t.insuranceNotes ?? "",
         taxResponsible: t.taxResponsible,
         maintenanceResponsible: t.maintenanceResponsible,
@@ -449,8 +477,8 @@ export type PendingFiles = ReadonlyMap<string, File>;
 export interface TruckSave {
     values: TruckFormValues;
     pending: PendingFiles;
-    /** Stored file URL -> key (Go; from the loaded truck). */
-    keyByUrl?: Record<string, string>;
+    /** The loaded truck's file refs per kind (`storedFileKeys`); absent on a create. */
+    stored?: Partial<Record<TruckFileKind, string[]>>;
     /** Firestore: the actor recorded as `createdBy` / `updatedBy`. */
     userId?: string;
 }
@@ -464,32 +492,41 @@ const SINGLE_FILE_KINDS: ReadonlyArray<{ field: keyof TruckFormValues; kind: Tru
     { field: "documentRegister", kind: "documentRegister", purpose: "truck_document" },
 ];
 
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+
 /**
- * The `files` body of a Go write: a picked file is uploaded (the key embeds the truck), a stored one
- * goes back as its key, a cleared slot is `[]`. Kinds the form does not edit are left out (kept).
+ * The `files` body of a Go write. Only the kinds the user changed go out (Go replaces a kind that is
+ * present, and `[]` unlinks its files): a picked file is uploaded (the key embeds the truck), a
+ * stored one goes back as its key, a cleared slot is `[]`. A kind equal to what was loaded, a kind the
+ * form does not edit, and a kind holding a value the API does not know are left out, so a save never
+ * unlinks a file the user did not remove (a file without a URL included, T25 review).
  */
 export async function truckFilesBody(truckId: string, save: TruckSave): Promise<Record<string, string[]>> {
-    const keyByUrl = save.keyByUrl ?? {};
+    const stored = save.stored ?? {};
+    const known = new Set(Object.values(stored).flatMap((keys) => keys ?? []));
     const refOf = async (value: string, purpose: UploadPurpose): Promise<string | null | undefined> => {
         if (!value) return null;
-        const file = value.startsWith("blob:") ? save.pending.get(value) : undefined;
-        if (file) return uploadToGo(file, { purpose, entityId: truckId });
-        return keyByUrl[value]; // undefined: a URL the API does not know (leave the kind alone)
+        if (value.startsWith("blob:")) {
+            const file = save.pending.get(value);
+            return file ? uploadToGo(file, { purpose, entityId: truckId }) : undefined;
+        }
+        return known.has(value) ? value : undefined; // undefined: a ref the API does not know (leave the kind alone)
     };
     const files: Record<string, string[]> = {};
     for (const { field, kind, purpose } of SINGLE_FILE_KINDS) {
         const ref = await refOf(String(save.values[field] ?? ""), purpose);
         if (ref === undefined) continue;
-        files[kind] = ref ? [ref] : [];
+        const next = ref ? [ref] : [];
+        if (!sameList(next, stored[kind] ?? [])) files[kind] = next;
     }
     const docs: string[] = [];
-    let known = true;
-    for (const url of save.values.insuranceDocuments ?? []) {
-        const ref = await refOf(url, "insurance_document");
-        if (ref === undefined) known = false;
+    let complete = true;
+    for (const value of save.values.insuranceDocuments ?? []) {
+        const ref = await refOf(value, "insurance_document");
+        if (ref === undefined) complete = false;
         else if (ref) docs.push(ref);
     }
-    if (known) files.insuranceDocument = docs;
+    if (complete && !sameList(docs, stored.insuranceDocument ?? [])) files.insuranceDocument = docs;
     return files;
 }
 
@@ -506,7 +543,9 @@ async function createOnGo(save: TruckSave): Promise<string> {
 
 async function updateOnGo(id: string, save: TruckSave): Promise<void> {
     const files = await truckFilesBody(id, save);
-    await goFetch(goPath`/v1/trucks/${id}`, { method: "PATCH", body: { ...truckBodyFromForm(save.values), files } });
+    const body: Record<string, unknown> = truckBodyFromForm(save.values);
+    if (Object.keys(files).length > 0) body.files = files;
+    await goFetch(goPath`/v1/trucks/${id}`, { method: "PATCH", body });
 }
 
 /** Registers a truck (`409 already_exists` on a taken plate); returns its id. */
@@ -536,8 +575,9 @@ export interface RenewalSave {
     policyId?: string;
     policyNumber?: string;
     coverage?: string;
-    notes?: string;
-    /** Insurance documents: stored URLs kept and new files (Firestore uploads them at once). */
+    /** Insurance only: the truck's insurance notes (never the ledger row's note, which stays the legacy text). */
+    insuranceNotes?: string;
+    /** Insurance documents: the stored refs (keys; URLs on Firestore) kept and the new files. */
     documents?: string[];
     newDocuments?: File[];
     /** Firestore: the actor of the status history and the ledger row. */
@@ -545,6 +585,14 @@ export interface RenewalSave {
     userId?: string;
 }
 
+/**
+ * The Go renewal. `notes` (the ledger row's note) is never sent: the form has no such input, so Go
+ * writes the legacy "Expiry: …" / "Policy: … | Expiry: …" text as the Firestore path does. The
+ * insurance form's own fields go where the legacy form wrote them (T25 review): its notes are the
+ * truck's `insuranceNotes`, its person in charge `responsible` (Go stores it as
+ * `maintenanceResponsible` on an insurance renewal), and its document list, when it changed, is
+ * `documents` (the stored keys kept plus the new uploads; a removed stored document is unlinked).
+ */
 async function renewOnGo(r: RenewalSave): Promise<void> {
     const body: Record<string, unknown> = {
         type: r.type,
@@ -552,19 +600,21 @@ async function renewOnGo(r: RenewalSave): Promise<void> {
         amount: r.amount,
         paymentMethod: apiPaymentMethod(r.paymentMethod),
         expiryDate: apiDate(r.expiryDate),
-        notes: text(r.notes),
+        responsible: text(r.responsible),
     };
     if (r.receipt) body.receiptKey = await uploadToGo(r.receipt, { purpose: "truck_receipt", entityId: r.truck.id });
-    if (r.type === "tax") body.responsible = text(r.responsible);
-    else {
+    if (r.type === "insurance") {
         body.startDate = apiDate(r.startDate);
         body.provider = text(r.provider);
         body.policyId = text(r.policyId);
         body.policyNumber = text(r.policyNumber);
         body.coverage = text(r.coverage);
-        const keys: string[] = [];
-        for (const file of r.newDocuments ?? []) keys.push(await uploadToGo(file, { purpose: "insurance_document", entityId: r.truck.id }));
-        if (keys.length > 0) body.documentKeys = keys;
+        body.insuranceNotes = text(r.insuranceNotes);
+        const stored = (r.truck.files.insuranceDocument ?? []).map((f) => f.key);
+        const kept = (r.documents ?? []).filter((k) => stored.includes(k));
+        const added: string[] = [];
+        for (const file of r.newDocuments ?? []) added.push(await uploadToGo(file, { purpose: "insurance_document", entityId: r.truck.id }));
+        if (added.length > 0 || !sameList(kept, stored)) body.documents = [...kept, ...added];
     }
     await goFetch(goPath`/v1/trucks/${r.truck.id}/renewals`, { method: "POST", body });
 }

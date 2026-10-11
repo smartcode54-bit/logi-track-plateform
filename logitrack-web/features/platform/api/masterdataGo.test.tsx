@@ -9,7 +9,7 @@ import React from "react";
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/firebase/client", () => {
@@ -29,11 +29,13 @@ const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryCl
 const { useCustomerOptions } = await import("@/features/customers/api/useCustomers");
 const { fetchCustomerOptions, createCustomer } = await import("@/features/customers/api/customers");
 const { useHubs } = await import("@/features/hubs/api/useHubs");
-const { fetchHubsCached, createHub } = await import("@/features/hubs/api/hubs");
-const { useDriverPages } = await import("@/features/drivers/api/useDrivers");
+const { fetchHubsCached, createHub, hubsQueryOptions } = await import("@/features/hubs/api/hubs");
+const { useDriverPages, useCreateDriverLogin } = await import("@/features/drivers/api/useDrivers");
 const { createDriverLogin, updateDriver, driverFormValues } = await import("@/features/drivers/api/drivers");
 const { useTruckPages } = await import("@/features/trucks/api/useTrucks");
-const { createTruck, renewTruck } = await import("@/features/trucks/api/trucks");
+const { createTruck, renewTruck, updateTruck, truckFormValues, storedFileKeys, truckFilePreviewUrls, previewOfRef } = await import(
+    "@/features/trucks/api/trucks"
+);
 const { assignTruck, revokeAssignment } = await import("@/features/trucks/api/truckAssignments");
 const { createSubcontractor } = await import("@/features/subcontractors/api/subcontractors");
 const { saveCompany, getOwnerCompany } = await import("@/features/companies/api/companies");
@@ -121,6 +123,24 @@ describe("masterdata flag on: reads through /api/go", () => {
         expect(goCalls("/api/go/v1/hubs").map((x) => x.url)).toEqual(["/api/go/v1/hubs"]);
     });
 
+    it("hubs: the one documented exception, Sources refetches ['hubs'] on each mount (it edits hubs)", async () => {
+        // developer-spec.md §10.6 (TW4) and Appendix E §E.4 (T25): every reader shares one `GET /v1/hubs`
+        // per stale time, except `/app/sources`, which reads with `refetchOnMount: "always"`.
+        route("GET", "/api/go/v1/hubs", () => json([{ id: "h-1", sourceId: "ALANG-A", sourceNameTh: "อลัง", sourceNameEn: null, latitude: null, longitude: null, stationType: "HUB", linkedCustomerId: null, linkedCustomerName: null, linkedCustomerKind: null, createdByDriver: false }]));
+        const useSourcesHubs = () => useQuery({ ...hubsQueryOptions, refetchOnMount: "always" });
+        const firstMile = renderHook(() => useHubs(), { wrapper });
+        await waitFor(() => expect(firstMile.result.current.data).toHaveLength(1));
+        for (let visit = 1; visit <= 2; visit++) {
+            const page = renderHook(useSourcesHubs, { wrapper });
+            await waitFor(() => expect(goCalls("/api/go/v1/hubs")).toHaveLength(1 + visit));
+            page.unmount();
+            // Any other reader within the stale time still uses the cache.
+            renderHook(() => useHubs(), { wrapper }).unmount();
+            await fetchHubsCached();
+            expect(goCalls("/api/go/v1/hubs")).toHaveLength(1 + visit);
+        }
+    });
+
     it("drivers: keyset pages past 100 rows, server status counts, 60 s visible poll", async () => {
         route("GET", (u) => u.startsWith("/api/go/v1/drivers?"), (url) => {
             const cursor = new URL(url, "http://x").searchParams.get("cursor");
@@ -172,13 +192,51 @@ describe("masterdata flag on: writes through /api/go", () => {
         route("PUT", (u) => u.startsWith("/api/go/v1/uploads/local/"), () => new Response(null, { status: 200 }));
     }
 
-    it("driver logins: POST /v1/users {role: driver, driverId}, a temporary password once", async () => {
+    it("driver logins: POST /v1/users {role: driver, driverId, tenantId: the driver's}, a temporary password once", async () => {
         route("POST", "/api/go/v1/users", (_u, body) => json({ user: { id: "u-1", email: (body as { email: string }).email }, temporaryPassword: "Tmp-1234" }, {}, 201));
         const result = await createDriverLogin({ driver: driver(7), email: "d7@example.com" });
         expect(result.temporaryPassword).toBe("Tmp-1234");
-        expect(goCalls("/api/go/v1/users")).toEqual([
-            { method: "POST", url: "/api/go/v1/users", body: { email: "d7@example.com", displayName: "คนขับ 7", role: "driver", driverId: "d-7" } },
+        // A carrier's driver (registered by the own fleet in the carrier): the login goes to the carrier.
+        await createDriverLogin({ driver: { ...driver(8), tenantId: "t-carrier" }, email: "d8@example.com" });
+        // A new own-fleet driver from the wizard (no tenant known): the caller's active tenant.
+        await createDriverLogin({ driver: { ...driver(9), tenantId: undefined }, email: "d9@example.com" });
+        expect(goCalls("/api/go/v1/users").map((c) => c.body)).toEqual([
+            { email: "d7@example.com", displayName: "คนขับ 7", role: "driver", driverId: "d-7", tenantId: "t-own" },
+            { email: "d8@example.com", displayName: "คนขับ 8", role: "driver", driverId: "d-8", tenantId: "t-carrier" },
+            { email: "d9@example.com", displayName: "คนขับ 9", role: "driver", driverId: "d-9" },
         ]);
+    });
+
+    it("driver logins: the temporary password never enters a query or mutation cache (R29, T54S rule)", async () => {
+        // A distinctive value built at runtime, so the source holds no password-looking literal.
+        const SENTINEL = ["tmp", "sentinel", "7f3a"].join("-");
+        route("POST", "/api/go/v1/users", (_u, body) => json({ user: { id: "u-1", email: (body as { email: string }).email }, temporaryPassword: SENTINEL }, {}, 201));
+        route("GET", (u) => u.startsWith("/api/go/v1/drivers?"), () => json([driver(1)]));
+        // A drivers list is mounted: the login makes it stale (and it refetches).
+        const list = renderHook(() => useDriverPages({ status: "", q: "" }), { wrapper });
+        await waitFor(() => expect(list.result.current.drivers).toHaveLength(1));
+        const { result, unmount } = renderHook(() => useCreateDriverLogin(), { wrapper });
+        let got: { temporaryPassword?: string } | undefined;
+        await act(async () => {
+            got = await result.current.create({ driver: driver(1), email: "d1@example.com" });
+        });
+        expect(got?.temporaryPassword).toBe(SENTINEL);
+        await waitFor(() => expect(goCalls("/api/go/v1/drivers")).toHaveLength(2));
+        unmount();
+        const client = getQueryClient();
+        const cached = JSON.stringify([
+            client.getMutationCache().getAll().map((m) => [m.state.data, m.state.variables]),
+            client.getQueryCache().getAll().map((q) => q.state.data),
+        ]);
+        expect(cached).not.toContain(SENTINEL);
+        expect(client.getMutationCache().getAll()).toHaveLength(0);
+    });
+
+    it("drivers: the Go list carries the legacy Firebase uid the Chat action needs", async () => {
+        route("GET", (u) => u.startsWith("/api/go/v1/drivers?"), () => json([{ ...driver(1), legacyAuthUid: "fb-1" }, driver(2)]));
+        const { result } = renderHook(() => useDriverPages({ status: "", q: "" }), { wrapper });
+        await waitFor(() => expect(result.current.drivers).toHaveLength(2));
+        expect(result.current.drivers.map((d) => d.legacyAuthUid ?? null)).toEqual(["fb-1", null]);
     });
 
     it("driver update: only the changed fields, files as keys after presign + PUT", async () => {
@@ -236,8 +294,61 @@ describe("masterdata flag on: writes through /api/go", () => {
         expect(post.body).not.toHaveProperty("files");
         expect(post.body).not.toHaveProperty("tenantId");
         const patch = goCalls("/api/go/v1/trucks/t-new")[0];
-        expect(patch.body).toEqual({
-            files: { imageFrontRight: ["truck_photo/t-new"], imageFrontLeft: [], imageBackRight: [], imageBackLeft: [], documentTax: [], documentRegister: [], insuranceDocument: [] },
+        expect(patch.body).toEqual({ files: { imageFrontRight: ["truck_photo/t-new"] } });
+    });
+
+    it("truck update: stored files without a URL are kept; only the kinds the user changed go out (T25 review)", async () => {
+        const keys: string[] = [];
+        presignRoutes(keys);
+        route("PATCH", "/api/go/v1/trucks/t-1", () => json({ id: "t-1" }));
+        // Go lists a file it cannot sign (ETL missing_at_source, an unconfigured backend) as {key, url: null}.
+        const dto = {
+            ...truck(1), province: "กทม", vin: null, engineNumber: null, gpsVehicleId: null, legacyStatus: null, brand: "Isuzu", model: "FRR",
+            year: 2021, color: "W", vehicleClass: null, seats: null, fuelType: null, engineCapacity: null, fuelCapacity: null, maxLoadWeightKg: null,
+            registrationDate: null, buyingDate: null, notes: null, taxExpiryDate: null, taxExpenseThb: null, taxResponsible: "Operation Admin",
+            taxRenewalStatus: null, maintenanceResponsible: "Driver", lastServiceDate: null, nextServiceDate: null, nextServiceMileage: null,
+            pmIntervalKm: null, currentMileage: null, insurancePolicyId: null, insurancePolicyNumber: null, insuranceCompany: null, insuranceType: null,
+            insuranceStartDate: null, insuranceExpiryDate: null, insurancePremiumThb: null, insuranceNotes: null, insuranceRenewalStatus: null,
+            paymentMethod: null, createdAt: null, updatedAt: null, statusHistory: [], currentAssignments: [],
+            files: {
+                imageFrontRight: [{ key: "trucks/t-1/photos/fr.jpg", url: null }],
+                imageFrontLeft: [{ key: "trucks/t-1/photos/fl.jpg", url: "https://s3/fl.jpg?sig" }],
+                insuranceDocument: [
+                    { key: "trucks/t-1/insurance/a.pdf", url: "https://s3/a.pdf?sig" },
+                    { key: "trucks/t-1/insurance/b.pdf", url: null },
+                ],
+            },
+        };
+        const values = truckFormValues(dto as never);
+        // The form holds refs (keys), so the url-less files are present (and required photos validate).
+        expect(values).toMatchObject({
+            imageFrontRight: "trucks/t-1/photos/fr.jpg",
+            imageFrontLeft: "trucks/t-1/photos/fl.jpg",
+            insuranceDocuments: ["trucks/t-1/insurance/a.pdf", "trucks/t-1/insurance/b.pdf"],
+        });
+        const previews = truckFilePreviewUrls(dto.files as never);
+        expect(previewOfRef(previews, "trucks/t-1/photos/fr.jpg")).toBeNull(); // shown as unavailable
+        expect(previewOfRef(previews, "trucks/t-1/photos/fl.jpg")).toBe("https://s3/fl.jpg?sig");
+        expect(previewOfRef(previews, "blob:http://localhost/x")).toBe("blob:http://localhost/x");
+        const stored = storedFileKeys(dto.files as never);
+
+        // Only notes changed: no files at all in the PATCH.
+        await updateTruck({ id: "t-1", values: { ...values, notes: "edited" } as never, pending: new Map(), stored });
+        expect(goCalls("/api/go/v1/trucks/t-1")[0].body).toMatchObject({ notes: "edited" });
+        expect(goCalls("/api/go/v1/trucks/t-1")[0].body).not.toHaveProperty("files");
+
+        // The user removes the front-left photo and document a, and adds a document: those kinds only,
+        // the url-less document b kept as its key, the url-less front-right photo untouched.
+        const blob = "blob:http://localhost/new-doc";
+        await updateTruck({
+            id: "t-1",
+            values: { ...values, imageFrontLeft: "", insuranceDocuments: ["trucks/t-1/insurance/b.pdf", blob] } as never,
+            pending: new Map([[blob, new File(["x"], "c.pdf", { type: "application/pdf" })]]),
+            stored,
+        });
+        expect((goCalls("/api/go/v1/trucks/t-1")[1].body as { files: unknown }).files).toEqual({
+            imageFrontLeft: [],
+            insuranceDocument: ["trucks/t-1/insurance/b.pdf", "insurance_document/t-1"],
         });
     });
 
@@ -251,7 +362,7 @@ describe("masterdata flag on: writes through /api/go", () => {
 
         await renewTruck({
             truck: { id: "t-1", files: {}, statusHistory: [] } as never, type: "tax", status: "completed", amount: 1200, paymentMethod: "Transfer",
-            expiryDate: "2027-01-31", responsible: "Operation Admin", receipt: null,
+            expiryDate: "2027-01-31", responsible: "Operation Admin", receipt: null, insuranceNotes: "Claim #42 pending with insurer",
         });
         await assignTruck({ truckId: "t-1", driverId: "d-1", driverName: "x", truckPlate: "x", truckModel: "x", adminName: "x" });
         await revokeAssignment({ id: "a-1", truckId: "t-1", driverId: "d-1" });
@@ -259,12 +370,40 @@ describe("masterdata flag on: writes through /api/go", () => {
         await saveCompany({ id: null, values: { nameTh: "บริษัท", taxId: "0105551234567", branchType: "headquarters", address: "BKK", withholdingTaxRate: 3, companyType: "owner", isActive: true } as never });
         await createHub({ sourceId: "NEW-1", sourceNameTh: "ใหม่", sourceNameEn: null, latitude: 13.7, longitude: 100.5, stationType: "HUB", linkedCustomerId: "c-1", linkedCustomerKind: "customer", linkedCustomerName: "CJ — CJ" });
 
-        expect(goCalls("/api/go/v1/trucks/t-1/renewals")[0].body).toMatchObject({ type: "tax", status: "completed", amount: 1200, paymentMethod: "transfer", expiryDate: "2027-01-31", responsible: "Operation Admin" });
+        // The ledger note is never sent (Go writes the legacy "Expiry: …"), nor the insurance notes on a tax renewal.
+        expect(goCalls("/api/go/v1/trucks/t-1/renewals")[0].body).toEqual({ type: "tax", status: "completed", amount: 1200, paymentMethod: "transfer", expiryDate: "2027-01-31", responsible: "Operation Admin" });
         expect(goCalls("/api/go/v1/truck-assignments")[0].body).toEqual({ truckId: "t-1", driverId: "d-1" });
         expect(goCalls("/api/go/v1/subcontractors")[0].body).toMatchObject({ nameTh: "Carrier", legalType: "company", taxId: "0105551234567", status: "active" });
         expect(goCalls("/api/go/v1/companies")[0].body).toMatchObject({ nameTh: "บริษัท", companyType: "owner", withholdingTaxRate: 3 });
         // The legacy denormalised name never goes to Go (it derives the name from the party).
         expect(goCalls("/api/go/v1/hubs")[0].body).toEqual({ sourceId: "NEW-1", sourceNameTh: "ใหม่", sourceNameEn: null, latitude: 13.7, longitude: 100.5, stationType: "HUB", linkedCustomerId: "c-1", linkedCustomerKind: "customer" });
+    });
+
+    it("insurance renewal: the truck's notes, the person in charge and the document list (T25 review)", async () => {
+        const keys: string[] = [];
+        presignRoutes(keys);
+        route("POST", "/api/go/v1/trucks/t-2/renewals", () => json({ truck: {}, transaction: null }));
+        const truckDto = {
+            id: "t-2", statusHistory: [],
+            files: { insuranceDocument: [{ key: "trucks/t-2/insurance/u1.pdf", url: "https://s3/u1" }, { key: "trucks/t-2/insurance/u2.pdf", url: null }] },
+        };
+        const base = {
+            truck: truckDto as never, type: "insurance" as const, status: "in_progress" as const, amount: null, paymentMethod: "", expiryDate: "",
+            responsible: "Somchai", receipt: null, provider: "Viriyah", policyNumber: "P-1", coverage: "2+", insuranceNotes: "new insurance note",
+        };
+        // Document u2 removed, one new document added.
+        await renewTruck({ ...base, documents: ["trucks/t-2/insurance/u1.pdf"], newDocuments: [new File(["x"], "n.pdf", { type: "application/pdf" })] });
+        // Nothing changed in the list: no documents field (the stored ones stay).
+        await renewTruck({ ...base, documents: ["trucks/t-2/insurance/u1.pdf", "trucks/t-2/insurance/u2.pdf"], newDocuments: [] });
+        const [changed, same] = goCalls("/api/go/v1/trucks/t-2/renewals").map((c) => c.body as Record<string, unknown>);
+        expect(changed).toMatchObject({
+            type: "insurance", status: "in_progress", responsible: "Somchai", insuranceNotes: "new insurance note", provider: "Viriyah",
+            documents: ["trucks/t-2/insurance/u1.pdf", "insurance_document/t-2"],
+        });
+        expect(changed).not.toHaveProperty("notes");
+        expect(changed).not.toHaveProperty("documentKeys");
+        expect(same).not.toHaveProperty("documents");
+        expect(same).toMatchObject({ responsible: "Somchai", insuranceNotes: "new insurance note" });
     });
 
     it("the owner company: 404 means none (a carrier principal, or not set up yet)", async () => {

@@ -4,8 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
-import { DriverNotSyncedError } from "@/features/drivers/api/drivers";
-import { useDriverWrites } from "@/features/drivers/api/useDrivers";
+import { DriverNotSyncedError, isDriverLoginOutOfReach } from "@/features/drivers/api/drivers";
+import { useCreateDriverLogin, useDriverWrites } from "@/features/drivers/api/useDrivers";
 import { useCustomerOptions } from "@/features/customers/api/useCustomers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
@@ -55,7 +55,9 @@ export default function NewDriverForm() {
         { id: 4, title: t("drivers.step4.title"), description: t("drivers.step4.description") },
     ];
     const [currentStep, setCurrentStep] = useState(1);
-    const { create, createLogin } = useDriverWrites();
+    const { create } = useDriverWrites();
+    // The temporary password stays in this component's state only (never a query or mutation cache).
+    const createLogin = useCreateDriverLogin();
     const isSubmitting = create.isPending || createLogin.isPending;
 
     // Login account section state — default ON so new drivers can use the app. The login is a user
@@ -138,13 +140,17 @@ export default function NewDriverForm() {
             return;
         }
         try {
-            const login = await createLogin.mutateAsync({
-                driver: { id: driverId, mobile: data.mobile, fullNameTh: data.fullNameTh, firstName: data.firstName, lastName: data.lastName, displayName: data.fullNameTh },
+            // The login's membership goes in the driver's tenant: the carrier of a subcontractor driver
+            // (as `createDriver` placed it), else the caller's active tenant.
+            const carrier = data.employmentType === "SUBCONTRACTOR" && data.subcontractorId ? data.subcontractorId : undefined;
+            const login = await createLogin.create({
+                driver: { id: driverId, tenantId: carrier, mobile: data.mobile, fullNameTh: data.fullNameTh, firstName: data.firstName, lastName: data.lastName, displayName: data.fullNameTh },
                 email: data.email!.trim(),
             });
             setCreated({ driverId, login });
         } catch (error) {
             if (error instanceof DriverNotSyncedError) toast.error(t("masterData.drivers.login.notSynced"));
+            else if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
             else toastSaveError(error, t, "drivers.toast.accountCreateError");
             setCreated({ driverId, login: null });
         }
