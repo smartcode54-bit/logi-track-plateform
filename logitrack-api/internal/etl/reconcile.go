@@ -70,11 +70,6 @@ func (r *Reconciliation) add(name, key string, src, tgt any, ok bool, note strin
 	}
 }
 
-// reconcileTables are the target tables whose rows the counts check, by collection.
-var reconcileTables = map[string]string{"subcontractors": "tenants", "customers": "customers", "trucks": "trucks", "drivers": "drivers",
-	"tasks": "tasks", "trip_records": "trip_records", "standby_records": "standby_records", "incidentReport": "incident_reports",
-	"vehicle_expenses": "vehicle_expenses", "maintenance": "maintenance_records"}
-
 // Reconcile compares the dump with the database.
 func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions) (*Reconciliation, error) {
 	period := o.Period
@@ -93,6 +88,9 @@ func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions
 		docs[n] = ds
 	}
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
 		status, err := e.reconcileCounts(ctx, tx, d, docs, rec)
 		if err != nil {
 			return err
@@ -132,6 +130,26 @@ func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions
 
 type docStatus map[string]string // collection + "\x00" + path -> status
 
+// collectionTables are the main target table of the collections whose name differs from it.
+var collectionTables = map[string]string{"subcontractors": "tenants", "incidentReport": "incident_reports",
+	"maintenance": "maintenance_records", "truckAssignment": "truck_assignments", "hub_soc_distances": "hub_soc_distances",
+	"soc_hub_distances": "hub_soc_distances", "driver_compensation_config": "driver_compensation_configs", "payroll": "payroll_runs",
+	"messages": "chat_messages", "partner-interest": "partner_interest", "metadata": "settings"}
+
+func collectionTable(coll string) string {
+	if t, ok := collectionTables[coll]; ok {
+		return t
+	}
+	return coll
+}
+
+// uniq is the sorted distinct values (several loser documents of one hub map to its row).
+func uniq(in []string) []string {
+	out := slices.Clone(in)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 func (s docStatus) of(coll, path string) string { return s[coll+"\x00"+path] }
 
 // reconcileCounts: per collection, dump count = loaded + quarantined + rejected + dropped, and every loaded or
@@ -158,7 +176,9 @@ func (e *Engine) reconcileCounts(ctx context.Context, tx pgx.Tx, d *dump.Dump, d
 		}
 		counts := map[string]int{}
 		inDump := map[string]bool{}
-		var targets, quarantined []string
+		// The rows behind every loaded or quarantined document, grouped by the table the document wrote (a
+		// collection can write several: settings -> settings and the own-fleet tenant).
+		targets, quarantined := map[string][]string{}, map[string][]string{}
 		for _, doc := range docs[n] {
 			inDump[doc.Path] = true
 			x, ok := stored[doc.Path]
@@ -168,19 +188,19 @@ func (e *Engine) reconcileCounts(ctx context.Context, tx pgx.Tx, d *dump.Dump, d
 			}
 			status[n+"\x00"+doc.Path] = x.status
 			counts[x.status]++
-			if (x.status == string(Loaded) || x.status == string(Quarantined)) && x.target != "" {
-				targets = append(targets, x.target)
+			if (x.status == string(Loaded) || x.status == string(Quarantined)) && x.target != "" && x.table != "" {
+				targets[x.table] = append(targets[x.table], x.target)
 				if x.status == string(Quarantined) {
-					quarantined = append(quarantined, x.target)
+					quarantined[x.table] = append(quarantined[x.table], x.target)
 				}
 			}
 		}
 		accounted := counts[string(Loaded)] + counts[string(Quarantined)] + counts[string(Rejected)] + counts[string(Dropped)]
 		note := fmt.Sprintf("loaded %d, quarantined %d, rejected %d, dropped %d, pending %d, missing %d",
 			counts[string(Loaded)], counts[string(Quarantined)], counts[string(Rejected)], counts[string(Dropped)], counts[string(Pending)], counts["missing"])
-		pendingOK := counts[string(Pending)] > 0 && laterCollections[n] && accounted+counts[string(Pending)] == len(docs[n])
+		pendingOK := counts[string(Pending)] > 0 && separateCollections[n] && accounted+counts[string(Pending)] == len(docs[n])
 		if pendingOK {
-			note += " (collection loads with a later task)"
+			note += " (loaded by its own step: auth-import, auth-rbac)"
 		}
 		rec.add("counts", n, len(docs[n]), accounted, accounted == len(docs[n]) || pendingOK, note)
 		gone := 0
@@ -192,26 +212,35 @@ func (e *Engine) reconcileCounts(ctx context.Context, tx pgx.Tx, d *dump.Dump, d
 		if gone > 0 {
 			rec.add("deleted_at_source", n, 0, gone, true, "documents in etl.source_docs that the dump no longer has (reported, never deleted)")
 		}
-		table, ok := reconcileTables[n]
-		if !ok || len(targets) == 0 {
-			continue
+		tables := make([]string, 0, len(targets))
+		for t := range targets {
+			tables = append(tables, t)
 		}
-		var have, haveQ int
-		q := `SELECT count(*), 0 FROM ` + pgx.Identifier{table}.Sanitize() + ` WHERE id = ANY($1::uuid[])`
-		if tenantStamped[table] {
-			q = `SELECT count(*), count(*) FILTER (WHERE tenant_source = 'quarantine' AND id = ANY($2::uuid[]))
-				FROM ` + pgx.Identifier{table}.Sanitize() + ` WHERE id = ANY($1::uuid[])`
-		}
-		args := []any{targets}
-		if tenantStamped[table] {
-			args = append(args, quarantined)
-		}
-		if err := tx.QueryRow(ctx, q, args...).Scan(&have, &haveQ); err != nil {
-			return nil, err
-		}
-		rec.add("targets", table, len(targets), have, have == len(targets), "rows behind loaded and quarantined documents")
-		if tenantStamped[table] {
-			rec.add("quarantine_rows", table, len(quarantined), haveQ, haveQ == len(quarantined), "quarantined documents in the quarantine tenant")
+		slices.Sort(tables)
+		for _, table := range tables {
+			ids := uniq(targets[table])
+			var have, haveQ int
+			// Table names come from etl.source_docs.target_table, which only the mappers write (constants).
+			key := targetKey(table)
+			q := `SELECT count(*), 0 FROM ` + pgx.Identifier{table}.Sanitize() + ` WHERE ` + key + ` = ANY($1::text[])`
+			args := []any{ids}
+			if tenantStamped[table] {
+				q = `SELECT count(*), count(*) FILTER (WHERE tenant_source = 'quarantine' AND ` + key + ` = ANY($2::text[]))
+					FROM ` + pgx.Identifier{table}.Sanitize() + ` WHERE ` + key + ` = ANY($1::text[])`
+				args = append(args, uniq(quarantined[table]))
+			}
+			if err := tx.QueryRow(ctx, q, args...).Scan(&have, &haveQ); err != nil {
+				return nil, fmt.Errorf("%s targets in %s: %w", n, table, err)
+			}
+			key2 := table
+			if len(tables) > 1 || table != collectionTable(n) {
+				key2 = n + " -> " + table
+			}
+			rec.add("targets", key2, len(ids), have, have == len(ids), "rows behind loaded and quarantined documents")
+			if tenantStamped[table] {
+				qn := len(uniq(quarantined[table]))
+				rec.add("quarantine_rows", key2, qn, haveQ, haveQ == qn, "quarantined documents in the quarantine tenant")
+			}
 		}
 	}
 	return status, nil

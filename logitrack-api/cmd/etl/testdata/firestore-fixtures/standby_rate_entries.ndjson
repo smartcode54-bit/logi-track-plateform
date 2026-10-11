@@ -1,0 +1,1 @@
+{"_id": "sr_spx", "_path": "standby_rate_entries/sr_spx", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "_note": "browser-local midnight effectiveFrom; sb3 links to it", "fields": {"customerId": "cust_spx", "rateThb": 300, "effectiveFrom": {"$ts": "2026-07-31T17:00:00Z"}, "note": "flat"}}

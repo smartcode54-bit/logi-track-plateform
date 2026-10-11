@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/bangchak"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
@@ -20,6 +21,34 @@ func (a AMQPEnv) validate(errs *[]string) {
 	if a.RabbitMQURL != "" && !strings.HasPrefix(a.RabbitMQURL, "amqp://") && !strings.HasPrefix(a.RabbitMQURL, "amqps://") {
 		*errs = append(*errs, config.Invalidf("RABBITMQ_URL", "must be an amqp:// or amqps:// URL"))
 	}
+}
+
+// Bangchak is the Bangchak retail price feed (P3, R70; main spec §16.1): GET /v1/fuel/retail in the api, the
+// bangchak.snapshot consumer in the worker. Unset is off: the route answers 503 and a snapshot run ends failed naming
+// the variable, so no request leaves the process.
+type Bangchak struct {
+	BangchakBaseURL string `env:"BANGCHAK_API_BASE_URL"`
+}
+
+func (b Bangchak) validate(errs *[]string) {
+	if strings.TrimSpace(b.BangchakBaseURL) == "" {
+		return
+	}
+	if err := bangchak.ValidateBaseURL(b.BangchakBaseURL); err != nil {
+		*errs = append(*errs, config.Invalidf("BANGCHAK_API_BASE_URL", "%v", err))
+	}
+}
+
+// BangchakClient is the price client, nil when the feed is off. It does no I/O.
+func (b Bangchak) BangchakClient() (bangchak.Client, error) {
+	if strings.TrimSpace(b.BangchakBaseURL) == "" {
+		return nil, nil
+	}
+	c, err := bangchak.New(bangchak.Config{BaseURL: b.BangchakBaseURL})
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{"BANGCHAK_API_BASE_URL: " + err.Error()}}
+	}
+	return c, nil
 }
 
 // WorkerGroups are the consumer groups of Appendix B §B.5.3 that WORKER_CONSUMERS selects from.
@@ -67,6 +96,9 @@ type WorkerConfig struct {
 	DistanceMatrixEnabled  bool   `env:"DISTANCE_MATRIX_ENABLED"`
 	GoogleMapsServerAPIKey string `env:"GOOGLE_MAPS_SERVER_API_KEY"`
 
+	// bangchak.snapshot (T37): the daily and monthly fuel price snapshots (off without BANGCHAK_API_BASE_URL).
+	Bangchak
+
 	// Groups is WORKER_CONSUMERS resolved by Validate ("all" = every group).
 	Groups []string `env:"-"`
 }
@@ -80,6 +112,7 @@ func (c *WorkerConfig) Validate() error {
 	c.Redis.validate(c.AppEnv, &errs)
 	c.AMQPEnv.validate(&errs)
 	c.Storage.validate(&errs)
+	c.Bangchak.validate(&errs)
 	if c.Prefetch < 0 || c.Prefetch > 1000 {
 		errs = append(errs, config.Invalidf("RABBITMQ_PREFETCH", "must be between 0 and 1000"))
 	}
@@ -143,6 +176,9 @@ type SchedulerConfig struct {
 	BatchSize     int           `env:"OUTBOX_BATCH_SIZE" envDefault:"500"`
 	RTLogMaxLen   int64         `env:"RTLOG_MAXLEN" envDefault:"1000"`
 	RTLogTTL      time.Duration `env:"RTLOG_TTL" envDefault:"24h"`
+	// FuelMonthlySnapshotEnabled schedules bangchak.snapshot at 05:00 Asia/Bangkok (T37, R70; main spec §7.4); off,
+	// the snapshots run only from POST /v1/jobs/bangchak.snapshot.
+	FuelMonthlySnapshotEnabled bool `env:"FUEL_MONTHLY_SNAPSHOT_ENABLED"`
 	// JWTAccessTTL is the life of the revoked-session markers the relay re-applies from
 	// user.sessions_revoked (+ 30 s leeway, Appendix C §C.4.7): the same value the api signs with.
 	JWTAccessTTL time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`

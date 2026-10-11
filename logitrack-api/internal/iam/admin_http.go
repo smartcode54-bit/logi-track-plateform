@@ -33,7 +33,7 @@ func (f *Field[T]) UnmarshalJSON(b []byte) error {
 }
 
 // AdminGroups are the route groups of T19 on the internal listener (Appendix B §B.2.4, §B.2.5): /v1/users*
-// and /v1/tenants* behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
+// and /v1/tenants* (with the quarantine review of T24) behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
 // RBAC.Authorize, X-Act-On-Tenant included), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
 // of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview, /v1/security/status
 // and /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
@@ -63,6 +63,9 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Delete("/:id/platform-roles/:role", requireAuth, need(authz.PlatformManageRoles), h.revokePlatformRole)
 		}},
 		{Prefix: "/v1/tenants", Mount: func(r fiber.Router) {
+			// The quarantine review of P1 (T24): platform principals only, in the system context.
+			r.Get("/quarantine/rows", requireAuth, need(authz.PlatformCrossTenantRead), h.listQuarantineRows)
+			r.Post("/quarantine/rows/:table/:id/rehome", requireAuth, need(authz.PlatformCrossTenantWrite), h.rehomeQuarantineRow)
 			r.Get("", requireAuth, need(authz.PlatformManageTenants, authz.FleetManageSubcontractors), h.listTenants)
 			r.Post("", requireAuth, need(authz.PlatformManageTenants), h.createTenant)
 			r.Get("/:id", requireAuth, h.getTenant)

@@ -52,9 +52,10 @@ func testEngine(t *testing.T) (*Engine, *pgxpool.Pool) {
 	return e, pool
 }
 
-// A document recorded pending (its collection loads with a later task) is applied by the first load that maps the
-// collection, a --since or --since=watermark delta load included, even though its _updateTime is unchanged and
-// before the delta's mark (review T15).
+// A document recorded pending (its collection has no mapping in `load`: permissions_config is read by auth-rbac) is
+// applied by the first load that maps the collection, a --since or --since=watermark delta load included, even though
+// its _updateTime is unchanged and before the delta's mark (review T15; T24 mapped every other collection, so the
+// test maps permissions_config itself).
 func TestPendingDocumentsApplyOnTheFirstMappedDeltaLoad(t *testing.T) {
 	e, pool := testEngine(t)
 	ctx := context.Background()
@@ -64,7 +65,7 @@ func TestPendingDocumentsApplyOnTheFirstMappedDeltaLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.WriteCollection("hubs", false, []dump.Doc{{ID: "h1", Path: "hubs/h1", UpdateTime: ut, Fields: map[string]any{"source_id": "HUBA"}}}); err != nil {
+	if err := w.WriteCollection("permissions_config", false, []dump.Doc{{ID: "h1", Path: "permissions_config/h1", UpdateTime: ut, Fields: map[string]any{"capabilities": map[string]any{}}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Close(); err != nil {
@@ -78,30 +79,30 @@ func TestPendingDocumentsApplyOnTheFirstMappedDeltaLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	var marks int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM etl.watermarks WHERE collection = 'hubs'`).Scan(&marks); err != nil || marks != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM etl.watermarks WHERE collection = 'permissions_config'`).Scan(&marks); err != nil || marks != 0 {
 		t.Fatalf("a pending collection moved the watermark: %d %v", marks, err)
 	}
-	docs, err := d.Read("hubs")
+	docs, err := d.Read("permissions_config")
 	if err != nil {
 		t.Fatal(err)
 	}
 	errRollback := errors.New("rollback")
 	for _, o := range []LoadOptions{{SinceWatermark: true}, {Since: ut.Add(time.Hour)}} {
 		calls := 0
-		spec := collectionSpec{name: "hubs", mapper: func(c *docCtx) error { calls++; return nil }} // T24 maps hubs
+		spec := collectionSpec{name: "permissions_config", mapper: func(c *docCtx) error { calls++; return nil }} // a later mapping
 		var stats CollectionStats
 		var status string
 		err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
 			// A watermark well past the document (beyond the look-back), as a database loaded before this fix may hold.
-			if _, err := tx.Exec(ctx, `INSERT INTO etl.watermarks (collection, last_update_time, last_doc_path) VALUES ('hubs', $1, 'hubs/h9')
+			if _, err := tx.Exec(ctx, `INSERT INTO etl.watermarks (collection, last_update_time, last_doc_path) VALUES ('permissions_config', $1, 'permissions_config/h9')
 				ON CONFLICT (collection) DO NOTHING`, ut.Add(time.Hour)); err != nil {
 				return err
 			}
 			var err error
-			if stats, err = e.loadCollection(ctx, tx, spec, docs, d.Manifest.ExportedAt, o, billableSet{}, &Report{}); err != nil {
+			if stats, err = e.loadCollection(ctx, tx, spec, docs, d.Manifest.ExportedAt, o, billableSet{}, &Report{}, nil); err != nil {
 				return err
 			}
-			if err := tx.QueryRow(ctx, `SELECT status FROM etl.source_docs WHERE doc_path = 'hubs/h1'`).Scan(&status); err != nil {
+			if err := tx.QueryRow(ctx, `SELECT status FROM etl.source_docs WHERE doc_path = 'permissions_config/h1'`).Scan(&status); err != nil {
 				return err
 			}
 			return errRollback

@@ -49,13 +49,18 @@ const LockTTL = time.Hour
 // TypeDistancesCompute is the Hub <-> SOC distance matrix job (POST /v1/jobs/distances.compute, T21).
 const TypeDistancesCompute = "distances.compute"
 
+// TypeBangchakSnapshot is the Bangchak fuel price snapshot (POST /v1/jobs/bangchak.snapshot and the 05:00 cron, T37).
+const TypeBangchakSnapshot = "bangchak.snapshot"
+
 // TypeCapabilities maps each job type a per-type POST /v1/jobs/{type} route submits to the capability
 // that route checks (Appendix B §B.2.20, developer-spec.md §7.5): staff of the job's tenant
 // (EffectiveTenant() = jobs.tenant_id) holding it read the job besides its owner and the platform. T21
-// registers distances.compute; T37, T38 and T44 add their types here. Types without a row (queue.replay,
-// the scheduler's cron jobs) stay owner + platform.
+// registers distances.compute, T37 bangchak.snapshot; T38 and T44 add their types here. Types without a row
+// (queue.replay) stay owner + platform; a cron fire of a listed type has no owner and no tenant, so only the platform
+// reads it.
 var TypeCapabilities = map[string]authz.Cap{
 	TypeDistancesCompute: authz.OperationsCalcDistances,
+	TypeBangchakSnapshot: authz.AccountingEditRateCard,
 }
 
 var typeRx = regexp.MustCompile(`^[a-z]+(\.[a-z0-9-]+)+$`) // the CHECK of jobs.type

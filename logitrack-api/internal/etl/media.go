@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -227,4 +229,61 @@ func (e *Engine) RewriteURLs(ctx context.Context) ([]URLHit, error) {
 		return nil
 	})
 	return hits, err
+}
+
+// URLRewrite is what ApplyURLRewrites did.
+type URLRewrite struct {
+	Rewritten int
+	// Pending are the legacy URLs left in place because their object is not committed yet (run media-copy first).
+	Pending []string
+}
+
+// ApplyURLRewrites (`rewrite-urls --apply`, main spec §13.6) replaces the legacy download URLs the load keeps verbatim
+// in jsonb values with the URL of their copy: settings('mobile_app').apkDownloadUrl, which GET /v1/mobile/settings
+// and the version gate hand to devices, becomes publicBase (S3_PUBLIC_BASE_URL) + "/" + key once media-copy has
+// committed the APK in S3_PUBLIC_BUCKET under the identical key. Every other URL field became a *_file_id at load
+// time, so the report of RewriteURLs lists only what is left.
+func (e *Engine) ApplyURLRewrites(ctx context.Context, publicBase string) (*URLRewrite, error) {
+	publicBase = strings.TrimRight(strings.TrimSpace(publicBase), "/")
+	if publicBase == "" {
+		return nil, errors.New("etl: rewrite-urls --apply needs S3_PUBLIC_BASE_URL")
+	}
+	res := &URLRewrite{}
+	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		var raw *string
+		err := tx.QueryRow(ctx, `SELECT value->>'apkDownloadUrl' FROM settings WHERE key = 'mobile_app' FOR UPDATE`).Scan(&raw)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && raw == nil) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, key, _, ok := ParseStorageURL(*raw)
+		if !ok {
+			return nil // not a Firebase Storage URL: nothing to rewrite
+		}
+		var committed bool
+		err = tx.QueryRow(ctx, `SELECT status = 'committed' FROM file_objects WHERE bucket = $1 AND object_key = $2`, e.cfg.PublicBucket, key).Scan(&committed)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !committed) {
+			res.Pending = append(res.Pending, "settings.mobile_app.apkDownloadUrl: "+key)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		segs := strings.Split(key, "/")
+		for i, s := range segs {
+			segs[i] = url.PathEscape(s)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE settings SET value = jsonb_set(value, '{apkDownloadUrl}', to_jsonb($1::text)) WHERE key = 'mobile_app'`,
+			publicBase+"/"+strings.Join(segs, "/")); err != nil {
+			return err
+		}
+		res.Rewritten++
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("etl: rewrite-urls --apply: %w", err)
+	}
+	return res, nil
 }
