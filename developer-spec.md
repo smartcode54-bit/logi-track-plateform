@@ -2217,7 +2217,7 @@ By class and the phase in which PG becomes writer; columns in Appendix A §A.3.
 | Profile | Content | Use | Budget |
 |---|---|---|---|
 | `smoke` | Appendix D §D.4 fixture verbatim (58 tables, 286 rows incl. the `0002` quarantine tenant, 16 objects), `cmd/seed/testdata/smoke/<table>.json`, literal July-September 2026 dates | CI default | < 5 s |
-| `demo` | smoke + the multi-tenant identities of T16 (own fleet and both carriers each with a tenant_admin, staff and a dispatcher; customer-scope users; platform support) + the master data of T26 (18 hubs and SOCs with aliases and Hub-SOC distances, a fleet and driver logins in every tenant, logins with the fallback role `user` in the own fleet and NWR, a second R24 broker moved TTP -> NWR; Appendix D §D.1.2) + 3 generated months ending `SEED_ANCHOR_DATE` (default `2026-09-30`) once T35/T43 add their generators | local, demos, Playwright | < 2 min |
+| `demo` | smoke + the multi-tenant identities of T16 (own fleet and both carriers each with a tenant_admin, staff and a dispatcher; customer-scope users; platform support) + the master data of T26 (18 hubs and SOCs with aliases and Hub-SOC distances, a fleet and driver logins in every tenant, logins with the fallback role `user` in the own fleet and NWR, a second R24 broker moved TTP -> NWR; Appendix D §D.1.2) + the operations of T35: the 92 days ending `SEED_ANCHOR_DATE` (default `2026-09-30`: 1 July to 30 September) of tasks, trips, stops, photos, check-in photos, standby and incidents, run by the generated drivers on the trucks they held, priced by the billing engine, with today's board on the anchor day (Appendix D §D.1.2 "Demo operations") + the billing and finance months of T43 once it lands | local, demos, Playwright | < 2 min |
 | `load` | demo + 8 carriers and 1,176 staff users (T16, past the `listUsers(1000)` cap) + 8 customers, 377 hubs, 1,926 Hub-SOC distance rows (963 pairs × 2 directions), 268 trucks, 285 drivers (257 of them sign in) and 335 assignments (T26; profile totals 12 customers, 404 hubs, 2,034 distance rows, 280 trucks, 300 drivers, 350 assignments: §14.2, Appendix D §D.1.2) + 12 months at about 10x today's volume once the volume generators exist | performance; never CI | < 30 min |
 
 - **Ids:** uuid v5 of `"<table>:<natural key>"` in `SEED_NAMESPACE`; runtime rows `uuidv7()`, told apart by `uuid_extract_version(id)`. Rows sharing an `effective_from_at` get distinct `created_at`, so hash order never decides an R16 tie. One database holds one namespace's dataset (natural keys and the own-fleet singleton are shared by every namespace): a load into a database seeded in another namespace is refused.
@@ -2228,7 +2228,7 @@ By class and the phase in which PG becomes writer; columns in Appendix A §A.3.
 
 ### 14.2 Entity counts
 
-Smoke is exact, and so are the identity (T16) and master-data (T26) rows of demo and load, which only append to smoke (an older demo takes new rows with `--mode upsert`); the other demo/load counts are targets of T35 and T43 (Appendix D §D.1.2, compared with the plans by a unit test). UNVERIFIED: real per-collection sizes (§19).
+Smoke is exact, and so are the identity (T16) and master-data (T26) rows of demo and load and the operations rows (T35) of demo, which only append to smoke (an older demo takes new rows with `--mode upsert`); load carries the demo operations rows until a load-scale operations generator lands, so its operations column stays a target, as do the billing and finance counts of T43 (Appendix D §D.1.2, compared with the plans by a unit test). UNVERIFIED: real per-collection sizes (§19).
 
 | Table | smoke | demo | load | Smoke content |
 |---|---:|---:|---:|---|
@@ -2239,8 +2239,8 @@ Smoke is exact, and so are the identity (T16) and master-data (T26) rows of demo
 | platform roles / scopes / overrides | 1 / 2 / 1 | 2 / 6 / 1 | 2 / 6 / 1 | customer + dispatcher scope; one deny override |
 | hubs / aliases / distances | 9 / 7 / 2 | 27 / 45 / 108 | 404 / 806 / 2,034 | demo: 23 hubs + SOCE, SOCN, SOCW and `0STANDBY`; aliases name -> code only (no alias is a code, inv 8); distance rows (one per hub, SOC key and direction) per the `distances.compute` point rule, synthetic haversine x 1.3 at 35 km/h |
 | drivers / trucks / assignments | 7 / 6 / 4 | 15 / 12 / 15 | 300 / 280 / 350 | plates per the truck form, class from `vehicleclass.Of`; assignments in the truck's tenant, active = the driver's home truck and the generated driver `on_duty`, never two at once per driver or truck; demo broker d13 TTP -> NWR (R24) |
-| tasks / stops | 25 / 5 | ~900 / ~15 | ~330,000 / ~9,000 | every status; legacy unpadded numbers |
-| trips / photos / snapshots | 21 / 4 / 17 | ~780 / ~3,400 / ~740 | ~300,000 / ~30,000 / ~285,000 | every status and billing case |
+| tasks / stops | 25 / 5 | 877 / 15 | ~330,000 / ~9,000 | every status; legacy unpadded numbers; demo: today's first-mile board, 5 more legacy numbers (T35) |
+| trips / photos / snapshots | 21 / 4 / 17 | 790 / 3,456 / 761 | ~300,000 / ~30,000 / ~285,000 | every status and billing case; demo trip stops 13, one snapshot per delivered trip, engine-computed (T35) |
 | standby / incidents | 4 / 1 | 25 / 12 | 6,000 / 3,000 | 4 standby cases |
 | rate entries / fuel adj / fees / standby rates | 10 / 6 / 3 / 3 | ~140 / 8 / 4 / 4 | ~5,000 / 120 / 24 / 24 | two rounds, voided rows, tie pair |
 | statements / lines | 4 / 9 | 4 / ~600 | 132 / ~280,000 | paid, sent, draft, cancelled |
@@ -2248,7 +2248,7 @@ Smoke is exact, and so are the identity (T16) and master-data (T26) rows of demo
 | payroll_runs / penalties | 3 / 4 | 22 / 6 | 7,200 / 600 | |
 | chats / messages / broadcasts / leave / holidays | 2 / 3 / 2 / 3 / 4 | 6 / 60 / 3 / 8 / 17 | 3,000 / 60,000 / 48 / 1,200 / 17 | UNVERIFIED: lunar holiday dates (official list) |
 | installations / device_tokens | 4 / 3 | 14 / 11 | 320 / 300 | floor 3.4.0: 3.3.2 blocked, 3.4.1 outdated, 3.5.0 current, 3.6.0 dev |
-| file_objects / outbox / jobs / security_events | 16 / 3 / 2 / 1 | ~3,600 / ~1,500 / 4 / 12 | ~31,000 / 0 / 10 / 2,000 | |
+| file_objects / outbox / jobs / security_events | 16 / 3 / 2 / 1 | 3,675 / ~1,500 / 4 / 12 | ~31,000 / 0 / 10 / 2,000 | demo objects: trip, check-in and incident photos (T35) |
 
 ### 14.3 Workflow coverage matrix
 

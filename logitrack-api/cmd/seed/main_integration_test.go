@@ -207,7 +207,11 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 // principal is role-played, the two R24 brokers included.
 func TestDemoLoadVerify(t *testing.T) {
 	s := newStack(t, "local")
-	s.mustSeed(t, "--profile", "demo")
+	load := s.mustSeed(t, "--profile", "demo")
+	t.Logf("demo load: %s (%s)", load.took, strings.TrimSpace(load.stdout))
+	if !raceEnabled && load.took >= 2*time.Minute { // Appendix D §D.1.2 budget, its 3,676 objects included (T35)
+		t.Errorf("seed --profile demo took %s, want < 2 min", load.took)
+	}
 	v := s.mustSeed(t, "--verify", "--profile", "demo")
 	t.Log("\n" + v.stdout)
 	if n := len(passLine.FindAllString(v.stdout, -1)); n != 12 {
@@ -215,11 +219,13 @@ func TestDemoLoadVerify(t *testing.T) {
 	}
 	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator, user (nwr.user, T26);
 	// TTP tenant_admin, operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR ->
-	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left. Every readable RLS table is
-	// classified.
+	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left: d13's TTP work of the 42 days
+	// before its move (T35: tasks, trips, photos and their objects, an incident, a standby wait). Every readable RLS
+	// table is classified.
 	for _, want := range []string{
 		"11 carrier principal(s) (7 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
-		"d13.thawisak@logitrack.test (NWR, driver): memberships 1, truck_assignments 1",
+		"d13.thawisak@logitrack.test (NWR, driver): file_objects 186, incident_reports 1, memberships 1, standby_records 1, " +
+			"tasks 42, trip_photos 183, trip_records 42, truck_assignments 1",
 		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
 	} {
 		if !strings.Contains(v.stdout, want) {
@@ -275,13 +281,43 @@ func TestDemoLoadVerify(t *testing.T) {
 			"%d drivers on duty (want the 7 generated drivers with a truck), %d missing hub-SOC pairs",
 			badClass, badHome, onDuty, missingPairs)
 	}
+	// Operations as the API reads them (T35, issue #55): today's first-mile board of Appendix D §D.2 #1 on the anchor
+	// day, the drivers with a task under way pointing at it (back-filled after the load), every delivered trip with
+	// its snapshot, and the task counters past every padded number of a day.
+	var board string
+	if err := conn.QueryRow(ctx, `SELECT string_agg(status || ':' || n, ',' ORDER BY status) FROM (
+		SELECT status, count(*) AS n FROM tasks WHERE task_type = 'first_mile' AND plan_date = DATE '2026-09-30' GROUP BY status) x`).
+		Scan(&board); err != nil {
+		t.Fatal(err)
+	}
+	if want := "assigned:8,cancelled:2,checked_in:2,completed:4,in_transit:3,pending:6"; board != want {
+		t.Errorf("today's first-mile board\n have %s\n want %s", board, want)
+	}
+	var active, badActive, unsnapped, behind int
+	if err := conn.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM drivers WHERE active_task_id IS NOT NULL),
+		(SELECT count(*) FROM drivers d JOIN tasks k ON k.id = d.active_task_id
+		  WHERE k.driver_id <> d.id OR k.status NOT IN ('checked_in','in_transit')),
+		(SELECT count(*) FROM trip_records t WHERE t.status = 'delivered'
+		  AND NOT EXISTS (SELECT 1 FROM trip_billing_snapshots s WHERE s.trip_id = t.id)),
+		(SELECT count(*) FROM tasks k JOIN task_number_counters c ON c.task_type = k.task_type AND c.plan_date = k.plan_date
+		  WHERE k.task_no ~ '-[0-9]{3,}$' AND (regexp_match(k.task_no, '-([0-9]+)$'))[1]::int > c.last_seq)`).
+		Scan(&active, &badActive, &unsnapped, &behind); err != nil {
+		t.Fatal(err)
+	}
+	// Smoke D1, D2 and D7 hold TK17, TK18 and TK24; the demo adds the four drivers under way today (the board's
+	// second check-in is the smoke TK24).
+	if active != 7 || badActive != 0 || unsnapped != 0 || behind != 0 {
+		t.Errorf("demo operations: %d drivers with a task under way (want 8), %d pointing at another task, "+
+			"%d delivered trips without a snapshot, %d task numbers past their counter", active, badActive, unsnapped, behind)
+	}
 }
 
 // A database seeded with a smaller profile takes the demo rows with --mode upsert, as the staging VM seeded with an
 // older demo takes the T26 master data: the top-up inserts only what is missing, passes --verify, and ends with the
 // fingerprint of a fresh demo load.
 func TestDemoUpsertOverSmaller(t *testing.T) {
-	s := newStack(t, "local")
+	s := newStack(t, "s3") // MinIO: the local backend's fsync per object is slow on macOS (TestDemoLoadVerify covers it)
 	s.mustSeed(t, "--profile", "smoke")
 	r := s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
 	if strings.Contains(r.stdout, "created with a temporary password") {
@@ -294,7 +330,7 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 	if again := s.mustSeed(t, "--profile", "demo", "--mode", "upsert"); !strings.Contains(again.stdout, ": 0 rows") {
 		t.Errorf("a second top-up wrote rows:\n%s", again.stdout)
 	}
-	fresh := newStack(t, "local")
+	fresh := newStack(t, "s3")
 	fresh.mustSeed(t, "--profile", "demo")
 	if a, b := fingerprintBlock(t, topped.stdout), fingerprintBlock(t, fresh.mustSeed(t, "--verify", "--profile", "demo").stdout); a != b {
 		t.Fatalf("a topped-up and a fresh demo differ:\n%s\nvs\n%s", a, b)

@@ -12,8 +12,10 @@ import (
 	"math/rand/v2"
 	"path"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,6 +123,11 @@ type Plan struct {
 	TemporaryEmail    string
 	// Warnings are worth a log line (an unset optional input).
 	Warnings []string
+
+	// ops are the generated operations rows the pricing pass prices (T35); labels name the owners of generated
+	// objects (trip and task numbers) for the placeholder overlays.
+	ops    *opsResult
+	labels map[string]string
 }
 
 // Rows of a table.
@@ -206,15 +213,25 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 		if err := addDemoMaster(p, o); err != nil {
 			return nil, err
 		}
+		if err := addDemoOps(p, o); err != nil {
+			return nil, err
+		}
 	case ProfileLoad:
 		addDemo(p, o)
 		if err := addDemoMaster(p, o); err != nil {
+			return nil, err
+		}
+		if err := addDemoOps(p, o); err != nil {
 			return nil, err
 		}
 		addLoad(p, o)
 		if err := addLoadMaster(p, o); err != nil {
 			return nil, err
 		}
+	}
+	// Prices last, over every rate row the generators wrote (Appendix D §D.1.4: computed by the engine, never typed).
+	if err := priceOperations(p); err != nil {
+		return nil, err
 	}
 	if err := objects(p, o); err != nil {
 		return nil, err
@@ -346,6 +363,7 @@ func nilIfEmpty(b []byte) any {
 // objects maps the fixture buckets to the configured ones, records the storage backend and draws every
 // placeholder object: size and sha256 come from the bytes (Appendix D §D.1.6).
 func objects(p *Plan, o Options) error {
+	var jobs []*drawJob
 	for _, r := range p.Tables["file_objects"] {
 		switch r.Str("bucket") {
 		case "logitrack":
@@ -384,10 +402,13 @@ func objects(p *Plan, o Options) error {
 			}
 			continue
 		}
-		body, err := drawObject(p, o, r, obj)
-		if err != nil {
-			return fmt.Errorf("seed: file_objects %s: %w", obj.Key, err)
-		}
+		jobs = append(jobs, &drawJob{row: r, obj: obj})
+	}
+	if err := drawAll(p, o, jobs); err != nil {
+		return err
+	}
+	for _, j := range jobs {
+		r, obj, body := j.row, j.obj, j.body
 		sum := sha256.Sum256(body)
 		size, digest := json.Number(fmt.Sprint(len(body))), hex.EncodeToString(sum[:])
 		for col, want := range map[string]string{"size_bytes": size.String(), "sha256": digest} {
@@ -406,6 +427,42 @@ func objects(p *Plan, o Options) error {
 		obj.Body, obj.SHA256 = body, digest
 	}
 	return nil
+}
+
+// drawJob is one object to draw.
+type drawJob struct {
+	row  Row
+	obj  *Object
+	body []byte
+}
+
+// drawAll draws the placeholders on every CPU: each object's bytes depend on its key and overlay only, so the
+// order of the workers never changes a byte (the demo's ~3,500 photos, Appendix D §D.1.2 time budget).
+func drawAll(p *Plan, o Options, jobs []*drawJob) error {
+	work := make(chan *drawJob)
+	errs := make(chan error, len(jobs))
+	var wg sync.WaitGroup
+	for range max(1, min(runtime.GOMAXPROCS(0), len(jobs))) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range work {
+				body, err := drawObject(p, o, j.row, j.obj)
+				if err != nil {
+					errs <- fmt.Errorf("seed: file_objects %s: %w", j.obj.Key, err)
+					continue
+				}
+				j.body = body
+			}
+		}()
+	}
+	for _, j := range jobs {
+		work <- j
+	}
+	close(work)
+	wg.Wait()
+	close(errs)
+	return <-errs
 }
 
 // drawObject generates the bytes of one object from its content type.
@@ -439,6 +496,8 @@ func overlayText(p *Plan, r Row, key string) string {
 	if id, err := uuid.Parse(r.Str("owner_id")); err == nil {
 		if sym := p.Symbols.SymbolOf(id); sym != "" {
 			code = p.Symbols.Key(sym)
+		} else if l := p.labels[id.String()]; l != "" {
+			code = l
 		}
 	}
 	when := r.Str("created_at")

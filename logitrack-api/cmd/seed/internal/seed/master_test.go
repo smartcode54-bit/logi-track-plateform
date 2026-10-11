@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +22,9 @@ import (
 )
 
 // generatedTables are the tables whose demo and load counts the generators make exact: the identities of T16 and the
-// master data of T26 (issue #46). T35 and T43 add their tables here when their generators land.
+// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) are exact in demo; load carries
+// the demo rows of them until a load-scale operations generator lands (its column stays a target). T43 adds its tables
+// when its generator lands.
 var generatedTables = []string{"tenants", "billing_parties", "customers", "companies", "users", "memberships",
 	"auth_identities", "user_platform_roles", "user_scopes", "role_capability_overrides", "hubs", "hub_name_aliases",
 	"hub_soc_distances", "drivers", "trucks", "truck_assignments"}
@@ -67,6 +70,9 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 	for col, prof := range []Profile{ProfileSmoke, ProfileDemo, ProfileLoad} {
 		p := plan(t, prof)
 		tables := generatedTables
+		if prof == ProfileDemo {
+			tables = append(slices.Clone(generatedTables), opsTables...)
+		}
 		if prof == ProfileSmoke {
 			tables = nil
 			for table := range spec {
@@ -87,6 +93,12 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 			if got, known := p.Expected[table]; !known || got != want {
 				t.Errorf("%s %s: the plan has %d rows, §D.1.2 says %d", prof, table, got, want)
 			}
+		}
+	}
+	demo, load := plan(t, ProfileDemo), plan(t, ProfileLoad)
+	for _, table := range opsTables {
+		if demo.Expected[table] != load.Expected[table] {
+			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations rows only", table, load.Expected[table], demo.Expected[table])
 		}
 	}
 }
