@@ -52,6 +52,11 @@ const TypeDistancesCompute = "distances.compute"
 // TypeBangchakSnapshot is the Bangchak fuel price snapshot (POST /v1/jobs/bangchak.snapshot and the 05:00 cron, T37).
 const TypeBangchakSnapshot = "bangchak.snapshot"
 
+// TypeCartrackSync is the Cartrack vehicle position sync (the */3 cron behind CARTRACK_SYNC_ENABLED, T53) and its
+// probe mode (GET /v1/admin/cartrack/probe, params {"probe": true}); platform principals and the owner read it, so it
+// has no TypeCapabilities row.
+const TypeCartrackSync = "cartrack.sync"
+
 // TypeDocumentsRegenerate re-renders a statement's documents (POST /v1/billing/statements/{id}/documents/regenerate,
 // T39); TypeDocumentsShopeeReport renders the Shopee Express report PDF (started by GET /v1/billing/shopee-report.pdf,
 // T39). Both run in the documents.render queue.

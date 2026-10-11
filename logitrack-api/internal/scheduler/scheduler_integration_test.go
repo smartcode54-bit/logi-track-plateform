@@ -279,6 +279,60 @@ func TestBangchakSnapshotFiresOncePerSlot(t *testing.T) {
 	}
 }
 
+// AC (T53, R70): with two scheduler replicas cartrack.sync runs once per 3-minute slot. CARTRACK_SYNC_ENABLED puts it in
+// the table as a command cron every three minutes; only the leader fires, and should an old leader still fire beside the
+// new one, lock:cron lets one fire of each slot through: one jobs row and one lt.jobs command per slot. The worker's
+// queue (single active consumer, prefetch 1) then runs the commands one at a time (internal/fleet/locations).
+func TestCartrackSyncFiresOncePerSlot(t *testing.T) {
+	d := migrated(t)
+	pool := d.Pool(t, db.RoleApp)
+	rdb := asynctest.SharedRedis(t).Client(t)
+	table := scheduler.Table(pool, nil, scheduler.Gates{CartrackSync: true})
+	var job scheduler.Job
+	for _, j := range table {
+		if j.Name == "cartrack.sync" {
+			job = j
+		}
+	}
+	if job.Spec != "*/3 * * * *" || job.Kind != scheduler.Command {
+		t.Fatalf("cartrack.sync in the gated table: %+v", job)
+	}
+	for _, j := range scheduler.Table(pool, nil, scheduler.Gates{}) {
+		if j.Name == "cartrack.sync" {
+			t.Fatal("cartrack.sync scheduled while CARTRACK_SYNC_ENABLED is off")
+		}
+	}
+	var replicas []*scheduler.Cron
+	for range 2 {
+		c, err := scheduler.NewCron(pool, jobs.NewRedisLocker(rdb, localKeyspace(t)), table, zerolog.Nop(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		replicas = append(replicas, c)
+	}
+	first := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC) // 10:00 Bangkok
+	slots := []time.Time{first, first.Add(3 * time.Minute), first.Add(6 * time.Minute)}
+	var wg sync.WaitGroup
+	for _, slot := range slots {
+		for range 3 {
+			for _, c := range replicas {
+				wg.Go(func() { c.Fire(context.Background(), job, slot) })
+			}
+		}
+	}
+	wg.Wait()
+	for _, slot := range slots {
+		if n := scalar[int](t, pool, `SELECT count(*) FROM jobs WHERE type = 'cartrack.sync' AND owner_user_id IS NULL
+			AND tenant_id IS NULL AND status = 'queued' AND params->>'scheduledFor' = $1`, slot.Format(time.RFC3339)); n != 1 {
+			t.Fatalf("%d cartrack.sync jobs for the %s slot, want 1", n, slot.Format(time.RFC3339))
+		}
+	}
+	if n := scalar[int](t, pool, `SELECT count(*) FROM outbox_events WHERE exchange = 'lt.jobs'
+		AND routing_key = 'job.cartrack.sync'`); n != len(slots) {
+		t.Fatalf("%d job.cartrack.sync commands, want one per slot (%d)", n, len(slots))
+	}
+}
+
 func TestTokenCleanup(t *testing.T) {
 	d := migrated(t)
 	etl := d.Pool(t, db.RoleETL)

@@ -1,0 +1,52 @@
+{
+  "mappings": [
+    {
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/cartrack/rest/vehicles/status",
+        "headers": { "Authorization": { "matches": "Basic .+" } }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "data": [
+            {
+              "vehicle_id": 900001,
+              "registration": "MOCK-001",
+              "speed": 42.5,
+              "bearing": 87,
+              "ignition": true,
+              "event_ts": "2026-10-11 10:18:26+07",
+              "location": { "latitude": 13.7563, "longitude": 100.5018, "position_description": "mock: Bangkok" },
+              "driver": { "first_name": "Mock", "last_name": "Driver" },
+              "odometer": 123456000,
+              "fuel": { "level": 61.2, "precentage_left": 48.5 }
+            },
+            {
+              "vehicle_id": 900002,
+              "registration": "MOCK-002",
+              "speed": 0,
+              "bearing": 0,
+              "ignition": false,
+              "event_ts": "2026-10-11 10:15:02+07",
+              "location": { "latitude": 13.6512, "longitude": 100.6801 }
+            },
+            {
+              "vehicle_id": 900003,
+              "registration": "MOCK-003",
+              "event_ts": "2026-10-11 10:16:40+07",
+              "location": { "latitude": null, "longitude": null }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "priority": 2,
+      "request": { "method": "GET", "urlPath": "/cartrack/rest/vehicles/status" },
+      "response": { "status": 401, "headers": { "Content-Type": "application/json" }, "jsonBody": { "error": "mock: unauthorized" } }
+    }
+  ]
+}

@@ -54,14 +54,14 @@ func camel(col string) string {
 func TestScopeDTOsAreTheViews(t *testing.T) {
 	v := views(t)
 	want := []string{"scope_drivers", "scope_incidents", "scope_standby", "scope_standby_photos", "scope_task_stops", "scope_tasks",
-		"scope_tenants", "scope_trip_photos", "scope_trip_stops", "scope_trips", "scope_trucks"}
+		"scope_tenants", "scope_trip_photos", "scope_trip_stops", "scope_trips", "scope_trucks", "scope_vehicle_locations"}
 	got := make([]string, 0, len(v))
 	for name := range v {
 		got = append(got, name)
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		t.Fatalf("scope views %v, want the eleven of §C.3.7 %v", got, want)
+		t.Fatalf("scope views %v, want the twelve of §C.3.7 %v", got, want)
 	}
 	for name, cols := range v {
 		for _, c := range cols {
@@ -76,6 +76,7 @@ func TestScopeDTOsAreTheViews(t *testing.T) {
 		"scope_trucks": scopedb.ScopeTruck{}, "scope_tenants": scopedb.ScopeTenant{},
 		"scope_task_stops": scopedb.ScopeTaskStop{}, "scope_trip_stops": scopedb.ScopeTripStop{},
 		"scope_trip_photos": scopedb.ScopeTripPhoto{}, "scope_standby_photos": scopedb.ScopeStandbyPhoto{},
+		"scope_vehicle_locations": scopedb.ScopeVehicleLocation{},
 	}
 	for name, dto := range dtos {
 		typ := reflect.TypeOf(dto)
@@ -97,7 +98,7 @@ func TestIsHidden(t *testing.T) {
 	for _, c := range []string{"billing_party_id", "billing_date", "evidence_token", "id_card", "license_file_id",
 		"birth_date", "insurance_premium_thb", "tax_expense_thb", "customer_party_id", "source_linked_party_id",
 		"review_status", "ocr_data", "legacy_doc_id", "created_by", "destination_linked_party_id", "estimated_rate_thb",
-		"drop_fee_thb"} {
+		"drop_fee_thb", "gps_vehicle_id", "driver_name_raw", "odometer_km", "fuel_level", "fuel_percentage", "engine_on"} {
 		if !IsHidden(c) {
 			t.Errorf("%s must be hidden", c)
 		}
