@@ -3,14 +3,13 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { Upload, X, FileSpreadsheet, Check, AlertCircle, Download } from "lucide-react";
-import { collection, writeBatch, doc } from "firebase/firestore";
-import { db } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import type { LazyDialogControl } from "@/components/lazy-dialog";
 import type { CustomerLinkKind, StationType } from "@/validate/hubSchema";
-import { invalidateHubs } from "@/features/hubs/api/hubs";
-import { COLLECTIONS } from "@/lib/collections";
-import { getAllCustomersForCodeLookup } from "@/features/customers/api/customers";
+import { importHubs, invalidateHubs } from "@/features/hubs/api/hubs";
+import { fetchCustomerOptions, type CustomerMinimalDTO } from "@/features/customers/api/customers";
+import { fieldViolations } from "@/features/auth/utils/fieldErrors";
+import { apiErrorText, isApiError } from "@/lib/apiError";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -144,9 +143,10 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                 return;
             }
 
-            let customers: Awaited<ReturnType<typeof getAllCustomersForCodeLookup>>;
+            // `['customers','options']` (T25): the customer codes of the active source (Go ids or Firestore ids).
+            let customers: CustomerMinimalDTO[];
             try {
-                customers = await getAllCustomersForCodeLookup();
+                customers = await fetchCustomerOptions();
             } catch (ce) {
                 console.error("[PickupImport] load customers", ce);
                 setData([]);
@@ -318,50 +318,22 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
         setProgress(10);
 
         try {
-            const batchSize = 500;
-            const totalBatches = Math.ceil(validRows.length / batchSize);
-
-            for (let i = 0; i < totalBatches; i++) {
-                const batch = writeBatch(db);
-                const chunk = validRows.slice(i * batchSize, (i + 1) * batchSize);
-
-                chunk.forEach((row) => {
-                    const isUpdate = row.firestoreDocId.length > 0;
-                    const docRef = isUpdate
-                        ? doc(db, COLLECTIONS.HUBS, row.firestoreDocId)
-                        : doc(collection(db, COLLECTIONS.HUBS));
-
-                    const payload: Record<string, unknown> = {
-                        source_id: row.source_id,
-                        source_name_en: row.source_name_en,
-                        latitude: row.latitude ?? null,
-                        longitude: row.longitude ?? null,
-                        station_type: row.station_type,
-                        updatedAt: new Date(),
-                    };
-
-                    if (row.hasThaiColumn) {
-                        payload.source_name_th = row.source_name_th || null;
-                    }
-
-                    if (row.linkedCustomerId) {
-                        payload.linkedCustomerId = row.linkedCustomerId;
-                        payload.customerLinkKind = row.customerLinkKind;
-                    }
-
-                    if (isUpdate) {
-                        batch.set(docRef, payload, { merge: true });
-                    } else {
-                        batch.set(docRef, {
-                            ...payload,
-                            createdAt: new Date(),
-                        });
-                    }
-                });
-
-                await batch.commit();
-                setProgress(10 + Math.round(((i + 1) / totalBatches) * 90));
-            }
+            // Go: one `POST /v1/hubs/import` upserting by code (all rows or none); Firestore: batches (T25).
+            await importHubs({
+                rows: validRows.map((row) => ({
+                    sourceId: row.source_id,
+                    sourceNameEn: row.source_name_en,
+                    sourceNameTh: row.hasThaiColumn ? row.source_name_th || null : undefined,
+                    latitude: row.latitude ?? null,
+                    longitude: row.longitude ?? null,
+                    stationType: row.station_type,
+                    linkedCustomerId: row.linkedCustomerId ?? undefined,
+                    linkedCustomerKind: row.linkedCustomerId ? row.customerLinkKind : undefined,
+                    firestoreDocId: row.firestoreDocId || undefined,
+                    hasThaiColumn: row.hasThaiColumn,
+                })),
+            });
+            setProgress(100);
             // Every page reading `['hubs']` sees the imported rows (TW4).
             await invalidateHubs();
 
@@ -371,9 +343,10 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
             setData([]);
             setFile(null);
         } catch (err) {
-            console.error(err);
             setUploading(false);
-            setError(t("firstMile.sourcesImport.pushError"));
+            const rows = fieldViolations(err).map((v) => v.field.match(/^rows\[(\d+)\]/)?.[1]).filter(Boolean);
+            const detail = rows.length > 0 ? ` (${rows.map((i) => validRows[Number(i)]?.source_id ?? i).join(", ")})` : "";
+            setError(isApiError(err) ? `${apiErrorText(err, (k, f) => t(k, f))}${detail}` : t("firstMile.sourcesImport.pushError"));
         }
     };
 

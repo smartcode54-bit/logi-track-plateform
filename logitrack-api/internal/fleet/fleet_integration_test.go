@@ -626,6 +626,38 @@ func TestRecordRenewal(t *testing.T) {
 		t.Fatalf("insurance documents: %v", docs)
 	}
 
+	// T25: the insurance form sends its whole document list (the stored keys it keeps go back as themselves, a removed
+	// one is unlinked), its person in charge (maintenance_responsible, as the legacy form wrote it) and the truck's
+	// insurance notes; none of them is the ledger note.
+	doc2 := w.uploadNamed(taO, "insurance_document", id, "application/pdf", "policy-2", pdf)
+	r = w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "insurance", "status": "in_progress",
+		"responsible": "Somchai", "insuranceNotes": "Claim #42 pending with insurer", "documents": []string{doc2}})
+	expect(t, r, http.StatusOK, "")
+	tk = r.data()["truck"].(map[string]any)
+	if docs := tk["files"].(map[string]any)["insuranceDocument"].([]any); len(docs) != 1 || docs[0].(map[string]any)["key"] != doc2 {
+		t.Fatalf("documents after the form removed one and added one: %v", docs)
+	}
+	if tk["maintenanceResponsible"] != "Somchai" || tk["insuranceNotes"] != "Claim #42 pending with insurer" ||
+		tk["taxResponsible"] != "Fleet admin" {
+		t.Fatalf("insurance person in charge and notes: %s", r.raw)
+	}
+	if n := w.count(`SELECT count(*) FROM file_objects WHERE object_key = $1 AND deleted_at IS NULL`, doc); n != 1 {
+		t.Fatalf("an unlinked document's object: %d", n) // the link goes, the object stays (main spec §9.3)
+	}
+	// The same list again changes nothing (no event).
+	events := w.count(`SELECT count(*) FROM outbox_events WHERE aggregate_id = $1`, id)
+	expect(t, w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "insurance", "status": "in_progress",
+		"responsible": "Somchai", "documents": []string{doc2}}), http.StatusOK, "")
+	if n := w.count(`SELECT count(*) FROM outbox_events WHERE aggregate_id = $1`, id); n != events {
+		t.Fatalf("an unchanged renewal save wrote %d events", n-events)
+	}
+	r = w.post("/v1/trucks/"+id+"/renewals", taO, map[string]any{"type": "tax", "insuranceNotes": "x", "documents": []string{doc2},
+		"status": "in_progress"})
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if f := r.fields(); f["insuranceNotes"] != "not_available" || f["documents"] != "not_available" {
+		t.Fatalf("insurance fields on a tax renewal: %v", f)
+	}
+
 	// The ledger is append-only for the app role.
 	for _, what := range []string{"update-transactions", "delete-transactions"} {
 		r := w.post("/v1/fleettest/mutate/"+what, taO, nil)
@@ -633,9 +665,14 @@ func TestRecordRenewal(t *testing.T) {
 			t.Fatalf("%s: %s", what, r.raw)
 		}
 	}
-	// A carrier admin records renewals of its own trucks; the own fleet's trucks are not found.
-	expect(t, w.post("/v1/trucks/"+id+"/renewals", w.login("ta.a"), map[string]any{"type": "tax", "amount": 1,
-		"expiryDate": "2028-10-01"}), http.StatusCreated, "")
+	// A carrier admin records renewals of its own trucks; the own fleet's trucks are not found. Without notes the
+	// ledger row carries the legacy text, never the truck's insurance notes.
+	r = w.post("/v1/trucks/"+id+"/renewals", w.login("ta.a"), map[string]any{"type": "tax", "amount": 1,
+		"expiryDate": "2028-10-01"})
+	expect(t, r, http.StatusCreated, "")
+	if tr := r.data()["transaction"].(map[string]any); tr["notes"] != "Expiry: 2028-10-01" {
+		t.Fatalf("tax ledger note: %v", tr)
+	}
 	r = w.post("/v1/trucks", taO, newTruck("กก-7002", nil))
 	expect(t, w.post("/v1/trucks/"+str(r.data()["id"])+"/renewals", w.login("ta.a"), map[string]any{"type": "tax",
 		"amount": 1, "expiryDate": "2028-10-01"}), http.StatusNotFound, "not_found")

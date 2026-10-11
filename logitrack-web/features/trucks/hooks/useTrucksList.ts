@@ -1,140 +1,84 @@
-import { useState, useEffect, useMemo } from "react";
-import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
-import { TruckData, formatTimestamp } from "../services/truckService";
+"use client";
 
+import { useEffect, useMemo, useState } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queryKeys";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useActiveAssignments, useFleetStats, useTruckPages } from "../api/useTrucks";
+import type { Ownership, TruckDTO } from "../api/trucks";
+
+export interface TruckRow extends TruckDTO {
+    /** The truck's active assignments (`['truckAssignments',{status:'active'}]`). */
+    drivers: Array<{ driverId: string; driverName: string | null }>;
+}
+
+/**
+ * The trucks page (T25): `['trucks', filters]` keyset pages of 100 with the filters sent to the server
+ * (`GET /v1/trucks?ownership&status&type&q`), polled every 60 s while visible (Appendix E §E.5 row 30,
+ * replacing the `onSnapshot` listener capped at 100 rows); the drivers column joins the active
+ * assignments. The table pages through the loaded rows; "load more" fetches the next keyset page.
+ */
 export function useTrucksList() {
-    const [trucks, setTrucks] = useState<TruckData[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [refreshKey, setRefreshKey] = useState(0);
-    const [isRefreshing, setIsRefreshing] = useState(false);
+    const queryClient = useQueryClient();
 
     // Filters
     const [searchQuery, setSearchQuery] = useState("");
     const [typeFilter, setTypeFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
     const [groupFilter, setGroupFilter] = useState("all");
+    const q = useDebouncedValue(searchQuery.trim());
 
-    // Pagination
+    // Pagination over the loaded rows
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
-    useEffect(() => {
-        setLoading(true);
-        const trucksRef = collection(db, COLLECTIONS.TRUCKS);
-        const q = query(trucksRef, orderBy("createdAt", "desc"), limit(100));
+    const pages = useTruckPages(
+        {
+            ownership: groupFilter === "own" || groupFilter === "subcontractor" ? (groupFilter as Ownership) : "",
+            status: statusFilter === "all" ? "" : statusFilter,
+            type: typeFilter === "all" ? "" : typeFilter,
+            q,
+        },
+        { poll: true }
+    );
+    const fleet = useFleetStats();
+    const assignments = useActiveAssignments();
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const trucksData: TruckData[] = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                trucksData.push({
-                    id: doc.id,
-                    ownershipType: (data.ownershipType as "own" | "subcontractor") || "own",
-                    subcontractorId: data.subcontractorId || undefined,
-                    licensePlate: data.licensePlate || "",
-                    province: data.province || "",
-                    vin: data.vin || "",
-                    engineNumber: data.engineNumber || "",
-                    truckStatus: data.truckStatus || "",
-                    brand: data.brand || "",
-                    model: data.model || "",
-                    year: data.year || "",
-                    color: data.color || "",
-                    type: data.type || "",
-                    seats: data.seats || "",
-                    fuelType: data.fuelType || "",
-                    engineCapacity: data.engineCapacity,
-                    fuelCapacity: data.fuelCapacity,
-                    maxLoadWeight: data.maxLoadWeight,
-                    registrationDate: data.registrationDate || "",
-                    buyingDate: data.buyingDate || "",
-                    notes: data.notes || "",
-                    images: data.images || [],
-                    taxExpiryDate: data.taxExpiryDate,
-                    insuranceExpiryDate: data.insuranceExpiryDate,
-                    lastServiceDate: data.lastServiceDate,
-                    nextServiceDate: data.nextServiceDate,
-                    nextServiceMileage: data.nextServiceMileage,
-                    pmIntervalKm: data.pmIntervalKm,
-                    currentMileage: data.currentMileage,
-                    createdBy: data.createdBy || "",
-                    createdAt: formatTimestamp(data.createdAt),
-                    updatedAt: formatTimestamp(data.updatedAt),
-                    currentAssignments: data.currentAssignments ? (data.currentAssignments as any[]).map(assignment => ({
-                        driverId: assignment.driverId,
-                        driverName: assignment.driverName,
-                        assignedAt: formatTimestamp(assignment.assignedAt) as Date,
-                        assignmentId: assignment.assignmentId
-                    })) : (data.currentAssignment ? [{
-                        driverId: data.currentAssignment.driverId,
-                        driverName: data.currentAssignment.driverName,
-                        assignedAt: formatTimestamp(data.currentAssignment.assignedAt) as Date,
-                        assignmentId: data.currentAssignment.assignmentId
-                    }] : []),
-                } as TruckData);
-            });
-            setTrucks(trucksData);
-            setLoading(false);
-            setError(null);
-        }, (err) => {
-            console.error("Error fetching trucks:", err);
-            setError("Failed to load trucks");
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
+    useEffect(() => setCurrentPage(1), [q, typeFilter, statusFilter, groupFilter]);
 
     const uniqueTypes = useMemo(() => {
-        const types = new Set(trucks.map(t => t.type).filter(Boolean));
-        return Array.from(types);
-    }, [trucks]);
+        const types = new Set([...fleet.trucks, ...pages.trucks].map((t) => t.type).filter(Boolean));
+        return Array.from(types).sort();
+    }, [fleet.trucks, pages.trucks]);
 
-    const filteredTrucks = useMemo(() => {
-        return trucks.filter(truck => {
-            const matchSearch =
-                truck.licensePlate.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                truck.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                truck.id.toLowerCase().includes(searchQuery.toLowerCase());
-
-            const matchType = typeFilter === "all" || truck.type === typeFilter;
-            const matchStatus = statusFilter === "all" || truck.truckStatus === statusFilter;
-            const matchGroup = groupFilter === "all" ||
-                (groupFilter === "own" && truck.ownershipType === "own") ||
-                (groupFilter === "subcontractor" && truck.ownershipType === "subcontractor");
-
-            return matchSearch && matchType && matchStatus && matchGroup;
-        });
-    }, [trucks, searchQuery, typeFilter, statusFilter, groupFilter]);
+    const filteredTrucks = useMemo<TruckRow[]>(() => {
+        const byTruck = new Map<string, TruckRow["drivers"]>();
+        for (const a of assignments.assignments) {
+            const list = byTruck.get(a.truckId) ?? [];
+            if (!list.some((d) => d.driverId === a.driverId)) list.push({ driverId: a.driverId, driverName: a.driverName });
+            byTruck.set(a.truckId, list);
+        }
+        return pages.trucks.map((t) => ({ ...t, drivers: byTruck.get(t.id) ?? [] }));
+    }, [pages.trucks, assignments.assignments]);
 
     const totalPages = Math.ceil(filteredTrucks.length / itemsPerPage);
 
+    // The card filters set the list filters (the server applies them).
     const handleCardFilterChange = ({ type, status }: { type: string | null; status: string | null }) => {
         if (!type && !status) {
             setGroupFilter("all");
             setStatusFilter("all");
             return;
         }
-        else if (type === "sub") {
+        const statusOf = (s: string | null) =>
+            s === "active" ? "active" : s === "available" ? "inactive" : s === "corrective" || s === "pm" ? "maintenance" : "all";
+        if (type === "sub") {
             setGroupFilter("subcontractor");
-            if (status === "active") setStatusFilter("active");
-            else if (status === "available") setStatusFilter("inactive");
-            else if (status === "corrective") setStatusFilter("maintenance");
-            else if (status === "pm") setStatusFilter("maintenance");
-            else setStatusFilter("all");
-        }
-        else if (type === "own") {
+            setStatusFilter(statusOf(status));
+        } else if (type === "own") {
             setGroupFilter("own");
-            if (status === "active") setStatusFilter("active");
-            else if (status === "available") setStatusFilter("inactive");
-            else if (status === "corrective") setStatusFilter("maintenance");
-            else if (status === "pm") setStatusFilter("maintenance");
-            else setStatusFilter("all");
-        }
-        else if (type === "maintenance") {
+            setStatusFilter(statusOf(status));
+        } else if (type === "maintenance") {
             setGroupFilter("own");
             setStatusFilter("all");
         }
@@ -148,14 +92,18 @@ export function useTrucksList() {
         setCurrentPage(1);
     };
 
+    const isRefreshing = useIsFetching({ queryKey: queryKeys.trucks.all() }) > 0;
+    const refresh = () => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.trucks.all() });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.truckAssignments() });
+    };
+
     return {
-        trucks,
-        loading,
-        error,
-        refreshKey,
-        setRefreshKey,
+        trucks: filteredTrucks,
+        loading: pages.isPending,
+        error: pages.isError,
         isRefreshing,
-        setIsRefreshing,
+        refresh,
         searchQuery,
         setSearchQuery,
         typeFilter,
@@ -170,7 +118,10 @@ export function useTrucksList() {
         uniqueTypes,
         filteredTrucks,
         totalPages,
+        hasNextPage: pages.hasNextPage,
+        isFetchingNextPage: pages.isFetchingNextPage,
+        fetchNextPage: () => void pages.fetchNextPage(),
         handleCardFilterChange,
-        clearFilters
+        clearFilters,
     };
 }

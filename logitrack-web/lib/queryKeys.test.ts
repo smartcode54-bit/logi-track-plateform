@@ -32,6 +32,24 @@ describe("queryKeys (W6)", () => {
         expect(partialMatchKey(queryKeys.tenants.members("t1", {}), queryKeys.tenants.all())).toBe(true);
     });
 
+    it("Security Center keys (T54S): the reach or layer in the params, the bare prefix for invalidation", () => {
+        expect(queryKeys.security.overview()).toEqual(["security", "overview"]);
+        expect(queryKeys.security.overview({ reach: "all" })).toEqual(["security", "overview", { reach: "all" }]);
+        expect(queryKeys.security.usersByRole({ reach: "tenant" })).toEqual(["security", "usersByRole", { reach: "tenant" }]);
+        expect(queryKeys.security.status()).toEqual(["security", "status"]);
+        expect(queryKeys.roles.matrix()).toEqual(["roles", "matrix"]);
+        expect(queryKeys.roles.matrix({ layer: "platform", tenantId: "" })).toEqual(["roles", "matrix", { layer: "platform", tenantId: "" }]);
+        expect(queryKeys.apiKeys()).toEqual(["apiKeys"]);
+        expect(queryKeys.apiKeys({ reach: "all" })).toEqual(["apiKeys", { reach: "all" }]);
+        expect(queryKeys.mobileReleases()).toEqual(["mobileReleases"]);
+        expect(partialMatchKey(queryKeys.security.events({ reach: "all" }), queryKeys.security.all())).toBe(true);
+        expect(partialMatchKey(queryKeys.roles.matrix({ layer: "default" }), queryKeys.roles.all())).toBe(true);
+        expect(partialMatchKey(queryKeys.apiKeys({ reach: "tenant" }), queryKeys.apiKeys())).toBe(true);
+        expect(partialMatchKey(queryKeys.mobileReleases({ flavor: "" }), queryKeys.mobileReleases())).toBe(true);
+        // Each call builds a fresh array (a cached key is never shared and mutated).
+        expect(queryKeys.apiKeys()).not.toBe(queryKeys.apiKeys());
+    });
+
     it("carries the stale / gc rows of developer-spec.md §10.7", () => {
         expect(QUERY_POLICY.me).toEqual({ staleTime: 300_000, gcTime: 1_800_000 });
         expect(QUERY_POLICY.masterData).toEqual({ staleTime: 600_000, gcTime: 3_600_000 });

@@ -51,6 +51,19 @@ function listKey<D extends string, P extends Params>(domain: D, params?: P) {
     return (params === undefined ? [domain] : [domain, params]) as readonly [D] | readonly [D, P];
 }
 
+/**
+ * A key builder for `[...prefix]` (the prefix, for invalidation) or `[...prefix, params]` (one
+ * variant), typed exactly per call, so a hook's `queryFn` can read the params from its key (T54S).
+ */
+function optionalParamsKey<const K extends readonly string[]>(...prefix: K) {
+    function key(): K;
+    function key<P extends Params>(params: P): readonly [...K, P];
+    function key<P extends Params>(params?: P): K | readonly [...K, P] {
+        return (params === undefined ? [...prefix] : [...prefix, params]) as unknown as K | readonly [...K, P];
+    }
+    return key;
+}
+
 export const queryKeys = {
     me: () => ["me"] as const,
     /** `GET /v1/me/tenants` (the tenant switcher, T18): under the `['me']` prefix, same policy row. */
@@ -68,21 +81,28 @@ export const queryKeys = {
     distances: {
         all: () => ["distances"] as const,
         byHub: (hubId: string) => ["distances", { hubId }] as const,
+        /** `GET /v1/distances?hubId&direction` (a hub's or a SOC's rows in one direction, T25). */
+        list: <P extends Params>(params: P) => ["distances", params] as const,
         meta: () => ["distances", "meta"] as const,
     },
     customers: {
         all: () => ["customers"] as const,
         list: <P extends Params>(params?: P) => listKey("customers", params),
         detail: (id: string) => ["customers", "detail", id] as const,
+        /** Every customer as a picker option (`fields=minimal`, flag `masterdata`, T25). */
+        options: () => ["customers", "options"] as const,
     },
     subcontractors: {
         all: () => ["subcontractors"] as const,
         list: <P extends Params>(params?: P) => listKey("subcontractors", params),
         detail: (id: string) => ["subcontractors", "detail", id] as const,
+        /** Every carrier as a picker option (`fields=minimal`, T25). */
+        options: () => ["subcontractors", "options"] as const,
     },
     companies: {
         all: () => ["companies"] as const,
         owner: () => ["companies", { owner: true }] as const,
+        list: <P extends Params>(params: P) => ["companies", params] as const,
     },
     holidays: {
         all: () => ["holidays"] as const,
@@ -91,18 +111,25 @@ export const queryKeys = {
     compConfig: (which: "active" | "all") => ["compConfig", which] as const,
     roles: {
         all: () => ["roles"] as const,
-        matrix: () => ["roles", "matrix"] as const,
+        /** `GET /v1/roles/matrix`; the params name the layer (`{layer, tenantId}`, T54S). */
+        matrix: optionalParamsKey("roles", "matrix"),
     },
 
     drivers: {
         all: () => ["drivers"] as const,
         list: <P extends Params>(params: P) => ["drivers", params] as const,
         detail: (id: string) => ["drivers", "detail", id] as const,
+        /** Every driver as a picker option of the master-data pages (`fields=minimal`, T25). */
+        options: () => ["drivers", "options"] as const,
     },
     trucks: {
         all: () => ["trucks"] as const,
         list: <P extends Params>(params: P) => ["trucks", params] as const,
         detail: (id: string) => ["trucks", "detail", id] as const,
+        /** Every truck as a picker option of the truck assignment page (T25). */
+        options: () => ["trucks", "options"] as const,
+        /** The fleet status and PM counters of the trucks page (every truck, T25). */
+        fleetStats: () => ["trucks", "fleetStats"] as const,
     },
     renewals: <P extends Params>(params?: P) => listKey("renewals", params),
     truckAssignments: <P extends Params>(params?: P) => listKey("truckAssignments", params),
@@ -171,10 +198,17 @@ export const queryKeys = {
     },
     broadcasts: () => ["broadcasts"] as const,
 
+    /**
+     * The Security Center reads (T51 routes, T54S pages). The params hold the reach (`{reach}`: a
+     * platform principal reads with `X-Act-On-Tenant: *`), so another reach never reuses a cached body.
+     */
     security: {
-        overview: () => ["security", "overview"] as const,
-        usersByRole: () => ["security", "usersByRole"] as const,
+        all: () => ["security"] as const,
+        overview: optionalParamsKey("security", "overview"),
+        usersByRole: optionalParamsKey("security", "usersByRole"),
         events: <P extends Params>(params: P) => ["security", "events", params] as const,
+        /** `GET /v1/security/status` (no tenant data, no reach). */
+        status: () => ["security", "status"] as const,
     },
     users: {
         all: () => ["users"] as const,
@@ -187,13 +221,14 @@ export const queryKeys = {
         list: <P extends Params>(params: P) => ["tenants", params] as const,
         members: <P extends Params>(tenantId: string, params: P) => ["tenants", tenantId, "members", params] as const,
     },
-    apiKeys: () => ["apiKeys"] as const,
+    /** `GET /v1/api-keys`; the params hold the reach (`{reach}`). */
+    apiKeys: optionalParamsKey("apiKeys"),
     installations: {
         all: () => ["installations"] as const,
         list: <P extends Params>(params: P) => ["installations", params] as const,
         stats: <P extends Params>(params: P) => ["installations", "stats", params] as const,
     },
     mobileSettings: () => ["mobileSettings"] as const,
-    mobileReleases: <P extends Params>(params: P) => ["mobileReleases", params] as const,
+    mobileReleases: optionalParamsKey("mobileReleases"),
     waitlist: () => ["waitlist"] as const,
 } as const;

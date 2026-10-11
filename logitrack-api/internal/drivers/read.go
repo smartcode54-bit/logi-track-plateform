@@ -41,7 +41,8 @@ type CurrentAssignment struct {
 
 // Driver is a driver as GET /v1/drivers lists it and every driver payload starts with: no PII (Appendix C §C.2.3
 // row 15) and no file. Dates are yyyy-MM-dd. tenantNameTh / tenantNameEn / tenantKind name the driver's tenant (the
-// legacy subcontractorName); displayName is the Thai full name, else first and last name.
+// legacy subcontractorName); displayName is the Thai full name, else first and last name. legacyAuthUid is the
+// driver's Firebase uid of a loaded driver (the legacy authId): the chat pages key chats by it until P5 (T25).
 type Driver struct {
 	ID                 uuid.UUID          `json:"id"`
 	TenantID           uuid.UUID          `json:"tenantId"`
@@ -50,6 +51,7 @@ type Driver struct {
 	TenantKind         *string            `json:"tenantKind"`
 	UserID             *uuid.UUID         `json:"userId"`
 	LegacyDocID        *string            `json:"legacyDocId"`
+	LegacyAuthUID      *string            `json:"legacyAuthUid"`
 	DisplayName        string             `json:"displayName"`
 	FirstName          string             `json:"firstName"`
 	LastName           string             `json:"lastName"`
@@ -178,7 +180,7 @@ type joined struct {
 
 func driverOf(d driversdb.Driver, j joined) Driver {
 	out := Driver{ID: d.ID, TenantID: d.TenantID, TenantNameTh: j.TenantNameTh, TenantNameEn: j.TenantNameEn,
-		TenantKind: j.TenantKind, UserID: d.UserID, LegacyDocID: d.LegacyDocID,
+		TenantKind: j.TenantKind, UserID: d.UserID, LegacyDocID: d.LegacyDocID, LegacyAuthUID: d.LegacyAuthUid,
 		DisplayName: displayName(d.FullNameTh, d.FirstName, d.LastName), FirstName: d.FirstName, LastName: d.LastName,
 		FullNameTh: d.FullNameTh, Mobile: d.Mobile, Email: d.Email, Status: d.Status, EmploymentType: d.EmploymentType,
 		ContractYears: d.ContractYears, EmploymentStart: dateString(d.EmploymentStart),

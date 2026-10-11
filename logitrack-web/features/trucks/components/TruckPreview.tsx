@@ -24,6 +24,7 @@ function StatusBadge({ status }: { status: string }) {
         inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
         maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
         "insurance-claim": "bg-red-100 text-red-800 hover:bg-red-100",
+        insurance_claim: "bg-red-100 text-red-800 hover:bg-red-100",
         sold: "bg-purple-100 text-purple-800 hover:bg-purple-100",
     };
     const labels: Record<string, string> = {
@@ -31,6 +32,7 @@ function StatusBadge({ status }: { status: string }) {
         inactive: t("trucks.detail.status.inactive"),
         maintenance: t("trucks.detail.status.maintenance"),
         "insurance-claim": t("trucks.detail.status.insuranceClaim"),
+        insurance_claim: t("trucks.detail.status.insuranceClaim"),
         sold: t("trucks.detail.status.sold"),
         [status]: status
     };
@@ -45,14 +47,15 @@ function StatusBadge({ status }: { status: string }) {
 export default function TruckPreview() {
     const {
         truck,
-        assignmentHistory,
         isLoading,
         error,
         isViewerOpen,
         setIsViewerOpen,
         viewerIndex,
         setViewerIndex,
-        subcontractors,
+        partnerName,
+        documentTax,
+        insuranceDocuments,
         viewableFiles,
         handleFileClick,
         formatDate,
@@ -92,15 +95,15 @@ export default function TruckPreview() {
                 <div>
                     <div className="flex items-center gap-3 mb-1">
                         <h1 className="text-3xl font-bold tracking-tight">{truck.licensePlate}</h1>
-                        <StatusBadge status={truck.truckStatus} />
+                        <StatusBadge status={String(truck.status)} />
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                             <Info className="h-3.5 w-3.5" />
-                            {t("trucks.detail.lastUpdated")}: {truck.updatedAt ? new Date(truck.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "2 hours ago"}
+                            {t("trucks.detail.lastUpdated")}: {truck.updatedAt ? new Date(truck.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
                         </span>
                         <span>•</span>
-                        <span>System ID: {truck.id.substring(0, 8).toUpperCase()}</span>
+                        <span>{t("masterData.trucks.systemId")}: {truck.id.substring(0, 8).toUpperCase()}</span>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -149,7 +152,7 @@ export default function TruckPreview() {
                             </div>
                             <div>
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.maxLoad")}</p>
-                                <p className="font-semibold">{truck.maxLoadWeight ? `${truck.maxLoadWeight.toLocaleString()} kg` : "-"}</p>
+                                <p className="font-semibold">{truck.maxLoadWeightKg ? `${truck.maxLoadWeightKg.toLocaleString()} kg` : "-"}</p>
                             </div>
                             <div>
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.section.truckType")}</p>
@@ -254,7 +257,7 @@ export default function TruckPreview() {
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.premium")}</span>
-                                    <span className="text-sm font-medium">{truck.insurancePremium ? `${truck.insurancePremium.toLocaleString()} THB` : "-"}</span>
+                                    <span className="text-sm font-medium">{truck.insurancePremiumThb ? `${truck.insurancePremiumThb.toLocaleString()} THB` : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.startDate")}</span>
@@ -302,8 +305,8 @@ export default function TruckPreview() {
                                         )}
                                     </h4>
                                     <p className="text-sm text-muted-foreground mt-1">
-                                        {truck.ownershipType === "subcontractor" && truck.subcontractorId
-                                            ? `${t("trucks.detail.managedByPartner")} ${subcontractors.find((s: any) => s.id === truck.subcontractorId)?.name || truck.subcontractorId}`
+                                        {truck.ownershipType === "subcontractor" && partnerName
+                                            ? `${t("trucks.detail.managedByPartner")} ${partnerName}`
                                             : t("trucks.detail.managedByInternal")}
                                     </p>
                                     <Button variant="link" className="p-0 h-auto text-blue-600 mt-2 text-xs font-medium flex items-center gap-1">
@@ -334,7 +337,7 @@ export default function TruckPreview() {
                                 return uniqueAssignments.length > 0 ? (
                                     <div className="space-y-4">
                                         {uniqueAssignments.map((assignment: any) => (
-                                            <div key={assignment.assignmentId} className="flex flex-col items-center text-center border-b last:border-0 pb-4 last:pb-0">
+                                            <div key={assignment.id} className="flex flex-col items-center text-center border-b last:border-0 pb-4 last:pb-0">
                                                 {uniqueAssignments.length === 1 ? (
                                                     <>
                                                         <div className="relative mb-3">
@@ -459,19 +462,19 @@ export default function TruckPreview() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4">
-                            {truck.documentTax ? (
+                            {documentTax ? (
                                 <div
                                     className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer"
-                                    onClick={() => handleFileClick(truck.documentTax!)}
+                                    onClick={() => handleFileClick(documentTax)}
                                 >
-                                    {isPdfUrl(truck.documentTax) ? (
+                                    {isPdfUrl(documentTax) ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
                                             <FileText className="h-12 w-12 text-blue-600 mb-2" />
                                             <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewTaxDoc")}</span>
                                         </div>
                                     ) : (
                                         <Image
-                                            src={truck.documentTax}
+                                            src={documentTax}
                                             alt="Tax Document"
                                             fill
                                             className="object-cover"
@@ -480,7 +483,7 @@ export default function TruckPreview() {
                                 </div>
                             ) : (
                                 <div className="flex items-center justify-center aspect-[4/3] rounded-md bg-muted/50">
-                                    <p className="text-sm text-red-500 font-medium">TAX image or file for view</p>
+                                    <p className="text-sm text-red-500 font-medium">{t("masterData.trucks.noTaxDoc")}</p>
                                 </div>
                             )}
                         </CardContent>
@@ -495,19 +498,19 @@ export default function TruckPreview() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4">
-                            {(truck.insuranceDocuments && truck.insuranceDocuments.length > 0) ? (
+                            {insuranceDocuments.length > 0 ? (
                                 <div
                                     className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer"
-                                    onClick={() => handleFileClick(truck.insuranceDocuments![0])}
+                                    onClick={() => handleFileClick(insuranceDocuments[0])}
                                 >
-                                    {isPdfUrl(truck.insuranceDocuments[0]) ? (
+                                    {isPdfUrl(insuranceDocuments[0]) ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
                                             <FileText className="h-12 w-12 text-blue-600 mb-2" />
                                             <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewInsuranceDoc")}</span>
                                         </div>
                                     ) : (
                                         <Image
-                                            src={truck.insuranceDocuments[0]}
+                                            src={insuranceDocuments[0]}
                                             alt="Insurance Document"
                                             fill
                                             className="object-cover"
@@ -516,7 +519,7 @@ export default function TruckPreview() {
                                 </div>
                             ) : (
                                 <div className="flex items-center justify-center aspect-[4/3] rounded-md bg-muted/50">
-                                    <p className="text-sm text-red-500 font-medium">Insurance image or file for view</p>
+                                    <p className="text-sm text-red-500 font-medium">{t("masterData.trucks.noInsuranceDoc")}</p>
                                 </div>
                             )}
                         </CardContent>

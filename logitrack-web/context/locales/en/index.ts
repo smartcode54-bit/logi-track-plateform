@@ -23,6 +23,7 @@ import about from "./about";
 import company from "./company";
 import driverCompensation from "./driverCompensation";
 import tenants from "./tenants";
+import masterData from "./masterData";
 import apiErrors from "./apiErrors";
 import imagePreview from "./imagePreview";
 
@@ -47,6 +48,7 @@ const dictionary: Dictionary = {
     ...company,
     ...driverCompensation,
     ...tenants,
+    ...masterData,
     ...apiErrors,
     ...imagePreview,
 };

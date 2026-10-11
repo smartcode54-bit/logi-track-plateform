@@ -1,7 +1,7 @@
 "use client";
 
 import { useLanguage } from "@/context/language";
-import { SubcontractorData } from "../services/subcontractorService";
+import type { SubcontractorSummaryDTO } from "../api/subcontractors";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -10,14 +10,14 @@ import { MoreHorizontal, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface SubcontractorTableProps {
-    subcontractors: SubcontractorData[];
+    subcontractors: SubcontractorSummaryDTO[];
     loading: boolean;
     currentPage: number;
     setCurrentPage: (p: number | ((prev: number) => number)) => void;
     itemsPerPage: number;
     filteredCount: number;
-    sortConfig: { key: keyof SubcontractorData; direction: 'asc' | 'desc' } | null;
-    handleSort: (key: keyof SubcontractorData) => void;
+    sortConfig: { key: keyof SubcontractorSummaryDTO; direction: 'asc' | 'desc' } | null;
+    handleSort: (key: keyof SubcontractorSummaryDTO) => void;
 }
 
 export function SubcontractorTable(props: SubcontractorTableProps) {
@@ -42,10 +42,10 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
             <Table>
                 <TableHeader className="bg-muted/30">
                     <TableRow className="hover:bg-transparent border-border/50">
-                        <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase pl-6 cursor-pointer" onClick={() => props.handleSort('name')}>
+                        <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase pl-6 cursor-pointer" onClick={() => props.handleSort('nameTh')}>
                             <div className="flex items-center gap-1">
                                 {t("subcontractors.table.companyName")} 
-                                {props.sortConfig?.key === 'name' && (props.sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                                {props.sortConfig?.key === 'nameTh' && (props.sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
                             </div>
                         </TableHead>
                         <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase cursor-pointer" onClick={() => props.handleSort('contactPerson')}>
@@ -86,7 +86,7 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
                                             {sub.id.substring(0, 2).toUpperCase()}
                                         </div>
                                         <div>
-                                            <div className="font-semibold text-foreground text-sm">{sub.name}</div>
+                                            <div className="font-semibold text-foreground text-sm">{sub.nameTh}</div>
                                             <div className="text-xs text-muted-foreground font-mono">ID: {sub.id.substring(0, 6).toUpperCase()}</div>
                                         </div>
                                     </div>

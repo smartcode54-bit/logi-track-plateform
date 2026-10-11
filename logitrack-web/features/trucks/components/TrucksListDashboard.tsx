@@ -51,6 +51,7 @@ import { Badge } from "@/components/ui/badge";
 import { useTrucksList } from "../hooks/useTrucksList";
 import { TruckComplianceCards } from "./TruckComplianceCards";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
+import { LoadMore } from "@/components/load-more";
 
 // The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
 const TruckImportDialog = dynamic(() => import("./TruckImportDialog").then((m) => m.TruckImportDialog), {
@@ -64,10 +65,8 @@ export default function TrucksListDashboard() {
 
     const {
         loading,
-        refreshKey,
-        setRefreshKey,
         isRefreshing,
-        setIsRefreshing,
+        refresh,
         searchQuery,
         setSearchQuery,
         typeFilter,
@@ -82,6 +81,9 @@ export default function TrucksListDashboard() {
         uniqueTypes,
         filteredTrucks,
         totalPages,
+        hasNextPage,
+        isFetchingNextPage,
+        fetchNextPage,
         handleCardFilterChange,
         clearFilters
     } = useTrucksList();
@@ -107,6 +109,8 @@ export default function TrucksListDashboard() {
             case "maintenance": return t('trucks.status.maintenance');
             case "in-transit": return t('trucks.status.inTransit');
             case "inactive": return t('trucks.status.inactive');
+            case "insurance_claim": return t('trucks.detail.status.insuranceClaim');
+            case "sold": return t('trucks.detail.status.sold');
             default: return status;
         }
     };
@@ -153,11 +157,7 @@ export default function TrucksListDashboard() {
             </div>
 
             {/* Compliance Cards */}
-            <TruckComplianceCards
-                onFilterChange={handleCardFilterChange}
-                refreshKey={refreshKey}
-                onLoadingChange={setIsRefreshing}
-            />
+            <TruckComplianceCards onFilterChange={handleCardFilterChange} />
 
             {/* Filter Bar */}
             <div className="flex flex-col xl:flex-row gap-4 bg-card/50 p-4 rounded-lg border border-border/50">
@@ -213,7 +213,7 @@ export default function TrucksListDashboard() {
                     <Button
                         variant="outline"
                         size="icon"
-                        onClick={() => setRefreshKey(prev => prev + 1)}
+                        onClick={refresh}
                         title={t('common.refresh')}
                         disabled={isRefreshing}
                     >
@@ -243,14 +243,14 @@ export default function TrucksListDashboard() {
                                 <TableCell colSpan={8} className="h-32 text-center">
                                     <div className="flex flex-col items-center justify-center gap-2">
                                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                        <p className="text-sm text-muted-foreground">Loading trucks...</p>
+                                        <p className="text-sm text-muted-foreground">{t('trucks.detail.loading')}</p>
                                     </div>
                                 </TableCell>
                             </TableRow>
                         ) : paginatedTrucks.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={8} className="h-32 text-center">
-                                    <p className="text-sm text-muted-foreground">No trucks found matching your filters.</p>
+                                    <p className="text-sm text-muted-foreground">{t('masterData.trucks.noMatch')}</p>
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -270,11 +270,11 @@ export default function TrucksListDashboard() {
                                     </TableCell>
                                     <TableCell>
                                         {(() => {
-                                            if (!truck.currentAssignments || truck.currentAssignments.length === 0) {
+                                            if (truck.drivers.length === 0) {
                                                 return <span className="text-muted-foreground text-xs">-</span>;
                                             }
 
-                                            const assignments = Array.from(new Map(truck.currentAssignments.map(item => [item.driverId, item])).values());
+                                            const assignments = truck.drivers;
 
                                             if (assignments.length === 1) {
                                                 const assignment = assignments[0];
@@ -293,12 +293,12 @@ export default function TrucksListDashboard() {
                                                     <DropdownMenuTrigger asChild>
                                                         <Badge variant="secondary" className="cursor-pointer hover:bg-secondary/80 gap-1.5 py-1 px-2 h-auto w-fit transition-colors">
                                                             <Users className="h-3 w-3" />
-                                                            {assignments.length} Drivers
+                                                            {t('masterData.trucks.driverCount', { count: assignments.length })}
                                                             <ChevronDown className="h-3 w-3 opacity-50" />
                                                         </Badge>
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="start" className="w-[200px]">
-                                                        <DropdownMenuLabel>Assigned Drivers</DropdownMenuLabel>
+                                                        <DropdownMenuLabel>{t('masterData.trucks.assignedDrivers')}</DropdownMenuLabel>
                                                         {assignments.map((assignment, idx) => (
                                                             <div key={idx} className="flex items-center gap-2 px-2 py-1.5 text-sm">
                                                                 <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600 shrink-0">
@@ -323,7 +323,7 @@ export default function TrucksListDashboard() {
 
                                                 let pmBadge: ReactNode = null;
 
-                                                if (truck.truckStatus === 'maintenance') {
+                                                if (truck.status === 'maintenance') {
                                                     pmBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-yellow-100 text-yellow-700 border-yellow-200">{t('trucks.badge.pmInShop')}</Badge>;
                                                 } else if (km !== null && km < 0) {
                                                     pmBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">PM: {-km}km Over</Badge>;
@@ -345,7 +345,7 @@ export default function TrucksListDashboard() {
                                                                     </Link>
                                                                 </TooltipTrigger>
                                                                 <TooltipContent>
-                                                                    <p>Record Maintenance</p>
+                                                                    <p>{t('masterData.trucks.recordMaintenance')}</p>
                                                                 </TooltipContent>
                                                             </Tooltip>
                                                         </TooltipProvider>
@@ -361,9 +361,9 @@ export default function TrucksListDashboard() {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(truck.truckStatus)}`}>
+                                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(String(truck.status))}`}>
                                             <span className={`w-1.5 h-1.5 rounded-full bg-current`} />
-                                            {getStatusLabel(truck.truckStatus)}
+                                            {getStatusLabel(String(truck.status))}
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right">
@@ -375,7 +375,7 @@ export default function TrucksListDashboard() {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                <DropdownMenuLabel>{t('common.actions')}</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
                                                     <Link href={`/app/trucks/view?id=${truck.id}`} prefetch={false} className="flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                                         <Eye className="mr-2 h-4 w-4" />
@@ -397,10 +397,13 @@ export default function TrucksListDashboard() {
                     </TableBody>
                 </Table>
 
-                {/* Pagination */}
-                <div className="flex items-center justify-between px-4 py-4 border-t border-border/50 bg-muted/20">
+                {/* Pagination over the loaded rows; the next keyset page loads on demand (T25). */}
+                <div className="px-4 pt-4 border-t border-border/50 bg-muted/20">
+                    <LoadMore loaded={filteredTrucks.length} hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onLoadMore={fetchNextPage} />
+                </div>
+                <div className="flex items-center justify-between px-4 py-4 bg-muted/20">
                     <div className="text-sm text-muted-foreground">
-                        Showing {paginatedTrucks.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, filteredTrucks.length)} of {filteredTrucks.length} entries
+                        {t('masterData.list.showing', { from: paginatedTrucks.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0, to: Math.min(currentPage * itemsPerPage, filteredTrucks.length), total: filteredTrucks.length })}
                     </div>
                     <div className="flex items-center gap-2">
                         <Button

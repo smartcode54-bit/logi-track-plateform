@@ -4,9 +4,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
-import { getDriverByIdClient, updateDriver } from "@/features/drivers/api/drivers";
+import { DriverNotSyncedError, driverFormValues, isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
+import { useCreateDriverLogin, useDriver, useDriverWrites } from "@/features/drivers/api/useDrivers";
+import { useCustomerOptions } from "@/features/customers/api/useCustomers";
+import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
+import { carrierName } from "@/features/subcontractors/api/subcontractors";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
+import type { CreateUserResult } from "@/features/users/api/users";
+import { TemporaryPasswordNotice } from "./TemporaryPasswordNotice";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, useEffectEvent } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -27,16 +34,12 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
     Loader2, ArrowLeft, CheckCircle2, Upload, User,
-    FileText, Truck, Save, X, Building2, KeyRound, Eye, EyeOff, ShieldCheck, ShieldOff,
+    FileText, Truck, Save, X, Building2, KeyRound, ShieldCheck, ShieldOff,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
-import { db, functions } from "@/firebase/client";
-import { collection, getDocs, query } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { COLLECTIONS } from "@/lib/collections";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 
@@ -65,20 +68,26 @@ export default function EditDriverForm() {
     const driverId = searchParams.get('id');
     const { t } = useLanguage();
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    // `['drivers','detail',id]` (T25) and the writes, by the `masterdata` flag; logins always go
+    // through `POST /v1/users` (users are PostgreSQL's from P0, R49).
+    const driverQuery = useDriver(driverId ?? "");
+    const { update } = useDriverWrites();
+    // The temporary password stays in this component's state only (never a query or mutation cache).
+    const createLogin = useCreateDriverLogin();
+    const isSubmitting = update.isPending;
+    const isLoading = driverQuery.isPending && Boolean(driverId);
+    const [loaded, setLoaded] = useState<DriverDetailDTO | null>(null);
 
-    // Auth account state
-    const [driverAuthId, setDriverAuthId] = useState<string | null>(null);
+    // Login account state
     const [showCreateAccount, setShowCreateAccount] = useState(false);
     const [accountEmail, setAccountEmail] = useState("");
-    const [accountPassword, setAccountPassword] = useState("");
-    const [showPassword, setShowPassword] = useState(false);
-    const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+    const [createdLogin, setCreatedLogin] = useState<CreateUserResult | null>(null);
+    const isCreatingAccount = createLogin.isPending;
 
     // File states - for NEW uploads
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [profileRemoved, setProfileRemoved] = useState(false);
     const [idCardFile, setIdCardFile] = useState<File | null>(null);
     const [truckLicenseFile, setTruckLicenseFile] = useState<File | null>(null);
 
@@ -86,7 +95,10 @@ export default function EditDriverForm() {
     const [existingIdCardImage, setExistingIdCardImage] = useState<string | null>(null);
     const [existingTruckLicenseImage, setExistingTruckLicenseImage] = useState<string | null>(null);
 
-    const [subcontractors, setSubcontractors] = useState<any[]>([]);
+    // `['subcontractors','options']` and `['customers','options']`: one cached list each.
+    const { options: subcontractors } = useSubcontractorOptions();
+    const { options: customerOptions } = useCustomerOptions();
+    const customerIdByCode = useMemo(() => new Map(customerOptions.map((c) => [c.code.toUpperCase(), c.id])), [customerOptions]);
 
     const form = useForm<Driver>({
         resolver: zodResolver(driverSchema) as any,
@@ -94,80 +106,49 @@ export default function EditDriverForm() {
         mode: "onChange",
     });
 
-    // Fetch driver data
-    // The active language when the effect's code runs: `t` is not a dependency, so a language
-    // toggle no longer refetches (TW4, developer-spec.md §10.6).
-    const translateNow = useEffectEvent((key: string) => t(key));
+    // Reset once when the stored driver arrives (a background refetch must not overwrite edits).
+    useEffect(() => {
+        const driver = driverQuery.data;
+        if (!driver || loaded?.id === driver.id) return;
+        const values = driverFormValues(driver);
+        form.reset({
+            ...FORM_DEFAULTS,
+            ...values,
+            contractYears: values.contractYears ?? ("" as any),
+            customerDriverIds: {
+                ...(values.customerDriverIds || {}),
+                SPX: {
+                    appId: values.customerDriverIds?.SPX?.appId ?? "",
+                    workId: values.customerDriverIds?.SPX?.workId ?? "",
+                    ...(values.customerDriverIds?.SPX || {}),
+                },
+            },
+        } as Driver);
+        setImagePreview(driver.profileUrl);
+        setExistingIdCardImage(driver.idCardUrl ?? null);
+        setExistingTruckLicenseImage(driver.licenseUrl ?? null);
+        setAccountEmail(driver.email ?? "");
+        setLoaded(driver);
+    }, [driverQuery.data, loaded, form]);
 
     useEffect(() => {
-        const fetchDriver = async () => {
-            if (!driverId) {
-                toast.error(translateNow("drivers.toast.noId"));
-                router.push('/app/drivers');
-                return;
-            }
-            try {
-                const driver = await getDriverByIdClient(driverId);
-                if (driver) {
-                    setDriverAuthId((driver as any).authId || null);
-                    const formData = {
-                        ...FORM_DEFAULTS,
-                        ...driver,
-                        email: driver.email || "",
-                        contractYears: driver.contractYears || ("" as any),
-                        birthDate: driver.birthDate || undefined,
-                        hireDate: driver.hireDate || undefined,
-                        probationPassed: driver.probationPassed ?? false,
-                        idCardExpiredDate: driver.idCardExpiredDate || undefined,
-                        truckLicenseExpiredDate: driver.truckLicenseExpiredDate || undefined,
-                        customerDriverIds: {
-                            ...(driver.customerDriverIds || {}),
-                            SPX: {
-                                appId: (driver.customerDriverIds as any)?.SPX?.appId ?? "",
-                                workId: (driver.customerDriverIds as any)?.SPX?.workId ?? "",
-                                ...((driver.customerDriverIds as any)?.SPX || {}),
-                            },
-                        },
-                    };
-                    form.reset(formData);
-
-                    if (driver.profileImage) {
-                        setImagePreview(driver.profileImage);
-                    }
-                    if (driver.idCardImage) setExistingIdCardImage(driver.idCardImage);
-                    if (driver.truckLicenseImage) setExistingTruckLicenseImage(driver.truckLicenseImage);
-                } else {
-                    toast.error(translateNow("drivers.toast.notFound"));
-                    router.push('/app/drivers');
-                }
-            } catch (error) {
-                console.error(error);
-                toast.error(translateNow("drivers.toast.loadError"));
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchDriver();
-    }, [driverId, router, form]);
-
-    useEffect(() => {
-        const fetchSubcontractors = async () => {
-            try {
-                const q = query(collection(db, COLLECTIONS.SUBCONTRACTORS));
-                const snapshot = await getDocs(q);
-                const subs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setSubcontractors(subs);
-            } catch (err) {
-                console.error("Error fetching subcontractors:", err);
-            }
-        };
-        fetchSubcontractors();
-    }, []);
+        if (!driverId) {
+            toast.error(t("drivers.toast.noId"));
+            router.push('/app/drivers');
+        } else if (driverQuery.isSuccess && !driverQuery.data) {
+            toast.error(t("drivers.toast.notFound"));
+            router.push('/app/drivers');
+        } else if (driverQuery.isError) {
+            toast.error(t("drivers.toast.loadError"));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [driverId, driverQuery.isSuccess, driverQuery.isError, driverQuery.data]);
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             setSelectedImage(file);
+            setProfileRemoved(false);
             const reader = new FileReader();
             reader.onloadend = () => setImagePreview(reader.result as string);
             reader.readAsDataURL(file);
@@ -177,71 +158,46 @@ export default function EditDriverForm() {
     const removeImage = () => {
         setSelectedImage(null);
         setImagePreview(null);
+        setProfileRemoved(true);
         form.setValue("profileImage", undefined);
     };
 
     const handleCreateAccount = async () => {
-        if (!driverId || !accountEmail || !accountPassword) return;
-        setIsCreatingAccount(true);
+        if (!loaded || !accountEmail.trim()) return;
         try {
-            const createUserFn = httpsCallable(functions, 'createUser');
-            const result = await createUserFn({
-                email: accountEmail,
-                password: accountPassword,
-                displayName: `${form.getValues('firstName')} ${form.getValues('lastName')}`,
-                role: 'driver',
-                driverDocId: driverId,
+            // `POST /v1/users {role:"driver", driverId}`: Go generates a temporary password, shown once (R29).
+            // In the driver's tenant (the carrier of a subcontractor driver), where its link must be.
+            const { id, tenantId, mobile, fullNameTh, firstName, lastName, displayName } = loaded;
+            const result = await createLogin.create({
+                driver: { id, tenantId, mobile, fullNameTh, firstName, lastName, displayName },
+                email: accountEmail.trim(),
             });
-            const data = result.data as { uid?: string };
-            setDriverAuthId(data.uid || "linked");
+            setCreatedLogin(result);
             setShowCreateAccount(false);
-            setAccountEmail("");
-            setAccountPassword("");
             toast.success(t("drivers.toast.accountCreated"));
-        } catch {
-            toast.error(t("drivers.toast.accountCreateError"));
-        } finally {
-            setIsCreatingAccount(false);
+        } catch (error) {
+            if (error instanceof DriverNotSyncedError) toast.error(t("masterData.drivers.login.notSynced"));
+            else if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
+            else toastSaveError(error, t, "drivers.toast.accountCreateError");
         }
     };
 
     const onSubmit = async (data: Driver) => {
-        if (!driverId) return;
+        if (!driverId || !loaded) return;
         try {
-            setIsSubmitting(true);
-
-            let cleaned = data;
-            if (data.customerDriverIds && typeof data.customerDriverIds === "object") {
-                const cleanedIds: Record<string, Record<string, string>> = {};
-                for (const [customer, idMap] of Object.entries(data.customerDriverIds)) {
-                    if (idMap && typeof idMap === "object") {
-                        const nonEmpty = Object.fromEntries(
-                            Object.entries(idMap).filter(([, v]) => v != null && String(v).trim() !== "")
-                        );
-                        if (Object.keys(nonEmpty).length > 0) cleanedIds[customer] = nonEmpty;
-                    }
-                }
-                cleaned = {
-                    ...data,
-                    customerDriverIds: Object.keys(cleanedIds).length > 0 ? cleanedIds : undefined,
-                };
-            }
-
-            const files: any = {};
-            if (selectedImage) files.profile = selectedImage;
-            if (idCardFile) files.idCard = idCardFile;
-            if (truckLicenseFile) files.license = truckLicenseFile;
-
-            await updateDriver(driverId, cleaned, Object.keys(files).length > 0 ? files : undefined);
-
+            await update.mutateAsync({
+                id: driverId,
+                values: data,
+                files: { profile: selectedImage, idCard: idCardFile, license: truckLicenseFile },
+                removeProfile: profileRemoved,
+                customerIdByCode,
+                previous: loaded,
+            });
             toast.success(t("drivers.toast.updateSuccess"));
             router.push(`/app/drivers/view?id=${driverId}`);
         } catch (error) {
-            console.error(error);
-            const reason = (error as { message?: string })?.message;
-            toast.error(reason ? `${t("drivers.toast.updateError")}: ${reason}` : t("drivers.toast.updateError"));
-        } finally {
-            setIsSubmitting(false);
+            applyServerFieldErrors(form, error, t, { status: "status", licenseExpiredDate: "truckLicenseExpiredDate", tenantId: "subcontractorId" });
+            toastSaveError(error, t, "drivers.toast.updateError");
         }
     };
 
@@ -470,12 +426,12 @@ export default function EditDriverForm() {
                                             <Select onValueChange={(val) => {
                                                 field.onChange(val);
                                                 const sub = subcontractors.find(s => s.id === val);
-                                                if (sub) form.setValue("subcontractorName", sub.companyName || sub.name);
+                                                if (sub) form.setValue("subcontractorName", carrierName(sub));
                                             }} value={field.value}>
                                                 <FormControl><SelectTrigger><SelectValue placeholder={t("drivers.form.subcontractorCompany.placeholder")} /></SelectTrigger></FormControl>
                                                 <SelectContent>
                                                     {subcontractors.map(s => (
-                                                        <SelectItem key={s.id} value={s.id}>{s.companyName || s.name || "Unknown"}</SelectItem>
+                                                        <SelectItem key={s.id} value={s.id}>{carrierName(s) || s.id}</SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
@@ -584,7 +540,9 @@ export default function EditDriverForm() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent>
-                                {driverAuthId ? (
+                                {createdLogin ? (
+                                    <TemporaryPasswordNotice email={createdLogin.user.email ?? accountEmail} temporaryPassword={createdLogin.temporaryPassword} />
+                                ) : loaded?.login || loaded?.userId || loaded?.legacyAuthUid ? (
                                     <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
                                         <ShieldCheck className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
                                         <div className="space-y-0.5">
@@ -592,7 +550,7 @@ export default function EditDriverForm() {
                                                 {t("drivers.form.loginAccount.linked")}
                                             </p>
                                             <p className="text-xs text-muted-foreground font-mono break-all">
-                                                {t("drivers.form.loginAccount.linkedUid", { uid: driverAuthId })}
+                                                {t("drivers.form.loginAccount.linkedUid", { uid: loaded?.login?.email || loaded?.login?.userId || loaded?.userId || loaded?.legacyAuthUid || "" })}
                                             </p>
                                             <p className="text-xs text-muted-foreground">
                                                 {t("drivers.form.loginAccount.securityNote")}
@@ -622,32 +580,14 @@ export default function EditDriverForm() {
                                                         value={accountEmail}
                                                         onChange={e => setAccountEmail(e.target.value)}
                                                     />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <label className="text-sm font-medium">{t("drivers.form.loginAccount.password")}</label>
-                                                    <div className="relative">
-                                                        <Input
-                                                            type={showPassword ? "text" : "password"}
-                                                            placeholder={t("drivers.form.loginAccount.password.placeholder")}
-                                                            value={accountPassword}
-                                                            onChange={e => setAccountPassword(e.target.value)}
-                                                            className="pr-10"
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setShowPassword(v => !v)}
-                                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                                        >
-                                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                                        </button>
-                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">{t("masterData.drivers.login.temporaryExplain")}</p>
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <Button
                                                         type="button"
                                                         size="sm"
                                                         onClick={handleCreateAccount}
-                                                        disabled={isCreatingAccount || !accountEmail || !accountPassword}
+                                                        disabled={isCreatingAccount || !accountEmail.trim()}
                                                     >
                                                         {isCreatingAccount ? (
                                                             <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t("drivers.form.saving")}</>

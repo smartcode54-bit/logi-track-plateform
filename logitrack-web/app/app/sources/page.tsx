@@ -24,18 +24,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
-import { doc, getDoc } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/firebase/client";
-import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { COLLECTIONS } from "@/lib/collections";
 import type { CustomerLinkKind, Hub, StationType } from "@/validate/hubSchema";
-import type { CustomerData } from "@/features/customers/api/customers";
-import { useCustomers } from "@/features/customers/api/useCustomers";
-import { hubsQueryOptions, type HubDTO } from "@/features/hubs/api/hubs";
+import { useCustomerOptions } from "@/features/customers/api/useCustomers";
+import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
+import { carrierName } from "@/features/subcontractors/api/subcontractors";
+import { computeDistances, distancesMetaQuery, hubsQueryOptions, type HubDTO } from "@/features/hubs/api/hubs";
 import { hubRecord } from "@/features/hubs/api/selectors";
-import { useQuery } from "@tanstack/react-query";
+import { isJobFinished, useJob } from "@/features/jobs/api/jobs";
+import { useCan } from "@/features/auth/api/useMe";
+import { apiErrorText } from "@/lib/apiError";
+import { queryKeys } from "@/lib/queryKeys";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     Select,
     SelectContent,
@@ -115,7 +115,6 @@ function mapDocToSourceRow(doc: { id: string; data: Record<string, unknown> }): 
     };
 }
 
-const NO_CUSTOMERS: CustomerData[] = [];
 const NO_SOURCES: SourceRow[] = [];
 
 /** `['hubs']` -> the table rows (customer code and name are joined in the component). */
@@ -125,17 +124,23 @@ function selectSourceRowsBase(hubs: HubDTO[]): SourceRow[] {
 
 export default function SourcesPage() {
     const { t } = useLanguage();
-    const auth = useAuth();
-    const isAdmin = auth?.customClaims?.admin === true;
+    // Go authorises the run (`operations:calculate_distances`, a steward key); the button follows `['me']`.
+    const { allowed: isAdmin } = useCan("operations:calculate_distances");
     const [search, setSearch] = useState("");
     const [editOpen, setEditOpen] = useState(false);
     const [editSource, setEditSource] = useState<SourceRow | null>(null);
     /** คลิกแถวตามราง → แผนที่บินไปที่พิกัดและแสดง tooltip */
     const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
-    const [calculatingDistances, setCalculatingDistances] = useState(false);
     const [distancesMessage, setDistancesMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-    const [lastCalculatedAt, setLastCalculatedAt] = useState<Date | null>(null);
+    // `['distances','meta']` and the Distance Matrix job (`['jobs',id]`, T25).
+    const queryClient = useQueryClient();
+    const metaQuery = useQuery(distancesMetaQuery);
+    const lastCalculatedAt = metaQuery.data?.lastCalculatedAt ? new Date(metaQuery.data.lastCalculatedAt) : null;
+    const compute = useMutation({ mutationFn: computeDistances });
+    const [jobId, setJobId] = useState<string | null>(null);
+    const job = useJob<{ written?: number; hubsCount?: number; socsCount?: number }>(jobId);
+    const calculatingDistances = compute.isPending || (jobId !== null && !isJobFinished(job.data));
     /** Hub→SOC: เลือก Hub เห็นระยะไป SOC | SOC→Hub: เลือก SOC เห็นระยะไป Hub */
     const [distanceViewMode, setDistanceViewMode] = useState<"HUB_SOC" | "SOC_HUB">("HUB_SOC");
     /** แท็บจุดรับส่ง: Hub หรือ SOC */
@@ -147,16 +152,20 @@ export default function SourcesPage() {
     // `['hubs']` and `['customers']` (TW4). This page edits hubs, so it refetches the list whenever it
     // opens instead of trusting a copy up to 10 minutes old; each save invalidates `['hubs']`.
     const hubsQuery = useQuery({ ...hubsQueryOptions, select: selectSourceRowsBase, refetchOnMount: "always" });
-    const { data: customerList } = useCustomers();
-    const customerOptions = customerList ?? NO_CUSTOMERS;
+    // `['customers','options']` / `['subcontractors','options']` (T25): one request each, shared with the
+    // hub dialogs; a hub links a customer or a carrier (`customerLinkKind`).
+    const { options: customerOptions } = useCustomerOptions();
+    const { options: partnerOptions } = useSubcontractorOptions();
     const loading = hubsQuery.isFetching;
     const sources = useMemo<SourceRow[]>(() => {
-        const customerById = new Map(customerOptions.map((c) => [c.id, c]));
+        const customerById = new Map(customerOptions.map((c) => [c.id, { code: c.code, name: c.name }]));
+        const partnerById = new Map(partnerOptions.map((p) => [p.id, { code: p.code ?? "", name: carrierName(p) }]));
         return (hubsQuery.data ?? NO_SOURCES).map((row) => {
-            const c = row.linkedCustomerId ? customerById.get(row.linkedCustomerId) : undefined;
+            const id = row.linkedCustomerId;
+            const c = id ? (row.customerLinkKind === "partner" ? partnerById.get(id) : customerById.get(id)) ?? customerById.get(id) : undefined;
             return { ...row, linkedCustomerCode: c?.code, linkedCustomerName: c?.name };
         });
-    }, [hubsQuery.data, customerOptions]);
+    }, [hubsQuery.data, customerOptions, partnerOptions]);
     // Manual refresh; the hub and import dialogs invalidate `['hubs']` themselves after a save.
     const refreshHubs = () => void hubsQuery.refetch();
 
@@ -164,18 +173,25 @@ export default function SourcesPage() {
     const itemsPerPage = 10;
 
 
-    const fetchLastCalculated = async () => {
-        try {
-            const snap = await getDoc(doc(db, COLLECTIONS.METADATA, "distances_last_calculated"));
-            const ts = snap.data()?.timestamp;
-            if (ts?.toDate) setLastCalculatedAt(ts.toDate());
-        } catch {
-            // ignore
-        }
-    };
+    const distancesSuccess = (r: { written?: number; hubsCount?: number; socsCount?: number }) =>
+        t("firstMile.sources.distancesSuccess")
+            .replace("{{written}}", String(r.written ?? 0))
+            .replace("{{hubsCount}}", String(r.hubsCount ?? 0))
+            .replace("{{socsCount}}", String(r.socsCount ?? 0));
+
+    // The Go job ends through `job.updated` on the stream (or the 5 s poll while it is down).
     useEffect(() => {
-        fetchLastCalculated();
-    }, []);
+        const j = job.data;
+        if (!jobId || !j || !isJobFinished(j)) return;
+        if (j.status === "succeeded") {
+            setDistancesMessage({ type: "success", text: distancesSuccess(j.result ?? {}) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.distances.all() });
+        } else {
+            setDistancesMessage({ type: "error", text: j.error || t("firstMile.sources.distancesError") });
+        }
+        setJobId(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [job.data, jobId]);
 
     const filteredSources = useMemo(() => {
         let list = sources;
@@ -271,48 +287,21 @@ export default function SourcesPage() {
 
     const handleCalculateDistances = async () => {
         if (!isAdmin) {
-            setDistancesMessage({
-                type: "error",
-                text: "Admin only. Sign in with an admin account (or ensure your account has the admin claim).",
-            });
+            setDistancesMessage({ type: "error", text: t("apiError.permission_denied") });
             return;
         }
-        setCalculatingDistances(true);
         setDistancesMessage(null);
         try {
-            const computeHubSocDistances = httpsCallable<
-                void,
-                { ok: boolean; written: number; hubsCount: number; socsCount: number; calculatedAt?: string; error?: string }
-            >(functions, "computeHubSocDistances");
-            const { data } = await computeHubSocDistances();
-            if (!data.ok && data.error) {
-                setDistancesMessage({ type: "error", text: data.error || t("firstMile.sources.distancesError") });
+            // Go: `202 {jobId}` (one run at a time, at most 4 a Bangkok month); Firestore: the legacy callable.
+            const result = await compute.mutateAsync({});
+            if (result.kind === "job") {
+                setJobId(result.jobId);
                 return;
             }
-            if (data.calculatedAt) setLastCalculatedAt(new Date(data.calculatedAt));
-            const msg = t("firstMile.sources.distancesSuccess")
-                .replace("{{written}}", String(data.written ?? 0))
-                .replace("{{hubsCount}}", String(data.hubsCount ?? 0))
-                .replace("{{socsCount}}", String(data.socsCount ?? 0));
-            setDistancesMessage({ type: "success", text: msg });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.distances.all() });
+            setDistancesMessage({ type: "success", text: distancesSuccess(result) });
         } catch (err: unknown) {
-            const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
-            const message = err && typeof err === "object" && "message" in err ? (err as { message?: string }).message : undefined;
-            if (code === "functions/permission-denied" || (typeof message === "string" && message.toLowerCase().includes("admin"))) {
-                setDistancesMessage({
-                    type: "error",
-                    text: "Admin only. Sign in with an account that has admin privileges.",
-                });
-            } else if (typeof message === "string" && message) {
-                setDistancesMessage({ type: "error", text: message });
-            } else {
-                setDistancesMessage({ type: "error", text: t("firstMile.sources.distancesError") });
-            }
-            if (process.env.NODE_ENV === "development") {
-                console.error("[computeHubSocDistances]", err);
-            }
-        } finally {
-            setCalculatingDistances(false);
+            setDistancesMessage({ type: "error", text: apiErrorText(err, (k, f) => t(k, f)) || t("firstMile.sources.distancesError") });
         }
     };
 
@@ -349,7 +338,7 @@ export default function SourcesPage() {
                         onClick={handleCalculateDistances}
                         disabled={calculatingDistances || !isAdmin}
                         className="gap-2"
-                        title={!isAdmin ? "Admin only" : undefined}
+                        title={!isAdmin ? t("apiError.permission_denied") : undefined}
                     >
                         {calculatingDistances ? (
                             <span className="animate-pulse">{t("firstMile.sources.calculatingDistances")}</span>

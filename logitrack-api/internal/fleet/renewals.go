@@ -216,8 +216,13 @@ func (s *Service) ListRenewals(ctx context.Context, p *authz.Principal, in ListR
 // the renewal: expiryDate and amount are required and the ledger row is written; pending and in_progress save the
 // work in progress on the truck only (the form's save without completing). receiptKey (purpose truck_receipt) is
 // linked as a tax or insurance receipt and, when completed, on the ledger row; documentKeys (insurance only,
-// purpose insurance_document) are added to the insurance documents. date is the ledger date (yyyy-MM-dd, default the
-// Bangkok today); notes default to the legacy "Expiry: …" / "Policy: … | Expiry: …" text.
+// purpose insurance_document) are added to the insurance documents, while documents (insurance only, T25) is the
+// whole list after the renewal: the keys the truck links go back, new keys are committed, and a stored document left
+// out is unlinked (the form's remove). date is the ledger date (yyyy-MM-dd, default the Bangkok today); notes is the
+// ledger row's note and defaults to the legacy "Expiry: …" / "Policy: … | Expiry: …" text. responsible is the
+// person in charge: tax_responsible on a tax renewal, maintenance_responsible on an insurance one (the legacy form
+// wrote its insurance "person in charge" there, T25); insuranceNotes (insurance only) is the truck's insurance notes,
+// which the legacy form wrote with the renewal. Like every renewal text field, a null or blank one is absent.
 type RenewalInput struct {
 	Type          string          `json:"type"`
 	Status        Field[string]   `json:"status"`
@@ -234,6 +239,9 @@ type RenewalInput struct {
 	PolicyNumber  Field[string]   `json:"policyNumber"`
 	Coverage      Field[string]   `json:"coverage"`
 	DocumentKeys  Field[[]string] `json:"documentKeys"`
+	// Documents replaces the insurance documents (T25: the form's kept documents plus its new ones).
+	Documents      Field[[]string] `json:"documents"`
+	InsuranceNotes Field[string]   `json:"insuranceNotes"`
 }
 
 // Transaction is the ledger row a completed renewal wrote (transactions, append-only).
@@ -265,7 +273,9 @@ type renewal struct {
 	expiry, start *time.Time
 	receipt       string
 	docs          []string
+	replaceDocs   []string // documents: the insurance documents after the renewal (nil: absent, keep them)
 	notes         *string
+	insNotes      *string
 	paymentMethod *string
 	responsible   *string
 	provider      *string
@@ -342,7 +352,8 @@ func (s *Service) validateRenewal(in *RenewalInput) (*renewal, error) {
 	}
 	r.paymentMethod = text("paymentMethod", in.PaymentMethod, 20, PaymentMethods, false, false)
 	r.notes = text("notes", in.Notes, 2000, nil, false, false)
-	r.responsible = text("responsible", in.Responsible, 100, nil, false, true)
+	r.responsible = text("responsible", in.Responsible, 100, nil, false, false)
+	r.insNotes = text("insuranceNotes", in.InsuranceNotes, 2000, nil, true, false)
 	r.provider = text("provider", in.Provider, 200, nil, true, false)
 	r.policyID = text("policyId", in.PolicyID, 100, nil, true, false)
 	r.policyNumber = text("policyNumber", in.PolicyNumber, 100, nil, true, false)
@@ -377,6 +388,26 @@ func (s *Service) validateRenewal(in *RenewalInput) (*renewal, error) {
 			}
 		}
 	}
+	if f := in.Documents; f.Set && !f.Null {
+		switch {
+		case !insurance:
+			if len(f.V) > 0 {
+				ck.add("documents", "not_available")
+			}
+		case len(f.V) > MaxFileKeys:
+			ck.addParams("documents", "too_many", map[string]any{"max": MaxFileKeys})
+		default:
+			r.replaceDocs = []string{}
+			for _, k := range f.V {
+				k = strings.TrimSpace(k)
+				if k == "" || len(k) > storage.MaxKeyBytes || slices.Contains(r.replaceDocs, k) || slices.Contains(r.docs, k) || k == r.receipt {
+					ck.add("documents", "invalid")
+					break
+				}
+				r.replaceDocs = append(r.replaceDocs, k)
+			}
+		}
+	}
 	if err := ck.err(); err != nil {
 		return nil, err
 	}
@@ -404,6 +435,10 @@ func (r *renewal) apply(m *fleetdb.UpdateTruckParams) {
 		}
 	} else {
 		m.InsuranceRenewalStatus = &status
+		if r.responsible != nil {
+			m.MaintenanceResponsible = *r.responsible
+		}
+		set(&m.InsuranceNotes, r.insNotes)
 		set(&m.InsuranceCompany, r.provider)
 		set(&m.InsurancePolicyID, r.policyID)
 		set(&m.InsurancePolicyNumber, r.policyNumber)
@@ -463,7 +498,7 @@ func (s *Service) RecordRenewal(ctx context.Context, p *authz.Principal, rid str
 	if err != nil {
 		return nil, false, err
 	}
-	keys := slices.Clone(r.docs)
+	keys := append(slices.Clone(r.docs), r.replaceDocs...)
 	if r.receipt != "" {
 		keys = append(keys, r.receipt)
 	}
@@ -493,7 +528,11 @@ func (s *Service) RecordRenewal(ctx context.Context, p *authz.Principal, rid str
 		if len(r.docs) > 0 {
 			appendFiles["insuranceDocument"] = r.docs
 		}
-		filesChanged, fileIDs, err := s.setFiles(ctx, tx, q, p, id, nil, appendFiles, held)
+		var replace map[string][]string
+		if r.replaceDocs != nil {
+			replace = map[string][]string{"insuranceDocument": r.replaceDocs}
+		}
+		filesChanged, fileIDs, err := s.setFiles(ctx, tx, q, p, id, replace, appendFiles, held)
 		if err != nil {
 			return err
 		}

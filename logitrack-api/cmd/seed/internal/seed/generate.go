@@ -10,7 +10,8 @@ import (
 // Generators of the demo and load profiles. Every generated id is uuid v5 of the row's natural key in the seed
 // namespace, like the fixture's, and every generated value comes from the generator's own PCG stream, so two
 // runs write the same rows (invariant 12). T16 ships the identity and tenancy generator the owner asked for
-// (multi-tenancy visible at once, issue #36); the volume generators of §D.1.2 join with T26, T35 and T43.
+// (multi-tenancy visible at once, issue #36); T26 the master data (master.go, issue #46); the operations and billing
+// volume generators of §D.1.2 join with T35 and T43.
 
 // persona is one generated user: a membership in a tenant, scopes, or a platform role.
 type persona struct {
@@ -28,7 +29,10 @@ type persona struct {
 // contractor_tenant_id, TTP does not) each get a tenant_admin, staff and a dispatcher; customer-scope users
 // cover every customer party with trips; platform support joins platform_admin. With the smoke users
 // (wrt.admin, wrt.manager, wrt.ops, nwr.admin, ttp.dispatch, cjsf.viewer, the broker driver D6 moved from
-// NWR to TTP, R24) that makes the matrix of Appendix D §D.1.2.
+// NWR to TTP, R24) that makes the matrix of Appendix D §D.1.2. The last two (T26, issue #46: users per role) hold
+// the fallback role user (Appendix C §C.2, two capabilities; what cmd/etl auth-import --default-member-domain
+// grants), so the own fleet and NWR have a member of every tenant role once the T26 driver logins join; they come
+// last so the earlier personas keep their rows and their draws.
 var demoPersonas = []persona{
 	{email: "wrt.operator@logitrack.test", name: "WRT Operator (demo)", tenantSym: "TN_OWN", role: "operator"},
 	{email: "wrt.dispatch@logitrack.test", name: "WRT Dispatcher (demo)", tenantSym: "TN_OWN", role: "operation_staff",
@@ -43,6 +47,8 @@ var demoPersonas = []persona{
 	{email: "spx.viewer@logitrack.test", name: "SPX Viewer (demo)", scopeKind: "customer", scopePartySym: "BP_SPX", scopeCode: "SPX"},
 	{email: "spk.viewer@logitrack.test", name: "SPK Viewer (demo)", scopeKind: "customer", scopePartySym: "BP_SPK", scopeCode: "SPK"},
 	{email: "platform.support@logitrack.test", name: "Platform Support (demo)", platform: "support"},
+	{email: "wrt.user@logitrack.test", name: "WRT User (demo)", tenantSym: "TN_OWN", role: "user"},
+	{email: "nwr.user@logitrack.test", name: "NWR User (demo)", tenantSym: "TN_NWR", role: "user"},
 }
 
 // thaiFamily are family names for generated display names (synthetic, §D.1.9).

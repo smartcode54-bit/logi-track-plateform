@@ -323,6 +323,54 @@ func TestValidateRenewal(t *testing.T) {
 			t.Fatalf("tax renewal with startDate %+v: %v", start, err)
 		}
 	}
+	// T25: the insurance form's person in charge is maintenance_responsible, its notes the truck's insurance notes, and
+	// documents replaces the insurance documents (the stored ones it keeps plus the new ones; [] removes them all).
+	r, err = s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress"), Responsible: set("Somchai"),
+		InsuranceNotes: set("Claim #42"), Documents: set([]string{"k1", " k2 "}), DocumentKeys: set([]string{"k3"})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(r.replaceDocs, []string{"k1", "k2"}) || !slices.Equal(r.docs, []string{"k3"}) || r.notes != nil {
+		t.Fatalf("insurance draft %+v", r)
+	}
+	m = fleetdb.UpdateTruckParams{TaxResponsible: "Ops", MaintenanceResponsible: "Driver"}
+	r.apply(&m)
+	if m.MaintenanceResponsible != "Somchai" || m.TaxResponsible != "Ops" || m.InsuranceNotes == nil || *m.InsuranceNotes != "Claim #42" {
+		t.Fatalf("insurance draft applied %+v", m)
+	}
+	if r, err = s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress"), Documents: set([]string{})}); err != nil ||
+		r.replaceDocs == nil || len(r.replaceDocs) != 0 {
+		t.Fatalf("documents [] clears: %+v %v", r, err)
+	}
+	// Absent, null or (on a tax renewal) empty documents keep the stored ones.
+	for _, docs := range []Field[[]string]{{}, {Set: true, Null: true}} {
+		if r, err = s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress"), Documents: docs}); err != nil || r.replaceDocs != nil {
+			t.Fatalf("documents %+v: %+v %v", docs, r, err)
+		}
+	}
+	if r, err = s.validateRenewal(&RenewalInput{Type: "tax", Status: set("in_progress"), Documents: set([]string{})}); err != nil || r.replaceDocs != nil {
+		t.Fatalf("documents [] on a tax renewal: %+v %v", r, err)
+	}
+	_, err = s.validateRenewal(&RenewalInput{Type: "tax", Status: set("in_progress"), InsuranceNotes: set("x"), Documents: set([]string{"d"})})
+	got = map[string]string{}
+	for _, f := range errFields(t, err) {
+		got[f[0]] = f[1]
+	}
+	if want := map[string]string{"insuranceNotes": "not_available", "documents": "not_available"}; !maps.Equal(got, want) {
+		t.Fatalf("tax renewal with insurance fields\n got %v\nwant %v", got, want)
+	}
+	for _, in := range []RenewalInput{
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{"a", "a"})},
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{"a"}), DocumentKeys: set([]string{"a"})},
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{"r"}), ReceiptKey: set("r")},
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{" "})},
+	} {
+		_, err := s.validateRenewal(&in)
+		if f := errFields(t, err); len(f) != 1 || f[0] != [2]string{"documents", "invalid"} {
+			t.Fatalf("documents %+v: %v", in.Documents, f)
+		}
+	}
+
 	// A draft (in_progress) needs neither.
 	if _, err := s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress")}); err != nil {
 		t.Fatalf("draft: %v", err)

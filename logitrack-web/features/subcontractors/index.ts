@@ -6,4 +6,4 @@ export { SubcontractorStats } from "./components/SubcontractorStats";
 export { SubcontractorTable } from "./components/SubcontractorTable";
 export { default as FileUploader } from "./components/FileUploader";
 export { default as NewSubcontractorWizard } from "./components/form/NewSubcontractorWizard";
-export * from "./services/subcontractorService";
+export * from "./api/subcontractors";

@@ -325,11 +325,11 @@ describe("one read per session (#84 acceptance)", () => {
 
 describe("source guard", () => {
     const root = path.resolve(__dirname, "../../..");
-    // Writers and the single-document duplicate probe; everything else goes through ['hubs'].
+    // The adapter holds the list read, the hub writes, the import and the duplicate-code probe (T25
+    // moved the hub dialog's and the pickup import's writes there); everything else goes through
+    // ['hubs'] and the hubs API.
     const ALLOWED = new Set([
-        "features/hubs/api/hubs.firestore.ts", // the adapter: the only list read
-        "app/app/first-mile/hub-dialog.tsx", // duplicate-code probe (one where-query) and the hub write
-        "app/app/sources/pickup-import-dialog.tsx", // the import write
+        "features/hubs/api/hubs.firestore.ts", // the adapter: the only list read and the only writer
         "lib/hubSocDistances.ts", // server-side distance batch helper with no importer in the web
     ]);
     const HUB_COLLECTION = /collection\(\s*db\s*,\s*(?:COLLECTIONS\.HUBS|["']hubs["'])\s*\)/;

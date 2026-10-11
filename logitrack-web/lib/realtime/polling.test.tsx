@@ -4,10 +4,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, renderHook } from "@testing-library/react";
-import { focusManager, QueryClient, QueryClientProvider, QueryObserver, useQuery } from "@tanstack/react-query";
+import { focusManager, InfiniteQueryObserver, QueryClient, QueryClientProvider, QueryObserver, useQuery } from "@tanstack/react-query";
 
 import { QUERY_POLICY, queryKeys } from "../queryKeys";
-import { POLL_INTERVAL_MS, pollWhileVisible, refetchOnFocusOlderThan, streamFallbackPoll, useStreamFallbackPoll } from "./polling";
+import {
+    loadedPages,
+    POLL_INTERVAL_MS,
+    pollHeadWhileVisible,
+    pollWhileVisible,
+    refetchOnFocusOlderThan,
+    streamFallbackPoll,
+    useStreamFallbackPoll,
+} from "./polling";
 import { getRealtimeStatus, setRealtimeStatus, subscribeRealtimeStatus } from "./status";
 
 /** An observed query counting its fetches, on a mounted client (the cache hears focus changes). */
@@ -129,6 +137,81 @@ describe("pollWhileVisible", () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(q.fetches()).toBe(2);
         q.stop();
+    });
+});
+
+describe("pollHeadWhileVisible (T54S: a keyset list whose every request is audited)", () => {
+    /** An observed infinite query (3 pages available) counting its page requests. */
+    function observeList(options: object) {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        client.mount();
+        let requests = 0;
+        const observer = new InfiniteQueryObserver(client, {
+            queryKey: queryKeys.security.events({ limit: 100, reach: "all" }),
+            queryFn: async ({ pageParam }: { pageParam: number }) => {
+                requests++;
+                return { page: pageParam };
+            },
+            initialPageParam: 0,
+            getNextPageParam: (last: { page: number }) => (last.page < 2 ? last.page + 1 : undefined),
+            ...QUERY_POLICY.live,
+            ...options,
+        });
+        const unsubscribe = observer.subscribe(() => undefined);
+        return {
+            observer,
+            requests: () => requests,
+            stop: () => {
+                unsubscribe();
+                client.unmount();
+                client.clear();
+            },
+        };
+    }
+
+    it("counts the loaded pages and stops polling, and refetching on focus, past the first", () => {
+        const poll = pollHeadWhileVisible(30_000);
+        const q = (pages: unknown[] | undefined, ageMs = 0) => ({ state: { dataUpdatedAt: Date.now() - ageMs, data: pages && { pages, pageParams: [] } } });
+        expect(loadedPages(q(undefined))).toBe(0);
+        expect(loadedPages(q([1, 2, 3]))).toBe(3);
+        expect(poll.refetchInterval(q(undefined))).toBe(30_000);
+        expect(poll.refetchInterval(q([1]))).toBe(30_000);
+        expect(poll.refetchInterval(q([1, 2]))).toBe(false);
+        expect(poll.refetchIntervalInBackground).toBe(false);
+        expect(poll.refetchOnWindowFocus(q([1], 30_000))).toBe("always");
+        expect(poll.refetchOnWindowFocus(q([1], 1_000))).toBe(true);
+        expect(poll.refetchOnWindowFocus(q([1, 2], 3_600_000))).toBe(false);
+    });
+
+    it("with pollWhileVisible a poll re-reads every loaded page; with pollHeadWhileVisible one page polls, more pages stop it", async () => {
+        // The cost this bounds: TanStack refetches every loaded page in turn.
+        const all = observeList(pollWhileVisible(30_000));
+        await vi.advanceTimersByTimeAsync(0);
+        await all.observer.fetchNextPage();
+        await all.observer.fetchNextPage();
+        expect(all.requests()).toBe(3);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(all.requests()).toBe(6); // three requests for one poll
+        all.stop();
+
+        const head = observeList(pollHeadWhileVisible(30_000));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(head.requests()).toBe(1);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(head.requests()).toBe(2); // one page: one request per interval
+        await head.observer.fetchNextPage();
+        await head.observer.fetchNextPage();
+        expect(head.requests()).toBe(4);
+        await vi.advanceTimersByTimeAsync(10 * 30_000);
+        expect(head.requests()).toBe(4); // "load more" used: no poll
+        focusManager.setFocused(false);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        focusManager.setFocused(true);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(head.requests()).toBe(4); // nor a focus refetch
+        await head.observer.refetch(); // an explicit Refresh still re-reads every page
+        expect(head.requests()).toBe(7);
+        head.stop();
     });
 });
 

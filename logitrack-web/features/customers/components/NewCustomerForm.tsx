@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createCustomer } from "@/features/customers/api/customers";
+import { customerInputFromForm } from "@/features/customers/api/customers";
+import { useSaveCustomer } from "@/features/customers/api/useCustomers";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,7 +38,8 @@ import { useLanguage } from "@/context/language";
 export default function NewCustomerForm() {
     const router = useRouter();
     const { t } = useLanguage();
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const { create } = useSaveCustomer();
+    const isSubmitting = create.isPending;
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
@@ -84,15 +87,12 @@ export default function NewCustomerForm() {
 
     const onSubmit = async (data: Customer) => {
         try {
-            setIsSubmitting(true);
-            const id = await createCustomer(data, logoFile ?? undefined);
+            const id = await create.mutateAsync({ input: customerInputFromForm(data), logo: logoFile });
             toast.success(t("customers.toast.createSuccess"));
             router.push(`/app/customers/${id}`);
         } catch (error) {
-            console.error(error);
-            toast.error(t("customers.toast.createError"));
-        } finally {
-            setIsSubmitting(false);
+            applyServerFieldErrors(form, error, t);
+            toastSaveError(error, t, "customers.toast.createError");
         }
     };
 
