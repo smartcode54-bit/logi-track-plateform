@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -692,7 +693,9 @@ func (ck *checker) fuelRound(in FuelAdjustmentInput) fuelValues {
 			}
 		}
 		if hasRef {
-			v.add = compute.FuelSurchargeTHB(ref, baseline, perBaht)
+			if v.add = compute.FuelSurchargeTHB(ref, baseline, perBaht); math.Abs(v.add) >= 1e12 {
+				ck.addParams("fuelBandThbPerBaht", "out_of_range", map[string]any{"max": 1e8})
+			}
 		}
 		b := int32(baseline)
 		v.bandEnabled, v.baseline, v.perBaht = true, &b, decimalText(perBaht, 2)
