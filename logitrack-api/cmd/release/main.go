@@ -40,9 +40,13 @@ publish flags:
                          and an applicationId of the other flavor
   --notes TEXT           release notes shown on the mobile-release page and to drivers
   --force                replace an upload of this version that was never published (a published one is immutable)
-  --switch-flavor        make --flavor the deployment's gate flavor
+  --switch-flavor        make --flavor the deployment's gate flavor (refused while a version floor is set)
   --skip-url-check       publish without checking that the public URL serves the APK
-  --dry-run              hash, print the plan and the current gate; upload and publish nothing
+  --dry-run              hash, print the deployment's gate and what the publish would do (exit 1 if the api would
+                         refuse it); upload and publish nothing
+
+status prints the gate a device of --flavor sees (default: the deployment's flavor) and, for the other flavor, the
+flavor this deployment serves.
 `
 
 func main() {
@@ -155,13 +159,26 @@ func status(ctx context.Context, args, environ []string, stdout, stderr io.Write
 		_, _ = fmt.Fprintf(stderr, "release: %v\n", err)
 		return app.ExitConfigError
 	}
-	g, err := c.Gate(ctx, *flavor)
+	// The deployment's own gate first: a device of the other flavor sees an empty gate, which says nothing of the
+	// flavor this deployment serves.
+	gate, err := c.Gate(ctx, "")
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "release status: %v\n", err)
 		return app.ExitRuntimeError
 	}
+	g, other := gate, *flavor != "" && val(gate.Flavor) != "-" && *gate.Flavor != *flavor
+	if other {
+		if g, err = c.Gate(ctx, *flavor); err != nil {
+			_, _ = fmt.Fprintf(stderr, "release status: %v\n", err)
+			return app.ExitRuntimeError
+		}
+	}
 	_, _ = fmt.Fprintf(stdout, "flavor %s\nlatest %s+%s\nfloor  %s\nlink   %s\n", val(g.Flavor), val(g.LatestVersion),
 		val(g.LatestBuildNumber), val(g.MinAllowedVersion), val(g.APKDownloadURL))
+	if other {
+		_, _ = fmt.Fprintf(stdout, "gate   this deployment serves %s (latest %s+%s, floor %s): %s devices get no floor and no link; publishing %s needs --switch-flavor, refused while a floor is set\n",
+			val(gate.Flavor), val(gate.LatestVersion), val(gate.LatestBuildNumber), val(gate.MinAllowedVersion), *flavor, *flavor)
+	}
 	return app.ExitOK
 }
 

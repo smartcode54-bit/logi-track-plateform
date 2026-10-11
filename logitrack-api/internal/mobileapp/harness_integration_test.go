@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -97,6 +98,8 @@ type world struct {
 
 type worldOpts struct {
 	rateLimit bool
+	// trusted is TRUSTED_PROXY_CIDRS (the VM trusts 127.0.0.1/32: nginx and the BFF).
+	trusted []netip.Prefix
 }
 
 func newWorld(t *testing.T) *world { return newWorldOpts(t, worldOpts{}) }
@@ -188,7 +191,7 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
 		Runtime:      app.Runtime{MetricsAddr: "127.0.0.1:0", ShutdownTimeout: 3 * time.Second},
 		StorageAPI:   app.StorageAPI{UploadMaxBytes: uploadMax},
-		InternalAddr: "127.0.0.1:0", PublicAddr: publicAddr, PublicRouteGroups: ingress.PublicPrefixes,
+		InternalAddr: "127.0.0.1:0", PublicAddr: publicAddr, PublicRouteGroups: ingress.PublicPrefixes, TrustedProxies: o.trusted,
 	}
 	a, err := app.NewAPI(cfg, logger, groups...)
 	if err != nil {

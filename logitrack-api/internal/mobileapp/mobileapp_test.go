@@ -98,12 +98,51 @@ func TestBecomesLatestAndGate(t *testing.T) {
 			t.Errorf("case %d: %t", i, got)
 		}
 	}
-	err := gateRefusal(Settings{Flavor: "prod"}, "dev", false)
-	if e, ok := err.(*httpx.Error); !ok || e.Status != http.StatusConflict || e.Details["reason"] != "flavor_mismatch" || e.Details["flavor"] != "prod" {
+}
+
+// gateRefusal: a publish never changes what the floor does (ADR 0007 §1), whatever the principal.
+func TestGateRefusal(t *testing.T) {
+	in := func(f, v string, sw bool) ReleaseInput { return ReleaseInput{Flavor: f, Version: v, SwitchFlavor: sw} }
+	refused := func(cur Settings, r ReleaseInput, reason string) {
+		t.Helper()
+		err := gateRefusal(cur, r)
+		e, ok := err.(*httpx.Error)
+		if !ok || e.Status != http.StatusConflict || e.Code != CodeFailedPrecondition || e.Details["reason"] != reason {
+			t.Fatalf("%+v %+v: %v, want %s", cur, r, err, reason)
+		}
+	}
+	err := gateRefusal(Settings{Flavor: "prod"}, in("dev", "3.6.0", false))
+	if e, ok := err.(*httpx.Error); !ok || e.Details["reason"] != "flavor_mismatch" || e.Details["flavor"] != "prod" {
 		t.Fatalf("%v", err)
 	}
-	if gateRefusal(Settings{Flavor: "prod"}, "dev", true) != nil || gateRefusal(Settings{}, "dev", false) != nil {
-		t.Fatal("a switch or a fresh deployment passes")
+	// A switch while a floor is set would carry it onto the other fleet, above or below the new version alike.
+	dev39 := Settings{Flavor: "dev", LatestVersion: "3.9.0", MinAllowedVersion: "3.9.0"}
+	refused(dev39, in("prod", "3.6.0", true), "floor_set")
+	refused(Settings{Flavor: "prod", LatestVersion: "3.5.0", MinAllowedVersion: "3.4.0"}, in("dev", "3.6.0", true), "floor_set")
+	refused(Settings{Flavor: "prod", MinAllowedVersion: "garbage"}, in("dev", "3.6.0", true), "floor_set")
+	if e := gateRefusal(dev39, in("prod", "3.6.0", true)).(*httpx.Error); e.Details["minAllowedVersion"] != "3.9.0" || e.Details["flavor"] != "dev" {
+		t.Fatalf("details %v", e.Details)
+	}
+	// A new latest below the floor: a legacy document (floor above latest, or a latest that does not parse) and the
+	// first publish of a deployment whose document has a floor.
+	refused(Settings{Flavor: "prod", LatestVersion: "3.5.0", MinAllowedVersion: "3.7.0"}, in("prod", "3.6.0", false), "floor_above_version")
+	refused(Settings{Flavor: "prod", LatestVersion: "garbage", MinAllowedVersion: "3.7.0"}, in("prod", "3.6.0", false), "floor_above_version")
+	refused(Settings{MinAllowedVersion: "3.7.0"}, in("dev", "3.6.0", false), "floor_above_version")
+	for i, c := range []struct {
+		cur Settings
+		in  ReleaseInput
+	}{
+		{Settings{}, in("dev", "3.6.0", false)},                                      // a fresh deployment
+		{Settings{Flavor: "prod", LatestVersion: "3.9.0"}, in("dev", "3.6.0", true)}, // a switch without a floor
+		{Settings{Flavor: "prod", LatestVersion: "3.5.0", MinAllowedVersion: "3.5.0"}, in("prod", "3.5.0", false)},
+		{Settings{Flavor: "prod", LatestVersion: "3.5.0", MinAllowedVersion: "3.4.0"}, in("prod", "3.6.0", false)},
+		// An older hotfix below the floor is recorded only (not the latest), so it locks nobody out.
+		{Settings{Flavor: "prod", LatestVersion: "3.9.0", MinAllowedVersion: "3.9.0"}, in("prod", "3.6.0", false)},
+		{Settings{Flavor: "prod", LatestVersion: "3.5.0", MinAllowedVersion: "garbage"}, in("prod", "3.6.0", false)},
+	} {
+		if err := gateRefusal(c.cur, c.in); err != nil {
+			t.Errorf("case %d: %v", i, err)
+		}
 	}
 }
 

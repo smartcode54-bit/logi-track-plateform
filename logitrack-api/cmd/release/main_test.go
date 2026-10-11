@@ -35,16 +35,22 @@ type fakeAPI struct {
 	putStatus     int    // 0 = 200
 	publicStatus  int    // 0 = 200
 	refusePresign string // a reason: the presign answers 409 with it
+	refusePublish string // a reason: the publish answers 409 with it
+	replay        bool   // the publish answers 200 meta.replayed (the version is published with this build)
 	calls         []string
 	uploaded      []byte
 	putHeaders    http.Header
 	presignBody   map[string]any
 	publishBody   map[string]any
 	keys          []string // X-Api-Key values seen
+
+	// The deployment's gate (settings('mobile_app')), served by GET /v1/mobile/settings as mobileapp.Settings.Public
+	// does: another flavor than gateFlavor gets an empty gate.
+	gateFlavor, gateLatest, gateFloor string
 }
 
 func newFake(t *testing.T) *fakeAPI {
-	f := &fakeAPI{t: t}
+	f := &fakeAPI{t: t, gateFlavor: "dev", gateLatest: "3.5.0", gateFloor: "3.4.0"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -65,12 +71,25 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/mobile/settings":
-		reply(200, map[string]any{"data": map[string]any{"flavor": "dev", "latestVersion": "3.5.0", "minAllowedVersion": "3.4.0"}})
+		orNil := func(v string) any {
+			if v == "" {
+				return nil
+			}
+			return v
+		}
+		flavor := r.URL.Query().Get("flavor")
+		if flavor == "" {
+			flavor = f.gateFlavor
+		}
+		g := map[string]any{"flavor": orNil(flavor), "latestVersion": nil, "minAllowedVersion": nil}
+		if f.gateFlavor == "" || flavor == f.gateFlavor {
+			g["latestVersion"], g["minAllowedVersion"] = orNil(f.gateLatest), orNil(f.gateFloor)
+		}
+		reply(200, map[string]any{"data": g})
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/app-releases/presign":
 		_ = json.Unmarshal(body, &f.presignBody)
 		if f.refusePresign != "" {
-			reply(409, map[string]any{"error": map[string]any{"code": "already_exists", "message": "conflict",
-				"details": map[string]any{"reason": f.refusePresign, "flavor": "prod"}, "requestId": "req-1"}})
+			reply(409, refusal(f.refusePresign))
 			return
 		}
 		u := "/v1/uploads/local/app_releases/dev/logitrack-dev-v3.6.0.apk?X-LT-Expires=1&X-LT-Signature=sig"
@@ -96,11 +115,29 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/app-releases":
 		_ = json.Unmarshal(body, &f.publishBody)
-		reply(201, map[string]any{"data": map[string]any{"apkUrl": f.srv.URL + "/media/app_releases/dev/logitrack-dev-v3.6.0.apk"},
-			"meta": map[string]any{"latest": true, "replayed": false}})
+		if f.refusePublish != "" {
+			reply(409, refusal(f.refusePublish))
+			return
+		}
+		status := 201
+		if f.replay {
+			status = 200
+		}
+		reply(status, map[string]any{"data": map[string]any{"apkUrl": f.srv.URL + "/media/app_releases/dev/logitrack-dev-v3.6.0.apk"},
+			"meta": map[string]any{"latest": true, "replayed": f.replay}})
 	default:
 		w.WriteHeader(404)
 	}
+}
+
+// refusal is the R48 envelope of a 409 of the release routes with reason r.
+func refusal(r string) map[string]any {
+	code := "failed_precondition"
+	if r == "published" || r == "upload_pending" {
+		code = "already_exists"
+	}
+	return map[string]any{"error": map[string]any{"code": code, "message": "conflict", "requestId": "req-1",
+		"details": map[string]any{"reason": r, "flavor": "prod", "requested": "dev", "minAllowedVersion": "3.4.0", "version": "3.6.0"}}}
 }
 
 func apk(t *testing.T) (string, []byte) {
@@ -193,7 +230,8 @@ func TestPublishStopsWhenThePublicURLDoesNotServe(t *testing.T) {
 
 func TestPublishRefusalsCarryTheNextStep(t *testing.T) {
 	path, _ := apk(t)
-	for reason, hint := range map[string]string{"published": "immutable", "upload_pending": "--force", "flavor_mismatch": "--switch-flavor"} {
+	for reason, hint := range map[string]string{"upload_pending": "--force", "flavor_mismatch": "--switch-flavor",
+		"floor_set": "removes it first", "floor_above_version": "at or above the floor"} {
 		f := newFake(t)
 		f.refusePresign = reason
 		code, _, errOut := runRelease(t, f.env(), "publish", "--flavor=dev", "--apk="+path, "--version=3.6.0", "--build-number=4")
@@ -203,12 +241,79 @@ func TestPublishRefusalsCarryTheNextStep(t *testing.T) {
 	}
 }
 
+// A rerun after a publish whose answer was lost: the presign says the version is published, and the publish route
+// replays the same build (200 meta.replayed) without anything uploaded again.
+func TestRerunAfterALostAnswerReplays(t *testing.T) {
+	f := newFake(t)
+	f.refusePresign, f.replay = "published", true
+	path, _ := apk(t)
+	code, out, errOut := runRelease(t, f.env(), "publish", "--flavor=dev", "--apk="+path, "--version=3.6.0", "--build-number=4", "--force", "--notes=n")
+	if code != app.ExitOK || !strings.Contains(out, "Already published: dev 3.6.0+4") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	if want := []string{"POST /v1/app-releases/presign", "POST /v1/app-releases"}; !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls %v, want %v (no upload, no URL check)", f.calls, want)
+	}
+	if f.publishBody["force"] != nil || f.publishBody["sha256"] != f.presignBody["sha256"] || f.publishBody["releaseNotes"] != "n" {
+		t.Fatalf("publish body %v", f.publishBody)
+	}
+	// Other bytes under the published version: the publish route refuses them and the operator is told why.
+	f = newFake(t)
+	f.refusePresign, f.refusePublish = "published", "published"
+	code, _, errOut = runRelease(t, f.env(), "publish", "--flavor=dev", "--apk="+path, "--version=3.6.0", "--build-number=4")
+	if code != app.ExitRuntimeError || !strings.Contains(errOut, "publish: 409 already_exists (published)") ||
+		!strings.Contains(errOut, "different build") || len(f.calls) != 2 {
+		t.Fatalf("exit %d, calls %v, stderr %s", code, f.calls, errOut)
+	}
+}
+
 func TestDryRunWritesNothing(t *testing.T) {
 	f := newFake(t)
 	path, _ := apk(t)
 	code, out, _ := runRelease(t, f.env(), "publish", "--flavor=dev", "--apk="+path, "--version=3.6.0", "--build-number=4", "--dry-run")
-	if code != app.ExitOK || !reflect.DeepEqual(f.calls, []string{"GET /v1/mobile/settings"}) || !strings.Contains(out, "Dry run") {
+	if code != app.ExitOK || !reflect.DeepEqual(f.calls, []string{"GET /v1/mobile/settings"}) || !strings.Contains(out, "Dry run") ||
+		!strings.Contains(out, "becomes the latest dev release; the version floor stays 3.4.0") {
 		t.Fatalf("exit %d, calls %v\n%s", code, f.calls, out)
+	}
+}
+
+// The dry run reads the deployment's own gate (not the empty gate another flavor's devices see) and reports the
+// refusal the publish would meet, as the api decides it (internal/mobileapp gateRefusal).
+func TestDryRunShowsTheDeploymentsGate(t *testing.T) {
+	path, _ := apk(t)
+	dry := func(f *fakeAPI, extra ...string) (int, string, string) {
+		args := append([]string{"publish", "--flavor=dev", "--apk=" + path, "--version=3.6.0", "--build-number=4", "--dry-run"}, extra...)
+		return runRelease(t, f.env(), args...)
+	}
+	// The staging demo seed: a prod gate with the floor 3.4.0.
+	f := newFake(t)
+	f.gateFlavor = "prod"
+	code, out, errOut := dry(f)
+	if code != app.ExitRuntimeError || !strings.Contains(out, "Gate     flavor prod, latest 3.5.0+-, floor 3.4.0") ||
+		!strings.Contains(errOut, "flavor_mismatch") || !strings.Contains(errOut, "--switch-flavor") || !strings.Contains(errOut, "nothing was uploaded") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	code, _, errOut = dry(f, "--switch-flavor")
+	if code != app.ExitRuntimeError || !strings.Contains(errOut, "floor_set") || !strings.Contains(errOut, "prod fleet has the version floor 3.4.0") {
+		t.Fatalf("switch with a floor: exit %d\n%s", code, errOut)
+	}
+	if !reflect.DeepEqual(f.calls, []string{"GET /v1/mobile/settings", "GET /v1/mobile/settings"}) || len(f.keys) != 0 {
+		t.Fatalf("calls %v, keys %d", f.calls, len(f.keys))
+	}
+	// Once a person removed the floor, the switch goes through.
+	f.gateFloor = ""
+	if code, out, errOut = dry(f, "--switch-flavor"); code != app.ExitOK || !strings.Contains(out, "switches the gate from prod to dev") {
+		t.Fatalf("switch: exit %d\n%s\n%s", code, out, errOut)
+	}
+	// A floor above the new latest (a legacy document), and an older version (recorded only).
+	f = newFake(t)
+	f.gateFloor = "3.7.0"
+	if code, _, errOut = dry(f); code != app.ExitRuntimeError || !strings.Contains(errOut, "floor_above_version") {
+		t.Fatalf("floor above: exit %d\n%s", code, errOut)
+	}
+	f.gateFloor, f.gateLatest = "3.4.0", "3.10.0"
+	if code, out, _ = dry(f); code != app.ExitOK || !strings.Contains(out, "older than the latest 3.10.0: recorded only") {
+		t.Fatalf("older: exit %d\n%s", code, out)
 	}
 }
 
@@ -312,7 +417,19 @@ func TestMetadataChecks(t *testing.T) {
 func TestStatus(t *testing.T) {
 	f := newFake(t)
 	code, out, errOut := runRelease(t, []string{"GO_API_INTERNAL_URL=" + f.srv.URL}, "status", "--flavor=dev")
-	if code != app.ExitOK || !strings.Contains(out, "latest 3.5.0") || !strings.Contains(out, "floor  3.4.0") || len(f.keys) != 0 {
+	if code != app.ExitOK || !strings.Contains(out, "latest 3.5.0") || !strings.Contains(out, "floor  3.4.0") || len(f.keys) != 0 ||
+		strings.Contains(out, "gate ") {
 		t.Fatalf("exit %d, keys %d\n%s%s", code, len(f.keys), out, errOut)
+	}
+	// The other flavor: its devices see no gate, and status says which flavor the deployment serves.
+	f.gateFlavor = "prod"
+	code, out, _ = runRelease(t, []string{"GO_API_INTERNAL_URL=" + f.srv.URL}, "status", "--flavor=dev")
+	if code != app.ExitOK || !strings.Contains(out, "flavor dev\nlatest -+-\nfloor  -") ||
+		!strings.Contains(out, "gate   this deployment serves prod (latest 3.5.0+-, floor 3.4.0)") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if code, out, _ = runRelease(t, []string{"GO_API_INTERNAL_URL=" + f.srv.URL}, "status"); code != app.ExitOK ||
+		!strings.Contains(out, "flavor prod\nlatest 3.5.0") || strings.Contains(out, "gate ") {
+		t.Fatalf("exit %d\n%s", code, out)
 	}
 }

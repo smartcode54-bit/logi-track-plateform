@@ -303,22 +303,34 @@ call from the admin's signed-in browser through the BFF, `/api/go/v1/api-keys`).
 in the `.env` as root (`RELEASE_API_KEY=`, an editor, never a command line). Revoking the key (`DELETE
 /v1/api-keys/{id}`) or rotating `API_KEY_PEPPER` stops publishing until a new key is set.
 
-Each release (the APK readable by the `logitrack` user, e.g. copied to `/tmp`): a dry run hashes it and shows the
-current gate, then the publish.
+Each release (the APK readable by the `logitrack` user, e.g. copied to `/tmp`): `release status` shows the gate
+this deployment serves, a dry run hashes the APK and prints what the publish would do to that gate (it exits 1
+with the reason and the next step when the api would refuse the publish), then the publish.
 
 ```sh
-runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release publish --flavor=dev --apk=/tmp/app-dev-release.apk --version=3.6.0 --build-number=1 --dry-run
-runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release publish --flavor=dev --apk=/tmp/app-dev-release.apk --version=3.6.0 --build-number=1 --notes="..."
-runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release status --flavor=dev
+runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release status
+runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release publish --flavor=dev --apk=/tmp/app-dev-release.apk --version=3.6.0 --build-number=1 --switch-flavor --dry-run
+runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh release publish --flavor=dev --apk=/tmp/app-dev-release.apk --version=3.6.0 --build-number=1 --switch-flavor --notes="..."
 ```
+
+The deployment serves one flavor (the first publish sets it). Publishing the other one is refused
+(`flavor_mismatch`) unless `--switch-flavor`, and a switch is refused while a version floor is set (`floor_set`):
+the floor applies to the served flavor only, so the switch would put it on the other fleet without anyone
+choosing to. **The demo seed serves `prod` with the floor 3.4.0**, so the first `dev` publish above takes two
+steps: a platform admin removes the floor (`PUT /v1/app-releases/floor` with `{"minAllowedVersion": null}`, from
+the signed-in browser through the BFF at `/api/go/v1/app-releases/floor`, as for the key; the mobile-release page
+does it once it reads Go, T54), then the publish with `--switch-flavor` (once: later `dev` publishes drop it). Set
+a floor for the `dev` fleet afterwards, when it is ready. A publish never writes the floor; it is also refused when
+the new version would become the latest below the floor (`floor_above_version`). `release status --flavor=prod`
+on a `dev` deployment shows the empty gate `prod` devices see and names the flavor served.
 
 With the Gradle `output-metadata.json` next to the APK, `--metadata=FILE` replaces `--apk`, `--version` and
 `--build-number` and refuses a split-per-ABI build, another version and the other flavor's applicationId. A
 published version is immutable (bump the version); `--force` only replaces an upload that was never published.
-The deployment serves one flavor (the first publish sets it; the demo seed says `prod`): publishing the other one
-is refused unless `--switch-flavor`. Until the coexistence projection of `settings/mobile_app` exists (T24),
-installed 3.x APKs keep reading their floor and link from Firestore; this publish reaches `GET
-/v1/mobile/settings` only.
+If a publish is cut off before it answers (an SSH drop), rerun the same command: a build that was published
+already answers "Already published" without uploading again. Until the coexistence projection of
+`settings/mobile_app` exists (T24), installed 3.x APKs keep reading their floor and link from Firestore; this
+publish reaches `GET /v1/mobile/settings` only.
 
 ## Operations
 

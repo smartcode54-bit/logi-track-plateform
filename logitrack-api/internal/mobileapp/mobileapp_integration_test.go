@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -152,16 +153,34 @@ func TestSettingsAnonymous(t *testing.T) {
 	expect(t, w.get("/v1/mobile/settings", ""), http.StatusOK, "")
 }
 
-func TestSettingsRateLimitedPerAddressOnThePublicListener(t *testing.T) {
-	w := newWorldOpts(t, worldOpts{rateLimit: true})
-	for i := range 60 {
-		if r := w.call(w.public, http.MethodGet, "/v1/mobile/settings", "", nil); r.status != http.StatusOK {
-			t.Fatalf("request %d: %d", i, r.status)
+// The gate is rate-limited (public_ip, 60/min) per client address on both listeners. On the internal listener the
+// address is the browser's, from the X-Forwarded-For nginx sets and the BFF forwards from TRUSTED_PROXY_CIDRS (as
+// login_ip), so the BFF's anonymous GET is no way around the limit, and web users do not share one budget.
+func TestSettingsRateLimitedPerClientAddress(t *testing.T) {
+	w := newWorldOpts(t, worldOpts{rateLimit: true, trusted: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}})
+	settings := func(base, xff string) resp {
+		if xff == "" {
+			return w.call(base, http.MethodGet, "/v1/mobile/settings", "", nil)
+		}
+		return w.call(base, http.MethodGet, "/v1/mobile/settings", "", nil, "X-Forwarded-For", xff)
+	}
+	for _, c := range []struct{ name, base, xff string }{
+		{"public listener", w.public, ""}, // the peer 127.0.0.1 itself
+		{"internal listener, a browser through the BFF", w.internal, "203.0.113.9"},
+	} {
+		for i := range 60 {
+			if r := settings(c.base, c.xff); r.status != http.StatusOK {
+				t.Fatalf("%s, request %d: %d", c.name, i, r.status)
+			}
+		}
+		r := settings(c.base, c.xff)
+		expect(t, r, http.StatusTooManyRequests, "resource_exhausted")
+		if e, _ := r.body["error"].(map[string]any); e["details"].(map[string]any)["bucket"] != "public_ip" {
+			t.Fatalf("%s: %s", c.name, r.raw)
 		}
 	}
-	expect(t, w.call(w.public, http.MethodGet, "/v1/mobile/settings", "", nil), http.StatusTooManyRequests, "resource_exhausted")
-	// The internal listener (the BFF: every web user behind one address) is not limited by public_ip.
-	expect(t, w.get("/v1/mobile/settings", ""), http.StatusOK, "")
+	// Another browser behind the same BFF keeps its own budget.
+	expect(t, settings(w.internal, "198.51.100.4"), http.StatusOK, "")
 }
 
 // Issue #72: "Every release and installation-admin route returns 404 on the public listener."
@@ -272,19 +291,27 @@ func TestPublishWithTheReleaseCLI(t *testing.T) {
 		t.Fatalf("download %d %v", dl.StatusCode, dl.Header)
 	}
 
-	// A retried publish of the same build replays; the same version with other bytes is immutable.
-	res, _, err = w.publishWith(key, release.Build{Flavor: "dev", Version: "3.6.0", BuildNumber: "7", APK: apk, SkipURLCheck: true})
-	if err == nil || !strings.Contains(err.Error(), "published") {
-		t.Fatalf("presign of a published version: %v %+v", err, res)
+	// Rerunning the same command after a lost answer: the CLI finds the version published at presign and sends the
+	// publish alone, which replays the same build (200 meta.replayed): nothing uploaded, nothing written.
+	url := res.APKURL
+	published := w.count(`SELECT count(*) FROM security_events WHERE event_type = 'mobile_release_published'`)
+	res, out, err = w.publishWith(key, release.Build{Flavor: "dev", Version: "3.6.0", BuildNumber: "7", APK: apk, Notes: &notes})
+	if err != nil || !res.Replayed || !res.Latest || res.APKURL != url || strings.Contains(out, "Uploaded") {
+		t.Fatalf("rerun: %v %+v\n%s", err, res, out)
+	}
+	if w.count(`SELECT count(*) FROM security_events WHERE event_type = 'mobile_release_published'`) != published ||
+		w.count(`SELECT count(*) FROM mobile_app_releases`) != 1 || w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'settings.changed'`) != 1 {
+		t.Fatal("a replay writes nothing")
 	}
 	r := w.call(w.internal, http.MethodPost, "/v1/app-releases", "key:"+key, map[string]any{"flavor": "dev", "version": "3.6.0",
 		"buildNumber": "7", "sha256": sum, "sizeBytes": 3<<20 + 4})
 	if expect(t, r, http.StatusOK, ""); r.meta()["replayed"] != true {
 		t.Fatalf("replay %s", r.raw)
 	}
+	// The same version with other bytes is immutable, with --force too.
 	other, _ := writeAPK(t, 3<<20, 8)
 	if _, _, err := w.publishWith(key, release.Build{Flavor: "dev", Version: "3.6.0", BuildNumber: "7", APK: other, Force: true}); err == nil ||
-		!strings.Contains(err.Error(), "published") {
+		!strings.Contains(err.Error(), "published") || !strings.Contains(err.Error(), "different build") {
 		t.Fatalf("force over a published version: %v", err)
 	}
 
@@ -301,15 +328,112 @@ func TestPublishWithTheReleaseCLI(t *testing.T) {
 		!strings.Contains(err.Error(), "flavor_mismatch") {
 		t.Fatalf("prod into a dev deployment: %v", err)
 	}
+	// A switch while the floor 3.4.0 is set would carry it onto the prod fleet, whose devices fail open today: refused
+	// before any upload. A person removes the floor first; the switch then leaves both fleets without one.
+	before := fmt.Sprint(w.settingsDoc())
+	if _, _, err = w.publishWith(key, release.Build{Flavor: "prod", Version: "3.6.0", BuildNumber: "7", APK: prod, SwitchFlavor: true}); err == nil ||
+		!strings.Contains(err.Error(), "floor_set") || !strings.Contains(err.Error(), "removes it first") {
+		t.Fatalf("switch with a floor: %v", err)
+	}
+	if fmt.Sprint(w.settingsDoc()) != before || w.count(`SELECT count(*) FROM file_objects WHERE object_key LIKE 'app_releases/prod/%'`) != 0 {
+		t.Fatal("a refused switch wrote")
+	}
+	expect(t, w.call(w.internal, http.MethodPut, "/v1/app-releases/floor", pa, map[string]any{"minAllowedVersion": nil}), http.StatusOK, "")
 	if res, _, err = w.publishWith(key, release.Build{Flavor: "prod", Version: "3.6.0", BuildNumber: "7", APK: prod, SwitchFlavor: true}); err != nil || !res.Latest {
 		t.Fatalf("switch: %+v %v", res, err)
 	}
-	if doc := w.settingsDoc(); doc["flavor"] != "prod" || doc["minAllowedVersion"] != "3.4.0" {
+	if doc := w.settingsDoc(); doc["flavor"] != "prod" || doc["minAllowedVersion"] != nil {
 		t.Fatalf("after the switch: %v", doc)
+	}
+	for _, f := range []string{"prod", "dev"} {
+		if g := w.call(w.public, http.MethodGet, "/v1/mobile/settings?flavor="+f, "", nil).data(); g["minAllowedVersion"] != nil {
+			t.Fatalf("%s devices see the floor %v", f, g["minAllowedVersion"])
+		}
 	}
 	// The key never appears in the logs.
 	if strings.Contains(w.logs.String(), key) {
 		t.Fatal("the release key was logged")
+	}
+}
+
+// ADR 0007 §1: publishing a build cannot lock anyone out, so no publish, a key's or a person's, changes the floor a
+// device of either flavor is shown: a flavor switch is refused while a floor is set (floor_set), and so is a new
+// latest below the floor (floor_above_version). The gate starts as the staging demo seed has it.
+func TestPublishNeverMovesTheEffectiveFloor(t *testing.T) {
+	w := newWorld(t)
+	pa := w.login("pa@example.test")
+	key := w.releaseKey(pa)
+	w.settingsRow(map[string]any{"minAllowedVersion": "3.4.0", "minAllowedVersionSetAt": "2026-09-15T10:00:00+07:00",
+		"minAllowedVersionSetBy": "platform.admin@logitrack.test", "flavor": "prod", "latestVersion": "3.5.0", "latestBuildNumber": "1",
+		"apkDownloadUrl": "https://logi.showkhun.co/media/app_releases/prod/logitrack-prod-v3.5.0.apk"})
+	floors := func() string {
+		var out []string
+		for _, f := range []string{"dev", "prod"} {
+			out = append(out, fmt.Sprintf("%s=%v", f, w.call(w.public, http.MethodGet, "/v1/mobile/settings?flavor="+f, "", nil).data()["minAllowedVersion"]))
+		}
+		return strings.Join(out, " ")
+	}
+	unchanged := func(what, doc, shown string) {
+		t.Helper()
+		if fmt.Sprint(w.settingsDoc()) != doc || floors() != shown || w.count(`SELECT count(*) FROM mobile_app_releases`) != 0 ||
+			w.count(`SELECT count(*) FROM outbox_events WHERE routing_key = 'settings.changed'`) != 0 {
+			t.Fatalf("%s wrote: %v, floors %s", what, w.settingsDoc(), floors())
+		}
+	}
+	doc, shown := fmt.Sprint(w.settingsDoc()), floors()
+	if shown != "dev=<nil> prod=3.4.0" {
+		t.Fatalf("floors %s", shown)
+	}
+	// The operator switches staging to a dev build below the prod floor: refused at presign (the CLI) and at the
+	// publish route (a client that skips the presign), with the key and with a person alike.
+	dev, sum := writeAPK(t, 1000, 4)
+	_, _, err := w.publishWith(key, release.Build{Flavor: "dev", Version: "3.2.0", BuildNumber: "1", APK: dev, SwitchFlavor: true})
+	if err == nil || !strings.Contains(err.Error(), "floor_set") {
+		t.Fatalf("switch: %v", err)
+	}
+	body := map[string]any{"flavor": "dev", "version": "3.2.0", "buildNumber": "1", "sha256": sum, "sizeBytes": 1004, "switchFlavor": true}
+	for _, auth := range []string{"key:" + key, pa} {
+		for _, path := range []string{"/v1/app-releases/presign", "/v1/app-releases"} {
+			r := w.call(w.internal, http.MethodPost, path, auth, body)
+			if expect(t, r, http.StatusConflict, "failed_precondition"); r.reason() != "floor_set" {
+				t.Fatalf("%s: %s", path, r.raw)
+			}
+		}
+	}
+	unchanged("a refused switch", doc, shown)
+
+	// A legacy document with the floor above its latest: a new latest below the floor is refused, one at the floor
+	// passes and leaves the floor where it was.
+	w.settingsRow(map[string]any{"minAllowedVersion": "3.7.0", "flavor": "prod", "latestVersion": "3.5.0",
+		"apkDownloadUrl": "https://logi.showkhun.co/media/app_releases/prod/logitrack-prod-v3.5.0.apk"})
+	doc, shown = fmt.Sprint(w.settingsDoc()), floors()
+	prod36, _ := writeAPK(t, 1000, 5)
+	if _, _, err := w.publishWith(key, release.Build{Flavor: "prod", Version: "3.6.0", BuildNumber: "1", APK: prod36}); err == nil ||
+		!strings.Contains(err.Error(), "floor_above_version") {
+		t.Fatalf("below the floor: %v", err)
+	}
+	unchanged("a release below the floor", doc, shown)
+	prod37, _ := writeAPK(t, 1000, 6)
+	if res, _, err := w.publishWith(key, release.Build{Flavor: "prod", Version: "3.7.0", BuildNumber: "2", APK: prod37}); err != nil || !res.Latest {
+		t.Fatalf("at the floor: %+v %v", res, err)
+	}
+	if floors() != "dev=<nil> prod=3.7.0" {
+		t.Fatalf("floors %s", floors())
+	}
+
+	// A person removes the floor (recorded); then the switch goes through and neither fleet gets a floor from it.
+	expect(t, w.call(w.internal, http.MethodPut, "/v1/app-releases/floor", pa, map[string]any{"minAllowedVersion": nil}), http.StatusOK, "")
+	if res, _, err := w.publishWith(key, release.Build{Flavor: "dev", Version: "3.2.0", BuildNumber: "1", APK: dev, SwitchFlavor: true}); err != nil || !res.Latest {
+		t.Fatalf("switch: %+v %v", res, err)
+	}
+	if g := w.call(w.public, http.MethodGet, "/v1/mobile/settings?flavor=dev", "", nil).data(); g["latestVersion"] != "3.2.0" || g["minAllowedVersion"] != nil {
+		t.Fatalf("dev gate %v", g)
+	}
+	if floors() != "dev=<nil> prod=<nil>" {
+		t.Fatalf("floors %s", floors())
+	}
+	if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = 'mobile_floor_changed'`); n != 1 {
+		t.Fatalf("mobile_floor_changed %d: only the person's removal", n)
 	}
 }
 

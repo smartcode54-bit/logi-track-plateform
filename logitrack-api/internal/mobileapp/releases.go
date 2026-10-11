@@ -89,13 +89,36 @@ func (in ReleaseInput) validate() error {
 	return nil
 }
 
-// gateRefusal is the 409 of a publish into the other flavor of the deployment (ADR 0007 §3: the legacy script
-// refused a build of the other project); "" when cur allows flavor.
-func gateRefusal(cur Settings, flavor string, switchFlavor bool) error {
-	if cur.Flavor == "" || cur.Flavor == flavor || switchFlavor {
-		return nil
+// gateRefusal is the 409 failed_precondition a new release meets on the gate cur, nil when cur takes it. Presign and
+// Publish share it, so the refusal arrives before anything is uploaded. Publishing never writes the floor (ADR 0007
+// §1), and it may not change what the floor does either:
+//   - flavor_mismatch: the other flavor of the deployment without switchFlavor (ADR 0007 §3: the legacy script
+//     refused a build of the other project).
+//   - floor_set: a switch while a floor is set. The floor applies to the gate flavor only (Settings.Public), so the
+//     switch would put it on a fleet whose devices failed open until now and lift it from the fleet a person set it
+//     for: a publish, an API key's included, would move the effective floor. A person removes the floor first (PUT
+//     /v1/app-releases/floor null, recorded in mobile_floor_changed), and sets one for the new fleet afterwards.
+//   - floor_above_version: the release would become the gate's latest below the floor (a legacy or ETL document, or
+//     the first publish of a deployment whose document has a floor), so every device, the newest included, would be
+//     blocked and sent to an APK that is itself below the floor. PUT /v1/app-releases/floor refuses the same state
+//     (422 above_latest).
+func gateRefusal(cur Settings, in ReleaseInput) error {
+	if cur.Flavor != "" && cur.Flavor != in.Flavor {
+		if !in.SwitchFlavor {
+			return errConflict(CodeFailedPrecondition, "flavor_mismatch", map[string]any{"flavor": cur.Flavor, "requested": in.Flavor})
+		}
+		if cur.MinAllowedVersion != "" {
+			return errConflict(CodeFailedPrecondition, "floor_set", map[string]any{"flavor": cur.Flavor, "requested": in.Flavor,
+				"minAllowedVersion": cur.MinAllowedVersion})
+		}
 	}
-	return errConflict(CodeFailedPrecondition, "flavor_mismatch", map[string]any{"flavor": cur.Flavor, "requested": flavor})
+	if cur.MinAllowedVersion != "" && becomesLatest(cur, in) {
+		if c, ok := CompareVersions(cur.MinAllowedVersion, in.Version); ok && c > 0 {
+			return errConflict(CodeFailedPrecondition, "floor_above_version", map[string]any{"flavor": in.Flavor, "version": in.Version,
+				"minAllowedVersion": cur.MinAllowedVersion})
+		}
+	}
+	return nil
 }
 
 func errPublished(flavor, version string) error {
@@ -135,9 +158,10 @@ func (s *Service) actorOf(ctx context.Context, q *mobileappdb.Queries, p *authz.
 }
 
 // Presign is POST /v1/app-releases/presign: the upload of an APK into the public bucket under its immutable key.
-// Refused with 409: a version that is already published (already_exists, published; never replaced, force or not),
-// an unpublished upload of it without force (already_exists, upload_pending), the other flavor of the deployment
-// (failed_precondition, flavor_mismatch). The answer is the upload (method, url, headers) and the URL the APK is
+// Refused with 409: a version that is already published (already_exists, published; never replaced, force or not;
+// cmd/release then sends the publish, which replays the same build), an unpublished upload of it without force
+// (already_exists, upload_pending), and the gate's refusals (failed_precondition: flavor_mismatch, floor_set,
+// floor_above_version, see gateRefusal). The answer is the upload (method, url, headers) and the URL the APK is
 // served at once uploaded (publicUrl), which cmd/release checks before it publishes.
 func (s *Service) Presign(ctx context.Context, p *authz.Principal, in ReleaseInput) (*storage.PublicPresigned, error) {
 	if err := in.validate(); err != nil {
@@ -149,16 +173,16 @@ func (s *Service) Presign(ctx context.Context, p *authz.Principal, in ReleaseInp
 	var uploader *uuid.UUID
 	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
 		q := mobileappdb.New(tx)
+		if _, err := q.GetRelease(ctx, mobileappdb.GetReleaseParams{Flavor: in.Flavor, Version: in.Version}); err == nil {
+			return errPublished(in.Flavor, in.Version)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		cur, err := loadSettings(ctx, q)
 		if err != nil {
 			return err
 		}
-		if err := gateRefusal(cur, in.Flavor, in.SwitchFlavor); err != nil {
-			return err
-		}
-		if _, err := q.GetRelease(ctx, mobileappdb.GetReleaseParams{Flavor: in.Flavor, Version: in.Version}); err == nil {
-			return errPublished(in.Flavor, in.Version)
-		} else if !errors.Is(err, pgx.ErrNoRows) {
+		if err := gateRefusal(cur, in); err != nil {
 			return err
 		}
 		if !p.IsMachine() {
@@ -247,7 +271,8 @@ type PublishResult struct {
 // file_objects row, inserts the mobile_app_releases row, moves the release half of settings('mobile_app') when the
 // version is the gate flavor's newest, and appends mobile_release_published and the outbox settings.changed. It
 // never writes minAllowedVersion (ADR 0007): the floor moves only through PUT /v1/app-releases/floor, which takes no
-// API key, so a person always presses that button.
+// API key, so a person always presses that button. Nor may a publish change what the floor does: a flavor switch is
+// refused while a floor is set, and so is a new latest below the floor (gateRefusal).
 func (s *Service) Publish(ctx context.Context, p *authz.Principal, in ReleaseInput, requestID string) (*PublishResult, error) {
 	if err := in.validate(); err != nil {
 		return nil, err
@@ -264,12 +289,10 @@ func (s *Service) Publish(ctx context.Context, p *authz.Principal, in ReleaseInp
 		if err != nil {
 			return err
 		}
-		if err := gateRefusal(cur, in.Flavor, in.SwitchFlavor); err != nil {
-			return err
-		}
 		names := true
 		if old, err := q.GetRelease(ctx, mobileappdb.GetReleaseParams{Flavor: in.Flavor, Version: in.Version}); err == nil {
-			// A retried publish whose first answer was lost: the same build is a replay, anything else a conflict.
+			// A retried publish whose first answer was lost: the same build is a replay (it writes nothing, so the gate's
+			// refusals do not apply; the gate may have moved since), anything else a conflict.
 			if old.ApkSha256 != in.SHA256 || old.BuildNumber != in.BuildNumber || old.ApkSizeBytes != in.SizeBytes {
 				return errPublished(in.Flavor, in.Version)
 			}
@@ -280,6 +303,10 @@ func (s *Service) Publish(ctx context.Context, p *authz.Principal, in ReleaseInp
 			res.Latest = res.Release.Latest
 			return nil
 		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		// Checked again under the row lock: the floor may have been set since the presign.
+		if err := gateRefusal(cur, in); err != nil {
 			return err
 		}
 		who, err := s.actorOf(ctx, q, p)
@@ -369,9 +396,10 @@ func (s *Service) Publish(ctx context.Context, p *authz.Principal, in ReleaseInp
 
 // becomesLatest decides whether a new release moves the gate's release half: a release of the gate flavor (or the
 // first of a deployment) whose version is not below the gate's latest, or any release that switches the gate's
-// flavor. An older version of the gate flavor (a late hotfix of an older line) is recorded without becoming the
-// download every driver is sent to. The same version as the gate's latest can only be published when the document
-// names a release this database has no row of (a legacy or hand-made document): its row takes over.
+// flavor (gateRefusal refuses a switch while a floor is set). An older version of the gate flavor (a late hotfix of
+// an older line) is recorded without becoming the download every driver is sent to. The same version as the gate's
+// latest can only be published when the document names a release this database has no row of (a legacy or
+// hand-made document): its row takes over.
 func becomesLatest(cur Settings, in ReleaseInput) bool {
 	if cur.Flavor != "" && cur.Flavor != in.Flavor {
 		return in.SwitchFlavor

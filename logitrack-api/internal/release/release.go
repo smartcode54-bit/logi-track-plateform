@@ -6,8 +6,9 @@
 //
 // A publish is: hash the APK, POST /v1/app-releases/presign, PUT the bytes to the signed URL (an absolute S3 URL, or
 // a path on the internal listener for the local storage backend), check that the public URL serves them, then POST
-// /v1/app-releases. It announces a build and never touches the version floor: a person raises that on the Security
-// Center's mobile-release page.
+// /v1/app-releases. A rerun after a publish whose answer was lost finds the version published at presign and sends
+// the publish alone, which the api replays for the same build. It announces a build and never touches the version
+// floor: a person raises that on the Security Center's mobile-release page.
 package release
 
 import (
@@ -91,7 +92,8 @@ type Build struct {
 	// SkipURLCheck publishes without checking that the public URL serves the APK (an operator who cannot reach the
 	// public host from the private network).
 	SkipURLCheck bool
-	// DryRun hashes and prints the plan and the current gate, and writes nothing.
+	// DryRun hashes, prints the deployment's gate and what the publish would do to it, and writes nothing; a publish
+	// the api would refuse (flavor_mismatch, floor_set, floor_above_version) is an error.
 	DryRun bool
 }
 
@@ -395,12 +397,18 @@ func (c *Client) Publish(ctx context.Context, b Build, out io.Writer) (*Result, 
 	_, _ = fmt.Fprintf(out, "APK      %s\nRelease  %s %s+%s\nSize     %.1f MB (%d bytes)\nSHA-256  %s\nAPI      %s (internal listener)\n",
 		b.APK, b.Flavor, b.Version, b.BuildNumber, float64(size)/(1<<20), size, sum, c.base.Redacted())
 	if b.DryRun {
-		g, err := c.Gate(ctx, b.Flavor)
+		// The deployment's own gate (no flavor): the flavor it serves, which the publish is checked against.
+		g, err := c.Gate(ctx, "")
 		if err != nil {
 			return nil, fmt.Errorf("read the current gate: %w", err)
 		}
-		_, _ = fmt.Fprintf(out, "Gate     flavor %s, latest %s+%s, floor %s, link %s\nDry run: nothing was uploaded or published.\n",
+		_, _ = fmt.Fprintf(out, "Gate     flavor %s, latest %s+%s, floor %s, link %s\n",
 			str(g.Flavor), str(g.LatestVersion), str(g.LatestBuildNumber), str(g.MinAllowedVersion), str(g.APKDownloadURL))
+		plan, refusal := Plan(g, b)
+		if refusal != nil {
+			return nil, fmt.Errorf("dry run, nothing was uploaded or published, but the publish would be refused: %w%s", refusal, hint(refusal))
+		}
+		_, _ = fmt.Fprintf(out, "Plan     %s\nDry run: nothing was uploaded or published.\n", plan)
 		return res, nil
 	}
 	body := releaseBody{Flavor: b.Flavor, Version: b.Version, BuildNumber: b.BuildNumber, SHA256: sum, SizeBytes: size,
@@ -409,7 +417,13 @@ func (c *Client) Publish(ctx context.Context, b Build, out io.Writer) (*Result, 
 		Data presigned `json:"data"`
 	}
 	if _, err := c.call(ctx, http.MethodPost, "/v1/app-releases/presign", body, &ps, true); err != nil {
-		return nil, fmt.Errorf("presign: %w%s", err, hint(err))
+		if reason(err) != "published" {
+			return nil, fmt.Errorf("presign: %w%s", err, hint(err))
+		}
+		// A rerun after a publish whose answer was lost: the version is published already. The publish route replays
+		// the same build (200, meta.replayed) and refuses other bytes, so nothing is uploaded again.
+		_, _ = fmt.Fprintf(out, "Found    %s %s is published already; asking the api whether it is this build\n", b.Flavor, b.Version)
+		return c.commit(ctx, body, b.Notes, res)
 	}
 	if err := c.upload(ctx, ps.Data, b.APK, size); err != nil {
 		return nil, fmt.Errorf("upload: %w (rerun with --force: the upload is not published)", err)
@@ -421,7 +435,12 @@ func (c *Client) Publish(ctx context.Context, b Build, out io.Writer) (*Result, 
 		}
 		_, _ = fmt.Fprintf(out, "Serves   %s\n", ps.Data.PublicURL)
 	}
-	body.Force, body.ReleaseNotes = false, b.Notes
+	return c.commit(ctx, body, b.Notes, res)
+}
+
+// commit is POST /v1/app-releases: the publish of the uploaded build, or the replay of a build published already.
+func (c *Client) commit(ctx context.Context, body releaseBody, notes *string, res *Result) (*Result, error) {
+	body.Force, body.ReleaseNotes = false, notes
 	var pub struct {
 		Data struct {
 			APKURL *string `json:"apkUrl"`
@@ -436,6 +455,82 @@ func (c *Client) Publish(ctx context.Context, b Build, out io.Writer) (*Result, 
 	}
 	res.APKURL, res.Latest, res.Replayed = str(pub.Data.APKURL), pub.Meta.Latest, pub.Meta.Replayed
 	return res, nil
+}
+
+// Plan is what a publish of b does to the gate g (the deployment's own gate, Gate(ctx, "")): a line for the dry run,
+// or the refusal the api would answer (the rules of internal/mobileapp gateRefusal, as a 409 failed_precondition).
+// A gate version that does not parse is left to the api.
+func Plan(g Gate, b Build) (string, *APIError) {
+	refuse := func(r string, details map[string]any) *APIError {
+		details["reason"] = r
+		return &APIError{Status: http.StatusConflict, Code: "failed_precondition", Message: "predicted from the current gate", Details: details}
+	}
+	gate, floor, latest := val(g.Flavor), val(g.MinAllowedVersion), val(g.LatestVersion)
+	switching := gate != "" && gate != b.Flavor
+	if switching && !b.SwitchFlavor {
+		return "", refuse("flavor_mismatch", map[string]any{"flavor": gate, "requested": b.Flavor})
+	}
+	if switching && floor != "" {
+		return "", refuse("floor_set", map[string]any{"flavor": gate, "requested": b.Flavor, "minAllowedVersion": floor})
+	}
+	becomesLatest := switching
+	if !switching {
+		cmp, ok := compareVersions(b.Version, latest)
+		becomesLatest = !ok || cmp >= 0
+	}
+	if cmp, ok := compareVersions(floor, b.Version); becomesLatest && ok && cmp > 0 {
+		return "", refuse("floor_above_version", map[string]any{"flavor": b.Flavor, "version": b.Version, "minAllowedVersion": floor})
+	}
+	keep := "no version floor is set"
+	if floor != "" {
+		keep = "the version floor stays " + floor + " (a person moves it)"
+	}
+	switch {
+	case switching:
+		return fmt.Sprintf("switches the gate from %s to %s and becomes its latest release; %s", gate, b.Flavor, keep), nil
+	case becomesLatest:
+		return fmt.Sprintf("becomes the latest %s release; %s", b.Flavor, keep), nil
+	}
+	return fmt.Sprintf("older than the latest %s: recorded only, the gate is unchanged", latest), nil
+}
+
+var looseVersionRx = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// compareVersions orders two MAJOR.MINOR.PATCH versions as the api does (internal/mobileapp CompareVersions: white
+// space and a "+build" suffix tolerated); false when either does not parse.
+func compareVersions(a, b string) (int, bool) {
+	parse := func(v string) ([3]int64, bool) {
+		var out [3]int64
+		v, _, _ = strings.Cut(strings.TrimSpace(v), "+")
+		if !looseVersionRx.MatchString(v) {
+			return out, false
+		}
+		for i, part := range strings.Split(v, ".") {
+			n, err := strconv.ParseInt(part, 10, 64)
+			if err != nil {
+				return out, false
+			}
+			out[i] = n
+		}
+		return out, true
+	}
+	x, ok := parse(a)
+	if !ok {
+		return 0, false
+	}
+	y, ok := parse(b)
+	if !ok {
+		return 0, false
+	}
+	for i := range x {
+		switch {
+		case x[i] < y[i]:
+			return -1, true
+		case x[i] > y[i]:
+			return 1, true
+		}
+	}
+	return 0, true
 }
 
 // upload sends the APK to the signed URL with exactly the signed headers and its Content-Length. A 412 from S3 means
@@ -499,24 +594,40 @@ func (c *Client) checkPublic(ctx context.Context, u string, size int64) error {
 	return nil
 }
 
+// reason is details.reason of a refusal of the api ("" for any other error).
+func reason(err error) string {
+	var ae *APIError
+	if !errors.As(err, &ae) {
+		return ""
+	}
+	r, _ := ae.Details["reason"].(string)
+	return r
+}
+
 // hint adds the operator's next step to a refusal of the api.
 func hint(err error) string {
 	var ae *APIError
 	if !errors.As(err, &ae) {
 		return ""
 	}
-	r, _ := ae.Details["reason"].(string)
+	r := reason(err)
 	switch {
 	case ae.Status == http.StatusUnauthorized:
 		return "; RELEASE_API_KEY is unknown, revoked or expired: issue a new release_publisher key (POST /v1/api-keys)"
 	case ae.Status == http.StatusForbidden:
 		return "; the key must be a platform key of scope release_publisher holding security:manage_mobile_release"
 	case r == "published":
-		return "; a published version is immutable: bump the version in pubspec.yaml and rebuild"
+		return "; this version is already published with a different build (run `release status` to see the gate): bump the version in pubspec.yaml and rebuild"
 	case r == "upload_pending":
 		return "; an earlier upload of this version was never published: rerun with --force to replace it"
 	case r == "flavor_mismatch":
-		return fmt.Sprintf("; this deployment serves flavor %v: publish that flavor, or pass --switch-flavor to make this one the deployment's", ae.Details["flavor"])
+		return fmt.Sprintf("; this deployment serves flavor %v: publish that flavor, or pass --switch-flavor to make this one the deployment's (refused while a version floor is set)", ae.Details["flavor"])
+	case r == "floor_set":
+		return fmt.Sprintf("; the %v fleet has the version floor %v, which a switch would carry onto the %v fleet: a person with security:manage_mobile_release removes it first (PUT /v1/app-releases/floor {\"minAllowedVersion\": null}), then publish again and set a floor for the %v fleet when it is ready",
+			ae.Details["flavor"], ae.Details["minAllowedVersion"], ae.Details["requested"], ae.Details["requested"])
+	case r == "floor_above_version":
+		return fmt.Sprintf("; the version floor %v is above %v, so every device would be blocked and sent to this APK: publish a version at or above the floor, or have a person with security:manage_mobile_release lower the floor first (PUT /v1/app-releases/floor)",
+			ae.Details["minAllowedVersion"], ae.Details["version"])
 	}
 	return ""
 }
@@ -524,6 +635,13 @@ func hint(err error) string {
 func str(p *string) string {
 	if p == nil || *p == "" {
 		return "-"
+	}
+	return *p
+}
+
+func val(p *string) string {
+	if p == nil {
+		return ""
 	}
 	return *p
 }
