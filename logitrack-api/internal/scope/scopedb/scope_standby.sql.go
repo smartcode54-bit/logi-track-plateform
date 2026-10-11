@@ -67,3 +67,172 @@ func (q *Queries) ListScopeStandby(ctx context.Context, arg ListScopeStandbyPara
 	}
 	return items, nil
 }
+
+const listScopeStandbyByCreated = `-- name: ListScopeStandbyByCreated :many
+SELECT id, tenant_id, driver_id, task_id, trip_id, job_category, start_location_raw, end_location_raw, started_at, ended_at, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, created_at FROM scope_standby
+ WHERE ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)
+   AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
+   AND ($3::uuid IS NULL OR driver_id = $3::uuid)
+   AND ($4::timestamptz IS NULL
+        OR (created_at, id) < ($4::timestamptz, $5::uuid))
+ ORDER BY created_at DESC, id DESC
+ LIMIT $6
+`
+
+type ListScopeStandbyByCreatedParams struct {
+	FromAt       *time.Time `json:"fromAt"`
+	ToAt         *time.Time `json:"toAt"`
+	DriverID     *uuid.UUID `json:"driverId"`
+	AfterCreated *time.Time `json:"afterCreated"`
+	AfterID      uuid.UUID  `json:"afterId"`
+	RowLimit     int32      `json:"rowLimit"`
+}
+
+// GET /v1/standby for a scope principal (T30): newest first, keyset (created_at, id); from / to bound created_at,
+// [from, to).
+func (q *Queries) ListScopeStandbyByCreated(ctx context.Context, arg ListScopeStandbyByCreatedParams) ([]ScopeStandby, error) {
+	rows, err := q.db.Query(ctx, listScopeStandbyByCreated,
+		arg.FromAt,
+		arg.ToAt,
+		arg.DriverID,
+		arg.AfterCreated,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeStandby{}
+	for rows.Next() {
+		var i ScopeStandby
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.DriverID,
+			&i.TaskID,
+			&i.TripID,
+			&i.JobCategory,
+			&i.StartLocationRaw,
+			&i.EndLocationRaw,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.DurationMinutes,
+			&i.Note,
+			&i.Status,
+			&i.Lat,
+			&i.Lng,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScopeStandbyByEnded = `-- name: ListScopeStandbyByEnded :many
+SELECT id, tenant_id, driver_id, task_id, trip_id, job_category, start_location_raw, end_location_raw, started_at, ended_at, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, created_at FROM scope_standby
+ WHERE status = 'completed' AND ended_at IS NOT NULL
+   AND ($1::timestamptz IS NULL OR ended_at >= $1::timestamptz)
+   AND ($2::timestamptz IS NULL OR ended_at < $2::timestamptz)
+   AND ($3::uuid IS NULL OR driver_id = $3::uuid)
+   AND ($4::timestamptz IS NULL
+        OR (ended_at, id) < ($4::timestamptz, $5::uuid))
+ ORDER BY ended_at DESC, id DESC
+ LIMIT $6
+`
+
+type ListScopeStandbyByEndedParams struct {
+	FromAt     *time.Time `json:"fromAt"`
+	ToAt       *time.Time `json:"toAt"`
+	DriverID   *uuid.UUID `json:"driverId"`
+	AfterEnded *time.Time `json:"afterEnded"`
+	AfterID    uuid.UUID  `json:"afterId"`
+	RowLimit   int32      `json:"rowLimit"`
+}
+
+// GET /v1/standby?sort=ended for a scope principal (T30): completed records by ended_at, latest first, keyset
+// (ended_at, id).
+func (q *Queries) ListScopeStandbyByEnded(ctx context.Context, arg ListScopeStandbyByEndedParams) ([]ScopeStandby, error) {
+	rows, err := q.db.Query(ctx, listScopeStandbyByEnded,
+		arg.FromAt,
+		arg.ToAt,
+		arg.DriverID,
+		arg.AfterEnded,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeStandby{}
+	for rows.Next() {
+		var i ScopeStandby
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.DriverID,
+			&i.TaskID,
+			&i.TripID,
+			&i.JobCategory,
+			&i.StartLocationRaw,
+			&i.EndLocationRaw,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.DurationMinutes,
+			&i.Note,
+			&i.Status,
+			&i.Lat,
+			&i.Lng,
+			&i.TruckID,
+			&i.TruckLicensePlateSnapshot,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeStandbyPhotosOf = `-- name: ScopeStandbyPhotosOf :many
+SELECT id, standby_id, photo_type, file_id, overlay_text, created_at FROM scope_standby_photos WHERE standby_id = ANY ($1::uuid[]) ORDER BY standby_id, photo_type
+`
+
+// The two photos of a page of the projection (scope_standby_photos, 0016).
+func (q *Queries) ScopeStandbyPhotosOf(ctx context.Context, standbyIds []uuid.UUID) ([]ScopeStandbyPhoto, error) {
+	rows, err := q.db.Query(ctx, scopeStandbyPhotosOf, standbyIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeStandbyPhoto{}
+	for rows.Next() {
+		var i ScopeStandbyPhoto
+		if err := rows.Scan(
+			&i.ID,
+			&i.StandbyID,
+			&i.PhotoType,
+			&i.FileID,
+			&i.OverlayText,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

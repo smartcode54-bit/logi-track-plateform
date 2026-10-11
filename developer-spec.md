@@ -674,6 +674,8 @@ Operation counts from §B.7: **297** (218 internal-only, 79 public). Web groups 
 | `GET /v1/badges` | whole-collection waitlist listener + chat/expense counts | Counters per capability, 30 s + SSE | P6 |
 | `GET /v1/config/web-flags` | build-time domain flags (removed, R41) | `WEB_FLAG_OVERRIDES` over `PG_OWNED_DOMAINS`; `['webFlags']` 60 s, rollback without rebuild | P0 |
 
+As built (T30, issue #50): `GET /v1/trips/monitor` takes `?from&to` (or `?month`, at most 366 days) and filters status, job type, driver, customer, partner, plate (`id:`/`plate:`/`__none__`, ADR 0005), vehicle class, origin and destination (`code:`/`raw:`/`__none__`, ADR 0006, any stop of a multi-drop trip) and `q` in SQL; pages of at most 200 on `(created_at, id)`; the first page carries `meta.facets` (status counts and every option of the range with its trip count, unresolved places and orphan plates as their own options); a dispatcher or a customer scope reads the same page from the `scope_*` projections, without the staff fields and the price (Appendix B §B.2.12 as built).
+
 **Documents (R69).** `documents.render` (PDF, XLSX, ZIP into `statement_documents`) ships in **P3** (T39); jspdf and xlsx-js-style leave the bundle at P3 exit (T42); photo-ZIP downloads keep a lazy jszip chunk.
 
 ### 5.5 `/public/v1/*` webhooks and postbacks

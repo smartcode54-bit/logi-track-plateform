@@ -120,3 +120,279 @@ func (q *Queries) ListScopeTasks(ctx context.Context, arg ListScopeTasksParams) 
 	}
 	return items, nil
 }
+
+const listScopeTasksByCreated = `-- name: ListScopeTasksByCreated :many
+SELECT id, tenant_id, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, actual_pickup_at, source_hub_raw, source_hub_id, destination_raw, destination_hub_id, destination_soc_key, truck_id, truck_type, license_plate_snapshot, driver_id, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, created_at, updated_at FROM scope_tasks
+ WHERE ($1::text IS NULL OR task_type = $1::text)
+   AND ($2::text[] IS NULL OR status = ANY ($2::text[]))
+   AND ($3::uuid IS NULL OR driver_id = $3::uuid
+        OR helper_driver_id = $3::uuid)
+   AND ($4::uuid IS NULL OR truck_id = $4::uuid)
+   AND ($5::text IS NULL
+        OR strpos(lower(concat_ws(' ', task_no, source_hub_raw, destination_raw, license_plate_snapshot)),
+                  lower($5::text)) > 0)
+   AND ($6::timestamptz IS NULL
+        OR (created_at, id) < ($6::timestamptz, $7::uuid))
+ ORDER BY created_at DESC, id DESC
+ LIMIT $8
+`
+
+type ListScopeTasksByCreatedParams struct {
+	TaskType     *string    `json:"taskType"`
+	Statuses     []string   `json:"statuses"`
+	DriverID     *uuid.UUID `json:"driverId"`
+	TruckID      *uuid.UUID `json:"truckId"`
+	Q            *string    `json:"q"`
+	AfterCreated *time.Time `json:"afterCreated"`
+	AfterID      uuid.UUID  `json:"afterId"`
+	RowLimit     int32      `json:"rowLimit"`
+}
+
+// GET /v1/tasks without a date for a scope principal (T30): the boards' filters of the staff list, newest first,
+// keyset (created_at, id). driver_id matches the driver or the helper; q is a substring of the number, the places
+// or the plate.
+func (q *Queries) ListScopeTasksByCreated(ctx context.Context, arg ListScopeTasksByCreatedParams) ([]ScopeTask, error) {
+	rows, err := q.db.Query(ctx, listScopeTasksByCreated,
+		arg.TaskType,
+		arg.Statuses,
+		arg.DriverID,
+		arg.TruckID,
+		arg.Q,
+		arg.AfterCreated,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTask{}
+	for rows.Next() {
+		var i ScopeTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TaskNo,
+			&i.TaskType,
+			&i.JobCategory,
+			&i.Status,
+			&i.PlanAt,
+			&i.PlanDate,
+			&i.PlanTime,
+			&i.ActualPickupAt,
+			&i.SourceHubRaw,
+			&i.SourceHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.TruckID,
+			&i.TruckType,
+			&i.LicensePlateSnapshot,
+			&i.DriverID,
+			&i.HelperDriverID,
+			&i.RunOrder,
+			&i.CheckInAt,
+			&i.CheckInPhotoFileID,
+			&i.CheckInAppScreenshotFileID,
+			&i.CheckInLat,
+			&i.CheckInLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScopeTasksByPlan = `-- name: ListScopeTasksByPlan :many
+SELECT id, tenant_id, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, actual_pickup_at, source_hub_raw, source_hub_id, destination_raw, destination_hub_id, destination_soc_key, truck_id, truck_type, license_plate_snapshot, driver_id, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, created_at, updated_at FROM scope_tasks
+ WHERE plan_date >= $1::date AND plan_date <= $2::date
+   AND ($3::text IS NULL OR task_type = $3::text)
+   AND ($4::text[] IS NULL OR status = ANY ($4::text[]))
+   AND ($5::uuid IS NULL OR driver_id = $5::uuid
+        OR helper_driver_id = $5::uuid)
+   AND ($6::uuid IS NULL OR truck_id = $6::uuid)
+   AND ($7::text IS NULL
+        OR strpos(lower(concat_ws(' ', task_no, source_hub_raw, destination_raw, license_plate_snapshot)),
+                  lower($7::text)) > 0)
+   AND ($8::date IS NULL
+        OR (plan_date, id) < ($8::date, $9::uuid))
+ ORDER BY plan_date DESC, id DESC
+ LIMIT $10
+`
+
+type ListScopeTasksByPlanParams struct {
+	FromDate  time.Time  `json:"fromDate"`
+	ToDate    time.Time  `json:"toDate"`
+	TaskType  *string    `json:"taskType"`
+	Statuses  []string   `json:"statuses"`
+	DriverID  *uuid.UUID `json:"driverId"`
+	TruckID   *uuid.UUID `json:"truckId"`
+	Q         *string    `json:"q"`
+	AfterPlan *time.Time `json:"afterPlan"`
+	AfterID   uuid.UUID  `json:"afterId"`
+	RowLimit  int32      `json:"rowLimit"`
+}
+
+// GET /v1/tasks?date | from&to for a scope principal (T30): the Bangkok plan days of the range, latest day first,
+// keyset (plan_date, id).
+func (q *Queries) ListScopeTasksByPlan(ctx context.Context, arg ListScopeTasksByPlanParams) ([]ScopeTask, error) {
+	rows, err := q.db.Query(ctx, listScopeTasksByPlan,
+		arg.FromDate,
+		arg.ToDate,
+		arg.TaskType,
+		arg.Statuses,
+		arg.DriverID,
+		arg.TruckID,
+		arg.Q,
+		arg.AfterPlan,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTask{}
+	for rows.Next() {
+		var i ScopeTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TaskNo,
+			&i.TaskType,
+			&i.JobCategory,
+			&i.Status,
+			&i.PlanAt,
+			&i.PlanDate,
+			&i.PlanTime,
+			&i.ActualPickupAt,
+			&i.SourceHubRaw,
+			&i.SourceHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.TruckID,
+			&i.TruckType,
+			&i.LicensePlateSnapshot,
+			&i.DriverID,
+			&i.HelperDriverID,
+			&i.RunOrder,
+			&i.CheckInAt,
+			&i.CheckInPhotoFileID,
+			&i.CheckInAppScreenshotFileID,
+			&i.CheckInLat,
+			&i.CheckInLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeTaskStopsOf = `-- name: ScopeTaskStopsOf :many
+SELECT id, task_id, stop_index, destination_raw, destination_hub_id, status, delivered_at, delivered_lat, delivered_lng, sequence, added_at, source_id, is_custom FROM scope_task_stops WHERE task_id = ANY ($1::uuid[]) ORDER BY task_id, stop_index
+`
+
+// The planned stops of a page of the projection (scope_task_stops, 0016: no linked party, no price).
+func (q *Queries) ScopeTaskStopsOf(ctx context.Context, taskIds []uuid.UUID) ([]ScopeTaskStop, error) {
+	rows, err := q.db.Query(ctx, scopeTaskStopsOf, taskIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTaskStop{}
+	for rows.Next() {
+		var i ScopeTaskStop
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.StopIndex,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.Status,
+			&i.DeliveredAt,
+			&i.DeliveredLat,
+			&i.DeliveredLng,
+			&i.Sequence,
+			&i.AddedAt,
+			&i.SourceID,
+			&i.IsCustom,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scopeTasksByNumber = `-- name: ScopeTasksByNumber :many
+SELECT id, tenant_id, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, actual_pickup_at, source_hub_raw, source_hub_id, destination_raw, destination_hub_id, destination_soc_key, truck_id, truck_type, license_plate_snapshot, driver_id, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, created_at, updated_at FROM scope_tasks WHERE task_no = $1::text ORDER BY created_at, id
+`
+
+// GET /v1/tasks/by-number/{taskNo} for a scope principal (T30): every match, the number verbatim.
+func (q *Queries) ScopeTasksByNumber(ctx context.Context, taskNo string) ([]ScopeTask, error) {
+	rows, err := q.db.Query(ctx, scopeTasksByNumber, taskNo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScopeTask{}
+	for rows.Next() {
+		var i ScopeTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TaskNo,
+			&i.TaskType,
+			&i.JobCategory,
+			&i.Status,
+			&i.PlanAt,
+			&i.PlanDate,
+			&i.PlanTime,
+			&i.ActualPickupAt,
+			&i.SourceHubRaw,
+			&i.SourceHubID,
+			&i.DestinationRaw,
+			&i.DestinationHubID,
+			&i.DestinationSocKey,
+			&i.TruckID,
+			&i.TruckType,
+			&i.LicensePlateSnapshot,
+			&i.DriverID,
+			&i.HelperDriverID,
+			&i.RunOrder,
+			&i.CheckInAt,
+			&i.CheckInPhotoFileID,
+			&i.CheckInAppScreenshotFileID,
+			&i.CheckInLat,
+			&i.CheckInLng,
+			&i.IsMultiDelivery,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -90,6 +90,7 @@ POST /v1/hubs internal
 PATCH /v1/hubs/:id internal
 POST /v1/hubs/import internal
 GET /v1/hubs/maps internal
+GET /v1/incidents internal
 GET /v1/jobs internal
 GET /v1/jobs/:id internal
 POST /v1/jobs/bangchak.snapshot internal
@@ -115,12 +116,17 @@ PUT /v1/roles/matrix internal
 GET /v1/security-events internal
 GET /v1/security/overview internal
 GET /v1/security/status internal
+GET /v1/standby internal
 GET /v1/stats/users-by-role internal
 GET /v1/subcontractors internal
 POST /v1/subcontractors internal
 GET /v1/subcontractors/:id internal
 PATCH /v1/subcontractors/:id internal
+GET /v1/tasks internal
+GET /v1/tasks/:id internal
 PATCH /v1/tasks/:id internal
+GET /v1/tasks/:id/trip internal
+GET /v1/tasks/by-number/:taskNo internal
 GET /v1/tenants internal
 POST /v1/tenants internal
 GET /v1/tenants/:id internal
@@ -130,6 +136,11 @@ DELETE /v1/tenants/:id/members/:userId internal
 PUT /v1/tenants/:id/members/:userId internal
 GET /v1/tenants/quarantine/rows internal
 POST /v1/tenants/quarantine/rows/:table/:id/rehome internal
+GET /v1/trips internal
+GET /v1/trips/:id internal
+GET /v1/trips/:id/photos internal
+GET /v1/trips/by-no/:tripNo internal
+GET /v1/trips/monitor internal
 GET /v1/truck-assignments internal
 POST /v1/truck-assignments internal
 POST /v1/truck-assignments/:id/revoke internal

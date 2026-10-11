@@ -65,7 +65,7 @@ type APIDeps struct {
 	// statements}*, /v1/fuel/*, POST /v1/jobs/bangchak.snapshot.
 	Billing *billing.Service
 	// Operations are the operations routes: PATCH /v1/tasks/{id} with tenantId, the R13 reassignment (T28); the read
-	// APIs (T30) and the write-back (T31) join it.
+	// APIs /v1/tasks*, /v1/trips* (the monitor too), /v1/standby, /v1/incidents (T30); the write-back (T31) joins it.
 	Operations *operations.Service
 	Jobs       *jobs.Service
 	Storage    *storage.Service
@@ -297,13 +297,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	// Operations (T27 data layer; T28 the R13 task reassignment, performed by iam.TaskMover in a system transaction
-	// after Go authorization).
+	// after Go authorization; T30 the read APIs: photos signed by the storage service, places resolved against the hub
+	// master of the hubs service).
 	taskMover, err := iam.NewTaskMover(iam.TaskMoverDeps{Pool: pool, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
 	}
-	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover})
+	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover, Files: st,
+		Hubs: OperationsHubs{Service: hubSvc}})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
