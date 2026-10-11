@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -50,7 +51,8 @@ const usage = `usage: etl <command> [flags]      (OWN_FLEET_TENANT_ID is require
 
 Firestore (ETL_FIRESTORE_PROJECT_ID, FIRESTORE_DATABASE_ID, GOOGLE_APPLICATION_CREDENTIALS):
   dump --collections=all|a,b [--groups=mobile_installations,messages] --out=DIR|s3
-        read Firestore into NDJSON.gz + manifest.json; s3 writes S3_BUCKET etl/dumps/{ts}/ (R74)
+        read Firestore into NDJSON.gz + manifest.json; s3 writes S3_BUCKET etl/dumps/{ts}/ (R74); all also
+        reads every collection reconcile --finance requires, an empty one included
 
 Database (ETL_DATABASE_URL, logged in as logitrack_etl):
   load (--dump=DIR|s3:etl/dumps/{ts} | --fixtures) [--collections=a,b] [--dry-run] [--report=FILE]
@@ -59,9 +61,13 @@ Database (ETL_DATABASE_URL, logged in as logitrack_etl):
         commits nothing; --force re-applies unchanged documents (after a mapping change); --since=watermark
         looks back 10 minutes; --fixtures without --dry-run is refused unless APP_ENV=local
   reconcile (--dump=... | --fixtures) [--period=YYYY-MM] [--out=DIR] [--accept-findings=NAME]
+       [--finance [--months=3] [--through=YYYY-MM]]
         counts and money against the dump, open findings per reason code against the last matching run (a new
         code or a higher count blocks); exit 2 on a mismatch (etl.reconciliation_runs); --accept-findings records
-        the owner's sign-off of the open findings, so a matching run becomes the next baseline
+        the owner's sign-off of the open findings, so a matching run becomes the next baseline; --finance adds the
+        billing cut-over checks (T41): rate tables and voids, the D5 fee dedupe, legacy statements (WHT 0.0100),
+        counters, fuel snapshots, and the parity dry run of the last --months closed Bangkok months ending at
+        --through (default: the month before now; nothing written or locked); --out also writes parity-{ts}.csv
   export-back --collection=customers --frozen-at=RFC3339 [--overwrite-after-freeze] [--out=DIR]
         class A rollback to Firestore in the legacy shape (--out writes the documents to a dump instead)
   media-copy [--limit=N] [--verify]
@@ -295,6 +301,14 @@ func cmdDump(e *env, args []string) int {
 		if err != nil {
 			return e.fail(app.ExitRuntimeError, err, "list collections")
 		}
+		// Firestore lists no empty collection: the ones `reconcile --finance` requires are always read, so a collection
+		// empty at source still has its manifest entry (count 0).
+		for _, n := range etl.FinanceCollections {
+			if !slices.Contains(ids, n) {
+				ids = append(ids, n)
+			}
+		}
+		slices.Sort(ids)
 		for _, id := range ids {
 			list = append(list, coll{id, false})
 		}
@@ -534,8 +548,17 @@ func cmdReconcile(e *env, args []string) int {
 	period := fl.String("period", "", "YYYY-MM (Asia/Bangkok) for the money checks")
 	out := fl.String("out", "", "directory for reconcile-{ts}.md and .csv")
 	accept := fl.String("accept-findings", "", "owner name: accept the open findings (new codes and deltas) as the next baseline")
+	finance := fl.Bool("finance", false, "add the billing cut-over checks and the parity dry run (T41)")
+	months := fl.Int("months", 3, "--finance: closed Bangkok months the parity dry run recomputes")
+	through := fl.String("through", "", "--finance: the last of them, YYYY-MM (default: the month before now)")
 	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
 		return usageError(e.stderr, "reconcile: bad flags")
+	}
+	if !*finance && (*through != "" || *months != 3) {
+		return usageError(e.stderr, "reconcile: --months and --through go with --finance")
+	}
+	if *finance && (*months < 1 || *months > 24) {
+		return usageError(e.stderr, "reconcile: --months must be 1-24")
 	}
 	d, cleanup, code := e.openDump(*src, *useFixtures)
 	defer cleanup()
@@ -547,8 +570,13 @@ func cmdReconcile(e *env, args []string) int {
 		return code
 	}
 	defer closeDB()
-	rec, err := eng.Reconcile(e.ctx, d, etl.ReconcileOptions{Period: *period, AcceptFindingsBy: *accept})
+	rec, err := eng.Reconcile(e.ctx, d, etl.ReconcileOptions{Period: *period, AcceptFindingsBy: *accept, Finance: *finance,
+		Months: *months, Through: *through})
 	if err != nil {
+		if errors.Is(err, etl.ErrBadWindow) {
+			_, _ = fmt.Fprintf(e.stderr, "etl: %v\n", err)
+			return app.ExitConfigError
+		}
 		return e.fail(app.ExitRuntimeError, err, "reconcile failed")
 	}
 	if *out != "" {
@@ -562,6 +590,20 @@ func cmdReconcile(e *env, args []string) int {
 		if err := writeTo(base+".csv", e.stdout, rec.WriteCSV); err != nil {
 			return e.fail(app.ExitRuntimeError, err, "write report")
 		}
+		if rec.Finance != nil {
+			parity := filepath.Join(*out, "parity-"+e.deps.now().UTC().Format("20060102T150405Z")+".csv")
+			if err := writeTo(parity, e.stdout, rec.WriteParityCSV); err != nil {
+				return e.fail(app.ExitRuntimeError, err, "write parity report")
+			}
+		}
+	}
+	if rec.Finance != nil {
+		n := map[string]int{}
+		for _, p := range rec.Finance.Parity {
+			n[p.Outcome]++
+		}
+		_, _ = fmt.Fprintf(e.stdout, "parity %s: %d recomputed, %d exact, %d allow-listed, %d mismatched\n",
+			strings.Join(rec.Finance.Window.Months, " "), len(rec.Finance.Parity), n[etl.ParityExact], n[etl.ParityAllowed], n[etl.ParityMismatch])
 	}
 	for _, c := range rec.Mismatches() {
 		_, _ = fmt.Fprintf(e.stdout, "MISMATCH\t%s\t%s\tsource %s\ttarget %s\t%s\n", c.Name, c.Key, c.Source, c.Target, c.Note)
