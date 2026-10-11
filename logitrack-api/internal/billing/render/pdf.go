@@ -87,7 +87,8 @@ var (
 // Op is one text a PDF draws: what the tests read instead of the content stream.
 type Op struct {
 	Page  int     // 1-based
-	X, Y  float64 // mm; Y is the baseline
+	X, Y  float64 // mm; Y is the baseline, X the anchor of Align
+	Left  float64 // mm: where the text starts once aligned
 	Text  string
 	Bold  bool
 	Size  float64 // pt
@@ -194,17 +195,18 @@ func (d *pdfDoc) text(s string, x, y float64, align string) {
 	if align == "" {
 		align = "left"
 	}
-	d.ops = append(d.ops, Op{Page: d.page, X: x, Y: y, Text: s, Bold: d.bold, Size: d.size, Align: align, Color: d.color})
+	left := x
+	switch align {
+	case "center":
+		left -= d.width(s) / 2
+	case "right":
+		left -= d.width(s)
+	}
+	d.ops = append(d.ops, Op{Page: d.page, X: x, Y: y, Left: left, Text: s, Bold: d.bold, Size: d.size, Align: align, Color: d.color})
 	if s == "" {
 		return
 	}
-	switch align {
-	case "center":
-		x -= d.width(s) / 2
-	case "right":
-		x -= d.width(s)
-	}
-	d.pdf.SetXY(x, y)
+	d.pdf.SetXY(left, y)
 	d.fail(d.pdf.Text(s))
 }
 
@@ -355,7 +357,9 @@ func (d *pdfDoc) table(startY float64, head []string, body [][]string, cols map[
 		}
 		return cells, float64(maxLines)*d.lineHeight() + 2*st.padding
 	}
-	draw := func(cells [][]string, y, h float64, bold bool, fill *RGB, text RGB) {
+	// columnStyles (the alignment) apply to body cells only; the head keeps headStyles' left alignment, as
+	// jspdf-autotable drew it.
+	draw := func(cells [][]string, y, h float64, bold bool, fill *RGB, text RGB, head bool) {
 		x := st.marginL
 		for i := range n {
 			if fill != nil {
@@ -371,6 +375,9 @@ func (d *pdfDoc) table(startY float64, head []string, body [][]string, cols map[
 			d.setFont(bold, st.fontSize)
 			d.setTextColor(text)
 			align := cols[i].align
+			if head {
+				align = ""
+			}
 			tx := x + st.padding
 			switch align {
 			case "center":
@@ -392,7 +399,7 @@ func (d *pdfDoc) table(startY float64, head []string, body [][]string, cols map[
 	y := startY
 	drawHead := func() {
 		fill := st.headFill
-		draw(headCells, y, headH, true, &fill, st.headText)
+		draw(headCells, y, headH, true, &fill, st.headText, true)
 		y += headH
 	}
 	drawHead()
@@ -408,7 +415,7 @@ func (d *pdfDoc) table(startY float64, head []string, body [][]string, cols map[
 			f := RGB{245, 245, 245}
 			fill = &f
 		}
-		draw(cells, y, h, false, fill, st.bodyText)
+		draw(cells, y, h, false, fill, st.bodyText, false)
 		y += h
 	}
 	return y

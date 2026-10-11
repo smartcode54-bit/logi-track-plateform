@@ -228,13 +228,19 @@ func InvoicePDF(f Fonts, in InvoiceInput) ([]byte, []Op, error) {
 		finalY = 20
 	}
 	const rx = 196.0
-	d.setFont(true, 9)
+	// The totals keep the font size the table found: jspdf-autotable restores the size set before it, which is the
+	// legend's 8 pt when the rounds legend was drawn, else the 9 pt of the blocks above (the browser set no size here).
+	totalsSize := 9.0
+	if showRounds {
+		totalsSize = 8
+	}
+	d.setFont(true, totalsSize)
 	d.text("ยอดรวมทั้งสิ้น:", rx-40, finalY, "")
 	d.text(documents.FormatTHB(st.Totals.GrandTotal), rx, finalY, "right")
-	d.setFont(false, 9)
+	d.setFont(false, totalsSize)
 	d.text(documents.WithholdingLabel(st.Totals.WithholdingRate), rx-60, finalY+7, "")
 	d.text("-"+documents.FormatTHB(st.Totals.WithholdingTax), rx, finalY+7, "right")
-	d.setFont(true, 9)
+	d.setFont(true, totalsSize)
 	d.text("ยอดรวมสุทธิ:", rx-40, finalY+14, "")
 	d.text(documents.FormatTHB(st.Totals.Net), rx, finalY+14, "right")
 
