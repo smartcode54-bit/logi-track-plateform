@@ -189,7 +189,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: pool, Auth: svc, Files: st, Log: log})
+	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: pool, Auth: svc, Files: st, RBAC: rbac, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

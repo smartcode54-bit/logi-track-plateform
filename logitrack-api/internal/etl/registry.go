@@ -60,10 +60,11 @@ func MappedCollections() []string {
 var droppedCollections = map[string]bool{"checkin": true}
 
 // laterCollections are in the Appendix A mapping but load with a later task (T24 the P1 initial load of every
-// remaining collection, T51 permissions_config): their documents are recorded with status pending and no finding,
-// and the first load that maps the collection applies them. The users documents are read by `etl auth-import`
-// (T19), which joins them with the Firebase Auth export (Appendix C §C.5); `load` keeps them pending, since the
-// users rows belong to PostgreSQL from P0 and only their mirrored fields load later (main spec §13.9).
+// remaining collection): their documents are recorded with status pending and no finding, and the first load that
+// maps the collection applies them. The users documents are read by `etl auth-import` (T19), which joins them with
+// the Firebase Auth export (Appendix C §C.5), and the permissions_config documents by `etl auth-rbac` (T51,
+// Appendix C §C.2.6); `load` keeps both pending, since the users rows belong to PostgreSQL from P0 and only their
+// mirrored fields load later (main spec §13.9), and the role matrix is a separate, signed-off step.
 var laterCollections = map[string]bool{
 	"users": true, "permissions_config": true, "companies": true, "hubs": true, "hub_soc_distances": true,
 	"soc_hub_distances": true, "metadata": true, "truckAssignment": true, "mobile_installations": true,

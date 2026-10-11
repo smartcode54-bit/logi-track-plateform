@@ -4,7 +4,9 @@
 // matrix version rbac:ver, the steward flag and contractor reach of §C.3.4 (R60), and cross-tenant
 // acting through X-Act-On-Tenant with its audit row (§C.3.9). T19 adds the users and tenants administration
 // (Admin, AdminGroups: /v1/users*, /v1/tenants*, Appendix C §C.8) and the platform bootstrap of cmd/seed
-// (BootstrapPlatformAdmins, ApplyBootstrapAdmin); the role matrix API joins with T51.
+// (BootstrapPlatformAdmins, ApplyBootstrapAdmin). T51 adds the Security Center: the role matrix over the override
+// rows (GET/PUT /v1/roles/matrix), the security events feed, the overview and status counters, users by role and
+// the soft delete of a user.
 //
 // iam reads the platform-only identity tables, so it is one of the packages allowed to call
 // db.WithSystem (tools/analyzers/withsystem).
@@ -297,6 +299,16 @@ func (r *RBAC) BumpVersion(ctx context.Context) (int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	return r.rdb.Incr(ctx, r.ks.RBACVersion()).Result()
+}
+
+// redisOK pings the Redis that holds rbac:ver (the status section of GET /v1/security/overview).
+func (r *RBAC) redisOK(ctx context.Context) bool {
+	if r.rdb == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, redisTimeout)
+	defer cancel()
+	return r.rdb.Ping(ctx).Err() == nil
 }
 
 // system runs fn in a WithSystem transaction with the generated queries bound to it.

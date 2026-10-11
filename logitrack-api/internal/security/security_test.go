@@ -51,3 +51,36 @@ func TestEventJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestFeedCursor(t *testing.T) {
+	c := security.Cursor{CreatedAt: time.Date(2026, 10, 11, 1, 2, 3, 456000, time.UTC), ID: uuid.New()}
+	got, ok := security.DecodeCursor(c.Encode())
+	if !ok || !got.CreatedAt.Equal(c.CreatedAt) || got.ID != c.ID {
+		t.Fatalf("round trip %+v -> %+v", c, got)
+	}
+	for _, bad := range []string{"", "xx", "e30", "!!!"} {
+		if _, ok := security.DecodeCursor(bad); ok {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestEventTypes(t *testing.T) {
+	seen := map[string]bool{}
+	for _, e := range security.EventTypes {
+		if !security.ValidType(e) || seen[e] {
+			t.Errorf("%q: invalid or repeated", e)
+		}
+		seen[e] = true
+	}
+	// The four legacy Firestore types and the two the audit page must show (T51 acceptance).
+	for _, e := range []string{"role_matrix_saved", "user_role_changed", "user_created", "user_sessions_revoked",
+		"platform_cross_tenant_access", "refresh_token_reuse"} {
+		if !security.KnownType(e) {
+			t.Errorf("%s is not catalogued", e)
+		}
+	}
+	if security.ValidSeverity("error") || !security.ValidSeverity(security.SeverityCritical) {
+		t.Error("severities")
+	}
+}
