@@ -260,3 +260,9 @@ func ResolveTaskParty(p TaskParties) (string, bool) {
 	}
 	return "", false
 }
+
+// TrimJS is String.prototype.trim (the read side's display resolvers use the same whitespace set as the keys).
+func TrimJS(s string) string { return trim(s) }
+
+// UpperJS is String.prototype.toUpperCase as far as billing keys need it (see upper).
+func UpperJS(s string) string { return upper(s) }
