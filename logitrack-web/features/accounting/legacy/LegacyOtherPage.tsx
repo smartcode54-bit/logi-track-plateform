@@ -11,7 +11,7 @@ import {
     DriverOption,
     TruckOption,
     updateVehicleExpense,
-} from "../actions.client";
+} from "@/app/app/accounting/actions.client";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";

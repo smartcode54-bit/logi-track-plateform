@@ -9,7 +9,7 @@ import {
     VehicleExpenseRow,
     DriverOption,
     TruckOption,
-} from "../actions.client";
+} from "@/app/app/accounting/actions.client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Fuel, DollarSign, Hash, TrendingUp, Loader2, Gauge, Search, RefreshCw, Save, Plus } from "lucide-react";
@@ -44,7 +44,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { useQuery } from "@tanstack/react-query";
 import { fuelRetailQueryOptions, type FuelRetailItem } from "@/features/accounting/api/fuelRetail";
-import { updateVehicleExpense } from "../actions.client";
+import { updateVehicleExpense } from "@/app/app/accounting/actions.client";
 import { AddFuelExpenseDialog } from "@/features/accounting/components/AddFuelExpenseDialog";
 
 /** เหตุผลที่ค่า km/L ของแถวนั้นไม่น่าเชื่อถือ (ไม่นำไปคิดค่าเฉลี่ย) */

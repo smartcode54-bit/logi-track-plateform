@@ -73,7 +73,7 @@ import {
     type ServiceFeeUnit,
     type NormalizeVehicleClassResponse,
     type StandbyRateEntryRow,
-} from "../actions.client";
+} from "@/app/app/accounting/actions.client";
 import type { RateCardCustomerOption } from "@/features/accounting/components/RateCardImportDialog";
 import { functions } from "@/firebase/client";
 import { httpsCallable } from "firebase/functions";
