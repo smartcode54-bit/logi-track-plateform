@@ -25,6 +25,9 @@ import (
 //   - projection: every row a projected collection writes has its document, and the document's PostgreSQL-owned
 //     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted);
 //     documents no row projects to are reported (informational: legacy duplicates such as a losing hub document);
+//   - operations (T29, syncreconcile_ops.go): per document of tasks, trip_records, standby_records and incidentReport,
+//     the columns the boards, the monitor and billing read equal what the load transforms read from the document, and
+//     the rows whose document Firestore no longer has are listed;
 //   - findings: the open findings per reason code against the last matching run, as `reconcile` does.
 // The run is stored in etl.reconciliation_runs (kind sync), so `--accept-findings` and the baseline work as for a dump
 // reconciliation.
@@ -166,6 +169,11 @@ func reconcileMirror(ctx context.Context, tx pgx.Tx, m MirrorEntry, docs []dump.
 		}
 		n := len(docs) - len(behind) - len(held)
 		rec.add("mirror_fields", m.Name, n, n-len(differ), len(differ) == 0, note)
+	}
+	if m.Mode == MirrorFull {
+		if err := reconcileOps(ctx, tx, m.Name, docs, rec); err != nil {
+			return err
+		}
 	}
 	gone := 0
 	for p := range stored {

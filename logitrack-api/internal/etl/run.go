@@ -28,13 +28,35 @@ type runState struct {
 	// owned are the PostgreSQL-owned domains of a mirror sweep (nil for a load): the field mappers apply the
 	// ForeignFields of it.
 	owned map[string]bool
+	// present are the document paths of each collection as the source holds it now, for runs that read whole
+	// collections (a load, a sweep); a run that reads only changes (the listeners) asks lookup instead, and a run
+	// with neither (a retry) cannot tell (T29: the rename check of loadTrip).
+	present map[string]map[string]bool
+	// lookup says whether a document exists at the run's read time (the listeners, gcp.Firestore.Lookup).
+	lookup func(path string) (bool, error)
+	// events is set on mirror runs: the operations collections emit their domain events (mirror_events.go, T29).
+	events bool
+}
+
+// exists reports whether the source holds the document at path (of collection coll) now; known is false when the run
+// cannot tell.
+func (r *runState) exists(coll, path string) (found, known bool, err error) {
+	if set, ok := r.present[coll]; ok {
+		return set[path], true, nil
+	}
+	if r.lookup != nil {
+		found, err := r.lookup(path)
+		return found, err == nil, err
+	}
+	return false, false, nil
 }
 
 func (e *Engine) newRun(ctx context.Context, tx pgx.Tx, rep *Report) *runState {
 	if rep == nil {
 		rep = &Report{}
 	}
-	return &runState{ctx: ctx, tx: tx, e: e, rep: rep, applied: map[string][]dump.Doc{}, prep: map[string]any{}, d5: map[string]bool{}}
+	return &runState{ctx: ctx, tx: tx, e: e, rep: rep, applied: map[string][]dump.Doc{}, prep: map[string]any{}, d5: map[string]bool{},
+		present: map[string]map[string]bool{}}
 }
 
 // runAfterHooks runs every collection's after-hook in load order for the documents of r (quarantine resolve

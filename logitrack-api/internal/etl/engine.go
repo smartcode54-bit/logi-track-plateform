@@ -108,6 +108,10 @@ type LoadOptions struct {
 	// keeps PostgreSQL's value of its field, and a billable document that still cannot be applied is held instead of
 	// stopping the sweep (mirrorApply).
 	Mirror bool
+	// Changes marks documents that are only the changes a listener read since an instant (Engine.MirrorChanges, T29),
+	// not whole collections: no prepare, no presence for the rename check (the run's lookup answers), and the
+	// collection's watermark is left to the sweep, so a change the listener cannot see (no updatedAt) is never passed.
+	Changes bool
 }
 
 // CollectionStats count one collection of a run.
@@ -123,15 +127,27 @@ type CollectionStats struct {
 	// Held are the billable documents a sweep could not apply (R19): recorded pending with their finding, retried by
 	// every sweep, never counted as applied (mirrorApply).
 	Held int `json:",omitempty"`
+	// Events counts the domain events the mirror appended to the outbox for this collection (T29).
+	Events int `json:",omitempty"`
+	// Deferred counts the documents a listener read but could not apply (a rejection or a hold needs the whole
+	// collection's knowledge): the next sweep applies them (T29).
+	Deferred int `json:",omitempty"`
+	// Removed counts the documents Firestore no longer has whose rows the mirror removed where the legacy app deletes
+	// (mirrorRemoved, T29); Kept the ones it reported and left in place.
+	Removed int `json:",omitempty"`
+	Kept    int `json:",omitempty"`
 }
 
 // DocResult is one applied document.
 type DocResult struct {
 	Collection, Path string
-	Outcome          Outcome
-	Table, TargetID  string
-	TenantSource     string
-	Findings         []Finding
+	// DocID and UpdateTime name the version applied (the read-your-writes ack of the mirror, R53, T29).
+	DocID           string
+	UpdateTime      time.Time
+	Outcome         Outcome
+	Table, TargetID string
+	TenantSource    string
+	Findings        []Finding
 }
 
 // Report is the result of a load.
@@ -244,12 +260,19 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 	if r == nil {
 		r = e.newRun(ctx, tx, rep)
 	}
-	if spec.prepare != nil {
+	if spec.prepare != nil && !o.Changes {
 		// docs is the whole collection of the dump (a dump reads whole collections; --since and the watermark
 		// filter below, after prepare), so a stored document it lacks was deleted at source.
 		if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, run: r}, docs, true); err != nil {
 			return stats, err
 		}
+	}
+	if !o.Changes {
+		set := make(map[string]bool, len(docs))
+		for _, d := range docs {
+			set[d.Path] = true
+		}
+		r.present[spec.name] = set
 	}
 	since := o.Since.Truncate(time.Microsecond)
 	var mark watermark
@@ -312,19 +335,40 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 			}
 			continue
 		}
-		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc), run: r}
+		// A listener cannot know every billable reference (it reads only changes): any document it could not apply is
+		// left to the next sweep (Deferred) instead of being rejected or held on partial knowledge.
+		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc) || o.Changes, run: r}
 		if o.Mirror {
+			var before opsState
+			if r.events {
+				var err error
+				if before, err = opsBefore(c); err != nil {
+					return stats, err
+				}
+			}
 			held, err := e.mirrorApply(c, spec)
 			if err != nil {
 				return stats, err
+			}
+			if held != nil && o.Changes {
+				stats.Deferred++
+				continue
 			}
 			if held != nil {
 				if err := e.hold(c, held, exportedAt); err != nil {
 					return stats, err
 				}
 				stats.Held++
-				rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, Outcome: Pending, Findings: c.findings})
+				rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, DocID: doc.ID, UpdateTime: ut,
+					Outcome: Pending, Findings: c.findings})
 				continue
+			}
+			if r.events {
+				n, err := emitOpsEvents(c, before)
+				if err != nil {
+					return stats, err
+				}
+				stats.Events += n
 			}
 		} else if err := e.apply(c, spec); err != nil {
 			return stats, err
@@ -339,8 +383,8 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 			r.applied[spec.name] = append(r.applied[spec.name], doc)
 		}
 		stats.Outcomes[c.outcome]++
-		rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, Outcome: c.outcome, Table: c.table,
-			TargetID: c.target, TenantSource: string(c.tenantSource), Findings: c.findings})
+		rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, DocID: doc.ID, UpdateTime: ut, Outcome: c.outcome,
+			Table: c.table, TargetID: c.target, TenantSource: string(c.tenantSource), Findings: c.findings})
 	}
 	if spec.after != nil && spec.mapper != nil {
 		if err := spec.after(r, spec.name); err != nil {
@@ -356,7 +400,7 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 	if _, err := tx.Exec(ctx, `SET CONSTRAINTS ALL DEFERRED`); err != nil {
 		return stats, fmt.Errorf("etl: %s: %w", spec.name, err)
 	}
-	if !high.at.IsZero() {
+	if !high.at.IsZero() && !o.Changes {
 		if err := writeWatermark(ctx, tx, spec.name, high); err != nil {
 			return stats, err
 		}

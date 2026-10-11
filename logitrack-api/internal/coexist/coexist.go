@@ -41,6 +41,10 @@ const (
 	// TypeSync is the jobs.type of a sweep (the scheduler's cron etl.sync), RouteSync its lt.jobs routing key.
 	TypeSync  = "etl.sync"
 	RouteSync = "job." + TypeSync
+	// TypeReconcile is the daily coexistence reconciliation (the scheduler's cron etl.reconcile at 02:30, T29), on the
+	// same queue and replica as the sweep (it reads schema etl as logitrack_etl).
+	TypeReconcile  = "etl.reconcile"
+	RouteReconcile = "job." + TypeReconcile
 )
 
 // Plan is the coexistence plan of a deployment.
@@ -85,15 +89,29 @@ func list(v string) []string {
 type Metrics struct {
 	mirrorApply *prometheus.CounterVec
 	projected   *prometheus.CounterVec
+	projLag     *prometheus.HistogramVec
 	lag         *prometheus.HistogramVec
+	events      *prometheus.CounterVec
+	reconcile   prometheus.Gauge
 }
 
-// ResultHeld is the mirror_apply_total result of a billable document a sweep holds (R19): alert on it.
-const ResultHeld = "held"
+// Results of mirror_apply_total besides the load outcomes: held, a billable document a sweep holds (R19, alert on it);
+// deferred, a document a listener left to the next sweep; removed, a row removed because the legacy app deleted its
+// document (T29).
+const (
+	ResultHeld     = "held"
+	ResultDeferred = "deferred"
+	ResultRemoved  = "removed"
+)
 
-// NewMetrics registers mirror_apply_total{collection,result} (documents a sweep applied, per load outcome, and held),
-// projection_writes_total{collection,result} (written, unchanged, skipped, not_projected, disabled) and
-// projection_lag_seconds{collection} (event time to projected).
+// MirrorLagBuckets are the buckets of mirror_lag_seconds: the SLO is p95 < 5 s, the alert above 30 s for 5 min (T29).
+var MirrorLagBuckets = []float64{0.5, 1, 2, 3, 5, 10, 30, 60, 120, 300, 600, 1800}
+
+// NewMetrics registers mirror_apply_total{collection,result} (documents the mirror applied, per load outcome, plus
+// held, deferred and removed), mirror_lag_seconds{collection} (commit of the apply minus the document's Firestore update
+// time), mirror_events_total{collection} (domain events the mirror appended), mirror_reconcile_mismatches (the last
+// daily reconcile-sync), projection_writes_total{collection,result} (written, unchanged, skipped, not_projected,
+// disabled) and projection_lag_seconds{collection} (event time to projected).
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		mirrorApply: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -102,13 +120,23 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		projected: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "projection_writes_total", Help: "firestore.shadow projections per collection and result.",
 		}, []string{"collection", "result"}),
-		lag: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		projLag: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "projection_lag_seconds", Help: "Time from the PostgreSQL event to its Firestore projection.",
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 300},
 		}, []string{"collection"}),
+		lag: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "mirror_lag_seconds", Help: "Time from a Firestore write to the commit of its FS->PG mirror apply (SLO p95 < 5 s).",
+			Buckets: MirrorLagBuckets,
+		}, []string{"collection"}),
+		events: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "mirror_events_total", Help: "Domain events the FS->PG mirror appended to the outbox, per collection.",
+		}, []string{"collection"}),
+		reconcile: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "mirror_reconcile_mismatches", Help: "Mismatched checks of the last daily coexistence reconciliation (etl.reconcile).",
+		}),
 	}
 	if reg != nil {
-		reg.MustRegister(m.mirrorApply, m.projected, m.lag)
+		reg.MustRegister(m.mirrorApply, m.projected, m.projLag, m.lag, m.events, m.reconcile)
 	}
 	return m
 }
@@ -138,11 +166,16 @@ type SyncConfig struct {
 	// Source reads Firestore (gcp.Firestore; gcptest in tests).
 	Source etl.DocSource
 	Plan   etl.MirrorPlan
+	// Projection are the projected collections of the deployment while COMPAT_PROJECTION_ENABLED is on: the daily
+	// reconciliation compares them too.
+	Projection []string
 	// Bucket and PublicBucket are S3_BUCKET and S3_PUBLIC_BUCKET: the file_objects rows the load transforms register.
 	Bucket, PublicBucket string
-	Log                  zerolog.Logger
-	Metrics              *Metrics
-	Now                  func() time.Time
+	// Acks records the read-your-writes ack of every document a sweep applied (R53; nil: none).
+	Acks    Acker
+	Log     zerolog.Logger
+	Metrics *Metrics
+	Now     func() time.Time
 }
 
 // Sync is the etl.sync consumer.
@@ -169,7 +202,8 @@ func NewSync(c SyncConfig) (*Sync, error) {
 	return &Sync{c: c}, nil
 }
 
-// Registration is the consumer of queue etl.sync (prefetch 1; a sweep reads every mirrored collection).
+// Registration is the consumer of queue etl.sync (prefetch 1; a sweep reads every mirrored collection): job.etl.sync
+// (a sweep) and job.etl.reconcile (the daily reconciliation).
 func (s *Sync) Registration() mq.Registration {
 	return mq.Registration{Queue: QueueSync, Handler: s.Handle, Timeout: 30 * time.Minute}
 }
@@ -194,7 +228,7 @@ func (s *Sync) etlTx(ctx context.Context, fn func(pgx.Tx) error) error {
 // including one during the login check, is retried by the ladder (a redelivered command finds the job running and
 // sweeps again, which is idempotent).
 func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
-	if d.RoutingKey != RouteSync {
+	if d.RoutingKey != RouteSync && d.RoutingKey != RouteReconcile {
 		return mq.Permanent(fmt.Errorf("etl.sync: unexpected routing key %s", d.RoutingKey))
 	}
 	cmd, err := jobs.DecodeCommand(d)
@@ -226,7 +260,7 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 		})
 	}
 	if !s.c.Enabled {
-		s.c.Log.Warn().Msg("etl.sync: a sweep command reached a worker whose mirror is off")
+		s.c.Log.Warn().Str("routing_key", d.RoutingKey).Msg("etl.sync: a command reached a worker whose mirror is off")
 		return finish(ErrTextSyncOff, nil)
 	}
 	if wrong, err := s.checkLogin(ctx); err != nil {
@@ -251,6 +285,9 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 	if err != nil {
 		return finish(err.Error(), nil)
 	}
+	if d.RoutingKey == RouteReconcile {
+		return s.reconcile(ctx, eng, finish)
+	}
 	rep, err := eng.Mirror(ctx, s.c.Source, s.c.Plan)
 	var abort *etl.AbortError
 	switch {
@@ -260,16 +297,7 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 	case err != nil:
 		return err
 	}
-	if s.c.Metrics != nil {
-		for _, c := range rep.Collections {
-			for o, n := range c.Outcomes {
-				s.c.Metrics.mirrorApply.WithLabelValues(c.Name, string(o)).Add(float64(n))
-			}
-			if c.Held > 0 {
-				s.c.Metrics.mirrorApply.WithLabelValues(c.Name, ResultHeld).Add(float64(c.Held))
-			}
-		}
-	}
+	afterApply(ctx, rep, s.c.Metrics, s.c.Acks, s.c.Now(), s.c.Log)
 	for _, c := range rep.Collections {
 		if c.Held > 0 {
 			s.c.Log.Error().Str("collection", c.Name).Int("held", c.Held).
@@ -277,6 +305,34 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 		}
 	}
 	return finish("", sweepResult(rep))
+}
+
+// reconcile runs the daily coexistence reconciliation (etl.Engine.ReconcileSync over the deployment's mirror and
+// projection, T29): the job succeeds on a match and fails naming the number of mismatches otherwise, with the checks
+// that failed in its result; mirror_reconcile_mismatches holds the count either way. The run is stored in
+// etl.reconciliation_runs, so `etl reconcile-sync --accept-findings` signs its findings off as for a manual run.
+func (s *Sync) reconcile(ctx context.Context, eng *etl.Engine, finish func(string, any) error) error {
+	rec, err := eng.ReconcileSync(ctx, s.c.Source, etl.SyncReconcileOptions{Mirror: s.c.Plan, Projection: s.c.Projection})
+	if err != nil {
+		return err
+	}
+	bad := rec.Mismatches()
+	if s.c.Metrics != nil {
+		s.c.Metrics.reconcile.Set(float64(len(bad)))
+	}
+	listed := []map[string]string{}
+	for i, c := range bad {
+		if i == 20 {
+			break
+		}
+		listed = append(listed, map[string]string{"check": c.Name, "key": c.Key, "note": c.Note})
+	}
+	result := map[string]any{"match": rec.Match, "checks": len(rec.Checks), "mismatches": len(bad), "failed": listed}
+	if !rec.Match {
+		s.c.Log.Error().Int("mismatches", len(bad)).Msg("etl.reconcile: the daily coexistence reconciliation found mismatches")
+		return finish(fmt.Sprintf("reconcile-sync: %d mismatch(es)", len(bad)), result)
+	}
+	return finish("", result)
 }
 
 // checkLogin checks once per process that ETLPool logs in as logitrack_etl (R66): err is a failed query (transient,
@@ -378,7 +434,7 @@ func (s *Shadow) Handle(ctx context.Context, d *mq.Delivery) error {
 		s.c.Metrics.projection(t.Collection, "skipped", st.Skipped)
 		s.c.Metrics.projection(t.Collection, "not_projected", st.NotProjected)
 		if s.c.Metrics != nil && st.Written+st.Unchanged > 0 && !d.OccurredAt.IsZero() {
-			s.c.Metrics.lag.WithLabelValues(t.Collection).Observe(s.c.Now().Sub(d.OccurredAt).Seconds())
+			s.c.Metrics.projLag.WithLabelValues(t.Collection).Observe(s.c.Now().Sub(d.OccurredAt).Seconds())
 		}
 	}
 	return nil

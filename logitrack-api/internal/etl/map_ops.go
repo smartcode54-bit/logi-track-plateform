@@ -354,6 +354,9 @@ func loadTrip(c *docCtx) error {
 	if jobType == "" {
 		return c.reject("jobType", ReasonMissingRequired, "trip_records.job_type is NOT NULL and the task gives none", nil)
 	}
+	if err := c.renamedFrom(); err != nil {
+		return err
+	}
 	drv, err := c.driverField("driverId")
 	if err != nil {
 		return err
@@ -529,6 +532,64 @@ func (c *docCtx) tripCreatedAt() time.Time {
 		return c.doc.UpdateTime.Truncate(time.Microsecond)
 	}
 	return c.doc.CreateTime.Truncate(time.Microsecond)
+}
+
+// renamedFrom re-keys the row of a renamed trip (main spec §13.7, T29). renameTripRecord copies trip_records/{old} to
+// trip_records/{new} with renamedFromTripId = old and deletes the old document in one batch (renameTripRecord.ts:110-124),
+// so the first run that sees the new document finds no row of its id while the old document's row is still there.
+// When the source no longer holds the old document, that row takes the new document id (legacy_doc_id): the upsert of
+// loadTrip then updates it in place, trip_no becomes the new number and tripHistory appends the one trip_no_history
+// row, so the trip keeps its id, its children and every link to it (incident reports re-pointed in the same batch
+// resolve the new id to the same row). The old document's etl.source_docs entry is settled: its open findings are
+// resolved fixed_at_source and the entry removed, so nothing reports it deleted at source. An old document the
+// source still holds (a rename-trip-doc.js copy, Q3) keeps its row and the new document loads as its own, as before;
+// a run that cannot tell (a quarantine retry) does not re-key. A trip renamed twice between two runs names only the
+// middle id, which no row holds: it loads as a new row and the reconciliation reports the first id deleted at source.
+func (c *docCtx) renamedFrom() error {
+	old := c.str("renamedFromTripId")
+	if old == "" || old == c.doc.ID {
+		return nil
+	}
+	var x int
+	err := c.tx.QueryRow(c.ctx, `SELECT 1 FROM trip_records WHERE legacy_doc_id = $1`, c.doc.ID).Scan(&x)
+	switch {
+	case err == nil:
+		return nil // the row already holds the new id
+	case !errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	var id uuid.UUID
+	err = c.tx.QueryRow(c.ctx, `SELECT id FROM trip_records WHERE legacy_doc_id = $1 FOR UPDATE`, old).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	oldPath := c.doc.ParentPath()
+	if oldPath != "" {
+		oldPath += "/"
+	}
+	oldPath += c.coll + "/" + old
+	found, known, err := c.run.exists(c.coll, oldPath)
+	if err != nil {
+		return fmt.Errorf("etl: %s: is %s still there: %w", c.doc.Path, oldPath, err)
+	}
+	if found || !known {
+		return nil
+	}
+	if _, err := c.tx.Exec(c.ctx, `UPDATE trip_records SET legacy_doc_id = $2 WHERE id = $1`, id, c.doc.ID); err != nil {
+		return fmt.Errorf("etl: %s: re-key the renamed trip: %w", c.doc.Path, err)
+	}
+	if _, err := c.tx.Exec(c.ctx, `UPDATE etl.quarantine SET resolved_at = now(), resolved_by = 'etl-rename', resolution = 'fixed_at_source'
+		WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL`, c.coll, oldPath); err != nil {
+		return fmt.Errorf("etl: %s: settle %s: %w", c.doc.Path, oldPath, err)
+	}
+	if _, err := c.tx.Exec(c.ctx, `DELETE FROM etl.source_docs WHERE collection = $1 AND doc_path = $2`, c.coll, oldPath); err != nil {
+		return fmt.Errorf("etl: %s: settle %s: %w", c.doc.Path, oldPath, err)
+	}
+	c.renamed = old
+	return nil
 }
 
 // tripHistory appends trip_no_history for a renamed trip (append-only: written once per rename).

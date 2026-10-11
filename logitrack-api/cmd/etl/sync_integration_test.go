@@ -72,6 +72,23 @@ func TestCoexistenceCommands(t *testing.T) {
 	if files, _ := filepath.Glob(filepath.Join(reports, "reconcile-sync-*.md")); len(files) != 1 {
 		t.Errorf("report files %v", files)
 	}
+	// T29 (#49): renameTripRecord's batch swept by `etl mirror` is one row with the new number and one history row, and
+	// the daily reconciliation (the operations checks included) still exits 0.
+	trip := h.scalar(`SELECT id::text FROM trip_records WHERE legacy_doc_id = 'TRIP001'`)
+	at := dump.Timestamp{Time: time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC)}
+	fake.Rename("trip_records/TRIP001", "trip_records/TRIP001R", map[string]any{"spxTripId": "TRIP001R", "renamedFromTripId": "TRIP001",
+		"renamedAt": at, "updatedAt": at})
+	h.mustRun("mirror", "--owned", "auth,masterdata")
+	if v := h.scalar(`SELECT count(*) FROM trip_records WHERE trip_no IN ('TRIP001', 'TRIP001R')`); v != int64(1) {
+		t.Fatalf("rows after the rename: %v", v)
+	}
+	if v := h.scalar(`SELECT trip_no || ' ' || (SELECT count(*) FROM trip_no_history h WHERE h.trip_id = r.id)::text FROM trip_records r
+		WHERE id::text = $1`, trip); v != "TRIP001R 1" {
+		t.Fatalf("the renamed trip: %v", v)
+	}
+	if out := h.mustRun("reconcile-sync", "--owned", "auth,masterdata"); !strings.Contains(out, "reconcile-sync: match") {
+		t.Fatalf("reconcile-sync after the rename: %s", out)
+	}
 	fake.Merge("customers/cust_cjsf", map[string]any{"name": "tampered"})
 	code, out, _ := h.run("reconcile-sync", "--owned", "auth,masterdata")
 	if code != 2 || !strings.Contains(out, "MISMATCH\tprojection\tcustomers") {

@@ -136,6 +136,8 @@ type docCtx struct {
 	leaving uuid.UUID
 	// run is the state of the load (or retry) the document belongs to.
 	run *runState
+	// renamed is the former document id of a trip renamedFrom re-keyed (T29): its events name the previous number.
+	renamed string
 	// findingScope, when not nil, limits the open findings record replaces to these fields (and their sub-fields): a
 	// field-level mirror re-reads only the fields it applies, so the findings the P1 load raised on the other fields of
 	// the document stay open. A row-level finding the mapper raises replaces the row-level ones too.

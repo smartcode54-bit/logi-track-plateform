@@ -41,6 +41,14 @@ type Event struct {
 	Headers       map[string]string
 }
 
+// HeaderOrigin is the producer header that names where an event comes from; OriginMirror marks the domain events the
+// FS->PG mirror appends while Firestore writes the operations collections (T29): they feed SSE and billing.compute,
+// and the notify consumers ack them without a push (the Firestore-side writer notified already).
+const (
+	HeaderOrigin = "origin"
+	OriginMirror = "etl.sync"
+)
+
 // Appended identifies the inserted row.
 type Appended struct {
 	ID      int64     // relay order and AMQP message_id
