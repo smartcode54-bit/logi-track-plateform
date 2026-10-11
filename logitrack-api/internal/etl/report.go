@@ -45,6 +45,9 @@ func (r *Report) Sections() ReportSections {
 			s.Findings = append(s.Findings, ReportLine{d.Collection, d.Path, dash(f.Field), string(f.Reason)})
 		}
 	}
+	for _, x := range r.Extra {
+		s.Findings = append(s.Findings, ReportLine{x.Collection, x.Path, dash(x.Finding.Field), string(x.Finding.Reason)})
+	}
 	sortLines(s.Findings)
 	sortLines(s.Outcomes)
 	return s
@@ -65,9 +68,32 @@ func (s ReportSections) Write(w io.Writer) error {
 	return err
 }
 
-// tenantStamped are the target tables that carry tenant_source.
+// tenantStamped are the target tables that carry tenant_source (true) or none (false).
 var tenantStamped = map[string]bool{"tenants": false, "customers": false, "trucks": true, "drivers": true, "tasks": true,
-	"trip_records": true, "standby_records": true, "incident_reports": true, "vehicle_expenses": true, "maintenance_records": true}
+	"trip_records": true, "standby_records": true, "incident_reports": true, "vehicle_expenses": true, "maintenance_records": true,
+	"companies": true, "customer_rate_entries": true, "customer_fuel_rate_adjustments": true, "customer_service_fees": true,
+	"standby_rate_entries": true, "billing_statements": true, "billing_counters": true, "truck_assignments": true,
+	"mobile_installations": true, "vehicle_locations": true, "driver_compensation_configs": true, "driver_penalties": true,
+	"payroll_runs": true, "transactions": true, "chats": true, "leave_requests": true}
+
+// targetKeys are the key expressions of the tables whose etl.source_docs.target_id is not their uuid id (composite
+// or natural keys); every other table is keyed by id.
+var targetKeys = map[string]string{
+	"mobile_installations":   "driver_id::text || '/' || install_id",
+	"vehicle_locations":      "truck_id::text",
+	"billing_counters":       "billing_party_id::text || '/' || period_year::text || '/' || period_month::text",
+	"fuel_daily_snapshots":   "day_key::text",
+	"fuel_monthly_snapshots": "month_key",
+	"settings":               "key",
+}
+
+// targetKey is the SQL expression etl.source_docs.target_id is compared with (table names come from the mappers).
+func targetKey(table string) string {
+	if k, ok := targetKeys[table]; ok {
+		return k
+	}
+	return "id::text"
+}
 
 // QuarantineReport reads the report of the database's current state: open findings and every recorded document.
 func (e *Engine) QuarantineReport(ctx context.Context) (ReportSections, error) {
@@ -109,7 +135,7 @@ func (e *Engine) QuarantineReport(ctx context.Context) (ReportSections, error) {
 				src = "self"
 			}
 			if tenantStamped[d.table] && (d.status == string(Loaded) || d.status == string(Quarantined)) {
-				if err := tx.QueryRow(ctx, `SELECT tenant_source FROM `+pgx.Identifier{d.table}.Sanitize()+` WHERE id = $1::uuid`, d.target).Scan(&src); err != nil {
+				if err := tx.QueryRow(ctx, `SELECT tenant_source FROM `+pgx.Identifier{d.table}.Sanitize()+` WHERE `+targetKey(d.table)+` = $1`, d.target).Scan(&src); err != nil {
 					return fmt.Errorf("etl: %s: target %s %s: %w", d.path, d.table, d.target, err)
 				}
 			}

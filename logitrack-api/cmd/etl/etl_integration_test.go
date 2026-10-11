@@ -328,13 +328,14 @@ func TestFixtureLoad(t *testing.T) {
 	})
 
 	t.Run("goose up applies 0010 after the owner's loser correction (R88)", func(t *testing.T) {
-		// D5: the duplicate fuel receipt loaded unchanged with duplicate_natural_key; the owner keeps exp1.
-		if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE doc_path = 'vehicle_expenses/exp2' AND reason_code = 'duplicate_natural_key'`); v != int64(1) {
-			t.Fatalf("duplicate_natural_key on exp2: %v", v)
+		// D5: the duplicates loaded unchanged with their findings; the owner keeps exp1, fee_es_a, fee_sb_a and chat_1.
+		for path, reason := range map[string]string{"vehicle_expenses/exp2": "duplicate_natural_key", "chats/chat_2": "duplicate_natural_key",
+			"customer_service_fees/fee_es_b": "duplicate_service_fee", "customer_service_fees/fee_sb_b": "duplicate_service_fee"} {
+			if v := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE doc_path = $1 AND reason_code = $2`, path, reason); v != int64(1) {
+				t.Fatalf("%s on %s: %v", reason, path, v)
+			}
 		}
-		if _, err := h.pool.Exec(h.ctx, `UPDATE vehicle_expenses SET tax_inv_id = NULL WHERE legacy_doc_id = 'exp2'`); err != nil {
-			t.Fatal(err)
-		}
+		correctD5Losers(t, h)
 		if _, err := h.runner.Up(h.ctx); err != nil {
 			t.Fatalf("goose up after the correction: %v", err)
 		}
@@ -343,6 +344,24 @@ func TestFixtureLoad(t *testing.T) {
 			t.Errorf("D5 indexes: %v", v)
 		}
 	})
+}
+
+// correctD5Losers is the owner's sign-off of the D5 duplicates (Appendix A §A.4), done as logitrack_etl until the
+// owning API routes exist: the losing fuel receipt loses its tax invoice number, the extra service fees become custom
+// fees named after the type they duplicated (rows kept, so the daily reconciliation still finds every loaded
+// document's row) and the second open chat is closed.
+func correctD5Losers(t *testing.T, h *harness) {
+	t.Helper()
+	for _, sql := range []string{
+		`UPDATE vehicle_expenses SET tax_inv_id = NULL WHERE legacy_doc_id = 'exp2'`,
+		`UPDATE customer_service_fees SET fee_type = 'custom', custom_type_name = 'D5 loser: ' || fee_type
+			WHERE legacy_doc_id IN ('fee_es_b', 'fee_sb_b')`,
+		`UPDATE chats SET status = 'closed', closed_at = now() WHERE legacy_doc_id = 'chat_2'`,
+	} {
+		if _, err := h.pool.Exec(h.ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
 }
 
 // diff shows the lines only one side has.
@@ -494,7 +513,8 @@ func TestDumpThenLoad(t *testing.T) {
 		}
 	}
 	at := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-	fake.Put(dump.Doc{ID: "i1", Path: "drivers/drv_own/mobile_installations/i1", CreateTime: at, UpdateTime: at, Fields: map[string]any{"appVersion": "3.2.0"}})
+	fake.Put(dump.Doc{ID: "i1", Path: "drivers/drv_own/mobile_installations/i1", CreateTime: at, UpdateTime: at,
+		Fields: map[string]any{"appVersion": "3.2.0", "platform": "android", "flavor": "prod", "partnerId": ""}})
 	key := filepath.Join(t.TempDir(), "sa.json")
 	if err := os.WriteFile(key, fake.ServiceAccountJSON(), 0o600); err != nil {
 		t.Fatal(err)
@@ -514,8 +534,12 @@ func TestDumpThenLoad(t *testing.T) {
 	if v := h.scalar(`SELECT count(*) FROM drivers`); v != int64(3) {
 		t.Errorf("drivers loaded: %v", v)
 	}
-	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'drivers/drv_own/mobile_installations/i1'`); v != "pending" {
-		t.Errorf("mobile_installations (T24) must be recorded pending: %v", v)
+	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'drivers/drv_own/mobile_installations/i1'`); v != "loaded" {
+		t.Errorf("the collection-group installation must load (T24): %v", v)
+	}
+	if v := h.scalar(`SELECT count(*) FROM mobile_installations m JOIN drivers d ON d.id = m.driver_id
+		WHERE d.legacy_doc_id = 'drv_own' AND m.install_id = 'i1' AND m.app_version = '3.2.0' AND m.tenant_id = d.tenant_id`); v != int64(1) {
+		t.Errorf("installation row: %v", v)
 	}
 	if v := h.scalar(`SELECT count(*) FROM etl.watermarks`); v.(int64) < 3 {
 		t.Errorf("watermarks: %v", v)
@@ -784,13 +808,14 @@ func TestWatermarkOverlap(t *testing.T) {
 func TestPendingDocumentsLeaveNoWatermark(t *testing.T) {
 	h := newHarness(t)
 	h.mustRun("load", "--fixtures")
-	if v := h.scalar(`SELECT status FROM etl.source_docs WHERE doc_path = 'settings/tenancy'`); v != "pending" {
-		t.Fatalf("settings/tenancy: %v", v)
+	// permissions_config is read by auth-rbac (T51), never by load: it stays pending and moves no watermark.
+	if v := h.scalar(`SELECT count(*) FROM etl.source_docs WHERE collection = 'permissions_config' AND status <> 'pending'`); v != int64(0) {
+		t.Fatalf("permissions_config documents not pending: %v", v)
 	}
-	if v := h.scalar(`SELECT count(*) FROM etl.watermarks WHERE collection IN ('settings', 'checkin', 'legacy_tmp')`); v != int64(2) {
+	if v := h.scalar(`SELECT count(*) FROM etl.watermarks WHERE collection IN ('permissions_config', 'checkin', 'legacy_tmp')`); v != int64(2) {
 		t.Errorf("only the dropped and unknown collections may have a watermark, not the pending one: %v", v)
 	}
-	if v := h.scalar(`SELECT count(*) FROM etl.watermarks WHERE collection = 'settings'`); v != int64(0) {
+	if v := h.scalar(`SELECT count(*) FROM etl.watermarks WHERE collection = 'permissions_config'`); v != int64(0) {
 		t.Errorf("a pending collection moved the watermark: %v", v)
 	}
 }
@@ -939,11 +964,11 @@ func TestReconcileFindingsGate(t *testing.T) {
 		t.Fatalf("first run: %s", out)
 	}
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO etl.quarantine (collection, doc_path, field, reason_code, detail)
-		VALUES ('customers', 'customers/cust_spx', 'taxId', 'bad_number', 'injected')`); err != nil {
+		VALUES ('customers', 'customers/cust_spx', 'taxId', 'link_blanket_default', 'injected')`); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if code, out := reconcile(); code != 2 || !strings.Contains(out, "findings\tbad_number") || !strings.Contains(out, "did not have") {
+		if code, out := reconcile(); code != 2 || !strings.Contains(out, "findings\tlink_blanket_default") || !strings.Contains(out, "did not have") {
 			t.Fatalf("a new code must keep failing on a rerun: exit %d\n%s", code, out)
 		}
 	}

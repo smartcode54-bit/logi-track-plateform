@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
 
@@ -196,7 +197,70 @@ func loadTask(c *docCtx) error {
 	if _, err := upsertLegacy(c, r.set("id", id)); err != nil {
 		return err
 	}
+	if err := c.taskStops(id); err != nil {
+		return err
+	}
 	c.done("tasks", id)
+	return nil
+}
+
+// taskStops replaces task_delivery_stops from deliveryStops[] (+ the CF-only sequence, addedAt, sourceId, isCustom;
+// §A.3.5): destinationLinked* -> party; a destination repeated within the task is not loaded (the UNIQUE (task_id,
+// destination_raw) would refuse it) and raises duplicate_natural_key; the duplicate stays in etl.source_docs.
+func (c *docCtx) taskStops(id uuid.UUID) error {
+	if _, err := c.tx.Exec(c.ctx, `DELETE FROM task_delivery_stops WHERE task_id = $1`, id); err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	stops, _ := c.get("deliveryStops").([]any)
+	usedIndex, usedDest := map[int64]bool{}, map[string]bool{}
+	for i, s := range stops {
+		m, _ := s.(map[string]any)
+		sc := c.sub(m)
+		field := fmt.Sprintf("deliveryStops[%d]", i)
+		dest := sc.str("destination")
+		if dest == "" {
+			c.find(field+".destination", ReasonMissingRequired, "a stop without destination is not loaded", s)
+			continue
+		}
+		if usedDest[dest] {
+			c.find(field+".destination", ReasonDuplicateNaturalKey, "the destination is already a stop of this task; not loaded", dest)
+			continue
+		}
+		idx := int64(i + 1)
+		if n := sc.integer("index"); n != nil && *n >= 1 && !usedIndex[*n] {
+			idx = *n
+		} else if usedIndex[idx] {
+			c.find(field+".index", ReasonBadNumber, "no free stop index; not loaded", m["index"])
+			continue
+		}
+		usedIndex[idx], usedDest[dest] = true, true
+		place, err := sc.hub("destination", dest)
+		if err != nil {
+			return err
+		}
+		party, err := sc.party("destinationLinkedCustomerId")
+		if err != nil {
+			return err
+		}
+		status, ok := lowerVocab(m["status"], "pending", "delivered", "failed")
+		if !ok {
+			sc.find("status", ReasonStatusOutOfVocab, "not pending, delivered or failed; pending kept", m["status"])
+			status = ""
+		}
+		if status == "" {
+			status = "pending"
+		}
+		r := newRow("task_delivery_stops").set("task_id", id).set("stop_index", idx).set("destination_raw", dest).
+			set("destination_hub_id", place.hubID).set("destination_linked_party_id", party).set("status", status).
+			set("delivered_at", sc.ts("deliveredAt")).set("delivered_lat", sc.float("deliveredLat")).set("delivered_lng", sc.float("deliveredLng")).
+			set("estimated_rate_thb", sc.money("estimatedRateThb", false)).set("drop_fee_thb", sc.money("dropFeeThb", false)).
+			set("sequence", sc.integer("sequence")).set("added_at", sc.ts("addedAt")).set("source_id", sc.text("sourceId")).
+			set("is_custom", sc.isTrue("isCustom"))
+		c.adopt(sc, field+".")
+		if err := insert(c.ctx, c.tx, r); err != nil {
+			return fmt.Errorf("%s: %w", c.doc.Path, err)
+		}
+	}
 	return nil
 }
 
@@ -391,7 +455,10 @@ func loadTrip(c *docCtx) error {
 	if err := c.tripPhotos(id, tenant); err != nil {
 		return err
 	}
-	if err := c.tripSnapshot(id); err != nil {
+	if err := c.tripStops(id, tenant); err != nil {
+		return err
+	}
+	if err := c.tripSnapshot(id, party, task); err != nil {
 		return err
 	}
 	c.done("trip_records", id)
@@ -520,11 +587,9 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 		var addr *string
 		var at *time.Time
 		if g, ok := m["geocoding"].(map[string]any); ok {
-			sub := &docCtx{ctx: c.ctx, tx: c.tx, e: c.e, coll: c.coll, doc: c.doc, f: g}
+			sub := c.sub(g)
 			lat, lng, addr, at = sub.float("lat"), sub.float("lng"), sub.text("address"), sub.ts("timestamp")
-			for _, f := range sub.findings {
-				c.find(field+".geocoding."+f.Field, f.Reason, f.Detail, f.Raw)
-			}
+			c.adopt(sub, field+".geocoding.")
 		}
 		if _, err := c.tx.Exec(c.ctx, `INSERT INTO trip_photos (trip_id, photo_type, file_id, geocode_lat, geocode_lng, geocode_address,
 			geocoded_at, position) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -537,11 +602,82 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 	return nil
 }
 
+// tripStops replaces trip_delivery_stops from deliveryStopsProgress[] (completion order, Q16): completed_seq is the
+// array position, stop_index the plan index; photos[] inside a stop link their trip_photos row (merge-by-type, ADR
+// 0018: the flat photos[] is the whole evidence set, so a stop photo is usually already there) through stop_id.
+func (c *docCtx) tripStops(id, tenant uuid.UUID) error {
+	if _, err := c.tx.Exec(c.ctx, `DELETE FROM trip_delivery_stops WHERE trip_id = $1`, id); err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	stops, _ := c.get("deliveryStopsProgress").([]any)
+	used := map[int64]bool{}
+	for i, s := range stops {
+		m, _ := s.(map[string]any)
+		sc := c.sub(m)
+		field := fmt.Sprintf("deliveryStopsProgress[%d]", i)
+		dest := sc.str("destination")
+		idx := sc.integer("index")
+		if dest == "" || idx == nil || *idx < 1 || used[*idx] {
+			c.find(field, ReasonMissingRequired, "a stop needs a destination and a unique index >= 1; not loaded", s)
+			continue
+		}
+		used[*idx] = true
+		place, err := sc.hub("destination", dest)
+		if err != nil {
+			return err
+		}
+		status, ok := lowerVocab(m["status"], "pending", "delivered", "failed")
+		if !ok {
+			sc.find("status", ReasonStatusOutOfVocab, "not pending, delivered or failed; pending kept", m["status"])
+			status = ""
+		}
+		if status == "" {
+			status = "pending"
+		}
+		var stopID uuid.UUID
+		if err := c.tx.QueryRow(c.ctx, `INSERT INTO trip_delivery_stops (trip_id, stop_index, destination_raw, destination_hub_id, source_id,
+			status, delivered_at, delivered_lat, delivered_lng, completed_seq) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+			id, *idx, dest, place.hubID, sc.text("sourceId"), status, sc.ts("deliveredAt"), sc.float("deliveredLat"), sc.float("deliveredLng"),
+			i+1).Scan(&stopID); err != nil {
+			return fmt.Errorf("etl: %s: stop: %w", c.doc.Path, err)
+		}
+		photos, _ := m["photos"].([]any)
+		for j, p := range photos {
+			pm, _ := p.(map[string]any)
+			typ, _ := pm["type"].(string)
+			pf := fmt.Sprintf("%s.photos[%d]", field, j)
+			if strings.TrimSpace(typ) == "" {
+				sc.find(fmt.Sprintf("photos[%d].type", j), ReasonPhotoTypeUnknown, "photo without a type is not loaded", p)
+				continue
+			}
+			if !knownTripPhotoType(typ) {
+				sc.find(fmt.Sprintf("photos[%d].type", j), ReasonPhotoTypeUnknown, "outside TRIP_PHOTO_TYPE_ENUM and stop_{n}_*; loaded with photo_type_known=false", typ)
+			}
+			fid, err := c.fileRef(pf+".url", pm["url"], "trip_photo", "trip", id, tenant)
+			if err != nil {
+				return err
+			}
+			if fid == nil {
+				continue
+			}
+			if _, err := c.tx.Exec(c.ctx, `INSERT INTO trip_photos (trip_id, stop_id, photo_type, file_id, position)
+				VALUES ($1, $2, $3, $4, (SELECT coalesce(max(position) + 1, 0) FROM trip_photos WHERE trip_id = $1))
+				ON CONFLICT (trip_id, photo_type) DO UPDATE SET stop_id = EXCLUDED.stop_id`, id, stopID, typ, *fid); err != nil {
+				return fmt.Errorf("etl: %s: stop photo: %w", c.doc.Path, err)
+			}
+		}
+		c.adopt(sc, field+".")
+	}
+	return nil
+}
+
 // tripSnapshot loads trip_billing_snapshots iff billingEstimateThb is a number or any billing* field is present
 // ("stamped but unpriced"). Legacy prices are never recomputed (R15): computed_by 'etl', compute_version 0. The
-// tenant is the billing carrier, the own fleet today (form, R61). Rate entries and fuel adjustments are linked by
-// T24 once the rate tables load; rate_import_id keeps the legacy id meanwhile.
-func (c *docCtx) tripSnapshot(id uuid.UUID) error {
+// tenant is the billing carrier, the own fleet today (form, R61). billingRateImportId stays in rate_import_id and
+// resolves to rate_entry_id by (import_id, party, hub, destination, class, category) when exactly one rate row
+// matches (the class from the trip's or its task's truck type, left out when neither has one); billingFuelAdjustmentId
+// resolves by legacy doc id. billingMultiDeliveryBreakdown[] -> trip_billing_stop_breakdown.
+func (c *docCtx) tripSnapshot(id uuid.UUID, party *uuid.UUID, task ref) error {
 	if _, err := c.tx.Exec(c.ctx, `DELETE FROM trip_billing_snapshots WHERE trip_id = $1`, id); err != nil {
 		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 	}
@@ -585,10 +721,91 @@ func (c *docCtx) tripSnapshot(id uuid.UUID) error {
 		set("is_multi_delivery", c.isTrue("billingIsMultiDelivery")).set("manual_override", c.isTrue("billingManualOverride")).
 		set("job_category_at_pricing", c.jobCategory("billingJobCategory")).
 		set("computed_by", "etl").set("compute_version", 0).set("computed_at", computedAt)
+	rateEntry, err := c.snapshotRateEntry(party, task)
+	if err != nil {
+		return err
+	}
+	fuel, err := c.legacyRef("customer_fuel_rate_adjustments", c.str("billingFuelAdjustmentId"))
+	if err != nil {
+		return err
+	}
+	r.set("rate_entry_id", rateEntry).set("fuel_adjustment_id", fuel)
 	if err := insert(c.ctx, c.tx, r); err != nil {
 		return fmt.Errorf("%s: %w", c.doc.Path, err)
 	}
+	stops, _ := c.get("billingMultiDeliveryBreakdown").([]any)
+	used := map[int64]bool{}
+	for i, s := range stops {
+		m, _ := s.(map[string]any)
+		sc := c.sub(m)
+		idx := sc.integer("stopIndex")
+		dest := sc.str("destination")
+		base, okBase := sc.moneyCents("baseRateThb", false)
+		final, okFinal := sc.moneyCents("finalRateThb", false)
+		if idx == nil || *idx < 1 || used[*idx] || dest == "" || okBase != moneyOK || okFinal != moneyOK {
+			c.find(fmt.Sprintf("billingMultiDeliveryBreakdown[%d]", i), ReasonBadNumber,
+				"a breakdown line needs a unique stopIndex >= 1, a destination and both rates; not loaded", s)
+			continue
+		}
+		used[*idx] = true
+		if _, err := c.tx.Exec(c.ctx, `INSERT INTO trip_billing_stop_breakdown (trip_id, stop_index, destination_code, base_rate_thb, final_rate_thb)
+			VALUES ($1, $2, $3, $4, $5)`, id, *idx, dest, numeric2(base), numeric2(final)); err != nil {
+			return fmt.Errorf("etl: %s: breakdown: %w", c.doc.Path, err)
+		}
+	}
 	return nil
+}
+
+// legacyRef is the id of the row of table whose legacy_doc_id is raw (nil when blank or unknown). table is a
+// constant of the mappers.
+func (c *docCtx) legacyRef(table, raw string) (*uuid.UUID, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var id uuid.UUID
+	err := c.tx.QueryRow(c.ctx, `SELECT id FROM `+pgx.Identifier{table}.Sanitize()+` WHERE legacy_doc_id = $1`, raw).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	return &id, nil
+}
+
+// snapshotRateEntry resolves billingRateImportId to the one rate row of that import for the trip's party, lookup
+// hub and destination, category (billingJobCategory, PRIMARY when absent, as the selector coerces it) and, when the
+// trip or its task has one, the folded vehicle class. 'manual' and an ambiguous or unknown match stay NULL.
+func (c *docCtx) snapshotRateEntry(party *uuid.UUID, task ref) (*uuid.UUID, error) {
+	imp := c.str("billingRateImportId")
+	if imp == "" || imp == "manual" || party == nil {
+		return nil, nil
+	}
+	cat := strings.ToUpper(c.str("billingJobCategory"))
+	if cat != "SUPPLEMENTARY" {
+		cat = "PRIMARY"
+	}
+	class, hasClass := compute.FoldVehicleClass(c.str("truckType"))
+	if !hasClass && task.ok() {
+		var tt *string
+		if err := c.tx.QueryRow(c.ctx, `SELECT truck_type FROM tasks WHERE id = $1`, task.id).Scan(&tt); err != nil {
+			return nil, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+		}
+		if tt != nil {
+			class, hasClass = compute.FoldVehicleClass(*tt)
+		}
+	}
+	rows, err := c.tx.Query(c.ctx, `SELECT id FROM customer_rate_entries WHERE import_id = $1 AND billing_party_id = $2
+		AND hub_code = upper($3) AND destination_code = $4 AND job_category = $5 AND (NOT $6 OR vehicle_class = $7) LIMIT 2`,
+		imp, *party, c.str("billingLookupHubId"), c.str("billingLookupDestination"), cat, hasClass, class)
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: rate entry: %w", c.doc.Path, err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil || len(ids) != 1 {
+		return nil, err
+	}
+	return &ids[0], nil
 }
 
 // loadStandby: standby_records/{id} -> standby_records + standby_photos (§A.3.8); tenant task -> trip -> driver.
@@ -650,8 +867,15 @@ func loadStandby(c *docCtx) error {
 		s := "service_fee"
 		source = &s
 	case e != "":
-		s := "standby_rate" // the FK to standby_rate_entries is linked by T24 once the rate rows load
+		s := "standby_rate"
 		source = &s
+	}
+	var rateEntry *uuid.UUID
+	if source != nil && *source == "standby_rate" {
+		var err error
+		if rateEntry, err = c.legacyRef("standby_rate_entries", c.str("billingRateEntryId")); err != nil {
+			return err
+		}
 	}
 	var unpriced *string
 	if u := c.str("billingUnpricedReason"); u != "" && estimate == nil {
@@ -673,7 +897,7 @@ func loadStandby(c *docCtx) error {
 		set("duration_minutes", c.integer("durationMinutes")).set("note", c.text("note")).set("status", status).
 		set("lat", c.float("lat")).set("lng", c.float("lng")).set("truck_license_plate_snapshot", c.text("truckLicensePlate")).
 		set("backfilled_by_admin", c.isTrue("backfilledByAdmin")).set("migrated_from_trip_no", migrated).
-		set("billing_estimate_thb", estimate).set("billing_party_id", billingParty).set("billing_rate_source", source).
+		set("billing_estimate_thb", estimate).set("billing_party_id", billingParty).set("billing_rate_source", source).set("billing_rate_entry_id", rateEntry).
 		set("billing_effective_from_date", c.date("billingEffectiveFromDateStr")).set("billing_unpriced_reason", unpriced).
 		set("billing_computed_at", c.ts("billingComputedAt")).set("line_notified_at", c.ts("lineNotifiedAt")).
 		set("evidence_token", c.text("evidenceToken"))

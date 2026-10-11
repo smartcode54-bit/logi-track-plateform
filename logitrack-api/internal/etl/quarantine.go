@@ -41,6 +41,9 @@ type FindingFilter struct {
 func (e *Engine) ListFindings(ctx context.Context, f FindingFilter) ([]FindingRow, error) {
 	var out []FindingRow
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, `SELECT id, collection, doc_path, coalesce(field, ''), reason_code, coalesce(detail, ''),
 			  coalesce(resolution, ''), created_at, resolved_at
 			FROM etl.quarantine
@@ -134,8 +137,8 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 			res.Resolved, err = resolve("skipped", o.Collection, o.DocPath)
 			return err
 		case ActionRetry:
-			spec := collectionSpec{name: o.Collection}
-			spec.mapper, _ = mapperOf(o.Collection)
+			spec, _ := specOf(o.Collection)
+			spec.name = o.Collection
 			if spec.mapper == nil {
 				return fmt.Errorf("etl: %s has no mapping in this release; nothing to retry", o.Collection)
 			}
@@ -150,7 +153,13 @@ func (e *Engine) Resolve(ctx context.Context, o ResolveOptions) (*ResolveResult,
 			if created != nil {
 				doc.CreateTime = *created
 			}
-			c := &docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, doc: doc, f: fields, billable: hasBillingEvidence(o.Collection, fields)}
+			r := e.newRun(ctx, tx, nil)
+			if spec.prepare != nil {
+				if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, run: r}, []dump.Doc{doc}); err != nil {
+					return err
+				}
+			}
+			c := &docCtx{ctx: ctx, tx: tx, e: e, coll: o.Collection, doc: doc, f: fields, billable: hasBillingEvidence(o.Collection, fields), run: r}
 			if err := e.apply(c, spec); err != nil {
 				return err
 			}
@@ -217,6 +226,9 @@ func (e *Engine) Status(ctx context.Context) ([]CollectionStatus, error) {
 	}
 	now := e.cfg.Now()
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx, `SELECT collection, status, count(*) FROM etl.source_docs GROUP BY 1, 2`)
 		if err != nil {
 			return err

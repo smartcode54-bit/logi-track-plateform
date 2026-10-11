@@ -1,0 +1,1 @@
+{"_id": "pi_1", "_path": "partner-interest/pi_1", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"company": "Beta Logistics", "email": "beta@example.test", "fleetSize": 5, "createdAt": {"$ts": "2026-08-02T00:00:00Z"}}}
