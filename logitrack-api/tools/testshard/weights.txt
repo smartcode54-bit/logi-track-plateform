@@ -1,10 +1,12 @@
 # Seconds each package took in go-ci's test job (make test-integration TESTFLAGS=-count=1, ubuntu-24.04,
-# run 38143118808 on mv-go at bdcb2409; cmd/seed and cmd/seed/internal/seed from run 38169005792 on PR #149
-# at d34b997c, T35's demo operations). Refresh from a later run's log when the shards drift apart;
+# run 38143118808 on mv-go at bdcb2409). Refresh from a later run's log when the shards drift apart;
 # a package not listed here counts as the default weight of tools/testshard.
-337.848 cmd/seed/internal/seed
+# T35 (PR #149) took its two seed packages from the runs where each shared its shard with lighter packages
+# only, since a CPU-bound race package slows another one in the same shard: cmd/seed from run 38169005792
+# at d34b997c, cmd/seed/internal/seed from run 38169671098 at 52369eba (337.848 s next to internal/auth).
 332.045 cmd/seed
 328.025 internal/auth
+174.776 cmd/seed/internal/seed
 170.443 internal/iam
 112.191 cmd/etl
 87.373 internal/notify
