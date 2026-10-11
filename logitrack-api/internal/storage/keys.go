@@ -292,7 +292,9 @@ var Purposes = func() map[string]Purpose {
 			}},
 		truckFile("truck_photo", "photos", imageTypes),
 		truckFile("truck_document", "documents", documentTypes),
-		truckFile("truck_receipt", "receipts", documentTypes),
+		// Tax and insurance receipts show what the truck payload's cost fields hide from fleet:view_trucks alone
+		// (T22): staff in reach also need fleet:view_renewals.
+		withReadCapability(truckFile("truck_receipt", "receipts", documentTypes), authz.FleetViewRenewals),
 		truckFile("insurance_document", "insurance", documentTypes),
 		{Name: "tenant_document", OwnerKind: OwnerTenant, ContentTypes: documentTypes, Presign: true,
 			Variants: []string{"id_card", "company_doc", "other"}, restrictedFolder: "id_cards",
@@ -327,6 +329,12 @@ var Purposes = func() map[string]Purpose {
 	}
 	return out
 }()
+
+// withReadCapability narrows a purpose's staff rule to holders of c.
+func withReadCapability(p Purpose, c authz.Cap) Purpose {
+	p.ReadCapability = c
+	return p
+}
 
 func truckFile(name, folder string, types []string) Purpose {
 	return Purpose{Name: name, OwnerKind: OwnerTruck, ContentTypes: types, Presign: true,

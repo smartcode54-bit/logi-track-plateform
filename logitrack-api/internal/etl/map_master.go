@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/vehicleclass"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
 
@@ -265,19 +265,19 @@ func loadCustomer(c *docCtx) error {
 	return nil
 }
 
-// vehicleClass folds a legacy class onto the task enum (taskTruckTypeFromTruckDoc, normalizeVehicleClass); a class
-// outside the enum is NULL + vehicle_class_out_of_enum, never guessed (R15). Blank is NULL without a finding.
+// vehicleClass maps a legacy type or class onto the task enum through the one mapper (vehicleclass.Of: the truck form's
+// words of taskTruckTypeFromTruckDoc, folded like normalizeVehicleClass); a value outside the enum is NULL +
+// vehicle_class_out_of_enum, never guessed (R15). Blank is NULL without a finding.
 func (c *docCtx) vehicleClass(field string) *string {
 	raw := c.str(field)
 	if raw == "" {
 		return nil
 	}
-	v, ok := compute.FoldVehicleClass(raw)
-	if !ok || !slices.Contains([]string{"4W", "4WJ", "6WH", "10WH", "18WH", "VAN"}, v) {
+	v := vehicleclass.Of(raw)
+	if v == nil {
 		c.find(field, ReasonVehicleClassOutOfEnum, "folds to no class of the enum", raw)
-		return nil
 	}
-	return &v
+	return v
 }
 
 // loadTruck: trucks/{id} -> trucks (§A.3.4); tenant from ownership (tenancy.Resolve, self).

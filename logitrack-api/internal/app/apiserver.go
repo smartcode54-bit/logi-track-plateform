@@ -16,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
@@ -44,7 +45,9 @@ type APIDeps struct {
 	Parties *parties.Service
 	// Hubs are the hubs, distances and the distances.compute submission of T21: /v1/hubs*, /v1/distances*,
 	// POST /v1/jobs/distances.compute.
-	Hubs    *hubs.Service
+	Hubs *hubs.Service
+	// Fleet is the truck master of T22: /v1/trucks* (renewals, import).
+	Fleet   *fleet.Service
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
@@ -224,8 +227,14 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Jobs: jobSvc, Storage: st,
-		Events: events, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
+	// Trucks, renewals and the truck import (T22): RLS decides (db.WithPrincipal).
+	fleetSvc, err := fleet.New(fleet.Deps{Pool: pool, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
+		Jobs: jobSvc, Storage: st, Events: events, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
