@@ -22,6 +22,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/render"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
@@ -274,6 +275,13 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 		return nil, err
 	}
 	available[billing.QueueBangchak] = fuel.Registration()
+
+	// payroll.run (T44): the draft payroll runs of a tenant's period and round (internal/hr), no outside service.
+	payroll, err := hr.NewPayrollJob(hr.JobDeps{Pool: pool, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, err
+	}
+	available[hr.QueuePayroll] = payroll.Registration()
 
 	// security.audit (T28): the consumer-written security_events rows (login_failed, login_lockout,
 	// password_reset_requested, tenant_orphans_detected, ...); tenancy.orphan-scan (T28): the daily quarantine
