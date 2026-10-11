@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { getSubcontractorById, SubcontractorData } from "../services/subcontractorService";
-import { getTrucksClient, TruckData } from "../../trucks/services/truckService";
+import { useParams } from "next/navigation";
+import { useSubcontractor } from "../api/useSubcontractors";
+import { useTruckPages } from "@/features/trucks/api/useTrucks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -17,37 +16,35 @@ import { formatLicensePlate, cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
 
+function NavItem({ icon: Icon, label, active = false }: { icon: React.ElementType; label: string; active?: boolean }) {
+    return (
+        <button
+            className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                active
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                    : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
+            )}
+        >
+            <Icon className={cn("h-4 w-4", active ? "text-blue-600 dark:text-blue-400" : "text-slate-400")} />
+            {label}
+        </button>
+    );
+}
+
 export default function SubcontractorDetail() {
     const params = useParams();
     const { t } = useLanguage();
     const id = params?.id as string;
 
-    const [subcontractor, setSubcontractor] = useState<SubcontractorData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [trucks, setTrucks] = useState<TruckData[]>([]);
+    // `['subcontractors','detail',id]` and the carrier's trucks (`['trucks', {tenantId}]`, server
+    // filter instead of the all-trucks scan, T25).
+    const query = useSubcontractor(id ?? "");
+    const subcontractor = query.data ?? null;
+    const truckPages = useTruckPages({ tenantId: id ?? "" }, { enabled: Boolean(id) });
+    const trucks = truckPages.trucks;
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            setLoading(true);
-            try {
-                const subData = await getSubcontractorById(id);
-                setSubcontractor(subData);
-
-                const allTrucks = await getTrucksClient();
-                const subTrucks = allTrucks.filter(t => t.ownershipType === "subcontractor" && t.subcontractorId === id);
-                setTrucks(subTrucks);
-            } catch (error) {
-                console.error("Error loading data:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [id]);
-
-    if (loading) {
+    if (query.isPending && id) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -66,20 +63,6 @@ export default function SubcontractorDetail() {
         );
     }
 
-    const NavItem = ({ icon: Icon, label, active = false }: { icon: any, label: string, active?: boolean }) => (
-        <button
-            className={cn(
-                "w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors",
-                active
-                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                    : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
-            )}
-        >
-            <Icon className={cn("h-4 w-4", active ? "text-blue-600 dark:text-blue-400" : "text-slate-400")} />
-            {label}
-        </button>
-    );
-
     return (
         <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950/50 p-6 md:p-8">
             <div className="max-w-7xl mx-auto space-y-6">
@@ -89,7 +72,7 @@ export default function SubcontractorDetail() {
                     <span>/</span>
                     <Link href="/app/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.subcontractors")}</Link>
                     <span>/</span>
-                    <span className="font-medium text-slate-900 dark:text-slate-100">{subcontractor.name}</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">{subcontractor.nameTh}</span>
                 </div>
 
                 {/* Main Content Grid */}
@@ -132,11 +115,11 @@ export default function SubcontractorDetail() {
                                 <div className="flex flex-col md:flex-row gap-6 items-start justify-between">
                                     <div className="flex items-start gap-6">
                                         <div className="h-24 w-24 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 text-2xl font-serif">
-                                            {subcontractor.name.substring(0, 2).toUpperCase()}
+                                            {subcontractor.nameTh.substring(0, 2).toUpperCase()}
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-3 mb-2">
-                                                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{subcontractor.name}</h1>
+                                                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{subcontractor.nameTh}</h1>
                                                 <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none px-2 py-0.5 h-auto">{t("subcontractors.status.activePartner")}</Badge>
                                             </div>
                                             <div className="space-y-1 text-sm text-slate-500 dark:text-slate-400">
@@ -180,7 +163,7 @@ export default function SubcontractorDetail() {
                                 </button>
                                 <button className="px-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-2">
                                     <Truck className="h-4 w-4" /> {t("subcontractors.detail.assignedTrucks")}
-                                    <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs">{trucks.length}</span>
+                                    <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs">{trucks.length}{truckPages.hasNextPage ? "+" : ""}</span>
                                 </button>
                                 <button className="px-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-2">
                                     <FileText className="h-4 w-4" /> {t("subcontractors.detail.contractsDocs")}
@@ -199,7 +182,7 @@ export default function SubcontractorDetail() {
                                 <div className="bg-white dark:bg-card rounded-xl border border-slate-200 dark:border-slate-800 p-6 space-y-4">
                                     <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
                                         <span className="text-sm text-slate-500">{t("subcontractors.detail.legalName")}</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.name}</span>
+                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.nameTh}</span>
                                     </div>
                                     <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
                                         <span className="text-sm text-slate-500">{t("subcontractors.detail.taxIdEIN")}</span>
@@ -207,7 +190,7 @@ export default function SubcontractorDetail() {
                                     </div>
                                     <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
                                         <span className="text-sm text-slate-500">{t("subcontractors.detail.businessType")}</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.type === 'company' ? t("subcontractors.detail.corporation") : t("subcontractors.detail.soleProprietorship")}</span>
+                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.legalType === 'company' ? t("subcontractors.detail.corporation") : t("subcontractors.detail.soleProprietorship")}</span>
                                     </div>
                                     <div className="flex justify-between items-center py-2">
                                         <span className="text-sm text-slate-500">{t("subcontractors.detail.headquarters")}</span>
@@ -225,7 +208,7 @@ export default function SubcontractorDetail() {
                                 <div className="bg-white dark:bg-card rounded-xl border border-slate-200 dark:border-slate-800 p-6">
                                     <div className="flex items-center gap-4 mb-6">
                                         <Avatar className="h-12 w-12 bg-blue-50 text-blue-600">
-                                            <AvatarFallback>{subcontractor.contactPerson.substring(0, 1)}</AvatarFallback>
+                                            <AvatarFallback>{(subcontractor.contactPerson ?? "").substring(0, 1)}</AvatarFallback>
                                         </Avatar>
                                         <div>
                                             <p className="font-semibold text-slate-900 dark:text-slate-100">{subcontractor.contactPerson}</p>
@@ -279,11 +262,11 @@ export default function SubcontractorDetail() {
                                                     <td className="px-6 py-4">
                                                         <Badge variant="secondary" className={cn(
                                                             "font-normal uppercase text-[10px] tracking-wider",
-                                                            truck.truckStatus === 'available' ? "bg-green-100 text-green-700" :
-                                                            truck.truckStatus === 'maintenance' ? "bg-orange-100 text-orange-700" :
+                                                            truck.status === 'active' ? "bg-green-100 text-green-700" :
+                                                            truck.status === 'maintenance' ? "bg-orange-100 text-orange-700" :
                                                             "bg-slate-100 text-slate-600"
                                                         )}>
-                                                            {truck.truckStatus}
+                                                            {truck.status}
                                                         </Badge>
                                                     </td>
                                                     <td className="px-6 py-4 text-slate-500">Bangkok, TH</td>

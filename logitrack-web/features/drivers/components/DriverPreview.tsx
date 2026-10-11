@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useEffectEvent } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
     ArrowLeft, Edit, Truck, Calendar, User, FileText, Info, Loader2,
     Phone, Mail, CreditCard, Briefcase, Building2, Plus
@@ -11,9 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
-import { getDriverByIdClient } from "@/features/drivers/api/drivers";
-import { getDriverAssignmentHistory, AssignmentData } from "@/app/app/truck-assignment/actions.client";
-import { Driver } from "@/validate/driverSchema";
+import { useDriver } from "@/features/drivers/api/useDrivers";
+import { useAssignmentsOf } from "@/features/trucks/api/useTrucks";
 import { FileViewer } from "@/components/ui/file-viewer";
 import {
     Table,
@@ -25,66 +24,50 @@ import {
 } from "@/components/ui/table";
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { format } from "date-fns";
-import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
 import { useLanguage } from "@/context/language";
+
+function StatusBadge({ status }: { status: string }) {
+    const { t } = useLanguage();
+    const styles = {
+        active: "bg-green-100 text-green-800 hover:bg-green-100",
+        inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
+        on_duty: "bg-blue-100 text-blue-800 hover:bg-blue-100",
+    };
+    const statusKey = status as keyof typeof styles;
+    return (
+        <Badge className={styles[statusKey] || styles.inactive} variant="outline">
+            {t(`masterData.drivers.status.${status}`)}
+        </Badge>
+    );
+}
 
 export default function DriverPreview() {
     const searchParams = useSearchParams();
-    const router = useRouter();
     const driverId = searchParams.get('id');
     const { setCustomLastItem } = useBreadcrumb();
     const { t } = useLanguage();
 
-    const [driver, setDriver] = useState<Driver | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
     const [isViewerOpen, setIsViewerOpen] = useState(false);
     const [viewerIndex, setViewerIndex] = useState(0);
-    const [subcontractors, setSubcontractors] = useState<any[]>([]);
-    const [assignmentHistory, setAssignmentHistory] = useState<AssignmentData[]>([]);
 
-    // The active language when the effect's code runs: `t` is not a dependency, so a language
-    // toggle no longer refetches (TW4, developer-spec.md §10.6).
-    const translateNow = useEffectEvent((key: string) => t(key));
-
-    useEffect(() => {
-        const fetchDriver = async () => {
-            if (!driverId) {
-                setError(translateNow("drivers.toast.noId"));
-                setIsLoading(false);
-                return;
-            }
-            try {
-                setIsLoading(true);
-                setError(null);
-                const data = await getDriverByIdClient(driverId);
-                if (!data) {
-                    setError(translateNow("drivers.detail.notFound") + ".");
-                    return;
-                }
-                setDriver(data);
-                setCustomLastItem(`${data.firstName} ${data.lastName}`);
-
-                getDriverAssignmentHistory(driverId).then(setAssignmentHistory);
-            } catch (err) {
-                console.error("Error fetching driver:", err);
-                setError(err instanceof Error ? err.message : translateNow("drivers.toast.loadError") + ".");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchDriver();
-
-        return () => {
-            setCustomLastItem(null);
-        };
-    }, [driverId, setCustomLastItem]);
+    // `['drivers','detail',id]` and `['truckAssignments',{driverId}]` in parallel (T25); the carrier
+    // name comes inside the driver (`tenantNameTh`), so the subcontractor list is not loaded.
+    const driverQuery = useDriver(driverId ?? "");
+    const driver = driverQuery.data ?? null;
+    const { assignments: assignmentHistory } = useAssignmentsOf({ driverId: driverId ?? "" });
+    const isLoading = driverQuery.isPending && Boolean(driverId);
+    const error = !driverId
+        ? t("drivers.toast.noId")
+        : driverQuery.isError
+          ? t("drivers.toast.loadError") + "."
+          : driverQuery.isSuccess && !driver
+            ? t("drivers.detail.notFound") + "."
+            : null;
 
     useEffect(() => {
-        getSubcontractors().then(setSubcontractors);
-    }, []);
+        if (driver) setCustomLastItem(`${driver.firstName} ${driver.lastName}`);
+        return () => setCustomLastItem(null);
+    }, [driver, setCustomLastItem]);
 
     const formatDate = (date: Date | string | null | undefined) => {
         if (!date) return "-";
@@ -93,21 +76,6 @@ export default function DriverPreview() {
         } catch (e) {
             return "-";
         }
-    };
-
-    const StatusBadge = ({ status }: { status: string }) => {
-        const styles = {
-            Active: "bg-green-100 text-green-800 hover:bg-green-100",
-            Inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
-            "On-Duty": "bg-blue-100 text-blue-800 hover:bg-blue-100",
-        };
-
-        const statusKey = status as keyof typeof styles;
-        return (
-            <Badge className={styles[statusKey] || styles.Inactive} variant="outline">
-                {status}
-            </Badge>
-        );
     };
 
     if (isLoading) {
@@ -134,10 +102,15 @@ export default function DriverPreview() {
         );
     }
 
+    // Presigned GETs on Go (5 min for the ID card and licence, `drivers:view_pii`), stored URLs on Firestore.
+    const profileImage = driver.profileUrl ?? "";
+    const idCardImage = driver.idCardUrl ?? "";
+    const truckLicenseImage = driver.licenseUrl ?? "";
+
     const viewableFiles = [
-        ...(driver.profileImage ? [{ url: driver.profileImage, type: "image" as const, label: t("drivers.detail.profilePhoto") }] : []),
-        ...(driver.idCardImage ? [{ url: driver.idCardImage, type: "pdf" as const, label: t("drivers.detail.idCard") }] : []),
-        ...(driver.truckLicenseImage ? [{ url: driver.truckLicenseImage, type: "pdf" as const, label: t("drivers.detail.driverLicense") }] : []),
+        ...(profileImage ? [{ url: profileImage, type: "image" as const, label: t("drivers.detail.profilePhoto") }] : []),
+        ...(idCardImage ? [{ url: idCardImage, type: "pdf" as const, label: t("drivers.detail.idCard") }] : []),
+        ...(truckLicenseImage ? [{ url: truckLicenseImage, type: "pdf" as const, label: t("drivers.detail.driverLicense") }] : []),
     ];
 
     const handleFileClick = (url: string) => {
@@ -148,11 +121,6 @@ export default function DriverPreview() {
         }
     };
 
-    const getSubcontractorName = (id?: string) => {
-        if (!id) return null;
-        const sub = subcontractors.find(s => s.id === id);
-        return sub ? sub.name : id;
-    };
 
     return (
         <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
@@ -167,7 +135,7 @@ export default function DriverPreview() {
                     <div>
                         <div className="flex items-center gap-3 mb-1">
                             <h1 className="text-3xl font-bold tracking-tight">{driver.firstName} {driver.lastName}</h1>
-                            <StatusBadge status={driver.status} />
+                            <StatusBadge status={String(driver.status)} />
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
@@ -222,7 +190,7 @@ export default function DriverPreview() {
                                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                                     <CreditCard className="h-4 w-4" /> {t("drivers.detail.idCardNo")}
                                 </span>
-                                <span className="text-sm font-medium font-mono">{driver.idCard}</span>
+                                <span className="text-sm font-medium font-mono">{driver.idCard ?? "-"}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -239,15 +207,15 @@ export default function DriverPreview() {
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("drivers.detail.employmentType")}</span>
                                     <span className="text-sm font-medium">
-                                        {driver.employmentType === 'FULL_TIME' ? t("drivers.detail.fullTime") :
-                                            driver.employmentType === 'PART_TIME' ? t("drivers.detail.partTime") : t("drivers.detail.subcontractor")}
+                                        {driver.employmentType === 'full_time' ? t("drivers.detail.fullTime") :
+                                            driver.employmentType === 'part_time' ? t("drivers.detail.partTime") : t("drivers.detail.subcontractor")}
                                     </span>
                                 </div>
-                                {driver.employmentType === 'SUBCONTRACTOR' && (
+                                {driver.employmentType === 'subcontractor' && (
                                     <div className="flex justify-between py-2 border-b">
                                         <span className="text-sm text-muted-foreground">{t("drivers.detail.subcontractor")}</span>
                                         <span className="text-sm font-medium text-blue-600">
-                                            {getSubcontractorName(driver.subcontractorId)}
+                                            {driver.tenantNameTh || driver.tenantNameEn || driver.tenantId}
                                         </span>
                                     </div>
                                 )}
@@ -268,14 +236,9 @@ export default function DriverPreview() {
                     </Card>
 
                     {(() => {
-                        const ids = driver.customerDriverIds;
-                        if (!ids || typeof ids !== "object") return null;
-                        const entries = Object.entries(ids).flatMap(([customer, idMap]) =>
-                            (typeof idMap === "object" && idMap
-                                ? Object.entries(idMap).filter(([, v]) => v && String(v).trim())
-                                : []
-                            ).map(([idType, value]) => ({ customer, idType, value } as const))
-                        );
+                        const entries = driver.customerDriverIds
+                            .filter((c) => c.value && c.value.trim())
+                            .map((c) => ({ customer: c.customerCode, idType: c.idTypeKey, value: c.value }));
                         if (entries.length === 0) return null;
                         return (
                             <Card>
@@ -312,19 +275,19 @@ export default function DriverPreview() {
                         <CardContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.idCard")}</p>
-                                {driver.idCardImage ? (
+                                {idCardImage ? (
                                     <div
                                         className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-blue-500 transition-all"
-                                        onClick={() => handleFileClick(driver.idCardImage!)}
+                                        onClick={() => handleFileClick(idCardImage)}
                                     >
-                                        {driver.idCardImage.toLowerCase().includes('.pdf') ? (
+                                        {idCardImage.toLowerCase().includes('.pdf') ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
                                                 <FileText className="h-10 w-10 text-red-500 mb-2" />
                                                 <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
                                             </div>
                                         ) : (
                                             <Image
-                                                src={driver.idCardImage}
+                                                src={idCardImage}
                                                 alt="ID Card"
                                                 fill
                                                 className="object-contain"
@@ -340,19 +303,19 @@ export default function DriverPreview() {
 
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.drivingLicense")}</p>
-                                {driver.truckLicenseImage ? (
+                                {truckLicenseImage ? (
                                     <div
                                         className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-blue-500 transition-all"
-                                        onClick={() => handleFileClick(driver.truckLicenseImage!)}
+                                        onClick={() => handleFileClick(truckLicenseImage)}
                                     >
-                                        {driver.truckLicenseImage.toLowerCase().includes('.pdf') ? (
+                                        {truckLicenseImage.toLowerCase().includes('.pdf') ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
                                                 <FileText className="h-10 w-10 text-red-500 mb-2" />
                                                 <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
                                             </div>
                                         ) : (
                                             <Image
-                                                src={driver.truckLicenseImage}
+                                                src={truckLicenseImage}
                                                 alt="Driving License"
                                                 fill
                                                 className="object-contain"
@@ -375,10 +338,10 @@ export default function DriverPreview() {
                         <CardContent className="pt-6 flex flex-col items-center">
                             <div
                                 className="relative h-40 w-40 rounded-full overflow-hidden border-4 border-muted cursor-pointer mb-4 hover:opacity-90 transition-opacity"
-                                onClick={() => driver.profileImage && handleFileClick(driver.profileImage)}
+                                onClick={() => profileImage && handleFileClick(profileImage)}
                             >
-                                {driver.profileImage ? (
-                                    <Image src={driver.profileImage} alt={driver.firstName} fill className="object-cover" />
+                                {profileImage ? (
+                                    <Image src={profileImage} alt={driver.firstName} fill className="object-cover" />
                                 ) : (
                                     <div className="h-full w-full bg-slate-100 flex items-center justify-center text-slate-300">
                                         <User className="h-20 w-20" />
@@ -434,17 +397,17 @@ export default function DriverPreview() {
                                                     <div className="text-[10px] text-muted-foreground">{history.truckModel}</div>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
-                                                    {format(history.createdAt, "dd MMM yy")}
+                                                    {history.createdAt ? format(new Date(history.createdAt), "dd MMM yy") : "-"}
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
-                                                    {history.revokedAt ? format(history.revokedAt, "dd MMM yy") : "-"}
+                                                    {history.revokedAt ? format(new Date(history.revokedAt), "dd MMM yy") : "-"}
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <Badge
                                                         variant="secondary"
-                                                        className={`text-[10px] px-1.5 h-5 ${!history.revokedAt ? 'bg-green-100 text-green-600 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-100'}`}
+                                                        className={`text-[10px] px-1.5 h-5 ${history.status === "active" ? 'bg-green-100 text-green-600 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-100'}`}
                                                     >
-                                                        {!history.revokedAt ? t("drivers.detail.current") : t("drivers.detail.revoked")}
+                                                        {history.status === "active" ? t("drivers.detail.current") : t("drivers.detail.revoked")}
                                                     </Badge>
                                                 </TableCell>
                                             </TableRow>

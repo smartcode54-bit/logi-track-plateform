@@ -22,20 +22,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
 import { ShieldCheck, Upload, X, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "@/firebase/client";
 import Link from "next/link";
 
 import { useLanguage } from "@/context/language";
 
 interface InsuranceSectionProps {
-    onFileSelect?: (file: File, blobUrl: string) => void;
+    /** The picked document and its `blob:` URL; uploaded when the form is saved (T25). */
+    onFileSelect: (file: File, blobUrl: string) => void;
 }
 
 export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
     const { control, watch, setValue } = useFormContext();
-    const [isUploading, setIsUploading] = useState(false);
+    // Documents upload with the form's save (T25); nothing is in flight here.
+    const isUploading = false;
     const { t } = useLanguage();
 
     // Watch documents
@@ -52,42 +51,14 @@ export function InsuranceSection({ onFileSelect }: InsuranceSectionProps) {
             return;
         }
 
-        // If onFileSelect is provided, skip immediate upload
-        if (onFileSelect) {
-            const blobUrl = URL.createObjectURL(file);
-            // Append to array locally
-            onFileSelect(file, blobUrl);
-            setValue("insuranceDocuments", [...insuranceDocuments, blobUrl], {
-                shouldValidate: true,
-                shouldDirty: true,
-                shouldTouch: true
-            });
-            e.target.value = "";
-            return;
-        }
-
-        try {
-            setIsUploading(true);
-            // trucks/insurance/{timestamp}_{filename}
-            const filename = `insurance_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`;
-            const storageRef = ref(storage, `trucks/insurance/${filename}`);
-
-            const snapshot = await uploadBytes(storageRef, file);
-            const url = await getDownloadURL(snapshot.ref);
-
-            setValue("insuranceDocuments", [...insuranceDocuments, url], {
-                shouldValidate: true,
-                shouldDirty: true,
-                shouldTouch: true
-            });
-
-        } catch (error) {
-            console.error("Error uploading document:", error);
-            alert("Failed to upload document");
-        } finally {
-            setIsUploading(false);
-            e.target.value = "";
-        }
+        const blobUrl = URL.createObjectURL(file);
+        onFileSelect(file, blobUrl);
+        setValue("insuranceDocuments", [...insuranceDocuments, blobUrl], {
+            shouldValidate: true,
+            shouldDirty: true,
+            shouldTouch: true
+        });
+        e.target.value = "";
     };
 
     const removeDocument = (indexToRemove: number) => {

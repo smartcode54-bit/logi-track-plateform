@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/context/language";
-import { getTruckByIdClient, TruckData } from "../services/truckService";
+import { useTruck } from "../api/useTrucks";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
 import { formatLicensePlate } from "@/lib/utils";
@@ -14,27 +14,13 @@ export default function RenewalDashboard() {
     const { t } = useLanguage();
     const searchParams = useSearchParams();
     const router = useRouter();
-    const id = searchParams.get("id") as string;
-
-    const [truck, setTruck] = useState<TruckData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<string>("tax");
-
-    const loadData = async () => {
-        setLoading(true);
-        try {
-            const data = await getTruckByIdClient(id);
-            setTruck(data);
-        } catch (error) {
-            console.error("Failed to load truck data", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        if (id) loadData();
-    }, [id]);
+    const id = searchParams.get("id") ?? "";
+    // `['trucks','detail',id]` (T25); a saved renewal refetches it.
+    const query = useTruck(id);
+    const truck = query.data ?? null;
+    const loading = query.isPending && Boolean(id);
+    const [activeTab, setActiveTab] = useState<string>(searchParams.get("type") === "insurance" ? "insurance" : "tax");
+    const loadData = () => void query.refetch();
 
     if (loading) return <div className="flex h-screen justify-center items-center"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
     if (!truck) return <div className="text-center py-12 text-muted-foreground">{t("renewals.form.notFound")}</div>;

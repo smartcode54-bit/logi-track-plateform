@@ -39,11 +39,12 @@ vi.mock("./locales/load", async (importOriginal) => {
     };
 });
 
-// The truck preview hook (one of the eight sites) with its data source counted.
-const getTruckByIdClient = vi.hoisted(() => vi.fn(async () => null));
-vi.mock("@/features/trucks/services/truckService", () => ({ getTruckByIdClient }));
-vi.mock("@/app/app/truck-assignment/actions.client", () => ({ getTruckAssignmentHistory: vi.fn(async () => []) }));
-vi.mock("@/features/subcontractors/services/subcontractorService", () => ({ getSubcontractors: vi.fn(async () => []) }));
+// The truck preview hook (one of the eight sites) with its data source counted: since T25 it reads
+// `['trucks','detail',id]` through the Firestore adapter while the `masterdata` flag is off.
+const getTruckFirestore = vi.hoisted(() => vi.fn(async () => null));
+vi.mock("@/features/trucks/api/trucks.firestore", () => ({ getTruckFirestore }));
+vi.mock("@/features/trucks/api/truckAssignments.firestore", () => ({ listAssignmentsOfFirestore: vi.fn(async () => []) }));
+vi.mock("@/features/subcontractors/api/subcontractors.firestore", () => ({ listSubcontractorOptionsFirestore: vi.fn(async () => []) }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => ({ get: () => "truck-1" }) }));
 const setCustomLastItem = vi.fn();
 vi.mock("@/context/breadcrumb", () => ({ useBreadcrumb: () => ({ setCustomLastItem }) }));
@@ -51,6 +52,8 @@ vi.mock("@/context/breadcrumb", () => ({ useBreadcrumb: () => ({ setCustomLastIt
 const { LanguageProvider, useLanguage } = await import("./language");
 const { RouteNamespaces } = await import("./locales/RouteNamespaces");
 const { useTruckPreview } = await import("@/features/trucks/hooks/useTruckPreview");
+const { QueryClientProvider } = await import("@tanstack/react-query");
+const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
 
 let stored: string | null;
 
@@ -60,7 +63,7 @@ beforeEach(() => {
     failingChunks.clear();
     loadDictionary.mockClear();
     loadNamespace.mockClear();
-    getTruckByIdClient.mockClear();
+    getTruckFirestore.mockClear();
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => stored);
     vi.spyOn(Storage.prototype, "setItem").mockImplementation((_k, v) => {
         stored = String(v);
@@ -231,22 +234,29 @@ describe("t is memoised (context/language.tsx)", () => {
 describe("a language toggle refetches nothing at the eight sites (Appendix E §E.3.5)", () => {
     it("useTruckPreview loads the truck once across toggles", async () => {
         const user = userEvent.setup();
+        resetQueryClientForTests();
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => new Response(JSON.stringify({ data: { domains: {} } }), { status: 200 }))
+        );
         function Harness() {
             useTruckPreview();
             return <Toggle />;
         }
         render(
-            <LanguageProvider>
-                <Harness />
-            </LanguageProvider>
+            <QueryClientProvider client={getQueryClient()}>
+                <LanguageProvider>
+                    <Harness />
+                </LanguageProvider>
+            </QueryClientProvider>
         );
         await screen.findByText("toggle");
-        await act(async () => undefined);
-        expect(getTruckByIdClient).toHaveBeenCalledTimes(1);
+        await waitFor(() => expect(getTruckFirestore).toHaveBeenCalledTimes(1));
         await user.click(screen.getByText("toggle"));
         await user.click(screen.getByText("toggle"));
         await act(async () => undefined);
-        expect(getTruckByIdClient).toHaveBeenCalledTimes(1);
+        expect(getTruckFirestore).toHaveBeenCalledTimes(1);
+        vi.unstubAllGlobals();
     });
 
     // The effect scanner that found the sites: no effect at these files lists `t` any more.

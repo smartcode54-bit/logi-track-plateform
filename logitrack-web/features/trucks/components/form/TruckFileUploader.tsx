@@ -5,24 +5,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Upload, FileText, X } from "lucide-react";
-import { uploadTruckFile } from "@/features/trucks/services/truckService";
-import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 
 interface TruckFileUploaderProps {
     label: string;
-    folder: string; // e.g., "photos" or "documents"
+    /** Legacy storage folder (unused since T25: the save decides where the file goes). */
+    folder?: string;
     onUploadComplete: (url: string) => void;
     currentUrls?: string[];
     onRemove?: (url: string) => void;
     multiple?: boolean;
-    onFileSelect?: (file: File, blobUrl: string) => void;
+    /**
+     * Receives the picked file and its local `blob:` URL; the form uploads it when it is saved
+     * (Go presign or Firebase Storage, by the `masterdata` flag, T25). Required: nothing uploads here.
+     */
+    onFileSelect: (file: File, blobUrl: string) => void;
 }
 
-export default function TruckFileUploader({ label, folder, onUploadComplete, currentUrls = [], onRemove, multiple = false, onFileSelect }: TruckFileUploaderProps) {
+export default function TruckFileUploader({ label, onUploadComplete, currentUrls = [], onRemove, multiple = false, onFileSelect }: TruckFileUploaderProps) {
     const { t } = useLanguage();
-    const [uploading, setUploading] = useState(false);
+    // Files upload with the form's save (T25); nothing is in flight here.
+    const uploading = false;
     const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -44,29 +48,10 @@ export default function TruckFileUploader({ label, folder, onUploadComplete, cur
         const file = e.target.files[0];
         setSelectedFileName(file.name);
 
-        // If onFileSelect is provided, we skip immediate upload
-        if (onFileSelect) {
-            const blobUrl = URL.createObjectURL(file);
-            onFileSelect(file, blobUrl);
-            onUploadComplete(blobUrl);
-            e.target.value = "";
-            return;
-        }
-
-        try {
-            setUploading(true);
-            const path = `trucks/${folder}/${Date.now()}_${file.name}`;
-            const url = await uploadTruckFile(file, path);
-            onUploadComplete(url);
-            toast.success(t("trucks.upload.success"));
-
-            e.target.value = "";
-        } catch (error) {
-            console.error(error);
-            toast.error(t("trucks.upload.error"));
-        } finally {
-            setUploading(false);
-        }
+        const blobUrl = URL.createObjectURL(file);
+        onFileSelect(file, blobUrl);
+        onUploadComplete(blobUrl);
+        e.target.value = "";
     };
 
     const getFileNameFromUrl = (url: string) => {

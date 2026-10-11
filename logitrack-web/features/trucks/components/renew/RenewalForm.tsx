@@ -14,12 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Upload, FileText, Save, Loader2, CheckCircle2, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { TruckData, uploadTruckFile, updateTruckInFirestoreClient, logTransaction } from "../../services/truckService";
-import { TruckValidatedData } from "@/validate/truckSchema";
+import { fileUrl, formPaymentMethod, type TruckDetailDTO } from "../../api/trucks";
+import { useTruckWrites } from "../../api/useTrucks";
+import { toastSaveError } from "@/lib/formServerErrors";
 
 interface RenewalFormProps {
     type: "tax" | "insurance";
-    truck: TruckData;
+    truck: TruckDetailDTO;
     onSuccess: () => void;
 }
 
@@ -33,28 +34,34 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
 
     const initialStatus = type === 'tax' ? (truck.taxRenewalStatus || "pending") : (truck.insuranceRenewalStatus || "pending");
     const initialResponsible = type === 'tax' ? (truck.taxResponsible || "Operation Admin") : (truck.maintenanceResponsible || "Operation Admin");
-    const initialExpense = type === 'tax' ? (truck.taxExpense || "") : (truck.insurancePremium || "");
+    const initialExpense = type === 'tax' ? (truck.taxExpenseThb ?? "") : (truck.insurancePremiumThb ?? "");
     const initialExpiry = type === 'tax' ? (truck.taxExpiryDate || "") : (truck.insuranceExpiryDate || "");
+    // `POST /v1/trucks/{id}/renewals` on Go, the legacy truck update + ledger row on Firestore (T25).
+    const { renew } = useTruckWrites();
 
     const [status, setStatus] = useState<StatusType>(initialStatus as StatusType);
     const [assignedTo, setAssignedTo] = useState(initialResponsible);
     const [provider, setProvider] = useState(type === 'insurance' ? truck.insuranceCompany || "" : "");
     const [expense, setExpense] = useState<string>(initialExpense ? String(initialExpense) : "");
-    const [paymentMethod, setPaymentMethod] = useState(truck.paymentMethod || "");
+    const [paymentMethod, setPaymentMethod] = useState<string>(formPaymentMethod(truck.paymentMethod));
     const [startDate, setStartDate] = useState(type === 'insurance' ? truck.insuranceStartDate || "" : "");
     const [expiryDate, setExpiryDate] = useState(initialExpiry);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const isSubmitting = renew.isPending;
 
     const [policyId, setPolicyId] = useState(truck.insurancePolicyId || "");
     const [policyNumber, setPolicyNumber] = useState(truck.insurancePolicyNumber || "");
     const [coverageType, setCoverageType] = useState(truck.insuranceType || "");
     const [notes, setNotes] = useState(truck.insuranceNotes || "");
-    const [uploadedDocs, setUploadedDocs] = useState<string[]>(truck.insuranceDocuments || []);
-    const [uploadingDoc, setUploadingDoc] = useState(false);
+    // Stored document URLs plus `blob:` URLs of files picked here; the new ones upload with the save.
+    const [uploadedDocs, setUploadedDocs] = useState<string[]>(
+        (truck.files.insuranceDocument ?? []).map((f) => f.url ?? "").filter(Boolean)
+    );
+    const [newDocs] = useState<Map<string, File>>(() => new Map());
+    const uploadingDoc = false;
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [existingFileUrl, setExistingFileUrl] = useState<string | undefined>(
-        type === 'tax' ? truck.taxReceipt : truck.insuranceReceipt
+        fileUrl(truck.files, type === 'tax' ? "taxReceipt" : "insuranceReceipt") || undefined
     );
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,21 +70,13 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
         }
     };
 
-    const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || !e.target.files[0] || !currentUser) return;
+    const handleDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
-        setUploadingDoc(true);
-        try {
-            const year = new Date().getFullYear();
-            const ext = file.name.split('.').pop();
-            const path = `trucks/${truck.id}/insurance_doc_${year}_${Date.now()}.${ext}`;
-            const url = await uploadTruckFile(file, path);
-            setUploadedDocs(prev => [...prev, url]);
-        } catch (error) {
-            console.error("Error uploading document:", error);
-        } finally {
-            setUploadingDoc(false);
-        }
+        const blobUrl = URL.createObjectURL(file);
+        newDocs.set(blobUrl, file);
+        setUploadedDocs(prev => [...prev, blobUrl]);
+        e.target.value = "";
     };
 
     const removeDoc = (index: number) => {
@@ -88,109 +87,32 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
         e.preventDefault();
         if (!currentUser) return;
 
-        setIsSubmitting(true);
         const nextStatus: StatusType = targetStatus || status;
 
         try {
-            let newFileUrl = existingFileUrl;
-            if (selectedFile) {
-                const year = new Date().getFullYear();
-                const ext = selectedFile.name.split('.').pop();
-                const path = `trucks/${truck.id}/${type}_receipt_${year}_${Date.now()}.${ext}`;
-                newFileUrl = await uploadTruckFile(selectedFile, path);
-            }
-
-            const updatePayload: any = {};
-
-            if (type === 'tax') {
-                updatePayload.taxRenewalStatus = nextStatus;
-                updatePayload.taxResponsible = assignedTo;
-                if (expense) updatePayload.taxExpense = parseFloat(expense);
-                if (paymentMethod) updatePayload.paymentMethod = paymentMethod;
-                if (newFileUrl) updatePayload.taxReceipt = newFileUrl;
-
-                if (nextStatus === 'completed') {
-                    updatePayload.taxExpiryDate = expiryDate;
-                    if (newFileUrl) {
-                        updatePayload.documentTax = newFileUrl;
-                    }
-
-                    const newHistoryItem = {
-                        status: "Tax Renewed",
-                        date: new Date().toISOString(),
-                        changedBy: currentUser.displayName || currentUser.email || "Unknown",
-                        notes: `Expiry: ${expiryDate}`
-                    };
-                    const currentHistory = truck.statusHistory || [];
-                    updatePayload.statusHistory = [...currentHistory, newHistoryItem];
-                } else {
-                    if (expiryDate) updatePayload.taxExpiryDate = expiryDate;
-                }
-
-            } else {
-                updatePayload.insuranceRenewalStatus = nextStatus;
-                updatePayload.maintenanceResponsible = assignedTo;
-                if (provider) updatePayload.insuranceCompany = provider;
-                if (expense) updatePayload.insurancePremium = parseFloat(expense);
-                if (paymentMethod) updatePayload.paymentMethod = paymentMethod;
-                if (newFileUrl) updatePayload.insuranceReceipt = newFileUrl;
-                if (policyId) updatePayload.insurancePolicyId = policyId;
-                if (policyNumber) updatePayload.insurancePolicyNumber = policyNumber;
-                if (coverageType) updatePayload.insuranceType = coverageType;
-                if (notes) updatePayload.insuranceNotes = notes;
-
-                if (nextStatus === 'completed') {
-                    updatePayload.insuranceExpiryDate = expiryDate;
-                    if (startDate) updatePayload.insuranceStartDate = startDate;
-
-                    if (newFileUrl) {
-                        const currentDocs = truck.insuranceDocuments || [];
-                        if (!currentDocs.includes(newFileUrl)) {
-                            updatePayload.insuranceDocuments = [...currentDocs, newFileUrl];
-                        }
-                    }
-
-                    if (uploadedDocs.length > 0) {
-                        updatePayload.insuranceDocuments = uploadedDocs;
-                    }
-
-                    const newHistoryItem = {
-                        status: "Insurance Renewed",
-                        date: new Date().toISOString(),
-                        changedBy: currentUser.displayName || currentUser.email || "Unknown",
-                        notes: `Policy: ${policyNumber} | Expiry: ${expiryDate}`
-                    };
-                    const currentHistory = truck.statusHistory || [];
-                    updatePayload.statusHistory = [...currentHistory, newHistoryItem];
-                } else {
-                    if (expiryDate) updatePayload.insuranceExpiryDate = expiryDate;
-                    if (startDate) updatePayload.insuranceStartDate = startDate;
-                    if (uploadedDocs.length > 0) {
-                        updatePayload.insuranceDocuments = uploadedDocs;
-                    }
-                }
-            }
-
-            await updateTruckInFirestoreClient(truck.id, updatePayload as TruckValidatedData, currentUser.uid);
-
-            if (nextStatus === 'completed') {
-                const transactionData = {
-                    truckId: truck.id,
-                    type: type as "tax" | "insurance",
-                    subType: type === 'tax' ? "Tax Renewal" : `Insurance Renewal (${coverageType || "Unknown"})`,
-                    amount: parseFloat(expense || "0"),
-                    paymentMethod: paymentMethod || "Unknown",
-                    date: new Date().toISOString().split('T')[0], 
-                    receiptUrl: newFileUrl || null,
-                    performedBy: currentUser.displayName || currentUser.email || "Unknown",
-                    notes: type === 'tax' ? `Expiry: ${expiryDate}` : `Policy: ${policyNumber} | Expiry: ${expiryDate}`
-                };
-
-                await logTransaction(transactionData);
-            }
+            await renew.mutateAsync({
+                truck,
+                type,
+                status: nextStatus,
+                amount: expense ? parseFloat(expense) : null,
+                paymentMethod,
+                expiryDate,
+                responsible: assignedTo,
+                receipt: selectedFile,
+                startDate,
+                provider,
+                policyId,
+                policyNumber,
+                coverage: coverageType,
+                notes,
+                documents: uploadedDocs.filter((u) => !u.startsWith("blob:")),
+                newDocuments: uploadedDocs.filter((u) => u.startsWith("blob:")).map((u) => newDocs.get(u)).filter((f): f is File => Boolean(f)),
+                actorLabel: currentUser.displayName || currentUser.email || "Unknown",
+                userId: currentUser.uid,
+            });
 
             setStatus(nextStatus);
-            if (newFileUrl) setExistingFileUrl(newFileUrl);
+            if (selectedFile) setExistingFileUrl(URL.createObjectURL(selectedFile));
             setSelectedFile(null);
 
             if (nextStatus === 'completed') {
@@ -201,11 +123,8 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                 toast.success(t("renewals.form.toast.successSave"));
                 onSuccess();
             }
-
         } catch (error) {
-            console.error("Error updating renewal:", error);
-        } finally {
-            setIsSubmitting(false);
+            toastSaveError(error, t);
         }
     };
 
@@ -420,7 +339,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                                 rel="noopener noreferrer"
                                                 className="text-sm text-blue-500 hover:underline"
                                             >
-                                                Document {index + 1}
+                                                {t("masterData.trucks.documentN", { n: index + 1 })}
                                             </a>
                                             <button
                                                 type="button"

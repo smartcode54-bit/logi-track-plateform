@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getCustomerById, CustomerData } from "@/features/customers/api/customers";
+import { useCustomer } from "@/features/customers/api/useCustomers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Building2, Loader2, Edit, Mail, Phone, User, MapPin, CreditCard, Clock, FileText } from "lucide-react";
@@ -23,26 +22,11 @@ export default function CustomerDetail() {
     // A real dynamic segment since TW2 (standalone server; no Hosting placeholder rewrite).
     const { id = "" } = useParams<{ id: string }>();
     const { t } = useLanguage();
-    const [customer, setCustomer] = useState<CustomerData | null>(null);
-    const [loading, setLoading] = useState(true);
+    // `['customers','detail',id]` (T25): Go or Firestore by the `masterdata` flag.
+    const query = useCustomer(id);
+    const customer = query.data ?? null;
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            setLoading(true);
-            try {
-                const data = await getCustomerById(id);
-                setCustomer(data);
-            } catch (error) {
-                console.error("Error loading customer", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, [id]);
-
-    if (loading) {
+    if (query.isPending && id) {
         return (
             <div className="flex justify-center py-24">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -68,7 +52,7 @@ export default function CustomerDetail() {
     );
 
     const branchLabel = customer.branchType
-        ? `${customer.branchType}${customer.branchNumber ? ` ${customer.branchNumber}` : ""}`
+        ? `${t(`customers.form.branchType.${customer.branchType}`)}${customer.branchNumber ? ` ${customer.branchNumber}` : ""}`
         : undefined;
 
     return (
@@ -195,7 +179,7 @@ export default function CustomerDetail() {
                 <CardContent>
                     {(customer.driverIdTypes?.length ?? 0) > 0 ? (
                         <ul className="space-y-2">
-                            {customer.driverIdTypes!.map((dt, i) => (
+                            {customer.driverIdTypes.map((dt, i) => (
                                 <li key={i} className="flex items-center gap-2 py-2 border-b last:border-0">
                                     <span className="font-mono text-sm text-muted-foreground w-24">{dt.key}</span>
                                     <span className="font-medium">{dt.label}</span>

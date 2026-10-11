@@ -1,82 +1,66 @@
-import { useState, useEffect, useEffectEvent } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
-import { getTruckByIdClient, TruckData } from "../services/truckService";
-import { getTruckAssignmentHistory, AssignmentData } from "@/app/app/truck-assignment/actions.client";
-import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
+import { useAssignmentsOf, useTruck } from "../api/useTrucks";
+import { fileUrl } from "../api/trucks";
+import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
+import { carrierName } from "@/features/subcontractors/api/subcontractors";
 
+/**
+ * The truck page (T25): `['trucks','detail',id]` with the truck's assignments
+ * (`['truckAssignments',{truckId}]`, fetched in parallel instead of after the truck) and the carrier
+ * name from `['subcontractors','options']`.
+ */
 export function useTruckPreview() {
     const searchParams = useSearchParams();
-    const truckId = searchParams.get('id');
+    const truckId = searchParams.get("id") ?? "";
     const { setCustomLastItem } = useBreadcrumb();
     const { t, language } = useLanguage();
 
-    const [truck, setTruck] = useState<TruckData | null>(null);
-    const [assignmentHistory, setAssignmentHistory] = useState<AssignmentData[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const truckQuery = useTruck(truckId);
+    const truck = truckQuery.data ?? null;
+    const assignments = useAssignmentsOf({ truckId });
+    const { options: subcontractors } = useSubcontractorOptions();
 
     const [isViewerOpen, setIsViewerOpen] = useState(false);
     const [viewerIndex, setViewerIndex] = useState(0);
-    const [subcontractors, setSubcontractors] = useState<any[]>([]);
-
-    // The active language when the effect's code runs: `t` is not a dependency, so a language
-    // toggle no longer refetches (TW4, developer-spec.md §10.6).
-    const translateNow = useEffectEvent((key: string) => t(key));
 
     useEffect(() => {
-        const fetchTruck = async () => {
-            if (!truckId) {
-                setError(translateNow("trucks.detail.noId"));
-                setIsLoading(false);
-                return;
-            }
-            try {
-                setIsLoading(true);
-                setError(null);
-                const data = await getTruckByIdClient(truckId);
-                if (!data) {
-                    setError(translateNow("trucks.detail.notFound"));
-                    return;
-                }
-                setTruck(data);
-                setCustomLastItem(`Truck ${data.licensePlate}`);
+        if (truck) setCustomLastItem(`Truck ${truck.licensePlate}`);
+        return () => setCustomLastItem(null);
+    }, [truck, setCustomLastItem]);
 
-                const history = await getTruckAssignmentHistory(truckId);
-                setAssignmentHistory(history);
-            } catch (err) {
-                console.error("Error fetching truck:", err);
-                setError(err instanceof Error ? err.message : translateNow("trucks.detail.error"));
-            } finally {
-                setIsLoading(false);
-            }
-        };
+    const error = !truckId
+        ? t("trucks.detail.noId")
+        : truckQuery.isError
+          ? t("trucks.detail.error")
+          : truckQuery.isSuccess && !truck
+            ? t("trucks.detail.notFound")
+            : null;
 
-        fetchTruck();
+    const documentTax = truck ? fileUrl(truck.files, "documentTax") : "";
+    const insuranceDocuments = truck ? (truck.files.insuranceDocument ?? []).map((f) => f.url ?? "").filter(Boolean) : [];
+    const partnerName =
+        truck && truck.ownershipType === "subcontractor"
+            ? carrierName(subcontractors.find((s) => s.id === truck.tenantId)) || truck.tenantId
+            : "";
 
-        return () => {
-            setCustomLastItem(null);
-        };
-    }, [truckId, setCustomLastItem]);
-
-    useEffect(() => {
-        getSubcontractors().then(setSubcontractors);
-    }, []);
-
-    const viewableFiles = truck ? [
-        ...(truck.imageFrontRight ? [{ url: truck.imageFrontRight, type: "image" as const, label: t("trucks.detail.view.frontRight") }] : []),
-        ...(truck.imageFrontLeft ? [{ url: truck.imageFrontLeft, type: "image" as const, label: t("trucks.detail.view.frontLeft") }] : []),
-        ...(truck.imageBackRight ? [{ url: truck.imageBackRight, type: "image" as const, label: t("trucks.detail.view.backRight") }] : []),
-        ...(truck.imageBackLeft ? [{ url: truck.imageBackLeft, type: "image" as const, label: t("trucks.detail.view.backLeft") }] : []),
-        ...(truck.documentTax ? [{ url: truck.documentTax, type: "pdf" as const, label: t("trucks.detail.taxDoc") }] : []),
-        ...(truck.documentRegister ? [{ url: truck.documentRegister, type: "pdf" as const, label: t("trucks.detail.view.registrationDoc") }] : []),
-        ...(truck.images || []).map((img, i) => ({ url: img, type: "image" as const, label: `${t("trucks.detail.view.legacyImage")} ${i + 1}` })),
-        ...(truck.insuranceDocuments || []).map((doc, i) => ({ url: doc, type: "pdf" as const, label: `${t("trucks.detail.insuranceDoc")} ${i + 1}` })),
-    ] : [];
+    const viewableFiles = truck
+        ? [
+              ...(fileUrl(truck.files, "imageFrontRight") ? [{ url: fileUrl(truck.files, "imageFrontRight"), type: "image" as const, label: t("trucks.detail.view.frontRight") }] : []),
+              ...(fileUrl(truck.files, "imageFrontLeft") ? [{ url: fileUrl(truck.files, "imageFrontLeft"), type: "image" as const, label: t("trucks.detail.view.frontLeft") }] : []),
+              ...(fileUrl(truck.files, "imageBackRight") ? [{ url: fileUrl(truck.files, "imageBackRight"), type: "image" as const, label: t("trucks.detail.view.backRight") }] : []),
+              ...(fileUrl(truck.files, "imageBackLeft") ? [{ url: fileUrl(truck.files, "imageBackLeft"), type: "image" as const, label: t("trucks.detail.view.backLeft") }] : []),
+              ...(documentTax ? [{ url: documentTax, type: "pdf" as const, label: t("trucks.detail.taxDoc") }] : []),
+              ...(fileUrl(truck.files, "documentRegister") ? [{ url: fileUrl(truck.files, "documentRegister"), type: "pdf" as const, label: t("trucks.detail.view.registrationDoc") }] : []),
+              ...(truck.files.legacyImage ?? []).filter((f) => f.url).map((f, i) => ({ url: f.url!, type: "image" as const, label: `${t("trucks.detail.view.legacyImage")} ${i + 1}` })),
+              ...insuranceDocuments.map((url, i) => ({ url, type: "pdf" as const, label: `${t("trucks.detail.insuranceDoc")} ${i + 1}` })),
+          ]
+        : [];
 
     const handleFileClick = (url: string) => {
-        const index = viewableFiles.findIndex(f => f.url === url);
+        const index = viewableFiles.findIndex((f) => f.url === url);
         if (index !== -1) {
             setViewerIndex(index);
             setIsViewerOpen(true);
@@ -85,25 +69,28 @@ export function useTruckPreview() {
 
     return {
         truck,
-        assignmentHistory,
-        isLoading,
+        assignmentHistory: assignments.assignments,
+        isLoading: truckQuery.isPending && Boolean(truckId),
         error,
         isViewerOpen,
         setIsViewerOpen,
         viewerIndex,
         setViewerIndex,
         subcontractors,
+        partnerName,
+        documentTax,
+        insuranceDocuments,
         viewableFiles,
         handleFileClick,
         formatDate: (date: Date | string | null | undefined) => {
             if (!date) return "-";
-            return new Date(date).toLocaleDateString(language === 'th' ? "th-TH" : "en-US", {
+            return new Date(date).toLocaleDateString(language === "th" ? "th-TH" : "en-US", {
                 year: "numeric",
                 month: "long",
                 day: "numeric",
             });
         },
         t,
-        language
+        language,
     };
 }

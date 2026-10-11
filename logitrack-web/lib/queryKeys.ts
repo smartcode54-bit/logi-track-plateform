@@ -68,21 +68,28 @@ export const queryKeys = {
     distances: {
         all: () => ["distances"] as const,
         byHub: (hubId: string) => ["distances", { hubId }] as const,
+        /** `GET /v1/distances?hubId&direction` (a hub's or a SOC's rows in one direction, T25). */
+        list: <P extends Params>(params: P) => ["distances", params] as const,
         meta: () => ["distances", "meta"] as const,
     },
     customers: {
         all: () => ["customers"] as const,
         list: <P extends Params>(params?: P) => listKey("customers", params),
         detail: (id: string) => ["customers", "detail", id] as const,
+        /** Every customer as a picker option (`fields=minimal`, flag `masterdata`, T25). */
+        options: () => ["customers", "options"] as const,
     },
     subcontractors: {
         all: () => ["subcontractors"] as const,
         list: <P extends Params>(params?: P) => listKey("subcontractors", params),
         detail: (id: string) => ["subcontractors", "detail", id] as const,
+        /** Every carrier as a picker option (`fields=minimal`, T25). */
+        options: () => ["subcontractors", "options"] as const,
     },
     companies: {
         all: () => ["companies"] as const,
         owner: () => ["companies", { owner: true }] as const,
+        list: <P extends Params>(params: P) => ["companies", params] as const,
     },
     holidays: {
         all: () => ["holidays"] as const,
@@ -98,11 +105,17 @@ export const queryKeys = {
         all: () => ["drivers"] as const,
         list: <P extends Params>(params: P) => ["drivers", params] as const,
         detail: (id: string) => ["drivers", "detail", id] as const,
+        /** Every driver as a picker option of the master-data pages (`fields=minimal`, T25). */
+        options: () => ["drivers", "options"] as const,
     },
     trucks: {
         all: () => ["trucks"] as const,
         list: <P extends Params>(params: P) => ["trucks", params] as const,
         detail: (id: string) => ["trucks", "detail", id] as const,
+        /** Every truck as a picker option of the truck assignment page (T25). */
+        options: () => ["trucks", "options"] as const,
+        /** The fleet status and PM counters of the trucks page (every truck, T25). */
+        fleetStats: () => ["trucks", "fleetStats"] as const,
     },
     renewals: <P extends Params>(params?: P) => listKey("renewals", params),
     truckAssignments: <P extends Params>(params?: P) => listKey("truckAssignments", params),

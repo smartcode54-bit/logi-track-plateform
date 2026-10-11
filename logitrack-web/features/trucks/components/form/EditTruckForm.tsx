@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useEffectEvent } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/form";
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
-import { truckSchema, TruckFormValues, TruckValidatedData, truckDefaultValues } from "@/validate/truckSchema";
+import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 
 import { IdentificationSection } from "./IdentificationSection";
@@ -30,20 +30,22 @@ import { MaintenanceSection } from "./MaintenanceSection";
 import { PhotosSection } from "./PhotosSection";
 import { InsuranceSection } from "./InsuranceSection";
 
-import { updateTruckInFirestoreClient, uploadTruckFile, getTruckByIdClient } from "../../services/truckService";
-import { getSubcontractors } from "@/features/subcontractors/services/subcontractorService";
+import { fileKeysByUrl, TRUCK_FIELD_MAP, truckFormValues } from "../../api/trucks";
+import { useTruck, useTruckWrites } from "../../api/useTrucks";
+import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
+import { carrierName } from "@/features/subcontractors/api/subcontractors";
+import { useDomainSource } from "@/features/platform/api/useWebFlags";
+import { applyServerFieldErrors } from "@/lib/formServerErrors";
+import { apiErrorText } from "@/lib/apiError";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-function SubcontractorSelector({ value, onChange }: { value?: string, onChange: (val: string) => void }) {
+function SubcontractorSelector({ value, onChange, disabled }: { value?: string, onChange: (val: string) => void, disabled?: boolean }) {
     const { t } = useLanguage();
-    const [subs, setSubs] = useState<any[]>([]);
-
-    useEffect(() => {
-        getSubcontractors().then(setSubs);
-    }, []);
+    // `['subcontractors','options']` (T25): one cached list for every truck and driver form.
+    const { options: subs } = useSubcontractorOptions();
 
     return (
-        <Select onValueChange={onChange} value={value || ""}>
+        <Select onValueChange={onChange} value={value || ""} disabled={disabled}>
             <FormControl>
                 <SelectTrigger>
                     <SelectValue placeholder={t("trucks.edit.selectSubcontractor")} />
@@ -51,7 +53,7 @@ function SubcontractorSelector({ value, onChange }: { value?: string, onChange: 
             </FormControl>
             <SelectContent>
                 {subs.map(sub => (
-                    <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                    <SelectItem key={sub.id} value={sub.id}>{carrierName(sub)}</SelectItem>
                 ))}
             </SelectContent>
         </Select>
@@ -63,65 +65,43 @@ export default function EditTruckForm() {
     const searchParams = useSearchParams();
     const truckId = searchParams.get("id") as string;
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [filesToUpload] = useState<Map<string, File>>(() => new Map());
 
     const { t } = useLanguage();
     const authContext = useAuth();
     const currentUser = authContext?.currentUser ?? null;
+    // `['trucks','detail',id]` (T25); on Go a truck's tenant (ownership) is fixed after creation.
+    const truckQuery = useTruck(truckId ?? "");
+    const { update } = useTruckWrites();
+    const isSubmitting = update.isPending;
+    const onGo = useDomainSource("masterdata") === "go";
+    const [keyByUrl, setKeyByUrl] = useState<Record<string, string>>({});
 
     const form = useForm<TruckFormValues>({
         resolver: zodResolver(truckSchema) as any,
         defaultValues: truckDefaultValues,
     });
 
-    // The active language when the effect's code runs: `t` is not a dependency, so a language
-    // toggle no longer refetches (TW4, developer-spec.md §10.6).
-    const translateNow = useEffectEvent((key: string) => t(key));
+    // Reset once when the stored truck arrives (a background refetch must not overwrite edits).
+    const [loadedId, setLoadedId] = useState<string | null>(null);
+    useEffect(() => {
+        const truckData = truckQuery.data;
+        if (!truckData || loadedId === truckData.id) return;
+        // reset() replaces every value, so a key absent from the record would land as undefined
+        // instead of falling back to defaultValues (ADR 0003): merge over the defaults.
+        form.reset({ ...truckDefaultValues, ...truckFormValues(truckData) } as TruckFormValues);
+        setKeyByUrl(fileKeysByUrl(truckData.files));
+        setLoadedId(truckData.id);
+    }, [truckQuery.data, loadedId, form]);
 
     useEffect(() => {
-        const fetchTruck = async () => {
-             if (!truckId) return;
-            try {
-                const truckData = await getTruckByIdClient(truckId);
+        if (truckQuery.isError) setError(t("trucks.detail.error"));
+        else if (truckQuery.isSuccess && !truckQuery.data) setError(t("trucks.detail.notFound"));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [truckQuery.isError, truckQuery.isSuccess, truckQuery.data]);
 
-                if (truckData) {
-                    const formValues: any = {
-                        // reset() replaces every value, so a key absent from the doc would land as
-                        // undefined instead of falling back to defaultValues — the schema then
-                        // reports a type error rather than the authored "X is required" message,
-                        // and the save is vetoed by a field the admin never touched (ADR 0003).
-                        ...truckDefaultValues,
-                        ...truckData,
-                        year: String(truckData.year || ""),
-                        seats: String(truckData.seats || ""),
-                        registrationDate: truckData.registrationDate || undefined,
-                        buyingDate: truckData.buyingDate || undefined,
-                        taxExpiryDate: truckData.taxExpiryDate || undefined,
-                        lastServiceDate: truckData.lastServiceDate || undefined,
-                        nextServiceDate: truckData.nextServiceDate || undefined,
-                        insuranceStartDate: truckData.insuranceStartDate || undefined,
-                        insuranceExpiryDate: truckData.insuranceExpiryDate || undefined,
-                        taxRenewalStatus: (truckData.taxRenewalStatus as any) === "" ? undefined : truckData.taxRenewalStatus,
-                        insuranceRenewalStatus: (truckData.insuranceRenewalStatus as any) === "" ? undefined : truckData.insuranceRenewalStatus,
-                    };
-
-                    form.reset(formValues);
-                } else {
-                    setError(translateNow("trucks.detail.notFound"));
-                }
-            } catch (err) {
-                console.error("Error fetching truck:", err);
-                setError(translateNow("trucks.detail.error"));
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchTruck();
-    }, [truckId, form]);
+    const isLoading = truckQuery.isPending && Boolean(truckId);
 
     const handleFileSelect = (fieldOrFile: string | File, fileOrBlob: File | string, blobUrl?: string) => {
         if (typeof fieldOrFile === 'string' && blobUrl) {
@@ -132,66 +112,17 @@ export default function EditTruckForm() {
     };
 
     const onSubmit = async (data: TruckFormValues) => {
-        setIsSubmitting(true);
         setError(null);
-
         try {
-            if (!currentUser) throw new Error("User not authenticated");
-
-            const finalData = { ...data };
-
-            const uploadIfNeeded = async (blobUrl: string | undefined | null, pathPrefix: string): Promise<string | undefined> => {
-                if (!blobUrl || !blobUrl.startsWith("blob:")) return blobUrl || undefined;
-                const file = filesToUpload.get(blobUrl);
-                if (!file) return undefined;
-                return await uploadTruckFile(file, `trucks/${pathPrefix}/${Date.now()}_${file.name}`);
-            };
-
-            const imageFields = ['imageFrontRight', 'imageFrontLeft', 'imageBackRight', 'imageBackLeft'] as const;
-            for (const field of imageFields) {
-                const url = await uploadIfNeeded(finalData[field], `photos/${field.replace('image', '').toLowerCase()}`);
-                if (url) (finalData as any)[field] = url;
-            }
-
-            if (finalData.documentTax) {
-                const url = await uploadIfNeeded(finalData.documentTax, "documents/tax");
-                if (url) finalData.documentTax = url;
-            }
-            if (finalData.documentRegister) {
-                const url = await uploadIfNeeded(finalData.documentRegister, "documents/register");
-                if (url) finalData.documentRegister = url;
-            }
-
-            if (finalData.insuranceDocuments && finalData.insuranceDocuments.length > 0) {
-                const newDocs: string[] = [];
-                for (const doc of finalData.insuranceDocuments) {
-                    const url = await uploadIfNeeded(doc, "insurance");
-                    if (url) newDocs.push(url);
-                }
-                finalData.insuranceDocuments = newDocs;
-            }
-
-            const {
-                taxRenewalStatus,
-                insuranceRenewalStatus,
-                taxExpense,
-                taxReceipt,
-                insuranceReceipt,
-                ...dataToUpdate
-            } = finalData;
-
-            await updateTruckInFirestoreClient(truckId, dataToUpdate as TruckValidatedData, currentUser.uid);
-
+            if (!currentUser) throw new Error(t("masterData.notSignedIn"));
+            await update.mutateAsync({ id: truckId, values: data, pending: filesToUpload, keyByUrl, userId: currentUser.uid });
             toast.success(t("trucks.edit.success"));
             setTimeout(() => {
                 router.push(`/app/trucks/view?id=${truckId}`);
             }, 1000);
-
-        } catch (error) {
-            console.error("Error updating truck:", error);
-            setError(error instanceof Error ? error.message : t("trucks.edit.error"));
-        } finally {
-            setIsSubmitting(false);
+        } catch (err) {
+            applyServerFieldErrors(form, err, t, TRUCK_FIELD_MAP);
+            setError(`${t("trucks.edit.error")}: ${apiErrorText(err, (k, f) => t(k, f))}`);
         }
     };
 
@@ -240,6 +171,7 @@ export default function EditTruckForm() {
                                                 <div className="flex gap-4">
                                                     <Button
                                                         type="button"
+                                                        disabled={onGo}
                                                         variant={field.value === "own" ? "default" : "outline"}
                                                         onClick={() => {
                                                             field.onChange("own");
@@ -251,6 +183,7 @@ export default function EditTruckForm() {
                                                     </Button>
                                                     <Button
                                                         type="button"
+                                                        disabled={onGo}
                                                         variant={field.value === "subcontractor" ? "default" : "outline"}
                                                         onClick={() => field.onChange("subcontractor")}
                                                         className="flex-1"
@@ -259,6 +192,7 @@ export default function EditTruckForm() {
                                                     </Button>
                                                 </div>
                                             </FormControl>
+                                            {onGo && <p className="text-xs text-muted-foreground">{t("masterData.trucks.ownershipFixed")}</p>}
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -273,6 +207,7 @@ export default function EditTruckForm() {
                                                 <SubcontractorSelector
                                                     value={field.value}
                                                     onChange={field.onChange}
+                                                    disabled={onGo}
                                                 />
                                                 <FormMessage />
                                             </FormItem>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { getSubcontractors, SubcontractorData } from "../services/subcontractorService";
+import { useState, useMemo } from "react";
+import type { SubcontractorSummaryDTO } from "../api/subcontractors";
+import { useSubcontractorList } from "../api/useSubcontractors";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import Link from "next/link";
@@ -14,8 +15,8 @@ import { SubcontractorTable } from "./SubcontractorTable";
 
 export default function SubcontractorsListDashboard() {
     const { t } = useLanguage();
-    const [subcontractors, setSubcontractors] = useState<SubcontractorData[]>([]);
-    const [loading, setLoading] = useState(true);
+    // `['subcontractors', {view:'full'}]` (T25): Go `GET /v1/subcontractors` or Firestore by the flag.
+    const { rows: subcontractors, isPending: loading } = useSubcontractorList();
 
     // Filter States
     const [searchQuery, setSearchQuery] = useState("");
@@ -28,22 +29,7 @@ export default function SubcontractorsListDashboard() {
     const itemsPerPage = 10;
 
     // Sort State
-    const [sortConfig, setSortConfig] = useState<{ key: keyof SubcontractorData; direction: 'asc' | 'desc' } | null>(null);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const data = await getSubcontractors();
-                setSubcontractors(data);
-            } catch (error) {
-                console.error("Failed to load subcontractors", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, []);
+    const [sortConfig, setSortConfig] = useState<{ key: keyof SubcontractorSummaryDTO; direction: 'asc' | 'desc' } | null>(null);
 
     // Derived Stats
     const stats = useMemo(() => {
@@ -63,8 +49,8 @@ export default function SubcontractorsListDashboard() {
     const filteredSubs = useMemo(() => {
         return subcontractors.filter(sub => {
             const matchesSearch =
-                sub.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                sub.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                sub.nameTh.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (sub.contactPerson ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                 sub.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 sub.id.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -102,7 +88,7 @@ export default function SubcontractorsListDashboard() {
         return sortedSubs.slice(startIndex, startIndex + itemsPerPage);
     }, [sortedSubs, currentPage]);
 
-    const handleSort = (key: keyof SubcontractorData) => {
+    const handleSort = (key: keyof SubcontractorSummaryDTO) => {
         let direction: 'asc' | 'desc' = 'asc';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
             direction = 'desc';

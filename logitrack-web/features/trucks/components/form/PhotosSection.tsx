@@ -8,7 +8,7 @@ import { TruckFormValues } from "@/validate/truckSchema";
 import TruckFileUploader from "./TruckFileUploader";
 
 interface PhotosSectionProps {
-    onFileSelect?: (field: keyof TruckFormValues, file: File, blobUrl: string) => void;
+    onFileSelect: (field: keyof TruckFormValues, file: File, blobUrl: string) => void;
 }
 
 export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
@@ -43,7 +43,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                                 currentUrls={watch("imageFrontRight") ? [watch("imageFrontRight") as string] : []}
                                 onUploadComplete={handleUpload("imageFrontRight")}
                                 onRemove={handleRemove("imageFrontRight")}
-                                onFileSelect={onFileSelect ? ((file, blobUrl) => onFileSelect("imageFrontRight", file, blobUrl)) : undefined}
+                                onFileSelect={(file, blobUrl) => onFileSelect("imageFrontRight", file, blobUrl)}
                             />
                             {errors.imageFrontRight && <p className="text-sm text-destructive">{errors.imageFrontRight.message}</p>}
                         </div>
@@ -54,7 +54,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                                 currentUrls={watch("imageFrontLeft") ? [watch("imageFrontLeft") as string] : []}
                                 onUploadComplete={handleUpload("imageFrontLeft")}
                                 onRemove={handleRemove("imageFrontLeft")}
-                                onFileSelect={onFileSelect ? ((file, blobUrl) => onFileSelect("imageFrontLeft", file, blobUrl)) : undefined}
+                                onFileSelect={(file, blobUrl) => onFileSelect("imageFrontLeft", file, blobUrl)}
                             />
                             {errors.imageFrontLeft && <p className="text-sm text-destructive">{errors.imageFrontLeft.message}</p>}
                         </div>
@@ -65,7 +65,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                                 currentUrls={watch("imageBackRight") ? [watch("imageBackRight") as string] : []}
                                 onUploadComplete={handleUpload("imageBackRight")}
                                 onRemove={handleRemove("imageBackRight")}
-                                onFileSelect={onFileSelect ? ((file, blobUrl) => onFileSelect("imageBackRight", file, blobUrl)) : undefined}
+                                onFileSelect={(file, blobUrl) => onFileSelect("imageBackRight", file, blobUrl)}
                             />
                             {errors.imageBackRight && <p className="text-sm text-destructive">{errors.imageBackRight.message}</p>}
                         </div>
@@ -76,7 +76,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                                 currentUrls={watch("imageBackLeft") ? [watch("imageBackLeft") as string] : []}
                                 onUploadComplete={handleUpload("imageBackLeft")}
                                 onRemove={handleRemove("imageBackLeft")}
-                                onFileSelect={onFileSelect ? ((file, blobUrl) => onFileSelect("imageBackLeft", file, blobUrl)) : undefined}
+                                onFileSelect={(file, blobUrl) => onFileSelect("imageBackLeft", file, blobUrl)}
                             />
                             {errors.imageBackLeft && <p className="text-sm text-destructive">{errors.imageBackLeft.message}</p>}
                         </div>
@@ -101,7 +101,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                                 currentUrls={watch("documentTax") ? [watch("documentTax") as string] : []}
                                 onUploadComplete={handleUpload("documentTax")}
                                 onRemove={handleRemove("documentTax")}
-                                onFileSelect={onFileSelect ? ((file, blobUrl) => onFileSelect("documentTax", file, blobUrl)) : undefined}
+                                onFileSelect={(file, blobUrl) => onFileSelect("documentTax", file, blobUrl)}
                             />
                             {errors.documentTax && <p className="text-sm text-destructive">{errors.documentTax.message}</p>}
                         </div>
@@ -112,7 +112,7 @@ export function PhotosSection({ onFileSelect }: PhotosSectionProps) {
                                 currentUrls={watch("documentRegister") ? [watch("documentRegister") as string] : []}
                                 onUploadComplete={handleUpload("documentRegister")}
                                 onRemove={handleRemove("documentRegister")}
-                                onFileSelect={onFileSelect ? ((file, blobUrl) => onFileSelect("documentRegister", file, blobUrl)) : undefined}
+                                onFileSelect={(file, blobUrl) => onFileSelect("documentRegister", file, blobUrl)}
                             />
                             {errors.documentRegister && <p className="text-sm text-destructive">{errors.documentRegister.message}</p>}
                         </div>

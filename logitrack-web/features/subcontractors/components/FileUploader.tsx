@@ -5,24 +5,31 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, FileText, X } from "lucide-react";
-import { uploadSubcontractorFile } from "../services/subcontractorService";
 import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 
 interface FileUploaderProps {
     label: string;
-    folder: string; // e.g., "id_cards" or "company_docs"
-    onUploadComplete: (url: string) => void;
+    /**
+     * Stores one file now and returns its reference (a Go object key, or a Firestore download URL)
+     * and a URL to preview it (T25: `uploadSubcontractorDocument`, by the `masterdata` flag).
+     */
+    upload: (file: File) => Promise<{ ref: string; previewUrl: string }>;
+    onUploadComplete: (ref: string, previewUrl: string) => void;
+    /** The stored references (keys or URLs). */
     currentUrls?: string[];
-    onRemove?: (url: string) => void;
+    /** Preview URL per reference, when it is not a URL itself (a Go key). */
+    previews?: Record<string, string>;
+    onRemove?: (ref: string) => void;
     multiple?: boolean;
 }
 
-export default function FileUploader({ label, folder, onUploadComplete, currentUrls = [], onRemove, multiple = false }: FileUploaderProps) {
+export default function FileUploader({ label, upload, onUploadComplete, currentUrls = [], previews = {}, onRemove }: FileUploaderProps) {
     const [uploading, setUploading] = useState(false);
     const { t } = useLanguage();
 
     const isImageUrl = (url: string) => {
+        if (url.startsWith("blob:")) return true;
         try {
             const urlObj = new URL(url);
             const pathname = urlObj.pathname;
@@ -39,9 +46,8 @@ export default function FileUploader({ label, folder, onUploadComplete, currentU
         const file = e.target.files[0]; // Handle single file for now, loop if multiple needed
         try {
             setUploading(true);
-            const path = `subcontractors/${folder}/${Date.now()}_${file.name}`;
-            const url = await uploadSubcontractorFile(file, path);
-            onUploadComplete(url);
+            const { ref, previewUrl } = await upload(file);
+            onUploadComplete(ref, previewUrl);
             toast.success(t("subcontractors.toast.uploadSuccess"));
 
             // Reset input
@@ -61,7 +67,8 @@ export default function FileUploader({ label, folder, onUploadComplete, currentU
             {/* Existing Files List */}
             {currentUrls.length > 0 && (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                    {currentUrls.map((url, index) => {
+                    {currentUrls.map((ref, index) => {
+                        const url = previews[ref] ?? ref;
                         const isImage = isImageUrl(url);
                         return (
                             <div key={index} className="relative group border rounded-md overflow-hidden bg-muted/30">
@@ -89,7 +96,7 @@ export default function FileUploader({ label, folder, onUploadComplete, currentU
                                         type="button"
                                         onClick={(e) => {
                                             e.preventDefault();
-                                            onRemove(url);
+                                            onRemove(ref);
                                         }}
                                         className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                                     >

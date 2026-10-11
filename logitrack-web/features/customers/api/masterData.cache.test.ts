@@ -1,7 +1,7 @@
-// TW4 (developer-spec.md §10.7; Appendix E §E.4): customers, subcontractors and the owner company are
-// read once per stale time for the whole tab, whichever page or dialog asks, and their writes
-// invalidate the cached copy.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// TW4 / T25 (developer-spec.md §10.7; Appendix E §E.4): customers, subcontractors and the owner company
+// are read once per stale time for the whole tab, whichever page or dialog asks, from Firestore while the
+// `masterdata` flag is off, and their writes invalidate the cached copy.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => ({ reads: [] as string[], writes: [] as string[] }));
 
@@ -11,10 +11,10 @@ vi.mock("firebase/firestore", () => {
     const snapshot = (name: string) => {
         const docs =
             name === "customers"
-                ? [{ id: "c1", data: () => ({ code: "CJ", name: "CJ Express" }) }]
+                ? [{ id: "c1", data: () => ({ code: "CJ", name: "CJ Express", branchType: "สาขา", branchNumber: "00001" }) }]
                 : name === "subcontractors"
-                  ? [{ id: "s1", data: () => ({ name: "Carrier A" }) }]
-                  : [{ id: "co1", data: () => ({ nameTh: "บริษัท", companyType: "owner" }) }];
+                  ? [{ id: "s1", data: () => ({ name: "Carrier A", type: "company" }) }]
+                  : [{ id: "co1", data: () => ({ nameTh: "บริษัท", companyType: "owner", taxId: "1234567890123" }) }];
         return { docs, empty: docs.length === 0, forEach: (fn: (d: unknown) => void) => docs.forEach(fn) };
     };
     return {
@@ -40,45 +40,74 @@ vi.mock("firebase/firestore", () => {
     };
 });
 
-const { getCustomers, updateCustomer, customersQueryOptions } = await import("./customers");
-const { getSubcontractors, updateSubcontractor } = await import("@/features/subcontractors/services/subcontractorService");
-const { getOwnerCompany, updateCompany } = await import("@/features/companies/api/companies");
-const { resetQueryClientForTests } = await import("@/lib/queryClient");
+const { getCustomers, updateCustomer, customersQueryOptions, fetchCustomerOptions } = await import("./customers");
+const { fetchSubcontractorOptions, updateSubcontractor } = await import("@/features/subcontractors/api/subcontractors");
+const { getOwnerCompany, saveCompany, invalidateCompanies } = await import("@/features/companies/api/companies");
+const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
+const { queryKeys } = await import("@/lib/queryKeys");
 
 beforeEach(() => {
     store.reads = [];
     store.writes = [];
     resetQueryClientForTests();
+    // Every domain on Firestore (flags without `masterdata: go`).
+    vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+            if (String(input) === "/api/go/v1/config/web-flags") return new Response(JSON.stringify({ data: { domains: {} } }), { status: 200 });
+            throw new Error(`unexpected ${String(input)}`);
+        })
+    );
 });
 
-describe("cached master data", () => {
+afterEach(() => vi.unstubAllGlobals());
+
+describe("cached master data (masterdata flag off)", () => {
     it("['customers']: fifteen callers, one read; a write refreshes it", async () => {
         expect(customersQueryOptions.queryKey).toEqual(["customers"]);
         expect(customersQueryOptions.staleTime).toBe(600_000);
         const lists = await Promise.all(Array.from({ length: 15 }, () => getCustomers()));
         expect(lists[14][0]).toMatchObject({ id: "c1", code: "CJ" });
         expect(store.reads).toEqual(["customers"]);
-        await updateCustomer("c1", { name: "CJ" });
+        await updateCustomer({
+            id: "c1",
+            input: {
+                code: "CJ", name: "CJ", description: null, address: null, taxId: null, branchType: "branch", branchNumber: "00001",
+                contactName: null, contactPhone: null, billingEmail: null, paymentTermsDays: null, invoiceNote: null,
+                lineGroupId: null, billingDateBasis: "delivered", driverIdTypes: [],
+            },
+        });
+        expect(store.writes).toEqual(["customers"]);
+        await getQueryClient().invalidateQueries({ queryKey: queryKeys.customers.all() });
         await getCustomers();
         expect(store.reads).toEqual(["customers", "customers"]);
     });
 
-    it("['subcontractors']: one read for the truck and driver forms; a write refreshes it", async () => {
-        await getSubcontractors();
-        await getSubcontractors();
+    it("['customers','options']: the picker list maps the Thai branch label away and is shared", async () => {
+        const [a, b] = await Promise.all([fetchCustomerOptions(), fetchCustomerOptions()]);
+        expect(a).toEqual([{ id: "c1", billingPartyId: null, code: "CJ", name: "CJ Express" }]);
+        expect(b).toBe(a);
+        expect(store.reads).toEqual(["customers"]);
+    });
+
+    it("['subcontractors','options']: one read for the truck and driver forms", async () => {
+        const options = await fetchSubcontractorOptions();
+        await fetchSubcontractorOptions();
+        expect(options).toEqual([{ id: "s1", code: null, nameTh: "Carrier A", nameEn: null, status: "active" }]);
         expect(store.reads).toEqual(["subcontractors"]);
-        await updateSubcontractor("s1", { name: "Carrier B" } as never);
-        await getSubcontractors();
-        expect(store.reads).toEqual(["subcontractors", "subcontractors"]);
+        await updateSubcontractor({ id: "s1", values: { name: "Carrier B", type: "company", taxId: "", contactPerson: "a", phone: "1" } as never });
+        expect(store.writes).toEqual(["subcontractors"]);
     });
 
     it("['companies',{owner:true}]: shared by three pages; the profile form reads fresh", async () => {
+        const owner = await getOwnerCompany();
         await getOwnerCompany();
-        await getOwnerCompany();
+        expect(owner).toMatchObject({ id: "co1", nameTh: "บริษัท", companyType: "owner", branchType: "headquarters" });
         expect(store.reads).toEqual(["companies"]);
         await getOwnerCompany({ fresh: true });
         expect(store.reads).toEqual(["companies", "companies"]);
-        await updateCompany("co1", { nameTh: "บริษัท" } as never);
+        await saveCompany({ id: "co1", values: { nameTh: "บริษัท" } as never });
+        await invalidateCompanies();
         await getOwnerCompany();
         expect(store.reads).toEqual(["companies", "companies", "companies"]);
     });
