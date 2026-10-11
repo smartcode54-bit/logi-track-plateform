@@ -26,6 +26,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -45,8 +46,9 @@ func main() {
 // groups are added to this call: the auth groups (T05), the jobs groups (T10) and the SSE streams
 // (T12) come from deps, which app.BuildAPI wires, GET /v1/roles (T07) and the users and tenants
 // administration (T19, deps.Admin, with the carrier profiles of T20), the API keys administration (T32K,
-// deps.APIKeys) and the customers and companies (T20, deps.Parties) sit behind deps.Auth.RequireAuth,
-// the web flags (T17) come from the configuration and the storage groups (T11)
+// deps.APIKeys), the customers and companies (T20, deps.Parties) and the hubs, distances and
+// POST /v1/jobs/distances.compute (T21, deps.Hubs) sit behind deps.Auth.RequireAuth, the web flags (T17)
+// come from the configuration and the storage groups (T11)
 // from deps.Storage; extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
 // only register handlers and never read a service, so the table needs no database, Redis or signing
 // key.
@@ -59,6 +61,7 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, iam.AdminGroups(deps.Admin, deps.Auth.RequireAuth())...)
 	groups = append(groups, iam.APIKeyGroups(deps.APIKeys, deps.Auth.RequireAuth())...)
 	groups = append(groups, parties.Groups(deps.Parties, deps.Auth.RequireAuth())...)
+	groups = append(groups, hubs.Groups(deps.Hubs, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)

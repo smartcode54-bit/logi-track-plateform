@@ -15,12 +15,14 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/email"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/gmaps"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
@@ -220,6 +222,22 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 	}
 	log.Info().Bool("fcm_enabled", cfg.FCMEnabled).Msg("notify.fcm")
 	available[notify.QueueFCM] = fcm.Registration()
+
+	// distances.compute (T21): the Distance Matrix client only when DISTANCE_MATRIX_ENABLED is on (no I/O here).
+	var matrix gmaps.DistanceMatrix
+	if cfg.DistanceMatrixEnabled {
+		client, err := gmaps.New(gmaps.Config{APIKey: cfg.GoogleMapsServerAPIKey})
+		if err != nil {
+			return nil, &config.Error{Invalid: []string{"GOOGLE_MAPS_SERVER_API_KEY: " + err.Error()}}
+		}
+		matrix = client
+	}
+	log.Info().Bool("distance_matrix_enabled", cfg.DistanceMatrixEnabled).Msg("distances.compute")
+	distances, err := hubs.NewDistanceJob(hubs.JobDeps{Pool: pool, Matrix: matrix, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, err
+	}
+	available[hubs.QueueDistances] = distances.Registration()
 
 	var regs []mq.Registration
 	var waiting []string

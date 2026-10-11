@@ -69,6 +69,23 @@ func TestWorkerConfigFCM(t *testing.T) {
 	}
 }
 
+// distances.compute (T21): the Distance Matrix switch is off by default, and on it needs the server key (the value is
+// a placeholder: no request is made).
+func TestWorkerConfigDistanceMatrix(t *testing.T) {
+	cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv())
+	if err != nil || cfg.DistanceMatrixEnabled {
+		t.Fatalf("default: %v %v", cfg.DistanceMatrixEnabled, err)
+	}
+	cfg, err = config.LoadFrom[app.WorkerConfig](workerEnv("DISTANCE_MATRIX_ENABLED=true", "GOOGLE_MAPS_SERVER_API_KEY=placeholder"))
+	if err != nil || !cfg.DistanceMatrixEnabled {
+		t.Fatalf("on: %v", err)
+	}
+	_, err = config.LoadFrom[app.WorkerConfig](workerEnv("DISTANCE_MATRIX_ENABLED=true", "GOOGLE_MAPS_SERVER_API_KEY="))
+	if err == nil || !strings.Contains(err.Error(), "GOOGLE_MAPS_SERVER_API_KEY") {
+		t.Fatalf("on without a key: %v", err)
+	}
+}
+
 func TestWorkerConfigConsumers(t *testing.T) {
 	cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv("WORKER_CONSUMERS=notify, billing,notify"))
 	if err != nil {
