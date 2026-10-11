@@ -30,7 +30,7 @@ GITLEAKS_IMG := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16
 .PHONY: help env dev-keys dev-db up api-reload down reset ps logs psql redis-cli amqp-ui minio-console tunnel \
         migrate migrate-up-to migrate-apply migrate-new migrate-status migrate-down migrate-check migrate-roundtrip \
         seed seed-verify seed-budget etl-fixtures etl-fixtures-check \
-        test test-integration lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke vm-check
+        test test-integration test-shard lint sqlc gen gen-check openapi web env-check secrets-scan print-gitleaks-img smoke vm-check
 
 help: ## list targets
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -136,6 +136,15 @@ test: ## unit tests with the race detector
 
 test-integration: ## unit + integration tests (testcontainers: postgres:18-alpine with 00-roles.sql)
 	DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration $(TESTFLAGS) ./...
+
+# go-ci's test job runs test-integration as parallel shards; tools/testshard spreads the packages by
+# their CI durations (tools/testshard/weights.txt), and the shards together run every package once.
+SHARD  ?= 1
+SHARDS ?= 1
+test-shard: ## shard SHARD of SHARDS of test-integration (go-ci runs every shard in parallel)
+	@pkgs=$$(go run ./tools/testshard -shard $(SHARD) -of $(SHARDS)) && \
+	  echo "test-shard $(SHARD)/$(SHARDS):" $$pkgs | sed 's#github.com/smartcode54-bit/logi-track-plateform/logitrack-api/##g' && \
+	  DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration $(TESTFLAGS) $$pkgs
 
 lint: ## gofmt, go mod tidy, go vet, the WithSystem allow-list, golangci-lint (incl. staticcheck), govulncheck; integration-tagged files included
 	@unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then echo "gofmt -w needed:" >&2; echo "$$unformatted" >&2; exit 1; fi
