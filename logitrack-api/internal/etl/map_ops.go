@@ -3,13 +3,13 @@ package etl
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/tripcheck"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
 
@@ -19,19 +19,8 @@ import (
 // DefaultCustomerID is the hard-coded customer of the blanket link backfill (backfillCustomerLinks.ts:6, Q9).
 const DefaultCustomerID = "7gbnX0Tv9xNQgTKrgp0F"
 
-// trip photo types of TRIP_PHOTO_TYPE_ENUM and the per-stop pattern (photo_type_known, 0004).
-var (
-	tripPhotoTypes = map[string]bool{"pre_close": true, "closing": true, "seal": true, "runsheet": true, "runsheet_extra_1": true,
-		"runsheet_extra_2": true, "runsheet_extra_3": true, "pre_open": true, "opening": true, "empty_container": true,
-		"runsheet_received": true, "checkin_app": true, "truck_release": true, "arrived": true}
-	stopPhotoType = regexp.MustCompile(`^stop_[0-9]+_(arrived|pre_open|opening|empty_container|runsheet_received)$`)
-	// tripNoCharset is the trip_records.trip_no CHECK (core/tripDocId.ts:10-18).
-	tripNoBad = regexp.MustCompile(`/|^\.{1,2}$|^__.*__$`)
-)
-
-func knownTripPhotoType(t string) bool { return tripPhotoTypes[t] || stopPhotoType.MatchString(t) }
-
-func validTripNo(s string) bool { return s != "" && len(s) <= 1500 && !tripNoBad.MatchString(s) }
+// The trip_records.trip_no CHECK and the known trip photo types (photo_type_known, 0004) are tripcheck's, the one Go
+// copy of both rules (the operations integration tests compare it with the schema).
 
 // jobCategory is PRIMARY, SUPPLEMENTARY or NULL (absent legacy: never defaulted, ADR 0010).
 func (c *docCtx) jobCategory(field string) *string {
@@ -411,7 +400,7 @@ func strPtr(s string) *string {
 func (c *docCtx) tripNo() (string, error) {
 	no := c.doc.ID
 	if spx := c.str("spxTripId"); spx != "" && spx != c.doc.ID {
-		if !validTripNo(spx) {
+		if tripcheck.ValidateTripNo(spx) != "" {
 			c.find("spxTripId", ReasonTripNoMismatch, "fails the trip number charset; the doc id is the trip number", spx)
 		} else {
 			no = spx
@@ -506,7 +495,7 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 			c.find(field+".type", ReasonPhotoTypeUnknown, "photo without a type is not loaded", p)
 			continue
 		}
-		if !knownTripPhotoType(typ) {
+		if !tripcheck.PhotoTypeKnown(typ) {
 			c.find(field+".type", ReasonPhotoTypeUnknown, "outside TRIP_PHOTO_TYPE_ENUM and stop_{n}_*; loaded with photo_type_known=false", typ)
 		}
 		fid, err := c.fileRef(field+".url", m["url"], "trip_photo", "trip", id, tenant)

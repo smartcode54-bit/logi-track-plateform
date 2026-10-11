@@ -39,7 +39,10 @@ const AssignmentsPrefix = "/v1/truck-assignments"
 //	GET   /v1/truck-assignments              fleet:view_assignments
 //	POST  /v1/truck-assignments              fleet:manage_assignments
 //	POST  /v1/truck-assignments/{id}/revoke  fleet:manage_assignments
-func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
+//
+// truckRoutes are routes other packages serve below /v1/trucks (one group per prefix): POST /v1/trucks/{id}/pm-check
+// of internal/maintenance (T40).
+func Groups(s *Service, requireAuth fiber.Handler, truckRoutes ...func(r fiber.Router)) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
 	return []ingress.Group{{Prefix: TrucksPrefix, Mount: func(r fiber.Router) {
@@ -50,6 +53,9 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 		r.Get("/:id", requireAuth, need(authz.FleetViewTrucks), h.get)
 		r.Patch("/:id", requireAuth, need(authz.FleetEditTruck), h.patch)
 		r.Post("/:id/renewals", requireAuth, need(authz.FleetManageRenewals), h.renew)
+		for _, mount := range truckRoutes {
+			mount(r)
+		}
 	}}, {Prefix: AssignmentsPrefix, Mount: func(r fiber.Router) {
 		r.Get("", requireAuth, need(authz.FleetViewAssignments), h.listAssignments)
 		r.Post("", requireAuth, need(authz.FleetManageAssignments), h.assign)
@@ -303,7 +309,7 @@ func (h handlers) listAssignments(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := onlyQuery(c, "status", "truckId", "driverId", "limit", "cursor"); err != nil {
+	if err := onlyQuery(c, "status", "truckId", "driverId", "q", "limit", "cursor"); err != nil {
 		return err
 	}
 	limit, err := queryLimit(c)
@@ -311,7 +317,7 @@ func (h handlers) listAssignments(c fiber.Ctx) error {
 		return err
 	}
 	out, next, err := h.s.ListAssignments(c.Context(), p, ListAssignmentsInput{Status: c.Query("status"),
-		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Limit: limit, Cursor: c.Query("cursor")})
+		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Q: c.Query("q"), Limit: limit, Cursor: c.Query("cursor")})
 	if err != nil {
 		return err
 	}

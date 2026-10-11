@@ -197,8 +197,8 @@ func (s *Service) CreateStatement(ctx context.Context, p *authz.Principal, rid s
 	}
 	now := s.now().UTC().Truncate(time.Microsecond)
 	from, to := bangkokMonth(in.Year, in.Month)
-	// A priced standby record without a recorded carrier (the ETL's) is the own fleet's (0014, R61); billingTenantOf
-	// already made the billing tenant the own fleet.
+	// A priced standby record without a recorded carrier (the ETL's) is its rate entry's carrier, else the own fleet's
+	// (0015, R61); billingTenantOf already made the billing tenant the own fleet.
 	ownFleet := p.TenantKind == authz.TenantKindOwnFleet
 	set := func(party uuid.UUID, planBasis bool) billingdb.StatementInvoiceSetParams {
 		return billingdb.StatementInvoiceSetParams{PartyID: party, TenantID: tenant, PlanBasis: planBasis, PeriodFrom: from,

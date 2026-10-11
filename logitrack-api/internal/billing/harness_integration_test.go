@@ -286,7 +286,7 @@ func (w *world) stop(trip string, idx int, dest string, final float64) {
 }
 
 // standby inserts a completed, priced standby record of tenant, priced from rateEntry ("" = a service fee) by
-// billingTenant (R61, 0014; "" = none recorded, as the ETL loads it).
+// billingTenant (R61, 0015; "" = none recorded, as the ETL loads it).
 func (w *world) standby(tenant, party, rateEntry, billingTenant string, endedAt time.Time, estimate float64) string {
 	source := "standby_rate"
 	if rateEntry == "" {

@@ -45,8 +45,9 @@ RETURNING id, withholding_tax_rate::float8 AS withholding_tax_rate;
 -- delivered_at) inside the Bangkok month, priced by this billing carrier (trip_billing_snapshots.tenant_id) with an
 -- estimate other than 0; a multi-drop trip with a breakdown becomes one line per stop whose final rate is not 0; completed
 -- standby records of the party by ended_at, priced (billing_estimate_thb <> 0) by this billing carrier
--- (standby_records.billing_tenant_id, stamped with the price, 0014: a fee deleted or re-typed later does not move it; a
--- priced row without one, written by the ETL, is the own fleet's, so own_fleet says whether the billing tenant is it).
+-- (standby_records.billing_tenant_id, stamped with the price, 0015: a fee deleted or re-typed later does not move it; a
+-- priced row without one, as the ETL loads it, is the carrier's of the rate entry it names (immutable, never deleted),
+-- else the own fleet's, so own_fleet says whether the billing tenant is it: the rule of operations.BillingVisible).
 -- Type toggles (trip, multidrop, standby) and category toggles (PRIMARY, SUPPLEMENTARY, unverified = neither on the trip
 -- nor on its task; standby exempt) choose the invoice set (main spec §6.14). The statement transaction runs under the
 -- caller's RLS, so a row outside its tenant reach is not read; StatementInvoiceSet counts the same set without RLS and
@@ -88,8 +89,9 @@ FROM (
     AND sr.status = 'completed' AND sr.billing_party_id = sqlc.arg(party_id)::uuid
     AND sr.ended_at >= sqlc.arg(period_from)::timestamptz AND sr.ended_at < sqlc.arg(period_to)::timestamptz
     AND sr.billing_estimate_thb IS NOT NULL AND sr.billing_estimate_thb <> 0
-    AND (sr.billing_tenant_id = sqlc.arg(tenant_id)::uuid
-         OR (sr.billing_tenant_id IS NULL AND sqlc.arg(own_fleet)::boolean))
+    AND coalesce(sr.billing_tenant_id,
+                 (SELECT r.tenant_id FROM standby_rate_entries r WHERE r.id = sr.billing_rate_entry_id),
+                 CASE WHEN sqlc.arg(own_fleet)::boolean THEN sqlc.arg(tenant_id)::uuid END) = sqlc.arg(tenant_id)::uuid
 ) x;
 
 -- name: StatementInvoiceSet :one
@@ -132,8 +134,9 @@ FROM (
     AND sr.status = 'completed' AND sr.billing_party_id = sqlc.arg(party_id)::uuid
     AND sr.ended_at >= sqlc.arg(period_from)::timestamptz AND sr.ended_at < sqlc.arg(period_to)::timestamptz
     AND sr.billing_estimate_thb IS NOT NULL AND sr.billing_estimate_thb <> 0
-    AND (sr.billing_tenant_id = sqlc.arg(tenant_id)::uuid
-         OR (sr.billing_tenant_id IS NULL AND sqlc.arg(own_fleet)::boolean))
+    AND coalesce(sr.billing_tenant_id,
+                 (SELECT r.tenant_id FROM standby_rate_entries r WHERE r.id = sr.billing_rate_entry_id),
+                 CASE WHEN sqlc.arg(own_fleet)::boolean THEN sqlc.arg(tenant_id)::uuid END) = sqlc.arg(tenant_id)::uuid
 ) x;
 
 -- name: StatementTotals :one

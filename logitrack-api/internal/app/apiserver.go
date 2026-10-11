@@ -18,10 +18,12 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
@@ -54,6 +56,10 @@ type APIDeps struct {
 	Fleet *fleet.Service
 	// Drivers are the driver master of T23: /v1/drivers*.
 	Drivers *drivers.Service
+	// Expenses are the vehicle expenses of T40: /v1/expenses* (server filter, audit with the PM check, toll import).
+	Expenses *expenses.Service
+	// Maintenance is the maintenance records of T40: /v1/maintenance* and POST /v1/trucks/{id}/pm-check.
+	Maintenance *maintenance.Service
 	// Billing is the billing data layer of T37: /v1/billing/{rate-entries,fuel-adjustments,service-fees,standby-rates,
 	// statements}*, /v1/fuel/*, POST /v1/jobs/bangchak.snapshot.
 	Billing *billing.Service
@@ -257,6 +263,19 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Maintenance and vehicle expenses (T40): RLS decides (db.WithPrincipal); an approval runs the PM check in its
+	// transaction. Staff writes go to PostgreSQL, as a PostgreSQL-owned domain and a deployment without the FS->PG
+	// mirror need; the class C write-back (Firestore first, main spec §11.10) lands with T31 (internal/writeback).
+	maintSvc, err := maintenance.New(maintenance.Deps{Pool: pool, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	expenseSvc, err := expenses.New(expenses.Deps{Pool: pool, Files: st, PM: maintSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// Billing (T37): rate tables, statements and invoice numbers, fuel snapshots, under RLS (db.WithPrincipal); the
 	// rate-card bundle and the Bangchak retail prices through the cache: layer (UI only); POST
 	// /v1/jobs/bangchak.snapshot submits through the jobs service (the worker runs it).
@@ -281,8 +300,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Drivers: driverSvc, Billing: billingSvc, Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter,
-		RateLimitEnabled: cfg.RateLimit.Enabled})
+		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Jobs: jobSvc, Storage: st,
+		Events: events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

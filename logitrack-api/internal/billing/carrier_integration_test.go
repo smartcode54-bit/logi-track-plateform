@@ -261,7 +261,7 @@ func TestStatementWithholdingReadOnce(t *testing.T) {
 	}
 }
 
-// Regression (T37 review): a priced standby record is invoiced by the carrier stored with its price (0014), not by the
+// Regression (T37 review): a priced standby record is invoiced by the carrier stored with its price (0015), not by the
 // current state of the fee or rate that priced it. A service fee deleted or re-typed later, or an ETL row whose rate
 // entry is not linked yet, used to drop the record out of every invoice.
 func TestStandbyInvoicedByItsRecordedCarrier(t *testing.T) {
@@ -291,8 +291,10 @@ func TestStandbyInvoicedByItsRecordedCarrier(t *testing.T) {
 		billing_estimate_thb, billing_party_id, billing_rate_source) VALUES ($1, 'driver', $2, $3, $3, 'completed', 300, $2, 'standby_rate')`,
 		w.O, w.partyY, bkk(2026, 10, 11, 9, 0))
 	total(750)
-	// A record carrier A priced (A is in the own fleet's reach) is A's, never the own fleet's invoice.
+	// A record carrier A priced (A is in the own fleet's reach) is A's, never the own fleet's invoice: stored, or (no
+	// carrier recorded) through the immutable rate entry it names, as operations.BillingVisible reads it.
 	w.standby(w.A, w.partyY, "", w.A, bkk(2026, 10, 12, 9, 0), 999)
+	w.standby(w.A, w.partyY, w.standbyRate(w.A, w.partyY, "2026-01-01", 888), "", bkk(2026, 10, 13, 9, 0), 888)
 	total(750)
 }
 
@@ -340,13 +342,13 @@ func TestStatementRefusesRowsOutsideReach(t *testing.T) {
 	}
 }
 
-// 0014 backfills the carrier of every priced standby record from what the invoice set derived until then: the rate's
-// tenant, else the party's standby fee's, else the own fleet; unpriced rows stay NULL.
+// 0015 backfills the carrier of every priced standby record: the carrier of the rate entry it names, else the own fleet
+// (never through customer_service_fees, as operations.BillingVisible); unpriced rows stay NULL.
 func TestStandbyBillingTenantBackfill(t *testing.T) {
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	r := migratetest.Runner(t, d, migrations.FS)
-	if _, err := r.UpTo(ctx, 13); err != nil {
+	if _, err := r.UpTo(ctx, 14); err != nil {
 		t.Fatal(err)
 	}
 	c, err := pgx.Connect(ctx, d.URL(db.RoleETL))
@@ -387,7 +389,7 @@ func TestStandbyBillingTenantBackfill(t *testing.T) {
 	if _, err := r.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for row, want := range map[string]string{fromRate: carrier, fromFee: carrier, unlinked: own, unpriced: ""} {
+	for row, want := range map[string]string{fromRate: carrier, fromFee: own, unlinked: own, unpriced: ""} {
 		var got *string
 		if err := c.QueryRow(ctx, `SELECT billing_tenant_id::text FROM standby_records WHERE id = $1`, row).Scan(&got); err != nil {
 			t.Fatal(err)
