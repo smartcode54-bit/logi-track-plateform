@@ -21,6 +21,13 @@ import (
 // or a trip renamed twice between two runs). A field that carries an open finding (an unknown literal keeps
 // PostgreSQL's value, a trip number held by another document) is not compared; a document not mirrored yet or held is
 // left to the mirror check.
+//
+// The listeners keep applying while the reconciliation runs (it reads Firestore first, then compares, without the load
+// lock, which would stall them), so a row may have moved past the snapshot it is compared with. A document is
+// compared only with the row of its own version: one statement reads, per document, the version etl.source_docs
+// records, its open findings and the compared columns, in one snapshot of PostgreSQL (a listener's transaction writes
+// the version and the row together), and a document whose recorded version is no longer the snapshot's is skipped
+// (moved on since the read, counted in the note), never reported as a difference.
 
 // opsRow is the compared columns of one row, as text (times in RFC 3339, UTC), keyed by document field.
 type opsRow map[string]string
@@ -88,110 +95,81 @@ func textOf(s *string) string {
 	return *s
 }
 
-// reconcileOps runs the two operations checks of one collection.
-func reconcileOps(ctx context.Context, tx pgx.Tx, coll string, docs []dump.Doc, rec *Reconciliation) error {
+// reconcileOps runs the two operations checks of one collection; at is the read time of docs (zero: unknown).
+func reconcileOps(ctx context.Context, tx pgx.Tx, coll string, docs []dump.Doc, at time.Time, rec *Reconciliation) error {
 	cmp, ok := opsCompare[coll]
 	if !ok {
 		return nil
 	}
 	table := opsTables[coll].table
-	// The documents that were applied at their current version and whose row the comparison reads.
-	rows, err := tx.Query(ctx, `SELECT doc_path, source_update_time FROM etl.source_docs
-		WHERE collection = $1 AND status IN ('loaded', 'quarantined')`, coll)
-	if err != nil {
-		return err
-	}
-	applied := map[string]time.Time{}
-	for rows.Next() {
-		var p string
-		var t time.Time
-		if err := rows.Scan(&p, &t); err != nil {
-			rows.Close()
-			return err
-		}
-		applied[p] = t
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	findings := map[string]map[string]bool{}
-	rows, err = tx.Query(ctx, `SELECT doc_path, split_part(field, '.', 1) FROM etl.quarantine
-		WHERE collection = $1 AND resolved_at IS NULL AND field IS NOT NULL`, coll)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var p, f string
-		if err := rows.Scan(&p, &f); err != nil {
-			rows.Close()
-			return err
-		}
-		if findings[p] == nil {
-			findings[p] = map[string]bool{}
-		}
-		findings[p][f] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	var ids []string
-	byID := map[string]dump.Doc{}
+	byPath := make(map[string]dump.Doc, len(docs))
+	ids := make([]string, 0, len(docs))
+	paths := make([]string, 0, len(docs))
 	for _, d := range docs {
-		if t, ok := applied[d.Path]; ok && !t.Before(d.UpdateTime.Truncate(time.Microsecond)) {
-			ids = append(ids, d.ID)
-			byID[d.ID] = d
-		}
+		byPath[d.Path] = d
+		ids = append(ids, d.ID)
+		paths = append(paths, d.Path)
 	}
-	got := map[string]opsRow{}
-	if len(ids) > 0 {
-		rows, err = tx.Query(ctx, cmp.query, ids)
-		if err != nil {
-			return fmt.Errorf("etl: reconcile-sync %s: %w", coll, err)
-		}
-		cols := opsColumns[coll]
-		for rows.Next() {
-			vals := make([]any, len(cols)+1)
-			var id string
-			vals[0] = &id
-			raw := make([]any, len(cols))
-			for i := range cols {
-				raw[i] = new(any)
-				vals[i+1] = raw[i]
-			}
-			if err := rows.Scan(vals...); err != nil {
-				rows.Close()
-				return fmt.Errorf("etl: reconcile-sync %s: %w", coll, err)
-			}
-			r := opsRow{}
-			for i, c := range cols {
-				switch v := (*raw[i].(*any)).(type) {
-				case nil:
-					r[c] = ""
-				case time.Time:
-					r[c] = v.UTC().Format(time.RFC3339Nano)
-				default:
-					r[c] = fmt.Sprint(v)
-				}
-			}
-			got[id] = r
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("etl: reconcile-sync %s: %w", coll, err)
-		}
+	cols := opsColumns[coll]
+	// cmp.query reads the rows by legacy_doc_id ($1); the four collections are top-level, so a row's document path is
+	// the collection and its legacy_doc_id. Tombstones, rejected, pending and unrecorded documents are not returned:
+	// the mirror check reports them.
+	rows, err := tx.Query(ctx, `SELECT s.doc_path, s.source_update_time,
+		  coalesce((SELECT array_agg(DISTINCT split_part(f.field, '.', 1)) FROM etl.quarantine f
+		    WHERE f.collection = s.collection AND f.doc_path = s.doc_path AND f.resolved_at IS NULL AND f.field IS NOT NULL), '{}'),
+		  x.*
+		FROM etl.source_docs s LEFT JOIN (`+cmp.query+`) x ON s.doc_path = $2::text || '/' || x.legacy_doc_id
+		WHERE s.collection = $2::text AND s.doc_path = ANY($3::text[]) AND s.status IN ('loaded', 'quarantined')
+		ORDER BY s.doc_path`, ids, coll, paths)
+	if err != nil {
+		return fmt.Errorf("etl: reconcile-sync %s: %w", coll, err)
 	}
 	var missing, differ []string
-	for _, id := range ids {
-		d := byID[id]
-		row, ok := got[id]
-		if !ok {
-			missing = append(missing, d.Path)
+	compared, moved := 0, 0
+	for rows.Next() {
+		var path string
+		var version time.Time
+		var skip []string
+		var id *string
+		raw := make([]any, len(cols))
+		vals := []any{&path, &version, &skip, &id}
+		for i := range cols {
+			raw[i] = new(any)
+			vals = append(vals, raw[i])
+		}
+		if err := rows.Scan(vals...); err != nil {
+			rows.Close()
+			return fmt.Errorf("etl: reconcile-sync %s: %w", coll, err)
+		}
+		d := byPath[path]
+		switch ut := d.UpdateTime.Truncate(time.Microsecond); {
+		case version.After(ut):
+			moved++ // a newer version was applied since the read: its row is not this document's
 			continue
+		case version.Before(ut):
+			continue // not mirrored yet: the mirror check reports it
+		}
+		compared++
+		if id == nil {
+			missing = append(missing, path)
+			continue
+		}
+		row := opsRow{}
+		for i, c := range cols {
+			switch v := (*raw[i].(*any)).(type) {
+			case nil:
+				row[c] = ""
+			case time.Time:
+				row[c] = v.UTC().Format(time.RFC3339Nano)
+			default:
+				row[c] = fmt.Sprint(v)
+			}
 		}
 		c := &docCtx{ctx: ctx, f: d.Fields, doc: d}
 		want := cmp.want(c)
 		var bad []string
-		for _, f := range opsColumns[coll] {
-			if findings[d.Path][f] {
+		for _, f := range cols {
+			if slices.Contains(skip, f) {
 				continue
 			}
 			switch {
@@ -207,8 +185,11 @@ func reconcileOps(ctx context.Context, tx pgx.Tx, coll string, docs []dump.Doc, 
 			}
 		}
 		if len(bad) > 0 {
-			differ = append(differ, d.Path+" ("+strings.Join(bad, ",")+")")
+			differ = append(differ, path+" ("+strings.Join(bad, ",")+")")
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("etl: reconcile-sync %s: %w", coll, err)
 	}
 	note := "the boards', monitor's and billing columns equal the document"
 	var notes []string
@@ -221,14 +202,22 @@ func reconcileOps(ctx context.Context, tx pgx.Tx, coll string, docs []dump.Doc, 
 	if len(notes) > 0 {
 		note = strings.Join(notes, "; ")
 	}
-	rec.add("ops_fields", coll, len(ids), len(ids)-len(missing)-len(differ), len(missing)+len(differ) == 0, note)
-
-	// Rows whose document Firestore no longer has.
-	inSource := make(map[string]bool, len(docs))
-	for _, d := range docs {
-		inSource[d.ID] = true
+	if moved > 0 {
+		note += fmt.Sprintf(" (%d moved on since the read, not compared)", moved)
 	}
-	rows, err = tx.Query(ctx, `SELECT legacy_doc_id FROM `+pgx.Identifier{table}.Sanitize()+` WHERE legacy_doc_id IS NOT NULL`)
+	rec.add("ops_fields", coll, compared, compared-len(missing)-len(differ), len(missing)+len(differ) == 0, note)
+
+	// Rows whose document Firestore no longer has; a row whose document was recorded after the read (created since,
+	// or renamed since by a listener) is not one.
+	var readAt *time.Time
+	if !at.IsZero() {
+		t := at.UTC()
+		readAt = &t
+	}
+	rows, err = tx.Query(ctx, `SELECT x.legacy_doc_id FROM `+pgx.Identifier{table}.Sanitize()+` x
+		WHERE x.legacy_doc_id IS NOT NULL AND x.legacy_doc_id <> ALL($1::text[])
+		  AND ($3::timestamptz IS NULL OR NOT EXISTS (SELECT 1 FROM etl.source_docs s WHERE s.collection = $2::text
+		      AND s.doc_path = $2::text || '/' || x.legacy_doc_id AND s.source_update_time > $3))`, ids, coll, readAt)
 	if err != nil {
 		return err
 	}
@@ -236,11 +225,9 @@ func reconcileOps(ctx context.Context, tx pgx.Tx, coll string, docs []dump.Doc, 
 	if err != nil {
 		return err
 	}
-	var orphans []string
+	orphans := make([]string, 0, len(legacy))
 	for _, id := range legacy {
-		if !inSource[id] {
-			orphans = append(orphans, coll+"/"+id)
-		}
+		orphans = append(orphans, coll+"/"+id)
 	}
 	if len(orphans) > 0 {
 		rec.add("ops_rows_without_document", coll, 0, len(orphans), true,

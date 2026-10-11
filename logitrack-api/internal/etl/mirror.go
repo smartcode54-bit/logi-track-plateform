@@ -276,7 +276,7 @@ func (e *Engine) Mirror(ctx context.Context, src DocSource, plan MirrorPlan) (*R
 		docs[m.Name] = ds
 	}
 	billable := billableFrom(docs["trip_records"])
-	rep := &Report{ExportedAt: read}
+	rep := &Report{ExportedAt: read, ReadAt: at}
 	err := e.cfg.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('lt-etl-load'))`); err != nil {
 			return fmt.Errorf("etl: lock: %w", err)
@@ -289,14 +289,14 @@ func (e *Engine) Mirror(ctx context.Context, src DocSource, plan MirrorPlan) (*R
 		}
 		r := e.newRun(ctx, tx, rep)
 		r.owned = plan.Owned
-		r.events = true
+		r.events, r.mirror = true, true
 		for i, m := range plan.Entries {
 			stats, err := e.loadCollection(ctx, tx, specs[i], docs[m.Name], read, LoadOptions{SinceWatermark: true, Mirror: true}, billable, rep, r)
 			if err != nil {
 				return err
 			}
 			if m.Mode == MirrorFull {
-				if err := e.mirrorRemoved(ctx, tx, m.Name, docs[m.Name], &stats); err != nil {
+				if err := e.mirrorRemoved(ctx, r, m.Name, docs[m.Name], at, &stats); err != nil {
 					return err
 				}
 			}

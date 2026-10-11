@@ -386,9 +386,10 @@ func coexistRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, rdb *r
 	}
 	var listener *coexist.Listener
 	if cfg.ETLSyncEnabled && etlPool != nil && fs != nil {
+		ttl := coexist.LeaseTTLFor(cfg.ETLListenInterval)
 		listener, err = coexist.NewListener(coexist.ListenConfig{Interval: cfg.ETLListenInterval, ETLPool: etlPool, Source: fs,
 			Plan: cfg.Coexist.Mirror, Bucket: cfg.S3Bucket, PublicBucket: cfg.S3PublicBucket,
-			Lease: coexist.NewRedisLease(rdb, ks.MirrorListenLock(), coexist.ListenLeaseTTL), Acks: acks, Log: log, Metrics: metrics})
+			Lease: coexist.NewRedisLease(rdb, ks.MirrorListenLock(), ttl), LeaseTTL: ttl, Acks: acks, Log: log, Metrics: metrics})
 		if err != nil {
 			return nil, nil, err
 		}

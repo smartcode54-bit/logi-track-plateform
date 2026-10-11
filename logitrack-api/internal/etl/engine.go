@@ -152,8 +152,11 @@ type DocResult struct {
 
 // Report is the result of a load.
 type Report struct {
-	DryRun      bool
-	ExportedAt  time.Time
+	DryRun     bool
+	ExportedAt time.Time
+	// ReadAt is the Firestore read time of a mirror run that read at one (a sweep over a SnapshotSource, a listener's
+	// poll); zero otherwise. The daily reconciliation compares that same snapshot (SyncReconcileOptions.ReadAt).
+	ReadAt      time.Time
 	Collections []CollectionStats
 	Docs        []DocResult
 	// Extra are findings a collection's after-hook raised on documents of an earlier collection (a trip whose

@@ -50,14 +50,20 @@ type opsTable struct {
 
 const childDigest = `md5(coalesce(string_agg((to_jsonb(x) - 'id' - 'created_at' - 'updated_at')::text, ',' ORDER BY (to_jsonb(x) - 'id' - 'created_at' - 'updated_at')::text), ''))`
 
+// tripPhotoDigest digests a trip's photos with the plan index of the stop a photo belongs to instead of the stop's
+// id: tripStops replaces the stops (new ids) on every apply and re-links the stop photos, so the id would differ every
+// time and every write of a multi-drop trip would read as a change of its photos.
+const tripPhotoDigest = `SELECT md5(coalesce(string_agg(p.e::text, ',' ORDER BY p.e::text), '')) FROM (
+	SELECT (to_jsonb(x) - 'id' - 'created_at' - 'updated_at' - 'stop_id') || jsonb_build_object('stop_index', s.stop_index) AS e
+	FROM trip_photos x LEFT JOIN trip_delivery_stops s ON s.id = x.stop_id WHERE x.trip_id = $1) p`
+
 var opsTables = map[string]opsTable{
 	"tasks": {table: "tasks", aggregate: "task",
 		children: `SELECT ` + childDigest + ` FROM task_delivery_stops x WHERE x.task_id = $1`,
 		ignore:   []string{"updated_at"}},
 	"trip_records": {table: "trip_records", aggregate: "trip",
-		children: `SELECT (SELECT ` + childDigest + ` FROM trip_photos x WHERE x.trip_id = $1) || (SELECT ` + childDigest +
-			` FROM trip_delivery_stops x WHERE x.trip_id = $1)`,
-		ignore: []string{"updated_at", "billing_axis_date"}},
+		children: `SELECT (` + tripPhotoDigest + `) || (SELECT ` + childDigest + ` FROM trip_delivery_stops x WHERE x.trip_id = $1)`,
+		ignore:   []string{"updated_at", "billing_axis_date"}},
 	"standby_records": {table: "standby_records", aggregate: "standby",
 		ignore: []string{"updated_at", "billing_axis_date", "billing_estimate_thb", "billing_party_id", "billing_rate_source",
 			"billing_rate_entry_id", "billing_effective_from_date", "billing_unpriced_reason", "billing_computed_at"}},

@@ -24,9 +24,15 @@ import (
 // sweep stays the catch-up behind it (every ETL_SYNC_INTERVAL): a listener that stops, loses its lease or meets a
 // write it cannot see costs latency, never a row.
 
-// ListenLeaseTTL is the life of lock:mirror:listen: the holder renews it every poll, a holder that died frees it within
-// this time (another replica's listeners then take over; the sweep mirrors meanwhile).
+// ListenLeaseTTL is the shortest life of lock:mirror:listen (LeaseTTLFor): a holder that died frees it within its TTL
+// (another replica's listeners then take over; the sweep mirrors meanwhile).
 const ListenLeaseTTL = 30 * time.Second
+
+// LeaseTTLFor is the life of lock:mirror:listen for a loop polling every interval: at least ListenLeaseTTL and three
+// intervals, so the holder's next tick renews it before it expires whatever ETL_LISTEN_INTERVAL is (up to 1m). A poll
+// that runs longer than that (a long sweep holds the load lock) keeps it too: the loop renews it every third of the
+// TTL while a poll runs (Listener.Run).
+func LeaseTTLFor(interval time.Duration) time.Duration { return max(ListenLeaseTTL, 3*interval) }
 
 // Acker records the mirror's read-your-writes ack (cache.Cache.SetMirrorAck, R53): cache:mirror_ack:{collection}:{doc_id}
 // holds the newest Firestore update time applied, which the write-back handlers wait for (up to 3 s, else 202).
@@ -53,10 +59,13 @@ type ListenConfig struct {
 	// Bucket and PublicBucket are S3_BUCKET and S3_PUBLIC_BUCKET (the load transforms register file rows).
 	Bucket, PublicBucket string
 	Lease                Lease
-	Acks                 Acker
-	Log                  zerolog.Logger
-	Metrics              *Metrics
-	Now                  func() time.Time
+	// LeaseTTL is the TTL Lease was built with (LeaseTTLFor(Interval) when zero): the loop renews the lease every third
+	// of it while a poll runs.
+	LeaseTTL time.Duration
+	Acks     Acker
+	Log      zerolog.Logger
+	Metrics  *Metrics
+	Now      func() time.Time
 }
 
 // Listener is the polling loop of the mirror's listeners.
@@ -80,6 +89,9 @@ func NewListener(c ListenConfig) (*Listener, error) {
 	}
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.LeaseTTL <= 0 {
+		c.LeaseTTL = LeaseTTLFor(c.Interval)
 	}
 	return &Listener{c: c, colls: colls}, nil
 }
@@ -122,20 +134,69 @@ func (l *Listener) Run(ctx context.Context) {
 			continue
 		}
 		holding = true
-		if cursors == nil {
-			if eng, cursors, err = l.start(ctx); err != nil {
-				l.throttled(err, "mirror listeners: not started")
-				cursors = nil
-				continue
+		var failed string
+		var ferr error
+		lost := l.renewing(ctx, func(ctx context.Context) {
+			if cursors == nil {
+				var err error
+				if eng, cursors, err = l.start(ctx); err != nil {
+					cursors = nil
+					failed, ferr = "mirror listeners: not started", err
+					return
+				}
+			}
+			next, err := l.Poll(ctx, eng, cursors)
+			if err != nil {
+				failed, ferr = "mirror listeners: a poll failed; the next one retries from the same cursors", err
+				return
+			}
+			cursors = next
+		})
+		switch {
+		case ctx.Err() != nil:
+			return
+		case lost:
+			l.c.Log.Warn().Msg("mirror listeners: the lease could not be renewed during a poll, which was stopped; the cursors restart from the watermarks")
+			holding, cursors = false, nil
+		case ferr != nil:
+			l.throttled(ferr, failed)
+		}
+	}
+}
+
+// renewing runs work while a renewer keeps the lease: every third of LeaseTTL it renews it, so a poll longer than the
+// TTL (a long sweep holds the load lock it waits for) keeps the lease. When a renewal fails (another holder has it,
+// Redis is unreachable) it cancels work's context, which rolls back a poll that has not committed yet, and reports the
+// lease lost. Two loops that still overlap apply nothing twice: the load lock orders them and the update-time guard
+// skips what the other applied.
+func (l *Listener) renewing(ctx context.Context, work func(context.Context)) (lost bool) {
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := make(chan struct{})
+	renewed := make(chan bool, 1)
+	go func() {
+		t := time.NewTicker(max(l.c.LeaseTTL/3, time.Millisecond))
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				renewed <- true
+				return
+			case <-wctx.Done():
+				renewed <- true
+				return
+			case <-t.C:
+			}
+			if ok, err := l.c.Lease.Acquire(wctx); (err != nil || !ok) && wctx.Err() == nil {
+				cancel()
+				renewed <- false
+				return
 			}
 		}
-		next, err := l.Poll(ctx, eng, cursors)
-		if err != nil {
-			l.throttled(err, "mirror listeners: a poll failed; the next one retries from the same cursors")
-			continue
-		}
-		cursors = next
-	}
+	}()
+	work(wctx)
+	close(stop)
+	return !<-renewed
 }
 
 // throttled logs a repeating failure at most once a minute.
@@ -183,7 +244,7 @@ func (l *Listener) Poll(ctx context.Context, eng *etl.Engine, cursors map[string
 	if err != nil {
 		return nil, err
 	}
-	afterApply(ctx, rep, l.c.Metrics, l.c.Acks, l.c.Now(), l.c.Log)
+	afterApply(ctx, rep, l.c.Metrics, l.c.Acks, l.c.Now(), PathListener, l.c.Log)
 	return next, nil
 }
 
@@ -196,11 +257,13 @@ func ownFleet(ctx context.Context, tx etl.TxFunc) (id uuid.UUID, found bool, err
 	return id, found, err
 }
 
-// afterApply records a committed sweep or poll: mirror_apply_total per outcome (held, deferred, removed too),
-// mirror_lag_seconds per applied document (commit time minus its Firestore update time), mirror_events_total, and the
-// read-your-writes acks of the loaded and quarantined documents (a Redis failure is logged: the write-back handler
-// then times out and answers 202, nothing is lost).
-func afterApply(ctx context.Context, rep *etl.Report, m *Metrics, acks Acker, now time.Time, log zerolog.Logger) {
+// afterApply records a committed sweep or poll (path PathSweep, PathListener): mirror_apply_total per outcome (held,
+// deferred, removed too), mirror_lag_seconds per applied document (commit time minus its Firestore update time),
+// mirror_events_total, and the read-your-writes acks of the loaded and quarantined documents (a Redis failure is
+// logged: the write-back handler then times out and answers 202, nothing is lost). A collection without a listener is
+// acked by the sweep alone, so a write-back handler of it waits its 3 s and answers 202 unless its task gives it a
+// listener (etl.ListenFields).
+func afterApply(ctx context.Context, rep *etl.Report, m *Metrics, acks Acker, now time.Time, path string, log zerolog.Logger) {
 	if m != nil {
 		for _, c := range rep.Collections {
 			for o, n := range c.Outcomes {
@@ -222,7 +285,7 @@ func afterApply(ctx context.Context, rep *etl.Report, m *Metrics, acks Acker, no
 			continue
 		}
 		if m != nil && !d.UpdateTime.IsZero() {
-			m.lag.WithLabelValues(d.Collection).Observe(max(0, now.Sub(d.UpdateTime).Seconds()))
+			m.lag.WithLabelValues(d.Collection, path).Observe(max(0, now.Sub(d.UpdateTime).Seconds()))
 		}
 		if acks == nil || (d.Outcome != etl.Loaded && d.Outcome != etl.Quarantined) || d.DocID == "" {
 			continue

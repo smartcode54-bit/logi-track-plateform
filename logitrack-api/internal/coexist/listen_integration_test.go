@@ -9,6 +9,7 @@ package coexist
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,8 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 )
 
-func histogramCount(t *testing.T, reg *prometheus.Registry, name, collection string) uint64 {
+// histogramCount is the sample count of mirror_lag_seconds{collection, path}.
+func histogramCount(t *testing.T, reg *prometheus.Registry, name, collection, path string) uint64 {
 	t.Helper()
 	mf, err := reg.Gather()
 	if err != nil {
@@ -36,10 +38,12 @@ func histogramCount(t *testing.T, reg *prometheus.Registry, name, collection str
 			continue
 		}
 		for _, m := range f.GetMetric() {
+			labels := map[string]string{}
 			for _, l := range m.GetLabel() {
-				if l.GetName() == "collection" && l.GetValue() == collection {
-					return m.GetHistogram().GetSampleCount()
-				}
+				labels[l.GetName()] = l.GetValue()
+			}
+			if labels["collection"] == collection && labels["path"] == path {
+				return m.GetHistogram().GetSampleCount()
 			}
 		}
 	}
@@ -139,8 +143,11 @@ func TestListenerAppliesWithinAPollAndAcks(t *testing.T) {
 		t.Fatalf("row %d %v", n, err)
 	}
 	time.Sleep(300 * time.Millisecond) // both loops poll a few more times
-	if c := histogramCount(t, reg, "mirror_lag_seconds", "trip_records"); c != 1 {
-		t.Errorf("mirror_lag_seconds samples %d (one apply, by one loop)", c)
+	if c := histogramCount(t, reg, "mirror_lag_seconds", "trip_records", PathListener); c != 1 {
+		t.Errorf("mirror_lag_seconds{path=listener} samples %d (one apply, by one loop)", c)
+	}
+	if c := histogramCount(t, reg, "mirror_lag_seconds", "trip_records", PathSweep); c != 0 {
+		t.Errorf("mirror_lag_seconds{path=sweep} samples %d (no sweep ran)", c)
 	}
 	if v := eventsCount(t, reg, "trip_records"); v != 1 {
 		t.Errorf("mirror_events_total %v", v)
@@ -196,6 +203,36 @@ func TestReconcileJob(t *testing.T) {
 	}
 	if err := json.Unmarshal(j.Result, &result); err != nil || j.Status != jobs.StatusSucceeded || !result.Match || result.Checks == 0 {
 		t.Fatalf("reconcile on the fixtures: %s %s %v", j.Status, j.Result, j.Error)
+	}
+	if c := histogramCount(t, reg, "mirror_lag_seconds", "trip_records", PathListener); c != 0 {
+		t.Errorf("a sweep observed mirror_lag_seconds{path=listener}: %d", c)
+	}
+
+	// The 3.x app keeps writing while the job runs (a GPS update every three minutes, an overnight driver's heartbeat,
+	// a task edit), during and between the reads of its sweep and of its reconciliation: those writes are after the
+	// snapshot the job's sweep applied, which is the one it compares, so the job still succeeds.
+	writes := 0
+	f.fs.OnRunQuery(func(int) {
+		if writes++; writes > 80 {
+			return
+		}
+		now := dump.Timestamp{Time: time.Now().UTC()}
+		f.fs.Merge("vehicle_locations/GPS1", map[string]any{"speed": int64(writes), "updatedAt": now})
+		f.fs.Merge("drivers/drv_own/mobile_installations/inst_own1", map[string]any{"lastSeenAt": now})
+		f.fs.Merge("tasks/task_1", map[string]any{"parcelNote": fmt.Sprint(writes), "updatedAt": now})
+	})
+	d, id = f.commandOf(t, TypeReconcile)
+	if err := s.Handle(f.ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	f.fs.OnRunQuery(nil)
+	j = f.job(t, id)
+	if err := json.Unmarshal(j.Result, &result); err != nil || j.Status != jobs.StatusSucceeded || !result.Match || result.Mismatches != 0 || writes == 0 {
+		t.Fatalf("reconcile while the app writes (%d write rounds): %s %s %v", writes, j.Status, j.Result, j.Error)
+	}
+	d, _ = f.command(t) // the next sweep catches the writes up, so the tampered row below is not re-applied
+	if err := s.Handle(f.ctx, d); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := f.etl.Exec(f.ctx, `UPDATE tasks SET status = 'cancelled' WHERE legacy_doc_id = 'task_1'`); err != nil {
 		t.Fatal(err)

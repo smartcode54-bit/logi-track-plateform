@@ -36,6 +36,42 @@ type runState struct {
 	lookup func(path string) (bool, error)
 	// events is set on mirror runs: the operations collections emit their domain events (mirror_events.go, T29).
 	events bool
+	// mirror is set on the runs of the FS->PG mirror (a sweep, a listener's poll): they overlap one another, so the
+	// documents they settle keep a tombstone (tombstones).
+	mirror bool
+	// tombs caches whether etl.source_docs takes the mirror's tombstones (0018 applied; tombstones).
+	tombs *bool
+}
+
+// tombstones reports whether a document this run settles keeps a tombstone in etl.source_docs (renamed, removed;
+// 0018): on a mirror run once 0018 is applied. A mirror run reads Firestore before it takes the load lock, so another
+// one may still hold a copy of the document read before it was settled; the tombstone makes the update-time guard
+// refuse that copy. A load holds the load lock from its first read and never overlaps another run, and the P1 load runs
+// at the P0 schema (up-to 9, apply 11; Appendix A §A.1 phase placement), 0018 coming with the runbook's `migrate up`
+// after it: it deletes the entry as before 0018, so its report is the same at either schema.
+func (r *runState) tombstones() (bool, error) {
+	if !r.mirror {
+		return false, nil
+	}
+	if r.tombs != nil {
+		return *r.tombs, nil
+	}
+	v, err := tombstonesEnabled(r.ctx, r.tx)
+	if err != nil {
+		return false, err
+	}
+	r.tombs = &v
+	return v, nil
+}
+
+func tombstonesEnabled(ctx context.Context, tx pgx.Tx) (bool, error) {
+	var v bool
+	err := tx.QueryRow(ctx, `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%''renamed''%'), false) FROM pg_constraint
+		WHERE conrelid = 'etl.source_docs'::regclass AND conname = 'source_docs_status_check'`).Scan(&v)
+	if err != nil {
+		return false, fmt.Errorf("etl: the statuses of etl.source_docs: %w", err)
+	}
+	return v, nil
 }
 
 // exists reports whether the source holds the document at path (of collection coll) now; known is false when the run

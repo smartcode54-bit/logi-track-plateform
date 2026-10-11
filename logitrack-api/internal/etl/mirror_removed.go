@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -27,9 +29,15 @@ import (
 //     staff member who voided it (voided_by), which a Firestore delete does not carry (R20).
 //
 // A removal that the database refuses (a row another table still references) keeps the row, reported like the rest. A
-// removed row's etl.source_docs entry is dropped and its open findings resolved fixed_at_source. A collection read with
-// no document at all removes nothing (an empty read of a collection PostgreSQL holds rows for is far likelier a wrong
-// project or a permission problem than a mass delete).
+// removed row's etl.source_docs entry becomes a 'removed' tombstone at the sweep's read time (0018, settleGone) and its
+// open findings are resolved fixed_at_source: a sweep that read the collection before the delete and commits after this
+// one (a hand-run `etl mirror` beside the worker's) holds a copy that is not newer, so it cannot bring the row back. A
+// collection read with no document at all removes nothing (an empty read of a collection PostgreSQL holds rows for is
+// far likelier a wrong project or a permission problem than a mass delete).
+//
+// A sweep judges only the documents its snapshot can see: an entry whose recorded version is newer than the sweep's
+// read time was created (or written) after that read, by a run that read later and committed first, so its absence
+// from this snapshot is no delete.
 var removable = map[string]string{
 	"billing_statements":    "billing_statements",
 	"customer_service_fees": "customer_service_fees",
@@ -39,10 +47,18 @@ var removable = map[string]string{
 	"waitlist":              "waitlist",
 }
 
-// mirrorRemoved settles the documents of one swept collection that Firestore no longer has.
-func (e *Engine) mirrorRemoved(ctx context.Context, tx pgx.Tx, coll string, docs []dump.Doc, stats *CollectionStats) error {
+// mirrorRemoved settles the documents of one swept collection that Firestore no longer has. at is the sweep's
+// Firestore read time (zero: a source without one, a dump, whose snapshot judges every entry).
+func (e *Engine) mirrorRemoved(ctx context.Context, r *runState, coll string, docs []dump.Doc, at time.Time, stats *CollectionStats) error {
+	tx := r.tx
+	var readAt *time.Time
+	if !at.IsZero() {
+		t := at.UTC()
+		readAt = &t
+	}
 	rows, err := tx.Query(ctx, `SELECT doc_path, target_table, target_id FROM etl.source_docs
-		WHERE collection = $1 AND status IN ('loaded', 'quarantined') ORDER BY doc_path`, coll)
+		WHERE collection = $1 AND status IN ('loaded', 'quarantined') AND ($2::timestamptz IS NULL OR source_update_time <= $2)
+		ORDER BY doc_path`, coll, readAt)
 	if err != nil {
 		return fmt.Errorf("etl: %s: removed documents: %w", coll, err)
 	}
@@ -84,12 +100,12 @@ func (e *Engine) mirrorRemoved(ctx context.Context, tx pgx.Tx, coll string, docs
 			stats.Kept++
 			continue
 		}
-		if _, err := tx.Exec(ctx, `UPDATE etl.quarantine SET resolved_at = now(), resolved_by = 'etl-sync', resolution = 'fixed_at_source'
-			WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL`, coll, g.path); err != nil {
-			return fmt.Errorf("etl: %s: settle %s: %w", coll, g.path, err)
+		keep, err := r.tombstones()
+		if err != nil {
+			return err
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM etl.source_docs WHERE collection = $1 AND doc_path = $2`, coll, g.path); err != nil {
-			return fmt.Errorf("etl: %s: settle %s: %w", coll, g.path, err)
+		if err := settleGone(ctx, tx, keep, coll, g.path, path.Base(g.path), StatusRemoved, at, "etl-sync"); err != nil {
+			return fmt.Errorf("etl: %s: %w", coll, err)
 		}
 		stats.Removed++
 	}

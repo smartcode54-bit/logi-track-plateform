@@ -104,12 +104,22 @@ const (
 	ResultRemoved  = "removed"
 )
 
-// MirrorLagBuckets are the buckets of mirror_lag_seconds: the SLO is p95 < 5 s, the alert above 30 s for 5 min (T29).
+// MirrorLagBuckets are the buckets of mirror_lag_seconds: the SLO is p95 < 5 s on path="listener", the alert above
+// 30 s for 5 min (T29).
 var MirrorLagBuckets = []float64{0.5, 1, 2, 3, 5, 10, 30, 60, 120, 300, 600, 1800}
 
+// The path label of mirror_lag_seconds: which run applied the document. Only the four operations collections have a
+// listener (etl.ListenCollections); every other mirrored collection, and whatever a listener cannot see, reaches
+// PostgreSQL through the sweep, up to ETL_SYNC_INTERVAL plus the sweep's own length after the write: the lag SLO (p95
+// < 5 s) and its alert apply to path="listener" alone, path="sweep" shows the catch-up.
+const (
+	PathListener = "listener"
+	PathSweep    = "sweep"
+)
+
 // NewMetrics registers mirror_apply_total{collection,result} (documents the mirror applied, per load outcome, plus
-// held, deferred and removed), mirror_lag_seconds{collection} (commit of the apply minus the document's Firestore update
-// time), mirror_events_total{collection} (domain events the mirror appended), mirror_reconcile_mismatches (the last
+// held, deferred and removed), mirror_lag_seconds{collection,path} (commit of the apply minus the document's Firestore
+// update time, per path: listener or sweep), mirror_events_total{collection} (domain events the mirror appended), mirror_reconcile_mismatches (the last
 // daily reconcile-sync), projection_writes_total{collection,result} (written, unchanged, skipped, not_projected,
 // disabled) and projection_lag_seconds{collection} (event time to projected).
 func NewMetrics(reg prometheus.Registerer) *Metrics {
@@ -125,9 +135,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 300},
 		}, []string{"collection"}),
 		lag: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "mirror_lag_seconds", Help: "Time from a Firestore write to the commit of its FS->PG mirror apply (SLO p95 < 5 s).",
+			Name: "mirror_lag_seconds", Help: "Time from a Firestore write to the commit of its FS->PG mirror apply, per path " +
+				"(listener: the four operations collections, SLO p95 < 5 s; sweep: the catch-up, up to ETL_SYNC_INTERVAL).",
 			Buckets: MirrorLagBuckets,
-		}, []string{"collection"}),
+		}, []string{"collection", "path"}),
 		events: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "mirror_events_total", Help: "Domain events the FS->PG mirror appended to the outbox, per collection.",
 		}, []string{"collection"}),
@@ -222,7 +233,7 @@ func (s *Sync) etlTx(ctx context.Context, fn func(pgx.Tx) error) error {
 }
 
 // Handle runs one sweep: the jobs row goes running, the plan is applied (etl.Engine.Mirror) and the job ends with
-// the per-collection counts. A worker whose mirror is off, an ETL_DATABASE_URL of another login and a database
+// the per-collection counts (job.etl.reconcile sweeps the same way, then reconciles that sweep's snapshot: reconcile). A worker whose mirror is off, an ETL_DATABASE_URL of another login and a database
 // without the P1 load fail the job (acked: the next fire tries again once it is fixed); a billable document the sweep
 // cannot apply is held (etl.Engine.Mirror) and the rest of the sweep commits; a Firestore or database outage,
 // including one during the login check, is retried by the ladder (a redelivered command finds the job running and
@@ -285,10 +296,7 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 	if err != nil {
 		return finish(err.Error(), nil)
 	}
-	if d.RoutingKey == RouteReconcile {
-		return s.reconcile(ctx, eng, finish)
-	}
-	rep, err := eng.Mirror(ctx, s.c.Source, s.c.Plan)
+	rep, err := s.sweep(ctx, eng)
 	var abort *etl.AbortError
 	switch {
 	case errors.As(err, &abort):
@@ -297,22 +305,38 @@ func (s *Sync) Handle(ctx context.Context, d *mq.Delivery) error {
 	case err != nil:
 		return err
 	}
-	afterApply(ctx, rep, s.c.Metrics, s.c.Acks, s.c.Now(), s.c.Log)
+	if d.RoutingKey == RouteReconcile {
+		return s.reconcile(ctx, eng, rep, finish)
+	}
+	return finish("", sweepResult(rep))
+}
+
+// sweep runs one sweep of the plan and records what it applied (metrics, acks, the held documents' log line).
+func (s *Sync) sweep(ctx context.Context, eng *etl.Engine) (*etl.Report, error) {
+	rep, err := eng.Mirror(ctx, s.c.Source, s.c.Plan)
+	if err != nil {
+		return nil, err
+	}
+	afterApply(ctx, rep, s.c.Metrics, s.c.Acks, s.c.Now(), PathSweep, s.c.Log)
 	for _, c := range rep.Collections {
 		if c.Held > 0 {
 			s.c.Log.Error().Str("collection", c.Name).Int("held", c.Held).
 				Msg("etl.sync: billable documents the sweep cannot apply are held until they are fixed at the source (R19)")
 		}
 	}
-	return finish("", sweepResult(rep))
+	return rep, nil
 }
 
 // reconcile runs the daily coexistence reconciliation (etl.Engine.ReconcileSync over the deployment's mirror and
-// projection, T29): the job succeeds on a match and fails naming the number of mismatches otherwise, with the checks
-// that failed in its result; mirror_reconcile_mismatches holds the count either way. The run is stored in
-// etl.reconciliation_runs, so `etl reconcile-sync --accept-findings` signs its findings off as for a manual run.
-func (s *Sync) reconcile(ctx context.Context, eng *etl.Engine, finish func(string, any) error) error {
-	rec, err := eng.ReconcileSync(ctx, s.c.Source, etl.SyncReconcileOptions{Mirror: s.c.Plan, Projection: s.c.Projection})
+// projection, T29) on the snapshot the job's own sweep just applied (Handle sweeps first): every collection is read at
+// that sweep's Firestore read time, so the writes the 3.x app keeps making while the job runs (a heartbeat, a GPS
+// update, a delivery a listener applies meanwhile) are neither "not mirrored yet" nor a difference, and only a real
+// divergence (a held document, a row changed behind the mirror's back, a document the mirror missed) fails the job.
+// The job succeeds on a match and fails naming the number of mismatches otherwise, with the checks that failed in its
+// result; mirror_reconcile_mismatches holds the count either way. The run is stored in etl.reconciliation_runs, so
+// `etl reconcile-sync --accept-findings` signs its findings off as for a manual run.
+func (s *Sync) reconcile(ctx context.Context, eng *etl.Engine, swept *etl.Report, finish func(string, any) error) error {
+	rec, err := eng.ReconcileSync(ctx, s.c.Source, etl.SyncReconcileOptions{Mirror: s.c.Plan, Projection: s.c.Projection, ReadAt: swept.ReadAt})
 	if err != nil {
 		return err
 	}
@@ -327,7 +351,8 @@ func (s *Sync) reconcile(ctx context.Context, eng *etl.Engine, finish func(strin
 		}
 		listed = append(listed, map[string]string{"check": c.Name, "key": c.Key, "note": c.Note})
 	}
-	result := map[string]any{"match": rec.Match, "checks": len(rec.Checks), "mismatches": len(bad), "failed": listed}
+	result := map[string]any{"match": rec.Match, "checks": len(rec.Checks), "mismatches": len(bad), "failed": listed,
+		"sweep": sweepResult(swept)}
 	if !rec.Match {
 		s.c.Log.Error().Int("mismatches", len(bad)).Msg("etl.reconcile: the daily coexistence reconciliation found mismatches")
 		return finish(fmt.Sprintf("reconcile-sync: %d mismatch(es)", len(bad)), result)
@@ -354,7 +379,8 @@ func (s *Sync) checkLogin(ctx context.Context) (wrong string, err error) {
 	return "", nil
 }
 
-// sweepResult is the jobs.result of a sweep: per collection its mode, documents read and the outcomes applied.
+// sweepResult is the jobs.result of a sweep: the read time of its snapshot, per collection its mode, documents read
+// and the outcomes applied.
 func sweepResult(rep *etl.Report) map[string]any {
 	colls := map[string]any{}
 	for _, c := range rep.Collections {
@@ -365,7 +391,11 @@ func sweepResult(rep *etl.Report) map[string]any {
 		colls[c.Name] = map[string]any{"mode": c.Mode, "read": c.Total, "unchanged": c.Unchanged, "beforeWatermark": c.BeforeMark,
 			"applied": out, "held": c.Held}
 	}
-	return map[string]any{"applied": rep.Applied(), "readAt": rep.ExportedAt, "collections": colls}
+	readAt := rep.ReadAt // the Firestore read time of the snapshot; the worker's clock for a source without one
+	if readAt.IsZero() {
+		readAt = rep.ExportedAt
+	}
+	return map[string]any{"applied": rep.Applied(), "readAt": readAt, "collections": colls}
 }
 
 // --- firestore.shadow -------------------------------------------------------------------------------------------

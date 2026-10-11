@@ -168,6 +168,20 @@ func TestMirrorEmitsOperationsEvents(t *testing.T) {
 		t.Fatalf("an unmapped field: %v", keys(evs))
 	}
 
+	// Nor does one of a multi-drop trip with stop photos: its stops are replaced (new ids) by every apply and its stop
+	// photos re-linked, which is no change of the trip.
+	if v := h.scalar(`SELECT count(*) FROM trip_photos p JOIN trip_records r ON r.id = p.trip_id WHERE r.legacy_doc_id = 'TRIP_MD' AND p.stop_id IS NOT NULL`); v == int64(0) {
+		t.Fatal("TRIP_MD has no stop photo: the stop digest is not exercised")
+	}
+	mark = h.lastEvent()
+	h.fs.Merge("trip_records/TRIP_MD", map[string]any{"someLegacyField": "x"})
+	h.sweep(p)
+	h.fs.Merge("trip_records/TRIP_MD", map[string]any{"billingEstimateThb": 1234.5})
+	h.sweep(p)
+	if evs = h.eventsAfter(mark); len(evs) != 0 {
+		t.Fatalf("an unchanged multi-drop trip: %+v", evs)
+	}
+
 	// Tasks: a cancellation tells the task's driver queue too; a moved plan day adds task.plan_date_changed.
 	task3 := h.id(`SELECT id FROM tasks WHERE legacy_doc_id = 'task_3'`)
 	driver := h.id(`SELECT driver_id FROM tasks WHERE id = $1`, task3)
@@ -284,8 +298,8 @@ func TestMirrorRenameUpdatesTripNo(t *testing.T) {
 	if v := h.scalar(`SELECT trip_id::text FROM incident_reports WHERE legacy_doc_id = 'inc_r'`); v != trip.String() {
 		t.Errorf("the re-pointed incident: %v", v)
 	}
-	if n := h.scalar(`SELECT count(*) FROM etl.source_docs WHERE doc_path = 'trip_records/TRIP001'`); n != int64(0) {
-		t.Errorf("the old document is still recorded: %v", n)
+	if v := h.scalar(`SELECT status || ' ' || (target_id IS NULL)::text FROM etl.source_docs WHERE doc_path = 'trip_records/TRIP001'`); v != "renamed true" {
+		t.Errorf("the old document's entry: %v", v)
 	}
 	evs := h.eventsAfter(mark)
 	var tripEvents []opsEvent
@@ -363,14 +377,14 @@ func TestMirrorRemovedOnlyWhereLegacyDeletes(t *testing.T) {
 		t.Errorf("tasks %+v", s)
 	}
 	for q, want := range map[string]int64{
-		`SELECT count(*) FROM billing_statements WHERE legacy_doc_id = 'ST-SPX-2026-08'`:            0,
-		`SELECT count(*) FROM billing_statements WHERE legacy_doc_id = 'st_cjsf_202609'`:            1,
-		`SELECT count(*) FROM holidays WHERE legacy_doc_id = 'ho_2'`:                                0,
-		`SELECT count(*) FROM customer_service_fees WHERE legacy_doc_id = 'fee_custom'`:             0,
-		`SELECT count(*) FROM tasks WHERE legacy_doc_id = 'task_4'`:                                 1,
-		`SELECT count(*) FROM standby_records WHERE legacy_doc_id = 'sb2'`:                          1,
-		`SELECT count(*) FROM etl.source_docs WHERE doc_path = 'holidays/ho_2'`:                     0,
-		`SELECT count(*) FROM etl.source_docs WHERE doc_path = 'billing_statements/st_cjsf_202609'`: 1,
+		`SELECT count(*) FROM billing_statements WHERE legacy_doc_id = 'ST-SPX-2026-08'`:               0,
+		`SELECT count(*) FROM billing_statements WHERE legacy_doc_id = 'st_cjsf_202609'`:               1,
+		`SELECT count(*) FROM holidays WHERE legacy_doc_id = 'ho_2'`:                                   0,
+		`SELECT count(*) FROM customer_service_fees WHERE legacy_doc_id = 'fee_custom'`:                0,
+		`SELECT count(*) FROM tasks WHERE legacy_doc_id = 'task_4'`:                                    1,
+		`SELECT count(*) FROM standby_records WHERE legacy_doc_id = 'sb2'`:                             1,
+		`SELECT count(*) FROM etl.source_docs WHERE doc_path = 'holidays/ho_2' AND status = 'removed'`: 1,
+		`SELECT count(*) FROM etl.source_docs WHERE doc_path = 'billing_statements/st_cjsf_202609'`:    1,
 	} {
 		if v := h.scalar(q); v != want {
 			t.Errorf("%s = %v, want %d", q, v, want)
@@ -450,8 +464,9 @@ func TestListenersAfterAGapLoseNothing(t *testing.T) {
 	if n := h.scalar(`SELECT count(*) FROM standby_records WHERE legacy_doc_id = 'sbgap'`); n != int64(1) {
 		t.Fatalf("standby after the restart: %v", n)
 	}
-	if !next["trip_records"].Equal(gap.Add(19*30*time.Second)) || !next["tasks"].Equal(gap.Add(9*time.Minute)) {
-		t.Errorf("next cursors %v", next)
+	// The gap's updatedAt values run up to ten minutes ahead of the stand-in's clock: the cursors stop at the read time.
+	if !next["trip_records"].Equal(rep.ExportedAt) || !next["tasks"].Equal(rep.ExportedAt) || next["standby_records"].After(rep.ExportedAt) {
+		t.Errorf("next cursors %v, read at %v", next, rep.ExportedAt)
 	}
 	for _, d := range rep.Docs {
 		if d.DocID == "" || d.UpdateTime.IsZero() {

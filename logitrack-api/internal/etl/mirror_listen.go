@@ -24,9 +24,10 @@ import (
 // anyway).
 
 // ListenFields is the timestamp field a listener polls per collection: the 3.x app, the web and the Cloud Functions
-// set updatedAt on every write of these collections (trip_records_repository.dart, task_repository.dart,
-// standby_repository.dart, incident_report_repository.dart). Which collections keep it reliably is measured on the
-// first production dump (§13.7 UNVERIFIED, hitl): a write without it waits for the sweep.
+// set updatedAt on every write of these collections (delivery_trip_repository.dart, checkin_repository.dart,
+// standby_repository.dart, incident_report_repository.dart). Which collections keep it reliably, and how far the
+// writers' clocks drift from Firestore's, is measured on the first production dump (§13.7 UNVERIFIED, hitl): a write
+// without it waits for the sweep.
 var ListenFields = map[string]string{
 	"tasks":           "updatedAt",
 	"trip_records":    "updatedAt",
@@ -34,8 +35,13 @@ var ListenFields = map[string]string{
 	"incidentReport":  "updatedAt",
 }
 
-// ListenOverlap is how far before its cursor a listener reads again: a client clock behind the commit time, or two
-// writes whose field order differs from their commit order, are still seen; the update-time guard skips what was
+// ListenOverlap is how far before its cursor a listener reads again. updatedAt is the writer's clock, not the commit
+// time: the 3.x app writes Timestamp.fromDate(DateTime.now()) on trip_records (delivery_trip_repository.dart),
+// standby_records (standby_repository.dart), incidentReport (incident_report_repository.dart) and tasks
+// (checkin_repository.dart), the web new Date(). A clock behind by up to this much, or two writes whose field order
+// differs from their commit order, are still seen; a clock behind by more is applied by the sweep (up to
+// ETL_SYNC_INTERVAL later). A clock ahead never moves a cursor past the poll's read time (MirrorChanges), so one phone
+// dated ahead cannot blind the listener to the correctly-clocked writes behind it. The update-time guard skips what was
 // applied already.
 const ListenOverlap = time.Minute
 
@@ -81,8 +87,11 @@ func (e *Engine) ListenStart(ctx context.Context, coll string) (time.Time, error
 var ErrNoCursor = errors.New("etl: a listener needs a cursor per collection (ListenStart)")
 
 // MirrorChanges reads the changes of the listened collections since their cursors (minus ListenOverlap) and applies
-// them in one transaction. It returns the report and the next cursors (the newest field value read, never earlier than
-// the cursor given). A poll that reads no document opens no transaction.
+// them in one transaction. It returns the report (ExportedAt is the Firestore read time) and the next cursors: the
+// newest field value read (the cursor given when none is newer), capped at the read time. The cap keeps a writer's
+// clock that runs ahead (ListenOverlap) from pushing a cursor into the future: a document dated ahead is read again by
+// every poll until the read time passes it, and the update-time guard skips it. A poll that reads no document opens no
+// transaction.
 func (e *Engine) MirrorChanges(ctx context.Context, src ChangeSource, plan MirrorPlan, cursors map[string]time.Time) (*Report, map[string]time.Time, error) {
 	colls := ListenCollections(plan)
 	next := make(map[string]time.Time, len(colls))
@@ -106,10 +115,13 @@ func (e *Engine) MirrorChanges(ctx context.Context, src ChangeSource, plan Mirro
 				high = ts.UTC()
 			}
 		}
+		if !read.IsZero() && high.After(read) {
+			high = read.UTC() // a writer's clock ahead of Firestore's never moves the cursor past this read
+		}
 		next[coll], docs[coll] = high, ds
 		total += len(ds)
 	}
-	rep := &Report{ExportedAt: at}
+	rep := &Report{ExportedAt: at, ReadAt: at}
 	if total == 0 {
 		return rep, next, nil
 	}
@@ -123,7 +135,7 @@ func (e *Engine) MirrorChanges(ctx context.Context, src ChangeSource, plan Mirro
 		}
 		r := e.newRun(ctx, tx, rep)
 		r.owned = plan.Owned
-		r.events = true
+		r.events, r.mirror = true, true
 		r.lookup = func(path string) (bool, error) {
 			_, found, err := src.Lookup(ctx, path, at)
 			return found, err
