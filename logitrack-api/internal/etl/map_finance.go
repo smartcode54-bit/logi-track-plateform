@@ -136,7 +136,9 @@ func loadExpense(c *docCtx) error {
 var hhmm = regexp.MustCompile(`^[0-9]{2}:[0-9]{2}$`)
 
 // loadMaintenance: maintenance/{id} -> maintenance_records + maintenance_files (images[], receipts[], invoiceUrl,
-// kinds image / receipt / invoice, purpose maintenance_file); tenant from the truck.
+// kinds image / receipt / invoice, purpose maintenance_file); tenant from the truck. The driver's check-in and
+// check-out times load too: check_in_at tells the 3.x app's 'In-Progress' (the driver checked in) from the web's
+// 'in_progress' (sent to the shop, check-in still ahead), which both normalise to in_progress (main spec §13.8).
 func loadMaintenance(c *docCtx) error {
 	typ := strings.ToUpper(c.str("type"))
 	switch typ {
@@ -194,7 +196,8 @@ func loadMaintenance(c *docCtx) error {
 		set("provider_lat", c.float("providerLat")).set("provider_lng", c.float("providerLng")).
 		set("payment_method", c.optVocab("paymentMethod", "cash", "credit_card", "billing", "transfer", "insurance_claim")).
 		set("current_mileage", c.integer("currentMileage")).set("next_service_mileage", c.integer("nextServiceMileage")).
-		set("driver_submitted", c.isTrue("driverSubmitted")).set("notes", c.text("notes"))
+		set("driver_submitted", c.isTrue("driverSubmitted")).set("check_in_at", c.ts("checkInAt")).
+		set("check_out_at", c.ts("checkOutAt")).set("notes", c.text("notes"))
 	c.times(r)
 	id, err := upsertLegacy(c, r)
 	if err != nil {

@@ -620,14 +620,15 @@ func TestAnnouncementRowsAreVoidOnly(t *testing.T) {
 }
 
 // Counters are reachable only through the SECURITY DEFINER allocators (R10, R61, R66, R67). The helpers of 0013
-// (T23) are handed over the same way, to logitrack_app only.
+// (T23) and 0014 (T27) are handed over the same way, to logitrack_app only.
 func TestSecurityDefinerAllocators(t *testing.T) {
 	d, _ := migrated(t)
 	owner := connect(t, d, db.RoleMigrator)
 	for _, fn := range []string{"next_task_seq(text,date)", "next_invoice_seq(uuid,uuid,integer,integer,text)",
 		"app_task_stops_in_scope(uuid)", "app_task_in_scope(uuid)", "app_trip_in_scope(uuid)",
 		"app_recent_work_in_scope(uuid,uuid)", "driver_directory()", "trg_driver_link_membership()",
-		"driver_active_assignment(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamptz)"} {
+		"driver_active_assignment(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamptz)",
+		"trip_seal_taken(text,uuid)", "bump_task_seq(text,date,integer)"} {
 		got := scalar[string](t, owner, `SELECT format('owner=%s secdef=%s public=%s', pg_get_userbyid(proowner), prosecdef,
 			proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(proacl) a WHERE a.grantee = 0))
 			FROM pg_proc WHERE oid = $1::regprocedure`, fn)
@@ -652,6 +653,12 @@ func TestSecurityDefinerAllocators(t *testing.T) {
 		{db.RoleApp, "assignment_release_driver(uuid,uuid,text,text,timestamptz)", true},
 		{db.RoleETL, "assignment_release_driver(uuid,uuid,text,text,timestamptz)", false},
 		{db.RoleReadonly, "assignment_release_driver(uuid,uuid,text,text,timestamptz)", false},
+		{db.RoleApp, "trip_seal_taken(text,uuid)", true},
+		{db.RoleETL, "trip_seal_taken(text,uuid)", false},
+		{db.RoleReadonly, "trip_seal_taken(text,uuid)", false},
+		{db.RoleApp, "bump_task_seq(text,date,integer)", true},
+		{db.RoleETL, "bump_task_seq(text,date,integer)", false},
+		{db.RoleReadonly, "bump_task_seq(text,date,integer)", false},
 	} {
 		if got := scalar[bool](t, owner, `SELECT has_function_privilege($1, $2, 'EXECUTE')`, p.role, p.fn); got != p.want {
 			t.Errorf("%s EXECUTE %s = %t, want %t", p.role, p.fn, got, p.want)
@@ -667,6 +674,22 @@ func TestSecurityDefinerAllocators(t *testing.T) {
 	if got := scalar[int](t, app, `SELECT next_task_seq('line_haul', '2026-10-10')`); got != 1 {
 		t.Fatalf("line_haul starts at %d", got)
 	}
+	// bump_task_seq moves a counter up, never down, and creates a missing one.
+	for _, c := range []struct {
+		seq, want int
+	}{{9, 9}, {4, 9}, {12, 12}} {
+		if got := scalar[int](t, app, `SELECT bump_task_seq('first_mile', '2026-10-10', $1)`, c.seq); got != c.want {
+			t.Fatalf("bump_task_seq(%d) = %d, want %d", c.seq, got, c.want)
+		}
+	}
+	if got := scalar[int](t, app, `SELECT next_task_seq('first_mile', '2026-10-10')`); got != 13 {
+		t.Fatalf("next_task_seq after a bump to 12 = %d, want 13", got)
+	}
+	if got := scalar[int](t, app, `SELECT bump_task_seq('line_haul', '2026-10-11', 7)`); got != 7 {
+		t.Fatalf("bump_task_seq of a new counter = %d, want 7", got)
+	}
+	// trip_seal_taken refuses a caller that is neither staff, a driver nor the system context (no GUCs set here).
+	wantSQLState(t, app, "42501", "duplicate-seal check needs", `SELECT trip_seal_taken('SEAL-1', NULL)`)
 	wantSQLState(t, app, "42501", "permission denied", `SELECT * FROM task_number_counters`)
 	wantSQLState(t, app, "42501", "permission denied", `UPDATE billing_counters SET last_seq = 0`)
 	wantSQLState(t, connect(t, d, db.RoleReadonly), "42501", "permission denied", `SELECT next_task_seq('first_mile', '2026-10-10')`)

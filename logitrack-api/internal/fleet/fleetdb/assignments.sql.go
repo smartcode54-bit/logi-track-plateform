@@ -194,10 +194,16 @@ WHERE ($1::boolean OR a.tenant_id = ANY ($2::uuid[]))
   AND ($3::text IS NULL OR a.status = $3::text)
   AND ($4::uuid IS NULL OR a.truck_id = $4::uuid)
   AND ($5::uuid IS NULL OR a.driver_id = $5::uuid)
-  AND ($6::timestamptz IS NULL
-       OR (a.created_at, a.id) < ($6::timestamptz, $7::uuid))
+  AND ($6::text IS NULL
+       OR strpos(lower(coalesce(tr.license_plate, '')), lower($6::text)) > 0
+       OR strpos(lower(coalesce(tr.model, '')), lower($6::text)) > 0
+       OR strpos(lower(coalesce(d.full_name_th, '')), lower($6::text)) > 0
+       OR strpos(lower(coalesce(d.first_name, '') || ' ' || coalesce(d.last_name, '')), lower($6::text)) > 0
+       OR strpos(lower(a.admin_label), lower($6::text)) > 0)
+  AND ($7::timestamptz IS NULL
+       OR (a.created_at, a.id) < ($7::timestamptz, $8::uuid))
 ORDER BY a.created_at DESC, a.id DESC
-LIMIT $8
+LIMIT $9
 `
 
 type ListAssignmentsParams struct {
@@ -206,6 +212,7 @@ type ListAssignmentsParams struct {
 	Status       *string
 	TruckID      *uuid.UUID
 	DriverID     *uuid.UUID
+	Q            *string
 	AfterCreated *time.Time
 	AfterID      uuid.UUID
 	RowLimit     int32
@@ -235,7 +242,10 @@ type ListAssignmentsRow struct {
 // side that the caller's RLS may hide (the driver's active row in another tenant, a driver outside the revoker's
 // reach) goes through the two SECURITY DEFINER helpers of 0013, which check the caller themselves.
 // GET /v1/truck-assignments, newest first; keyset (created_at, id). The truck and driver columns read under the
-// caller's RLS (NULL / ” when not visible).
+// caller's RLS (NULL / ” when not visible). q (TW8): a case-insensitive substring of the plate, the model, the
+// driver's name (Thai full name or first + last) or the admin label, the four columns the history shows, so the
+// page's search runs on the server instead of over the loaded pages (Appendix E §E.10 rule); a driver the caller
+// cannot read matches on the truck and admin columns only.
 func (q *Queries) ListAssignments(ctx context.Context, arg ListAssignmentsParams) ([]ListAssignmentsRow, error) {
 	rows, err := q.db.Query(ctx, listAssignments,
 		arg.AllTenants,
@@ -243,6 +253,7 @@ func (q *Queries) ListAssignments(ctx context.Context, arg ListAssignmentsParams
 		arg.Status,
 		arg.TruckID,
 		arg.DriverID,
+		arg.Q,
 		arg.AfterCreated,
 		arg.AfterID,
 		arg.RowLimit,

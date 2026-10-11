@@ -152,6 +152,8 @@ maintenance	maintenance/mnt1	loaded	truck
 maintenance	maintenance/mnt2	quarantined	quarantine
 maintenance	maintenance/mnt3	loaded	truck
 maintenance	maintenance/mnt4	loaded	truck
+maintenance	maintenance/mnt5	loaded	truck
+maintenance	maintenance/mnt6	loaded	truck
 messages	chats/chat_1/messages/m1	loaded	-
 messages	chats/chat_1/messages/m2	loaded	-
 messages	chats/chat_missing/messages/m3	rejected	-

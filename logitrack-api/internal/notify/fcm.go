@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -50,11 +51,9 @@ const (
 // fail as transient and dead-letter after the last retry, to be replayed once the planner exists
 // (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost.
 var pendingRoutes = map[string]string{
-	RouteChatMessageCreated:  "T47",
-	RouteBroadcastCreated:    "T48",
-	RouteMaintenanceCreated:  "T40",
-	RouteMaintenanceReminder: "T40",
-	RouteLeaveDecided:        "T45",
+	RouteChatMessageCreated: "T47",
+	RouteBroadcastCreated:   "T48",
+	RouteLeaveDecided:       "T45",
 }
 
 // Delivery statuses (notification_deliveries.status). queued is never written: a row is inserted once
@@ -99,6 +98,10 @@ const reasonClaimsChanged = "claims_changed"
 //     {first_mile|line_haul}_task_{assigned|unassigned|cancelled} on channel task_assignments;
 //   - task.updated / task.checked_in / task.plan_date_changed: the silent tasks_changed push to the
 //     task's driver and helper, one per driver per 30 s (R21; a suppressed push logs deduplicated);
+//   - maintenance.reminder_requested (POST /v1/maintenance/{id}/remind, a PM booking moved to scheduled or
+//     in_progress) and maintenance.created of a record created scheduled (the only created state with an
+//     appointment; the legacy page pushed on no creation): maintenance_scheduled to the drivers of the record's
+//     truck (T40);
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
 //     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
 //
@@ -169,6 +172,8 @@ func (f *FCM) planner(key string) (planner, bool) {
 		return planTask, true
 	case RouteSessionsRevoked:
 		return planSessionsRevoked, true
+	case RouteMaintenanceCreated, RouteMaintenanceReminder:
+		return planMaintenance, true
 	}
 	return nil, false
 }
@@ -752,4 +757,79 @@ func (d *dedupe) decide(ctx context.Context, driverID uuid.UUID) dedupeDecision 
 		return dedupeDecision{suppressed: holder != d.messageID}
 	}
 	return dedupeDecision{err: errors.New("idem:push window: the key kept changing")}
+}
+
+// maintenanceEvent is the payload of maintenance.created and maintenance.reminder_requested (internal/maintenance):
+// the record, its status when it was created, and the staff's push text of a reminder. Everything else is re-read
+// from maintenance_records.
+type maintenanceEvent struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+	Title  string    `json:"title"`
+	Body   string    `json:"body"`
+}
+
+// MaintenanceReminderBody is the legacy reminder text (maintenance.ts:45-52): "รถ {plate} วันที่ {startDate} เวลา
+// {appointmentTime} ที่ {provider} — กรุณาเข้าอู่ตามนัด", each part only when it has a value.
+func MaintenanceReminderBody(plate, startDate, appointmentTime, provider string) string {
+	body := "รถ " + plate
+	if startDate != "" {
+		body += " วันที่ " + startDate
+	}
+	if appointmentTime != "" {
+		body += " เวลา " + appointmentTime
+	}
+	if provider != "" {
+		body += " ที่ " + provider
+	}
+	return strings.TrimSpace(body + " — กรุณาเข้าอู่ตามนัด")
+}
+
+// planMaintenance plans maintenance_scheduled to the drivers of the record's truck (read server-side; the legacy
+// callable took the driver id from the browser, fn:triggers.ts:362-391). maintenance.created pushes only a record
+// created scheduled (the event's status, else the record's): the legacy page pushed on no creation, only when a PM
+// booking moved to scheduled or in_progress (maintenance.reminder_requested), and a record created in_progress (the
+// form's default, a repair already in the shop) or as a PM booking has no appointment to announce. A record that is
+// completed or cancelled by the time the message is read pushes nothing. Without staff text the push is the legacy
+// title and body.
+func planMaintenance(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
+	var ev maintenanceEvent
+	if err := d.Decode(&ev); err != nil {
+		return nil, err
+	}
+	if ev.ID == uuid.Nil {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s without id", d.RoutingKey))
+	}
+	m, err := q.GetMaintenanceForPush(ctx, ev.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: maintenance %s not found", ev.ID))
+	}
+	if err != nil {
+		return nil, err
+	}
+	created := cmp.Or(ev.Status, m.Status)
+	switch {
+	case m.TruckID == nil, m.Status == "completed", m.Status == "cancelled":
+		return nil, nil
+	case d.RoutingKey == RouteMaintenanceCreated && created != "scheduled":
+		return nil, nil
+	}
+	drivers, err := q.TruckDrivers(ctx, *m.TruckID)
+	if err != nil {
+		return nil, err
+	}
+	title, body := ev.Title, ev.Body
+	if title == "" {
+		title = "นัดเช็คระยะ"
+	}
+	if body == "" {
+		body = MaintenanceReminderBody(m.Plate, m.StartDate, m.AppointmentTime, m.Provider)
+	}
+	pushes := make([]driverPush, 0, len(drivers))
+	for _, id := range drivers {
+		pushes = append(pushes, driverPush{driverID: id, build: func(ref string) Push {
+			return MaintenanceScheduled(m.MaintenanceRef, ref, title, body)
+		}})
+	}
+	return driverTargets(ctx, q, pushes)
 }
