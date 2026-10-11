@@ -32,6 +32,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/apikey"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
@@ -71,6 +72,8 @@ type world struct {
 	internal string
 	public   string
 	hash     string
+	// logs holds every line the api and auth logged (T32K: no API key secret may appear in it).
+	logs *syncBuffer
 
 	O, A, B, C, D, Q string // tenant ids
 	X, Y             string // billing party ids
@@ -85,12 +88,28 @@ func newWorld(t *testing.T) *world {
 // newWorldWith is newWorld whose auth service runs the Firebase bridge fb (T19 mirror tests).
 func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	t.Helper()
+	return newWorldOpts(t, worldOpts{firebase: fb})
+}
+
+// worldOpts vary the world: the Firebase bridge (T19 mirror tests) and the request rate limits (T32K).
+type worldOpts struct {
+	firebase  auth.Firebase
+	rateLimit bool
+}
+
+// testPepper is the API_KEY_PEPPER of the world: a placeholder, built at run time.
+var testPepper = strings.Repeat("pepper-placeholder-", 3)
+
+func newWorldOpts(t *testing.T, o worldOpts) *world {
+	t.Helper()
+	fb := o.firebase
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{t: t, d: d, pool: d.Pool(t, db.RoleApp), tasks: map[string]string{}}
+	w := &world{t: t, d: d, pool: d.Pool(t, db.RoleApp), tasks: map[string]string{}, logs: &syncBuffer{}}
+	logger := zerolog.New(w.logs).Level(zerolog.DebugLevel)
 	var err error
 	if w.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
@@ -110,7 +129,7 @@ func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	w.rdb, ks = cachetest.NewClient(t)
 	w.ks = ks
 	caches := cache.New(w.rdb, ks)
-	if w.rbac, err = iam.NewRBAC(iam.Deps{Pool: w.pool, Cache: caches, Redis: w.rdb, Log: zerolog.Nop()}); err != nil {
+	if w.rbac, err = iam.NewRBAC(iam.Deps{Pool: w.pool, Cache: caches, Redis: w.rdb, Log: logger}); err != nil {
 		t.Fatal(err)
 	}
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -121,32 +140,44 @@ func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pepper, err := apikey.NewPepper(testPepper)
+	if err != nil {
+		t.Fatal(err)
+	}
 	svc, err := auth.New(auth.Config{
 		RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour, PasswordResetTTL: 30 * time.Minute,
-		RateLimitEnabled: false,
+		RateLimitEnabled: o.rateLimit, APIKeyPepper: pepper,
 	}, auth.Deps{
-		Pool: w.pool, Store: auth.NewStore(w.rdb, ks.Prefix()), Limiter: ratelimit.New(w.rdb, ks, zerolog.Nop()),
+		Pool: w.pool, Store: auth.NewStore(w.rdb, ks.Prefix()), Limiter: ratelimit.New(w.rdb, ks, logger),
 		Keys: token.New(priv, "http://localhost:8080", "logitrack-test", 15*time.Minute), Hasher: hasher,
-		Policy: policy, Log: zerolog.Nop(), Capabilities: w.rbac, Authorizer: w.rbac, Firebase: fb,
+		Policy: policy, Log: logger, Capabilities: w.rbac, Authorizer: w.rbac, Firebase: fb,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
 	// The users and tenants administration of T19 (/v1/users*, /v1/tenants*).
-	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: w.pool, Auth: svc, Log: zerolog.Nop()})
+	admin, err := iam.NewAdmin(iam.AdminDeps{Pool: w.pool, Auth: svc, Log: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
-	groups := append(svc.Groups(), iam.RoleGroups(svc.RequireAuth())...)
+	// The API keys administration of T32K (/v1/api-keys*) and the route admission of cmd/api: GET /v1/roles
+	// also takes integration and script keys.
+	keys, err := iam.NewAPIKeys(iam.APIKeysDeps{Pool: w.pool, Pepper: pepper, Log: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := append(svc.Groups(), iam.RoleGroups(svc.RequireAuth(auth.AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)))...)
 	groups = append(groups, iam.AdminGroups(admin, svc.RequireAuth())...)
+	groups = append(groups, iam.APIKeyGroups(keys, svc.RequireAuth())...)
 	groups = append(groups, ingress.Group{Prefix: "/v1/rbactest", Mount: w.testRoutes(svc.RequireAuth())})
+	groups = append(groups, w.keyTestGroups(svc)...)
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
 		Runtime:      app.Runtime{MetricsAddr: "127.0.0.1:0", ShutdownTimeout: 3 * time.Second},
 		InternalAddr: "127.0.0.1:0", PublicAddr: "127.0.0.1:0", PublicRouteGroups: ingress.PublicPrefixes,
 	}
-	a, err := app.NewAPI(cfg, zerolog.Nop(), groups...)
+	a, err := app.NewAPI(cfg, logger, groups...)
 	if err != nil {
 		t.Fatal(err)
 	}

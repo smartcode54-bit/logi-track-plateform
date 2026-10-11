@@ -34,7 +34,9 @@ import (
 type APIDeps struct {
 	Auth *auth.Service
 	// Admin is the users and tenants administration (T19): /v1/users*, /v1/tenants*.
-	Admin   *iam.Admin
+	Admin *iam.Admin
+	// APIKeys is the API keys administration (T32 slice T32K): /v1/api-keys*.
+	APIKeys *iam.APIKeys
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
@@ -160,6 +162,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	svc, err := auth.New(auth.Config{
 		RefreshTTLWeb: cfg.RefreshTTLWeb, RefreshTTLMobile: cfg.RefreshTTLMobile, PasswordResetTTL: cfg.PasswordResetTTL,
 		Scrypt: cfg.Scrypt, RateLimitEnabled: cfg.RateLimit.Enabled, LoginIP: cfg.RateLimit.Limit(ratelimit.LoginIP),
+		APIKeyPepper: cfg.APIKeyPepper,
 	}, deps)
 	if err != nil {
 		closeAll()
@@ -190,7 +193,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	a, err := build(APIDeps{Auth: svc, Admin: admin, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Storage: st,
+	if !cfg.APIKeyPepper.Set() {
+		log.Info().Msg("API keys off: API_KEY_PEPPER is unset (POST /v1/api-keys answers 503, X-Api-Key 401)")
+	}
+	apiKeys, err := iam.NewAPIKeys(iam.APIKeysDeps{Pool: pool, Pepper: cfg.APIKeyPepper, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Jobs: jobs.NewService(pool, jobs.NewRedisLocker(rdb, ks)), Storage: st,
 		Events: events, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()

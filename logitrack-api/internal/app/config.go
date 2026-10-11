@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/apikey"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -123,9 +124,13 @@ type Auth struct {
 	// GOOGLE_OIDC_ALLOWED_CLIENT_IDS: the accepted aud values of Google ID tokens (the web GIS client and
 	// the OAuth client the installed APKs pass as serverClientId); unset turns Google sign-in off.
 	GoogleClientIDs []string `env:"GOOGLE_OIDC_ALLOWED_CLIENT_IDS" envSeparator:","`
+	// API_KEY_PEPPER: the pepper of api_keys.key_hash (Appendix C §C.4.11), at least 32 characters; unset turns
+	// API keys off (POST /v1/api-keys 503, every X-Api-Key 401). Rotating it invalidates every key.
+	APIKeyPepperValue string `env:"API_KEY_PEPPER"`
 
 	// Parsed by Validate.
-	Scrypt *firebasescrypt.Params `env:"-"`
+	Scrypt       *firebasescrypt.Params `env:"-"`
+	APIKeyPepper apikey.Pepper          `env:"-"`
 }
 
 func (a *Auth) validate(errs *[]string) {
@@ -158,6 +163,11 @@ func (a *Auth) validate(errs *[]string) {
 			"must be a comma list of OAuth client ids ending in %s", googleClientSuffix))
 	}
 	a.GoogleClientIDs = ids
+	pepper, err := apikey.NewPepper(a.APIKeyPepperValue)
+	if err != nil {
+		*errs = append(*errs, config.Invalidf("API_KEY_PEPPER", "must be at least %d characters", apikey.MinPepperLen))
+	}
+	a.APIKeyPepper = pepper
 }
 
 // Bridge is the Firebase bridge of the api process (main spec §4.9, §16.1, Appendix C §C.6).

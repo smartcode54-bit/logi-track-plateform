@@ -18,19 +18,35 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
-// RequireAuth accepts exactly a Go access token as `Authorization: Bearer` (Appendix C §C.4.3), then
-// lets the Authorizer (iam.RBAC, T07) complete the principal: X-Act-On-Tenant, steward flag, contractor
-// reach and capabilities. The principal is stored for authz.PrincipalFrom. No credential is 401
-// unauthenticated; a Firebase ID token or any other non-Go token is 401 invalid_token on every route.
-// (API keys and the cf_shim Firebase path join in T32; this middleware lives in auth rather than httpx
-// because httpx cannot import auth.)
-func (s *Service) RequireAuth() fiber.Handler {
+// RequireAuth accepts exactly one credential (Appendix C §C.4.3): a Go access token as
+// `Authorization: Bearer`, or an api_keys secret as X-Api-Key on a route whose options admit its scope
+// (AllowAPIKeys; none by default, so every route without the option refuses keys with 403
+// permission_denied). Then the Authorizer (iam.RBAC, T07) completes the principal: X-Act-On-Tenant,
+// steward flag, contractor reach and capabilities (a machine principal holds its key's capabilities
+// only). The principal is stored for authz.PrincipalFrom. No credential is 401 unauthenticated; a
+// Firebase ID token or any other non-Go token is 401 invalid_token on every route. (The cf_shim
+// Firebase path joins with the shims, T32 M2; this middleware lives in auth rather than httpx because
+// httpx cannot import auth.)
+//
+// RequireAuth never reads s while building the handler (cmd/api `routes` passes a nil *Service).
+func (s *Service) RequireAuth(opts ...AuthOption) fiber.Handler {
+	var pol authPolicy
+	for _, o := range opts {
+		o(&pol)
+	}
 	return func(c fiber.Ctx) error {
-		raw, present := bearer(c)
-		if !present {
-			return httpx.ErrUnauthenticated()
+		var p *authz.Principal
+		var err error
+		if keys := c.Request().Header.PeekAll(HeaderAPIKey); len(keys) > 0 {
+			withAuthorization := strings.TrimSpace(c.Get(fiber.HeaderAuthorization)) != ""
+			p, err = s.authenticateAPIKey(c, keys, withAuthorization, pol)
+		} else {
+			raw, present := bearer(c)
+			if !present {
+				return httpx.ErrUnauthenticated()
+			}
+			p, err = s.Authenticate(c.Context(), raw)
 		}
-		p, err := s.Authenticate(c.Context(), raw)
 		if err != nil {
 			return err
 		}
@@ -46,7 +62,13 @@ func (s *Service) RequireAuth() fiber.Handler {
 
 func setPrincipal(c fiber.Ctx, p *authz.Principal) {
 	authz.SetPrincipal(c, p)
-	l := zerolog.Ctx(c.Context()).With().Str("user_id", p.UserID.String()).Str("session_id", p.SessionID.String()).Logger()
+	lc := zerolog.Ctx(c.Context()).With()
+	if p.IsMachine() && p.APIKeyID != nil {
+		lc = lc.Str("api_key_id", p.APIKeyID.String()).Str("api_key_scope", string(p.APIKeyScope))
+	} else {
+		lc = lc.Str("user_id", p.UserID.String()).Str("session_id", p.SessionID.String())
+	}
+	l := lc.Logger()
 	c.SetContext(l.WithContext(c.Context()))
 }
 

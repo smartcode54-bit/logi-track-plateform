@@ -231,6 +231,7 @@ func TestAPIConfigAuthValidation(t *testing.T) {
 		"google client id":    {[]string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS=pasted-client-secret-value"}, "GOOGLE_OIDC_ALLOWED_CLIENT_IDS"},
 		"google other suffix": {[]string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS=1-x.apps.googleusercontent.com.example"}, "GOOGLE_OIDC_ALLOWED_CLIENT_IDS"},
 		"google inner space":  {[]string{"GOOGLE_OIDC_ALLOWED_CLIENT_IDS=1-a b.apps.googleusercontent.com"}, "GOOGLE_OIDC_ALLOWED_CLIENT_IDS"},
+		"api key pepper":      {[]string{"API_KEY_PEPPER=short-placeholder"}, "API_KEY_PEPPER: must be at least 32 characters"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -244,6 +245,26 @@ func TestAPIConfigAuthValidation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// API_KEY_PEPPER (Appendix C §C.4.11, T32K): unset turns API keys off; set, it is kept out of every
+// printed form of the configuration.
+func TestAPIConfigAPIKeyPepper(t *testing.T) {
+	cfg, err := config.LoadFrom[app.APIConfig](baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKeyPepper.Set() {
+		t.Fatal("API keys on without API_KEY_PEPPER")
+	}
+	placeholder := strings.Repeat("placeholder-", 4)
+	cfg, err = config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"API_KEY_PEPPER=" + placeholder}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.APIKeyPepper.Set() || strings.Contains(cfg.APIKeyPepper.String(), "placeholder") {
+		t.Fatalf("pepper: %v", cfg.APIKeyPepper)
 	}
 }
 
