@@ -53,8 +53,8 @@ func TestTableAndPending(t *testing.T) {
 			t.Fatalf("gated %+v", g)
 		}
 	}
-	if len(table)+len(Gated)+len(Pending) != 12 {
-		t.Fatalf("§7.4 lists 12 scheduled jobs besides the relay; table %d + gated %d + pending %d", len(table), len(Gated), len(Pending))
+	if len(table)+len(Gated)+len(Pending) != 13 {
+		t.Fatalf("§7.4 lists 13 scheduled jobs besides the relay; table %d + gated %d + pending %d", len(table), len(Gated), len(Pending))
 	}
 	// FUEL_MONTHLY_SNAPSHOT_ENABLED adds bangchak.snapshot at 05:00 Asia/Bangkok as a command cron (T37, R70).
 	on := Table(nil, nil, Gates{FuelMonthlySnapshot: true})
@@ -62,12 +62,16 @@ func TestTableAndPending(t *testing.T) {
 	if len(on) != len(table)+1 || last.Name != "bangchak.snapshot" || last.Spec != "0 5 * * *" || last.Kind != Command {
 		t.Fatalf("gated table: %+v", last)
 	}
-	// ETL_SYNC_ENABLED adds the etl.sync sweep at ETL_SYNC_INTERVAL (every 5 minutes by default) (T24S).
+	// ETL_SYNC_ENABLED adds the etl.sync sweep at ETL_SYNC_INTERVAL (every 5 minutes by default) (T24S) and the daily
+	// coexistence reconciliation etl.reconcile at 02:30 (T29).
 	for spec, want := range map[string]string{"": "*/5 * * * *", "*/15 * * * *": "*/15 * * * *"} {
 		on = Table(nil, nil, Gates{ETLSync: true, ETLSyncSpec: spec})
-		last = on[len(on)-1]
-		if len(on) != len(table)+1 || last.Name != "etl.sync" || last.Spec != want || last.Kind != Command {
-			t.Fatalf("etl.sync %q: %+v", spec, last)
+		sweep, rec := on[len(on)-2], on[len(on)-1]
+		if len(on) != len(table)+2 || sweep.Name != "etl.sync" || sweep.Spec != want || sweep.Kind != Command {
+			t.Fatalf("etl.sync %q: %+v", spec, sweep)
+		}
+		if rec.Name != "etl.reconcile" || rec.Spec != "30 2 * * *" || rec.Kind != Command {
+			t.Fatalf("etl.reconcile: %+v", rec)
 		}
 	}
 	if _, err := NewCron(nil, nil, []Job{{Name: "x.y", Spec: "every day", Kind: Command}}, zerolog.Nop(), nil); err == nil {

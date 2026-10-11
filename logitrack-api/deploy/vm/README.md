@@ -359,7 +359,9 @@ publish reaches `GET /v1/mobile/settings` only.
   the mirror logs in as the BYPASSRLS `logitrack_etl` (R66) only on its own replica, `worker-sync`
   (`WORKER_CONSUMERS=sync`), which this VM does not run, and a worker refuses to start holding that URL without the
   mirror. Turning either switch on against a real Firestore project is an owner step (logitrack-api README
-  "Coexistence").
+  "Coexistence"). `ETL_LISTEN_INTERVAL` (T29, the mirror's listeners) is in the worker's allow-list and
+  `env.vm.example` but does nothing here: the listeners run only on `worker-sync` with `ETL_SYNC_ENABLED`, and so
+  does the daily `etl.reconcile` cron.
 - Cloudflare ranges: `nginx/logitrack-cloudflare-realip.conf` holds the list of
   https://www.cloudflare.com/ips/; update it there and run `deploy.sh --provision`.
 - Switching storage to S3 later: fill `S3_*`, set `STORAGE_BACKEND=s3`, keep `LOCAL_MEDIA_*` while local rows

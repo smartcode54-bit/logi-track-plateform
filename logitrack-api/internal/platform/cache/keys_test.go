@@ -61,6 +61,7 @@ func allKeys(ks Keyspace) map[string]string {
 		"RealtimeMarks":        ks.RealtimeMarks(),
 		"JobLock":              ks.JobLock("payroll.run", "2026-10"),
 		"CronLock":             ks.CronLock("rtlog.trim", "2026-10-10T04:00"),
+		"MirrorListenLock":     ks.MirrorListenLock(),
 	}
 }
 
@@ -100,6 +101,7 @@ func TestSpecKeyShapes(t *testing.T) {
 		"SSEConnections":     "lt:prod:rl:sse_conns:u1",
 		"GeoReverse":         "lt:prod:cache:geo:rev:13.75000:100.50000",
 		"RBACCapabilities":   "lt:prod:rbac:caps:platform:tenant_admin:3:1a2b3c4d",
+		"MirrorListenLock":   "lt:prod:lock:mirror:listen",
 	}
 	got := allKeys(ks)
 	for name, w := range want {
