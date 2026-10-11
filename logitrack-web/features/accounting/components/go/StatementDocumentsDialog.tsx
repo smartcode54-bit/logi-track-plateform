@@ -29,7 +29,9 @@ export function StatementDocumentsDialog({ statement, onClose }: { statement: Pi
     const { t } = useLanguage();
     const streamOpen = useRealtimeStatus() === "open";
     const canManage = useCan("accounting:manage_statements").allowed;
-    const detail = useQuery(statementQuery(statement.id, streamOpen));
+    // The poll limit counts from when the dialog opened, not from each render.
+    const [openedAt] = useState(() => Date.now());
+    const detail = useQuery(statementQuery(statement.id, streamOpen, openedAt));
     const [busy, setBusy] = useState<string | null>(null);
     const docs = [...(detail.data?.documents ?? [])].sort((a, b) => DOCUMENT_ORDER.indexOf(a.kind) - DOCUMENT_ORDER.indexOf(b.kind));
 

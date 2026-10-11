@@ -10,7 +10,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { fakeWeb, goErr, json } from "@/test-utils/fakeWeb";
 import { probeGoDownload } from "@/lib/goDownload";
 
-import { billingRowsQuery, billingRowsQueryParams, createStatement, DEFAULT_ROWS_PARAMS, documentPath, statementsQuery } from "./billing.go";
+import { billingRowsQuery, billingRowsQueryParams, createStatement, DEFAULT_ROWS_PARAMS, DOCUMENT_POLL_LIMIT_MS, DOCUMENT_POLL_MS, documentPath, statementQuery, statementsQuery } from "./billing.go";
 import { computeTripBilling, startBillingJob } from "./billingWrites.go";
 import { expensePatchOf } from "../components/go/ExpenseDetailDialog";
 import { auditFilter } from "../components/go/ExpenseAuditPage";
@@ -315,6 +315,16 @@ describe("billing aggregates and statements", () => {
         await runQueryFn(statementsQuery({ customerId: "all", status: "paid", year: 0, month: 9 }));
         expect(Object.fromEntries(query(web.calls[0].url))).toEqual({ customerId: "c1", year: "2026", month: "9", limit: "50" });
         expect(Object.fromEntries(query(web.calls[1].url))).toEqual({ status: "paid", limit: "50" });
+    });
+
+    it("polls a statement every 5 s while a document renders and the stream is closed, for at most 2 min", () => {
+        const interval = (streamOpen: boolean, openedAt: number, documents: { status: string }[]) =>
+            (statementQuery("s1", streamOpen, openedAt).refetchInterval as (q: unknown) => number | false)({ state: { data: { documents } } });
+        const now = Date.now();
+        expect(interval(false, now, [{ status: "rendering" }])).toBe(DOCUMENT_POLL_MS);
+        expect(interval(true, now, [{ status: "rendering" }])).toBe(false);
+        expect(interval(false, now, [{ status: "ready" }])).toBe(false);
+        expect(interval(false, now - DOCUMENT_POLL_LIMIT_MS - 1, [{ status: "pending" }])).toBe(false);
     });
 
     it("counts the loaded statements without the cancelled ones and marks the overdue", () => {

@@ -383,9 +383,11 @@ export function documentsPending(s: Pick<StatementDTO, "documents"> | null | und
     return (s?.documents ?? []).some((d) => d.status === "pending" || d.status === "rendering");
 }
 
-/** `['statements','detail',id]` (30 s stale). */
-export function statementQuery(id: string | null, streamOpen: boolean) {
-    const startedAt = Date.now();
+/**
+ * `['statements','detail',id]` (30 s stale). While a document renders and the session stream is closed it
+ * polls every 5 s, until `DOCUMENT_POLL_LIMIT_MS` after `openedAt` (when the caller started watching).
+ */
+export function statementQuery(id: string | null, streamOpen: boolean, openedAt: number = Date.now()) {
     return queryOptions({
         queryKey: queryKeys.statements.detail(id ?? ""),
         queryFn: ({ signal }) => goFetch<StatementDTO>(goPath`/v1/billing/statements/${id ?? ""}`, { signal }),
@@ -393,7 +395,7 @@ export function statementQuery(id: string | null, streamOpen: boolean) {
         gcTime: QUERY_POLICY.entity.gcTime,
         enabled: Boolean(id),
         refetchInterval: (query) =>
-            !streamOpen && documentsPending(query.state.data) && Date.now() - startedAt < DOCUMENT_POLL_LIMIT_MS ? DOCUMENT_POLL_MS : false,
+            !streamOpen && documentsPending(query.state.data) && Date.now() - openedAt < DOCUMENT_POLL_LIMIT_MS ? DOCUMENT_POLL_MS : false,
     });
 }
 
