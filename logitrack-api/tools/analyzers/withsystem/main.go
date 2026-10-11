@@ -66,7 +66,8 @@ const JobsImport = "github.com/smartcode54-bit/logi-track-plateform/logitrack-ap
 // Allowed are the module-relative package directories (and everything below them) that may call
 // WithSystem, inbox.Run, or Submit with an InTx hook: identity and security services, storage key
 // lookups after entity authorization, the anonymous public forms, the outbox relay and inbox, tenancy
-// moves, and the processes without a request principal (worker consumers, scheduler jobs, ETL, seed).
+// moves, the processes without a request principal (worker consumers, scheduler jobs, ETL, seed), and
+// the read-only loads of shared master-data caches (internal/hubs: every reader caches the same value).
 // Appendix C §C.3.2 lists the same.
 var Allowed = []string{
 	"internal/platform/db", // the definition
@@ -81,6 +82,7 @@ var Allowed = []string{
 	"internal/jobs",      // job rows and DLQ replay (T10)
 	"internal/notify",    // notify.* consumers (worker, T10)
 	"internal/scheduler", // scheduler jobs (T10)
+	"internal/hubs",      // read-only loads of the shared hub caches, the distances.compute consumer (T21)
 	"cmd/worker",
 	"cmd/scheduler",
 	"cmd/etl",

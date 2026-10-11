@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs/jobsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -18,18 +20,51 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
-// Caller is the authenticated principal of a jobs request, as the auth middleware resolved it. Every
-// job type so far is a platform one; staff of a job's tenant holding its type's capability become
-// readers with the per-type POST /v1/jobs/{type} routes (T21 first; developer-spec.md §7.5).
+// Caller is the authenticated principal of a jobs request, as the auth middleware resolved it: owners
+// read their jobs, platform principals every job, and staff of a job's tenant the jobs of the types
+// whose capability they hold (TypeCapabilities; developer-spec.md §7.5, T21 first).
 type Caller struct {
 	UserID uuid.UUID
 	// PlatformAdmin holds platform_admin: every job, and the queue replay (Appendix B §B.1.4 `platform`).
 	PlatformAdmin bool
 	// PlatformSupport holds support: every job, read only.
 	PlatformSupport bool
+	// TenantID is the caller's effective tenant (authz.Principal.EffectiveTenant), nil without one.
+	TenantID *uuid.UUID
+	// Can reports a capability of the caller's effective set (authz.Principal.Can); nil holds nothing.
+	Can func(authz.Cap) bool
 }
 
 func (c Caller) readsAll() bool { return c.PlatformAdmin || c.PlatformSupport }
+
+// readerTypes are the job types the caller reads in its tenant: those whose capability it holds.
+func (c Caller) readerTypes() []string {
+	out := []string{}
+	if c.TenantID == nil || c.Can == nil {
+		return out
+	}
+	for t, cp := range TypeCapabilities {
+		if c.Can(cp) {
+			out = append(out, t)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// canRead is the rule of GET /v1/jobs/{id}: platform principals, the owner, and staff of the job's
+// tenant holding its type's capability.
+func (c Caller) canRead(j Job) bool {
+	switch {
+	case c.readsAll():
+		return true
+	case j.OwnerUserID != nil && *j.OwnerUserID == c.UserID:
+		return true
+	case j.TenantID != nil && c.TenantID != nil && *j.TenantID == *c.TenantID:
+		return slices.Contains(c.readerTypes(), j.Type)
+	}
+	return false
+}
 
 // HTTPOptions wire the endpoints to authentication: Auth answers 401 itself when the request has no
 // valid principal and stores it for Caller.
@@ -119,9 +154,12 @@ func (h handlers) list(c fiber.Ctx) error {
 			return httpx.ErrBadRequest("unknown query parameter " + k)
 		}
 	}
-	p := jobsdb.ListJobsParams{RowLimit: DefaultLimit + 1}
+	p := jobsdb.ListJobsParams{RowLimit: DefaultLimit + 1, ReaderTypes: []string{}}
 	if !cl.readsAll() {
 		p.OwnerUserID = &cl.UserID
+		if types := cl.readerTypes(); len(types) > 0 {
+			p.ReaderTenantID, p.ReaderTypes = cl.TenantID, types
+		}
 	}
 	if t := c.Query("type"); t != "" {
 		if !typeRx.MatchString(t) {
@@ -174,7 +212,7 @@ func (h handlers) get(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if !ok || (!cl.readsAll() && (j.OwnerUserID == nil || *j.OwnerUserID != cl.UserID)) {
+	if !ok || !cl.canRead(j) {
 		return httpx.ErrNotFound()
 	}
 	return httpx.JSON(c, http.StatusOK, j)
