@@ -1,0 +1,1 @@
+{"_id": "distances_last_calculated", "_path": "metadata/distances_last_calculated", "_createTime": "2026-09-01T00:00:00Z", "_updateTime": "2026-09-02T00:00:00Z", "fields": {"calculatedAt": {"$ts": "2026-08-01T01:00:00Z"}, "pairs": 1, "calculatedBy": "uid_admin"}}

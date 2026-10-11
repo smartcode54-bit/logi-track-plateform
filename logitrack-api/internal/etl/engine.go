@@ -32,9 +32,12 @@ type Config struct {
 	Tx TxFunc
 	// OwnFleetTenantID is OWN_FLEET_TENANT_ID: the single own-fleet tenant (R56). Required.
 	OwnFleetTenantID uuid.UUID
-	// Bucket is S3_BUCKET: file_objects.bucket of every registered legacy object (APKs excepted, T24).
+	// Bucket is S3_BUCKET: file_objects.bucket of every registered legacy object but the APKs.
 	Bucket string
-	Log    zerolog.Logger
+	// PublicBucket is S3_PUBLIC_BUCKET: file_objects.bucket of the legacy APK (settings/mobile_app, visibility public,
+	// R23). Default logitrack-public, the default of the storage configuration.
+	PublicBucket string
+	Log          zerolog.Logger
 	// Now is the clock of reports and resolutions (tests pin it).
 	Now func() time.Time
 }
@@ -59,6 +62,12 @@ func New(cfg Config) (*Engine, error) {
 	}
 	if cfg.Bucket == "" {
 		return nil, errors.New("etl: S3_BUCKET is required")
+	}
+	if cfg.PublicBucket == "" {
+		cfg.PublicBucket = "logitrack-public"
+	}
+	if cfg.PublicBucket == cfg.Bucket {
+		return nil, errors.New("etl: S3_PUBLIC_BUCKET must differ from S3_BUCKET")
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -120,6 +129,15 @@ type Report struct {
 	ExportedAt  time.Time
 	Collections []CollectionStats
 	Docs        []DocResult
+	// Extra are findings a collection's after-hook raised on documents of an earlier collection (a trip whose
+	// restamp would cross a locked period is known only once the statements are loaded).
+	Extra []ExtraFinding
+}
+
+// ExtraFinding is a finding written on another collection's document.
+type ExtraFinding struct {
+	Collection, Path string
+	Finding          Finding
 }
 
 // Applied counts the documents a run wrote.
@@ -156,12 +174,16 @@ func (e *Engine) Load(ctx context.Context, d *dump.Dump, o LoadOptions) (*Report
 		if err := e.ensureOwnFleet(ctx, tx, d); err != nil {
 			return err
 		}
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
+		r := e.newRun(ctx, tx, rep)
 		for _, spec := range plan {
 			docs, err := d.Read(spec.name)
 			if err != nil {
 				return err
 			}
-			stats, err := e.loadCollection(ctx, tx, spec, docs, d.Manifest.ExportedAt, o, billable, rep)
+			stats, err := e.loadCollection(ctx, tx, spec, docs, d.Manifest.ExportedAt, o, billable, rep, r)
 			if err != nil {
 				return err
 			}
@@ -206,8 +228,18 @@ func loadPlan(names, selected []string) []collectionSpec {
 const watermarkOverlap = 10 * time.Minute
 
 func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionSpec, docs []dump.Doc, exportedAt time.Time,
-	o LoadOptions, billable billableSet, rep *Report) (CollectionStats, error) {
+	o LoadOptions, billable billableSet, rep *Report, r *runState) (CollectionStats, error) {
 	stats := CollectionStats{Name: spec.name, Mapped: spec.mapper != nil, Total: len(docs), Outcomes: map[Outcome]int{}}
+	if r == nil {
+		r = e.newRun(ctx, tx, rep)
+	}
+	if spec.prepare != nil {
+		// docs is the whole collection of the dump (a dump reads whole collections; --since and the watermark
+		// filter below, after prepare), so a stored document it lacks was deleted at source.
+		if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, run: r}, docs, true); err != nil {
+			return stats, err
+		}
+	}
 	since := o.Since.Truncate(time.Microsecond)
 	var mark watermark
 	if o.SinceWatermark {
@@ -230,7 +262,10 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		ut := doc.UpdateTime.Truncate(time.Microsecond)
 		beforeMark := (!since.IsZero() && !ut.After(since)) ||
 			(o.SinceWatermark && !mark.at.IsZero() && ut.Before(mark.at.Add(-watermarkOverlap)))
-		if beforeMark && !pending[doc.Path] {
+		// reapply: prepare decided this document must be applied although Firestore did not change it (a hub
+		// duplicate that takes the row over once the winner was deleted at source).
+		reapply := spec.reapply != nil && spec.reapply(r, doc.Path)
+		if beforeMark && !pending[doc.Path] && !reapply {
 			stats.BeforeMark++
 			continue
 		}
@@ -249,7 +284,7 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		case errors.Is(err, pgx.ErrNoRows):
 		case err != nil:
 			return stats, fmt.Errorf("etl: %s: read source doc: %w", doc.Path, err)
-		case !o.Force && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
+		case !o.Force && !reapply && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
 			// A pending document waits for its mapping: it is applied by the first load that has one.
 			stats.Unchanged++
 			if storedStatus != string(Pending) {
@@ -257,7 +292,7 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 			}
 			continue
 		}
-		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc)}
+		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc), run: r}
 		if err := e.apply(c, spec); err != nil {
 			return stats, err
 		}
@@ -267,9 +302,17 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		if c.outcome != Pending {
 			advance()
 		}
+		if c.outcome == Loaded || c.outcome == Quarantined {
+			r.applied[spec.name] = append(r.applied[spec.name], doc)
+		}
 		stats.Outcomes[c.outcome]++
 		rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, Outcome: c.outcome, Table: c.table,
 			TargetID: c.target, TenantSource: string(c.tenantSource), Findings: c.findings})
+	}
+	if spec.after != nil && spec.mapper != nil {
+		if err := spec.after(r, spec.name); err != nil {
+			return stats, fmt.Errorf("etl: %s: %w", spec.name, err)
+		}
 	}
 	// Deferred link checks (tenant consistency, driver membership) fire per collection, so a failure names it. A row
 	// keeps its tenant on re-apply and one that leaves the quarantine tenant takes its children along (lookups.go
@@ -321,7 +364,7 @@ func (e *Engine) apply(c *docCtx, spec collectionSpec) error {
 		}
 	case droppedCollections[spec.name]:
 		c.outcome = Dropped
-	case laterCollections[spec.name]:
+	case separateCollections[spec.name]:
 		c.outcome = Pending
 	default:
 		c.outcome = Dropped

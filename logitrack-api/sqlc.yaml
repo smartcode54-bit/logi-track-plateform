@@ -601,6 +601,69 @@ sql:
             go_type:
               type: float64
               pointer: true
+  # T40: vehicle expenses (W8 server filter, staff entries, audit, toll import) under db.WithPrincipal (RLS G-tenant).
+  # Exported query texts (emit_exported_queries) let the integration test EXPLAIN the list as served. Instants are
+  # time.Time, calendar days time.Time at UTC midnight, NUMERIC amounts float64 (two decimals at most, checked in Go).
+  - name: expenses
+    engine: postgresql
+    schema: migrations
+    queries: internal/expenses/queries
+    gen:
+      go:
+        package: expensesdb
+        out: internal/expenses/expensesdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        emit_exported_queries: true
+        omit_unused_structs: true
+        overrides: &finance_overrides
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: date
+            go_type: time.Time
+          - db_type: date
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+          - db_type: pg_catalog.numeric
+            go_type: float64
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type:
+              type: float64
+              pointer: true
+  # T40: maintenance records, their files and the maintenance columns of trucks (the PM check), under
+  # db.WithPrincipal (RLS G-tenant; maintenance_files follow their record). Same type mapping as expenses.
+  - name: maintenance
+    engine: postgresql
+    schema: migrations
+    queries: internal/maintenance/queries
+    gen:
+      go:
+        package: maintenancedb
+        out: internal/maintenance/maintenancedb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides: *finance_overrides
 # sqlc vet rules (make gen-check). scope-views-only (Appendix C §C.3.7): a scope query reads the scope_* views
 # and nothing else, and never writes. It fails on any of the 85 tables of migrations/ named as a whole word
 # (schema-qualified, quoted, joined, in a subquery or a CTE alike; scope_tasks does not contain the word

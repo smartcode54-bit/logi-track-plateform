@@ -17,10 +17,12 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
@@ -54,6 +56,10 @@ type APIDeps struct {
 	Fleet *fleet.Service
 	// Drivers are the driver master of T23: /v1/drivers*.
 	Drivers *drivers.Service
+	// Expenses are the vehicle expenses of T40: /v1/expenses* (server filter, audit with the PM check, toll import).
+	Expenses *expenses.Service
+	// Maintenance is the maintenance records of T40: /v1/maintenance* and POST /v1/trucks/{id}/pm-check.
+	Maintenance *maintenance.Service
 	// Operations are the operations routes: PATCH /v1/tasks/{id} with tenantId, the R13 reassignment (T28); the read
 	// APIs (T30) and the write-back (T31) join it.
 	Operations *operations.Service
@@ -257,6 +263,19 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Maintenance and vehicle expenses (T40): RLS decides (db.WithPrincipal); an approval runs the PM check in its
+	// transaction. Staff writes go to PostgreSQL, as a PostgreSQL-owned domain and a deployment without the FS->PG
+	// mirror need; the class C write-back (Firestore first, main spec §11.10) lands with T31 (internal/writeback).
+	maintSvc, err := maintenance.New(maintenance.Deps{Pool: pool, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	expenseSvc, err := expenses.New(expenses.Deps{Pool: pool, Files: st, PM: maintSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// Operations (T27 data layer; T28 the R13 task reassignment, performed by iam.TaskMover in a system transaction
 	// after Go authorization).
 	taskMover, err := iam.NewTaskMover(iam.TaskMoverDeps{Pool: pool, Log: log})
@@ -277,8 +296,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Drivers: driverSvc, Operations: opsSvc, Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter,
-		RateLimitEnabled: cfg.RateLimit.Enabled})
+		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Operations: opsSvc, Jobs: jobSvc, Storage: st,
+		Events: events, Mobile: mobile, Limiter: limiter, RateLimitEnabled: cfg.RateLimit.Enabled})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

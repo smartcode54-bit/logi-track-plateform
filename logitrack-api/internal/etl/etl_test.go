@@ -195,13 +195,13 @@ func TestVocabularies(t *testing.T) {
 // Every mapped or deferred collection is a collection of Appendix A, and no name is in two lists.
 func TestCollectionListsAreDisjoint(t *testing.T) {
 	for _, n := range MappedCollections() {
-		if laterCollections[n] || droppedCollections[n] {
-			t.Errorf("%s is mapped and also listed as later or dropped", n)
+		if separateCollections[n] || droppedCollections[n] {
+			t.Errorf("%s is mapped and also listed as separate or dropped", n)
 		}
 	}
 	for n := range droppedCollections {
-		if laterCollections[n] {
-			t.Errorf("%s is dropped and later", n)
+		if separateCollections[n] {
+			t.Errorf("%s is dropped and separate", n)
 		}
 	}
 }
