@@ -1,12 +1,13 @@
 name: CI
 
-# mv-go and mv-go-** run the same web checks (developer-spec.md §17.3, T14); the main entries are
+# Pushes to mv-go and pull requests into mv-go and mv-go-** run the same web checks (developer-spec.md
+# §17.3, T14; a feature branch runs them through its pull request only); the main entries are
 # unchanged (R90). Deploy follows CI runs whose head branch is main: pushes to main, but also a pull
 # request whose head branch is named main, so the job refuse-main-head fails such a PR into mv-go
 # and Deploy skips it. main reaches mv-go only through a mv-go-sync-<date> branch (§17.5).
 on:
   push:
-    branches: [main, mv-go, 'mv-go-**']
+    branches: [main, mv-go]
     paths:
       - 'logitrack-web/**'
       - 'shared-docs/**'

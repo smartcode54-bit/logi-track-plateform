@@ -9,9 +9,10 @@
 # runs everything, so every mv-go commit gets its image (§17.2, §17.4) whatever it touched; so
 # does a range that cannot be compared (new branch, force push, tag).
 #
-# The workflow triggers on every push and pull request of mv-go and mv-go-** (no `paths:` filter),
-# so the aggregate `go-ci` check always reports and can be a required check on mv-go: a workflow
-# skipped by a path filter would leave a required check pending forever.
+# The workflow triggers on every push to mv-go and pull request into mv-go and mv-go-** (a feature
+# branch runs through its pull request) with no `paths:` filter, so the aggregate `go-ci` check
+# always reports and can be a required check on mv-go: a workflow skipped by a path filter would
+# leave a required check pending forever.
 #
 # Inputs (environment): GITHUB_EVENT_NAME, GITHUB_REF, GITHUB_SHA, GITHUB_OUTPUT, and BASE_SHA +
 # HEAD_SHA (pull_request) or BEFORE (push).
