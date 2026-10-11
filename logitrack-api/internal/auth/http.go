@@ -56,12 +56,12 @@ func (s *Service) mountAuth(r fiber.Router) {
 	r.Get("/google/nonce", s.handleGoogleNonce)
 	r.Post("/google", s.handleGoogle)
 	r.Post("/refresh", s.handleRefresh)
-	r.Post("/logout", s.handleLogout)
+	r.Post("/logout", s.refuseAPIKeys, s.handleLogout)
 	r.Post("/logout-all", s.RequireAuth(), s.handleLogoutAll)
 	r.Post("/tenant", s.RequireAuth(), s.handleTenant)
 	r.Post("/password/forgot", s.handleForgot)
 	r.Post("/password/reset", s.handleReset)
-	r.Post("/password/change", s.handleChange)
+	r.Post("/password/change", s.refuseAPIKeys, s.handleChange)
 	r.Post("/sse-ticket", s.RequireAuth(), s.handleSSETicket)
 }
 

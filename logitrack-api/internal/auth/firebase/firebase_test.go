@@ -271,10 +271,31 @@ func TestVerifierKeysUnavailable(t *testing.T) {
 			if !errors.Is(err, firebase.ErrUnavailable) {
 				t.Fatalf("want ErrUnavailable, got %v", err)
 			}
-			if _, err := v.Verify(context.Background(), raw); err != nil {
-				t.Fatalf("after recovery: %v", err)
-			}
+			eventually(t, "after recovery", func() error {
+				_, err := v.Verify(context.Background(), raw)
+				return err
+			})
 		})
+	}
+}
+
+// eventually calls f every 10 ms until it returns nil, failing the test with what and the last error
+// after 2 s. go-oidc's RemoteKeySet (v3.21.0, keysFromRemote) hands a finished key fetch to its waiters
+// before it clears the in-flight slot, so a Verify made straight after a failed fetch can still join that
+// fetch and get its error; only a later call is sure to start a fresh one. Asserting on the first call
+// after recovery is therefore a race, not a property of the verifier.
+func eventually(t *testing.T, what string, f func() error) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := f()
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: %v", what, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

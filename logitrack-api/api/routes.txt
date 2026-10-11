@@ -12,6 +12,9 @@ PUT /media/* internal,public
 GET /readyz internal
 GET /startupz internal
 POST /v1/admin/queues/:queue/replay internal
+GET /v1/api-keys internal
+POST /v1/api-keys internal
+DELETE /v1/api-keys/:id internal
 USE /v1/auth internal,public
 POST /v1/auth/google internal,public
 GET /v1/auth/google/nonce internal,public
