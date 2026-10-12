@@ -1,15 +1,20 @@
 import { useState } from "react";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
+import { submitWaitlist } from "@/lib/publicForms";
+import { toastSaveError } from "@/lib/formServerErrors";
 
+/**
+ * The state of the `/waitlist` page's form. It posts to the anonymous BFF form `POST /api/forms/waitlist`
+ * (R44, R77; lib/publicForms.ts), which forwards to Go's internal `POST /v1/waitlist`; nothing is written
+ * to Firestore. `website` is the hidden honeypot field.
+ */
 export function useWaitlist() {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [countryCode, setCountryCode] = useState("+66");
   const [phone, setPhone] = useState("");
+  const [website, setWebsite] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const { t } = useLanguage();
@@ -37,19 +42,18 @@ export function useWaitlist() {
         return;
       }
 
-      await addDoc(collection(db, COLLECTIONS.WAITLIST), {
-        email,
+      await submitWaitlist({
+        email: email.trim(),
         name: fullName.trim(),
         countryCode: countryCode || "+66",
         phone: phone.trim(),
-        createdAt: serverTimestamp(),
+        website,
       });
 
       setSubmitted(true);
       toast.success("Successfully joined the waitlist!");
-    } catch (error: any) {
-      console.error("Error joining waitlist:", error);
-      toast.error(error.message || "Failed to join waitlist. Please try again.");
+    } catch (error) {
+      toastSaveError(error, t, "auth.waitlist.errorToast");
     } finally {
       setLoading(false);
     }
@@ -64,6 +68,8 @@ export function useWaitlist() {
     setCountryCode,
     phone,
     setPhone,
+    website,
+    setWebsite,
     loading,
     submitted,
     handleSubmit,

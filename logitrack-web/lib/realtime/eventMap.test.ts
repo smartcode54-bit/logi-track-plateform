@@ -5,6 +5,7 @@ import { partialMatchKey, type QueryKey } from "@tanstack/react-query";
 
 import { queryKeys } from "../queryKeys";
 import {
+    CHAT_EVENTS,
     effectsOf,
     EXPENSE_EVENTS,
     FLEET_EVENTS,
@@ -19,6 +20,7 @@ import {
     STATEMENT_EVENTS,
     TASK_EVENTS,
     TRIP_EVENTS,
+    WAITLIST_KEYS,
 } from "./eventMap";
 
 const keysOf = (event: string, data: unknown = {}) => effectsOf({ event, data }).invalidate.map((i) => i.queryKey);
@@ -47,6 +49,10 @@ const CATALOGUE = {
     trips: ["trip.created", "trip.updated", "trip.delivered", "trip.priced", "trip.repriced", "trip.cancelled", "trip.resubmitted", "standby.completed", "standby.priced", "incident.created"],
     // M2 (T34): tenant:{tid}:tasks (dispatchers: dispatch:{partyId}:tasks).
     tasks: ["task.created", "task.updated", "task.assigned", "task.checked_in", "task.cancelled", "task.reassigned", "task.plan_date_changed"],
+    // M6 (T54R): tenant:{tid}:chats (the dashboard's chat counters), tenant:{tid}:vehicle_locations, platform:security.
+    chats: ["chat.created", "chat.updated", "chat.message_created"],
+    vehicleLocations: ["vehicle_locations.updated"],
+    platformSecurity: ["security.event", "waitlist.created"],
 };
 
 describe("event map (M1 slice)", () => {
@@ -109,7 +115,7 @@ describe("event map (M1 slice)", () => {
     });
 
     it("an event outside the map, or a prototype name, has no effect", () => {
-        for (const name of ["task.deleted", "trip.photos_changed", "chat.created", "constructor", "__proto__", "toString", ""]) {
+        for (const name of ["task.deleted", "trip.photos_changed", "message.created", "constructor", "__proto__", "toString", ""]) {
             expect(effectsOf({ event: name, data: {} })).toEqual({ invalidate: [], write: [] });
         }
     });
@@ -246,5 +252,56 @@ describe("operations (M2, T34): the boards, the monitor, standby and incidents",
         expect(reaches(keysOf("incident.created"), queryKeys.incidents({ tripId: "r1" }))).toBe(true);
         expect(reaches(keysOf("incident.created"), monitor)).toBe(true);
         for (const name of ["trip.priced", "trip.repriced", "standby.priced"]) expect(reaches(keysOf(name), monitor)).toBe(true);
+    });
+});
+
+describe("dashboard and waitlist (M6, T54R)", () => {
+    it("waitlist.created makes the waitlist and the badges stale", () => {
+        expect(keysOf("waitlist.created", { id: "w1" })).toEqual(WAITLIST_KEYS);
+        expect(reaches(keysOf("waitlist.created"), queryKeys.waitlist())).toBe(true);
+        expect(reaches(keysOf("waitlist.created"), queryKeys.badges())).toBe(true);
+        expect(reaches(keysOf("waitlist.created"), queryKeys.security.events({ reach: "all" }))).toBe(false);
+    });
+
+    it("chat events make only the badges stale (the dashboard's chat widget, Appendix E §E.5 row 21)", () => {
+        expect([...CHAT_EVENTS].sort()).toEqual([...CATALOGUE.chats].sort());
+        for (const name of CHAT_EVENTS) expect(keysOf(name, { entity: "chat", id: "c1" })).toEqual([queryKeys.badges()]);
+    });
+
+    it("vehicle_locations.updated writes the batch into ['vehicleLocations'] without a refetch", () => {
+        const at = "2026-10-12T01:03:00Z";
+        const fx = effectsOf({ event: "vehicle_locations.updated", data: { positions: [{ truckId: "a", lat: 14, lng: 101, speed: 30, heading: 0, at }] } });
+        expect(fx.invalidate).toEqual([]);
+        expect(fx.write).toHaveLength(1);
+        expect(fx.write[0].queryKey).toEqual(queryKeys.vehicleLocations());
+        const cached = [{ truckId: "a", tenantId: "t", licensePlate: "70-1", lat: 13, lng: 100, speedKmh: 0, heading: null, lastGpsAt: "2026-10-12T01:00:00Z", updatedAt: at }];
+        expect(fx.write[0].update(cached)).toEqual([{ ...cached[0], lat: 14, lng: 101, speedKmh: 30, heading: 0, lastGpsAt: at }]);
+        expect(fx.write[0].update(undefined)).toBeUndefined();
+        // A partial row: the write is not an answer of the server (the key's poll counts from its last one).
+        expect(fx.write[0].keepUpdatedAt).toBe(true);
+        expect(fx.write[0].refetchWhen?.(cached)).toBe(false);
+    });
+
+    it("a vehicle_locations.updated batch naming a truck the cached list lacks also makes the key stale", () => {
+        const at = "2026-10-12T01:03:00Z";
+        const fx = effectsOf({
+            event: "vehicle_locations.updated",
+            data: { positions: [{ truckId: "a", lat: 14, lng: 101, speed: 30, heading: 0, at }, { truckId: "new", lat: 13.5, lng: 100.2, speed: 0, heading: null, at }] },
+        });
+        const cached = [{ truckId: "a", tenantId: "t", licensePlate: "70-1", lat: 13, lng: 100, speedKmh: 0, heading: null, lastGpsAt: "2026-10-12T01:00:00Z", updatedAt: at }];
+        expect(fx.write[0].refetchWhen?.(cached)).toBe(true);
+        expect(fx.write[0].refetchWhen?.([])).toBe(true);
+        expect(fx.write[0].refetchWhen?.(undefined)).toBe(false); // the first load is still to come
+        // The known truck still moves at once; the new one comes with the refetch (no plate in the batch).
+        expect(fx.write[0].update(cached)).toEqual([{ ...cached[0], lat: 14, lng: 101, speedKmh: 30, heading: 0, lastGpsAt: at }]);
+    });
+
+    it("an unreadable vehicle_locations.updated makes the key stale instead", () => {
+        for (const data of [null, {}, { positions: [] }, { positions: [{ truckId: "a" }] }]) {
+            expect(effectsOf({ event: "vehicle_locations.updated", data })).toEqual({
+                invalidate: [{ queryKey: queryKeys.vehicleLocations(), windowMs: LIST_WINDOW_MS }],
+                write: [],
+            });
+        }
     });
 });

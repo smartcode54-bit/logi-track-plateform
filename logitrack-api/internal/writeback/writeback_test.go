@@ -192,3 +192,82 @@ func TestMemoryCommit(t *testing.T) {
 		t.Fatal("a failing memory committed")
 	}
 }
+
+// Null keeps the field with a null value (the legacy writers' field: null, matched by where(field, '==', null)), where
+// nil deletes it; in a Merge and a Commit, against the fake Google and in Memory alike. Nested, it is refused.
+func TestNull(t *testing.T) {
+	ctx := context.Background()
+	b := gcptest.New(t, "writeback-null")
+	b.Put(dump.Doc{ID: "c1", Path: "chats/c1", Fields: map[string]any{"assignedAdminId": "uidA", "note": "x", "status": "in_progress"}})
+	mem := writeback.NewMemory()
+	mem.Put("chats", "c1", map[string]any{"assignedAdminId": "uidA", "note": "x", "status": "in_progress"}, time.Time{})
+	for name, w := range map[string]writeback.Writer{"firestore": writeback.Firestore{FS: b.Firestore()}, "memory": mem} {
+		if _, err := w.Commit(ctx, writeback.DocWrite{Collection: "chats", DocID: "c1", MustExist: true,
+			Fields: map[string]any{"assignedAdminId": writeback.Null, "note": nil, "status": "open"}}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		doc, _, _, err := w.Get(ctx, "chats", "c1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := doc["assignedAdminId"]; !ok || v != nil {
+			t.Errorf("%s: assignedAdminId %v (present %v), want a stored null", name, v, ok)
+		}
+		if _, ok := doc["note"]; ok {
+			t.Errorf("%s: a nil field is deleted", name)
+		}
+		if err := w.Merge(ctx, "chats", "c2", map[string]any{"closedAt": writeback.Null}); err != nil {
+			t.Fatal(err)
+		}
+		if doc, _, _, _ := w.Get(ctx, "chats", "c2"); len(doc) != 1 || doc["closedAt"] != nil {
+			t.Errorf("%s: merged null %v", name, doc)
+		}
+		if _, err := w.Commit(ctx, writeback.DocWrite{Collection: "chats", DocID: "c3",
+			Fields: map[string]any{"m": map[string]any{"x": writeback.Null}}}); err == nil {
+			t.Errorf("%s: a nested Null is refused", name)
+		}
+	}
+}
+
+// Find: the documents directly in a collection whose string field equals the value, in id order (never a document of
+// a subcollection, nor one whose field holds another value or type).
+func TestFind(t *testing.T) {
+	ctx := context.Background()
+	b := gcptest.New(t, "writeback-find")
+	mem := writeback.NewMemory()
+	docs := map[string]map[string]any{
+		"chats/c2":             {"driverId": "uidD", "status": "closed"},
+		"chats/c1":             {"driverId": "uidD", "status": "open"},
+		"chats/c3":             {"driverId": "uidE", "status": "open"},
+		"chats/c4":             {"driverId": int64(7)},
+		"chats/c1/messages/m1": {"driverId": "uidD"},
+		"other/o1":             {"driverId": "uidD"},
+	}
+	for path, f := range docs {
+		b.Set(path, f)
+		col, id := path[:len(path)-len("/xx")], path[len(path)-2:]
+		mem.Put(col, id, f, time.Time{})
+	}
+	for name, w := range map[string]writeback.Writer{"firestore": writeback.Firestore{FS: b.Firestore()}, "memory": mem} {
+		got, err := w.Find(ctx, "chats", "driverId", "uidD")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(got) != 2 || got[0].ID != "c1" || got[1].ID != "c2" || got[0].Fields["status"] != "open" {
+			t.Fatalf("%s: %+v", name, got)
+		}
+		if name == "firestore" && got[0].UpdateTime.IsZero() {
+			t.Errorf("%s: no update time", name)
+		}
+		if none, err := w.Find(ctx, "chats", "driverId", "nobody"); err != nil || len(none) != 0 {
+			t.Errorf("%s: %v %v", name, none, err)
+		}
+	}
+	if _, err := (writeback.Firestore{}).Find(ctx, "chats", "driverId", "x"); err == nil {
+		t.Error("no client")
+	}
+	mem.Fail(errors.New("down"))
+	if _, err := mem.Find(ctx, "chats", "driverId", "uidD"); err == nil {
+		t.Error("Fail")
+	}
+}

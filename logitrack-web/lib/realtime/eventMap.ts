@@ -28,18 +28,25 @@
  *   never `['billing','rows' | 'missingDate']`, R89) and the success keys of the billing, document and
  *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery: billing.compute and the billing
  *   endpoints append them on the trips topic of the tenant that ran the record and of its billing carrier).
+ * - the dashboard and waitlist slice of M6 (T54R): `vehicle_locations.updated` on
+ *   `tenant:{tid}:vehicle_locations` (the Cartrack batch, data written into `['vehicleLocations']`; a
+ *   refetch only when it names a truck the list lacks), `waitlist.created` on `platform:security`
+ *   (`['waitlist']`, `['badges']`; tenant stewards poll), and the chat events of `tenant:{tid}:chats` for
+ *   the dashboard's chat widget, which reads the chat counters of `['badges']` (Appendix E §E.5 row 21;
+ *   the chat pages add their own keys in M5).
  * - the M2 slice (T34, the operations pages; producers T31 and T33): `task.*` on `tenant:{tid}:tasks`
  *   (dispatchers `dispatch:{partyId}:tasks`) makes the boards stale (`['tasks']`, 500 ms) and the monitor
  *   (`['trips','monitor']`, 2 s); `trip.*`, `standby.completed`, `incident.created` on `tenant:{tid}:trips`
  *   (`dispatch:{partyId}:trips`) make the monitor stale (2 s), the trip's detail and the boards' trip column
  *   (500 ms), the standby and incident lists (500 ms); the priced events also make the monitor stale (its
  *   stored price), besides `['income']`.
- * Still to come: HR and holidays (M4), chats and the explicit `chat:{id}` topic (M5), vehicle locations,
- * `platform:security` (no producer yet: the security pages poll) and badges (M6).
+ * Still to come: HR and holidays (M4), the chat lists and the explicit `chat:{id}` topic (M5),
+ * `security.event` on `platform:security` (the security pages poll).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { isRateCardTable, rateCardChangedKeys } from "@/features/accounting/api/rateCardKeys";
+import { mergeVehiclePositions, namesUnlistedTruck, parsePositions } from "@/features/dashboard/api/vehicleLocationEvents";
 import type { RealtimeFrame } from "./realtimeStream";
 
 /** Coalescing window of a list invalidation (Appendix E §E.5.1 "Backpressure": 500 ms). */
@@ -57,6 +64,17 @@ export interface CacheWrite {
     queryKey: QueryKey;
     /** `setQueryData` updater: the new value from the cached one (`undefined` when none). */
     update: (cached: unknown) => unknown;
+    /**
+     * The payload carries only part of what the key holds, so the write is not a fresh answer: the
+     * query keeps its `dataUpdatedAt`, and its staleness and `pollFromLastAnswer` interval still count
+     * from the server's last answer (lib/realtime/polling.ts).
+     */
+    keepUpdatedAt?: boolean;
+    /**
+     * Whether the cached value (before the write) lacks something the payload names: the key is then
+     * also made stale (one flush per `LIST_WINDOW_MS` window), so the refetch adds what the write cannot.
+     */
+    refetchWhen?: (cached: unknown) => boolean;
 }
 
 export interface CacheEffects {
@@ -236,6 +254,41 @@ const PRICED_WINDOWS: readonly Invalidation[] = [
     { queryKey: MONITOR_KEY, windowMs: MONITOR_WINDOW_MS },
 ];
 
+// --- dashboard and waitlist (T54R, M6) -------------------------------------------------------------
+
+/**
+ * `vehicle_locations.updated {positions: [...]}` (tenant:{tid}:vehicle_locations, every 3 min with the
+ * Cartrack sync): the batch is written into `['vehicleLocations']` (Appendix E §E.5.1: vehicle-location
+ * batches are trusted as data), each known truck taking the newer fix. The batch carries the position
+ * only (not the address, engine, driver, odometer or fuel) and names no removed truck, so the write
+ * keeps the query's `dataUpdatedAt` (its `pollFromLastAnswer` refetch still comes, useVehicleLocations),
+ * and a batch naming a truck the cached list lacks (its first fix, a new GPS id) makes the key stale:
+ * the batch has no plate or telemetry to add it with. A payload without a readable position makes the
+ * key stale instead.
+ */
+function vehicleLocationEffects(data: unknown): CacheEffects {
+    const positions = parsePositions(data);
+    if (positions.length === 0) return { invalidate: invalidations([queryKeys.vehicleLocations()]), write: [] };
+    return {
+        invalidate: [],
+        write: [
+            {
+                queryKey: queryKeys.vehicleLocations(),
+                update: (cached) => mergeVehiclePositions(cached, positions),
+                keepUpdatedAt: true,
+                refetchWhen: (cached) => namesUnlistedTruck(cached, positions),
+            },
+        ],
+    };
+}
+
+/** `waitlist.created` (platform:security): the waitlist page and the sidebar count. */
+export const WAITLIST_KEYS: readonly QueryKey[] = [queryKeys.waitlist(), queryKeys.badges()];
+
+/** `chat.*` (tenant:{tid}:chats): the chat counters of `['badges']` (the dashboard's chat widget). */
+export const CHAT_EVENTS = ["chat.created", "chat.updated", "chat.message_created"] as const;
+export const CHAT_BADGE_KEYS: readonly QueryKey[] = [queryKeys.badges()];
+
 // --- the map ---------------------------------------------------------------------------------------
 
 const RULES = new Map<string, EventRule>([
@@ -270,6 +323,10 @@ const RULES = new Map<string, EventRule>([
     ...TRIP_EVENTS.map((name) => [name, { windows: TRIP_WINDOWS }] as [string, EventRule]),
     ["standby.completed", { windows: STANDBY_WINDOWS }],
     ["incident.created", { windows: INCIDENT_WINDOWS }],
+    // tenant:{tid}:vehicle_locations, platform:security, tenant:{tid}:chats (T54R)
+    ["vehicle_locations.updated", { effects: vehicleLocationEffects }],
+    ["waitlist.created", { invalidate: WAITLIST_KEYS }],
+    ...CHAT_EVENTS.map((name) => [name, { invalidate: CHAT_BADGE_KEYS }] as [string, EventRule]),
 ]);
 
 /** Every event name the provider listens to (besides `session.revoked` and the control events). */

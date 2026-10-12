@@ -15,10 +15,10 @@ import { useState } from "react";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
 import { Loader2, Mail } from "lucide-react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { submitWaitlist } from "@/lib/publicForms";
+import { toastSaveError } from "@/lib/formServerErrors";
+import { HoneypotField } from "./HoneypotField";
 
 const COUNTRY_OPTIONS: ComboboxOption[] = [
     { value: "+66", label: "🇹🇭 Thailand (+66)" },
@@ -45,6 +45,7 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
     const [fullName, setFullName] = useState("");
     const [countryCode, setCountryCode] = useState("+66");
     const [phone, setPhone] = useState("");
+    const [website, setWebsite] = useState("");
     const [loading, setLoading] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const { t } = useLanguage();
@@ -72,19 +73,19 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
                 return;
             }
 
-            await addDoc(collection(db, COLLECTIONS.WAITLIST), {
-                email,
+            // The anonymous BFF form (R44, R77): no Firestore write, no session.
+            await submitWaitlist({
+                email: email.trim(),
                 name: fullName.trim(),
                 countryCode: countryCode || "+66",
                 phone: phone.trim(),
-                createdAt: serverTimestamp(),
+                website,
             });
 
             setSubmitted(true);
             toast.success(t("auth.waitlist.successToast") || "Successfully joined the waitlist!");
-        } catch (error: any) {
-            console.error("Error joining waitlist:", error);
-            toast.error(t("auth.waitlist.errorToast") || "Failed to join waitlist. Please try again.");
+        } catch (error) {
+            toastSaveError(error, t, "auth.waitlist.errorToast");
         } finally {
             setLoading(false);
         }
@@ -96,6 +97,7 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
         setFullName("");
         setCountryCode("+66");
         setPhone("");
+        setWebsite("");
         if (onOpenChange) onOpenChange(false);
     }
 
@@ -138,7 +140,8 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
-                            <form onSubmit={handleSubmit} className="space-y-4">
+                            <form onSubmit={handleSubmit} className="relative space-y-4">
+                                <HoneypotField id="waitlist-website" value={website} onChange={setWebsite} />
                                 <div className="space-y-2">
                                     <Label htmlFor="waitlist-name">Full name</Label>
                                     <Input

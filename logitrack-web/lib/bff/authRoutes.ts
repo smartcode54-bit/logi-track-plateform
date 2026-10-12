@@ -33,6 +33,7 @@ import {
     loginLocation,
     misconfigured,
     originRefused,
+    readBoundedText,
     requestIdFor,
     sameOrigin,
     upstreamFailure,
@@ -87,31 +88,6 @@ function noStore(headers: Headers, requestId: string): Headers {
     headers.set("Cache-Control", "no-store");
     headers.set(HEADER_REQUEST_ID, requestId);
     return headers;
-}
-
-/** The body as text, read no further than `max` bytes; `undefined` when it is longer. */
-async function readBoundedText(req: Request, max: number): Promise<string | undefined> {
-    if (!req.body) return "";
-    const reader = req.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > max) {
-            await reader.cancel().catch(() => undefined);
-            return undefined;
-        }
-        chunks.push(value);
-    }
-    const all = new Uint8Array(size);
-    let at = 0;
-    for (const c of chunks) {
-        all.set(c, at);
-        at += c.byteLength;
-    }
-    return new TextDecoder().decode(all);
 }
 
 /** Reads a JSON-object body of at most 16 KiB; `{}` when empty; `undefined` when not an object. */

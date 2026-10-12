@@ -822,6 +822,37 @@ sql:
             go_type:
               type: string
               pointer: true
+  # T47: chats, messages and read state (Appendix A §A.2.6, Appendix B §B.2.16, §B.2.21); every query runs in the
+  # caller's request transaction (db.WithPrincipal).
+  - name: chats
+    engine: postgresql
+    schema: migrations
+    queries: internal/chats/queries
+    gen:
+      go:
+        package: chatsdb
+        out: internal/chats/chatsdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
 # sqlc vet rules (make gen-check). scope-views-only (Appendix C §C.3.7): a scope query reads the scope_* views
 # and nothing else, and never writes. It fails on any of the 85 tables of migrations/ named as a whole word
 # (schema-qualified, quoted, joined, in a subquery or a CTE alike; scope_tasks does not contain the word
