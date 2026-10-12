@@ -33,7 +33,10 @@ type LoadResult struct {
 	// TemporaryUserInserted reports that this load inserted the must-change-password fixture user, so the
 	// temporary password of the plan is the one stored (an upsert that finds the user keeps its password).
 	TemporaryUserInserted bool
-	Duration              time.Duration
+	// Notes are worth a warning: the generated statements an upsert left out (statementTables), the truck rows it kept
+	// although the rows it added imply another state (keptTrucks).
+	Notes    []string
+	Duration time.Duration
 }
 
 // column is what the loader needs to know about one column.
@@ -259,6 +262,15 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 				}
 				repriced = true
 			}
+			if table == "billing_statements" && p.fin != nil {
+				// Every priced row is in: the generated statements are what the database's invoice sets give (an
+				// insert checks them against the plan's, an upsert writes them).
+				var notes []string
+				if tables, notes, err = statementTables(ctx, tx, p, tables, mode); err != nil {
+					return err
+				}
+				res.Notes = append(res.Notes, notes...)
+			}
 			rows := tables[table]
 			if mode == ModeUpsert {
 				rows = keepWritable(table, rows, inserted)
@@ -307,6 +319,15 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 		for _, b := range later {
 			if err := backfillRow(ctx, tx, b.table, b.id, b.set, cols[b.table]); err != nil {
 				return err
+			}
+		}
+		if mode == ModeUpsert {
+			note, err := keptTrucks(ctx, tx, p, inserted["trucks"])
+			if err != nil {
+				return err
+			}
+			if note != "" {
+				res.Notes = append(res.Notes, note)
 			}
 		}
 		if res.Counters, err = deriveCounters(ctx, tx, ids(tables["tasks"])); err != nil {
@@ -521,4 +542,68 @@ func engineStandby(tables map[string][]Row, only map[string]bool) []uuid.UUID {
 		}
 	}
 	return out
+}
+
+// keptTrucks names the trucks an upsert found in the database whose row differs, in a column the generators changed
+// (Plan.truckChanges: the maintenance state the seeded fuel logs and records imply), from the plan's: an upsert never
+// updates an existing row, so such a truck keeps its status, mileage, next service, alert mark, active maintenance or
+// service date beside the records the top-up inserted (the staging VM's demo trucks, seeded before T43). "" when none.
+func keptTrucks(ctx context.Context, tx pgx.Tx, p *Plan, inserted map[string]bool) (string, error) {
+	var ids []string
+	for id := range p.truckChanges {
+		if !inserted[id] {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	plan := map[string]Row{}
+	for _, t := range p.Tables["trucks"] {
+		plan[t.Str("id")] = t
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text, license_plate, coalesce(status, ''), coalesce(current_mileage::text, ''),
+		coalesce(next_service_mileage::text, ''), coalesce(last_alert_mileage::text, ''), coalesce(active_maintenance_id::text, ''),
+		coalesce(last_service_date::text, '') FROM trucks WHERE id = ANY($1::uuid[]) ORDER BY license_plate`, ids)
+	if err != nil {
+		return "", err
+	}
+	var kept []string
+	if err := scanAll(rows, func(r pgx.Rows) error {
+		var id, plate string
+		stored := make([]string, len(fleetColumns))
+		dest := []any{&id, &plate}
+		for i := range stored {
+			dest = append(dest, &stored[i])
+		}
+		if err := r.Scan(dest...); err != nil {
+			return err
+		}
+		for i, c := range fleetColumns {
+			if !slices.Contains(p.truckChanges[id], c) {
+				continue
+			}
+			want := ""
+			if v := plan[id][c]; v != nil {
+				want = fmt.Sprint(v)
+			}
+			if stored[i] != want {
+				kept = append(kept, plate)
+				return nil
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	if len(kept) == 0 {
+		return "", nil
+	}
+	n, more := len(kept), ""
+	if n > 10 {
+		more, kept = fmt.Sprintf(" and %d more", n-10), kept[:10]
+	}
+	return fmt.Sprintf("%d truck row(s) kept as the database holds them although the top-up's fuel logs and maintenance "+
+		"records imply another status, mileage, next service, alert mark, active maintenance or service date (an upsert "+
+		"never updates an existing row): %s%s", n, strings.Join(kept, ", "), more), nil
 }

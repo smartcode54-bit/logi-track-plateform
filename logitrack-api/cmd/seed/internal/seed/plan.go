@@ -92,6 +92,10 @@ type Options struct {
 	Media  *Media
 	// PublicURL builds the unsigned URL of an object under app_releases/ (the APK link of settings).
 	PublicURL func(o storage.Object) (string, error)
+
+	// skipFinance leaves out the billing and finance generators (T43), statements included: the plan an older seed
+	// built, which the unit tests compare the finance generators' changes with.
+	skipFinance bool
 }
 
 // Object is one placeholder object of a file_objects row.
@@ -128,6 +132,22 @@ type Plan struct {
 	// objects (trip and task numbers) for the placeholder overlays.
 	ops    *opsResult
 	labels map[string]string
+	// fin are the generated statements (T43), which the load derives again from the database (statementTables).
+	fin *finResult
+	// truckChanges are the trucks whose rows the generators changed after the master data wrote them (T43: the
+	// maintenance history of their fuel logs and records), with the changed columns: an upsert into a database that
+	// already holds such a truck keeps its row and says so (Load).
+	truckChanges map[string][]string
+}
+
+// noteTruckChanges records trucks whose rows a generator changed.
+func (p *Plan) noteTruckChanges(changed map[string][]string) {
+	if p.truckChanges == nil {
+		p.truckChanges = map[string][]string{}
+	}
+	for id, cols := range changed {
+		p.truckChanges[id] = slices.Compact(slices.Sorted(slices.Values(append(p.truckChanges[id], cols...))))
+	}
 }
 
 // Rows of a table.
@@ -216,6 +236,11 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 		if err := addDemoOps(p, o); err != nil {
 			return nil, err
 		}
+		if !o.skipFinance {
+			if err := addDemoFinance(p, o); err != nil {
+				return nil, err
+			}
+		}
 	case ProfileLoad:
 		addDemo(p, o)
 		if err := addDemoMaster(p, o); err != nil {
@@ -224,14 +249,31 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 		if err := addDemoOps(p, o); err != nil {
 			return nil, err
 		}
+		if !o.skipFinance {
+			if err := addDemoFinance(p, o); err != nil {
+				return nil, err
+			}
+		}
 		addLoad(p, o)
+		mark := loadMark(p)
 		if err := addLoadMaster(p, o); err != nil {
 			return nil, err
+		}
+		if !o.skipFinance {
+			if err := addLoadFinance(p, o, mark); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// Prices last, over every rate row the generators wrote (Appendix D §D.1.4: computed by the engine, never typed).
 	if err := priceOperations(p); err != nil {
 		return nil, err
+	}
+	// The statements of the closed months, over every price (T43): what POST /v1/billing/statements would invoice.
+	if o.Profile != ProfileSmoke && !o.skipFinance {
+		if err := addStatements(p, o); err != nil {
+			return nil, err
+		}
 	}
 	if err := objects(p, o); err != nil {
 		return nil, err
@@ -583,6 +625,9 @@ func validate(p *Plan) error {
 			}
 			for col, v := range r {
 				if err := walkStrings(v, func(s string) error {
+					if !strings.Contains(s, "@") {
+						return nil // no address (the regexp's backtracking over every value dominated a load build)
+					}
 					for _, m := range emailRx.FindAllString(s, -1) {
 						if !strings.HasSuffix(strings.ToLower(m), "@logitrack.test") {
 							return fmt.Errorf("seed: %s.%s: address %s is outside @logitrack.test (Appendix D §D.1.9)", table, col, m)
