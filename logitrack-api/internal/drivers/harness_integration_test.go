@@ -16,7 +16,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -41,6 +40,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
@@ -73,20 +73,6 @@ type world struct {
 	partyX        string // the customer X's billing party (the dispatcher's grant)
 	spx           string // customer SPX (driver id types appId, workId)
 	pa            string // the platform admin's user id
-}
-
-// listenLoopback binds the public listener up front, for the API to serve (app.Listeners): the local storage
-// backend's PublicBaseURL needs its address before the API is built. A port picked and released here would be
-// bound again only in Listen, and another process (docker-proxy, a parallel test binary) can take it in between.
-// The cleanup covers a harness that fails before the API owns the listener.
-func listenLoopback(t *testing.T) net.Listener {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	return ln
 }
 
 func newWorld(t *testing.T) *world { return newWorldWith(t, auth.Firebase{}) }
@@ -125,7 +111,9 @@ func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publicLn := listenLoopback(t)
+	// The public listener is bound up front and served as it is (FLAKE3): the local storage backend needs its
+	// address before the API is built, and a port released here could be taken before the API binds it again.
+	publicLn := listentest.Loopback(t)
 	publicAddr := publicLn.Addr().String()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: t.TempDir(), PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("d"), 40), APIUploadPath: storage.LocalUploadPath})

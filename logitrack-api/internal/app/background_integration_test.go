@@ -60,6 +60,7 @@ func TestWorkerAndSchedulerProcesses(t *testing.T) {
 	// settings.
 	run := func(main func(context.Context, net.Listener, io.Writer, io.Writer) int, metrics net.Listener) func() {
 		pctx, cancel := context.WithCancel(ctx)
+		t.Cleanup(cancel) // a test that fails before stop does not leave the process running
 		code := make(chan int, 1)
 		go func() { code <- main(pctx, metrics, io.Discard, io.Discard) }()
 		return func() {

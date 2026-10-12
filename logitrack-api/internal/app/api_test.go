@@ -21,6 +21,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/logx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
 )
@@ -269,7 +270,7 @@ func TestListenOnServesGivenListeners(t *testing.T) {
 		return a
 	}
 
-	pubLn, metLn := listenLoopback(t), listenLoopback(t)
+	pubLn, metLn := listentest.Loopback(t), listentest.Loopback(t)
 	a := newAPI("127.0.0.1:0")
 	if err := a.ListenOn(app.Listeners{Public: pubLn, Metrics: metLn}); err != nil {
 		t.Fatal(err)
@@ -296,7 +297,7 @@ func TestListenOnServesGivenListeners(t *testing.T) {
 	}
 
 	// API_INTERNAL_ADDR taken: ListenOn fails before serving and closes the public listener it was given.
-	busy, given := listenLoopback(t), listenLoopback(t)
+	busy, given := listentest.Loopback(t), listentest.Loopback(t)
 	err = newAPI(busy.Addr().String()).ListenOn(app.Listeners{Public: given})
 	if err == nil || !strings.Contains(err.Error(), "listen API_INTERNAL_ADDR") {
 		t.Fatalf("want the API_INTERNAL_ADDR bind error, got %v", err)

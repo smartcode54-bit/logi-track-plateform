@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,6 +50,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
@@ -94,20 +94,6 @@ type world struct {
 	customerScopeUID string
 }
 
-// listenLoopback binds the public listener up front, for the API to serve (app.Listeners): the local storage
-// backend's PublicBaseURL needs its address before the API is built. A port picked and released here would be
-// bound again only in Listen, and another process (docker-proxy, a parallel test binary) can take it in between.
-// The cleanup covers a harness that fails before the API owns the listener.
-func listenLoopback(t *testing.T) net.Listener {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	return ln
-}
-
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	ctx := context.Background()
@@ -138,7 +124,8 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	// STORAGE_BACKEND=local; LOCAL_MEDIA_PUBLIC_BASE_URL reaches /media on the public listener.
-	publicLn := listenLoopback(t)
+	// Bound up front and served as it is (FLAKE3), so no other process can take the port in between.
+	publicLn := listentest.Loopback(t)
 	publicAddr := publicLn.Addr().String()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: t.TempDir(), PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("p"), 40), APIUploadPath: storage.LocalUploadPath})
