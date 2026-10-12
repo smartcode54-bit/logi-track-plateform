@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
@@ -30,12 +31,18 @@ type TaskOwner struct {
 	HelperDriverID *uuid.UUID
 }
 
-// TaskOwners resolves the {id} of a driver-app task route of any tenant (iam.TaskOwners, a read-only system
-// transaction: operations opens only principal transactions, the WithSystem allow-list): the PostgreSQL id (a
-// canonical uuid) or the Firestore task doc id (tasks.legacy_doc_id, R25). ok is false for no such task (a
-// quarantined one included: it is invisible to every principal but a platform reader).
+// TaskOwners reads past a driver's RLS what its task routes need (iam.TaskOwners, read-only system transactions:
+// operations opens only principal transactions, the WithSystem allow-list).
+//
+//   - TaskOwner resolves the {id} of a driver-app task route of any tenant: the PostgreSQL id (a canonical uuid) or the
+//     Firestore task doc id (tasks.legacy_doc_id, R25). ok is false for no such task (a quarantined one included: it
+//     is invisible to every principal but a platform reader).
+//   - StopParty reads the Firestore side of the billing party a driver's stop takes from its hub (operationsdb
+//     WriteParty): the carrier behind a partner-linked hub is outside a driver's tenant reach (tenants.p_read), yet
+//     the write-back names it on the stop as addDeliveryStop did. ok is false for no such party.
 type TaskOwners interface {
 	TaskOwner(ctx context.Context, ref string) (TaskOwner, bool, error)
+	StopParty(ctx context.Context, id uuid.UUID) (operationsdb.WritePartyRow, bool, error)
 }
 
 // maxTaskRef bounds the {id} of a driver-app task route (a uuid or a Firestore doc id, at most 1500 bytes).

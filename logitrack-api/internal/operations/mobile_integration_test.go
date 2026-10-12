@@ -113,5 +113,18 @@ func TestDriverAddsStopsWriteBack(t *testing.T) {
 		t.Fatalf("acknowledged answer %v", d)
 	}
 	r.refused(409, "duplicate_destination", "driverO1", "POST", "/v1/mobile/tasks/fsTask2/stops", map[string]any{"destination": "BKK-3"})
+	// A hub linked to carrier P (a partner): P is outside the own-fleet driver's tenant reach (tenants.p_read), yet the
+	// stop names it, as addDeliveryStop copied the hub's linked partner (AddDeliveryStopDialog: h.linkedCustomerId).
+	carrierP := r.id(`INSERT INTO tenants (kind, name_th, code, legal_type, legacy_doc_id)
+		VALUES ('carrier', 'พาร์ทเนอร์ P', 'CP', 'company', 'sub_p') RETURNING id`)
+	partyP := r.id(`INSERT INTO billing_parties (kind, tenant_id) VALUES ('tenant', $1) RETURNING id`, carrierP)
+	r.exec(`INSERT INTO hubs (source_id, name_th, network, linked_party_id) VALUES ('PARTNER-HUB', 'พาร์ทเนอร์', 'SPX', $1)`, partyP)
+	r.must(200, "driverO1", "POST", "/v1/mobile/tasks/fsTask2/stops", map[string]any{"destination": "partner-hub"})
+	doc, _ = mem.Doc("tasks", "fsTask2")
+	stops, _ = doc["deliveryStops"].([]any)
+	if last := stops[len(stops)-1].(map[string]any); last["destination"] != "PARTNER-HUB" || last["destinationLinkedCustomerId"] != "sub_p" ||
+		last["destinationCustomerLinkKind"] != "partner" || last["destinationLinkedCustomerCode"] != "CP" {
+		t.Fatalf("partner stop %v", last)
+	}
 	r.refused(403, operations.CodeNotTaskOwner, "driverO2", "POST", "/v1/mobile/tasks/fsTask2/stops", map[string]any{"destination": "bkk-4"})
 }

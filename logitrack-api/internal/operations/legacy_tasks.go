@@ -510,6 +510,18 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 	if err != nil {
 		return stopAdded{}, err
 	}
+	if party != nil && driverPrincipal(p) && s.owners != nil {
+		if pid, _, _, _ := partyDoc(*party); pid == "" {
+			// A carrier's tenant row is outside a driver's reach (tenants.p_read): its Firestore side is read past RLS.
+			full, ok, err := s.owners.StopParty(ctx, party.ID)
+			if err != nil {
+				return stopAdded{}, err
+			}
+			if ok {
+				party = &full
+			}
+		}
+	}
 	dest := normalizeDestination(st.Destination)
 	if dest == "" {
 		return stopAdded{}, invalid("destination", "required")
