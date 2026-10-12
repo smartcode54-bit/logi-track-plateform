@@ -9,6 +9,7 @@
 package etl
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 func (h *syncHarness) projectHolidays(p *Projector, t ShadowTarget) ProjectStats {
@@ -227,27 +229,31 @@ func TestProjectionOfHolidaysCatchUpDeletes(t *testing.T) {
 	}
 }
 
-// The leave write-back of internal/hr (hr.FirestoreLeaveDocs, hr.LegacyLeaveDecision) against the Firestore stand-in,
-// then the mirror: the row the sweep loads carries the decision, its maker (approverId through users.legacy_auth_uid)
-// and time, and a rejection's reason.
+// The leave write-back of internal/hr (hr.LegacyLeaveDecision committed through T31's writeback.Firestore, the writer
+// the api builds, under the update time read) against the Firestore stand-in, then the mirror: the row the sweep loads
+// carries the decision, its maker (approverId through users.legacy_auth_uid) and time, and a rejection's reason. The
+// writer is the REST one, not writeback.Memory, because the mirror reads the stand-in.
 func TestLeaveWriteBackRoundTrip(t *testing.T) {
 	h := newSyncHarness(t)
 	staff := h.id(`INSERT INTO users (email, display_name, legacy_auth_uid) VALUES ('hr@example.test', 'HR', 'uid_hr') RETURNING id`)
-	docs := hr.FirestoreLeaveDocs{FS: h.client}
+	docs := writeback.Firestore{FS: h.client}
+	update := func(docID string, fields map[string]any, at time.Time) (time.Time, error) {
+		return docs.Commit(h.ctx, writeback.DocWrite{Collection: hr.LeaveCollection, DocID: docID, Fields: fields, UpdateTime: at})
+	}
 	uid := "uid_hr"
 	decide := func(docID, status string, reason *string) time.Time {
 		t.Helper()
-		f, at, ok, err := docs.Get(h.ctx, docID)
+		f, at, ok, err := docs.Get(h.ctx, hr.LeaveCollection, docID)
 		if err != nil || !ok || hr.LegacyLeaveStatus(f["status"]) != "pending" {
 			t.Fatalf("%s: %v %v %v", docID, f, ok, err)
 		}
 		now := time.Date(2026, 10, 12, 2, 30, 0, 0, time.UTC)
-		written, err := docs.Update(h.ctx, docID, hr.LegacyLeaveDecision(status, &uid, reason, now), at)
+		written, err := update(docID, hr.LegacyLeaveDecision(status, &uid, reason, now), at)
 		if err != nil || !written.After(at) {
 			t.Fatalf("update %s: %v %v", docID, written, err)
 		}
 		// The precondition: a second write against the old update time is refused.
-		if _, err := docs.Update(h.ctx, docID, map[string]any{"status": "X"}, at); err != hr.ErrDocumentChanged {
+		if _, err := update(docID, map[string]any{"status": "X"}, at); !errors.Is(err, writeback.ErrConflict) {
 			t.Fatalf("stale update: %v", err)
 		}
 		return now
@@ -269,8 +275,8 @@ func TestLeaveWriteBackRoundTrip(t *testing.T) {
 		t.Errorf("lv_3 %v", v)
 	}
 	// A cancel writes the status alone; the decision's maker and time stay.
-	f, ut, _, _ := docs.Get(h.ctx, "lv_2")
-	if _, err := docs.Update(h.ctx, "lv_2", hr.LegacyLeaveDecision("cancelled", &uid, nil, at.Add(time.Hour)), ut); err != nil || f["approverId"] != "uid_hr" {
+	f, ut, _, _ := docs.Get(h.ctx, hr.LeaveCollection, "lv_2")
+	if _, err := update("lv_2", hr.LegacyLeaveDecision("cancelled", &uid, nil, at.Add(time.Hour)), ut); err != nil || f["approverId"] != "uid_hr" {
 		t.Fatal(err, f)
 	}
 	h.sweep(h.plan(owned("auth", "masterdata", "billing", "hr")))

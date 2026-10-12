@@ -17,7 +17,6 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Reasons of the refusals of a decision (details.reason).
@@ -93,7 +92,7 @@ func (s *Service) DecideLeave(ctx context.Context, p *authz.Principal, rid strin
 	if s.leavePG {
 		return s.decidePG(ctx, p, rid, id, action, move, reason)
 	}
-	if s.leaveWB == nil || s.leaveWB.Docs == nil {
+	if s.leaveWB == nil || s.leaveWB.Writer == nil {
 		return LeaveResult{}, httpx.ErrUnavailable("leave requests are written in Firestore and the api has no Firestore writer").
 			WithDetails(map[string]any{"reason": ReasonWriteBackUnconfigured})
 	}
@@ -176,36 +175,11 @@ func (s *Service) decideWriteBack(ctx context.Context, p *authz.Principal, rid s
 		return LeaveResult{}, errState(ReasonNotInFirestore, row.Status, nil)
 	}
 	docID := *row.LegacyDocID
-	wb := s.leaveWB
-	cur, updated, exists, err := wb.Docs.Get(ctx, docID)
+	status, fields, at, err := s.leaveWB.write(ctx, docID, row.Status, move, approverUID, reason, time.Now().UTC())
 	if err != nil {
-		return LeaveResult{}, writeback.ErrUnavailable(err)
+		return LeaveResult{}, err
 	}
-	if !exists {
-		return LeaveResult{}, errState(ReasonDocumentChanged, row.Status, nil)
-	}
-	status := LegacyLeaveStatus(cur["status"])
-	if status != move[0] {
-		return LeaveResult{}, errState(ReasonTransitionNotAllowed, status, map[string]any{"to": move[1]})
-	}
-	now := time.Now().UTC()
-	fields := LegacyLeaveDecision(move[1], approverUID, reason, now)
-	at, err := wb.Docs.Update(ctx, docID, fields, updated)
-	if errors.Is(err, ErrDocumentChanged) {
-		return LeaveResult{}, errState(ReasonDocumentChanged, status, nil)
-	}
-	if err != nil {
-		return LeaveResult{}, writeback.ErrUnavailable(err)
-	}
-	acked := false
-	if wb.Acks != nil {
-		wait := wb.Wait
-		if wait <= 0 {
-			wait = DefaultMirrorWait
-		}
-		// A Redis failure ends the wait: the answer is then the 202 echo, the write is in Firestore either way.
-		acked, _ = wb.Acks.WaitMirrorAck(ctx, LeaveCollection, docID, at, wait)
-	}
+	acked := s.leaveWB.acked(ctx, docID, at)
 	// The event follows the write (and the acknowledgement, so a page that refetches on it reads the decision when the
 	// mirror was quick). A failure to append it is logged, never an error: the decision is in Firestore and a retry of
 	// the request would now meet transition_not_allowed. Its from is the document's status the decision was checked

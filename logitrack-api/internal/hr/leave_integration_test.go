@@ -23,6 +23,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // leave inserts a leave request of drv in tenant created at the given instant; legacy is its Firestore document id
@@ -276,6 +277,11 @@ func TestLeaveDecisionsRace(t *testing.T) {
 	}
 }
 
+// putLeave stores leave_requests/{docID} in the Firestore stand-in as the 3.x app wrote it (its update time now).
+func putLeave(docs *writeback.Memory, docID string, fields map[string]any) {
+	docs.Put(hr.LeaveCollection, docID, fields, time.Now().UTC())
+}
+
 // fakeAcks plays the mirror's acknowledgement.
 type fakeAcks struct {
 	ack func(docID string, want time.Time) bool
@@ -289,20 +295,20 @@ func (f fakeAcks) WaitMirrorAck(_ context.Context, _, docID string, want time.Ti
 // in the legacy shape, never to PostgreSQL; with the mirror's acknowledgement the answer is the mirrored row, without it
 // 202 with the document written.
 func TestLeaveWriteBack(t *testing.T) {
-	docs := hr.NewMemoryLeaveDocs()
+	docs := writeback.NewMemory()
 	mirror := map[string]bool{} // doc ids the fake mirror applies and acknowledges
 	var w *world
 	acks := fakeAcks{ack: func(docID string, _ time.Time) bool {
 		if !mirror[docID] {
 			return false
 		}
-		f, _ := docs.Doc(docID)
+		f, _ := docs.Doc(hr.LeaveCollection, docID)
 		w.exec(`UPDATE leave_requests SET status = lower($2), rejection_reason = $3, decided_at = coalesce($4, decided_at)
 			WHERE legacy_doc_id = $1`, docID, f["status"], f["rejectionReason"], f["approvedAt"])
 		return true
 	}}
 	w = newWorld(t, func(_ *world, d *hr.Deps) {
-		d.LeaveWriteBack = &hr.LeaveWriteBack{Docs: docs, Acks: acks, Wait: 50 * time.Millisecond}
+		d.LeaveWriteBack = &hr.LeaveWriteBack{Writer: docs, Acks: acks, Wait: 50 * time.Millisecond}
 	})
 	w.exec(`UPDATE users SET legacy_auth_uid = 'uid_ta_o' WHERE email = 'ta.o@example.test'`)
 	ta := w.login("ta.o")
@@ -312,8 +318,8 @@ func TestLeaveWriteBack(t *testing.T) {
 	born := w.leave(w.O, w.dO, "pending", "2026-10-15", "2026-10-15", "", now)
 	gone := w.leave(w.O, w.dO, "pending", "2026-10-16", "2026-10-16", "lv_gone", now)
 	app := map[string]any{"driverId": "drv_o", "type": "SICK", "status": "PENDING", "reason": "ไข้", "driverName": "Somchai"}
-	docs.Put("lv_acked", app)
-	docs.Put("lv_pending", app)
+	putLeave(docs, "lv_acked", app)
+	putLeave(docs, "lv_pending", app)
 	mirror["lv_acked"] = true
 
 	// Acknowledged: 200 with the mirrored row; the document says what the legacy web wrote.
@@ -322,7 +328,7 @@ func TestLeaveWriteBack(t *testing.T) {
 	if r.data()["status"] != "approved" || r.data()["id"] != acked {
 		t.Fatalf("acknowledged approval %v", r.data())
 	}
-	f, _ := docs.Doc("lv_acked")
+	f, _ := docs.Doc(hr.LeaveCollection, "lv_acked")
 	if f["status"] != "APPROVED" || f["approverId"] != "uid_ta_o" || f["driverName"] != "Somchai" || f["reason"] != "ไข้" {
 		t.Errorf("document %v", f)
 	}
@@ -370,10 +376,10 @@ func TestLeaveWriteBack(t *testing.T) {
 	// cancelled (the document's APPROVED allows it). The cancel's event names the status it was checked against
 	// (approved), not the lagging row's.
 	lag := w.leave(w.O, w.dO, "pending", "2026-10-17", "2026-10-17", "lv_lag", now)
-	docs.Put("lv_lag", app)
+	putLeave(docs, "lv_lag", app)
 	expect(t, w.post("/v1/leave-requests/"+lag+"/approve", ta, nil), http.StatusAccepted, "")
 	expect(t, w.post("/v1/leave-requests/"+lag+"/cancel", ta, nil), http.StatusAccepted, "")
-	if f, _ := docs.Doc("lv_lag"); f["status"] != "CANCELLED" {
+	if f, _ := docs.Doc(hr.LeaveCollection, "lv_lag"); f["status"] != "CANCELLED" {
 		t.Errorf("lagging document %v", f)
 	}
 	if ev := w.leaveEvents(lag); len(ev) != 2 || ev[0]["status"] != "approved" || ev[0]["from"] != "pending" ||
@@ -390,13 +396,13 @@ func TestLeaveWriteBack(t *testing.T) {
 	if expect(t, r, http.StatusConflict, "failed_precondition"); r.detail("reason") != "document_changed" {
 		t.Errorf("deleted document %s", r.raw)
 	}
-	docs.Put("lv_gone", app)
-	docs.SetFail(errors.New("firestore down"))
+	putLeave(docs, "lv_gone", app)
+	docs.Fail(errors.New("firestore down"))
 	r = w.post("/v1/leave-requests/"+gone+"/approve", ta, nil)
 	if expect(t, r, http.StatusServiceUnavailable, "unavailable"); r.detail("reason") != "write_back" {
 		t.Errorf("Firestore down %s", r.raw)
 	}
-	docs.SetFail(nil)
+	docs.Fail(nil)
 	if n := len(w.leaveEvents(gone)); n != 0 {
 		t.Errorf("%d events for failed write-backs", n)
 	}
@@ -405,32 +411,32 @@ func TestLeaveWriteBack(t *testing.T) {
 // A concurrent writer (the driver's app, another staff member) changed the document between the read and the write:
 // the precondition refuses the write (409 document_changed), and the decision is not half-applied.
 func TestLeaveWriteBackPrecondition(t *testing.T) {
-	docs := hr.NewMemoryLeaveDocs()
+	docs := writeback.NewMemory()
 	w := newWorld(t, func(_ *world, d *hr.Deps) {
-		d.LeaveWriteBack = &hr.LeaveWriteBack{Docs: racingDocs{MemoryLeaveDocs: docs}}
+		d.LeaveWriteBack = &hr.LeaveWriteBack{Writer: racingDocs{Memory: docs}}
 	})
 	id := w.leave(w.O, w.dO, "pending", "2026-10-12", "2026-10-13", "lv_race", time.Now())
-	docs.Put("lv_race", map[string]any{"status": "PENDING"})
+	putLeave(docs, "lv_race", map[string]any{"status": "PENDING"})
 	r := w.post("/v1/leave-requests/"+id+"/approve", w.login("ta.o"), nil)
 	if expect(t, r, http.StatusConflict, "failed_precondition"); r.detail("reason") != "document_changed" {
 		t.Fatalf("raced write %s", r.raw)
 	}
-	if f, _ := docs.Doc("lv_race"); f["status"] != "PENDING" || f["note"] != "app" {
+	if f, _ := docs.Doc(hr.LeaveCollection, "lv_race"); f["status"] != "PENDING" || f["note"] != "app" {
 		t.Errorf("document %v", f)
 	}
 }
 
-// racingDocs writes the document (as the app would) between every Get and Update.
-type racingDocs struct{ *hr.MemoryLeaveDocs }
+// racingDocs writes the document (as the app would) between every Get and Commit: a new version, a new update time.
+type racingDocs struct{ *writeback.Memory }
 
-func (r racingDocs) Get(ctx context.Context, docID string) (map[string]any, time.Time, bool, error) {
-	f, at, ok, err := r.MemoryLeaveDocs.Get(ctx, docID)
+func (r racingDocs) Get(ctx context.Context, collection, docID string) (map[string]any, time.Time, bool, error) {
+	f, at, ok, err := r.Memory.Get(ctx, collection, docID)
 	if ok {
 		next := map[string]any{"note": "app"}
 		for k, v := range f {
 			next[k] = v
 		}
-		r.Put(docID, next)
+		r.Put(collection, docID, next, at.Add(time.Microsecond))
 	}
 	return f, at, ok, err
 }
@@ -454,30 +460,32 @@ func TestLeaveWriteBackUnconfigured(t *testing.T) {
 // The real read-your-writes path: the mirror raises cache:mirror_ack in Redis after applying the document, and the
 // handler that waits on it answers with the mirrored row (cache.Cache.WaitMirrorAck).
 func TestLeaveWriteBackRedisAck(t *testing.T) {
-	docs := hr.NewMemoryLeaveDocs()
+	docs := writeback.NewMemory()
 	var w *world
-	docs.OnUpdate = func(docID string, fields map[string]any, at time.Time) {
-		go func() {
-			time.Sleep(100 * time.Millisecond) // the mirror's sweep, later than the write
-			w.exec(`UPDATE leave_requests SET status = lower($2), decided_at = now() WHERE legacy_doc_id = $1`, docID, fields["status"])
-			if err := w.caches.SetMirrorAck(context.Background(), hr.LeaveCollection, docID, at); err != nil {
-				t.Error(err)
-			}
-		}()
+	docs.OnCommit = func(writes []writeback.DocWrite, at time.Time) {
+		for _, wr := range writes {
+			go func() {
+				time.Sleep(100 * time.Millisecond) // the mirror's sweep, later than the write
+				w.exec(`UPDATE leave_requests SET status = lower($2), decided_at = now() WHERE legacy_doc_id = $1`, wr.DocID, wr.Fields["status"])
+				if err := w.caches.SetMirrorAck(context.Background(), wr.Collection, wr.DocID, at); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
 	}
 	w = newWorld(t, func(w *world, d *hr.Deps) {
-		d.LeaveWriteBack = &hr.LeaveWriteBack{Docs: docs, Acks: w.caches, Wait: 3 * time.Second}
+		d.LeaveWriteBack = &hr.LeaveWriteBack{Writer: docs, Acks: w.caches, Wait: 3 * time.Second}
 	})
 	var _ hr.MirrorAcks = (*cache.Cache)(nil)
 	id := w.leave(w.O, w.dO, "approved", "2026-10-12", "2026-10-13", "lv_ack", time.Now())
-	docs.Put("lv_ack", map[string]any{"status": "APPROVED"})
+	putLeave(docs, "lv_ack", map[string]any{"status": "APPROVED"})
 	r := w.post("/v1/leave-requests/"+id+"/cancel", w.login("ta.o"), nil)
 	expect(t, r, http.StatusOK, "")
 	if r.data()["status"] != "cancelled" {
 		t.Fatalf("acknowledged cancel %v", r.data())
 	}
 	// A cancel writes the status alone (and updatedAt), as the legacy page did.
-	if f, _ := docs.Doc("lv_ack"); len(f) != 2 || f["status"] != "CANCELLED" {
+	if f, _ := docs.Doc(hr.LeaveCollection, "lv_ack"); len(f) != 2 || f["status"] != "CANCELLED" {
 		t.Errorf("cancel document %v", f)
 	}
 }

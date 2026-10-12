@@ -280,11 +280,12 @@ type APIConfig struct {
 	WebFlagOverrides string `env:"WEB_FLAG_OVERRIDES"`
 	// Bangchak serves GET /v1/fuel/retail (T37; off without BANGCHAK_API_BASE_URL).
 	Bangchak
-	// WriteBack is the Firestore project of the class C write-back (T31): while operations is not in
-	// PG_OWNED_DOMAINS the operations writes go to the Firestore documents of WRITEBACK_FIRESTORE_PROJECT_ID (database
-	// FIRESTORE_DATABASE_ID) with the GOOGLE_APPLICATION_CREDENTIALS service account (Cloud Datastore User on that
-	// project, main spec §16.1); without a project they answer 503 write_back_unconfigured. PostgreSQL is never written
-	// in their place (§12.1).
+	// WriteBack is the Firestore project of the class C write-back (T31, T45): while operations is not in
+	// PG_OWNED_DOMAINS the operations writes, and while any domain is not the leave decisions, go to the Firestore
+	// documents of WRITEBACK_FIRESTORE_PROJECT_ID (database FIRESTORE_DATABASE_ID) with the
+	// GOOGLE_APPLICATION_CREDENTIALS service account (Cloud Datastore User on that project, main spec §16.1), through
+	// one client; without a project they answer 503 write_back_unconfigured. PostgreSQL is never written in their place
+	// (§12.1).
 	WriteBack WriteBackConfig
 
 	// TrustedProxies is TrustedProxyCIDRs parsed by Validate.
@@ -378,9 +379,11 @@ func (c *APIConfig) Validate() error {
 	if owned, err := webcfg.ParseOwned(c.PGOwnedDomains); err == nil {
 		c.OperationsOwned = slices.Contains(owned, "operations")
 	}
-	if !c.OperationsOwned && c.WriteBack.FirestoreProjectID != "" && c.GoogleCredentials == "" {
+	// A write-back is in use while operations is not PostgreSQL-owned (T31) or any domain is not (the leave decisions,
+	// T45): both go through the one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID (buildWriteBacks).
+	if (!c.OperationsOwned || !leavePGOwned(c.PGOwnedDomains)) && c.WriteBack.FirestoreProjectID != "" && c.GoogleCredentials == "" {
 		errs = append(errs, config.Invalidf("GOOGLE_APPLICATION_CREDENTIALS",
-			"is required with WRITEBACK_FIRESTORE_PROJECT_ID while operations is not in PG_OWNED_DOMAINS (the write-back)"))
+			"is required with WRITEBACK_FIRESTORE_PROJECT_ID while a domain is not in PG_OWNED_DOMAINS (the operations and leave write-backs)"))
 	}
 	if len(errs) > 0 {
 		return &config.Error{Invalid: errs}

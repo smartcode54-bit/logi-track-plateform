@@ -331,19 +331,20 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	// T31: the operations writes. PostgreSQL-owned (PG_OWNED_DOMAINS holds operations, the staging VM): the routes
 	// write PostgreSQL under the caller's RLS. Otherwise they write the Firestore documents first (the class C
 	// write-back, main spec §13.8) and wait up to 3 s for the mirror's cache:mirror_ack; without a Firestore project
-	// they answer 503 write_back_unconfigured. A trip rename and its audit row run in iam's system transaction.
+	// they answer 503 write_back_unconfigured. A trip rename and its audit row run in iam's system transaction. The
+	// operations writes and the leave decisions (T45) share one Firestore writer (buildWriteBacks).
 	tripRenamer, err := iam.NewTripRenamer(iam.TripRenamerDeps{Pool: pool, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
 	}
-	wb, err := operationsWriteBack(cfg, caches, log)
+	wbs, err := buildWriteBacks(cfg, caches, log)
 	if err != nil {
 		closeAll()
 		return nil, nil, err
 	}
 	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover, Files: st,
-		Hubs: OperationsHubs{Service: hubSvc}, PGOwned: cfg.OperationsOwned, WriteBack: wb, Renamer: tripRenamer,
+		Hubs: OperationsHubs{Service: hubSvc}, PGOwned: cfg.OperationsOwned, WriteBack: wbs.Operations, Renamer: tripRenamer,
 		Commits: st})
 	if err != nil {
 		closeAll()
@@ -352,15 +353,9 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	// Driver compensation and payroll (T44): configs, penalties and runs under RLS (db.WithPrincipal, never Redis on the
 	// money path); POST /v1/jobs/payroll.run submits through the jobs service (the worker generates the runs). Leave
 	// requests and holidays (T45): holidays are PostgreSQL's (firestore.shadow projects them); leave decisions write
-	// PostgreSQL only once every domain is (LeavePGOwned), else they are Firestore write-backs (class C).
-	leavePG := leavePGOwned(cfg.PGOwnedDomains)
-	if leavePG {
-		log.Info().Msg("leave decisions: PostgreSQL (PG_OWNED_DOMAINS holds every domain)")
-	} else {
-		log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
-			"and the api builds no leave write-back yet (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
-	}
-	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, LeavePGOwned: leavePG, Log: log})
+	// PostgreSQL only once every domain is (LeavePGOwned), else they are Firestore write-backs (class C) through the
+	// writer the operations writes use, or 503 write_back_unconfigured without a Firestore project.
+	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, LeavePGOwned: wbs.LeavePG, LeaveWriteBack: wbs.Leave, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -433,32 +428,63 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	return a, closeAll, nil
 }
 
-// operationsWriteBack builds the Firestore writer of the operations writes while operations is not PostgreSQL-owned
-// (T31). No I/O: the access token is fetched on the first write, so the api starts while Google is unreachable. nil
-// when operations is PostgreSQL-owned, or when no Firestore project is configured (the writes then answer 503).
-func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (*operations.WriteBack, error) {
+// writeBacks are the class C write-backs of the api (main spec §13.8): the operations writes (T31) while operations is
+// not PostgreSQL-owned, and the leave decisions (T45) until every domain is.
+type writeBacks struct {
+	// Operations is the operations write-back; nil while operations is PostgreSQL-owned or without a Firestore project.
+	Operations *operations.WriteBack
+	// LeavePG is whether the leave decisions write PostgreSQL (every domain owned, leavePGOwned); otherwise Leave is
+	// their write-back, nil without a Firestore project (the decisions then answer 503 write_back_unconfigured).
+	LeavePG bool
+	Leave   *hr.LeaveWriteBack
+}
+
+// buildWriteBacks builds the write-backs over one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID (database
+// FIRESTORE_DATABASE_ID, the GOOGLE_APPLICATION_CREDENTIALS service account), built only when a write-back is in use
+// (operations not owned, or not every domain owned) and the project is set. No I/O beyond reading the key file: the
+// access token is fetched on the first write, so the api starts while Google is unreachable. A write-back in use
+// without a project stays nil and its routes answer 503 write_back_unconfigured: PostgreSQL is never written in
+// Firestore's place.
+func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (writeBacks, error) {
+	out := writeBacks{LeavePG: leavePGOwned(cfg.PGOwnedDomains)}
 	if cfg.OperationsOwned {
 		log.Info().Msg("operations writes: PostgreSQL (operations is in PG_OWNED_DOMAINS)")
-		return nil, nil
+	}
+	if out.LeavePG {
+		log.Info().Msg("leave decisions: PostgreSQL (PG_OWNED_DOMAINS holds every domain)")
+	}
+	if cfg.OperationsOwned && out.LeavePG {
+		return out, nil
 	}
 	if cfg.WriteBack.FirestoreProjectID == "" {
-		log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
-			"(the write routes answer 503 write_back_unconfigured)")
-		return nil, nil
+		if !cfg.OperationsOwned {
+			log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
+				"(the write routes answer 503 write_back_unconfigured)")
+		}
+		log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
+			"and WRITEBACK_FIRESTORE_PROJECT_ID is unset (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
+		return out, nil
 	}
 	sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
 	if err != nil { // names the variable, never the content
-		return nil, &config.Error{Invalid: []string{err.Error()}}
+		return out, &config.Error{Invalid: []string{err.Error()}}
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	fs, err := gcp.NewFirestore(cfg.WriteBack.FirestoreProjectID, cfg.WriteBack.FirestoreDatabaseID, client,
 		sa.TokenSource(client, gcp.FirestoreScope))
 	if err != nil {
-		return nil, &config.Error{Invalid: []string{err.Error()}}
+		return out, &config.Error{Invalid: []string{err.Error()}}
 	}
-	log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
-	return &operations.WriteBack{Writer: writeback.Firestore{FS: fs}, Acks: acks, Wait: operations.DefaultMirrorWait,
-		RunOrders: acks}, nil
+	w := writeback.Firestore{FS: fs}
+	if !cfg.OperationsOwned {
+		log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
+		out.Operations = &operations.WriteBack{Writer: w, Acks: acks, Wait: operations.DefaultMirrorWait, RunOrders: acks}
+	}
+	if !out.LeavePG {
+		log.Info().Msg("leave decisions: Firestore write-back (the 3.x APKs write leave requests until every domain is PostgreSQL-owned)")
+		out.Leave = &hr.LeaveWriteBack{Writer: w, Acks: acks, Wait: hr.DefaultMirrorWait}
+	}
+	return out, nil
 }
 
 // buildFirebase builds the bridge's collaborators (Appendix C §C.6) without I/O beyond reading the key
