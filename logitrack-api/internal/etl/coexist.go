@@ -119,9 +119,11 @@ var MobileOwnedFields = map[string][]string{
 // settings/mobile_app installed APKs read (class B, domain mobile_release: projected once that domain is
 // PostgreSQL-owned, P6), holidays the calendar the 3.x APKs and the legacy payroll read (class B, domain hr: projected
 // once hr is PostgreSQL-owned, P4); trip_billing and standby_billing are the billing fields of the Firestore-written
-// trips and standby records (T38, domain billing: P3; fieldProjections). broadcasts join with their phase.
+// trips and standby records (T38, domain billing: P3; fieldProjections); broadcasts the list the 3.x APKs stream (class
+// B, domain comms: projected once comms is PostgreSQL-owned, P5; T48).
 var ProjectedCollections = []string{"subcontractors", "customers", "companies", "hubs", "hub_soc_distances", "soc_hub_distances",
-	"metadata", "trucks", "drivers", "truckAssignment", "settings", "holidays", ProjectionTripBilling, ProjectionStandbyBilling}
+	"metadata", "trucks", "drivers", "truckAssignment", "settings", "holidays", ProjectionTripBilling, ProjectionStandbyBilling,
+	"broadcasts"}
 
 // MirrorEntry is one collection of a sweep.
 type MirrorEntry struct {

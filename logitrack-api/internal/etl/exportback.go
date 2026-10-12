@@ -45,11 +45,13 @@ type ExportDoc struct {
 	Keep func(cur map[string]any) []string
 	// Skip, when set, says why the row is not written (a quarantined row, a hub a driver created in Firestore).
 	Skip string
-	// Merge, per field, builds the value to write from the stored one (nil when the field is absent or the document
-	// does not exist): a map whose entries PostgreSQL holds only in part (customerDriverIds keeps the entries of a code
-	// the load could not resolve, under the stored spelling of each key). The field is the same when the merged value
-	// is legacyEqual to the stored one.
-	Merge map[string]func(cur any) any
+	// Merge, per field, builds the value to write from the stored one (cur: nil when the field is absent or the
+	// document does not exist) and, when it needs them, the stored document's other fields (doc: nil when there is
+	// none): a map whose entries PostgreSQL holds only in part (customerDriverIds keeps the entries of a code the load
+	// could not resolve, under the stored spelling of each key), a list only ever added to (a broadcast's
+	// readDriverAuthIds) and a count that follows it (readCount). The field is the same when the merged value is
+	// legacyEqual to the stored one.
+	Merge map[string]func(cur any, doc map[string]any) any
 	// Retired marks the document of a row whose document id moved (a distance pair minted again after its hub's code
 	// changed): it is written only when it exists, never created, and the reconciliation does not count it as a row.
 	Retired bool
@@ -61,6 +63,10 @@ type ExportDoc struct {
 	// version gate of another flavor's fleet (settings/mobile_app). A held document is not written (counted skipped,
 	// logged) and the reconciliation reports it as differing.
 	Hold func(cur map[string]any) string
+	// Absent marks a row whose document must not exist (a voided broadcast, T48: the soft delete of PostgreSQL is the
+	// delete of the legacy writer): the projection deletes the document when it exists, and the reconciliation reports
+	// it as differing until then. Only Path is read.
+	Absent bool
 }
 
 // ExportOptions select an export-back run.

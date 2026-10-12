@@ -137,3 +137,22 @@ SELECT id, coalesce(legacy_doc_id, id::text)::text AS leave_ref, driver_id, leav
        to_char(start_date, 'YYYY-MM-DD')::text AS start_date, to_char(end_date, 'YYYY-MM-DD')::text AS end_date
 FROM leave_requests
 WHERE id = @id;
+
+-- name: GetBroadcastForPush :one
+-- broadcast.created (T48): the title and text of the push; a broadcast voided before its push is read sends nothing.
+SELECT id, coalesce(title, '')::text AS title, message_text, voided_at
+FROM broadcasts
+WHERE id = @id;
+
+-- name: BroadcastDevices :many
+-- The devices of a broadcast's recipients (broadcast_recipients, persisted at send time): the device_tokens rows of each
+-- recipient whose login is active or reset_required, at most @per_user per recipient, the most recently seen.
+SELECT user_id, install_id, token
+FROM (SELECT r.user_id, dt.install_id, dt.token,
+             row_number() OVER (PARTITION BY r.user_id ORDER BY dt.last_seen_at DESC, dt.install_id) AS rank
+      FROM broadcast_recipients r
+      JOIN users u ON u.id = r.user_id AND u.status IN ('active', 'reset_required')
+      JOIN device_tokens dt ON dt.user_id = r.user_id
+      WHERE r.broadcast_id = @broadcast_id) devices
+WHERE rank <= @per_user::bigint
+ORDER BY user_id, install_id;

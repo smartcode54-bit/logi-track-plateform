@@ -24,20 +24,21 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
-// Leave decisions write PostgreSQL only once every domain is PostgreSQL-owned (T45): hr alone is not enough, since the
-// 3.x APKs keep writing leave requests in Firestore until P7b.
-func TestLeavePGOwned(t *testing.T) {
+// Leave decisions (T45) and chat writes (T47) write PostgreSQL only once every domain is PostgreSQL-owned: hr or comms
+// alone is not enough, since the 3.x APKs keep writing leave requests and chats in Firestore until P7b.
+func TestClassCPGOwned(t *testing.T) {
 	for v, want := range map[string]bool{
 		"all": true,
 		"auth,masterdata,operations,billing,hr,comms,security,mobile_release,dashboard":  true,
 		"dashboard, mobile_release,security,comms,hr,billing,operations,masterdata,auth": true,
 		"auth,masterdata,billing,hr": false,
 		"hr":                         false,
+		"comms":                      false,
 		"":                           false,
 		"all,hr":                     false, // invalid: refused by the config, never all-owned
 	} {
-		if got := leavePGOwned(v); got != want {
-			t.Errorf("leavePGOwned(%q) = %v, want %v", v, got, want)
+		if got := classCPGOwned(v); got != want {
+			t.Errorf("classCPGOwned(%q) = %v, want %v", v, got, want)
 		}
 	}
 }
@@ -99,7 +100,7 @@ func TestBuildWriteBacks(t *testing.T) {
 	t.Run("every domain owned: PostgreSQL, no writer", func(t *testing.T) {
 		// The key file is missing: it is never read, since no client is built.
 		wbs, logs, err := build(t, "PG_OWNED_DOMAINS=all", project, "GOOGLE_APPLICATION_CREDENTIALS="+missing)
-		if err != nil || !wbs.LeavePG || wbs.Leave != nil || wbs.Operations != nil {
+		if err != nil || !wbs.ClassCPG || wbs.Leave != nil || wbs.Operations != nil {
 			t.Fatalf("%+v %v", wbs, err)
 		}
 		if !strings.Contains(logs, "leave decisions: PostgreSQL") || !strings.Contains(logs, "operations writes: PostgreSQL") {
@@ -110,14 +111,14 @@ func TestBuildWriteBacks(t *testing.T) {
 	t.Run("project unset: no writer, decisions 503 write_back_unconfigured", func(t *testing.T) {
 		for _, owned := range []string{"", "auth,masterdata,operations,billing,hr"} {
 			wbs, logs, err := build(t, "PG_OWNED_DOMAINS="+owned)
-			if err != nil || wbs.LeavePG || wbs.Leave != nil || wbs.Operations != nil {
+			if err != nil || wbs.ClassCPG || wbs.Leave != nil || wbs.Operations != nil {
 				t.Fatalf("%q: %+v %v", owned, wbs, err)
 			}
 			if !strings.Contains(logs, "WRITEBACK_FIRESTORE_PROJECT_ID is unset (POST /v1/leave-requests/{id}/* answer 503") ||
 				strings.Contains(logs, "builds no leave write-back") {
 				t.Errorf("%q: logs %s", owned, logs)
 			}
-			svc, err := hr.New(hr.Deps{Pool: noPool{}, LeavePGOwned: wbs.LeavePG, LeaveWriteBack: wbs.Leave, Log: zerolog.Nop()})
+			svc, err := hr.New(hr.Deps{Pool: noPool{}, LeavePGOwned: wbs.ClassCPG, LeaveWriteBack: wbs.Leave, Log: zerolog.Nop()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +134,7 @@ func TestBuildWriteBacks(t *testing.T) {
 
 	t.Run("project set: the leave write-back over the shared client", func(t *testing.T) {
 		wbs, logs, err := build(t, "PG_OWNED_DOMAINS=", project, "GOOGLE_APPLICATION_CREDENTIALS="+key)
-		if err != nil || wbs.LeavePG || wbs.Leave == nil || wbs.Operations == nil {
+		if err != nil || wbs.ClassCPG || wbs.Leave == nil || wbs.Operations == nil {
 			t.Fatalf("%+v %v", wbs, err)
 		}
 		lw, ok := wbs.Leave.Writer.(writeback.Firestore)
@@ -150,7 +151,7 @@ func TestBuildWriteBacks(t *testing.T) {
 		// operations owned but not every domain: the leave decisions alone still get the writer (before T45's
 		// wiring no client was built then).
 		wbs, _, err = build(t, "PG_OWNED_DOMAINS=auth,masterdata,operations,billing,hr", project, "GOOGLE_APPLICATION_CREDENTIALS="+key)
-		if err != nil || wbs.LeavePG || wbs.Operations != nil || wbs.Leave == nil {
+		if err != nil || wbs.ClassCPG || wbs.Operations != nil || wbs.Leave == nil {
 			t.Fatalf("operations owned: %+v %v", wbs, err)
 		}
 		if w, ok := wbs.Leave.Writer.(writeback.Firestore); !ok || w.FS == nil {

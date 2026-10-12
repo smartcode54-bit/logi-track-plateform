@@ -18,10 +18,10 @@ type nopSender struct{}
 
 func (nopSender) Send(context.Context, push.Message) error { return nil }
 
-// Every routing key bound to notify.fcm is handled: the task, session, maintenance (T40), leave (T45) and chat (T47)
-// events now; the broadcast events fail transiently (dead-letter, replay once their planner lands)
-// instead of being acked and lost; a key that is not bound is a permanent error. FCM_ENABLED
-// false acks everything without sending. None of these paths touch PostgreSQL or Redis.
+// Every routing key bound to notify.fcm is handled: the task, session, maintenance (T40), leave (T45), chat (T47) and
+// broadcast (T48) events; a key bound before its planner landed would fail transiently (dead-letter, replay once the
+// planner lands) instead of being acked and lost, and none is pending since T48; a key that is not bound is a permanent
+// error. FCM_ENABLED false acks everything without sending. None of these paths touch PostgreSQL or Redis.
 func TestFCMRouting(t *testing.T) {
 	ctx := context.Background()
 	q, ok := mq.Default.Queue(notify.QueueFCM)
@@ -34,8 +34,9 @@ func TestFCMRouting(t *testing.T) {
 	}
 	planned := []string{notify.RouteTaskAssigned, notify.RouteTaskReassigned, notify.RouteTaskCancelled, notify.RouteTaskUpdated,
 		notify.RouteTaskCheckedIn, notify.RouteTaskPlanDateChanged, notify.RouteSessionsRevoked,
-		notify.RouteMaintenanceCreated, notify.RouteMaintenanceReminder, notify.RouteLeaveDecided, notify.RouteChatMessageCreated}
-	pending := map[string]string{notify.RouteBroadcastCreated: "T48"}
+		notify.RouteMaintenanceCreated, notify.RouteMaintenanceReminder, notify.RouteLeaveDecided, notify.RouteChatMessageCreated,
+		notify.RouteBroadcastCreated}
+	pending := map[string]string{}
 	if len(bound) != len(planned)+len(pending) {
 		t.Fatalf("notify.fcm binds %d keys, the consumer knows %d", len(bound), len(planned)+len(pending))
 	}
@@ -61,7 +62,7 @@ func TestFCMRouting(t *testing.T) {
 		t.Errorf("enabled without a sender: %v", err)
 	}
 	off := &notify.FCM{}
-	for _, k := range append(planned, notify.RouteBroadcastCreated, "trip.delivered") {
+	for _, k := range append(planned, "trip.delivered") {
 		if err := off.Handle(ctx, &mq.Delivery{RoutingKey: k, Body: []byte(`not json`)}); err != nil {
 			t.Errorf("FCM_ENABLED=false, %s: %v", k, err)
 		}

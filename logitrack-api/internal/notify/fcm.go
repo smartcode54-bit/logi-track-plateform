@@ -51,10 +51,9 @@ const (
 // pendingRoutes are bound to notify.fcm but get their recipients from tables whose services land later
 // (the issue named here). No producer emits them before that issue; one that did would see its message
 // fail as transient and dead-letter after the last retry, to be replayed once the planner exists
-// (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost.
-var pendingRoutes = map[string]string{
-	RouteBroadcastCreated: "T48",
-}
+// (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost. Empty since T48 planned
+// broadcast.created; the mechanism stays for the next binding that lands before its planner.
+var pendingRoutes = map[string]string{}
 
 // FromMirror reports whether a delivery is a domain event the FS->PG mirror appended (header origin=etl.sync). While
 // Firestore writes the operations collections the mirror's task, trip and standby events feed SSE and billing.compute;
@@ -127,7 +126,10 @@ const reasonClaimsChanged = "claims_changed"
 //     while that admin is an active staff member who reaches the chat's tenant with chat:view. A Go write-back
 //     appends the event of a message again when a send is replayed, so a chat push is claimed per message too:
 //     SET idem:push:chat:{chatRef}:{messageRef} {messageId} NX (24 h), and only the event holding it sends; the
-//     others log deduplicated.
+//     others log deduplicated;
+//   - broadcast.created (T48): "broadcast" to the devices of every recipient the send persisted
+//     (broadcast_recipients), one push per recipient device; nothing for a broadcast voided by the time the message is
+//     read.
 //
 // While Firestore owns the operations collections, the task events of the mirror (origin=etl.sync) push nothing and
 // those of a Go write-back handler (origin=writeback) are the push; such an event waits (transient failures) until
@@ -210,6 +212,8 @@ func (f *FCM) planner(key string) (planner, bool) {
 		return f.planChat, true
 	case RouteLeaveDecided:
 		return planLeave, true
+	case RouteBroadcastCreated:
+		return planBroadcast, true
 	}
 	return nil, false
 }
@@ -1107,4 +1111,45 @@ func planLeave(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targ
 	return driverTargets(ctx, q, []driverPush{{driverID: *l.DriverID, build: func(ref string) Push {
 		return LeaveDecided(l.LeaveRef, ref, ev.Status, l.LeaveType, l.StartDate, l.EndDate, ev.Reason)
 	}}})
+}
+
+// broadcastEvent is the part of a broadcast.created payload notify.fcm reads (internal/broadcasts): the broadcast. The
+// title, the text and the recipients are read from the rows.
+type broadcastEvent struct {
+	ID uuid.UUID `json:"id"`
+}
+
+// planBroadcast plans broadcast.created (T48; sendBroadcast's loop, fn:chat.ts:206-212): "broadcast" to the devices of
+// each recipient persisted at send time (at most MaxDevicesPerDriver per recipient, the most recently seen; a disabled
+// or deleted login gets nothing). The recipients are read server-side, never from the message, and the idem:fcm claims
+// keep it to one push per recipient device whatever the redeliveries. A broadcast voided before its message is read
+// sends nothing; an unknown broadcast is permanent.
+func planBroadcast(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
+	var ev broadcastEvent
+	if err := d.Decode(&ev); err != nil {
+		return nil, err
+	}
+	if ev.ID == uuid.Nil {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s without id", d.RoutingKey))
+	}
+	b, err := q.GetBroadcastForPush(ctx, ev.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: broadcast %s not found", ev.ID))
+	}
+	if err != nil {
+		return nil, err
+	}
+	if b.VoidedAt != nil {
+		return nil, nil
+	}
+	rows, err := q.BroadcastDevices(ctx, notifydb.BroadcastDevicesParams{BroadcastID: b.ID, PerUser: MaxDevicesPerDriver})
+	if err != nil {
+		return nil, err
+	}
+	p := Broadcast(b.Title, b.MessageText)
+	out := make([]target, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, target{userID: r.UserID, installID: r.InstallID, token: r.Token, push: p})
+	}
+	return out, nil
 }

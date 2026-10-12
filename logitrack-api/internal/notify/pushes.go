@@ -200,7 +200,7 @@ func ChatFromDriver(chatRef, messageRef, driverName, text string) Push {
 
 // Broadcast is "broadcast" to each recipient driver (fn:chat.ts:206-212): the title cut to 87 UTF-16
 // units plus "…" when longer than 90, the body as ChatMessage; data keeps the legacy empty chatId
-// (fn:chat.ts:41). The consumer of broadcast.created lands with T48.
+// (fn:chat.ts:41). notify.fcm sends it for broadcast.created (planBroadcast, T48).
 func Broadcast(title, text string) Push {
 	if jsLen(title) > 90 {
 		title = jsSlice(title, 87) + "…"

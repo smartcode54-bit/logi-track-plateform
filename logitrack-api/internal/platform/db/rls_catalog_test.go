@@ -46,7 +46,7 @@ var helpers = []string{
 	"app_is_staff", "app_subtenant_ids", "app_is_steward", "app_tenant_move_allowed", "app_etl_load", "app_is_scope",
 	"app_is_authenticated", "app_tenant_in_reach", "app_quarantine_tenant_id", "app_task_stops_in_scope",
 	"app_task_in_scope", "app_trip_in_scope", "app_recent_work_in_scope", "app_status_entity_visible",
-	"app_driver_truck_ids",
+	"app_driver_truck_ids", "app_broadcast_recipient",
 }
 
 func appendixC(t *testing.T) string {

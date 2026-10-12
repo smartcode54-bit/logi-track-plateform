@@ -39,7 +39,8 @@ import (
 func TestShimTargets(t *testing.T) {
 	fb, reg, w := newShimWorld(t, shimWorldOpts{})
 	// Every series exists from the start, so a shim nobody calls reports 0 (R26 retirement evidence).
-	for _, callable := range []string{app.ShimSetDriverClaims, app.ShimAddDeliveryStop, app.ShimComputeTripBilling} {
+	for _, callable := range []string{app.ShimSetDriverClaims, app.ShimAddDeliveryStop, app.ShimComputeTripBilling,
+		app.ShimMarkBroadcastRead} {
 		if n, ok := shimCount(t, reg, callable); !ok || n != 0 {
 			t.Fatalf("shim_requests_total{callable=%q} = %v (present %v), want 0", callable, n, ok)
 		}

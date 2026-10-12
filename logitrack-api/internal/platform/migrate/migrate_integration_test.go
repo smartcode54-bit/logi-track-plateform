@@ -330,7 +330,7 @@ func TestHeldVersionIsTheOnlyAllowedGap(t *testing.T) {
 }
 
 // Every object belongs to logitrack_migrator (R66), except the SECURITY DEFINER functions that 0009
-// (and 0013, T23; 0014, T27) hand to logitrack_rls_definer (Appendix C §C.3.3).
+// (and 0013, T23; 0014, T27; 0020, T31; 0022, T48) hand to logitrack_rls_definer (Appendix C §C.3.3).
 func TestChainObjectsBelongToTheMigrator(t *testing.T) {
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
@@ -353,9 +353,10 @@ func TestChainObjectsBelongToTheMigrator(t *testing.T) {
 		FROM pg_proc p WHERE pg_get_userbyid(p.proowner) = 'logitrack_rls_definer'`).Scan(&definer); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"app_recent_work_in_scope(uuid,uuid)", "app_task_in_scope(uuid)", "app_task_stops_in_scope(uuid)",
-		"app_trip_in_scope(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamp with time zone)",
-		"bump_task_seq(text,date,integer)", "driver_active_assignment(uuid)", "driver_directory()",
+	if want := []string{"app_broadcast_recipient(uuid)", "app_recent_work_in_scope(uuid,uuid)", "app_task_in_scope(uuid)",
+		"app_task_stops_in_scope(uuid)", "app_trip_in_scope(uuid)",
+		"assignment_release_driver(uuid,uuid,text,text,timestamp with time zone)", "broadcast_platform_audience()",
+		"broadcast_unaddressed(uuid)", "bump_task_seq(text,date,integer)", "driver_active_assignment(uuid)", "driver_directory()",
 		"next_invoice_seq(uuid,uuid,integer,integer,text)", "next_task_seq(text,date)", "task_helper_payroll_locks(uuid[],text,text)",
 		"trg_driver_link_membership()", "trip_seal_taken(text,uuid)"}; strings.Join(definer, " ") != strings.Join(want, " ") {
 		t.Fatalf("functions of logitrack_rls_definer = %v, want %v", definer, want)
