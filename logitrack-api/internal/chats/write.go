@@ -206,6 +206,31 @@ func (s *Service) MySend(ctx context.Context, p *authz.Principal, rid string, in
 	if err != nil {
 		return WriteResult{}, err
 	}
+	// A replay of a send the driver made before staff closed that chat answers the stored message: it must neither open
+	// a new chat nor store a second copy there (client_message_id is unique per chat only, R63).
+	var prev *Message
+	err = s.tx(ctx, p, func(_ pgx.Tx, q *chatsdb.Queries) error {
+		m, err := q.DriverMessageByClientID(ctx, chatsdb.DriverMessageByClientIDParams{DriverID: driver, ClientMessageID: v.clientID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		out, err := replay(ctx, q, p, m, v)
+		prev = &out
+		return err
+	})
+	if err != nil {
+		return WriteResult{}, err
+	}
+	if prev != nil {
+		out, err := s.signed(ctx, *prev)
+		if err != nil {
+			return WriteResult{}, err
+		}
+		return WriteResult{Status: http.StatusOK, Data: out}, nil
+	}
 	opened, err := s.open(ctx, p, rid, driver)
 	if err != nil {
 		return WriteResult{}, err
@@ -323,18 +348,26 @@ func (s *Service) send(ctx context.Context, p *authz.Principal, rid string, chat
 	if err != nil {
 		return WriteResult{}, err
 	}
-	if out.ImageFileID != nil {
-		msgs := []Message{out}
-		if err := s.signImages(ctx, msgs, []uuid.UUID{*out.ImageFileID}); err != nil {
-			return WriteResult{}, err
-		}
-		out = msgs[0]
+	if out, err = s.signed(ctx, out); err != nil {
+		return WriteResult{}, err
 	}
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
 	}
 	return WriteResult{Status: status, Data: out}, nil
+}
+
+// signed is the message with its image URL signed (S3_PRESIGN_GET_TTL) when it has one.
+func (s *Service) signed(ctx context.Context, m Message) (Message, error) {
+	if m.ImageFileID == nil {
+		return m, nil
+	}
+	msgs := []Message{m}
+	if err := s.signImages(ctx, msgs, []uuid.UUID{*m.ImageFileID}); err != nil {
+		return Message{}, err
+	}
+	return msgs[0], nil
 }
 
 // statusField reports a change the chat lists show apart from the last message (the status, the assignment, the

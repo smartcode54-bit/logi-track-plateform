@@ -358,9 +358,10 @@ gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alon
   the dev Firebase project); change them in the `.env` and reload `logitrack-api` (no web rebuild).
 - Chats (T47): the chat write routes (`/v1/chats*`, `/v1/mobile/chat*`) write PostgreSQL only while `comms` is in
   `PG_OWNED_DOMAINS`; with it absent they answer `503 write_back_unconfigured` (this VM has no Firestore to write
-  back to). To serve them here add `comms` (e.g. `PG_OWNED_DOMAINS=comms`) and keep the web pages' own switch in
-  `WEB_FLAG_OVERRIDES` (`comms=firebase` until the chat pages are on Go, T50), then reload `logitrack-api`. A driver's
-  chat pushes to the assigned admin only with `NOTIFY_ADMIN_ON_DRIVER_MESSAGE=true` (worker, off by default).
+  back to). To serve them here append `comms` to `PG_OWNED_DOMAINS` (keeping the domains already listed) and keep
+  the web pages' own switch in `WEB_FLAG_OVERRIDES` (`comms=firebase` until the chat pages are on Go, T50), then
+  reload `logitrack-api`. A driver's chat pushes to the assigned admin only with
+  `NOTIFY_ADMIN_ON_DRIVER_MESSAGE=true` (worker, off by default).
 - Coexistence consumers (T24S): the VM runs PostgreSQL only, so `ETL_SYNC_ENABLED` and `COMPAT_PROJECTION_ENABLED`
   stay `false`: the worker then opens no ETL pool and no Firestore client, and its `etl.sync` and `firestore.shadow`
   queues drain without effect (a sweep command fails its job naming the switch, an event is answered unprojected).

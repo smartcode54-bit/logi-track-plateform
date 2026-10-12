@@ -232,6 +232,22 @@ func TestClientMessageIDReplay(t *testing.T) {
 	if n := w.count(`SELECT count(*) FROM chat_messages WHERE client_message_id = $1`, dcid); n != 1 {
 		t.Fatalf("%d driver rows", n)
 	}
+	// A replay that arrives after staff closed the chat answers the stored message: no new chat, no second copy.
+	expect(t, w.post("/v1/chats/"+chat+"/close", ta, nil), http.StatusOK, "")
+	r = w.call(w.public, http.MethodPost, "/v1/mobile/chat/messages", drv, map[string]any{"text": "ออฟไลน์", "clientMessageId": dcid})
+	expect(t, r, http.StatusOK, "")
+	if str(r.data()["chatId"]) != chat {
+		t.Fatalf("replay after close %s", r.raw)
+	}
+	if n := w.count(`SELECT count(*) FROM chat_messages WHERE client_message_id = $1`, dcid); n != 1 {
+		t.Fatalf("%d driver rows after close", n)
+	}
+	if n := w.count(`SELECT count(*) FROM chats WHERE driver_id = $1 AND status <> 'closed'`, w.dO); n != 0 {
+		t.Fatalf("the replay opened %d chats", n)
+	}
+	expect(t, w.call(w.public, http.MethodPost, "/v1/mobile/chat/messages", drv, map[string]any{"text": "อื่น", "clientMessageId": dcid}),
+		http.StatusConflict, "idempotency_conflict")
+	expect(t, w.post("/v1/chats/"+chat+"/reopen", ta, nil), http.StatusOK, "")
 	// Another admin replaying the same id is another message, not a replay.
 	op := w.login("op.o@example.test")
 	expect(t, w.post("/v1/chats/"+chat+"/messages", op, body), http.StatusConflict, "idempotency_conflict")

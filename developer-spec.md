@@ -2647,7 +2647,7 @@ Legend:
 | `ETL_GCS_BUCKET` | no | etl | P0 / P8 | MISSING | GCS source of `etl media-copy` |
 | `ETL_SYNC_ENABLED`, `ETL_SYNC_INTERVAL` | no | scheduler, worker | P1 / P7b | MISSING | `etl.sync` FS→PG for every collection not yet PG-owned and the class C collections and fields, from the P1 initial load (R71); 5 min; the worker that runs group `sync` with it on must run that group alone (`worker-sync`, R66, T24S) |
 | `ETL_MIRROR_COLLECTIONS` | no | worker, etl | P1 / P7b | MISSING | collections covered by `etl.sync` |
-| `ETL_LISTEN_INTERVAL` | no | worker | P2 / P7b | MISSING | how often the mirror's listeners poll `tasks`, `trip_records`, `standby_records` and `incidentReport` between sweeps (T29, §13.7); default `2s`, `0` turns them off (the sweep alone mirrors), otherwise 500ms to 1m; read only by `worker-sync` with `ETL_SYNC_ENABLED` |
+| `ETL_LISTEN_INTERVAL` | no | worker | P2 / P7b | MISSING | how often the mirror's listeners poll `tasks`, `trip_records`, `standby_records`, `incidentReport` (T29) and `chats` and the `messages` collection group (T47) between sweeps (§13.7); default `2s`, `0` turns them off (the sweep alone mirrors), otherwise 500ms to 1m; read only by `worker-sync` with `ETL_SYNC_ENABLED` |
 | `COMPAT_PROJECTION_ENABLED`, `COMPAT_PROJECTION_COLLECTIONS` | no | worker | P1 / P7b | MISSING | `firestore.shadow` PG→FS for what APKs and Cloud Functions read, incl. customers, carrier profiles, companies P1-P5 (R25, R71) |
 | `FIRESTORE_EMULATOR_HOST` | no | ci (tests) | P1 / P8 | MISSING | coexistence tests (§15); never in dev or prod |
 | `LOGITRACK_API_BASE_URL` | no | functions | P2 / P8 | MISSING | = `PUBLIC_API_BASE_URL`; shims call `/v1/mobile/*` (R45) |

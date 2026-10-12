@@ -134,6 +134,15 @@ RETURNING *;
 SELECT * FROM chat_messages
 WHERE chat_id = sqlc.arg(chat_id)::uuid AND client_message_id = sqlc.arg(client_message_id)::uuid;
 
+-- name: DriverMessageByClientID :one
+-- A driver's replay of a send across all its chats (chats_driver, then chat_messages_client_id per chat): the outbox may
+-- replay a send after staff closed the chat it landed in, and the replay must not open a new chat for a second copy.
+SELECT m.* FROM chat_messages m
+JOIN chats c ON c.id = m.chat_id
+WHERE c.driver_id = sqlc.arg(driver_id)::uuid AND m.client_message_id = sqlc.arg(client_message_id)::uuid
+ORDER BY m.created_at, m.id
+LIMIT 1;
+
 -- name: InsertMessage :one
 -- A new message; a concurrent replay of the same clientMessageId inserts nothing (no row returned).
 INSERT INTO chat_messages (id, legacy_doc_id, chat_id, sender_user_id, sender_role, text, image_file_id, message_type,

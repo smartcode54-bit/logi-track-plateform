@@ -61,6 +61,39 @@ func (q *Queries) ChatReadStates(ctx context.Context, chatID uuid.UUID) ([]ChatR
 	return items, nil
 }
 
+const driverMessageByClientID = `-- name: DriverMessageByClientID :one
+SELECT m.id, m.legacy_doc_id, m.chat_id, m.sender_user_id, m.sender_role, m.text, m.image_file_id, m.message_type, m.client_message_id, m.created_at FROM chat_messages m
+JOIN chats c ON c.id = m.chat_id
+WHERE c.driver_id = $1::uuid AND m.client_message_id = $2::uuid
+ORDER BY m.created_at, m.id
+LIMIT 1
+`
+
+type DriverMessageByClientIDParams struct {
+	DriverID        uuid.UUID
+	ClientMessageID uuid.UUID
+}
+
+// A driver's replay of a send across all its chats (chats_driver, then chat_messages_client_id per chat): the outbox may
+// replay a send after staff closed the chat it landed in, and the replay must not open a new chat for a second copy.
+func (q *Queries) DriverMessageByClientID(ctx context.Context, arg DriverMessageByClientIDParams) (ChatMessage, error) {
+	row := q.db.QueryRow(ctx, driverMessageByClientID, arg.DriverID, arg.ClientMessageID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.LegacyDocID,
+		&i.ChatID,
+		&i.SenderUserID,
+		&i.SenderRole,
+		&i.Text,
+		&i.ImageFileID,
+		&i.MessageType,
+		&i.ClientMessageID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const driverRef = `-- name: DriverRef :one
 SELECT coalesce(d.legacy_auth_uid, u.legacy_auth_uid, u.id::text, '')::text AS ref
 FROM drivers d
