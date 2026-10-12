@@ -157,10 +157,23 @@ describe("HubFilterCombobox (over the old 50-hub cap)", () => {
 });
 
 describe("task boards", () => {
-    // The three boards render the shared combobox over the full ['hubs'] rows; no slice survives.
-    it.each(["app/app/first-mile/page.tsx", "app/app/line-haul/page.tsx", "app/app/job-assign/page.tsx"])("%s", (file) => {
+    // The three Firestore boards (moved to features/tasks/legacy by T34) render the shared combobox over the full
+    // ['hubs'] rows; no slice survives.
+    it.each([
+        "features/tasks/legacy/LegacyFirstMilePage.tsx",
+        "features/tasks/legacy/LegacyLineHaulPage.tsx",
+        "features/tasks/legacy/LegacyJobAssignPage.tsx",
+    ])("%s", (file) => {
         const src = readFileSync(path.join(process.cwd(), file), "utf8");
         expect(src).not.toMatch(/hubs\.slice\(/);
         expect(src).toMatch(/<HubFilterCombobox\s+hubs=\{hubRows \?\? NO_HUB_ROWS\}/);
+    });
+
+    // The Go board (T34) offers every source of the loaded day and every hub of the Go master in its pickers.
+    it("features/tasks/components/go: no slice of the hub lists", () => {
+        for (const file of ["TaskBoardPage.tsx", "opsShared.tsx", "TaskFormDialog.tsx"]) {
+            const src = readFileSync(path.join(process.cwd(), "features/tasks/components/go", file), "utf8");
+            expect(src, file).not.toMatch(/(hubs|hubOptions|list|ordered|shown)\.slice\(/);
+        }
     });
 });

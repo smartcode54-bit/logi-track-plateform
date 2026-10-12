@@ -50,7 +50,7 @@ import type { TripRecord } from "@/validate/tripRecordSchema";
 import { useDriverNamesByAuthId } from "@/hooks/useDriverNamesByAuthId";
 
 // Import dialogs carry xlsx: loaded on the first open only (developer-spec.md §10.11).
-const JobImportDialog = dynamic(() => import("./import-dialog").then((m) => m.JobImportDialog), {
+const JobImportDialog = dynamic(() => import("@/app/app/job-assign/import-dialog").then((m) => m.JobImportDialog), {
     ssr: false,
     loading: LazyDialogLoading,
 });

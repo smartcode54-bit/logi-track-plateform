@@ -37,7 +37,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { DateRangePicker } from "@/components/ui/date-range-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery"
-import { StandbyBackfillDialog } from "./standby-backfill-dialog"
+import { StandbyBackfillDialog } from "@/app/app/standby-records/standby-backfill-dialog"
 import { usePermission } from "@/hooks/usePermission"
 import { Plus } from "lucide-react"
 
