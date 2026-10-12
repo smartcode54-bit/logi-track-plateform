@@ -7,12 +7,16 @@
  * One aggregate request per page of 200 trips (`['trips','monitor',{from,to,filters}]` over `GET /v1/trips/monitor`):
  * the server joins the task, the driver, the incidents and the places, filters in SQL and counts the options of the
  * range (`meta.facets`), so the page opens no listener, reads no rate card and prices nothing (the stored price
- * shows for `accounting:view_income`). SSE `trip.*`, `standby.*`, `incident.created` and `task.*` refresh it through
- * the 2 s window. The export pages through the same route with its cursor and loads xlsx on the click.
+ * shows in the trip detail and the export for `accounting:view_income`; the table has no revenue column, as the
+ * owner's July layout). The rows are a `VirtualTable` (developer-spec.md §10.10 W9: "monitor trips, income | 200 |
+ * Table + Virtual"): only the rows in view are in the DOM however many pages are loaded, and scrolling near the end
+ * loads the next page. SSE `trip.*`, `standby.*`, `incident.created` and `task.*` refresh it through the 2 s window.
+ * The export pages through the same route with its cursor and loads xlsx on the click.
  */
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
 import { differenceInCalendarDays, endOfMonth, format, parseISO, startOfMonth, subDays } from "date-fns";
 import { enUS, th as thLocale } from "date-fns/locale";
 import { AlertTriangle, ChevronDown, Download, Loader2, Package, PackageCheck, RefreshCw, Search, Truck, X } from "lucide-react";
@@ -20,8 +24,9 @@ import { AlertTriangle, ChevronDown, Download, Loader2, Package, PackageCheck, R
 import { useLanguage } from "@/context/language";
 import { PlaceFilterCombobox } from "@/components/place-filter-combobox";
 import { PlateFilterCombobox } from "@/components/plate-filter-combobox";
-import { ApiErrorAlert, formatDateTime, formatThb, SearchPicker, useDebounced, type PickValue } from "@/features/accounting/components/go/shared";
+import { ApiErrorAlert, formatDateTime, SearchPicker, useDebounced, type PickValue } from "@/features/accounting/components/go/shared";
 import { cn } from "@/lib/utils";
+import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,7 +34,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { CapabilityGate, LoadMoreFooter } from "@/features/tasks/components/go/opsShared";
 import { pageItems } from "@/features/tasks/api/tasks.go";
@@ -54,6 +58,11 @@ const TripDetailDialog = dynamic(() => import("./TripDetailDialog").then((m) => 
 const MonitorExportDialog = dynamic(() => import("./MonitorExportDialog").then((m) => m.MonitorExportDialog), { ssr: false });
 
 const dayKey = (d: Date) => format(d, "yyyy-MM-dd");
+const col = createColumnHelper<MonitorRowDTO>();
+const HEAD = "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
+
+/** The monitor's maximum table height, px (the page scrolls the table, not the window). */
+export const MONITOR_TABLE_MAX_HEIGHT = 640;
 
 function defaultRange(): { from: string; to: string } {
     const now = new Date();
@@ -103,6 +112,90 @@ function Monitor() {
     };
     const jobTypeLabel = (j: string) => (j === "line_haul" ? t("driverMonitor.jobType.lineHaul") : t("driverMonitor.jobType.firstMile"));
     const count = (s: string) => facets?.statusCounts?.[s] ?? 0;
+    // The export's up-front count: the facets count the range only (not the other filters), so it is the file's
+    // size only with no filter on; with filters it is the loaded rows once the last page is in, else unknown (the
+    // export then reports the streamed count).
+    const exportTotal = active === 0 ? (facets?.total ?? null) : !list.hasNextPage && !list.isPending ? rows.length : null;
+
+    const columns = useMemo(
+        () => [
+            col.accessor("tripNo", { header: () => t("driverMonitor.table.tripId"), cell: (c) => <span className="font-mono text-xs">{c.getValue()}</span>, meta: { headerClassName: HEAD } }),
+            col.accessor("checkInAt", { header: () => t("driverMonitor.table.checkInAt"), cell: (c) => formatDateTime(c.getValue()), meta: { headerClassName: HEAD, cellClassName: "text-sm text-muted-foreground" } }),
+            col.accessor("createdAt", { header: () => t("driverMonitor.table.depart"), cell: (c) => formatDateTime(c.getValue()), meta: { headerClassName: HEAD, cellClassName: "text-sm text-muted-foreground" } }),
+            col.accessor("driverName", {
+                header: () => t("driverMonitor.table.driver"),
+                cell: (c) => <span className="text-sm font-medium">{c.getValue() ?? t("driverMonitor.table.unknown")}</span>,
+                meta: { headerClassName: HEAD },
+            }),
+            col.display({
+                id: "plate",
+                header: () => t("driverMonitor.table.licensePlate"),
+                cell: ({ row: { original: r } }) => <span className="font-mono text-sm text-muted-foreground">{r.truck?.plate ?? "—"}</span>,
+                meta: { headerClassName: HEAD },
+            }),
+            col.accessor("jobType", {
+                header: () => t("driverMonitor.table.jobType"),
+                cell: (c) => (
+                    <Badge variant="secondary" className={cn("border font-medium", JOB_TYPE_COLOR[c.getValue()] ?? "bg-gray-500/10 text-gray-500")}>
+                        {jobTypeLabel(c.getValue())}
+                    </Badge>
+                ),
+                meta: { headerClassName: HEAD },
+            }),
+            col.display({
+                id: "origin",
+                header: () => t("driverMonitor.table.origin"),
+                cell: ({ row: { original: r } }) => placeLabel(r.origin),
+                meta: { headerClassName: HEAD, cellClassName: "text-sm font-medium" },
+            }),
+            col.display({
+                id: "destination",
+                header: () => t("driverMonitor.table.destination"),
+                cell: ({ row: { original: r } }) =>
+                    r.stops?.length > 0 ? (
+                        <Collapsible>
+                            <CollapsibleTrigger onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-200">
+                                {t("taskBoard.stops", { count: r.stops.length })}
+                                <ChevronDown className="h-3 w-3" />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2 w-max space-y-1">
+                                {r.stops.map((s) => (
+                                    <Badge key={s.index} variant="outline"
+                                        className={cn("block text-xs font-medium", s.status === "delivered" ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 bg-gray-50 text-gray-600")}>
+                                        {s.status === "delivered" ? "✓" : "◯"} {placeLabel(s.place)}
+                                    </Badge>
+                                ))}
+                            </CollapsibleContent>
+                        </Collapsible>
+                    ) : (
+                        <span className="font-medium">{placeLabel(r.destination)}</span>
+                    ),
+                meta: { headerClassName: HEAD, cellClassName: "text-sm" },
+            }),
+            col.accessor("sealCode", { header: () => t("driverMonitor.table.sealCode"), cell: (c) => <span className="font-mono text-xs">{c.getValue() || "—"}</span>, meta: { headerClassName: HEAD } }),
+            col.accessor("partnerCode", { header: () => t("driverMonitor.table.partnerCode"), cell: (c) => <span className="font-mono text-xs">{c.getValue() || "—"}</span>, meta: { headerClassName: HEAD } }),
+            col.display({
+                id: "status",
+                header: () => t("driverMonitor.table.status"),
+                cell: ({ row: { original: r } }) => (
+                    <div className="flex items-center gap-1">
+                        <Badge variant="outline" className={cn("font-medium", STATUS_COLOR[r.status])}>{t(`driverMonitor.status.${r.status}`)}</Badge>
+                        {r.incidentCount > 0 && r.status !== "incident" ? <AlertTriangle className="h-4 w-4 text-red-500" aria-label={t("driverMonitor.status.incident")} /> : null}
+                    </div>
+                ),
+                meta: { headerClassName: HEAD },
+            }),
+            col.display({
+                id: "deliveredTime",
+                header: () => t("driverMonitor.table.deliveredTime"),
+                cell: ({ row: { original: r } }) => formatDateTime(deliveredTimeOf(r)),
+                meta: { headerClassName: HEAD, cellClassName: "text-sm text-muted-foreground" },
+            }),
+        ],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the labels follow the language only
+        [t]
+    );
 
     return (
         <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
@@ -214,92 +307,33 @@ function Monitor() {
             <ApiErrorAlert error={list.error} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <div className="overflow-x-auto">
-                    <Table className="min-w-[1000px]">
-                        <TableHeader className="bg-muted/50">
-                            <TableRow className="border-b border-border/50">
-                                {[
-                                    "tripId", "checkInAt", "depart", "driver", "licensePlate", "jobType", "origin", "destination", "sealCode",
-                                    "partnerCode", "status", "deliveredTime",
-                                ].map((k) => (
-                                    <TableHead key={k} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t(`driverMonitor.table.${k}`)}</TableHead>
-                                ))}
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("driverMonitor.table.estimatedRevenue")}</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {list.isPending ? (
-                                <TableRow>
-                                    <TableCell colSpan={13} className="h-32 text-center">
-                                        <div className="flex flex-col items-center justify-center gap-2">
-                                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">{t("driverMonitor.table.loadingData")}</p>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ) : rows.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={13} className="h-32 text-center text-sm text-muted-foreground">
-                                        {t("driverMonitor.table.noTrips")}
-                                    </TableCell>
-                                </TableRow>
-                            ) : (
-                                rows.map((r) => (
-                                    <TableRow key={r.id} className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/50" onClick={() => setDetail(r)}>
-                                        <TableCell><span className="font-mono text-xs">{r.tripNo}</span></TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">{formatDateTime(r.checkInAt)}</TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">{formatDateTime(r.createdAt)}</TableCell>
-                                        <TableCell><span className="text-sm font-medium">{r.driverName ?? t("driverMonitor.table.unknown")}</span></TableCell>
-                                        <TableCell><span className="font-mono text-sm text-muted-foreground">{r.truck?.plate ?? "—"}</span></TableCell>
-                                        <TableCell>
-                                            <Badge variant="secondary" className={cn("border font-medium", JOB_TYPE_COLOR[r.jobType] ?? "bg-gray-500/10 text-gray-500")}>
-                                                {jobTypeLabel(r.jobType)}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-sm font-medium">{placeLabel(r.origin)}</TableCell>
-                                        <TableCell className="text-sm">
-                                            {r.stops?.length > 0 ? (
-                                                <Collapsible>
-                                                    <CollapsibleTrigger onClick={(e) => e.stopPropagation()}
-                                                        className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-200">
-                                                        {t("taskBoard.stops", { count: r.stops.length })}
-                                                        <ChevronDown className="h-3 w-3" />
-                                                    </CollapsibleTrigger>
-                                                    <CollapsibleContent className="mt-2 w-max space-y-1">
-                                                        {r.stops.map((s) => (
-                                                            <Badge key={s.index} variant="outline"
-                                                                className={cn("block text-xs font-medium", s.status === "delivered" ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 bg-gray-50 text-gray-600")}>
-                                                                {s.status === "delivered" ? "✓" : "◯"} {placeLabel(s.place)}
-                                                            </Badge>
-                                                        ))}
-                                                    </CollapsibleContent>
-                                                </Collapsible>
-                                            ) : (
-                                                <span className="font-medium">{placeLabel(r.destination)}</span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell><span className="font-mono text-xs">{r.sealCode || "—"}</span></TableCell>
-                                        <TableCell><span className="font-mono text-xs">{r.partnerCode || "—"}</span></TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-1">
-                                                <Badge variant="outline" className={cn("font-medium", STATUS_COLOR[r.status])}>{t(`driverMonitor.status.${r.status}`)}</Badge>
-                                                {r.incidentCount > 0 && r.status !== "incident" ? <AlertTriangle className="h-4 w-4 text-red-500" aria-label={t("driverMonitor.status.incident")} /> : null}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">{formatDateTime(deliveredTimeOf(r))}</TableCell>
-                                        <TableCell className="text-sm">{r.price ? formatThb(r.price.estimateThb) : "—"}</TableCell>
-                                    </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
+                <VirtualTable
+                    data={rows}
+                    columns={columns}
+                    getRowId={(r) => r.id}
+                    aria-label={t("driverMonitor.title")}
+                    infinite={list}
+                    loading={list.isPending}
+                    loadingState={
+                        <span className="flex flex-col items-center justify-center gap-2 py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">{t("driverMonitor.table.loadingData")}</span>
+                        </span>
+                    }
+                    error={Boolean(list.error)}
+                    emptyState={<span className="block py-8 text-sm">{t("driverMonitor.table.noTrips")}</span>}
+                    resetScrollKey={JSON.stringify(effective)}
+                    onRowClick={setDetail}
+                    maxHeight={MONITOR_TABLE_MAX_HEIGHT}
+                    headerRowClassName="border-b border-border/50 bg-muted/50"
+                    rowClassName="border-b border-border/50 transition-colors hover:bg-muted/50"
+                />
                 <LoadMoreFooter loaded={rows.length} hasNextPage={Boolean(list.hasNextPage)} isFetchingNextPage={list.isFetchingNextPage}
                     onLoadMore={() => void list.fetchNextPage()} />
             </div>
 
             {detail ? <TripDetailDialog row={detail} onClose={() => setDetail(null)} /> : null}
-            {exportOpen ? <MonitorExportDialog filter={effective} total={facets?.total ?? null} onClose={() => setExportOpen(false)} /> : null}
+            {exportOpen ? <MonitorExportDialog filter={effective} total={exportTotal} onClose={() => setExportOpen(false)} /> : null}
         </div>
     );
 }

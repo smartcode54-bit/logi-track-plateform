@@ -1,12 +1,16 @@
 package operations
 
 import (
+	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 )
 
 func shapeDirectory() (directory, uuid.UUID, uuid.UUID, uuid.UUID) {
@@ -99,6 +103,31 @@ func TestMergeStops(t *testing.T) {
 	}
 }
 
+// Rows the ETL loaded number every array position (completed_seq on pending and failed stops too, Q16): rowStops keeps
+// the completion order of a delivered stop only, so the same list sent again is no change (no write, no events, the
+// task's stops not rewritten).
+func TestRowStopsLoaderOrder(t *testing.T) {
+	d, hub, _, _ := shapeDirectory()
+	at := time.Date(2026, 10, 11, 8, 0, 0, 0, time.UTC)
+	rows := []TripStop{
+		{StopIndex: 1, DestinationRaw: "ALANG-A", DestinationHubID: &hub, Status: "delivered", DeliveredAt: &at, CompletedSeq: ptr(int32(1))},
+		{StopIndex: 2, DestinationRaw: "SOCE", Status: "pending", CompletedSeq: ptr(int32(2))},
+		{StopIndex: 3, DestinationRaw: "X", Status: "failed", DeliveredAt: &at, CompletedSeq: ptr(int32(3))},
+	}
+	cur := rowStops(rows)
+	if *cur[0].completedSeq != 1 || cur[1].completedSeq != nil || cur[2].completedSeq != nil {
+		t.Fatalf("row stops %+v", cur)
+	}
+	for _, in := range [][]tripStopIn{
+		{{destination: "ALANG-A"}, {destination: "SOCE"}, {destination: "X"}},
+		{{destination: "ALANG-A", status: ptr("delivered")}, {destination: "SOCE", status: ptr("pending")}, {destination: "X", status: ptr("failed")}},
+	} {
+		if next := d.mergeStops(cur, in); !sameStops(cur, next) {
+			t.Fatalf("an unchanged loaded list is a change: %+v", next)
+		}
+	}
+}
+
 // An origin implies the job type (EditTripDetailsDialog.tsx:365-370): a SOC key or a SOC station is line_haul,
 // another hub first_mile, an unresolved place nothing.
 func TestJobTypeOf(t *testing.T) {
@@ -115,8 +144,9 @@ func TestJobTypeOf(t *testing.T) {
 	}
 }
 
-// The Firestore side: deliveryStopsProgress[] reads with its completion order, and each written stop keeps the keys of
-// the document's own entry (its photos), a re-pointed one loses its sourceId; the task's stops keep their billing link.
+// The Firestore side: deliveryStopsProgress[] reads in plan order with its completion order, and each written stop keeps
+// the keys of the document's own entry (its photos) at its position, a re-pointed one loses its sourceId; the task's
+// stops keep their billing link.
 func TestStopDocs(t *testing.T) {
 	d, hub, _, party := shapeDirectory()
 	ts := dump.Timestamp{Time: time.Date(2026, 10, 11, 8, 0, 0, 0, time.UTC)}
@@ -126,20 +156,25 @@ func TestStopDocs(t *testing.T) {
 		map[string]any{"index": int64(1), "destination": "ALANG-A", "status": "Delivered"},
 		map[string]any{"destination": "no index"},
 	}
-	cur := docStops(doc)
-	if len(cur) != 2 || *cur[0].completedSeq != 1 || *cur[1].completedSeq != 2 || cur[1].status != "delivered" ||
-		!cur[0].deliveredAt.Equal(ts.Time) {
+	cur := docStops(doc) // plan order; the completion order is the array position
+	if len(cur) != 2 || cur[0].index != 1 || *cur[0].completedSeq != 2 || cur[0].status != "delivered" || cur[1].index != 2 ||
+		*cur[1].completedSeq != 1 || !cur[1].deliveredAt.Equal(ts.Time) {
 		t.Fatalf("doc stops %+v", cur)
 	}
 	next := d.mergeStops(cur, []tripStopIn{{destination: "ALANG-A"}, {destination: "SOCN"}})
-	out := tripStopDocs(next)
-	s2 := out[1].(map[string]any)
+	out := tripStopDocs(doc, cur, next)
+	// The array keeps its order (index 2 delivered first) and the entry without an index, at its position.
+	if len(out) != 3 || out[0].(map[string]any)["index"] != int64(2) || out[1].(map[string]any)["index"] != int64(1) ||
+		out[2].(map[string]any)["destination"] != "no index" {
+		t.Fatalf("written order %v", out)
+	}
+	s2 := out[0].(map[string]any)
 	if photos, _ := s2["photos"].([]any); len(photos) != 1 || s2["destination"] != "SOCN" || s2["status"] != "delivered" ||
 		s2["index"] != int64(2) || s2["sourceId"] != nil {
 		t.Fatalf("re-pointed stop %v", s2)
 	}
-	if photos, _ := out[0].(map[string]any)["photos"].([]any); photos == nil {
-		t.Fatalf("a stop always has photos[] %v", out[0])
+	if photos, _ := out[1].(map[string]any)["photos"].([]any); photos == nil {
+		t.Fatalf("a stop always has photos[] %v", out[1])
 	}
 	_ = hub
 	_ = party
@@ -154,4 +189,145 @@ func TestStopDocs(t *testing.T) {
 	if m := stops[1].(map[string]any); m["sequence"] != int64(1) || m["addedAt"] != ts.Time || m["destinationLinkedCustomerId"] != nil {
 		t.Fatalf("new task stop %v", m)
 	}
+}
+
+// loaderOrder is the completion order the ETL loader reads from a written deliveryStopsProgress[] (completed_seq = the
+// array position, Q16): the indexes of the delivered entries with a usable index, in array order.
+func loaderOrder(arr []any) []int64 {
+	var out []int64
+	seen := map[int64]bool{}
+	for _, it := range arr {
+		m, _ := it.(map[string]any)
+		idx, ok := m["index"].(int64)
+		if !ok || idx < 1 || seen[idx] {
+			continue
+		}
+		seen[idx] = true
+		if m["status"] == "delivered" {
+			out = append(out, idx)
+		}
+	}
+	return out
+}
+
+// mergedOrder is the completion order mergeStops gives: the delivered stops by completedSeq.
+func mergedOrder(stops []stopState) []int64 {
+	var del []stopState
+	for _, s := range stops {
+		if s.completedSeq != nil {
+			del = append(del, s)
+		}
+	}
+	slices.SortFunc(del, func(a, b stopState) int { return int(*a.completedSeq) - int(*b.completedSeq) })
+	out := make([]int64, len(del))
+	for i, s := range del {
+		out[i] = int64(s.index)
+	}
+	return out
+}
+
+func indexesOf(arr []any) []any {
+	out := make([]any, len(arr))
+	for i, it := range arr {
+		out[i] = it.(map[string]any)["index"]
+	}
+	return out
+}
+
+// The write-back keeps deliveryStopsProgress[] in completion order (Appendix A: completed_seq = array position, Q16;
+// the legacy pricing's base stop is the first delivered entry), as the PostgreSQL path keeps completed_seq: a stop
+// edit of a trip whose driver delivered stop 2 before stop 1 writes stop 2 first, a stop this edit delivers comes after
+// every delivered one, an entry the loader cannot read (no index) survives with its photos, and the loader reads back
+// the order mergeStops computed. The same list in plan order is no change.
+func TestStopDocsCompletionOrder(t *testing.T) {
+	d, _, _, _ := shapeDirectory()
+	ts := dump.Timestamp{Time: time.Date(2026, 10, 11, 8, 0, 0, 0, time.UTC)}
+	noIdx := map[string]any{"destination": "NOIDX", "status": "delivered", "photos": []any{map[string]any{"type": "x", "url": "u3"}}}
+	doc := []any{
+		map[string]any{"index": int64(2), "destination": "SOCN", "status": "delivered", "deliveredAt": ts},
+		map[string]any{"index": int64(1), "destination": "X", "status": "delivered", "deliveredAt": ts},
+		noIdx,
+	}
+	cur := docStops(doc)
+	if len(cur) != 2 || cur[0].index != 1 || *cur[0].completedSeq != 2 || cur[1].index != 2 || *cur[1].completedSeq != 1 {
+		t.Fatalf("doc stops (plan order, array completion order) %+v", cur)
+	}
+	if next := d.mergeStops(cur, []tripStopIn{{destination: "X"}, {destination: "SOCN"}}); !sameStops(cur, next) {
+		t.Fatalf("the same list in plan order is a change: %+v", next)
+	}
+
+	next := d.mergeStops(cur, []tripStopIn{{destination: "X"}, {destination: "SOCN"}, {destination: "SOCW"}})
+	out := tripStopDocs(doc, cur, next)
+	if got := indexesOf(out); !slices.Equal(got, []any{int64(2), int64(1), nil, int64(3)}) {
+		t.Fatalf("written indexes %v, want [2 1 <no index> 3]", got)
+	}
+	if m := out[2].(map[string]any); m["destination"] != "NOIDX" || len(m["photos"].([]any)) != 1 {
+		t.Fatalf("the entry without an index lost its photos %v", m)
+	}
+	if lo, mo := loaderOrder(out), mergedOrder(next); !slices.Equal(lo, mo) || !slices.Equal(lo, []int64{2, 1}) {
+		t.Fatalf("loader order %v, merged %v, want [2 1]", lo, mo)
+	}
+
+	// Stop 3 delivered now: after both delivered stops, and the loader reads 2, 1, 3.
+	next = d.mergeStops(cur, []tripStopIn{{destination: "X"}, {destination: "SOCN"}, {destination: "SOCW", status: ptr("delivered")}})
+	out = tripStopDocs(doc, cur, next)
+	if lo, mo := loaderOrder(out), mergedOrder(next); !slices.Equal(lo, mo) || !slices.Equal(lo, []int64{2, 1, 3}) {
+		t.Fatalf("loader order %v, merged %v, want [2 1 3]", lo, mo)
+	}
+
+	// A pending entry the driver had not delivered, now marked delivered: it leaves its position for the end.
+	doc2 := []any{
+		map[string]any{"index": int64(1), "destination": "X", "status": "pending"},
+		map[string]any{"index": int64(2), "destination": "SOCN", "status": "delivered", "deliveredAt": ts},
+		map[string]any{"index": int64(3), "destination": "SOCW", "status": "failed"},
+	}
+	cur2 := docStops(doc2)
+	next2 := d.mergeStops(cur2, []tripStopIn{{destination: "X", status: ptr("delivered")}, {destination: "SOCN"}, {destination: "SOCW"}})
+	out2 := tripStopDocs(doc2, cur2, next2)
+	if got := indexesOf(out2); !slices.Equal(got, []any{int64(2), int64(3), int64(1)}) {
+		t.Fatalf("written indexes %v, want [2 3 1]", got)
+	}
+	if lo, mo := loaderOrder(out2), mergedOrder(next2); !slices.Equal(lo, mo) || !slices.Equal(lo, []int64{2, 1}) {
+		t.Fatalf("loader order %v, merged %v, want [2 1]", lo, mo)
+	}
+	// A removed stop leaves; the others keep their positions.
+	next3 := d.mergeStops(cur2, []tripStopIn{{destination: "X"}, {destination: "SOCN"}})
+	if got := indexesOf(tripStopDocs(doc2, cur2, next3)); !slices.Equal(got, []any{int64(1), int64(2)}) {
+		t.Fatalf("written indexes %v, want [1 2]", got)
+	}
+}
+
+// An origin edit that re-points the task to a hub of another billing party names sourceLinkedPartyId in changed[] (as
+// PATCH /v1/tasks/{id} does), so the realtime projection sends the dispatch copy to the party that now reads the task.
+func TestTaskMirrorNamesTheParty(t *testing.T) {
+	hubA, hubB, p1, p2 := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	d := directory{byID: map[uuid.UUID]Hub{hubA: {ID: hubA, Code: "HUBA", LinkedPartyID: &p1, StationType: "HUB"},
+		hubB: {ID: hubB, Code: "HUBB", LinkedPartyID: &p2, StationType: "HUB"}},
+		byCode: map[string][]uuid.UUID{"HUBA": {hubA}, "HUBB": {hubB}}}
+	task := Task{ID: uuid.New(), SourceHubRaw: "HUBA", SourceHubID: &hubA, SourceLinkedPartyID: &p1, TaskType: FirstMile}
+	pr := operationsdb.UpdateTripDetailsParams{OriginRaw: ptr("HUBB")}
+	m := d.planTaskMirror(task, nil, pr, []string{"origin"}, tripShape{derivedType: FirstMile}, time.Now())
+	if !slices.Equal(m.changed, []string{"sourceHub", "sourceLinkedPartyId"}) || m.params.SourceLinkedPartyID == nil || *m.params.SourceLinkedPartyID != p2 {
+		t.Fatalf("mirror %v %v", m.changed, m.params.SourceLinkedPartyID)
+	}
+	if sent, _ := realtimeSent(t, p2, m.changed); !sent {
+		t.Fatal("the new party's dispatchers get no copy")
+	}
+	// The same party: no link change.
+	task.SourceLinkedPartyID = &p2
+	if m := d.planTaskMirror(task, nil, pr, []string{"origin"}, tripShape{derivedType: FirstMile}, time.Now()); !slices.Equal(m.changed, []string{"sourceHub"}) {
+		t.Fatalf("same party %v", m.changed)
+	}
+}
+
+// realtimeSent projects a task.updated with changed[] on the party's dispatch topic, as the relay does.
+func realtimeSent(t *testing.T, party uuid.UUID, changed []string) (bool, json.RawMessage) {
+	t.Helper()
+	ev := taskEvent(RouteTaskUpdated, Task{ID: uuid.New(), TaskType: FirstMile, Status: TaskAssigned}, changed)
+	raw, err := json.Marshal(ev.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, sent := realtime.Project("dispatch:"+party.String()+":tasks", RouteTaskUpdated, raw)
+	return sent, out
 }

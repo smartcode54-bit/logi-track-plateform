@@ -109,6 +109,12 @@ func (s *Service) patchTripWriteBack(ctx context.Context, p *authz.Principal, ri
 		if !write {
 			return s.tripView(ctx, p, id, http.StatusOK)
 		}
+		if len(taskChanged) > 0 {
+			// The task's mirror (route, billing link, type, planned stops) is a task edit: Appendix C row 23.
+			if err := requireCap(p, authz.OperationsManageTasks); err != nil {
+				return WriteResult{}, err
+			}
+		}
 		at, acked, err := s.writeBack(ctx, docs...)
 		if errors.Is(err, writeback.ErrConflict) && ch.stopsSet && attempt < 2 {
 			continue // a document changed between the read and the commit: read it again

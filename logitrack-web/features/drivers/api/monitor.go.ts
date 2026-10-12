@@ -16,6 +16,7 @@
  * The Excel export pages through the same route with its cursor (`facets=false`) and loads xlsx lazily.
  */
 import { infiniteQueryOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
+import { neutraliseCsvFormula } from "@/lib/csv";
 import { goFetch, goFetchEnvelope, goPath, type QueryParams } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import type { PlaceFilterOption } from "@/lib/placeFilter";
@@ -477,10 +478,14 @@ export function buildMonitorExport(rows: MonitorRowDTO[], destinationFilter: str
     return out;
 }
 
-/** CSV of the sheet (UTF-8 with a BOM, CRLF), each cell quoted when it must be. */
+/**
+ * CSV of the sheet (UTF-8 with a BOM, CRLF), each cell quoted when it must be. A text cell a spreadsheet would run as
+ * a formula (driver-typed seal and partner codes, custom stops, names) is prefixed with `'` (lib/csv.ts); numbers stay
+ * numbers.
+ */
 export function toCsv(sheet: ExportCell[][]): string {
     const esc = (v: ExportCell) => {
-        const s = v == null ? "" : String(v);
+        const s = v == null ? "" : typeof v === "string" ? neutraliseCsvFormula(v) : String(v);
         return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     return "﻿" + sheet.map((r) => r.map(esc).join(",")).join("\r\n");

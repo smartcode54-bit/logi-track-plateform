@@ -13,9 +13,9 @@ SELECT * FROM scope_tasks
 SELECT * FROM scope_tasks WHERE id = sqlc.arg(id);
 
 -- name: ListScopeTasksByCreated :many
--- The boards without a date for a scope principal (T30): the filters of the staff list, newest first,
--- keyset (created_at, id). driver_id matches the driver or the helper; q is a substring of the number, the places
--- or the plate.
+-- The boards without a date for a scope principal (T30): the filters of the staff list (the source and destination
+-- place buckets of T34 included), newest first, keyset (created_at, id). driver_id matches the driver or the helper;
+-- q is a substring of the number, the places or the plate.
 SELECT * FROM scope_tasks
  WHERE (sqlc.narg(task_type)::text IS NULL OR task_type = sqlc.narg(task_type)::text)
    AND (sqlc.narg(statuses)::text[] IS NULL OR status = ANY (sqlc.narg(statuses)::text[]))
@@ -25,6 +25,25 @@ SELECT * FROM scope_tasks
    AND (sqlc.narg(q)::text IS NULL
         OR strpos(lower(concat_ws(' ', task_no, source_hub_raw, destination_raw, license_plate_snapshot)),
                   lower(sqlc.narg(q)::text)) > 0)
+   AND (NOT sqlc.arg(source_on)::boolean
+        OR source_hub_id = ANY (sqlc.arg(source_hubs)::uuid[])
+        OR (source_hub_id IS NULL
+            AND CASE WHEN upper(btrim(source_hub_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                     THEN left(upper(btrim(source_hub_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(source_soc)::text)
+        OR (source_hub_id IS NULL AND upper(btrim(source_hub_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(source_hub_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(source_raw)::text)
+        OR (sqlc.arg(source_none)::boolean AND source_hub_id IS NULL AND btrim(source_hub_raw, sqlc.arg(trim_chars)::text) = ''))
+   AND (NOT sqlc.arg(destination_on)::boolean
+        OR destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
+        OR (destination_hub_id IS NULL
+            AND coalesce(destination_soc_key,
+                         CASE WHEN upper(btrim(destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                              THEN left(upper(btrim(destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
+        OR (destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND upper(btrim(destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
+        OR (sqlc.arg(destination_none)::boolean AND destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND btrim(destination_raw, sqlc.arg(trim_chars)::text) = ''))
    AND (sqlc.narg(after_created)::timestamptz IS NULL
         OR (created_at, id) < (sqlc.narg(after_created)::timestamptz, sqlc.arg(after_id)::uuid))
  ORDER BY created_at DESC, id DESC
@@ -43,6 +62,25 @@ SELECT * FROM scope_tasks
    AND (sqlc.narg(q)::text IS NULL
         OR strpos(lower(concat_ws(' ', task_no, source_hub_raw, destination_raw, license_plate_snapshot)),
                   lower(sqlc.narg(q)::text)) > 0)
+   AND (NOT sqlc.arg(source_on)::boolean
+        OR source_hub_id = ANY (sqlc.arg(source_hubs)::uuid[])
+        OR (source_hub_id IS NULL
+            AND CASE WHEN upper(btrim(source_hub_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                     THEN left(upper(btrim(source_hub_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(source_soc)::text)
+        OR (source_hub_id IS NULL AND upper(btrim(source_hub_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(source_hub_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(source_raw)::text)
+        OR (sqlc.arg(source_none)::boolean AND source_hub_id IS NULL AND btrim(source_hub_raw, sqlc.arg(trim_chars)::text) = ''))
+   AND (NOT sqlc.arg(destination_on)::boolean
+        OR destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
+        OR (destination_hub_id IS NULL
+            AND coalesce(destination_soc_key,
+                         CASE WHEN upper(btrim(destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                              THEN left(upper(btrim(destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
+        OR (destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND upper(btrim(destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
+        OR (sqlc.arg(destination_none)::boolean AND destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND btrim(destination_raw, sqlc.arg(trim_chars)::text) = ''))
    AND (sqlc.narg(after_plan)::date IS NULL
         OR (plan_date, id) < (sqlc.narg(after_plan)::date, sqlc.arg(after_id)::uuid))
  ORDER BY plan_date DESC, id DESC

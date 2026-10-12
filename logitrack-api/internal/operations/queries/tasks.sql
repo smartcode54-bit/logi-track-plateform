@@ -203,7 +203,9 @@ SELECT * FROM tasks WHERE driver_id = sqlc.arg(driver_id)::uuid AND client_op_id
 -- name: ListTasksByCreated :many
 -- GET /v1/tasks without a date: newest first, keyset (created_at, id) (tasks_tenant_type_created; tasks_created under
 -- X-Act-On-Tenant: *). driver_id matches the driver or the helper; q is a substring of the number, the places or the
--- plate.
+-- plate. source / destination (T34, the boards' source-hub and SOC filters) are the monitor's place buckets of the
+-- task's own source and destination (Place: the hub stored at write, else the SOC key, stored or of the raw text,
+-- else the trimmed raw text, else none): a place filter value of the row's source.key / destinationPlace.key matches.
 SELECT * FROM tasks t
 WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.narg(task_type)::text IS NULL OR t.task_type = sqlc.narg(task_type)::text)
@@ -214,6 +216,25 @@ WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)
   AND (sqlc.narg(q)::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower(sqlc.narg(q)::text)) > 0)
+  AND (NOT sqlc.arg(source_on)::boolean
+       OR t.source_hub_id = ANY (sqlc.arg(source_hubs)::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(source_soc)::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(source_raw)::text)
+       OR (sqlc.arg(source_none)::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = ''))
+  AND (NOT sqlc.arg(destination_on)::boolean
+       OR t.destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
+       OR (sqlc.arg(destination_none)::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = ''))
   AND (sqlc.narg(after_created)::timestamptz IS NULL
        OR (t.created_at, t.id) < (sqlc.narg(after_created)::timestamptz, sqlc.arg(after_id)::uuid))
 ORDER BY t.created_at DESC, t.id DESC
@@ -221,7 +242,7 @@ LIMIT sqlc.arg(row_limit);
 
 -- name: ListTasksByPlan :many
 -- GET /v1/tasks?date | from&to: the plan days (Bangkok) of the range, latest day first, keyset (plan_date, id)
--- (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *).
+-- (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *). The filters of ListTasksByCreated.
 SELECT * FROM tasks t
 WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND t.plan_date >= sqlc.arg(from_date)::date AND t.plan_date <= sqlc.arg(to_date)::date
@@ -233,6 +254,25 @@ WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)
   AND (sqlc.narg(q)::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower(sqlc.narg(q)::text)) > 0)
+  AND (NOT sqlc.arg(source_on)::boolean
+       OR t.source_hub_id = ANY (sqlc.arg(source_hubs)::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(source_soc)::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(source_raw)::text)
+       OR (sqlc.arg(source_none)::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = ''))
+  AND (NOT sqlc.arg(destination_on)::boolean
+       OR t.destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
+       OR (sqlc.arg(destination_none)::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = ''))
   AND (sqlc.narg(after_plan)::date IS NULL
        OR (t.plan_date, t.id) < (sqlc.narg(after_plan)::date, sqlc.arg(after_id)::uuid))
 ORDER BY t.plan_date DESC, t.id DESC

@@ -165,10 +165,12 @@ type Querier interface {
 	ListStandbyByEnded(ctx context.Context, arg ListStandbyByEndedParams) ([]ListStandbyByEndedRow, error)
 	// GET /v1/tasks without a date: newest first, keyset (created_at, id) (tasks_tenant_type_created; tasks_created under
 	// X-Act-On-Tenant: *). driver_id matches the driver or the helper; q is a substring of the number, the places or the
-	// plate.
+	// plate. source / destination (T34, the boards' source-hub and SOC filters) are the monitor's place buckets of the
+	// task's own source and destination (Place: the hub stored at write, else the SOC key, stored or of the raw text,
+	// else the trimmed raw text, else none): a place filter value of the row's source.key / destinationPlace.key matches.
 	ListTasksByCreated(ctx context.Context, arg ListTasksByCreatedParams) ([]Task, error)
 	// GET /v1/tasks?date | from&to: the plan days (Bangkok) of the range, latest day first, keyset (plan_date, id)
-	// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *).
+	// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *). The filters of ListTasksByCreated.
 	ListTasksByPlan(ctx context.Context, arg ListTasksByPlanParams) ([]Task, error)
 	// GET /v1/trips?axis=billing: delivered trips by their billing axis day (Bangkok day of billing_date, else of
 	// delivered_at; ADR 0027), latest first, keyset (billing_axis_date, id) (trip_records_party_axis; without a customer

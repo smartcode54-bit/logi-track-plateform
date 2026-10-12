@@ -148,7 +148,8 @@ type tripChange struct {
 // transaction, for the old and the new instant (409 billing_period_locked with blockedInvoiceNumber, R17), and emits
 // trip.delivered_at_changed (billing restamps) besides trip.updated. Photos need the PostgreSQL path (write-back: 422
 // write_back_unsupported). stops[] (T34) replaces the stop progress (write_trip_shape.go) and an edited origin
-// re-derives the job type; both, with the route, are mirrored on the trip's task (task.updated).
+// re-derives the job type; both, with the route, are mirrored on the trip's task (task.updated). A mirror that changes
+// the task needs operations:manage_tasks too (403 permission_denied naming it, nothing written).
 func (s *Service) PatchTripAPI(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, body []byte) (WriteResult, error) {
 	if err := requireCap(p, authz.OperationsEditTripDetails); err != nil {
 		return WriteResult{}, err
@@ -203,7 +204,7 @@ func (s *Service) PatchTripAPI(ctx context.Context, p *authz.Principal, rid stri
 				return tripNoError(err, cur.TripNo)
 			}
 		}
-		shaped, taskEvs, err := s.applyTripShape(ctx, q, d, cur, params, changed, ch)
+		shaped, taskEvs, err := s.applyTripShape(ctx, q, p, d, cur, params, changed, ch)
 		if err != nil {
 			return err
 		}

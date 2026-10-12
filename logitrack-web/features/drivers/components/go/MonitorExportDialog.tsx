@@ -4,7 +4,8 @@
  * The monitor's export over Go (T34; AC "Excel export pages through `GET /v1/trips/monitor` with its cursor and a
  * lazy xlsx"): the filters on screen, every page of the route (`facets=false`, 200 per page) until the cursor ends,
  * then the sheet (`buildMonitorExport`) as Excel (xlsx loaded on the click) or CSV. No window, no cap: the file
- * holds every trip the filters match, the count the page showed.
+ * holds every trip the filters match. `total` is shown up front only when the page knows that count (no filter on:
+ * the range's facets total; filters on: every page loaded); otherwise the progress line counts the trips streamed.
  */
 import { useRef, useState } from "react";
 import { Loader2 } from "lucide-react";

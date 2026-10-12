@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
@@ -271,5 +272,168 @@ func TestWriteBackTripStops(t *testing.T) {
 		map[string]any{"destination": "SOCE"}, map[string]any{"destination": "SOCE"}}})
 	if len(mem.Writes()) != k {
 		t.Fatal("a refused edit wrote")
+	}
+}
+
+// Stops the ETL loaded number every array position, pending and failed included (completed_seq = position, Q16): the
+// same list sent again changes nothing (no row written, no trip.updated or task.updated, the task's stops keep their
+// ids), and a real edit leaves no completion order on a stop that is not delivered.
+func TestPatchTripStopsLoaded(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	task, trip := r.tripOf("SPXTH-0301")
+	r.exec(`INSERT INTO trip_delivery_stops (trip_id, stop_index, destination_raw, status, delivered_at, completed_seq) VALUES
+		($1, 1, 'SOCE', 'delivered', '2026-10-11T08:00:00Z', 1), ($1, 2, 'SOCN', 'pending', NULL, 2),
+		($1, 3, 'SOCW', 'failed', '2026-10-11T09:00:00Z', 3)`, trip)
+	r.exec(`UPDATE trip_records SET is_multi_delivery = true WHERE id = $1`, trip)
+	r.exec(`INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, status) VALUES
+		($1, 1, 'SOCE', 'delivered'), ($1, 2, 'SOCN', 'pending'), ($1, 3, 'SOCW', 'failed')`, task)
+	r.exec(`UPDATE tasks SET is_multi_delivery = true WHERE id = $1`, task)
+	stopIDs := func() string {
+		var ids string
+		if err := r.etl.QueryRow(t.Context(), `SELECT string_agg(id::text, ',' ORDER BY stop_index) FROM task_delivery_stops WHERE task_id = $1`,
+			task).Scan(&ids); err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	before, tripEvs, taskEvs := stopIDs(), len(r.events(trip)), len(r.events(task))
+	path := "/v1/trips/" + trip
+	for _, body := range []any{
+		[]any{map[string]any{"destination": "SOCE"}, map[string]any{"destination": "SOCN"}, map[string]any{"destination": "SOCW"}},
+		[]any{map[string]any{"destination": "SOCE", "status": "delivered"}, map[string]any{"destination": "SOCN", "status": "pending"},
+			map[string]any{"destination": "SOCW", "status": "failed"}},
+	} {
+		r.must(200, "staffO", "PATCH", path, map[string]any{"stops": body})
+	}
+	if len(r.events(trip)) != tripEvs || len(r.events(task)) != taskEvs || stopIDs() != before ||
+		r.count(`SELECT count(*) FROM trip_delivery_stops WHERE trip_id = $1 AND completed_seq IS NOT NULL`, trip) != 3 {
+		t.Fatal("an unchanged loaded list was written")
+	}
+	// A real edit: stop 2 delivered now comes after stop 1; the failed stop has no completion order any more.
+	r.must(200, "staffO", "PATCH", path, map[string]any{"stops": []any{map[string]any{"destination": "SOCE"},
+		map[string]any{"destination": "SOCN", "status": "delivered"}, map[string]any{"destination": "SOCW"}}})
+	if r.count(`SELECT count(*) FROM trip_delivery_stops WHERE trip_id = $1 AND stop_index = 1 AND completed_seq = 1`, trip) != 1 ||
+		r.count(`SELECT count(*) FROM trip_delivery_stops WHERE trip_id = $1 AND stop_index = 2 AND completed_seq = 2`, trip) != 1 ||
+		r.count(`SELECT count(*) FROM trip_delivery_stops WHERE trip_id = $1 AND stop_index = 3 AND completed_seq IS NULL`, trip) != 1 {
+		t.Fatal("the completion order after the edit")
+	}
+}
+
+// The trip's task mirror (route, billing link, type, planned stops) is a task edit (Appendix C row 23): a role that
+// keeps operations:edit_trip_details without operations:manage_tasks (a per-tenant override) is refused it on the trip
+// route as on the task route, before anything is written; its trip-only corrections still pass.
+func TestPatchTripMirrorNeedsManageTasks(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	r.id(`INSERT INTO hubs (source_id, name_th, network, station_type, linked_party_id)
+		VALUES ('BKK-SOC1', 'กรุงเทพ', 'SPX', 'SOC', $1) RETURNING id`, r.partyY)
+	noTasks := *r.ps["staffO"]
+	noTasks.Caps = noTasks.Caps.Minus(authz.NewCapSet(authz.OperationsManageTasks))
+	if !noTasks.Caps.Has(authz.OperationsEditTripDetails) {
+		t.Fatal("the fixture role must keep edit_trip_details")
+	}
+	r.ps["noTasks"] = &noTasks
+	task, trip := r.tripOf("SPXTH-0401")
+	path := "/v1/trips/" + trip
+	snapshot := func() string {
+		var s string
+		if err := r.etl.QueryRow(t.Context(), `SELECT concat_ws('|', t.task_type, t.source_hub_raw, t.source_linked_party_id, t.is_multi_delivery,
+			(SELECT count(*) FROM task_delivery_stops WHERE task_id = t.id), r.origin_raw, r.job_type,
+			(SELECT count(*) FROM trip_delivery_stops WHERE trip_id = r.id)) FROM tasks t, trip_records r WHERE t.id = $1 AND r.id = $2`,
+			task, trip).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	was, evs := snapshot(), len(r.events(task))
+	r.refused(403, "permission_denied", "noTasks", "PATCH", "/v1/tasks/"+task, map[string]any{"sourceHub": "BKK-SOC1"})
+	for _, body := range []map[string]any{
+		{"origin": "BKK-SOC1", "stops": []any{map[string]any{"destination": "SOCE"}, map[string]any{"destination": "SOCW"}}},
+		{"origin": "SOCN"},
+		{"stops": []any{map[string]any{"destination": "SOCE"}, map[string]any{"destination": "SOCW"}}},
+	} {
+		got, m := r.call("noTasks", "PATCH", path, body)
+		e, _ := m["error"].(map[string]any)
+		d, _ := e["details"].(map[string]any)
+		if missing, _ := d["missingCapability"].([]any); got != 403 || e["code"] != "permission_denied" || len(missing) != 1 ||
+			missing[0] != string(authz.OperationsManageTasks) {
+			t.Fatalf("%v: %d %v", body, got, m)
+		}
+	}
+	if snapshot() != was || len(r.events(task)) != evs {
+		t.Fatalf("a refused mirror wrote: %s, was %s", snapshot(), was)
+	}
+	// A trip-only correction needs no task capability.
+	r.must(200, "noTasks", "PATCH", path, map[string]any{"sealCode": "S-9"})
+	// With the capability the same edit mirrors.
+	r.must(200, "staffO", "PATCH", path, map[string]any{"origin": "SOCN"})
+	if r.count(`SELECT count(*) FROM tasks WHERE id = $1 AND source_hub_raw = 'SOCN' AND task_type = 'line_haul'`, task) != 1 {
+		t.Fatal("the mirror with operations:manage_tasks")
+	}
+}
+
+// The write-back keeps deliveryStopsProgress[] in completion order (Appendix A, Q16): the driver delivered stop 2
+// before stop 1, an admin adds stop 3; the document still lists stop 2 first, stop 3 after, the entry without an
+// index stays with its photos; the same list again is no write; without operations:manage_tasks the mirror is refused
+// and nothing is committed.
+func TestWriteBackTripStopsOrder(t *testing.T) {
+	mem := writeback.NewMemory()
+	r := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem, Acks: &acks{}}})
+	task := r.createTask(r.staffO, func() operations.NewTask {
+		n := r.newTask(r.O, now)
+		n.LegacyDocID = ptr("task_doc_o")
+		return n
+	}())
+	in := r.newTrip(task, "SPXTH-WS2")
+	in.LegacyDocID = ptr("SPXTH-WS2")
+	trip := r.createTrip(r.staffO, in)
+	at := dump.Timestamp{Time: now}
+	mem.Put("trip_records", "SPXTH-WS2", map[string]any{"status": "in_transit", "jobType": "first_mile", "isMultiDelivery": true,
+		"deliveryStopsProgress": []any{
+			map[string]any{"index": int64(2), "destination": "SOCN", "status": "delivered", "deliveredAt": at},
+			map[string]any{"index": int64(1), "destination": "SOCE", "status": "delivered", "deliveredAt": at},
+			map[string]any{"destination": "NOIDX", "status": "delivered", "photos": []any{map[string]any{"type": "x", "url": "https://x/3"}}},
+		}}, now)
+	mem.Put("tasks", "task_doc_o", map[string]any{"status": "Pending", "taskType": "FIRST_MILE",
+		"deliveryStops": []any{map[string]any{"index": int64(1), "destination": "SOCE"}, map[string]any{"index": int64(2), "destination": "SOCN"}}}, now)
+	path := "/v1/trips/" + trip.ID.String()
+
+	// The same list in plan order: nothing to write.
+	k := len(mem.Writes())
+	r.must(200, "staffO", "PATCH", path, map[string]any{"stops": []any{map[string]any{"destination": "SOCE"}, map[string]any{"destination": "SOCN"}}})
+	if len(mem.Writes()) != k {
+		t.Fatal("an unchanged list was written back")
+	}
+
+	// Without operations:manage_tasks: 403, no commit.
+	noTasks := *r.ps["staffO"]
+	noTasks.Caps = noTasks.Caps.Minus(authz.NewCapSet(authz.OperationsManageTasks))
+	r.ps["noTasks"] = &noTasks
+	add := map[string]any{"stops": []any{map[string]any{"destination": "SOCE"}, map[string]any{"destination": "SOCN"},
+		map[string]any{"destination": "SOCW"}}}
+	r.refused(403, "permission_denied", "noTasks", "PATCH", path, add)
+	if len(mem.Writes()) != k {
+		t.Fatal("a refused mirror was written back")
+	}
+
+	r.must(202, "staffO", "PATCH", path, add)
+	doc, _ := mem.Doc("trip_records", "SPXTH-WS2")
+	progress, _ := doc["deliveryStopsProgress"].([]any)
+	var order []any
+	for _, it := range progress {
+		order = append(order, it.(map[string]any)["destination"])
+	}
+	if !slices.Equal(order, []any{"SOCN", "SOCE", "NOIDX", "SOCW"}) {
+		t.Fatalf("written order %v, want [SOCN SOCE NOIDX SOCW]", order)
+	}
+	if photos, _ := progress[2].(map[string]any)["photos"].([]any); len(photos) != 1 {
+		t.Fatalf("the entry without an index lost its photos %v", progress[2])
+	}
+	taskDoc, _ := mem.Doc("tasks", "task_doc_o")
+	var planned []any
+	for _, it := range taskDoc["deliveryStops"].([]any) {
+		planned = append(planned, it.(map[string]any)["destination"])
+	}
+	if !slices.Equal(planned, []any{"SOCE", "SOCN", "SOCW"}) {
+		t.Fatalf("the task's plan %v, want plan order", planned)
 	}
 }

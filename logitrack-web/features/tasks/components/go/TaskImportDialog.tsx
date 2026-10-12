@@ -5,7 +5,10 @@
  * sheet (xlsx loaded on the file pick, never with the page) and lets the user pick each row's customer; Go
  * validates every row as the legacy dialog did (the job-category cell, the plate against the fleet, the required
  * places and customer), numbers the tasks server-side (no `countTasksForDay` + 1, R10) and creates the valid ones.
- * "Check" is a dry run; "Import" writes. Job-assign reads an FM/LH column per row and sends one request per type.
+ * "Check" is a dry run; "Import" writes. Job-assign reads an FM/LH column per row and sends one request per type:
+ * each type's outcome applies as soon as its answer arrives (its created rows are marked and leave the list), so a
+ * later type's failure never hides tasks already created and Import again never sends them twice; each type group
+ * keeps its Idempotency-Key while its rows are unchanged, so a retry after a lost answer replays Go's stored one.
  */
 import { useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
@@ -17,6 +20,7 @@ import { customerLabel, customerMaps, type CustomerPick } from "@/features/accou
 import { CustomerSelect, useCustomerPicks } from "@/features/accounting/components/go/shared";
 import { fieldReasonText } from "@/lib/formServerErrors";
 import { apiErrorText } from "@/lib/apiError";
+import { newIdempotencyKey } from "@/lib/goFetch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -104,6 +108,16 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
     const [busy, setBusy] = useState<"parse" | "check" | "import" | null>(null);
     const [error, setError] = useState<string | null>(null);
     const fallbackType: TaskType = kind === "line_haul" ? "line_haul" : "first_mile";
+    // One Idempotency-Key per type group and body (a changed group, a new file, a new customer: a new key).
+    const groupKeys = useRef(new Map<TaskType, { body: string; key: string }>());
+    const groupKey = (type: TaskType, body: ImportRowInput[]): string => {
+        const sig = JSON.stringify(body);
+        const cur = groupKeys.current.get(type);
+        if (cur && cur.body === sig) return cur.key;
+        const key = newIdempotencyKey();
+        groupKeys.current.set(type, { body: sig, key });
+        return key;
+    };
 
     const parse = async (file: File) => {
         setBusy("parse");
@@ -205,7 +219,9 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
         setBusy(dryRun ? "check" : "import");
         setError(null);
         const next: Record<number, RowResult> = {};
+        const createdLines = new Set<number>();
         let created = 0;
+        let failed = false;
         try {
             for (const type of ["first_mile", "line_haul"] as const) {
                 const group = rows.filter((r) => r.taskType === type);
@@ -222,28 +238,33 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
                     taskNo: r.taskNo || undefined,
                     note: r.note || undefined,
                 }));
-                const out: ImportResult = await importTasks(type, body, dryRun);
+                const out: ImportResult = await importTasks(type, body, dryRun, undefined, dryRun ? undefined : groupKey(type, body));
                 for (const c of out.created) {
-                    next[group[c.row - 1].line] = { ok: true, taskNo: c.taskNo };
+                    const line = group[c.row - 1].line;
+                    next[line] = { ok: true, taskNo: c.taskNo };
                     created++;
+                    if (!dryRun) createdLines.add(line);
                 }
                 for (const e of out.errors) {
                     const text = (e.fields ?? []).map((f) => `${f.field}: ${fieldReasonText(f.reason, t, f.params ?? {})}`).join("; ") || e.code;
                     next[group[e.row - 1].line] = { ok: false, text };
                 }
             }
-            setResults(next);
             setChecked(true);
-            if (!dryRun) {
-                toast.success(t("taskBoard.import.done", { count: created }));
+        } catch (e) {
+            failed = true;
+            const text = apiErrorText(e, t);
+            setError(createdLines.size > 0 ? `${t("taskBoard.import.partial", { count: createdLines.size })} ${text}` : text);
+        } finally {
+            // What the answered groups did stays shown, whichever group failed after them.
+            setResults(next);
+            if (createdLines.size > 0) {
+                if (!failed) toast.success(t("taskBoard.import.done", { count: created }));
                 // The created rows leave the list, so a second "Import" never creates them twice.
-                const left = rows.filter((r) => !next[r.line]?.ok);
-                if (left.length === 0) onClose();
+                const left = rows.filter((r) => !createdLines.has(r.line));
+                if (left.length === 0 && !failed) onClose();
                 else setRows(left);
             }
-        } catch (e) {
-            setError(apiErrorText(e, t));
-        } finally {
             setBusy(null);
         }
     };

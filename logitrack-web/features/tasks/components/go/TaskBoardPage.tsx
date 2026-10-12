@@ -3,10 +3,12 @@
 /**
  * The first-mile, line-haul and job-assign boards over Go (T34, P2; Appendix E §E.2.1, §E.5 rows 5, 9, 11).
  *
- * One page, three routes: `['tasks',{date,type}]` (`GET /v1/tasks`, keyset 200 per page, `keepPreviousData`
- * while the day changes) with the day as the server's filter; the customer scope is RLS. The SOC and source
- * filters narrow the loaded day in the browser (their options come from its rows). The task form, the detail
- * and the import are mounted on open only (no hubs -> trucks -> drivers -> customers waterfall on mount,
+ * One page, three routes: `['tasks',{date,type,soc,hub}]` (`GET /v1/tasks`, keyset 200 per page,
+ * `keepPreviousData` while a filter changes) with the day, the destination SOC and the source hub as the server's
+ * filters (W9: a busy day's SOCN tasks past row 200 are on the first page); the customer scope is RLS. The source
+ * hub picker offers every hub of the Go master (TW8, the shared `HubFilterCombobox`), not the loaded rows' sources.
+ * The task form, the detail and the import are mounted on open only (no hubs -> trucks -> drivers -> customers
+ * waterfall on mount,
  * `useFirstMileTask.ts:66-106`); their pickers are cached queries (`['hubs',{view:'go'}]`, `['customers',
  * {fields:'minimal'}]`) and server searches (drivers, trucks). SSE `task.*` refreshes the board in every tab
  * (500 ms window), so a mobile check-in shows without a reload.
@@ -40,17 +42,18 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+import { HubFilterCombobox } from "@/features/hubs/components/HubFilterCombobox";
 import {
+    BOARD_ALL,
     boardTime,
     cancelTask,
-    filterBoard,
     pageItems,
     taskBoardQuery,
     type TaskBoardType,
     type TaskDTO,
     type TaskType,
 } from "../../api/tasks.go";
-import { CapabilityGate, LoadMoreFooter, TaskStatusBadge, VehicleClassChip } from "./opsShared";
+import { CapabilityGate, goHubFilterOptions, LoadMoreFooter, TaskStatusBadge, useGoHubs, VehicleClassChip } from "./opsShared";
 import type { TaskFormMode } from "./TaskFormDialog";
 
 // Mounted on open only, each its own chunk (developer-spec.md §10.11): the form and its pickers, the detail with
@@ -128,8 +131,8 @@ function Board({ kind }: { kind: BoardKind }) {
     const canManage = useCan("operations:manage_tasks").allowed;
     const [date, setDate] = useState<Date | undefined>(() => new Date());
     const [typeFilter, setTypeFilter] = useState<TaskBoardType>("all");
-    const [soc, setSoc] = useState<string>("all");
-    const [hub, setHub] = useState<string>("all");
+    const [soc, setSoc] = useState<string>(BOARD_ALL);
+    const [hub, setHub] = useState<string>(BOARD_ALL);
     const [form, setForm] = useState<FormState | null>(null);
     const [detail, setDetail] = useState<TaskDTO | null>(null);
     const [cancelling, setCancelling] = useState<TaskDTO | null>(null);
@@ -137,15 +140,11 @@ function Board({ kind }: { kind: BoardKind }) {
     const [importOpen, setImportOpen] = useState(false);
 
     const type: TaskBoardType = kind === "all" ? typeFilter : kind;
-    const filter = { date: date ? format(date, "yyyy-MM-dd") : "", type };
+    const filter = { date: date ? format(date, "yyyy-MM-dd") : "", type, soc, hub };
     const q = useInfiniteQuery({ ...taskBoardQuery(filter), placeholderData: keepPreviousData });
-    const rows = useMemo(() => pageItems(q.data?.pages), [q.data]);
-    const shown = useMemo(() => filterBoard(rows, soc, hub), [rows, soc, hub]);
-    const hubOptions = useMemo(() => {
-        const m = new Map<string, string>();
-        for (const r of rows) if (r.sourceHub && !m.has(r.sourceHub)) m.set(r.sourceHub, r.source?.label || r.sourceHub);
-        return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-    }, [rows]);
+    const shown = useMemo(() => pageItems(q.data?.pages), [q.data]);
+    const hubs = useGoHubs();
+    const hubOptions = useMemo(() => goHubFilterOptions(hubs.list), [hubs.list]);
     const keys = titleKeys(kind);
     const defaultType: TaskType = kind === "line_haul" ? "line_haul" : "first_mile";
 
@@ -264,19 +263,7 @@ function Board({ kind }: { kind: BoardKind }) {
                     </div>
                     <div className="flex min-w-[220px] flex-1 flex-col gap-2">
                         <label className="text-sm font-medium">{t("firstMile.filter.sourceHub")}</label>
-                        <Select value={hub} onValueChange={setHub}>
-                            <SelectTrigger>
-                                <SelectValue placeholder={t("firstMile.filter.allHubs")} />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-80">
-                                <SelectItem value="all">{t("firstMile.filter.allHubs")}</SelectItem>
-                                {hubOptions.map(([code, label]) => (
-                                    <SelectItem key={code} value={code}>
-                                        {label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <HubFilterCombobox options={hubOptions} value={hub} onChange={setHub} allLabel={t("firstMile.filter.allHubs")} />
                     </div>
                 </CardContent>
             </Card>
@@ -396,7 +383,7 @@ function Board({ kind }: { kind: BoardKind }) {
                     </Table>
                 </div>
                 <LoadMoreFooter
-                    loaded={rows.length}
+                    loaded={shown.length}
                     hasNextPage={Boolean(q.hasNextPage)}
                     isFetchingNextPage={q.isFetchingNextPage}
                     onLoadMore={() => void q.fetchNextPage()}

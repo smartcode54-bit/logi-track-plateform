@@ -169,8 +169,13 @@ describe("task boards", () => {
         expect(src).toMatch(/<HubFilterCombobox\s+hubs=\{hubRows \?\? NO_HUB_ROWS\}/);
     });
 
-    // The Go board (T34) offers every source of the loaded day and every hub of the Go master in its pickers.
-    it("features/tasks/components/go: no slice of the hub lists", () => {
+    // The Go board (T34) renders the shared combobox over every hub of the Go master (`['hubs',{view:'go'}]`) and
+    // filters on the server (`sourceHub`), not over the loaded rows; no picker slices the hub lists.
+    it("features/tasks/components/go: the shared combobox over the Go master, no slice of the hub lists", () => {
+        const board = readFileSync(path.join(process.cwd(), "features/tasks/components/go/TaskBoardPage.tsx"), "utf8");
+        expect(board).toMatch(/<HubFilterCombobox\s+options=\{hubOptions\}/);
+        expect(board).toMatch(/goHubFilterOptions\(hubs\.list\)/);
+        expect(board).not.toMatch(/filterBoard/);
         for (const file of ["TaskBoardPage.tsx", "opsShared.tsx", "TaskFormDialog.tsx"]) {
             const src = readFileSync(path.join(process.cwd(), "features/tasks/components/go", file), "utf8");
             expect(src, file).not.toMatch(/(hubs|hubOptions|list|ordered|shown)\.slice\(/);

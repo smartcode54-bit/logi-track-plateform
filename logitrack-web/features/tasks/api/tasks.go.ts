@@ -2,11 +2,13 @@
  * The task boards over Go (T34, P2; routes of T30 and T31, Appendix B §B.2.11; developer-spec.md §10.7 rows
  * `['tasks', …]`; Appendix E §E.2.1 rows first-mile, line-haul, job-assign, §E.5 rows 5, 9, 11).
  *
- * `['tasks',{date,type}]` is one keyset list (`GET /v1/tasks?taskType&date`, 200 per page, "load more"): the plan
- * day is the server's filter (a day listener with a browser-side window of 100 or 150 rows is gone), the customer
- * scope and the dispatcher projection are RLS (the browser no longer filters by `customerScopeId`), and each row
- * carries its driver's and helper's names, its resolved places and its newest trip, so the board reads nothing
- * else. Task numbers come from the server (`next_task_seq()`, R10): the 500 ms count query is gone.
+ * `['tasks',{date,type,soc,hub}]` is one keyset list (`GET /v1/tasks?taskType&date&destination&sourceHub`, 200 per
+ * page, "load more"): the plan day, the destination SOC and the source hub are the server's filters (W9: a filter is
+ * in the key and the request, so a SOCN task past row 200 of a busy day is on the first page; a day listener with a
+ * browser-side window of 100 or 150 rows is gone), the customer scope and the dispatcher projection are RLS (the
+ * browser no longer filters by `customerScopeId`), and each row carries its driver's and helper's names, its
+ * resolved places and its newest trip, so the board reads nothing else. Task numbers come from the server
+ * (`next_task_seq()`, R10): the 500 ms count query is gone.
  *
  * Writes (`POST /v1/tasks`, `PATCH /v1/tasks/{id}`, `POST /v1/tasks/{id}/cancel`, `POST /v1/tasks/import`)
  * invalidate `['tasks']` and the monitor; the FCM push of an assignment comes from Go's outbox (the browser's
@@ -108,25 +110,41 @@ export interface TaskDTO {
     cancelReason?: string | null;
 }
 
+/** The "no filter" value of the board's SOC and source-hub filters. */
+export const BOARD_ALL = "all";
+
 export interface TaskBoardFilter {
     /** A Bangkok plan day `yyyy-MM-dd`, or "" for the newest tasks of any day. */
     date: string;
     type: TaskBoardType;
+    /** The destination SOC key (`SOCE` / `SOCN` / `SOCW`), or "all". */
+    soc: string;
+    /** The source hub's code, or "all". */
+    hub: string;
 }
 
 type TaskBoardKey = readonly ["tasks", TaskBoardFilter];
 
+/** A board filter value as Go's place filter (`code:<CODE>`, the monitor's vocabulary), undefined for "all". */
+function placeParam(v: string): string | undefined {
+    const code = v.trim();
+    return code && code !== BOARD_ALL ? `code:${code}` : undefined;
+}
+
 /**
- * `['tasks',{date,type}]`: the board's keyset list, newest first (a day lists on the plan axis, no day on
- * `created_at`). `type: 'all'` (job-assign) sends no `taskType`: Go lists the types the caller reads.
+ * `['tasks',{date,type,soc,hub}]`: the board's keyset list, newest first (a day lists on the plan axis, no day on
+ * `created_at`). `type: 'all'` (job-assign) sends no `taskType`: Go lists the types the caller reads. The SOC and
+ * the source hub are Go's `destination` / `sourceHub` place filters, matched on the task's own resolved places.
  */
 export function taskBoardQuery(filter: TaskBoardFilter, enabled = true) {
     return infiniteQueryOptions({
-        queryKey: queryKeys.tasks.list({ date: filter.date, type: filter.type }) as TaskBoardKey,
+        queryKey: queryKeys.tasks.list({ date: filter.date, type: filter.type, soc: filter.soc, hub: filter.hub }) as TaskBoardKey,
         queryFn: goInfiniteQueryFn<TaskDTO, TaskBoardKey>(TASKS_PATH, {
             query: ([, f]) => ({
                 taskType: f.type === "all" ? undefined : f.type,
                 date: f.date || undefined,
+                destination: placeParam(f.soc),
+                sourceHub: placeParam(f.hub),
                 limit: TASK_BOARD_PAGE_SIZE,
             }),
         }),
@@ -270,16 +288,22 @@ export interface ImportResult {
 /** Go's cap of one import request (internal/operations `MaxImportRows`). */
 export const IMPORT_MAX_ROWS = 1000;
 
+/**
+ * `POST /v1/tasks/import` of one type's rows. A write carries an Idempotency-Key: `idempotencyKey` (the dialog keeps one
+ * per type group and body, so a retry of a group whose answer was lost replays Go's stored answer instead of creating
+ * the tasks twice), else a fresh one.
+ */
 export async function importTasks(
     taskType: TaskType,
     rows: ImportRowInput[],
     dryRun: boolean,
-    client: QueryClient = getQueryClient()
+    client: QueryClient = getQueryClient(),
+    idempotencyKey?: string
 ): Promise<ImportResult> {
     const out = await goFetch<ImportResult>(`${TASKS_PATH}/import`, {
         method: "POST",
         body: { taskType, rows: rows.map((r) => compactBody(r)), dryRun },
-        idempotencyKey: dryRun ? undefined : true,
+        idempotencyKey: dryRun ? undefined : (idempotencyKey ?? true),
     });
     if (!dryRun) await invalidateTasks(client);
     return out;
@@ -310,16 +334,4 @@ export function boardTime(task: Pick<TaskDTO, "planTime" | "actualPickupAt">): s
         if (!Number.isNaN(d.getTime())) return d.toTimeString().slice(0, 5);
     }
     return "";
-}
-
-/**
- * The browser filters of a board over the loaded rows: the destination SOC (`SOCE` / `SOCN` / `SOCW`, by the
- * resolved key) and the source hub (by code). Both narrow a day the server already bounded.
- */
-export function filterBoard(rows: TaskDTO[], soc: string, hub: string): TaskDTO[] {
-    return rows.filter((t) => {
-        if (soc !== "all" && t.destinationPlace?.key !== `code:${soc}` && (t.destinationSocKey ?? "") !== soc) return false;
-        if (hub !== "all" && t.sourceHub !== hub) return false;
-        return true;
-    });
 }

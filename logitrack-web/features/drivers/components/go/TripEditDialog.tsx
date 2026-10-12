@@ -6,12 +6,15 @@
  * - `PATCH /v1/trips/{id}`: seal and partner codes, delivery time (period lock in Go, `409 billing_period_locked`),
  *   route, the stop progress (`stops[]`, T34: stops added, removed, re-pointed; mirrored on the task's plan) and the
  *   evidence photos (uploaded first, purpose `trip_photo`, merged by type); an edited origin re-derives the job type
- *   in Go (a hub first_mile, a SOC line_haul) on the trip and its task;
+ *   in Go (a hub first_mile, a SOC line_haul) on the trip and its task. The task's mirror is a task edit, so the route
+ *   and the stops of a trip with a task need `operations:manage_tasks` (Go answers 403 without it; the editors are
+ *   disabled here);
  * - `PATCH /v1/tasks/{taskId}` `{helperDriverId}`: the helper, with the payroll lock in Go (`409 payroll_locked`);
  * - `POST /v1/trips/{id}/job-category` (T38): หลัก/เสริม of a delivered trip, the explicit reprice;
  * - `POST /v1/trips/{id}/billing/compute`: after a route or stop correction of a delivered trip (the legacy
  *   dialog's call; a priced trip stays as it is without force);
- * - `POST /v1/trips/{id}/deliver | cancel`, `POST /v1/trips/bulk-cancel`: resolving a stuck job;
+ * - `POST /v1/trips/{id}/deliver | cancel`, `POST /v1/trips/bulk-cancel`: resolving a stuck job (delivered at the
+ *   editor's delivery time when one is set, as the legacy `handleResolve`; else Go's trip-own-then-now);
  * - `POST /v1/trips/{id}/rename` (tenant_admin), `POST /v1/incidents` (an admin report).
  */
 import { useEffect, useMemo, useState } from "react";
@@ -21,7 +24,7 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { useCan, useMe } from "@/features/auth/api/useMe";
-import { Field, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
+import { Field, formatDateTime, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
 import { goFetch } from "@/lib/goFetch";
 import { assertUploadable, uploadToGo } from "@/lib/goUpload";
 import { apiErrorText } from "@/lib/apiError";
@@ -129,6 +132,8 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
     const derivedJobType = originHub ? (isSocStation(originHub) ? "line_haul" : "first_mile") : /^SOC[ENW]/i.test(origin.trim()) ? "line_haul" : null;
     const delivered = trip.status === "delivered";
     const open = trip.status === "in_transit" || trip.status === "incident";
+    // The route and the stops mirror on the trip's task (its plan and billing link): a task edit (Appendix C row 23).
+    const routeLocked = Boolean(trip.taskId) && !canTasks;
 
     const routeChanged = origin !== (trip.origin ?? "") || destination !== (trip.destination ?? "");
     const stopList = stopsPatch(trip.stops, stops);
@@ -246,12 +251,15 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                         <h3 className="text-sm font-semibold">{t("driverMonitor.editTrip.routeSection")}</h3>
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Field label={t("driverMonitor.detail.origin")}>
-                                <HubCombobox hubs={hubs.list} value={origin} onChange={(code) => setOrigin(code)} placeholder={t("driverMonitor.editTrip.selectOrigin")} />
+                                <HubCombobox hubs={hubs.list} value={origin} onChange={(code) => setOrigin(code)} placeholder={t("driverMonitor.editTrip.selectOrigin")}
+                                    disabled={routeLocked} />
                             </Field>
                             <Field label={t("driverMonitor.detail.destination")}>
-                                <HubCombobox hubs={hubs.list} value={destination} prefer="soc" onChange={(code) => setDestination(code)} placeholder={t("driverMonitor.editTrip.selectDestination")} />
+                                <HubCombobox hubs={hubs.list} value={destination} prefer="soc" onChange={(code) => setDestination(code)}
+                                    placeholder={t("driverMonitor.editTrip.selectDestination")} disabled={routeLocked} />
                             </Field>
                         </div>
+                        {routeLocked ? <p className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.routeNeedsTaskPermission")}</p> : null}
                         <div className="flex flex-wrap items-center gap-3 text-sm">
                             <span className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.jobTypeLabel")}:</span>
                             <span className="font-medium">
@@ -299,14 +307,15 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                                 ) : (
                                     <>
                                         <HubCombobox hubs={hubs.list} value={s.destination} prefer="soc" className="flex-1" placeholder={t("driverMonitor.editTrip.selectDestination")}
-                                            onChange={(code) => setStops((prev) => prev.map((x, j) => (j === i ? { ...x, destination: code } : x)))} />
-                                        <Button type="button" variant="ghost" size="icon" aria-label={t("driverMonitor.editTrip.removeStop")}
+                                            disabled={routeLocked} onChange={(code) => setStops((prev) => prev.map((x, j) => (j === i ? { ...x, destination: code } : x)))} />
+                                        <Button type="button" variant="ghost" size="icon" aria-label={t("driverMonitor.editTrip.removeStop")} disabled={routeLocked}
                                             onClick={() => setStops((prev) => prev.filter((_, j) => j !== i))}>
                                             <Trash2 className="h-4 w-4 text-destructive" />
                                         </Button>
                                     </>
                                 )}
-                                <Select value={s.status} onValueChange={(v) => setStops((prev) => prev.map((x, j) => (j === i ? { ...x, status: v as StopRow["status"] } : x)))}>
+                                <Select value={s.status} disabled={routeLocked}
+                                    onValueChange={(v) => setStops((prev) => prev.map((x, j) => (j === i ? { ...x, status: v as StopRow["status"] } : x)))}>
                                     <SelectTrigger className="h-8 w-[130px]">
                                         <SelectValue />
                                     </SelectTrigger>
@@ -318,7 +327,7 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                                 </Select>
                             </div>
                         ))}
-                        <Button type="button" variant="outline" size="sm"
+                        <Button type="button" variant="outline" size="sm" disabled={routeLocked}
                             onClick={() => setStops((prev) => [...prev, { destination: "", status: "delivered", locked: false }])}>
                             <Plus className="mr-1 h-4 w-4" />
                             {t("driverMonitor.editTrip.addStop")}
@@ -361,15 +370,24 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-            {dialog === "resolve" ? <ResolveDialog trip={trip} uploadPhotos={uploadPhotos} onDone={onClose} onBack={() => setDialog(null)} /> : null}
+            {dialog === "resolve" ? (
+                <ResolveDialog trip={trip} deliveredAt={deliveredAt} uploadPhotos={uploadPhotos} onDone={onClose} onBack={() => setDialog(null)} />
+            ) : null}
             {dialog === "rename" ? <RenameDialog trip={trip} onDone={onClose} onBack={() => setDialog(null)} /> : null}
             {dialog === "incident" ? <IncidentDialog trip={trip} onBack={() => setDialog(null)} /> : null}
         </>
     );
 }
 
-function ResolveDialog({ trip, uploadPhotos, onDone, onBack }: {
+/**
+ * Resolving a stuck trip. Delivered: at the editor's delivery time (`deliveredAt`, the `datetime-local` value, pre-filled
+ * from the trip) when it is set, as the legacy `handleResolve` did with `localDeliveredAt`, so a trip stuck since
+ * September and closed in October stays in September's billing period; an empty field leaves Go's order (the trip's
+ * own time, else now).
+ */
+function ResolveDialog({ trip, deliveredAt, uploadPhotos, onDone, onBack }: {
     trip: TripDetailDTO;
+    deliveredAt: string;
     uploadPhotos: () => Promise<TripPhotoPatch[]>;
     onDone: () => void;
     onBack: () => void;
@@ -379,11 +397,12 @@ function ResolveDialog({ trip, uploadPhotos, onDone, onBack }: {
     const [clearAll, setClearAll] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<unknown>(null);
+    const at = fromLocalInput(deliveredAt);
     const run = async () => {
         setBusy(true);
         setError(null);
         try {
-            if (outcome === "delivered") await deliverTrip(trip.id, { photos: await uploadPhotos() });
+            if (outcome === "delivered") await deliverTrip(trip.id, { deliveredAt: at ?? undefined, photos: await uploadPhotos() });
             else await cancelTrip(trip.id);
             let bulk = 0;
             if (clearAll && trip.driverId) {
@@ -424,6 +443,11 @@ function ResolveDialog({ trip, uploadPhotos, onDone, onBack }: {
                             </span>
                         </label>
                     ))}
+                    {outcome === "delivered" ? (
+                        <p className="text-xs text-muted-foreground" data-testid="resolve-delivered-at">
+                            {at ? t("driverMonitor.editTrip.resolveDeliveredAt", { time: formatDateTime(at) }) : t("driverMonitor.editTrip.resolveDeliveredAtNow")}
+                        </p>
+                    ) : null}
                     <label className="flex items-start gap-2">
                         <Checkbox checked={clearAll} onCheckedChange={(c) => setClearAll(c === true)} disabled={!trip.driverId} />
                         <span>

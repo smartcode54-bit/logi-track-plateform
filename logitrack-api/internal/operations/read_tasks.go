@@ -162,19 +162,22 @@ func (d directory) taskStopScope(s scopedb.ScopeTaskStop) TaskStopRow {
 
 // TaskListInput is the query of GET /v1/tasks (Appendix B §B.2.11): taskType, a plan day (date) or plan-day range
 // (from, to: Bangkok days, both inclusive; a range lists on the plan axis, latest day first, else on created_at,
-// newest first), status (repeatable or comma-separated), driverId (the driver or the helper), truckId, q, limit,
+// newest first), status (repeatable or comma-separated), driverId (the driver or the helper), truckId, q, sourceHub
+// and destination (T34: a place filter value of the monitor's vocabulary, code:<CODE> | hub:<uuid> | raw:<text> |
+// __none__, matched on the task's own source and destination place: the boards' source-hub and SOC filters), limit,
 // cursor.
 type TaskListInput struct {
 	TaskType, Date, From, To string
 	Statuses                 []string
 	DriverID, TruckID, Q     string
+	SourceHub, Destination   string
 	Limit                    int
 	Cursor                   string
 }
 
-// taskFilter checks the input against p: a type p does not read is 403 (missing its capability); without taskType a
-// principal that reads one type lists that type only.
-func taskFilter(p *authz.Principal, in TaskListInput) (TaskFilter, error) {
+// taskFilter checks the input against p (d: the request's hub master, for the place filters): a type p does not read
+// is 403 (missing its capability); without taskType a principal that reads one type lists that type only.
+func taskFilter(p *authz.Principal, d directory, in TaskListInput) (TaskFilter, error) {
 	var ck checker
 	f := TaskFilter{TaskType: strings.TrimSpace(in.TaskType), Q: qText(&ck, in.Q), Limit: in.Limit, Cursor: in.Cursor}
 	allowed := taskTypesFor(p)
@@ -202,17 +205,18 @@ func taskFilter(p *authz.Principal, in TaskListInput) (TaskFilter, error) {
 	}
 	f.Statuses = statusList(&ck, "status", in.Statuses, TaskStatuses)
 	f.DriverID, f.TruckID = optUUID(&ck, "driverId", in.DriverID), optUUID(&ck, "truckId", in.TruckID)
+	f.source, f.destination = d.parsePlace(&ck, "sourceHub", in.SourceHub), d.parsePlace(&ck, "destination", in.Destination)
 	return f, ck.err()
 }
 
 // ListTasksView is GET /v1/tasks: a keyset page of the boards with names, places, stops and the newest trip; staff
 // read their reach ([]TaskView), a dispatcher or a customer-scope principal the scope_tasks projection ([]TaskBase).
 func (s *Service) ListTasksView(ctx context.Context, p *authz.Principal, in TaskListInput) (any, string, error) {
-	f, err := taskFilter(p, in)
+	d, err := s.directory(ctx, p)
 	if err != nil {
 		return nil, "", err
 	}
-	d, err := s.directory(ctx, p)
+	f, err := taskFilter(p, d, in)
 	if err != nil {
 		return nil, "", err
 	}
@@ -357,12 +361,19 @@ func (s *Service) listScopeTasks(ctx context.Context, p *authz.Principal, f Task
 		if byPlan {
 			rows, err = q.ListScopeTasksByPlan(ctx, scopedb.ListScopeTasksByPlanParams{FromDate: *f.From, ToDate: *f.To,
 				TaskType: nonEmpty(f.TaskType), Statuses: f.Statuses, DriverID: f.DriverID, TruckID: f.TruckID,
-				Q: nonEmpty(f.Q), AfterPlan: c.day(), AfterID: c.id(), RowLimit: int32(limit + 1)})
+				Q: nonEmpty(f.Q), TrimChars: trimChars, SourceOn: f.source.on, SourceHubs: emptyIDs(f.source.hubs),
+				SourceSoc: f.source.soc, SourceRaw: f.source.raw, SourceNone: f.source.none, DestinationOn: f.destination.on,
+				DestinationHubs: emptyIDs(f.destination.hubs), DestinationSoc: f.destination.soc,
+				DestinationRaw: f.destination.raw, DestinationNone: f.destination.none,
+				AfterPlan: c.day(), AfterID: c.id(), RowLimit: int32(limit + 1)})
 			return err
 		}
 		rows, err = q.ListScopeTasksByCreated(ctx, scopedb.ListScopeTasksByCreatedParams{TaskType: nonEmpty(f.TaskType),
-			Statuses: f.Statuses, DriverID: f.DriverID, TruckID: f.TruckID, Q: nonEmpty(f.Q), AfterCreated: c.at(),
-			AfterID: c.id(), RowLimit: int32(limit + 1)})
+			Statuses: f.Statuses, DriverID: f.DriverID, TruckID: f.TruckID, Q: nonEmpty(f.Q), TrimChars: trimChars,
+			SourceOn: f.source.on, SourceHubs: emptyIDs(f.source.hubs), SourceSoc: f.source.soc, SourceRaw: f.source.raw,
+			SourceNone: f.source.none, DestinationOn: f.destination.on, DestinationHubs: emptyIDs(f.destination.hubs),
+			DestinationSoc: f.destination.soc, DestinationRaw: f.destination.raw, DestinationNone: f.destination.none,
+			AfterCreated: c.at(), AfterID: c.id(), RowLimit: int32(limit + 1)})
 		return err
 	})
 	if err != nil {

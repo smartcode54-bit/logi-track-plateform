@@ -4,7 +4,7 @@
 // card, no pricing call: AC 2), a task event makes the board refetch and show the mobile's change without a
 // reload (AC 3, through the realtime map's keys), and the export pages through the monitor's cursor and writes
 // the file with the lazily loaded xlsx (AC 4).
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -30,13 +30,17 @@ import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
 import { effectsOf } from "@/lib/realtime/eventMap";
 import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
+import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
 import { FirstMileBoardPage } from "./TaskBoardPage";
 import { DriverMonitorPage } from "@/features/drivers/components/go/DriverMonitorPage";
 import { StandbyRecordsPage } from "@/features/standby/components/go/StandbyRecordsPage";
 import { IncidentReportsPage } from "@/features/incident-reports/components/go/IncidentReportsPage";
 
+// The monitor is a VirtualTable: jsdom lays nothing out, so its viewport and rows get a height.
+let restoreLayout: () => void;
 beforeAll(() => {
+    restoreLayout = stubVirtualLayout({ viewport: 480, row: 48 });
     Element.prototype.hasPointerCapture ??= () => false;
     Element.prototype.releasePointerCapture ??= () => undefined;
     Element.prototype.scrollIntoView ??= () => undefined;
@@ -46,6 +50,7 @@ beforeAll(() => {
         disconnect() {}
     } as unknown as typeof ResizeObserver;
 });
+afterAll(() => restoreLayout());
 beforeEach(() => {
     configureFirebaseBridge(async () => {
         throw new Error("no Firebase SDK on the Go operations pages");
@@ -99,6 +104,7 @@ describe("Go operations pages (T34)", () => {
         const web = setup();
         let status = "assigned";
         web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [task(status)] }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
         renderPage("/app/first-mile", <FirstMileBoardPage />);
         expect(await screen.findByText("FM-12102026-001")).toBeInTheDocument();
         expect(await screen.findByText("Assigned")).toBeInTheDocument();
@@ -113,7 +119,9 @@ describe("Go operations pages (T34)", () => {
             }
         });
         expect(await screen.findByText("Checked in")).toBeInTheDocument();
-        expect(web.calls.filter((c) => !c.url.startsWith("/api/go/v1/tasks") && !c.url.startsWith("/api/go/v1/me") && !c.url.includes("firebase-token"))).toEqual([]);
+        // Besides the board: the hub master of the source-hub picker (one cached request, TW8), nothing else.
+        expect(web.calls.filter((c) => !c.url.startsWith("/api/go/v1/tasks") && !c.url.startsWith("/api/go/v1/me") && !c.url.includes("firebase-token"))
+            .map((c) => c.url)).toEqual(["/api/go/v1/hubs"]);
     });
 
     it("driver monitor: one aggregate request, the facets on screen, no rate card or pricing call (AC 2); the export pages through the cursor (AC 4)", async () => {
@@ -128,6 +136,8 @@ describe("Go operations pages (T34)", () => {
         web.on("GET", "/api/go/v1/trips/monitor", (c) => {
             const q = params(c.url);
             if (q.facets === "false") return q.cursor ? json(200, { data: [row("r2", "SPXTH-2")] }) : json(200, { data: [row("r1", "SPXTH-1")], nextCursor: "p2" });
+            // The table's next page (the VirtualTable asks for it near the end of the loaded rows): no facets.
+            if (q.cursor) return json(200, { data: [row("r2", "SPXTH-2")] });
             return json(200, { data: [row("r1", "SPXTH-1")], nextCursor: "p2", meta: { facets: { total: 412, statusCounts: { delivered: 400, in_transit: 12 }, incident: 3,
                 origins: [], destinations: [], plates: [], vehicleClasses: [], partners: [] } } });
         });
@@ -135,8 +145,10 @@ describe("Go operations pages (T34)", () => {
         expect(await screen.findByText("SPXTH-1")).toBeInTheDocument();
         expect(await screen.findByText("412")).toBeInTheDocument();
         const monitorCalls = web.calls.filter((c) => c.url.startsWith("/api/go/v1/trips/monitor"));
-        expect(monitorCalls).toHaveLength(1);
+        // One aggregate request carries the rows and the facets; any later one is the keyset's next page.
+        expect(monitorCalls.filter((c) => !params(c.url).cursor)).toHaveLength(1);
         expect(params(monitorCalls[0].url)).toMatchObject({ limit: "200" });
+        expect(monitorCalls.slice(1).every((c) => params(c.url).cursor === "p2")).toBe(true);
         expect(web.calls.some((c) => /rate-entries|fuel-adjustments|billing\/compute|computeTripBillingSnapshot/.test(c.url))).toBe(false);
 
         const u = userEvent.setup();

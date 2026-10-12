@@ -764,28 +764,60 @@ WHERE ($1::boolean OR t.tenant_id = ANY ($2::uuid[]))
   AND ($7::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower($7::text)) > 0)
-  AND ($8::timestamptz IS NULL
-       OR (t.created_at, t.id) < ($8::timestamptz, $9::uuid))
+  AND (NOT $8::boolean
+       OR t.source_hub_id = ANY ($9::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, $10::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, $10::text)), 4) END = $11::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, $10::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, $10::text) = $12::text)
+       OR ($13::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, $10::text) = ''))
+  AND (NOT $14::boolean
+       OR t.destination_hub_id = ANY ($15::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, $10::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, $10::text)), 4) END) = $16::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, $10::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, $10::text) = $17::text)
+       OR ($18::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, $10::text) = ''))
+  AND ($19::timestamptz IS NULL
+       OR (t.created_at, t.id) < ($19::timestamptz, $20::uuid))
 ORDER BY t.created_at DESC, t.id DESC
-LIMIT $10
+LIMIT $21
 `
 
 type ListTasksByCreatedParams struct {
-	AllTenants   bool
-	TenantIds    []uuid.UUID
-	TaskType     *string
-	Statuses     []string
-	DriverID     *uuid.UUID
-	TruckID      *uuid.UUID
-	Q            *string
-	AfterCreated *time.Time
-	AfterID      uuid.UUID
-	RowLimit     int32
+	AllTenants      bool
+	TenantIds       []uuid.UUID
+	TaskType        *string
+	Statuses        []string
+	DriverID        *uuid.UUID
+	TruckID         *uuid.UUID
+	Q               *string
+	SourceOn        bool
+	SourceHubs      []uuid.UUID
+	TrimChars       string
+	SourceSoc       *string
+	SourceRaw       *string
+	SourceNone      bool
+	DestinationOn   bool
+	DestinationHubs []uuid.UUID
+	DestinationSoc  *string
+	DestinationRaw  *string
+	DestinationNone bool
+	AfterCreated    *time.Time
+	AfterID         uuid.UUID
+	RowLimit        int32
 }
 
 // GET /v1/tasks without a date: newest first, keyset (created_at, id) (tasks_tenant_type_created; tasks_created under
 // X-Act-On-Tenant: *). driver_id matches the driver or the helper; q is a substring of the number, the places or the
-// plate.
+// plate. source / destination (T34, the boards' source-hub and SOC filters) are the monitor's place buckets of the
+// task's own source and destination (Place: the hub stored at write, else the SOC key, stored or of the raw text,
+// else the trimmed raw text, else none): a place filter value of the row's source.key / destinationPlace.key matches.
 func (q *Queries) ListTasksByCreated(ctx context.Context, arg ListTasksByCreatedParams) ([]Task, error) {
 	rows, err := q.db.Query(ctx, listTasksByCreated,
 		arg.AllTenants,
@@ -795,6 +827,17 @@ func (q *Queries) ListTasksByCreated(ctx context.Context, arg ListTasksByCreated
 		arg.DriverID,
 		arg.TruckID,
 		arg.Q,
+		arg.SourceOn,
+		arg.SourceHubs,
+		arg.TrimChars,
+		arg.SourceSoc,
+		arg.SourceRaw,
+		arg.SourceNone,
+		arg.DestinationOn,
+		arg.DestinationHubs,
+		arg.DestinationSoc,
+		arg.DestinationRaw,
+		arg.DestinationNone,
 		arg.AfterCreated,
 		arg.AfterID,
 		arg.RowLimit,
@@ -873,29 +916,59 @@ WHERE ($1::boolean OR t.tenant_id = ANY ($2::uuid[]))
   AND ($9::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower($9::text)) > 0)
-  AND ($10::date IS NULL
-       OR (t.plan_date, t.id) < ($10::date, $11::uuid))
+  AND (NOT $10::boolean
+       OR t.source_hub_id = ANY ($11::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, $12::text)), 4) END = $13::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, $12::text) = $14::text)
+       OR ($15::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, $12::text) = ''))
+  AND (NOT $16::boolean
+       OR t.destination_hub_id = ANY ($17::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, $12::text)), 4) END) = $18::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, $12::text) = $19::text)
+       OR ($20::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, $12::text) = ''))
+  AND ($21::date IS NULL
+       OR (t.plan_date, t.id) < ($21::date, $22::uuid))
 ORDER BY t.plan_date DESC, t.id DESC
-LIMIT $12
+LIMIT $23
 `
 
 type ListTasksByPlanParams struct {
-	AllTenants bool
-	TenantIds  []uuid.UUID
-	FromDate   time.Time
-	ToDate     time.Time
-	TaskType   *string
-	Statuses   []string
-	DriverID   *uuid.UUID
-	TruckID    *uuid.UUID
-	Q          *string
-	AfterPlan  *time.Time
-	AfterID    uuid.UUID
-	RowLimit   int32
+	AllTenants      bool
+	TenantIds       []uuid.UUID
+	FromDate        time.Time
+	ToDate          time.Time
+	TaskType        *string
+	Statuses        []string
+	DriverID        *uuid.UUID
+	TruckID         *uuid.UUID
+	Q               *string
+	SourceOn        bool
+	SourceHubs      []uuid.UUID
+	TrimChars       string
+	SourceSoc       *string
+	SourceRaw       *string
+	SourceNone      bool
+	DestinationOn   bool
+	DestinationHubs []uuid.UUID
+	DestinationSoc  *string
+	DestinationRaw  *string
+	DestinationNone bool
+	AfterPlan       *time.Time
+	AfterID         uuid.UUID
+	RowLimit        int32
 }
 
 // GET /v1/tasks?date | from&to: the plan days (Bangkok) of the range, latest day first, keyset (plan_date, id)
-// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *).
+// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *). The filters of ListTasksByCreated.
 func (q *Queries) ListTasksByPlan(ctx context.Context, arg ListTasksByPlanParams) ([]Task, error) {
 	rows, err := q.db.Query(ctx, listTasksByPlan,
 		arg.AllTenants,
@@ -907,6 +980,17 @@ func (q *Queries) ListTasksByPlan(ctx context.Context, arg ListTasksByPlanParams
 		arg.DriverID,
 		arg.TruckID,
 		arg.Q,
+		arg.SourceOn,
+		arg.SourceHubs,
+		arg.TrimChars,
+		arg.SourceSoc,
+		arg.SourceRaw,
+		arg.SourceNone,
+		arg.DestinationOn,
+		arg.DestinationHubs,
+		arg.DestinationSoc,
+		arg.DestinationRaw,
+		arg.DestinationNone,
 		arg.AfterPlan,
 		arg.AfterID,
 		arg.RowLimit,

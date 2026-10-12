@@ -8,6 +8,11 @@
  * customer links and the assignment push are the server's (`POST /v1/tasks`, `PATCH /v1/tasks/{id}`; Appendix B
  * §B.2.11): the browser sends ids and codes only. An edit sends the changed fields only, so a task past `assigned`
  * is refused only for what really changed (`409 task_in_progress`).
+ *
+ * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop, not the
+ * destination field (legacy tasks and the trip editor's mirror can hold a stop 1 that differs from the destination;
+ * the legacy `DeliveryStopsEditor` edited each row freely). An edit sends `deliveryStops` only when the stops were
+ * touched and differ (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan.
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
@@ -79,9 +84,29 @@ function initialValues(mode: TaskFormMode, taskType: TaskType, task: TaskDTO | u
     };
 }
 
-/** The stops of a multi-drop write: stop 1 is the task's destination (the list's first row shows it), then the rest. */
-function stopsOf(v: Values): string[] {
-    return [v.destination, ...v.stops.slice(1)].map((s) => s.trim()).filter(Boolean);
+/** The stops of a multi-drop write: the rows as edited (each trimmed, blank rows dropped). */
+export function stopsOf(v: Pick<Values, "stops">): string[] {
+    return v.stops.map((s) => s.trim()).filter(Boolean);
+}
+
+const stopKey = (list: readonly string[]) => list.map((s) => s.trim().toUpperCase()).join("\n");
+
+/**
+ * The stops an edit sends (`isMultiDelivery` + `deliveryStops`), or undefined when it leaves the task's plan as it
+ * is: untouched stops never go out, and touched ones only when the flag or the list (trimmed, case-insensitive)
+ * differs from the task's.
+ */
+export function editStopsPatch(
+    task: Pick<TaskDTO, "isMultiDelivery" | "stops">,
+    v: Pick<Values, "multi" | "stops">,
+    touched: boolean
+): Pick<TaskPatch, "isMultiDelivery" | "deliveryStops"> | undefined {
+    if (!touched) return undefined;
+    const wasMulti = task.isMultiDelivery && task.stops.length > 1;
+    const oldStops = wasMulti ? task.stops.map((s) => s.destination) : [];
+    const stops = v.multi ? stopsOf(v) : [];
+    if (v.multi === wasMulti && stopKey(stops) === stopKey(oldStops)) return undefined;
+    return { isMultiDelivery: v.multi, deliveryStops: stops.map((destination) => ({ destination })) };
 }
 
 export function TaskFormDialog({
@@ -103,6 +128,12 @@ export function TaskFormDialog({
     const maps = useMemo(() => customerMaps(customers.list), [customers.list]);
     const customerOfParty = (p: string | null | undefined) => (p ? (maps.byParty.get(p)?.id ?? "") : "");
     const [v, setV] = useState<Values>(() => initialValues(mode, taskType, task, customerOfParty));
+    // The stop list was changed in this dialog (the multi-drop box, a row picked, added or removed).
+    const [stopsTouched, setStopsTouched] = useState(false);
+    const setStops = (f: (prev: Values) => Partial<Values>) => {
+        setStopsTouched(true);
+        setV((prev) => ({ ...prev, ...f(prev) }));
+    };
     const [error, setError] = useState<unknown>(null);
     const [local, setLocal] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
@@ -137,8 +168,13 @@ export function TaskFormDialog({
         if (!v.date || !v.sourceHub || !v.destination) return setLocal(t("taskBoard.form.required"));
         if (!customer?.billingPartyId) return setLocal(t("firstMile.import.customerMissing"));
         const stops = v.multi ? stopsOf(v) : [];
-        if (v.multi && stops.length < 2) return setLocal(t("firstMile.task.minStopsError"));
-        if (v.multi && new Set(stops.map((s) => s.toUpperCase())).size !== stops.length) return setLocal(t("firstMile.task.duplicateDestError"));
+        const stopsPatch = mode === "edit" && task ? editStopsPatch(task, v, stopsTouched) : undefined;
+        if (mode !== "edit" || stopsPatch) {
+            if (v.multi && stops.length < 2) return setLocal(t("firstMile.task.minStopsError"));
+            if (v.multi && new Set(stops.map((s) => s.toUpperCase())).size !== stops.length) return setLocal(t("firstMile.task.duplicateDestError"));
+        }
+        // Go keeps the planned stops of a task past assigned (409 task_in_progress): say so before the round trip.
+        if (stopsPatch && task && task.status !== "pending" && task.status !== "assigned") return setLocal(t("taskBoard.form.stopsLocked"));
         const truckType = v.truckType === NO_CLASS ? undefined : v.truckType;
         setSaving(true);
         try {
@@ -154,11 +190,7 @@ export function TaskFormDialog({
                 if (!v.truck && (truckType ?? null) !== task.truckType) patch.truckType = truckType ?? null;
                 if ((v.driver?.id ?? null) !== task.driverId) patch.driverId = v.driver?.id ?? null;
                 if ((v.helper?.id ?? null) !== task.helperDriverId) patch.helperDriverId = v.helper?.id ?? null;
-                const oldStops = task.isMultiDelivery ? task.stops.map((s) => s.destination) : [];
-                if (v.multi !== (task.isMultiDelivery && task.stops.length > 1) || stops.join("\n") !== oldStops.join("\n")) {
-                    patch.isMultiDelivery = v.multi;
-                    patch.deliveryStops = v.multi ? stops.map((destination) => ({ destination })) : [];
-                }
+                if (stopsPatch) Object.assign(patch, stopsPatch);
                 if (Object.keys(patch).length === 0) {
                     onClose();
                     return;
@@ -277,7 +309,8 @@ export function TaskFormDialog({
 
                 <div className="space-y-2 rounded-md border p-3">
                     <label className="flex items-center gap-2 text-sm font-medium">
-                        <Checkbox checked={v.multi} onCheckedChange={(c) => setV((prev) => ({ ...prev, multi: c === true, stops: c === true && prev.stops.length === 0 ? [prev.destination, ""] : prev.stops }))} />
+                        <Checkbox checked={v.multi}
+                            onCheckedChange={(c) => setStops((prev) => ({ multi: c === true, stops: c === true && prev.stops.length === 0 ? [prev.destination, ""] : prev.stops }))} />
                         {t("firstMile.task.isMultiDelivery")}
                     </label>
                     <p className="text-xs text-muted-foreground">{t("firstMile.task.isMultiDeliveryHint")}</p>
@@ -286,21 +319,18 @@ export function TaskFormDialog({
                             {v.stops.map((s, i) => (
                                 <div key={i} className="flex items-center gap-2">
                                     <span className="w-16 text-xs text-muted-foreground">{t("firstMile.task.stopIndex")} {i + 1}</span>
-                                    {i === 0 ? (
-                                        <span className="flex-1 text-sm">{v.destination || "—"} <span className="text-xs text-muted-foreground">({t("firstMile.task.primaryDestination")})</span></span>
-                                    ) : (
-                                        <>
-                                            <HubCombobox hubs={hubs.list} value={s} prefer={fm ? "soc" : "hub"} placeholder={t("firstMile.task.stopDestination")} className="flex-1"
-                                                onChange={(code) => setV((prev) => ({ ...prev, stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
-                                            <Button type="button" variant="ghost" size="icon" aria-label={t("firstMile.task.removeStop")}
-                                                onClick={() => setV((prev) => ({ ...prev, stops: prev.stops.filter((_, j) => j !== i) }))}>
-                                                <Trash2 className="h-4 w-4 text-destructive" />
-                                            </Button>
-                                        </>
-                                    )}
+                                    <HubCombobox hubs={hubs.list} value={s} prefer={fm ? "soc" : "hub"} placeholder={t("firstMile.task.stopDestination")} className="flex-1"
+                                        onChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
+                                    {i === 0 && s.trim().toUpperCase() === v.destination.trim().toUpperCase() ? (
+                                        <span className="text-xs text-muted-foreground">({t("firstMile.task.primaryDestination")})</span>
+                                    ) : null}
+                                    <Button type="button" variant="ghost" size="icon" aria-label={t("firstMile.task.removeStop")}
+                                        onClick={() => setStops((prev) => ({ stops: prev.stops.filter((_, j) => j !== i) }))}>
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
                                 </div>
                             ))}
-                            <Button type="button" variant="outline" size="sm" onClick={() => setV((prev) => ({ ...prev, stops: [...prev.stops, ""] }))}>
+                            <Button type="button" variant="outline" size="sm" onClick={() => setStops((prev) => ({ stops: [...prev.stops, ""] }))}>
                                 <Plus className="mr-1 h-4 w-4" />
                                 {t("firstMile.task.addStop")}
                             </Button>

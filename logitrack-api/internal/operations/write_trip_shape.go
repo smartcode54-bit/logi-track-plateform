@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
@@ -25,7 +26,8 @@ import (
 // deliveryStops, isMultiDelivery, taskType, sourceHub with its hub's billing link, and destination), in the trip's
 // FOR UPDATE transaction on the PostgreSQL path and in one Firestore commit over both documents on the write-back
 // path. The task's "not past assigned" rule of PATCH /v1/tasks/{id} does not apply: this is an admin correction of
-// what happened, not a new plan.
+// what happened, not a new plan. It is a task edit all the same: a mirror that changes the task needs
+// operations:manage_tasks (Appendix C row 23) besides the route's operations:edit_trip_details.
 
 // MaxTripStops bounds the stops of one trip edit.
 const MaxTripStops = 50
@@ -113,8 +115,9 @@ func mergeParams(a, b map[string]any) map[string]any {
 }
 
 // stopState is one stop of a trip's progress: a trip_delivery_stops row, a deliveryStopsProgress entry of the
-// Firestore document (doc: the entry as read, so its photos and any other key are written back unchanged), or a stop
-// of the edit.
+// Firestore document (doc: the entry as read, so its photos and any other key are written back unchanged; docPos: its
+// 1-based array position, 0 for a stop the document does not hold), or a stop of the edit (fresh: delivered by this
+// edit, so it is the newest completion).
 type stopState struct {
 	index        int32
 	destination  string
@@ -124,33 +127,46 @@ type stopState struct {
 	lat, lng     *float64
 	completedSeq *int32
 	doc          map[string]any
+	docPos       int32
+	fresh        bool
 }
 
+// rowStops reads trip_delivery_stops rows (stop_index order). completed_seq counts for a delivered stop only: the
+// loader numbers every array position (pending and failed included, Q16), Go and the seed only delivered ones, so a
+// stop that is not delivered has no completion order whatever the row holds (an unchanged list then merges to itself).
 func rowStops(rows []TripStop) []stopState {
 	out := make([]stopState, len(rows))
 	for i, r := range rows {
 		out[i] = stopState{index: r.StopIndex, destination: r.DestinationRaw, hubID: r.DestinationHubID, status: r.Status,
-			deliveredAt: r.DeliveredAt, lat: r.DeliveredLat, lng: r.DeliveredLng, completedSeq: r.CompletedSeq}
+			deliveredAt: r.DeliveredAt, lat: r.DeliveredLat, lng: r.DeliveredLng}
+		if r.Status == "delivered" {
+			out[i].completedSeq = r.CompletedSeq
+		}
 	}
 	return out
 }
 
-// docStops reads deliveryStopsProgress[] of a trip document: its array position is the completion order (Q16, the
-// loader's completed_seq).
+// docStops reads deliveryStopsProgress[] of a trip document in plan order (stop index): the array position is the
+// completion order (Q16, the loader's completed_seq) and is kept as docPos. Like the loader, an entry without a
+// usable index (not an object, no integral index >= 1, or an index an earlier entry holds) is no stop: the write-back
+// carries it over unchanged (tripStopDocs).
 func docStops(v any) []stopState {
 	items, _ := v.([]any)
 	out := make([]stopState, 0, len(items))
+	seen := map[int32]bool{}
 	for i, it := range items {
 		m, _ := it.(map[string]any)
 		if m == nil {
 			continue
 		}
 		idx, ok := docInt(m["index"])
-		if !ok || idx < 1 {
+		if !ok || idx < 1 || seen[idx] {
 			continue
 		}
+		seen[idx] = true
 		st := stopState{index: idx, destination: stringOf(m["destination"]), status: strings.ToLower(stringOf(m["status"])),
-			deliveredAt: docTime(m["deliveredAt"]), lat: docFloat(m["deliveredLat"]), lng: docFloat(m["deliveredLng"]), doc: m}
+			deliveredAt: docTime(m["deliveredAt"]), lat: docFloat(m["deliveredLat"]), lng: docFloat(m["deliveredLng"]), doc: m,
+			docPos: int32(i + 1)}
 		if !slices.Contains(StopStatuses, st.status) {
 			st.status = "pending"
 		}
@@ -160,6 +176,7 @@ func docStops(v any) []stopState {
 		}
 		out = append(out, st)
 	}
+	slices.SortFunc(out, func(a, b stopState) int { return int(a.index) - int(b.index) })
 	return out
 }
 
@@ -220,7 +237,8 @@ func (d directory) mergeStops(cur []stopState, in []tripStopIn) []stopState {
 	for i, s := range in {
 		idx := int32(i + 1)
 		c, had := byIndex[idx]
-		n := stopState{index: idx, destination: s.destination, hubID: d.resolve(s.destination).hubID, status: "pending", doc: c.doc}
+		n := stopState{index: idx, destination: s.destination, hubID: d.resolve(s.destination).hubID, status: "pending", doc: c.doc,
+			docPos: c.docPos}
 		if had {
 			n.status = c.status
 		}
@@ -247,7 +265,7 @@ func (d directory) mergeStops(cur []stopState, in []tripStopIn) []stopState {
 			} else {
 				maxSeq++
 				seq := maxSeq
-				n.completedSeq = &seq
+				n.completedSeq, n.fresh = &seq, true
 			}
 		}
 		out[i] = n
@@ -362,6 +380,11 @@ func (d directory) planTaskMirror(task Task, old []TaskStop, pr operationsdb.Upd
 			m.params.SourceLinkedPartyID = r.party
 		}
 		m.changed = append(m.changed, "sourceHub")
+		if !sameID(m.params.SourceLinkedPartyID, task.SourceLinkedPartyID) {
+			// The billing link names a party: the realtime projection sends a dispatch copy only for a visible column
+			// or a *PartyId field (the party that now reads the task learns it, as PATCH /v1/tasks/{id} marks it).
+			m.changed = append(m.changed, "sourceLinkedPartyId")
+		}
 	}
 	if slices.Contains(tripChanged, "destination") && pr.DestinationRaw != nil && *pr.DestinationRaw != task.DestinationRaw {
 		m.params.DestinationRaw, m.params.DestinationHubID = *pr.DestinationRaw, pr.DestinationHubID
@@ -401,8 +424,11 @@ func (d directory) planTaskMirror(task Task, old []TaskStop, pr operationsdb.Upd
 }
 
 // applyTripShape writes the stop list, the trip's flag and type and the task's mirror in the trip's transaction (the
-// trip is locked; UpdateTripDetails ran). It returns the trip's further changed fields and the task's events.
-func (s *Service) applyTripShape(ctx context.Context, q *operationsdb.Queries, d directory, cur Trip,
+// trip is locked; UpdateTripDetails ran). It returns the trip's further changed fields and the task's events. A mirror
+// that changes the task (its route, billing link, type or planned stops: Appendix C row 23) needs
+// operations:manage_tasks besides the route's operations:edit_trip_details: without it the edit is 403 and the
+// transaction rolls back, as PATCH /v1/tasks/{id} refuses the same change.
+func (s *Service) applyTripShape(ctx context.Context, q *operationsdb.Queries, p *authz.Principal, d directory, cur Trip,
 	pr operationsdb.UpdateTripDetailsParams, changed []string, ch tripChange) ([]string, []opsEvent, error) {
 	routeChanged := slices.Contains(changed, "origin") || slices.Contains(changed, "destination")
 	if !ch.stopsSet && !routeChanged {
@@ -454,6 +480,9 @@ func (s *Service) applyTripShape(ctx context.Context, q *operationsdb.Queries, d
 	m := d.planTaskMirror(task, old, pr, changed, sh, s.now().UTC())
 	if len(m.changed) == 0 {
 		return sh.changed, nil, nil
+	}
+	if err := requireCap(p, authz.OperationsManageTasks); err != nil {
+		return nil, nil, err
 	}
 	if sh.stopsChanged {
 		if _, err := q.DeleteTaskStops(ctx, task.ID); err != nil {
@@ -536,26 +565,65 @@ func linkFields(prefix, kindKey string, p operationsdb.WritePartyRow, field stri
 	return map[string]any{prefix + "Id": id, prefix + "Name": name, prefix + "Code": code, kindKey: kind}, nil
 }
 
-// tripStopDocs encodes the stop list as deliveryStopsProgress[] (the loader's keys): each stop keeps the keys of the
-// document's own entry at its index (its photos above all).
-func tripStopDocs(stops []stopState) []any {
-	out := make([]any, len(stops))
-	for i, st := range stops {
-		m := map[string]any{}
-		for k, v := range st.doc {
-			m[k] = v
+// tripStopDocs encodes the stop list as deliveryStopsProgress[] (the loader's keys) over the document's array (orig, as
+// read; cur: the stops docStops read from it). The array order is the completion order (Q16: the loader's
+// completed_seq, the legacy pricing's base stop), so the write keeps it: every entry the document holds stays at its
+// position (a stop with its edited fields and the keys of its own entry, its photos above all; an entry docStops did
+// not read, unchanged), a removed stop leaves, the stops the edit adds follow in plan order, and the stops this edit
+// delivers come last in their new completion order (as the 3.x app appends a delivered stop).
+func tripStopDocs(orig any, cur, stops []stopState) []any {
+	items, _ := orig.([]any)
+	read := map[int32]bool{}
+	for _, c := range cur {
+		read[c.docPos] = true
+	}
+	inPlace := map[int32]stopState{}
+	var added, fresh []stopState
+	for _, st := range stops {
+		switch {
+		case st.fresh:
+			fresh = append(fresh, st)
+		case st.docPos > 0:
+			inPlace[st.docPos] = st
+		default:
+			added = append(added, st)
 		}
-		if st.doc != nil && normalizeDestination(stringOf(st.doc["destination"])) != st.destination {
-			delete(m, "sourceId") // re-pointed: the picked place is no longer the driver's
+	}
+	slices.SortFunc(fresh, func(a, b stopState) int { return int(*a.completedSeq) - int(*b.completedSeq) })
+	out := make([]any, 0, len(items)+len(added)+len(fresh))
+	for i, it := range items {
+		pos := int32(i + 1)
+		if st, ok := inPlace[pos]; ok {
+			out = append(out, tripStopDoc(st))
+		} else if !read[pos] {
+			out = append(out, it)
 		}
-		m["index"], m["destination"], m["status"] = int64(st.index), st.destination, st.status
-		m["deliveredAt"], m["deliveredLat"], m["deliveredLng"] = optTime(st.deliveredAt), optFloat(st.lat), optFloat(st.lng)
-		if _, ok := m["photos"]; !ok {
-			m["photos"] = []any{}
-		}
-		out[i] = m
+	}
+	for _, st := range added {
+		out = append(out, tripStopDoc(st))
+	}
+	for _, st := range fresh {
+		out = append(out, tripStopDoc(st))
 	}
 	return out
+}
+
+// tripStopDoc is one deliveryStopsProgress entry: the keys of the document's own entry at the stop's index (its photos
+// above all) under the stop's fields.
+func tripStopDoc(st stopState) map[string]any {
+	m := map[string]any{}
+	for k, v := range st.doc {
+		m[k] = v
+	}
+	if st.doc != nil && normalizeDestination(stringOf(st.doc["destination"])) != st.destination {
+		delete(m, "sourceId") // re-pointed: the picked place is no longer the driver's
+	}
+	m["index"], m["destination"], m["status"] = int64(st.index), st.destination, st.status
+	m["deliveredAt"], m["deliveredLat"], m["deliveredLng"] = optTime(st.deliveredAt), optFloat(st.lat), optFloat(st.lng)
+	if _, ok := m["photos"]; !ok {
+		m["photos"] = []any{}
+	}
+	return m
 }
 
 func optFloat(f *float64) any {
@@ -630,7 +698,7 @@ func (s *Service) shapeDocs(ctx context.Context, d directory, cur Trip, pr opera
 		next := d.mergeStops(curStops, ch.stops)
 		if !sameStops(curStops, next) {
 			sh.stops, sh.stopsChanged = next, true
-			trip["deliveryStopsProgress"] = tripStopDocs(next)
+			trip["deliveryStopsProgress"] = tripStopDocs(fields["deliveryStopsProgress"], curStops, next)
 			trip["isMultiDelivery"], trip["totalDeliveryStops"] = len(next) > 1, int64(len(next))
 			tripW.updateTime, tripW.mustExist = updated, false
 		}
@@ -662,6 +730,9 @@ func (s *Service) shapeDocs(ctx context.Context, d directory, cur Trip, pr opera
 				}
 			}
 			taskChanged = append(taskChanged, "sourceHub")
+			if r := d.resolve(*pr.OriginRaw); r.party != nil && !sameID(r.party, t.SourceLinkedPartyID) {
+				taskChanged = append(taskChanged, "sourceLinkedPartyId")
+			}
 		}
 		if slices.Contains(changed, "destination") && pr.DestinationRaw != nil && *pr.DestinationRaw != t.DestinationRaw {
 			task["destination"] = *pr.DestinationRaw

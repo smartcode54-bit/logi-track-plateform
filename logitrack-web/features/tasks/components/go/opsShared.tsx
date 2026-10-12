@@ -64,6 +64,24 @@ export function useGoHubs(enabled = true) {
     return { ...q, list, byCode };
 }
 
+/**
+ * The source-hub filter options of the Go boards (TW8: every hub of the Go master, no cap; the value is the hub
+ * code the board sends as Go's `sourceHub=code:<CODE>`): Thai name first, searchable by code and both names.
+ */
+export function goHubFilterOptions(hubs: readonly HubPick[]): { value: string; label: string; searchText: string }[] {
+    const seen = new Set<string>();
+    const out: { value: string; label: string; searchText: string }[] = [];
+    for (const h of hubs) {
+        const code = h.sourceId?.trim();
+        if (!code || seen.has(code)) continue;
+        seen.add(code);
+        const th = h.sourceNameTh?.trim() ?? "";
+        const en = h.sourceNameEn?.trim() ?? "";
+        out.push({ value: code, label: th || en || code, searchText: [code, en, th].filter(Boolean).join(" ") });
+    }
+    return out;
+}
+
 export function isSocStation(h: Pick<HubPick, "stationType">): boolean {
     return String(h.stationType ?? "").trim().toUpperCase().startsWith("SOC");
 }
