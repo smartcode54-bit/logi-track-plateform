@@ -17,7 +17,6 @@ import (
 	"errors"
 	"io"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -45,6 +44,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
@@ -78,17 +78,6 @@ type world struct {
 	partyX     string // the customer X's billing party (the dispatcher's grant)
 }
 
-func freeAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
-}
-
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	ctx := context.Background()
@@ -118,7 +107,10 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publicAddr := freeAddr(t)
+	// The public listener is bound up front and served as it is (FLAKE3): the local storage backend needs its
+	// address before the API is built, and a port released here could be taken before the API binds it again.
+	publicLn := listentest.Loopback(t)
+	publicAddr := publicLn.Addr().String()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: t.TempDir(), PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("f"), 40), APIUploadPath: storage.LocalUploadPath})
 	if err != nil {
@@ -173,7 +165,7 @@ func newWorld(t *testing.T) *world {
 	if err := a.CheckRoutes(); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Listen(); err != nil {
+	if err := a.ListenOn(app.Listeners{Public: publicLn}); err != nil {
 		t.Fatal(err)
 	}
 	sctx, cancel := context.WithCancel(context.Background())

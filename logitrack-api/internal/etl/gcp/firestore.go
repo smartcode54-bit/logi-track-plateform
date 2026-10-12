@@ -274,6 +274,23 @@ func (f *Firestore) Get(ctx context.Context, path string) (dump.Doc, error) {
 	return f.decodeDoc(out)
 }
 
+// Delete removes one document under the precondition (T45: the holidays projection deletes the document of a holiday
+// deleted in PostgreSQL). A document that does not exist is no error without a precondition, as Firestore answers.
+func (f *Firestore) Delete(ctx context.Context, path string, pre Precondition) error {
+	q := url.Values{}
+	switch {
+	case pre.Exists != nil:
+		q.Set("currentDocument.exists", strconv.FormatBool(*pre.Exists))
+	case !pre.UpdateTime.IsZero():
+		q.Set("currentDocument.updateTime", pre.UpdateTime.UTC().Format(time.RFC3339Nano))
+	}
+	u := f.base + "/" + escapePath(path)
+	if len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+	return do(ctx, f.client, f.tokens, "delete", http.MethodDelete, u, nil, nil)
+}
+
 // Precondition guards a write: Exists false creates only; a non-zero UpdateTime writes only while the
 // document still carries it.
 type Precondition struct {

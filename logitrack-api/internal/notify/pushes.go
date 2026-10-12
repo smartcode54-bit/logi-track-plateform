@@ -1,7 +1,9 @@
 package notify
 
 import (
+	"fmt"
 	"strings"
+	"time"
 	"unicode/utf16"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
@@ -134,6 +136,41 @@ func MaintenanceScheduled(maintenanceRef, driverRef, title, body string) Push {
 		Notification: &push.Notification{Title: title, Body: body},
 		Data:         map[string]string{"type": KindMaintenanceScheduled, "maintenanceId": maintenanceRef, "driverId": driverRef},
 	}
+}
+
+// LeaveDecided is "leave_decided" to the driver of a leave request a staff member decided (T45). The legacy system sent
+// no push for it (the 3.x app showed the decision through its Firestore listener, leave_request_repository.dart), so
+// the texts are new, in Thai like the app: the title names the decision ("อนุมัติการลาแล้ว", "ไม่อนุมัติการลา",
+// "ยกเลิกการลาแล้ว"), the body the type and the days on the Buddhist-era calendar ("ลาป่วย 12/10/2569 - 13/10/2569",
+// one day alone when they are equal) and, for a rejection, ": {reason}" cut like a chat preview (80 UTF-16 units).
+// startDate and endDate are yyyy-MM-dd. data {type, leaveRequestId, driverId, status} (canonical status, R65).
+func LeaveDecided(leaveRef, driverRef, status, leaveType, startDate, endDate, reason string) Push {
+	title := map[string]string{"approved": "อนุมัติการลาแล้ว", "rejected": "ไม่อนุมัติการลา", "cancelled": "ยกเลิกการลาแล้ว"}[status]
+	kind := "ลาป่วย"
+	if leaveType == "business" {
+		kind = "ลากิจ"
+	}
+	body := kind + " " + buddhistDay(startDate)
+	if endDate != "" && endDate != startDate {
+		body += " - " + buddhistDay(endDate)
+	}
+	if r := jsTrim(reason); status == "rejected" && r != "" {
+		body += ": " + jsPreview(r, 80)
+	}
+	return Push{
+		Kind: KindLeaveDecided, Channel: ChannelTaskAssignments,
+		Notification: &push.Notification{Title: title, Body: body},
+		Data:         map[string]string{"type": KindLeaveDecided, "leaveRequestId": leaveRef, "driverId": driverRef, "status": status},
+	}
+}
+
+// buddhistDay is a yyyy-MM-dd day as dd/MM/{year + 543} (the Thai calendar of the LINE cards); anything else as given.
+func buddhistDay(day string) string {
+	t, err := time.Parse(time.DateOnly, day)
+	if err != nil {
+		return day
+	}
+	return fmt.Sprintf("%02d/%02d/%d", t.Day(), int(t.Month()), t.Year()+543)
 }
 
 // ChatMessage is "chat" to the driver of a chat an admin wrote in (fn:chat.ts:174-178): body = the

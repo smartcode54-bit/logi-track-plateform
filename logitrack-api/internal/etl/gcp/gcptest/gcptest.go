@@ -387,6 +387,13 @@ func (b *Backend) firestore(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.TrimPrefix(p, prefix)
 	switch {
+	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
+		path, err := url.PathUnescape(rest[1:])
+		if err != nil {
+			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+			return
+		}
+		b.handleDelete(w, r, path)
 	case r.Method == http.MethodPost && rest == ":runQuery":
 		b.handleRunQuery(w, r)
 	case r.Method == http.MethodPost && rest == ":listCollectionIds":
@@ -599,6 +606,34 @@ func (b *Backend) handleGet(w http.ResponseWriter, r *http.Request, path string)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(b.restDoc(d))
+}
+
+// handleDelete is documents.delete (T45, the holidays projection): the precondition first (exists, updateTime), then the
+// document is removed as a new tick; deleting a missing document without a precondition succeeds, as Firestore does.
+func (b *Backend) handleDelete(w http.ResponseWriter, r *http.Request, path string) {
+	q := r.URL.Query()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur, exists := b.docs[path]
+	if e := q.Get("currentDocument.exists"); e != "" {
+		if want, _ := strconv.ParseBool(e); want != exists {
+			apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+			return
+		}
+	}
+	if ut := q.Get("currentDocument.updateTime"); ut != "" {
+		t, err := time.Parse(time.RFC3339Nano, ut)
+		if err != nil || !exists || !cur.UpdateTime.Equal(t) {
+			apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+			return
+		}
+	}
+	if exists {
+		b.now()
+		b.remove(path)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte("{}"))
 }
 
 func (b *Backend) handlePatch(w http.ResponseWriter, r *http.Request, path string) {

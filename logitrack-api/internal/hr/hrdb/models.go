@@ -57,6 +57,52 @@ type DriverPenalty struct {
 	UpdatedAt         time.Time
 }
 
+type Holiday struct {
+	ID            uuid.UUID
+	LegacyDocID   *string
+	TenantID      *uuid.UUID
+	HolidayDate   time.Time
+	HolidayType   string
+	Status        string
+	Name          string
+	NameEn        *string
+	NameTh        *string
+	Description   *string
+	DescriptionEn *string
+	DescriptionTh *string
+	IsRecurring   bool
+	CreatedBy     *uuid.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type LeaveRequest struct {
+	ID              uuid.UUID
+	LegacyDocID     *string
+	TenantID        uuid.UUID
+	TenantSource    string
+	DriverID        *uuid.UUID
+	LegacyDriverRef *string
+	DriverRefMatch  *string
+	LeaveType       string
+	Status          string
+	StartDate       time.Time
+	EndDate         time.Time
+	Reason          string
+	ApproverUserID  *uuid.UUID
+	DecidedAt       *time.Time
+	RejectionReason *string
+	ClientOpID      *uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type LeaveRequestAttachment struct {
+	LeaveRequestID uuid.UUID
+	FileID         uuid.UUID
+	Position       int32
+}
+
 type PayrollLineItem struct {
 	ID           uuid.UUID
 	PayrollRunID uuid.UUID
