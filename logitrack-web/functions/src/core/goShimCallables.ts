@@ -1,7 +1,8 @@
 /**
  * The legacy answers of the callable shims (mv-go, developer-spec.md §11.10, Appendix B §B.2.22, Appendix C §C.6.5;
- * R45): setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32), and
- * sendCustomerLineNotification -> POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify (T49). The installed
+ * R45): setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32),
+ * markBroadcastRead -> POST /v1/mobile/broadcasts/{id}/read (T48) and sendCustomerLineNotification -> POST
+ * /v1/mobile/{tasks|trips|standby}/{id}/line-notify (T49). The installed
  * 3.x APKs keep calling the callables by name; these functions turn the Go answer back into the callable contract,
  * byte for byte (the same keys in the same order, the same messages, the same HttpsError codes), so nothing changes
  * for the device. Pure apart from the claims store, so they are tested without Firebase (goShimCallables.test.ts).
@@ -174,6 +175,56 @@ export function mapAddStopAnswer(answer: ShimAnswer, log: ShimLogger): AddDelive
         log.error("[addDeliveryStop] shim: unexpected answer from the Go API", { status, code: e.code, reason: e.reason });
     }
     throw new HttpsError("internal", ADD_STOP_MESSAGES.failed);
+}
+
+// --- markBroadcastRead -> POST /v1/mobile/broadcasts/{id}/read (T48) ------------------------------------------------
+
+/** The answer of markBroadcastRead (fn chat.ts:203-248), keys in their legacy order. */
+export interface MarkBroadcastReadResponse {
+    ok: boolean;
+    alreadyRead: boolean;
+}
+
+/** The legacy HttpsError texts of markBroadcastRead, and the text of a failed shim call. */
+export const MARK_READ_MESSAGES = {
+    notFound: "Broadcast not found",
+    failed: "Failed to mark the broadcast read",
+} as const;
+
+/**
+ * details.reason of the Go 404 for a broadcast that does not exist for the driver (broadcasts.ReasonBroadcastNotFound:
+ * unknown, voided, or not readable by the driver). Any other 404 is a configuration fault, not a missing broadcast.
+ */
+export const BROADCAST_NOT_FOUND_REASON = "broadcast_not_found";
+
+/**
+ * Whether markBroadcastRead forwards a call to Go: the shim is on and the caller holds the driver claims (role driver or
+ * a driverId, never an admin; isMobileShimCall). Any other Firebase user keeps the legacy path.
+ */
+export function markReadForwards(base: string, token: Record<string, unknown> | undefined): boolean {
+    return base !== "" && isMobileShimCall(token, false);
+}
+
+/**
+ * Maps the answer of POST /v1/mobile/broadcasts/{id}/read onto the callable: 200 `{ok: true, alreadyRead}` (the
+ * broadcast_reads primary key makes a second read alreadyRead true), 404 broadcast_not_found the legacy not-found
+ * "Broadcast not found". Anything else (refused credentials, Go unreachable or failing, another 404, a rate limit, a
+ * driver without a driver profile in PostgreSQL) is internal, logged as an error once (here, unless callShim already
+ * did); the APK ignores the answer (broadcast_detail_page.dart:38-47).
+ */
+export function mapMarkReadAnswer(answer: ShimAnswer, log: ShimLogger): MarkBroadcastReadResponse {
+    const { status, body } = answer;
+    if (status === 200) {
+        return { ok: true, alreadyRead: shimData(body).alreadyRead === true };
+    }
+    const e = shimError(body);
+    if (status === 404 && e.code === "not_found" && e.reason === BROADCAST_NOT_FOUND_REASON) {
+        throw new HttpsError("not-found", MARK_READ_MESSAGES.notFound);
+    }
+    if (!shimFailureLogged(answer)) {
+        log.error("[markBroadcastRead] shim: unexpected answer from the Go API", { status, code: e.code, reason: e.reason });
+    }
+    throw new HttpsError("internal", MARK_READ_MESSAGES.failed);
 }
 
 // --- sendCustomerLineNotification -> POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify ------------------------

@@ -853,6 +853,37 @@ sql:
               import: time
               type: Time
               pointer: true
+  # T48: broadcasts, their recipients and read receipts (Appendix A §A.2.6, Appendix B §B.2.16, §B.2.21); every query
+  # runs in the caller's request transaction (db.WithPrincipal).
+  - name: broadcasts
+    engine: postgresql
+    schema: migrations
+    queries: internal/broadcasts/queries
+    gen:
+      go:
+        package: broadcastsdb
+        out: internal/broadcasts/broadcastsdb
+        sql_package: pgx/v5
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
   # T49: the LINE request routes (staff force, driver shim targets) read the record they name under the caller's RLS
   # (db.WithPrincipal) before notify.line.force is submitted.
   - name: linenotify

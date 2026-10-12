@@ -27,7 +27,8 @@ import (
 //     no document is held (ExportDoc.Hold); documents no row projects to are reported (informational: legacy
 //     duplicates such as a losing hub document), except in the one-document collections (metadata, settings), and in
 //     a collection whose rows PostgreSQL deletes (holidays, T45) the documents of deleted rows are a difference
-//     (projection_deleted: their delete was not projected, `etl project` deletes them);
+//     (projection_deleted: their delete was not projected, `etl project` deletes them); the document of a row that must
+//     have none (ExportDoc.Absent, a voided broadcast, T48) differs until it is deleted;
 //   - operations (T29, syncreconcile_ops.go): per document of tasks, trip_records, standby_records and incidentReport,
 //     the columns the boards, the monitor and billing read equal what the load transforms read from the document, and
 //     the rows whose document Firestore no longer has are listed;
@@ -366,7 +367,7 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 	projected := map[string]bool{}
 	live := map[string]bool{}
 	for _, w := range want {
-		if !w.Retired && w.Skip == "" {
+		if !w.Retired && !w.Absent && w.Skip == "" {
 			live[w.Path] = true
 		}
 	}
@@ -378,6 +379,14 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 			continue
 		}
 		cur, ok := byPath[w.Path]
+		if w.Absent {
+			// A row whose document must not exist (a voided broadcast): its document is a difference until deleted.
+			rows++
+			if ok {
+				differ = append(differ, w.Path+" exists (the row is voided)")
+			}
+			continue
+		}
 		if w.Retired && (!ok || live[w.Path]) {
 			continue // a former id: checked only while its document exists and no row took it over
 		}

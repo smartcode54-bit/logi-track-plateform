@@ -7,6 +7,8 @@ package migrations_test
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -303,4 +305,84 @@ func TestHolidaysStewardRule(t *testing.T) {
 	}
 	wantSQLState(t, staffC, "42501", "row-level security", `INSERT INTO holidays (tenant_id, holiday_date, holiday_type, name)
 		VALUES ($1, '2026-05-02', 'company', 'x')`, a)
+}
+
+// The broadcast audience (0022, T48): a carrier's driver reads (and marks read) the own fleet's broadcast addressed to
+// it, never one addressed to others, never a voided one; the legacy rows without recipients stay readable as before;
+// only a steward (or the system context) lists the platform-wide audience, which leaves out inactive drivers, disabled
+// logins, suspended tenants and the quarantine tenant; a platform-wide broadcast is written by a steward only.
+func TestBroadcastAudience(t *testing.T) {
+	d, _ := migrated(t)
+	etl := connect(t, d, db.RoleETL)
+	o := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th) VALUES ('own_fleet', 'O') RETURNING id::text`)
+	a := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th, legal_type, contractor_tenant_id) VALUES ('carrier', 'A',
+		'company', $1) RETURNING id::text`, o)
+	s := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th, legal_type, status) VALUES ('carrier', 'S', 'company',
+		'suspended') RETURNING id::text`)
+	user := func(email, status string) string {
+		return scalar[string](t, etl, `INSERT INTO users (email, display_name, status, disabled_at)
+			VALUES ($1::text, $1::text, $2, CASE WHEN $2 = 'disabled' THEN now() END) RETURNING id::text`, email, status)
+	}
+	driver := func(tenant, u, status string) string {
+		exec(t, etl, `INSERT INTO memberships (user_id, tenant_id, role) VALUES ($1, $2, 'driver')`, u, tenant)
+		return scalar[string](t, etl, `INSERT INTO drivers (tenant_id, tenant_source, user_id, first_name, last_name, mobile, status)
+			VALUES ($1, 'self', $2, 'ส', 'ข', '0800000000', $3) RETURNING id::text`, tenant, u, status)
+	}
+	uA, uA2, uO := user("a@example.test", "active"), user("a2@example.test", "active"), user("o@example.test", "active")
+	dA, dA2 := driver(a, uA, "active"), driver(a, uA2, "active")
+	driver(o, uO, "on_duty")
+	driver(o, user("inactive@example.test", "active"), "inactive")
+	driver(o, user("disabled@example.test", "disabled"), "active")
+	driver(s, user("suspended@example.test", "active"), "active")
+	driver("00000000-0000-7000-8000-00000000000f", user("q@example.test", "active"), "active")
+	staffO := principal(t, d, user("staff.o@example.test", "active"), o, "tenant_admin", "app.steward", "on", "app.subtenant_ids", a)
+	staffA := principal(t, d, user("staff.a@example.test", "active"), a, "tenant_admin")
+	drvA := principal(t, d, uA, a, "driver", "app.driver_id", dA)
+	drvA2 := principal(t, d, uA2, a, "driver", "app.driver_id", dA2)
+
+	addressed := scalar[string](t, etl, `INSERT INTO broadcasts (tenant_id, message_text) VALUES ($1, 'to A') RETURNING id::text`, o)
+	exec(t, etl, `INSERT INTO broadcast_recipients (broadcast_id, user_id) VALUES ($1, $2)`, addressed, uA)
+	voided := scalar[string](t, etl, `INSERT INTO broadcasts (tenant_id, message_text, voided_at) VALUES ($1, 'v', now()) RETURNING id::text`, o)
+	exec(t, etl, `INSERT INTO broadcast_recipients (broadcast_id, user_id) VALUES ($1, $2)`, voided, uA)
+	legacy := scalar[string](t, etl, `INSERT INTO broadcasts (message_text) VALUES ('legacy') RETURNING id::text`)
+
+	for _, tc := range []struct {
+		name  string
+		cn    *pgx.Conn
+		id    string
+		reads int64
+	}{{"the addressed driver", drvA, addressed, 1}, {"another driver of A", drvA2, addressed, 0}, {"a voided one", drvA, voided, 0},
+		{"a legacy row", drvA2, legacy, 1}} {
+		if n := scalar[int64](t, tc.cn, `SELECT count(*) FROM broadcasts WHERE id = $1`, tc.id); n != tc.reads {
+			t.Errorf("%s: reads %d rows, want %d", tc.name, n, tc.reads)
+		}
+	}
+	if n := affected(t, drvA, `INSERT INTO broadcast_reads (broadcast_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, addressed, uA); n != 1 {
+		t.Errorf("the addressed driver's read: %d", n)
+	}
+	if n := affected(t, drvA, `INSERT INTO broadcast_reads (broadcast_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, addressed, uA); n != 0 {
+		t.Errorf("a second read wrote %d rows", n)
+	}
+	wantSQLState(t, drvA2, "42501", "row-level security", `INSERT INTO broadcast_reads (broadcast_id, user_id) VALUES ($1, $2)`, addressed, uA2)
+	if !scalar[bool](t, drvA, `SELECT app_broadcast_recipient($1)`, addressed) || scalar[bool](t, drvA2, `SELECT app_broadcast_recipient($1)`, addressed) {
+		t.Error("app_broadcast_recipient answers for someone else")
+	}
+	if scalar[bool](t, drvA, `SELECT broadcast_unaddressed($1)`, addressed) || !scalar[bool](t, drvA, `SELECT broadcast_unaddressed($1)`, legacy) {
+		t.Error("broadcast_unaddressed")
+	}
+
+	wantSQLState(t, staffA, "42501", "needs a steward", `SELECT count(*) FROM broadcast_platform_audience()`)
+	wantSQLState(t, drvA, "42501", "needs a steward", `SELECT count(*) FROM broadcast_platform_audience()`)
+	if got := scalar[[]string](t, staffO, `SELECT array_agg(user_id::text ORDER BY user_id) FROM broadcast_platform_audience()`); strings.Join(got, ",") !=
+		strings.Join(sortedStrings(uA, uA2, uO), ",") {
+		t.Errorf("platform audience %v, want %v", got, sortedStrings(uA, uA2, uO))
+	}
+	wantSQLState(t, staffA, "42501", "row-level security", `INSERT INTO broadcasts (message_text) VALUES ('everyone')`)
+	exec(t, staffO, `INSERT INTO broadcasts (message_text) VALUES ('everyone')`)
+}
+
+func sortedStrings(v ...string) []string {
+	out := slices.Clone(v)
+	slices.Sort(out)
+	return out
 }

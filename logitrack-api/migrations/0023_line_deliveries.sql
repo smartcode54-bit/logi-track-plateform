@@ -1,5 +1,5 @@
--- 0022_line_deliveries.sql. Never edit this file once it is merged; follow-ups take the next number (R31).
--- Appendix A §A.2.17 (issue T49; the table is §A.2.6). notification_deliveries, the push log of notify.fcm (0007),
+-- 0023_line_deliveries.sql. Never edit this file once it is merged; follow-ups take the next number (R31).
+-- Appendix A §A.2.18 (issue T49; the table is §A.2.6). notification_deliveries, the push log of notify.fcm (0007),
 -- also logs the LINE cards of notify.line: one row per card a message settled, so "0 duplicate sends" (the P5
 -- cut-over criterion, main spec §12.2) can be read back. Kinds line_checkin, line_delivered, line_standby (the legacy
 -- events checkin, delivered, standby); status skipped for a card that is not sent and never will be for this message

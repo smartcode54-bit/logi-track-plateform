@@ -221,7 +221,10 @@ func loadChatMessage(c *docCtx) error {
 
 // loadBroadcast: broadcasts + broadcast_reads (§A.3.10): readDriverAuthIds[] -> reads (an unresolved reader is
 // skipped with user_unresolved; read_at is the document's update time, the latest a legacy read can be), readCount
-// dropped (derived), title may be missing, tenant_id NULL; broadcast_recipients stays empty for legacy rows.
+// dropped (derived), title may be missing, tenant_id NULL; broadcast_recipients stays empty for legacy rows. The reads
+// are only ever added (T48 review): the legacy callable only adds readers (arrayUnion, fn:chat.ts:248) and nothing
+// unreads, while PostgreSQL may hold receipts the document lacks (the markBroadcastRead shim's, written in P5), so a
+// mirror that resumes after a P5 rollback must not drop them.
 func loadBroadcast(c *docCtx) error {
 	text := c.text("messageText", "message")
 	if text == nil {
@@ -254,9 +257,6 @@ func loadBroadcast(c *docCtx) error {
 	id, err := upsertLegacy(c, r)
 	if err != nil {
 		return err
-	}
-	if _, err := c.tx.Exec(c.ctx, `DELETE FROM broadcast_reads WHERE broadcast_id = $1`, id); err != nil {
-		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 	}
 	readers, _ := c.get("readDriverAuthIds").([]any)
 	readAt := c.doc.UpdateTime.Truncate(time.Microsecond)

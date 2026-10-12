@@ -145,6 +145,13 @@ func redactValue(v any) bool {
 	return changed
 }
 
+// zerolog keeps the timestamp layout in a package variable that every
+// timestamped line reads. It is set here, once, before main or a test can
+// start a goroutine that logs, and never by New: a process builds several
+// loggers (the api and its loops, two servers in one test), and a later New
+// writing it while an earlier logger runs is a data race (CIFIX1).
+func init() { zerolog.TimeFieldFormat = time.RFC3339Nano }
+
 // Options configure New.
 type Options struct {
 	Level   string // trace|debug|info|warn|error
@@ -174,7 +181,6 @@ func New(o Options) (zerolog.Logger, error) {
 	default:
 		return zerolog.Nop(), fmt.Errorf("logx: unknown log format %q", o.Format)
 	}
-	zerolog.TimeFieldFormat = time.RFC3339Nano
 	l := zerolog.New(sink).Level(lvl).With().Timestamp().
 		Str("service", o.Service).Str("env", o.Env).Str("version", o.Version).Logger()
 	return l, nil

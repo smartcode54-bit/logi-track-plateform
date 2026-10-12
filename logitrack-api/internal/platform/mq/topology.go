@@ -126,8 +126,8 @@ var Queues = []Queue{
 	{Name: "firestore.shadow", Group: "sync", Prefetch: 4, Bindings: events(
 		"hubs.changed", "customers.changed", "companies.changed", "truck.created", "truck.updated", "truck.renewed",
 		"assignment.created", "assignment.revoked", "driver.created", "driver.updated", "tenant.created",
-		"tenant.updated", "holidays.changed", "broadcast.created", "settings.changed", "trip.priced", "trip.repriced",
-		"standby.priced")},
+		"tenant.updated", "holidays.changed", "broadcast.created", "broadcast.voided", "broadcast.read", "settings.changed",
+		"trip.priced", "trip.repriced", "standby.priced")},
 }
 
 // Definitions is the RabbitMQ definitions document (management HTTP API

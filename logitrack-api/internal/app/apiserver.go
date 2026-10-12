@@ -18,6 +18,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/broadcasts"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
@@ -94,6 +95,9 @@ type APIDeps struct {
 	Forms *forms.Service
 	// Chats are the admin-driver chat of T47: /v1/chats* (staff) and /v1/mobile/chat* (the driver's own chat).
 	Chats *chats.Service
+	// Broadcasts are the broadcasts of T48: /v1/broadcasts* (staff) and /v1/mobile/broadcasts* (the driver's side and
+	// the markBroadcastRead shim target).
+	Broadcasts *broadcasts.Service
 	// LineNotify are the LINE request routes of T49: POST /v1/{tasks|trips|standby}/{id}/notify-line, POST
 	// /v1/{trips|standby}/{id}/evidence/revoke and the sendCustomerLineNotification shim targets below /v1/mobile.
 	LineNotify *linenotify.Service
@@ -370,9 +374,9 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	// Driver compensation and payroll (T44): configs, penalties and runs under RLS (db.WithPrincipal, never Redis on the
 	// money path); POST /v1/jobs/payroll.run submits through the jobs service (the worker generates the runs). Leave
 	// requests and holidays (T45): holidays are PostgreSQL's (firestore.shadow projects them); leave decisions write
-	// PostgreSQL only once every domain is (LeavePGOwned), else they are Firestore write-backs (class C) through the
+	// PostgreSQL only once every domain is (classCPGOwned), else they are Firestore write-backs (class C) through the
 	// writer the operations writes use, or 503 write_back_unconfigured without a Firestore project.
-	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, LeavePGOwned: wbs.LeavePG, LeaveWriteBack: wbs.Leave, Log: log})
+	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, LeavePGOwned: wbs.ClassCPG, LeaveWriteBack: wbs.Leave, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -406,10 +410,19 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Broadcasts are class B (the web writes them, the 3.x APKs read them): PostgreSQL writes them whatever
+	// PG_OWNED_DOMAINS says and firestore.shadow projects them once comms is owned (T48). A send to selected users
+	// waits for the 3.x fleet to be gone (every domain owned, P7b): the 3.x app lists every projected document.
+	broadcastSvc, err := broadcasts.New(broadcasts.Deps{Pool: pool, Log: log, LegacyFleet: !wbs.ClassCPG})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
 		Storage: st, LineNotify: linenotify.New(pool, jobSvc),
-		Events: events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc, Limiter: limiter,
+		Events: events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc,
+		Broadcasts: broadcastSvc, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP),
 		EvidenceLimit: cfg.RateLimit.Limit(ratelimit.EvidenceIP)})
 	if err != nil {
@@ -452,33 +465,34 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 }
 
 // writeBacks are the class C write-backs of the api (main spec §13.8): the operations writes (T31) while operations is
-// not PostgreSQL-owned, the chat writes (T47) while comms is not, and the leave decisions (T45) until every domain is.
+// not PostgreSQL-owned, and the chat writes (T47) and the leave decisions (T45) until every domain is (the 3.x APKs
+// write chats and leave requests in Firestore until P7b, whatever comms or hr says).
 type writeBacks struct {
 	// Operations is the operations write-back; nil while operations is PostgreSQL-owned or without a Firestore project.
 	Operations *operations.WriteBack
-	// Chats is the chat write-back; nil while comms is PostgreSQL-owned or without a Firestore project.
-	Chats *chats.WriteBack
-	// LeavePG is whether the leave decisions write PostgreSQL (every domain owned, leavePGOwned); otherwise Leave is
-	// their write-back, nil without a Firestore project (the decisions then answer 503 write_back_unconfigured).
-	LeavePG bool
-	Leave   *hr.LeaveWriteBack
+	// ClassCPG is whether the chat writes and the leave decisions write PostgreSQL (every domain owned,
+	// classCPGOwned); otherwise Chats and Leave are their write-backs, nil without a Firestore project (they then answer
+	// 503 write_back_unconfigured).
+	ClassCPG bool
+	Chats    *chats.WriteBack
+	Leave    *hr.LeaveWriteBack
 }
 
 // buildWriteBacks builds the write-backs over one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID (database
 // FIRESTORE_DATABASE_ID, the GOOGLE_APPLICATION_CREDENTIALS service account), built only when a write-back is in use
-// (operations or comms not owned, or not every domain owned) and the project is set. No I/O beyond reading the key file: the
+// (operations not owned, or not every domain owned) and the project is set. No I/O beyond reading the key file: the
 // access token is fetched on the first write, so the api starts while Google is unreachable. A write-back in use
 // without a project stays nil and its routes answer 503 write_back_unconfigured: PostgreSQL is never written in
 // Firestore's place.
 func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (writeBacks, error) {
-	out := writeBacks{LeavePG: leavePGOwned(cfg.PGOwnedDomains)}
+	out := writeBacks{ClassCPG: classCPGOwned(cfg.PGOwnedDomains)}
 	if cfg.OperationsOwned {
 		log.Info().Msg("operations writes: PostgreSQL (operations is in PG_OWNED_DOMAINS)")
 	}
-	if out.LeavePG {
-		log.Info().Msg("leave decisions: PostgreSQL (PG_OWNED_DOMAINS holds every domain)")
+	if out.ClassCPG {
+		log.Info().Msg("chat writes and leave decisions: PostgreSQL (PG_OWNED_DOMAINS holds every domain)")
 	}
-	if cfg.OperationsOwned && out.LeavePG {
+	if cfg.OperationsOwned && out.ClassCPG {
 		return out, nil
 	}
 	if cfg.WriteBack.FirestoreProjectID == "" {
@@ -486,12 +500,12 @@ func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (wri
 			log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
 				"(the write routes answer 503 write_back_unconfigured)")
 		}
-		if !cfg.CommsOwned {
-			log.Info().Msg("chat writes off: comms is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
-				"(the chat write routes answer 503 write_back_unconfigured)")
+		if !out.ClassCPG {
+			log.Info().Msg("chat writes off: the 3.x APKs write chats in Firestore until every domain is PostgreSQL-owned " +
+				"and WRITEBACK_FIRESTORE_PROJECT_ID is unset (the chat write routes answer 503 write_back_unconfigured)")
+			log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
+				"and WRITEBACK_FIRESTORE_PROJECT_ID is unset (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
 		}
-		log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
-			"and WRITEBACK_FIRESTORE_PROJECT_ID is unset (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
 		return out, nil
 	}
 	sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
@@ -509,11 +523,9 @@ func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (wri
 		log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
 		out.Operations = &operations.WriteBack{Writer: w, Acks: acks, Wait: operations.DefaultMirrorWait, RunOrders: acks}
 	}
-	if !cfg.CommsOwned {
-		log.Info().Msg("chat writes: Firestore write-back (comms is not in PG_OWNED_DOMAINS)")
+	if !out.ClassCPG {
+		log.Info().Msg("chat writes: Firestore write-back (the 3.x APKs write chats until every domain is PostgreSQL-owned)")
 		out.Chats = &chats.WriteBack{Writer: w, Acks: acks, Wait: chats.DefaultMirrorWait}
-	}
-	if !out.LeavePG {
 		log.Info().Msg("leave decisions: Firestore write-back (the 3.x APKs write leave requests until every domain is PostgreSQL-owned)")
 		out.Leave = &hr.LeaveWriteBack{Writer: w, Acks: acks, Wait: hr.DefaultMirrorWait}
 	}
@@ -570,11 +582,14 @@ func (c checker) Check(ctx context.Context) error {
 
 var _ health.Checker = checker{}
 
-// leavePGOwned is whether PostgreSQL writes leave_requests (T45): every domain is PostgreSQL-owned (PG_OWNED_DOMAINS
-// "all", or a list naming the nine), which is P7b (the 3.x APKs and the FS->PG mirror are gone) and a deployment
-// without Firestore (the staging VM). Before that the 3.x APKs write leave requests in Firestore (class C, main spec
-// §11.10) whatever hr's own flag says, so a staff decision is a write-back. The value was validated by APIConfig.
-func leavePGOwned(pgOwnedDomains string) bool {
+// classCPGOwned is whether PostgreSQL writes the class C collections the api writes back besides operations: the
+// leave requests (T45) and the chats and their messages (T47). It needs every domain PostgreSQL-owned
+// (PG_OWNED_DOMAINS "all", or a list naming the nine), which is P7b (the 3.x APKs and the FS->PG mirror are gone) and
+// a deployment without Firestore (the staging VM). Before that the 3.x APKs write leave requests and chats in Firestore
+// (class C, main spec §11.10, §12.2: P4 and P5 keep Firestore as their writer) whatever hr's or comms' own flag says,
+// so a staff decision or a chat write is a write-back; comms in PG_OWNED_DOMAINS moves only the broadcasts (class B,
+// T48: PostgreSQL writes them and firestore.shadow projects them). The value was validated by APIConfig.
+func classCPGOwned(pgOwnedDomains string) bool {
 	owned, err := webcfg.ParseOwned(pgOwnedDomains)
 	return err == nil && len(owned) == len(webcfg.Domains)
 }

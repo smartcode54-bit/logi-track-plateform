@@ -255,7 +255,7 @@ func (l *LINE) Handle(ctx context.Context, d *mq.Delivery) error {
 	return err
 }
 
-// StatusSkipped is a card that is not sent and will not be for this message (notification_deliveries.status, 0022).
+// StatusSkipped is a card that is not sent and will not be for this message (notification_deliveries.status, 0023).
 const StatusSkipped = "skipped"
 
 // lineOutcome is how a message settled its card.

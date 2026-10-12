@@ -654,6 +654,12 @@ Rows of the quarantine tenant never count. The file grants `logitrack_rls_define
 
 Both read and write only what 0009 granted the definer (`SELECT` on `trip_records`; `SELECT`, `INSERT`, `UPDATE` on `task_number_counters`); bodies of record: `migrations/0014_operations_seal_and_counter_helpers.sql` (Appendix A §A.2.12).
 
+**Broadcast audience helpers (`0022_broadcast_audience`, T48).** Three more of the same kind, handed over the 0009 way with `SELECT` on `broadcast_recipients`, `users` and `tenants` (Appendix A §A.2.17):
+
+- `app_broadcast_recipient(broadcast uuid) RETURNS boolean` — whether the caller (`app.user_id`) is a persisted recipient. A **policy helper** (called by `broadcasts.p_read`, C.3.5 "0007_comms", so also executable by `logitrack_readonly` and `pg_database_owner`): a policy on `broadcasts` cannot read `broadcast_recipients` itself, whose own policy reads `broadcasts`.
+- `broadcast_unaddressed(broadcast uuid) RETURNS boolean` — whether the broadcast has no recipient row (a loaded legacy or seeded row, addressed by its group): the driver's list (`GET /v1/mobile/broadcasts`) shows those to every driver who may read them. `logitrack_app` only.
+- `broadcast_platform_audience() RETURNS TABLE (user_id uuid)` — the linked logins (`active`, `reset_required`) of the drivers that are not `inactive`, of every `active` tenant but the quarantine one: the `all_tenants` audience of `POST /v1/broadcasts`, outside any staff reach. Stewards (`app.steward`) and the system context only, `42501` otherwise. `logitrack_app` only.
+
 Because `0001`-`0009` are applied together in P0 (R59), no request ever runs while these functions are still owned by `logitrack_migrator`.
 
 ### C.3.4 Contractor reach (legacy subcontractors) and billing-carrier stamping
@@ -1003,6 +1009,16 @@ CREATE POLICY p_read ON broadcast_reads FOR SELECT USING (
   (app_is_staff() OR user_id = app_user_id()) AND EXISTS (SELECT 1 FROM broadcasts b WHERE b.id = broadcast_id));
 CREATE POLICY p_write ON broadcast_reads FOR INSERT WITH CHECK (                     -- mark read; PK makes it idempotent
   user_id = app_user_id() AND EXISTS (SELECT 1 FROM broadcasts b WHERE b.id = broadcast_id));
+```
+
+As built (`0022_broadcast_audience`, T48): `broadcasts.p_read` (same name) adds a driver's broadcast addressed to it in another tenant, through the policy helper `app_broadcast_recipient(id)` (C.3.3), so a carrier's driver reads the own fleet's broadcast that reached it and writes its read receipt:
+
+```sql
+ALTER POLICY p_read ON broadcasts USING (
+     (app_is_staff() AND (tenant_id IS NULL OR app_tenant_in_reach(tenant_id)))
+  OR (app_role() = 'driver' AND voided_at IS NULL
+      AND (tenant_id IS NULL OR tenant_id = app_tenant_id() OR app_broadcast_recipient(id)))
+  OR (tenant_id IS NULL AND app_is_steward()));
 ```
 
 **0008_platform.** `settings`, `mobile_app_releases`, `waitlist`, `partner_interest`, `fuel_daily_snapshots`, `fuel_monthly_snapshots` are exempt (no call).

@@ -13,6 +13,12 @@ GOVULNCHECK  := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 SQLC         := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 # Extra `go test` flags, e.g. TESTFLAGS=-count=1 in CI so a cached result never stands in for a run.
 TESTFLAGS    ?=
+# go test's deadline per test binary for test-integration and test-shard (its own default is 10m).
+# cmd/seed's integration tests alone take ~450 s under -race on go-ci's runner and grow with each
+# seeded domain (325 s at bbd778d1, 449 s at 05a012e7; a branch hit 10m twice, CIFIX1). 20m keeps
+# a slow but healthy package from a timeout panic; a hang still ends with the goroutine dump inside
+# the test job's 30 minutes. TESTFLAGS=-timeout=... still overrides it (the later flag wins).
+TEST_TIMEOUT ?= 20m
 # testcontainers talks to the daemon of the active docker context (Docker Desktop, OrbStack, colima).
 DOCKER_HOST  ?= $(shell docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
 # The chain is embedded in the image, so every migrate run rebuilds it (cached when nothing changed).
@@ -135,7 +141,7 @@ test: ## unit tests with the race detector
 	go test -race $(TESTFLAGS) ./...
 
 test-integration: ## unit + integration tests (testcontainers: postgres:18-alpine with 00-roles.sql)
-	DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration $(TESTFLAGS) ./...
+	DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration -timeout=$(TEST_TIMEOUT) $(TESTFLAGS) ./...
 
 # go-ci's test job runs test-integration as parallel shards; tools/testshard spreads the packages by
 # their CI durations (tools/testshard/weights.txt), and the shards together run every package once.
@@ -144,7 +150,7 @@ SHARDS ?= 1
 test-shard: ## shard SHARD of SHARDS of test-integration (go-ci runs every shard in parallel)
 	@pkgs=$$(go run ./tools/testshard -shard $(SHARD) -of $(SHARDS)) && \
 	  echo "test-shard $(SHARD)/$(SHARDS):" $$pkgs | sed 's#github.com/smartcode54-bit/logi-track-plateform/logitrack-api/##g' && \
-	  DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration $(TESTFLAGS) $$pkgs
+	  DOCKER_HOST=$(DOCKER_HOST) go test -race -tags=integration -timeout=$(TEST_TIMEOUT) $(TESTFLAGS) $$pkgs
 
 lint: ## gofmt, go mod tidy, go vet, the WithSystem allow-list, golangci-lint (incl. staticcheck), govulncheck; integration-tagged files included
 	@unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then echo "gofmt -w needed:" >&2; echo "$$unformatted" >&2; exit 1; fi

@@ -281,8 +281,8 @@ type APIConfig struct {
 	// Bangchak serves GET /v1/fuel/retail (T37; off without BANGCHAK_API_BASE_URL).
 	Bangchak
 	// WriteBack is the Firestore project of the class C write-back (T31, T45, T47): while operations is not in
-	// PG_OWNED_DOMAINS the operations writes, while comms is not the chat writes, and while any domain is not the leave
-	// decisions, go to the Firestore documents of WRITEBACK_FIRESTORE_PROJECT_ID (database FIRESTORE_DATABASE_ID) with
+	// PG_OWNED_DOMAINS the operations writes, and while any domain is not the chat writes and the leave decisions, go
+	// to the Firestore documents of WRITEBACK_FIRESTORE_PROJECT_ID (database FIRESTORE_DATABASE_ID) with
 	// the GOOGLE_APPLICATION_CREDENTIALS service account (Cloud Datastore User on that project, main spec §16.1),
 	// through one client; without a project they answer 503 write_back_unconfigured. PostgreSQL is never written in
 	// their place (§12.1).
@@ -295,14 +295,13 @@ type APIConfig struct {
 	// OperationsOwned is whether PG_OWNED_DOMAINS holds operations (the operations writes go to PostgreSQL), parsed by
 	// Validate.
 	OperationsOwned bool `env:"-"`
-	// CommsOwned is whether PG_OWNED_DOMAINS holds comms (the chat writes go to PostgreSQL, T47), parsed by Validate.
-	CommsOwned bool `env:"-"`
 }
 
-// writeBackNeeded reports whether a domain the api writes back is Firestore-owned (operations T31, comms T47, and any
-// domain for the leave decisions, T45): only then does WRITEBACK_FIRESTORE_PROJECT_ID give the api a Firestore writer.
+// writeBackNeeded reports whether the api writes something back to Firestore: the operations writes while operations is
+// Firestore-owned (T31), the chat writes (T47) and the leave decisions (T45) while any domain is (classCPGOwned); only
+// then does WRITEBACK_FIRESTORE_PROJECT_ID give the api a Firestore writer.
 func (c *APIConfig) writeBackNeeded() bool {
-	return !c.OperationsOwned || !c.CommsOwned || !leavePGOwned(c.PGOwnedDomains)
+	return !c.OperationsOwned || !classCPGOwned(c.PGOwnedDomains)
 }
 
 // WriteBackConfig names the Firestore database the api's write-back writes (T31): a project name of its own
@@ -386,10 +385,10 @@ func (c *APIConfig) Validate() error {
 	c.WebFlags = flags
 	if owned, err := webcfg.ParseOwned(c.PGOwnedDomains); err == nil {
 		c.OperationsOwned = slices.Contains(owned, "operations")
-		c.CommsOwned = slices.Contains(owned, CommsDomain)
 	}
-	// A write-back is in use while operations or comms is not PostgreSQL-owned (T31, T47) or any domain is not (the
-	// leave decisions, T45): all go through the one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID (buildWriteBacks).
+	// A write-back is in use while operations is not PostgreSQL-owned (T31) or any domain is not (the chat writes, T47,
+	// and the leave decisions, T45): all go through the one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID
+	// (buildWriteBacks).
 	if c.writeBackNeeded() && c.WriteBack.FirestoreProjectID != "" && c.GoogleCredentials == "" {
 		errs = append(errs, config.Invalidf("GOOGLE_APPLICATION_CREDENTIALS",
 			"is required with WRITEBACK_FIRESTORE_PROJECT_ID while a domain is not in PG_OWNED_DOMAINS (the operations, chat and leave write-backs)"))

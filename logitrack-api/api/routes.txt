@@ -67,6 +67,9 @@ GET /v1/billing/statements/:id/lines internal
 POST /v1/billing/statements/:id/status internal
 USE /v1/bridge internal
 POST /v1/bridge/firebase-token internal
+GET /v1/broadcasts internal
+POST /v1/broadcasts internal
+DELETE /v1/broadcasts/:id internal
 GET /v1/chats internal
 POST /v1/chats internal
 GET /v1/chats/:id internal
@@ -143,6 +146,9 @@ DELETE /v1/me/devices/:installId internal
 GET /v1/me/sessions internal
 DELETE /v1/me/sessions/:sid internal
 GET /v1/me/tenants internal
+GET /v1/mobile/broadcasts internal,public
+POST /v1/mobile/broadcasts/:id/read internal,public
+GET /v1/mobile/broadcasts/latest internal,public
 GET /v1/mobile/chat internal,public
 POST /v1/mobile/chat internal,public
 GET /v1/mobile/chat/messages internal,public
