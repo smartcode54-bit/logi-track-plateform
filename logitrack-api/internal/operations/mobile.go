@@ -48,6 +48,18 @@ type TaskOwners interface {
 // maxTaskRef bounds the {id} of a driver-app task route (a uuid or a Firestore doc id, at most 1500 bytes).
 const maxTaskRef = 1500
 
+// ReasonTaskNotFound is the details.reason of the 404 of a driver-app task route whose task does not exist for the
+// driver (no such id or doc id, a quarantined task, a task document gone from Firestore). It tells a missing task
+// from every other 404 a shim can meet (a route an older API lacks, an API without FIREBASE_PROJECT_ID, a wrong
+// LOGITRACK_API_BASE_URL): the addDeliveryStop shim answers "Task not found" for this reason only and logs any other
+// 404 as an error (T32R).
+const ReasonTaskNotFound = "task_not_found"
+
+// errTaskNotFound is the 404 of a driver-app task route for a task that does not exist for the driver.
+func errTaskNotFound() *httpx.Error {
+	return httpx.ErrNotFound().WithDetails(map[string]any{"reason": ReasonTaskNotFound})
+}
+
 // driverStopFields are the body fields of the driver's stops route: the staff fields without
 // destinationLinkedPartyId (a driver never chooses the billing party of a stop; the stop takes the party of its hub,
 // which is the customer the APK sends, AddDeliveryStopDialog: h.linkedCustomerId).
@@ -101,7 +113,13 @@ type MobileStopAnswer struct {
 // for the driver acting as itself (driver:self) on a task it drives or helps on (R28; another driver's task is 403
 // not_task_owner, no task 404). {id} is the PostgreSQL id or the Firestore task doc id (legacy_doc_id). The write goes
 // to PostgreSQL under the driver's RLS (tasks.p_driver_update) or, while operations is Firestore-owned, to the task
-// document first; the outbox gets task.updated either way.
+// document first; the outbox gets task.updated either way. A missing task is 404 with details.reason task_not_found.
+//
+// Called through the addDeliveryStop shim (p.APIKeyScope cf_shim) the write-back answers right after the Firestore
+// commit (202 pending, upgradedFromSingle read from the document before the write) instead of waiting up to 3 s for
+// the mirror: the shim reads only upgradedFromSingle and the 3.x APK reads the Firestore document, so the wait would
+// only add the mirror's lag to the < 300 ms the shim may add (AC of T32). The APK 4.x callers keep the wait
+// (read-your-writes, main spec §11.10).
 func (s *Service) AddTaskStopForDriver(ctx context.Context, p *authz.Principal, rid, ref string, body []byte) (WriteResult, error) {
 	if !driverPrincipal(p) {
 		return WriteResult{}, authz.ErrPermissionDenied("the route acts for a driver (driver:self)")
@@ -121,20 +139,28 @@ func (s *Service) AddTaskStopForDriver(ctx context.Context, p *authz.Principal, 
 	}
 	ref = strings.TrimSpace(ref)
 	if ref == "" || len(ref) > maxTaskRef {
-		return WriteResult{}, httpx.ErrNotFound()
+		return WriteResult{}, errTaskNotFound()
 	}
 	task, ok, err := s.owners.TaskOwner(ctx, ref)
 	if err != nil {
 		return WriteResult{}, err
 	}
 	if !ok {
-		return WriteResult{}, httpx.ErrNotFound()
+		return WriteResult{}, errTaskNotFound()
 	}
 	me := *p.DriverID
 	if !sameID(task.DriverID, &me) && !sameID(task.HelperDriverID, &me) {
 		return WriteResult{}, httpx.NewError(http.StatusForbidden, CodeNotTaskOwner, "the task belongs to another driver")
 	}
-	out, err := s.addTaskStop(ctx, p, rid, task.ID, in)
+	wait := waitForMirror
+	if p.APIKeyScope == authz.KeyCFShim {
+		wait = answerOnCommit
+	}
+	out, err := s.addTaskStop(ctx, p, rid, task.ID, in, wait)
+	if he, ok := errors.AsType[*httpx.Error](err); ok && he.Status == http.StatusNotFound {
+		// The task left the driver's view between the lookup and the write (its row, or its Firestore document).
+		return WriteResult{}, errTaskNotFound().Wrap(err)
+	}
 	if err != nil {
 		return WriteResult{}, err
 	}

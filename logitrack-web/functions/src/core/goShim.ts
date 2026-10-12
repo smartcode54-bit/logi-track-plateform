@@ -7,7 +7,9 @@
  * there is no shared token and no acting-user header). The callable keeps its response contract.
  *
  * Functions params (developer-spec.md §16.1; names only, never values):
- *   LOGITRACK_API_BASE_URL    the public API origin; empty = every shim off
+ *   LOGITRACK_API_BASE_URL    the public API origin, https only (plain http only on localhost, for the emulator; any
+ *                             other http value turns every shim off: each call carries the key and an ID token);
+ *                             empty = every shim off
  *   LOGITRACK_API_KEY         the cf_shim key (a Secret Manager secret: firebase functions:secrets:set LOGITRACK_API_KEY)
  *   LOGITRACK_SHIM_CALLABLES  comma list of the callables that forward (each goes live in its own phase: setDriverClaims
  *                             and addDeliveryStop at P2, computeTripBillingSnapshot at P3 with billing in
@@ -25,9 +27,11 @@
  * Shims: setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32, P2;
  * goShimCallables.ts rebuilds their legacy answers), computeTripBillingSnapshot -> POST
  * /v1/mobile/trips/{id}/billing/compute (T38, P3); markBroadcastRead (T48) and sendCustomerLineNotification (T49) join
- * with their targets. Every call goes through callShim, which logs one line per call (callable, HTTP status, duration:
- * the latency evidence of the shims, AC < 300 ms p95 added) and an error line when the API refuses the shim's
- * credentials (401: a revoked, expired or unknown LOGITRACK_API_KEY, or a token Go rejects), never the key itself.
+ * with their targets. Every call goes through callShim, which never follows a redirect (the key would go on to another
+ * origin) and logs one line per call (callable, HTTP status, duration: the latency evidence of the shims, AC < 300 ms
+ * p95 added) and an error line when the API refuses the shim's credentials (401: a revoked, expired or unknown
+ * LOGITRACK_API_KEY, or a token Go rejects), fails (5xx), answers something that is not a Go envelope, redirects or
+ * cannot be reached; never the key or the token.
  */
 
 import { logger } from "firebase-functions";
@@ -89,10 +93,25 @@ export function goPricesBilling(): boolean {
 /** Bound on one shim call; the APK treats the callable as best-effort. */
 export const SHIM_TIMEOUT_MS = 10_000;
 
-/** The base URL of the shim targets, or "" when the shims are off (a trailing slash dropped). */
+/** The hosts a plain-http LOGITRACK_API_BASE_URL may name: the emulator and local tests only. */
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+/**
+ * The base URL of the shim targets, or "" when the shims are off (a trailing slash dropped). Every shim call carries
+ * the cf_shim key and the caller's Firebase ID token, so only an https origin is accepted (plain http only on
+ * localhost, for the emulator): an http value turns the shims off instead of sending both in cleartext.
+ */
 export function shimBaseUrl(raw: string): string {
     const v = raw.trim().replace(/\/+$/, "");
-    return /^https?:\/\/[^\s/]+(\/\S*)?$/.test(v) ? v : "";
+    if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(v)) return "";
+    let u: URL;
+    try {
+        u = new URL(v);
+    } catch {
+        return "";
+    }
+    if (u.protocol === "https:") return v;
+    return u.protocol === "http:" && LOCAL_HOSTS.includes(u.hostname) ? v : "";
 }
 
 /** The shim target of a trip compute: `{base}/v1/mobile/trips/{id}/billing/compute`, the id path-escaped. */
@@ -136,18 +155,35 @@ export interface ShimLogger {
     error(msg: string, data?: Record<string, unknown>): void;
 }
 
-/** One shim call as the API answered it: status 0 when the API was unreachable or the call timed out. */
+/** One shim call as the API answered it: status 0 when the API was unreachable, redirected or the call timed out. */
 export interface ShimAnswer {
     status: number;
     body: unknown;
     ms: number;
 }
 
+/** Whether body is a Go envelope (`{data}` or `{error}`, R48): anything else did not come from the Go API. */
+export function isShimEnvelope(body: unknown): boolean {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+    const obj = body as Record<string, unknown>;
+    return (obj.data !== undefined && obj.data !== null) || (!!obj.error && typeof obj.error === "object");
+}
+
+/**
+ * Whether callShim already logged the answer as an error: the API unreachable or redirecting (status 0), refusing the
+ * shim credentials (401), failing (5xx), or answering something that is not a Go envelope (a wrong
+ * LOGITRACK_API_BASE_URL). A callable logs its other unexpected answers itself, once.
+ */
+export function shimFailureLogged(a: ShimAnswer): boolean {
+    return a.status === 0 || a.status === 401 || a.status >= 500 || !isShimEnvelope(a.body);
+}
+
 /**
  * Sends one shim call: `X-Api-Key` (the cf_shim key) and the caller's own `Authorization: Bearer <Firebase ID token>`,
- * a JSON body for POST, bounded by SHIM_TIMEOUT_MS. Logs `[shim] call` with the callable, the HTTP status and the
- * duration, and an error when the API refuses the shim credentials (401) or cannot be reached; the key and the token
- * are never logged.
+ * a JSON body for POST, bounded by SHIM_TIMEOUT_MS. Redirects are refused (`redirect: "error"`, answered as status 0):
+ * fetch would send `X-Api-Key` on to another origin. Logs `[shim] call` with the callable, the HTTP status and the
+ * duration, and an error when the API refuses the shim credentials (401), fails (5xx), answers something that is not a
+ * Go envelope, or cannot be reached (shimFailureLogged); the key and the token are never logged.
  */
 export async function callShim(
     callable: string,
@@ -168,6 +204,7 @@ export async function callShim(
             method,
             headers,
             body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+            redirect: "error",
             signal: controller.signal,
         });
         let parsed: unknown = null;
@@ -178,9 +215,16 @@ export async function callShim(
         }
         const ms = Date.now() - start;
         log.info("[shim] call", { callable, status: res.status, ms });
+        const e = shimError(parsed);
         if (res.status === 401) {
-            const e = shimError(parsed);
             log.error("[shim] the Go API refused the shim credentials (LOGITRACK_API_KEY revoked, expired or unknown, or the caller's ID token)", {
+                callable,
+                status: res.status,
+                code: e.code,
+                reason: e.reason,
+            });
+        } else if (res.status >= 500 || !isShimEnvelope(parsed)) {
+            log.error("[shim] unexpected answer from the Go API (a server error, or not the Go API: check LOGITRACK_API_BASE_URL)", {
                 callable,
                 status: res.status,
                 code: e.code,
@@ -188,9 +232,13 @@ export async function callShim(
             });
         }
         return { status: res.status, body: parsed, ms };
-    } catch {
+    } catch (err) {
         const ms = Date.now() - start;
-        log.error("[shim] the Go API is unreachable", { callable, ms });
+        // fetch rejects with TypeError("fetch failed") and the reason as its cause ("unexpected redirect", a refused
+        // connection, ...); an abort is AbortError. Neither carries a header value.
+        const c = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+        const cause = c instanceof Error ? c.message : err instanceof Error ? err.name : "";
+        log.error("[shim] the Go API is unreachable (or answered with a redirect, which the shim never follows)", { callable, ms, cause });
         return { status: 0, body: null, ms };
     } finally {
         clearTimeout(timer);

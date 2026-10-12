@@ -7,7 +7,7 @@
  */
 
 import { HttpsError } from "firebase-functions/v2/https";
-import { type ShimAnswer, type ShimLogger, shimData, shimError } from "./goShim";
+import { type ShimAnswer, type ShimLogger, isMobileShimCall, shimData, shimError, shimFailureLogged } from "./goShim";
 
 // --- setDriverClaims -> GET /v1/mobile/me -------------------------------------------------------------------------
 
@@ -105,6 +105,16 @@ export const ADD_STOP_MESSAGES = {
 } as const;
 
 /**
+ * Whether addDeliveryStop forwards a call to Go: the shim is on (base, shimTarget) and the caller holds the driver
+ * claims setDriverClaims gives (role driver or a driverId, never an admin; isMobileShimCall). Any other Firebase user
+ * keeps the legacy path and its permission check, so a sign-in without those claims never spends the rate budget the
+ * one cf_shim key shares between every driver.
+ */
+export function addStopForwards(base: string, token: Record<string, unknown> | undefined): boolean {
+    return base !== "" && isMobileShimCall(token, false);
+}
+
+/**
  * The body of the shim call: the destination, and sourceId (a non-empty string, trimmed) and isCustom (true only) as
  * the APK sends them. The APK's destinationLinkedCustomer* fields are the stop hub's linked customer
  * (AddDeliveryStopDialog: h.linkedCustomerId), which Go takes from the hub itself; a driver never names a billing party.
@@ -117,13 +127,22 @@ export function addStopShimBody(data: Record<string, unknown>): Record<string, u
 }
 
 /**
+ * details.reason of the Go 404 for a task that does not exist for the driver (operations.ReasonTaskNotFound). Any
+ * other 404 (a route an older API lacks, an API without FIREBASE_PROJECT_ID, a wrong LOGITRACK_API_BASE_URL) is a
+ * configuration fault, not a missing task.
+ */
+export const TASK_NOT_FOUND_REASON = "task_not_found";
+
+/**
  * Maps the answer of POST /v1/mobile/tasks/{id}/stops onto the callable: 200/202 `{ok: true, message}` (the upgrade
  * message when the task was single-stop), 409 duplicate_destination `{ok: false, message}`, and the HttpsErrors the
- * legacy callable threw: not-found, permission-denied (another driver's task, not a driver), invalid-argument,
- * failed-precondition (no primary destination); anything else (refused credentials, Go unreachable, a write-back
- * conflict) is internal "Failed to add delivery stop".
+ * legacy callable threw: not-found (404 task_not_found only), permission-denied (another driver's task, not a
+ * driver), invalid-argument, failed-precondition (no primary destination). Anything else (refused credentials, Go
+ * unreachable or failing, a 404 that is not a missing task, a cf_shim key on the wrong listener, a rate limit, a
+ * write-back conflict) is internal "Failed to add delivery stop", logged as an error once (here, unless callShim
+ * already did) so an operator sees the API's status, code and reason.
  */
-export function mapAddStopAnswer(answer: ShimAnswer): AddDeliveryStopShimResponse {
+export function mapAddStopAnswer(answer: ShimAnswer, log: ShimLogger): AddDeliveryStopShimResponse {
     const { status, body } = answer;
     if (status === 200 || status === 202) {
         const upgraded = shimData(body).upgradedFromSingle === true;
@@ -135,12 +154,15 @@ export function mapAddStopAnswer(answer: ShimAnswer): AddDeliveryStopShimRespons
             return { ok: false, message: ADD_STOP_MESSAGES.duplicate };
         case status === 409 && e.reason === "no_primary_destination":
             throw new HttpsError("failed-precondition", ADD_STOP_MESSAGES.noPrimary);
-        case status === 404:
+        case status === 404 && e.code === "not_found" && e.reason === TASK_NOT_FOUND_REASON:
             throw new HttpsError("not-found", ADD_STOP_MESSAGES.notFound);
-        case status === 403:
+        case status === 403 && e.reason !== "api_key_scope":
             throw new HttpsError("permission-denied", ADD_STOP_MESSAGES.notOwner);
         case status === 422 || status === 400:
             throw new HttpsError("invalid-argument", e.field === "destination" || e.field === "" ? ADD_STOP_MESSAGES.destinationRequired : `${e.field} is invalid`);
+    }
+    if (!shimFailureLogged(answer)) {
+        log.error("[addDeliveryStop] shim: unexpected answer from the Go API", { status, code: e.code, reason: e.reason });
     }
     throw new HttpsError("internal", ADD_STOP_MESSAGES.failed);
 }

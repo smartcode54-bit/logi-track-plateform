@@ -1,3 +1,6 @@
+// @vitest-environment node
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
     addStopShimUrl,
@@ -9,6 +12,7 @@ import {
     postShim,
     shimBaseUrl,
     shimError,
+    shimFailureLogged,
     shimListed,
     shimOrigin,
     type ShimLogger,
@@ -32,6 +36,13 @@ describe("goShim (mv-go T38: computeTripBillingSnapshot -> POST /v1/mobile/trips
         expect(shimBaseUrl("https://logi-api.example.test/base")).toBe("https://logi-api.example.test/base");
         expect(shimBaseUrl("")).toBe("");
         expect(shimBaseUrl("logi-api.example.test")).toBe("");
+        // The key and the ID token never travel in cleartext: plain http only on localhost (the emulator).
+        expect(shimBaseUrl("http://logi-api.example.test")).toBe("");
+        expect(shimBaseUrl("http://logi-api.example.test:8080/")).toBe("");
+        expect(shimBaseUrl("http://localhost:3302/")).toBe("http://localhost:3302");
+        expect(shimBaseUrl("http://127.0.0.1:3302")).toBe("http://127.0.0.1:3302");
+        expect(shimBaseUrl("http://[::1]:3302")).toBe("http://[::1]:3302");
+        expect(shimBaseUrl("ftp://logi-api.example.test")).toBe("");
         expect(shimListed("setDriverClaims, computeTripBillingSnapshot", "computeTripBillingSnapshot")).toBe(true);
         expect(shimListed("computeTripBillingSnapshots", "computeTripBillingSnapshot")).toBe(false);
         expect(shimListed("", "computeTripBillingSnapshot")).toBe(false);
@@ -117,6 +128,7 @@ describe("goShim (mv-go T32: setDriverClaims and addDeliveryStop)", () => {
         expect(h.Authorization).toBe("Bearer fb");
         await callShim("addDeliveryStop", "POST", "https://api.test/v1/mobile/tasks/t/stops", "k", "Bearer fb", { destination: "A" }, log);
         expect(calls[1].init.body).toBe('{"destination":"A"}');
+        expect(calls.map((c) => c.init.redirect)).toEqual(["error", "error"]);
         expect((calls[1].init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
         expect(log.lines.map((l) => [l.level, l.data?.callable, l.data?.status])).toEqual([
             ["info", "setDriverClaims", 200],
@@ -141,4 +153,61 @@ describe("goShim (mv-go T32: setDriverClaims and addDeliveryStop)", () => {
         expect(down.status).toBe(0);
         expect(log.lines.at(-1)).toMatchObject({ level: "error", data: { callable: "addDeliveryStop" } });
     });
+
+    it("logs a server error and an answer that is not a Go envelope (a wrong LOGITRACK_API_BASE_URL) as errors", async () => {
+        const log = recorder();
+        vi.stubGlobal("fetch", async () =>
+            new Response(JSON.stringify({ error: { code: "unavailable", message: "x", details: { reason: "write_back_unconfigured" } } }), { status: 503 }));
+        const down = await callShim("addDeliveryStop", "POST", "https://api.test/x", "k", "Bearer t", {}, log);
+        expect(shimFailureLogged(down)).toBe(true);
+        vi.stubGlobal("fetch", async () => new Response("<html>404 Not Found</html>", { status: 404, headers: { "Content-Type": "text/html" } }));
+        const html = await callShim("addDeliveryStop", "POST", "https://api.test/x", "k", "Bearer t", {}, log);
+        expect(shimFailureLogged(html)).toBe(true);
+        vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ error: { code: "not_found", message: "x" } }), { status: 404 }));
+        const notFound = await callShim("addDeliveryStop", "POST", "https://api.test/x", "k", "Bearer t", {}, log);
+        expect(shimFailureLogged(notFound)).toBe(false); // a Go envelope: the callable decides what it means
+        expect(log.lines.filter((l) => l.level === "error").map((l) => [l.data?.status, l.data?.reason])).toEqual([
+            [503, "write_back_unconfigured"],
+            [404, ""],
+        ]);
+    });
+
+    it("never follows a redirect: the key and the token stay with the API origin", async () => {
+        const seen: { path: string; key: string | undefined; auth: string | undefined }[] = [];
+        const other = await listen((req, res) => {
+            seen.push({ path: req.url ?? "", key: req.headers["x-api-key"] as string | undefined, auth: req.headers.authorization });
+            res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+        });
+        const api = await listen((_req, res) => {
+            res.writeHead(301, { Location: `http://127.0.0.1:${port(other)}/elsewhere` }).end();
+        });
+        try {
+            const log = recorder();
+            const a = await callShim("addDeliveryStop", "POST", `http://127.0.0.1:${port(api)}/v1/mobile/tasks/t/stops`,
+                "FAKE-cf-shim-key", "Bearer FAKE-id-token", { destination: "A" }, log);
+            expect(a.status).toBe(0);
+            expect(seen).toEqual([]);
+            expect(log.lines.at(-1)).toMatchObject({ level: "error", data: { callable: "addDeliveryStop" } });
+            expect(JSON.stringify(log.lines)).not.toMatch(/FAKE-cf-shim-key|FAKE-id-token/);
+        } finally {
+            await close(api);
+            await close(other);
+        }
+    });
 });
+
+/** A local HTTP server on an ephemeral loopback port. */
+function listen(handler: Parameters<typeof createServer>[1]): Promise<Server> {
+    return new Promise((resolve) => {
+        const srv = createServer(handler);
+        srv.listen(0, "127.0.0.1", () => resolve(srv));
+    });
+}
+
+function port(srv: Server): number {
+    return (srv.address() as AddressInfo).port;
+}
+
+function close(srv: Server): Promise<void> {
+    return new Promise((resolve) => srv.close(() => resolve()));
+}

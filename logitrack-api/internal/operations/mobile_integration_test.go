@@ -3,7 +3,12 @@
 package operations_test
 
 import (
+	"context"
+	"fmt"
+	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
@@ -62,13 +67,21 @@ func TestDriverAddsStops(t *testing.T) {
 	if s := r.must(200, "driverO1", "POST", "/v1/mobile/tasks/fsTaskDoc1/stops", map[string]any{"destination": "bkk-5"}); s["taskId"] != id {
 		t.Fatalf("by doc id: %v", s)
 	}
-	r.refused(404, "not_found", "driverO1", "POST", "/v1/mobile/tasks/0190a0b0-0000-7000-8000-000000000001/stops",
+	// A missing task's 404 carries details.reason task_not_found (the addDeliveryStop shim answers "Task not found" for
+	// it only; any other 404, e.g. a route an older API lacks, is a logged internal failure, T32R).
+	r.refused(404, operations.ReasonTaskNotFound, "driverO1", "POST", "/v1/mobile/tasks/0190a0b0-0000-7000-8000-000000000001/stops",
 		map[string]any{"destination": "x"})
-	r.refused(404, "not_found", "driverO1", "POST", "/v1/mobile/tasks/noSuchDoc/stops", map[string]any{"destination": "x"})
+	r.refused(404, operations.ReasonTaskNotFound, "driverO1", "POST", "/v1/mobile/tasks/noSuchDoc/stops", map[string]any{"destination": "x"})
+	r.refused(404, operations.ReasonTaskNotFound, "driverO1", "POST", "/v1/mobile/tasks/%20/stops", map[string]any{"destination": "x"})
 	// A quarantined task (no driver: a tenant orphan) is not found, not another driver's.
 	r.exec(`INSERT INTO tasks (legacy_doc_id, tenant_id, tenant_source, task_type, status, plan_at, source_hub_raw,
 		destination_raw) VALUES ('fsOrphan', app_quarantine_tenant_id(), 'quarantine', 'first_mile', 'pending', now(), 'SRC', 'DST')`)
-	r.refused(404, "not_found", "driverO1", "POST", "/v1/mobile/tasks/fsOrphan/stops", map[string]any{"destination": "bkk-6"})
+	r.refused(404, operations.ReasonTaskNotFound, "driverO1", "POST", "/v1/mobile/tasks/fsOrphan/stops", map[string]any{"destination": "bkk-6"})
+	// The cf_shim attribution changes nothing on the PostgreSQL path (no mirror to wait for).
+	if s := r.must(200, "driverO1shim", "POST", path, map[string]any{"destination": "bkk-3"}); s["pending"] != false ||
+		len(s["stops"].([]any)) != 6 {
+		t.Fatalf("shim stop, PostgreSQL-owned: %v", s)
+	}
 
 	// Staff use POST /v1/tasks/{id}/stops: the driver route refuses a principal without mobile:submit_trip.
 	r.refused(403, "permission_denied", "staffO", "POST", path, map[string]any{"destination": "bkk-4"})
@@ -127,4 +140,83 @@ func TestDriverAddsStopsWriteBack(t *testing.T) {
 		t.Fatalf("partner stop %v", last)
 	}
 	r.refused(403, operations.CodeNotTaskOwner, "driverO2", "POST", "/v1/mobile/tasks/fsTask2/stops", map[string]any{"destination": "bkk-4"})
+}
+
+// laggingAcks is the mirror's acknowledgement as cache.WaitMirrorAck gives it: it blocks until the mirror applied the
+// write (lag after the call; the listener polls every ETL_LISTEN_INTERVAL, 2 s by default) or the timeout passes,
+// whichever is first. lag 0 never acknowledges.
+type laggingAcks struct {
+	lag   time.Duration
+	calls atomic.Int32
+}
+
+func (a *laggingAcks) WaitMirrorAck(ctx context.Context, _, _ string, _ time.Time, timeout time.Duration) (bool, error) {
+	a.calls.Add(1)
+	d, acked := timeout, false
+	if a.lag > 0 && a.lag <= timeout {
+		d, acked = a.lag, true
+	}
+	select {
+	case <-time.After(d):
+		return acked, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+// Through the addDeliveryStop shim (a cf_shim principal) the write-back answers right after the Firestore commit, never
+// after the mirror's acknowledgement (T32R review): the shim adds < 300 ms p95 (AC of T32) where it runs, operations
+// Firestore-owned (P2-P7b). The APK 4.x caller of the same route keeps the read-your-writes wait (§11.10).
+func TestDriverAddsStopsWriteBackShimDoesNotWait(t *testing.T) {
+	mem := writeback.NewMemory()
+	ack := &laggingAcks{lag: 1200 * time.Millisecond}
+	r := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem, Acks: ack, Wait: operations.DefaultMirrorWait}})
+	id := r.id(`INSERT INTO tasks (legacy_doc_id, tenant_id, tenant_source, task_no, task_type, status, plan_at,
+		source_hub_raw, destination_raw, billing_party_id, driver_id, run_order, job_category)
+		VALUES ('fsTask3', $1, 'driver', 'FM-12102026-003', 'first_mile', 'assigned', '2026-10-11T17:00:00Z', 'ALANG-A',
+		'SOCE', $2, $3, 1, 'PRIMARY') RETURNING id`, r.O, r.partyX, r.dO1).String()
+	mem.Put("tasks", "fsTask3", map[string]any{"destination": "SOCE", "isMultiDelivery": false, "driverId": "drv_o1"}, now)
+	path := "/v1/mobile/tasks/fsTask3/stops"
+
+	// Three stops one after another, as loading_phase_page.dart sends them: each 202 pending on the commit, the
+	// upgrade read from the document before the write, no wait for the mirror.
+	var took []time.Duration
+	for i, dest := range []string{"bkk-1", "bkk-2", "bkk-3"} {
+		start := time.Now()
+		d := r.must(202, "driverO1shim", "POST", path, map[string]any{"destination": dest})
+		took = append(took, time.Since(start))
+		if d["pending"] != true || d["upgradedFromSingle"] != (i == 0) || d["taskId"] != id || len(d["stops"].([]any)) != 0 {
+			t.Fatalf("shim stop %d: %v", i, d)
+		}
+	}
+	if n := ack.calls.Load(); n != 0 {
+		t.Fatalf("the shim calls waited for the mirror %d times", n)
+	}
+	doc, _ := mem.Doc("tasks", "fsTask3")
+	stops, _ := doc["deliveryStops"].([]any)
+	if doc["isMultiDelivery"] != true || len(stops) != 4 || stops[3].(map[string]any)["destination"] != "BKK-3" {
+		t.Fatalf("document %v", doc)
+	}
+	if evs := r.events(id); len(evs) != 3 {
+		t.Fatalf("events %v", routes(evs))
+	}
+	// The AC on the path the shim serves in production: 20 more stops, p95 well under 300 ms.
+	for i := range 20 {
+		start := time.Now()
+		r.must(202, "driverO1shim", "POST", path, map[string]any{"destination": fmt.Sprintf("lat-%02d", i)})
+		took = append(took, time.Since(start))
+	}
+	slices.Sort(took)
+	p95 := took[(len(took)*95+99)/100-1]
+	t.Logf("POST /v1/mobile/tasks/{id}/stops via the shim, write-back: p95 %s over %d calls (mirror lag %s)", p95, len(took), ack.lag)
+	if p95 >= 300*time.Millisecond {
+		t.Fatalf("shim stop p95 %s, want < 300ms", p95)
+	}
+
+	// The APK 4.x caller (a Go token, no key) waits for the mirror and reads its rows back once acknowledged.
+	start := time.Now()
+	r.must(200, "driverO1", "POST", path, map[string]any{"destination": "bkk-4"})
+	if took := time.Since(start); took < ack.lag || ack.calls.Load() != 1 {
+		t.Fatalf("the 4.x stop answered in %s with %d waits, want the mirror's wait", took, ack.calls.Load())
+	}
 }

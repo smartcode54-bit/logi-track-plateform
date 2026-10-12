@@ -1188,7 +1188,7 @@ func (s *Service) AddTaskStopAPI(ctx context.Context, p *authz.Principal, rid st
 	if err != nil {
 		return WriteResult{}, err
 	}
-	out, err := s.addTaskStop(ctx, p, rid, id, in)
+	out, err := s.addTaskStop(ctx, p, rid, id, in, waitForMirror)
 	if err != nil {
 		return WriteResult{}, err
 	}
@@ -1233,10 +1233,24 @@ func (o stopAdded) staffResult() WriteResult {
 // nor a driver (drivers never see billing, Appendix C §C.3.7).
 func stopRowsVisible(p *authz.Principal) bool { return !scoped(p) && !driverPrincipal(p) }
 
+// mirrorWait is whether a write-back waits for the mirror's acknowledgement before it answers (main spec §11.10,
+// §13.7: up to WriteBack.Wait, then 202 with the document echoed).
+type mirrorWait bool
+
+const (
+	// waitForMirror reads the written rows back once the mirror applied them (read-your-writes): the staff routes and
+	// the APK 4.x routes.
+	waitForMirror mirrorWait = true
+	// answerOnCommit answers 202 right after the Firestore commit: the callable shim targets (T32R), whose callers
+	// read the Firestore document, never the PostgreSQL rows, so the wait would only add the mirror's lag (seconds)
+	// to every legacy call.
+	answerOnCommit mirrorWait = false
+)
+
 // addTaskStop adds one stop to task id as p, in PostgreSQL under p's RLS (the task locked FOR UPDATE: staff reach, or
 // the task's driver or helper through tasks.p_driver_update) or, while operations is Firestore-owned, to the task
-// document first (addStopWriteBack).
-func (s *Service) addTaskStop(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in stopInput) (stopAdded, error) {
+// document first (addStopWriteBack, waiting for the mirror or not as wait says).
+func (s *Service) addTaskStop(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in stopInput, wait mirrorWait) (stopAdded, error) {
 	mode, err := s.mode()
 	if err != nil {
 		return stopAdded{}, err
@@ -1246,7 +1260,7 @@ func (s *Service) addTaskStop(ctx context.Context, p *authz.Principal, rid strin
 		return stopAdded{}, err
 	}
 	if mode == modeWriteBack {
-		return s.addStopWriteBack(ctx, p, rid, d, id, in)
+		return s.addStopWriteBack(ctx, p, rid, d, id, in, wait)
 	}
 	var stops []TaskStop
 	var wasMulti bool

@@ -490,7 +490,7 @@ func (s *Service) cancelTaskWriteBack(ctx context.Context, p *authz.Principal, r
 // document's own deliveryStops (read from Firestore, so the progress the 3.x app wrote on the other stops is kept),
 // under the update time it read; a concurrent change of the document retries the read (three times, then 409). wasMulti
 // is the document's isMultiDelivery as read (multiDeliveryTrips.ts:432).
-func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid string, d directory, id uuid.UUID, in stopInput) (stopAdded, error) {
+func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid string, d directory, id uuid.UUID, in stopInput, wait mirrorWait) (stopAdded, error) {
 	var cur Task
 	var st NewStop
 	var party *operationsdb.WritePartyRow
@@ -579,7 +579,13 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 		}
 		w := wbDoc{collection: CollTasks, docID: *cur.LegacyDocID, updateTime: updated, fields: map[string]any{
 			"deliveryStops": append(stops, stop), "isMultiDelivery": true, "updatedAt": now}}
-		at, acked, err := s.writeBack(ctx, w)
+		var at time.Time
+		var acked bool
+		if wait == waitForMirror {
+			at, acked, err = s.writeBack(ctx, w)
+		} else {
+			at, err = s.commitWriteBack(ctx, w)
+		}
 		if errors.Is(err, writeback.ErrConflict) && attempt < 2 {
 			continue
 		}

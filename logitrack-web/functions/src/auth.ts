@@ -94,7 +94,9 @@ const adminClaimsStore: ClaimsStore = {
  * (GET /v1/mobile/me with the cf_shim key and the caller's own Firebase ID token) instead of the Firestore drivers
  * collection; the claims are merged as before and the answer keeps its legacy shape (goShimCallables.ts).
  */
-export const setDriverClaims = onCall({ secrets: [logitrackApiKey] }, async (request) => {
+// App Check pinned here (it is also the global default, index.ts): the callable forwards any signed-in caller to the
+// shim target, so a later change of the global options must not open it to scripts (T32R).
+export const setDriverClaims = onCall({ enforceAppCheck: true, secrets: [logitrackApiKey] }, async (request) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "User must be authenticated");
     }
