@@ -3,13 +3,15 @@
 import { useMemo } from "react";
 import { MapPin } from "lucide-react";
 
-import { FilterCombobox } from "@/components/filter-combobox";
+import { FilterCombobox, type FilterComboboxOption } from "@/components/filter-combobox";
 import { useLanguage } from "@/context/language";
 import { selectHubFilterOptions, type HubRow } from "../api/selectors";
 
 interface HubFilterComboboxProps {
     /** The page's `useHubs(selectHubRows)` rows: every hub, uncapped. */
-    hubs: readonly HubRow[];
+    hubs?: readonly HubRow[];
+    /** The options as built already (the Go boards: every hub of `['hubs',{view:'go'}]`, value = the hub code). */
+    options?: FilterComboboxOption[];
     /** A hub code, or `"all"`. */
     value: string;
     onChange: (value: string) => void;
@@ -23,9 +25,9 @@ interface HubFilterComboboxProps {
  * combobox over every cached hub, by name or code, instead of a Radix select that listed only the first
  * 50 (Appendix E §E.10 row 7). Long lists are virtualised by `FilterCombobox`.
  */
-export function HubFilterCombobox({ hubs, value, onChange, allLabel, className }: HubFilterComboboxProps) {
+export function HubFilterCombobox({ hubs, options: given, value, onChange, allLabel, className }: HubFilterComboboxProps) {
     const { t } = useLanguage();
-    const options = useMemo(() => selectHubFilterOptions(hubs), [hubs]);
+    const options = useMemo(() => given ?? selectHubFilterOptions(hubs ?? []), [given, hubs]);
     return (
         <FilterCombobox
             options={options}

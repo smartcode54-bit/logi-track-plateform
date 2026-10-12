@@ -262,20 +262,20 @@ func TestMonitorQuery(t *testing.T) {
 // it does not read is 403 with the missing capability; without taskType a one-type reader lists its type.
 func TestTaskFilterTypes(t *testing.T) {
 	fm := staff(authz.OperationsViewFirstMile)
-	f, err := taskFilter(fm, TaskListInput{})
+	f, err := taskFilter(fm, directory{}, TaskListInput{})
 	if err != nil || f.TaskType != FirstMile {
 		t.Fatalf("first-mile reader: %+v %v", f, err)
 	}
-	_, err = taskFilter(fm, TaskListInput{TaskType: LineHaul})
+	_, err = taskFilter(fm, directory{}, TaskListInput{TaskType: LineHaul})
 	if he := httpx.AsError(err); he == nil || he.Status != 403 ||
 		!slices.Equal(he.Details["missingCapability"].([]string), []string{string(authz.OperationsViewLineHaul)}) {
 		t.Errorf("line haul for a first-mile reader: %v", err)
 	}
 	both := staff(authz.DispatchViewOperations)
-	if f, err := taskFilter(both, TaskListInput{}); err != nil || f.TaskType != "" {
+	if f, err := taskFilter(both, directory{}, TaskListInput{}); err != nil || f.TaskType != "" {
 		t.Errorf("dispatcher: %+v %v", f, err)
 	}
-	f, err = taskFilter(both, TaskListInput{Date: "2026-10-05", Statuses: []string{"pending", "assigned", "pending"}})
+	f, err = taskFilter(both, directory{}, TaskListInput{Date: "2026-10-05", Statuses: []string{"pending", "assigned", "pending"}})
 	if err != nil || !f.From.Equal(*f.To) || f.From.Format(time.DateOnly) != "2026-10-05" || len(f.Statuses) != 2 {
 		t.Errorf("date: %+v %v", f, err)
 	}
@@ -287,10 +287,22 @@ func TestTaskFilterTypes(t *testing.T) {
 		{TaskListInput{Date: "2026-10-05", From: "2026-10-01"}, "date exclusive"},
 		{TaskListInput{Statuses: []string{"Pending"}}, "status invalid"},
 		{TaskListInput{DriverID: "x"}, "driverId invalid"},
+		{TaskListInput{SourceHub: "ALANG-A"}, "sourceHub invalid"},
+		{TaskListInput{Destination: "hub:x"}, "destination invalid"},
 	} {
-		if _, err := taskFilter(both, c.in); fieldReason(err) != c.want {
+		if _, err := taskFilter(both, directory{}, c.in); fieldReason(err) != c.want {
 			t.Errorf("%+v: %q, want %q", c.in, fieldReason(err), c.want)
 		}
+	}
+	// The boards' source-hub and SOC filters (T34): the monitor's place vocabulary, against the hub master.
+	d, hub, _, _ := shapeDirectory()
+	f, err = taskFilter(both, d, TaskListInput{SourceHub: "code:alang-a", Destination: "code:SOCN"})
+	if err != nil || !f.source.on || len(f.source.hubs) != 1 || f.source.hubs[0] != hub || f.source.soc != nil ||
+		!f.destination.on || len(f.destination.hubs) != 0 || f.destination.soc == nil || *f.destination.soc != "SOCN" {
+		t.Errorf("place filters: %+v %v", f, err)
+	}
+	if f, err := taskFilter(both, d, TaskListInput{SourceHub: "all"}); err != nil || f.source.on {
+		t.Errorf("all is no filter: %+v %v", f, err)
 	}
 }
 

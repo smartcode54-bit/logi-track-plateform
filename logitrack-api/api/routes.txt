@@ -149,7 +149,9 @@ POST /v1/mobile/chat/read internal,public
 GET /v1/mobile/chat/unread-count internal,public
 GET /v1/mobile/events internal,public
 POST /v1/mobile/heartbeat internal,public
+GET /v1/mobile/me internal,public
 GET /v1/mobile/settings internal,public
+POST /v1/mobile/tasks/:id/stops internal,public
 POST /v1/mobile/trips/:id/billing/compute internal,public
 POST /v1/partner-interest internal
 GET /v1/payroll internal

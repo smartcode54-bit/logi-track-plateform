@@ -52,7 +52,7 @@ func TestBucketCatalog(t *testing.T) {
 	for b, want := range map[Bucket]Limit{
 		LoginIP: {10, time.Minute}, PublicFormIP: {5, time.Hour},
 		PublicFormEmail: {1, 24 * time.Hour}, EvidenceIP: {60, time.Minute}, HeartbeatInstall: {1, 30 * time.Second},
-		User: {600, time.Minute}, APIKey: {600, time.Minute},
+		User: {600, time.Minute}, APIKey: {600, time.Minute}, ShimUser: {60, time.Minute},
 	} {
 		if b.Default != want {
 			t.Errorf("%s default %v, want %v", b.Name, b.Default, want)

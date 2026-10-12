@@ -192,7 +192,7 @@ func AddTaskStop(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, st NewStop, a
 	if len(stops) == 0 {
 		primary := normalizeDestination(task.DestinationRaw)
 		if primary == "" {
-			return nil, errPrecondition("no_primary_destination", "the task has no destination to keep as stop 1")
+			return nil, errPrecondition(ReasonNoPrimaryDestination, "the task has no destination to keep as stop 1")
 		}
 		first, err := q.InsertTaskStop(ctx, operationsdb.InsertTaskStopParams{
 			TaskID: taskID, StopIndex: 1, DestinationRaw: primary, DestinationHubID: task.DestinationHubID,
@@ -284,6 +284,9 @@ type TaskFilter struct {
 	Q        string
 	Limit    int
 	Cursor   string
+	// source and destination are the place filters of GET /v1/tasks (T34: the boards' source-hub and SOC filters),
+	// parsed against the request's hub master (directory.parsePlace); zero: no filter.
+	source, destination placeFilter
 }
 
 // ListTasks is a keyset page of the principal's staff reach (a driver reads its queue through DriverTasks).
@@ -322,14 +325,21 @@ func (s *Service) ListTasks(ctx context.Context, p *authz.Principal, f TaskFilte
 			rows, err = q.ListTasksByPlan(ctx, operationsdb.ListTasksByPlanParams{
 				AllTenants: r.All, TenantIds: r.tenants(), FromDate: *f.From, ToDate: *f.To,
 				TaskType: nonEmpty(f.TaskType), Statuses: f.Statuses, DriverID: f.DriverID, TruckID: f.TruckID,
-				Q: nonEmpty(f.Q), AfterPlan: c.day(), AfterID: c.id(), RowLimit: int32(limit + 1),
+				Q: nonEmpty(f.Q), TrimChars: trimChars, SourceOn: f.source.on, SourceHubs: emptyIDs(f.source.hubs),
+				SourceSoc: f.source.soc, SourceRaw: f.source.raw, SourceNone: f.source.none, DestinationOn: f.destination.on,
+				DestinationHubs: emptyIDs(f.destination.hubs), DestinationSoc: f.destination.soc,
+				DestinationRaw: f.destination.raw, DestinationNone: f.destination.none,
+				AfterPlan: c.day(), AfterID: c.id(), RowLimit: int32(limit + 1),
 			})
 			return err
 		}
 		rows, err = q.ListTasksByCreated(ctx, operationsdb.ListTasksByCreatedParams{
 			AllTenants: r.All, TenantIds: r.tenants(), TaskType: nonEmpty(f.TaskType), Statuses: f.Statuses,
-			DriverID: f.DriverID, TruckID: f.TruckID, Q: nonEmpty(f.Q), AfterCreated: c.at(), AfterID: c.id(),
-			RowLimit: int32(limit + 1),
+			DriverID: f.DriverID, TruckID: f.TruckID, Q: nonEmpty(f.Q), TrimChars: trimChars, SourceOn: f.source.on,
+			SourceHubs: emptyIDs(f.source.hubs), SourceSoc: f.source.soc, SourceRaw: f.source.raw,
+			SourceNone: f.source.none, DestinationOn: f.destination.on, DestinationHubs: emptyIDs(f.destination.hubs),
+			DestinationSoc: f.destination.soc, DestinationRaw: f.destination.raw, DestinationNone: f.destination.none,
+			AfterCreated: c.at(), AfterID: c.id(), RowLimit: int32(limit + 1),
 		})
 		return err
 	})

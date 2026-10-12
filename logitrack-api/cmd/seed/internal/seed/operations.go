@@ -55,7 +55,8 @@ var (
 	routeSPXWTL     = opsRoute{name: "spx-wtl12", typ: firstMile, src: []string{"ALANG-A"}, dest: []string{"WANGTHONGLANG12"}, cat: "SUPPLEMENTARY"}
 	routeSPK146     = opsRoute{name: "spk-146", typ: lineHaul, src: []string{"SPK-GW", "Bangpu Gateway"}, dest: []string{"SPK890146"}, cat: "PRIMARY"}
 	routeTTPSOCE    = opsRoute{name: "ttp-soce", typ: firstMile, src: []string{"TTP-HUB1"}, dest: []string{"SOCE"}, party: "BP_TTP", cat: "PRIMARY"}
-	// No rate card (until T43 adds rounds for the demo hubs): the "need a rate card" rows of the Income page.
+	// No smoke rate card: finance.go (T43) prices the SPX demo hubs to SOCE and SOCN and the CJSF-BPL / CJSF-LKB routes;
+	// the SPX demo hubs to SOCW and TTP-HUB2 -> SOCN stay the "need a rate card" rows of the Income page.
 	routeSPXDemo  = opsRoute{name: "spx-demo", typ: firstMile, cat: "PRIMARY"} // source and SOC drawn from spxDemoHubs, spxDemoSOCs
 	routeTTPHub2  = opsRoute{name: "ttp-hub2", typ: firstMile, src: []string{"TTP-HUB2"}, dest: []string{"SOCN", "SOCN (วังน้อย)"}, party: "BP_TTP", cat: "PRIMARY"}
 	routeCJSFBPL  = opsRoute{name: "cjsf-bpl", typ: firstMile, src: []string{"CJSF-BPL"}, dest: []string{"SOCE"}, party: "BP_CJSF", cat: "PRIMARY"}

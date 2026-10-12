@@ -208,11 +208,22 @@ keeps serving on the new schema), then the switch and the checks. When the relea
 seed PR such as T35's demo operations), deploy it with `--reseed`: `rollout.sh activate --reseed` then runs
 `seed --profile demo --allow-shared` after `migrate up` and before the switch (`APP_ENV=dev` loads in upsert mode:
 only missing rows; the admin bootstrap stays a first-deploy step). The top-up uses the new release's seed, which prices
-the rows it adds from the rate tables and hubs the database holds; a failed top-up stops the deploy with `current`
-unchanged. A payroll run the application already wrote for a driver, pay period and round the seed also generates
-(someone clicked "Generate payroll") is kept, and that driver's seeded payroll, penalties and payout rows are skipped
-(a warning per run and a `kept N payroll run(s)` line; Appendix D §D.1.7): deploy a release whose seed adds payroll
-rows (T46) with `--reseed` before anyone generates payroll on staging, and before the `hr` web flag is turned on. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
+the rows it adds from the rate tables and hubs the database holds (and, since T43, writes the generated statements from
+the database's invoice sets, leaving out, with a warning, a party and month the VM already numbered through the API and
+a sent or paid month whose rows the VM's pricing inputs price otherwise than stored); a failed top-up stops the deploy
+with `current` unchanged. A top-up never updates a row the VM holds, so after the T43 one: the T35 trips of the routes
+T43 now prices (the SPX demo hubs to SOCE and SOCN, CJSF-BPL -> SOCE, CJSF-LKB -> SPK890103) stay stored `no_rate`,
+which `seed --verify` reports under invariant 2a, and the demo trucks keep their T26 mileage, next service and active
+maintenance beside the maintenance records the top-up adds (the seed log names them). To price those trips, run the
+trip billing backfill (`POST /v1/jobs/billing.backfill-trips` or the Income page) per party with `fromDateStr` on the
+first day after the party's last sent or paid period, never over a sent or paid one: a first price is not
+period-locked, so it would land after that statement's `sent_at` (invariant 5) in an invoice that does not carry it.
+With the default anchor that is `2026-08-01` for SPX and CJSF (after the smoke SPX-202607-001 sent and CJSF-202607-001
+paid); the July `no_rate` rows stay, reported by invariant 2a (Appendix D §D.1.7). A payroll run the application
+already wrote for a driver, pay period and round the seed also generates (someone clicked "Generate payroll") is kept,
+and that driver's seeded payroll, penalties and payout rows are skipped (a warning per run and a `kept N payroll
+run(s)` line; Appendix D §D.1.7): deploy a release whose seed adds payroll rows (T46) with `--reseed` before anyone
+generates payroll on staging, and before the `hr` web flag is turned on. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
 would add a second set of anchor-relative rows next to the first. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
 current release, the kept ones and the last activations, and says so when the current release was never

@@ -99,10 +99,10 @@ func TestIsDue(t *testing.T) {
 
 // The automatic note of a PM booking is the legacy text with toLocaleString() grouping (fn:triggers.ts:490-493).
 func TestPMNotes(t *testing.T) {
-	if got, want := pmNotes(98_500, 100_000), "ระบบอัตโนมัติ: จากรายการเติมน้ำมัน (98,500 / 100,000 กม. เหลือ 1,500 กม. ≤ 2,000 กม.)"; got != want {
+	if got, want := PMNotes(98_500, 100_000), "ระบบอัตโนมัติ: จากรายการเติมน้ำมัน (98,500 / 100,000 กม. เหลือ 1,500 กม. ≤ 2,000 กม.)"; got != want {
 		t.Errorf("due: %q, want %q", got, want)
 	}
-	if got, want := pmNotes(101_234, 100_000), "ระบบอัตโนมัติ: เลยกำหนดเช็คระยะ (101,234 กม. / รอบ 100,000 กม.)"; got != want {
+	if got, want := PMNotes(101_234, 100_000), "ระบบอัตโนมัติ: เลยกำหนดเช็คระยะ (101,234 กม. / รอบ 100,000 กม.)"; got != want {
 		t.Errorf("overdue: %q, want %q", got, want)
 	}
 	for n, want := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 1234567: "1,234,567", -1500: "-1,500", -999: "-999"} {
@@ -234,7 +234,7 @@ func TestLegacyFields(t *testing.T) {
 	cost := 1500.0
 	truck := uuid.New()
 	r := maintenancedb.MaintenanceRecord{ID: uuid.New(), TruckID: &truck, TruckLicensePlateSnapshot: &plate,
-		TruckBrandSnapshot: &brand, MaintenanceType: "PM", ServiceType: pmServiceType,
+		TruckBrandSnapshot: &brand, MaintenanceType: "PM", ServiceType: PMServiceType,
 		StartDate: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC), Status: StatusPMBooking, AppointmentTime: &appt,
 		PickupAppointmentAt: &pickup, TotalCostThb: &cost, CurrentMileage: &mileage, Notes: &notes}
 	f := LegacyFields(r, "trk_legacy")

@@ -39,14 +39,15 @@ type PMResult struct {
 	Outcome       string     `json:"outcome"`
 }
 
-// PM booking fields (fn:triggers.ts:497-509).
+// PM booking fields (fn:triggers.ts:497-509). PMServiceType and PMNotes are exported for cmd/seed, which writes the
+// bookings this check would write for the fuel logs it seeds approved (T43).
 const (
-	pmServiceType = "เช็คระยะตามรอบ"
+	PMServiceType = "เช็คระยะตามรอบ"
 	pmType        = "PM"
 )
 
-// pmNotes is the automatic note of a PM booking (fn:triggers.ts:490-493).
-func pmNotes(mileage, next int64) string {
+// PMNotes is the automatic note of a PM booking (fn:triggers.ts:490-493).
+func PMNotes(mileage, next int64) string {
 	left := next - mileage
 	if left < 0 {
 		return "ระบบอัตโนมัติ: เลยกำหนดเช็คระยะ (" + groupThousands(mileage) + " กม. / รอบ " + groupThousands(next) + " กม.)"
@@ -138,10 +139,10 @@ func (s *Service) checkPM(ctx context.Context, q *maintenancedb.Queries, t *truc
 		return PMResult{}, err
 	}
 	user, _ := actor(p)
-	plate, brand, notes := t.LicensePlate, t.Brand, pmNotes(int64(mileage), int64(next))
+	plate, brand, notes := t.LicensePlate, t.Brand, PMNotes(int64(mileage), int64(next))
 	m, nx := mileage, next
 	if _, err := q.InsertRecord(ctx, maintenancedb.InsertRecordParams{ID: id, TenantID: t.TenantID,
-		TruckID: &t.ID, PlateSnapshot: &plate, BrandSnapshot: &brand, MaintenanceType: pmType, ServiceType: pmServiceType,
+		TruckID: &t.ID, PlateSnapshot: &plate, BrandSnapshot: &brand, MaintenanceType: pmType, ServiceType: PMServiceType,
 		StartDate: s.today(), Status: StatusPMBooking, CurrentMileage: &m, NextServiceMileage: &nx, Notes: &notes,
 		Actor: user}); err != nil {
 		return PMResult{}, err
