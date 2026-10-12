@@ -54,7 +54,6 @@ const (
 // (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost.
 var pendingRoutes = map[string]string{
 	RouteBroadcastCreated: "T48",
-	RouteLeaveDecided:     "T45",
 }
 
 // FromMirror reports whether a delivery is a domain event the FS->PG mirror appended (header origin=etl.sync). While
@@ -119,6 +118,7 @@ const reasonClaimsChanged = "claims_changed"
 //     in_progress) and maintenance.created of a record created scheduled (the only created state with an
 //     appointment; the legacy page pushed on no creation): maintenance_scheduled to the drivers of the record's
 //     truck (T40);
+//   - leave.decided (a staff approval, rejection or cancellation, T45): leave_decided to the request's driver;
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
 //     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none;
 //   - chat.message_created (T47): "chat" to the devices of the chat's driver for a staff message (one per device:
@@ -208,6 +208,8 @@ func (f *FCM) planner(key string) (planner, bool) {
 		return planMaintenance, true
 	case RouteChatMessageCreated:
 		return f.planChat, true
+	case RouteLeaveDecided:
+		return planLeave, true
 	}
 	return nil, false
 }
@@ -1068,4 +1070,41 @@ func chatReader(ctx context.Context, q *notifydb.Queries, user, tenant uuid.UUID
 		}
 	}
 	return false, nil
+}
+
+// leaveEvent is the payload of leave.decided (internal/hr emitLeave): the request, the decision and a rejection's
+// reason. The recipient (the request's driver) is read from the row.
+type leaveEvent struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+	Reason string    `json:"reason"`
+}
+
+// planLeave plans leave.decided (T45): leave_decided to the devices of the request's driver, naming the decision the
+// event carries (a write-back decision is pushed once it is in Firestore, before the mirror loaded it; a later decision
+// sends its own push). A request without a driver (quarantined at load) sends nothing.
+func planLeave(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
+	var ev leaveEvent
+	if err := d.Decode(&ev); err != nil {
+		return nil, err
+	}
+	if ev.ID == uuid.Nil {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s without id", d.RoutingKey))
+	}
+	if !slices.Contains([]string{"approved", "rejected", "cancelled"}, ev.Status) {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s with status %q", d.RoutingKey, ev.Status))
+	}
+	l, err := q.GetLeaveForPush(ctx, ev.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: leave request %s not found", ev.ID))
+	}
+	if err != nil {
+		return nil, err
+	}
+	if l.DriverID == nil {
+		return nil, nil
+	}
+	return driverTargets(ctx, q, []driverPush{{driverID: *l.DriverID, build: func(ref string) Push {
+		return LeaveDecided(l.LeaveRef, ref, ev.Status, l.LeaveType, l.StartDate, l.EndDate, ev.Reason)
+	}}})
 }

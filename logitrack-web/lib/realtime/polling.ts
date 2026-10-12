@@ -16,6 +16,9 @@
  *   `SSE_MAX_CONN_PER_USER`, the api down) it polls instead: `useStreamFallbackPoll()` returns the poll
  *   options then, and while the stream is open no interval and TanStack's own focus refetch (only when
  *   stale: the events keep the data current); it re-renders when the stream's state changes.
+ * - **SSE data plus a poll**: a key the stream writes into but cannot keep whole (the vehicle-location
+ *   batches carry part of each row and never add or remove one) uses `pollFromLastAnswer(ms)`, an
+ *   interval counted from the server's last answer, which the stream's writes do not move.
  */
 import { useRealtimeStatus } from "./status";
 
@@ -103,4 +106,42 @@ export function streamFallbackPoll(streamOpen: boolean, intervalMs: number = POL
 /** `streamFallbackPoll` over the tab's stream state (re-renders when it changes). */
 export function useStreamFallbackPoll(intervalMs: number = POLL_INTERVAL_MS): PollOptions {
     return streamFallbackPoll(useRealtimeStatus() === "open", intervalMs);
+}
+
+/** What `pollFromLastAnswer` reads of a query: when the server last answered, with data or an error. */
+export interface AnsweredQuery {
+    state: { dataUpdatedAt: number; errorUpdatedAt: number };
+}
+
+export interface AnswerPollOptions {
+    refetchInterval: (query: AnsweredQuery) => number;
+    refetchIntervalInBackground: false;
+    refetchOnWindowFocus: FocusRefetch;
+}
+
+/** The shortest timer `pollFromLastAnswer` sets (a hidden tab never spins on a due refetch). */
+export const MIN_POLL_TIMER_MS = 1_000;
+
+/**
+ * `pollWhileVisible(ms)` for a query the stream also writes into (a `keepUpdatedAt` cache write of
+ * lib/realtime/eventMap.ts: the vehicle-location batches, T54R). TanStack restarts a numeric
+ * `refetchInterval` on every update of the query, `setQueryData` included, so a constant interval
+ * longer than the stream's period would never fire (a 5-minute one under the 3-minute Cartrack
+ * batches). This interval is the time left until the server's last answer (`dataUpdatedAt`, which
+ * those writes keep, or the last error) is `ms` old, recomputed on each update: the query refetches
+ * `ms` after its last answer whatever the stream wrote in between, only while the tab is visible,
+ * and on focus once that answer is older than `ms`.
+ */
+export function pollFromLastAnswer(intervalMs: number = POLL_INTERVAL_MS): AnswerPollOptions {
+    return {
+        refetchInterval: (query) => {
+            const last = Math.max(query.state.dataUpdatedAt, query.state.errorUpdatedAt);
+            const left = last + intervalMs - Date.now();
+            // Nothing answered yet, or the refetch is due (it is running, or the tab was hidden: the
+            // focus rule refetches): one interval from now, recomputed when the answer lands.
+            return last === 0 || left <= 0 ? intervalMs : Math.max(left, MIN_POLL_TIMER_MS);
+        },
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: refetchOnFocusOlderThan(intervalMs),
+    };
 }

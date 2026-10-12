@@ -249,3 +249,58 @@ func TestDriverAssignmentHelpersCheckTheirCaller(t *testing.T) {
 		t.Errorf("status entries of the release: %d", n)
 	}
 }
+
+// The public holiday calendar (tenant_id NULL, R12) is every principal's to read and only a steward's to write (R60,
+// T45 AC); a tenant's own holidays are its staff's (and its contractor's) to write, never another tenant's. The service
+// refuses a non-steward before the database; this is the database's own answer.
+func TestHolidaysStewardRule(t *testing.T) {
+	d, _ := migrated(t)
+	etl := connect(t, d, db.RoleETL)
+	o := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th) VALUES ('own_fleet', 'O') RETURNING id::text`)
+	a := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th, legal_type, contractor_tenant_id) VALUES ('carrier', 'A',
+		'company', $1) RETURNING id::text`, o)
+	c := scalar[string](t, etl, `INSERT INTO tenants (kind, name_th, legal_type) VALUES ('carrier', 'C', 'company') RETURNING id::text`)
+	user := func(email string) string {
+		return scalar[string](t, etl, `INSERT INTO users (email, display_name) VALUES ($1::text, $1::text) RETURNING id::text`, email)
+	}
+	pub := scalar[string](t, etl, `INSERT INTO holidays (holiday_date, holiday_type, name) VALUES ('2026-01-01', 'public', 'ปีใหม่')
+		RETURNING id::text`)
+	compA := scalar[string](t, etl, `INSERT INTO holidays (tenant_id, holiday_date, holiday_type, name)
+		VALUES ($1, '2026-05-01', 'company', 'A') RETURNING id::text`, a)
+	steward := principal(t, d, user("o@example.test"), o, "tenant_admin", "app.steward", "on", "app.subtenant_ids", a)
+	staffA := principal(t, d, user("a@example.test"), a, "tenant_admin")
+	staffC := principal(t, d, user("c@example.test"), c, "tenant_admin")
+
+	for name, cn := range map[string]*pgx.Conn{"steward": steward, "A": staffA, "C": staffC} {
+		if n := scalar[int64](t, cn, `SELECT count(*) FROM holidays WHERE id = $1`, pub); n != 1 {
+			t.Errorf("%s cannot read the public calendar", name)
+		}
+	}
+	if n := affected(t, staffA, `UPDATE holidays SET name = 'x' WHERE id = $1`, pub); n != 0 {
+		t.Errorf("a carrier's admin changed a public holiday")
+	}
+	wantSQLState(t, staffA, "42501", "row-level security", `INSERT INTO holidays (holiday_date, holiday_type, name)
+		VALUES ('2026-01-02', 'public', 'x')`)
+	if n := affected(t, staffA, `DELETE FROM holidays WHERE id = $1`, pub); n != 0 {
+		t.Errorf("a carrier's admin deleted a public holiday")
+	}
+	if n := affected(t, steward, `UPDATE holidays SET name = 'วันขึ้นปีใหม่' WHERE id = $1`, pub); n != 1 {
+		t.Errorf("the steward cannot change a public holiday")
+	}
+	exec(t, steward, `INSERT INTO holidays (holiday_date, holiday_type, name) VALUES ('2026-01-02', 'public', 'x')`)
+	// A tenant's own rows: its staff and its contractor's write them, another carrier neither reads nor writes them.
+	if n := affected(t, staffA, `UPDATE holidays SET name = 'A2' WHERE id = $1`, compA); n != 1 {
+		t.Errorf("A cannot change its own holiday")
+	}
+	if n := affected(t, steward, `UPDATE holidays SET name = 'A3' WHERE id = $1`, compA); n != 1 {
+		t.Errorf("the contractor cannot change its carrier's holiday")
+	}
+	if n := scalar[int64](t, staffC, `SELECT count(*) FROM holidays WHERE id = $1`, compA); n != 0 {
+		t.Errorf("C reads A's holiday")
+	}
+	if n := affected(t, staffC, `UPDATE holidays SET name = 'x' WHERE id = $1`, compA); n != 0 {
+		t.Errorf("C changed A's holiday")
+	}
+	wantSQLState(t, staffC, "42501", "row-level security", `INSERT INTO holidays (tenant_id, holiday_date, holiday_type, name)
+		VALUES ($1, '2026-05-02', 'company', 'x')`, a)
+}

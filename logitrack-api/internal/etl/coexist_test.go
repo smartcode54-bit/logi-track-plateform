@@ -123,28 +123,41 @@ func TestPlanProjection(t *testing.T) {
 	if c, _ := PlanProjection(set("auth"), nil); len(c) != 0 {
 		t.Errorf("a Firestore-owned masterdata is projected: %v", c)
 	}
-	// P1: the master data; the version gate settings/mobile_app stays Firestore's (mobile_release is not owned), and so
-	// do the billing fields of trips and standby records (billing is not owned).
-	billingFields := func(s string) bool { return s == ProjectionTripBilling || s == ProjectionStandbyBilling }
+	// P1: the master data; the version gate settings/mobile_app, the holidays and the billing fields of trips and standby
+	// records stay Firestore's (mobile_release, hr and billing are not owned).
+	without := func(names ...string) []string {
+		return slices.DeleteFunc(slices.Clone(ProjectedCollections), func(s string) bool { return slices.Contains(names, s) })
+	}
+	billing := []string{ProjectionTripBilling, ProjectionStandbyBilling}
 	c, _ := PlanProjection(set("auth", "masterdata"), nil)
-	if !slices.Equal(c, slices.DeleteFunc(slices.Clone(ProjectedCollections), func(s string) bool { return s == "settings" || billingFields(s) })) {
+	if !slices.Equal(c, without(append([]string{"settings", "holidays"}, billing...)...)) {
 		t.Errorf("P1 projection %v", c)
 	}
 	// P3 (billing owned): the price fields join (T38), while trips and standby records stay mirrored whole (class C).
 	c, _ = PlanProjection(set("auth", "masterdata", "billing"), nil)
-	if !slices.Contains(c, ProjectionTripBilling) || !slices.Contains(c, ProjectionStandbyBilling) || slices.Contains(c, "settings") {
+	if !slices.Equal(c, without("settings", "holidays")) {
 		t.Errorf("P3 projection %v", c)
 	}
 	if p, _ := PlanMirror(set("auth", "masterdata", "billing"), nil); p.Mode("trip_records") != MirrorFull || p.Mode("standby_records") != MirrorFull {
 		t.Errorf("P3 mirror of trips %q, standby %q", p.Mode("trip_records"), p.Mode("standby_records"))
 	}
+	// P4 (hr owned, T45): the holidays join, alone when hr is the only owned domain.
+	if c, _ := PlanProjection(set("auth", "masterdata", "billing", "hr"), nil); !slices.Equal(c, without("settings")) {
+		t.Errorf("P4 projection %v", c)
+	}
+	if c, _ := PlanProjection(set("hr"), nil); strings.Join(c, ",") != "holidays" {
+		t.Errorf("hr projection %v", c)
+	}
+	// Once hr is PostgreSQL's, holidays are no longer mirrored (no second writer, no echo); leave requests (class C) are.
+	if p, _ := PlanMirror(set("auth", "hr"), nil); p.Mode("holidays") != "" || p.Mode("leave_requests") != MirrorFull {
+		t.Errorf("hr owned: holidays %q, leave_requests %q", p.Mode("holidays"), p.Mode("leave_requests"))
+	}
 	// P6 (mobile_release owned): the version gate joins; alone, it is the only projected collection.
-	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c,
-		slices.DeleteFunc(slices.Clone(ProjectedCollections), billingFields)) {
+	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c, without(append([]string{"holidays"}, billing...)...)) {
 		t.Errorf("P6 projection %v", c)
 	}
-	if c, _ := PlanProjection(set("auth", "masterdata", "billing", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
-		t.Errorf("P6 projection with billing %v", c)
+	if c, _ := PlanProjection(set("auth", "masterdata", "billing", "hr", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
+		t.Errorf("P6 projection with billing and hr %v", c)
 	}
 	if c, _ := PlanProjection(set("mobile_release"), nil); strings.Join(c, ",") != "settings" {
 		t.Errorf("mobile_release projection %v", c)
@@ -157,7 +170,7 @@ func TestPlanProjection(t *testing.T) {
 	if strings.Join(c, ",") != "hubs,drivers" {
 		t.Errorf("pinned projection %v", c)
 	}
-	if _, err := PlanProjection(set("masterdata"), []string{"holidays"}); err == nil {
+	if _, err := PlanProjection(set("masterdata"), []string{"broadcasts"}); err == nil {
 		t.Error("a pin outside the projected collections was accepted")
 	}
 	if f := ForeignFields("trucks", set("masterdata")); strings.Join(f, ",") != "activeMaintenanceId,currentMileage,lastAlertMileage,lastServiceDate,nextServiceMileage,truckStatus" {
@@ -190,7 +203,10 @@ func TestShadowTargets(t *testing.T) {
 			{Collection: "soc_hub_distances", All: true}, {Collection: "metadata", All: true}}},
 		{"settings.changed", `{"key":"mobile_app","flavor":"prod"}`, []ShadowTarget{{Collection: "settings", All: true}}},
 		{"settings.changed", `{"key":"branding"}`, nil},
-		{"holidays.changed", `{}`, nil},
+		{"holidays.changed", `{"entity":"holiday","year":2026,"ids":["` + a.String() + `"],"deletedDocIds":["hol_legacy","` + b.String() + `"]}`,
+			[]ShadowTarget{{Collection: "holidays", IDs: []uuid.UUID{a}, DeletedDocIDs: []string{"hol_legacy", b.String()}}}},
+		{"holidays.changed", `{}`, []ShadowTarget{{Collection: "holidays", IDs: []uuid.UUID{}}}},
+		{"broadcast.created", `{}`, nil},
 		{"trip.priced", `{"id":"` + a.String() + `","priced":true}`, []ShadowTarget{{Collection: ProjectionTripBilling, IDs: []uuid.UUID{a}}}},
 		{"trip.repriced", `{"id":"` + b.String() + `","billingDateMoved":true}`, []ShadowTarget{{Collection: ProjectionTripBilling, IDs: []uuid.UUID{b}}}},
 		{"standby.priced", `{"id":"` + c.String() + `"}`, []ShadowTarget{{Collection: ProjectionStandbyBilling, IDs: []uuid.UUID{c}}}},
@@ -208,7 +224,8 @@ func TestShadowTargets(t *testing.T) {
 		for i := range got {
 			g, w := got[i], tc.want[i]
 			if g.Collection != w.Collection || g.All != w.All || !sameIDs(g.IDs, w.IDs) || !sameIDs(g.Hubs, w.Hubs) ||
-				!sameIDs(g.Customers, w.Customers) || !sameIDs(g.Tenants, w.Tenants) {
+				!sameIDs(g.Customers, w.Customers) || !sameIDs(g.Tenants, w.Tenants) ||
+				strings.Join(g.DeletedDocIDs, ",") != strings.Join(w.DeletedDocIDs, ",") {
 				t.Errorf("%s target %d: %+v, want %+v", tc.key, i, g, w)
 			}
 		}

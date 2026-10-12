@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { submitPartnerInterest } from "./actions.client";
+import { submitPartnerInterest } from "@/lib/publicForms";
+import { toastSaveError } from "@/lib/formServerErrors";
+import { useLanguage } from "@/context/language";
+import { HoneypotField } from "@/components/landing/HoneypotField";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -13,7 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CheckCircle2, Truck, ShieldCheck, FileText, ArrowRight, Wallet, Map, TrendingUp } from "lucide-react";
 
 export default function JoinNetworkPage() {
+    const { t } = useLanguage();
     const [loading, setLoading] = useState(false);
+    const [website, setWebsite] = useState("");
     const [formData, setFormData] = useState({
         companyName: "",
         contractNumber: "",
@@ -36,14 +41,16 @@ export default function JoinNetworkPage() {
 
         setLoading(true);
         try {
+            // The anonymous BFF form POST /api/forms/partner-interest (R44, R77): no Firestore write.
             await submitPartnerInterest({
                 companyName: formData.companyName,
                 contractNumber: formData.contractNumber,
                 contactName: formData.contactName,
-                email: formData.email,
+                email: formData.email.trim(),
                 serviceArea: formData.serviceArea,
                 fleetSize: formData.fleetSize,
-                vehicleType: formData.vehicleType
+                vehicleType: formData.vehicleType,
+                website,
             });
             toast.success("Application submitted successfully!");
             setFormData({
@@ -56,7 +63,7 @@ export default function JoinNetworkPage() {
                 vehicleType: ""
             });
         } catch (error) {
-            toast.error("Failed to submit application. Please try again.");
+            toastSaveError(error, t);
         } finally {
             setLoading(false);
         }
@@ -235,7 +242,8 @@ export default function JoinNetworkPage() {
                                 <p className="text-blue-100">Submit your details and our team will review your application within 24 hours.</p>
                             </div>
 
-                            <div className="p-8 md:p-10 space-y-6">
+                            <div className="relative p-8 md:p-10 space-y-6">
+                                <HoneypotField id="partner-website" value={website} onChange={setWebsite} />
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <div className="space-y-2">
                                         <Label htmlFor="companyName">Company Name *</Label>

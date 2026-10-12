@@ -665,6 +665,30 @@ func (s *Service) SignedFiles(ctx context.Context, ids []uuid.UUID, ttl time.Dur
 	return out, nil
 }
 
+// FileKeys maps each live file of ids to its object key, whatever its status (a missing_at_source file of the ETL, a
+// pending upload): the key of a file SignedFiles leaves out, so a payload can still name a file it cannot sign
+// (`{key, url: null}`, main spec §10 as built T25). Read like SignedFiles, in one system transaction on its own pool
+// connection, after the caller read the referencing rows under its own rights; a missing or deleted file is absent.
+func (s *Service) FileKeys(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := map[uuid.UUID]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []storagedb.FileObject
+	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error {
+		var err error
+		rows, err = storagedb.New(tx).GetFiles(ctx, ids)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.ObjectKey
+	}
+	return out, nil
+}
+
 // FileIDsByKey maps each key to the ids of the live file rows that hold it (one per bucket at most; a key no row
 // holds is absent). It serves an entity PATCH that gets back the key of a file it already links (T20: the payload's
 // keys go back in a PATCH): the caller keeps a file whose id its locked row already references, whoever uploaded it,

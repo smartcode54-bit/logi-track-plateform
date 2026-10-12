@@ -220,6 +220,38 @@ func (q *Queries) GetChatMessageForPush(ctx context.Context, id uuid.UUID) (GetC
 	return i, err
 }
 
+const getLeaveForPush = `-- name: GetLeaveForPush :one
+SELECT id, coalesce(legacy_doc_id, id::text)::text AS leave_ref, driver_id, leave_type,
+       to_char(start_date, 'YYYY-MM-DD')::text AS start_date, to_char(end_date, 'YYYY-MM-DD')::text AS end_date
+FROM leave_requests
+WHERE id = $1
+`
+
+type GetLeaveForPushRow struct {
+	ID        uuid.UUID
+	LeaveRef  string
+	DriverID  *uuid.UUID
+	LeaveType string
+	StartDate string
+	EndDate   string
+}
+
+// leave.decided (T45): leave_ref is the id the app knows (legacy_doc_id, else the uuid, R25); the type and days build
+// the body.
+func (q *Queries) GetLeaveForPush(ctx context.Context, id uuid.UUID) (GetLeaveForPushRow, error) {
+	row := q.db.QueryRow(ctx, getLeaveForPush, id)
+	var i GetLeaveForPushRow
+	err := row.Scan(
+		&i.ID,
+		&i.LeaveRef,
+		&i.DriverID,
+		&i.LeaveType,
+		&i.StartDate,
+		&i.EndDate,
+	)
+	return i, err
+}
+
 const getMaintenanceForPush = `-- name: GetMaintenanceForPush :one
 SELECT m.id, coalesce(m.legacy_doc_id, m.id::text)::text AS maintenance_ref, m.status, m.truck_id,
        coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,

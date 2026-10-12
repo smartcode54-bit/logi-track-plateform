@@ -24,6 +24,11 @@ import (
 type FirestoreWriter interface {
 	Get(ctx context.Context, path string) (dump.Doc, error)
 	Patch(ctx context.Context, path string, fields map[string]any, mask []string, pre gcp.Precondition) (dump.Doc, error)
+	// Delete removes a document (the holidays projection, T45); a missing document is no error.
+	Delete(ctx context.Context, path string, pre gcp.Precondition) error
+	// Documents lists a collection (the catch-up of a deletable collection, T45: the documents of rows deleted in
+	// PostgreSQL while no projection ran are found and deleted).
+	Documents(ctx context.Context, collection string, group bool) ([]dump.Doc, error)
 }
 
 // ExportDoc is one encoded legacy document (export-back and the firestore.shadow projection share the encoders).

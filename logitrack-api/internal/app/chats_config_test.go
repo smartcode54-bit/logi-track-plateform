@@ -8,9 +8,10 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 )
 
-// The chat write-back (T47) shares WRITEBACK_FIRESTORE_PROJECT_ID with the operations write-back (T31): the project needs
-// GOOGLE_APPLICATION_CREDENTIALS while operations or comms is Firestore-owned, and nothing once both are
-// PostgreSQL-owned; CommsOwned follows PG_OWNED_DOMAINS.
+// The chat write-back (T47) shares WRITEBACK_FIRESTORE_PROJECT_ID with the operations write-back (T31) and the leave
+// decisions (T45): the project needs GOOGLE_APPLICATION_CREDENTIALS while operations or comms is Firestore-owned, or
+// any domain is (the leave decisions), and nothing once every domain is PostgreSQL-owned; CommsOwned follows
+// PG_OWNED_DOMAINS.
 func TestWriteBackCredentialsFollowComms(t *testing.T) {
 	for _, tc := range []struct {
 		owned       string
@@ -21,7 +22,7 @@ func TestWriteBackCredentialsFollowComms(t *testing.T) {
 		{owned: "", needsCreds: true, withProject: true},
 		{owned: "operations", needsCreds: true, withProject: true},
 		{owned: "comms", needsCreds: true, commsOwned: true, withProject: true},
-		{owned: "operations,comms", commsOwned: true, withProject: true},
+		{owned: "operations,comms", needsCreds: true, commsOwned: true, withProject: true},
 		{owned: "all", commsOwned: true, withProject: true},
 		{owned: "auth", withProject: false},
 	} {

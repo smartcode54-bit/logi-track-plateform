@@ -129,3 +129,11 @@ FROM device_tokens
 WHERE user_id = @user_id
 ORDER BY last_seen_at DESC, install_id
 LIMIT @per_user::bigint;
+
+-- name: GetLeaveForPush :one
+-- leave.decided (T45): leave_ref is the id the app knows (legacy_doc_id, else the uuid, R25); the type and days build
+-- the body.
+SELECT id, coalesce(legacy_doc_id, id::text)::text AS leave_ref, driver_id, leave_type,
+       to_char(start_date, 'YYYY-MM-DD')::text AS start_date, to_char(end_date, 'YYYY-MM-DD')::text AS end_date
+FROM leave_requests
+WHERE id = @id;

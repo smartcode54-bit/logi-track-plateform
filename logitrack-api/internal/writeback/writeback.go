@@ -8,9 +8,10 @@
 //
 // Writer is the port; Firestore adapts the Firestore REST client of internal/etl/gcp (service-account token, update
 // masks, atomic commits); Memory is the in-memory stand-in of tests. The operations staff writes of T31
-// (internal/operations) and the chat writes of T47 (internal/chats) call it while their domain is Firestore-owned; the
-// expenses and maintenance services
-// (T40) still write PostgreSQL only (#60's open question). Switching it on in an environment is an operator decision
+// (internal/operations) and the chat writes of T47 (internal/chats) call it while their domain is Firestore-owned, and
+// the leave decisions of T45 (internal/hr) until every domain is PostgreSQL-owned, all over the api's one Firestore
+// client; the expenses and maintenance services (T40) still write PostgreSQL only (#60's open question). Switching it
+// on in an environment is an operator decision
 // recorded with the coexistence runbook: on a PostgreSQL-owned domain and on a deployment without the mirror (the
 // staging VM) nothing calls it.
 package writeback

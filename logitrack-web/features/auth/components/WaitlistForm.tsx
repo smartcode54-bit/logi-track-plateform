@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { Loader2, Mail } from "lucide-react";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { HoneypotField } from "@/components/landing/HoneypotField";
 
 const COUNTRY_OPTIONS: ComboboxOption[] = [
   { value: "+66", label: "🇹🇭 Thailand (+66)" },
@@ -39,6 +40,8 @@ export default function WaitlistForm() {
     setCountryCode,
     phone,
     setPhone,
+    website,
+    setWebsite,
     loading,
     submitted,
     handleSubmit,
@@ -75,7 +78,8 @@ export default function WaitlistForm() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="relative space-y-4">
+          <HoneypotField id="waitlist-page-website" value={website} onChange={setWebsite} />
           <div className="space-y-2">
             <Label htmlFor="fullName">Full name</Label>
             <Input

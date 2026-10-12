@@ -251,6 +251,51 @@ func TestProjectLeavesOtherEventsAndRejectsNonScalars(t *testing.T) {
 	}
 }
 
+// A leave event keeps the leave keys only on every topic (T45): the rejection's free-text reason, which notify.fcm reads
+// from the outbox row, never reaches tenant:{tid}:hr (also open to hr:view_payroll, which does not read leave requests)
+// nor the driver's stream, and the driver's copy names no driver.
+func TestProjectThinsTheLeaveEvents(t *testing.T) {
+	const did = "0199c000-0000-7000-8000-0000000000d1"
+	full := json.RawMessage(`{"entity":"leave_request","id":"l1","tenantId":"` + tid + `","status":"rejected","from":"pending",
+		"driverId":"` + did + `","reason":"sick note: diagnosis XYZ","driverName":"สมชาย","note":{"reason":"x"},"at":"2026-10-11T03:00:00Z"}`)
+	hrTopic := TenantTopic(tid, FamilyHR)
+	out, ok := Project(hrTopic, "leave.decided", full)
+	if !ok {
+		t.Fatal("tenant hr dropped leave.decided")
+	}
+	got := decode(t, out)
+	want := map[string]any{"entity": "leave_request", "id": "l1", "tenantId": tid, "status": "rejected", "from": "pending",
+		"driverId": did, "at": "2026-10-11T03:00:00Z"}
+	if !maps.Equal(got, want) {
+		t.Errorf("tenant hr copy %v", got)
+	}
+	out, ok = Project(DriverTopic(did), "leave.decided", full)
+	if !ok {
+		t.Fatal("the driver's topic dropped leave.decided")
+	}
+	got = decode(t, out)
+	delete(want, "driverId")
+	if !maps.Equal(got, want) {
+		t.Errorf("driver copy %v", got)
+	}
+	for k := range got {
+		if !slices.Contains(LeaveKeys(), k) {
+			t.Errorf("driver copy carries %s", k)
+		}
+	}
+	if _, ok := Project(DispatchTopic(party, FamilyTrips), "leave.decided", full); ok {
+		t.Error("a dispatch topic carries leave.decided")
+	}
+	if _, ok := Project(hrTopic, "leave.decided", json.RawMessage(`"x"`)); ok {
+		t.Error("a leave payload that is not an object was sent")
+	}
+	// The payroll events of the same topic keep their payload.
+	pay := json.RawMessage(`{"period":"2026-10","round":1}`)
+	if out, ok := Project(hrTopic, "payroll.approved", pay); !ok || string(out) != string(pay) {
+		t.Errorf("payroll.approved %s %v", out, ok)
+	}
+}
+
 // The dispatch tables: every type travels on its family, no price ever does, and every changed[] name is a column a
 // scope projection may show (scope.IsHidden; the integration test of internal/sse checks them against the views).
 func TestDispatchTables(t *testing.T) {
