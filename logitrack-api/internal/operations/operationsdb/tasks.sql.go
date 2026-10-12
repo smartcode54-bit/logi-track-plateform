@@ -237,6 +237,78 @@ func (q *Queries) CheckInTask(ctx context.Context, arg CheckInTaskParams) (Task,
 	return i, err
 }
 
+const copyTaskStop = `-- name: CopyTaskStop :one
+INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, destination_hub_id, destination_linked_party_id,
+                                 status, delivered_at, delivered_lat, delivered_lng, estimated_rate_thb, drop_fee_thb,
+                                 sequence, added_at, source_id, is_custom)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7, $8,
+        $9, $10, $11, $12,
+        $13, $14, $15)
+RETURNING id, task_id, stop_index, destination_raw, destination_hub_id, destination_linked_party_id, status, delivered_at, delivered_lat, delivered_lng, estimated_rate_thb, drop_fee_thb, sequence, added_at, source_id, is_custom
+`
+
+type CopyTaskStopParams struct {
+	TaskID                   uuid.UUID
+	StopIndex                int32
+	DestinationRaw           string
+	DestinationHubID         *uuid.UUID
+	DestinationLinkedPartyID *uuid.UUID
+	Status                   string
+	DeliveredAt              *time.Time
+	DeliveredLat             *float64
+	DeliveredLng             *float64
+	EstimatedRateThb         *float64
+	DropFeeThb               *float64
+	Sequence                 *int32
+	AddedAt                  *time.Time
+	SourceID                 *string
+	IsCustom                 bool
+}
+
+// A planned stop rewritten by a trip's stop edit (T34): the task's stops are deleted and inserted again as stop 1..n
+// (UNIQUE (task_id, destination_raw) would refuse a swap in place), each with the fields of the old stop at the same
+// destination carried over.
+func (q *Queries) CopyTaskStop(ctx context.Context, arg CopyTaskStopParams) (TaskDeliveryStop, error) {
+	row := q.db.QueryRow(ctx, copyTaskStop,
+		arg.TaskID,
+		arg.StopIndex,
+		arg.DestinationRaw,
+		arg.DestinationHubID,
+		arg.DestinationLinkedPartyID,
+		arg.Status,
+		arg.DeliveredAt,
+		arg.DeliveredLat,
+		arg.DeliveredLng,
+		arg.EstimatedRateThb,
+		arg.DropFeeThb,
+		arg.Sequence,
+		arg.AddedAt,
+		arg.SourceID,
+		arg.IsCustom,
+	)
+	var i TaskDeliveryStop
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.StopIndex,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.DestinationLinkedPartyID,
+		&i.Status,
+		&i.DeliveredAt,
+		&i.DeliveredLat,
+		&i.DeliveredLng,
+		&i.EstimatedRateThb,
+		&i.DropFeeThb,
+		&i.Sequence,
+		&i.AddedAt,
+		&i.SourceID,
+		&i.IsCustom,
+	)
+	return i, err
+}
+
 const countTasksOnDay = `-- name: CountTasksOnDay :many
 SELECT t.task_type, t.status, count(*)::int AS n
 FROM tasks t
@@ -1019,6 +1091,92 @@ func (q *Queries) NextTaskSeq(ctx context.Context, arg NextTaskSeqParams) (int32
 	var seq int32
 	err := row.Scan(&seq)
 	return seq, err
+}
+
+const setTaskFromTrip = `-- name: SetTaskFromTrip :one
+UPDATE tasks
+SET source_hub_raw = $1, source_hub_id = $2,
+    source_linked_party_id = $3, destination_raw = $4,
+    destination_hub_id = $5, destination_soc_key = $6,
+    is_multi_delivery = $7, task_type = $8
+WHERE id = $9
+RETURNING id, legacy_doc_id, tenant_id, tenant_source, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, legacy_date_str, actual_pickup_at, source_hub_raw, source_hub_id, source_linked_party_id, destination_raw, destination_hub_id, destination_soc_key, destination_linked_party_id, billing_party_id, truck_id, truck_type, legacy_truck_type, license_plate_snapshot, driver_id, legacy_driver_ref, driver_ref_match, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, line_checkin_notified_at, cancelled_at, cancel_reason, client_op_id, created_by, created_at, updated_at
+`
+
+type SetTaskFromTripParams struct {
+	SourceHubRaw        string
+	SourceHubID         *uuid.UUID
+	SourceLinkedPartyID *uuid.UUID
+	DestinationRaw      string
+	DestinationHubID    *uuid.UUID
+	DestinationSocKey   *string
+	IsMultiDelivery     bool
+	TaskType            string
+	ID                  uuid.UUID
+}
+
+// A trip edit mirrored on its task (PATCH /v1/trips/{id}, T34; EditTripDetailsDialog.tsx:569-606): the route (the
+// origin with its hub's billing link, the destination), the multi-drop flag of the edited stops and the type derived
+// from an edited origin. The task number keeps its prefix (no renumbering).
+func (q *Queries) SetTaskFromTrip(ctx context.Context, arg SetTaskFromTripParams) (Task, error) {
+	row := q.db.QueryRow(ctx, setTaskFromTrip,
+		arg.SourceHubRaw,
+		arg.SourceHubID,
+		arg.SourceLinkedPartyID,
+		arg.DestinationRaw,
+		arg.DestinationHubID,
+		arg.DestinationSocKey,
+		arg.IsMultiDelivery,
+		arg.TaskType,
+		arg.ID,
+	)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.LegacyDocID,
+		&i.TenantID,
+		&i.TenantSource,
+		&i.TaskNo,
+		&i.TaskType,
+		&i.JobCategory,
+		&i.Status,
+		&i.PlanAt,
+		&i.PlanDate,
+		&i.PlanTime,
+		&i.LegacyDateStr,
+		&i.ActualPickupAt,
+		&i.SourceHubRaw,
+		&i.SourceHubID,
+		&i.SourceLinkedPartyID,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.DestinationSocKey,
+		&i.DestinationLinkedPartyID,
+		&i.BillingPartyID,
+		&i.TruckID,
+		&i.TruckType,
+		&i.LegacyTruckType,
+		&i.LicensePlateSnapshot,
+		&i.DriverID,
+		&i.LegacyDriverRef,
+		&i.DriverRefMatch,
+		&i.HelperDriverID,
+		&i.RunOrder,
+		&i.CheckInAt,
+		&i.CheckInPhotoFileID,
+		&i.CheckInAppScreenshotFileID,
+		&i.CheckInLat,
+		&i.CheckInLng,
+		&i.IsMultiDelivery,
+		&i.LineCheckinNotifiedAt,
+		&i.CancelledAt,
+		&i.CancelReason,
+		&i.ClientOpID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setTaskMultiDelivery = `-- name: SetTaskMultiDelivery :exec

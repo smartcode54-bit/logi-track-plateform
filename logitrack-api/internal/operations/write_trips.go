@@ -57,7 +57,7 @@ const (
 
 // tripPatchFields are the fields of PATCH /v1/trips/{id}.
 var tripPatchFields = []string{"sealCode", "partnerCode", "ocrData", "deliveredAt", "needsAdminReview", "reviewStatus",
-	"reviewReason", "origin", "destination", "photos"}
+	"reviewReason", "origin", "destination", "photos", "stops"}
 
 // photoInput is one evidence photo of a trip write: its type (any non-empty text, R19), the uploaded key (committed in
 // the write's transaction, purpose trip_photo) and the overlay's geocoding.
@@ -136,8 +136,10 @@ func (s *Service) tripView(ctx context.Context, p *authz.Principal, id uuid.UUID
 
 // tripChange is a parsed PATCH of a trip.
 type tripChange struct {
-	f      fields
-	photos []photoInput
+	f        fields
+	photos   []photoInput
+	stops    []tripStopIn // stops[] (T34): the whole new stop list when stopsSet
+	stopsSet bool
 }
 
 // PatchTripAPI is PATCH /v1/trips/{id} (operations:edit_trip_details): the seal and partner codes, the OCR data, the
@@ -145,7 +147,8 @@ type tripChange struct {
 // photos (merged by type). A deliveredAt change of a delivered trip reads the period lock of its billing party in the
 // transaction, for the old and the new instant (409 billing_period_locked with blockedInvoiceNumber, R17), and emits
 // trip.delivered_at_changed (billing restamps) besides trip.updated. Photos need the PostgreSQL path (write-back: 422
-// write_back_unsupported).
+// write_back_unsupported). stops[] (T34) replaces the stop progress (write_trip_shape.go) and an edited origin
+// re-derives the job type; both, with the route, are mirrored on the trip's task (task.updated).
 func (s *Service) PatchTripAPI(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, body []byte) (WriteResult, error) {
 	if err := requireCap(p, authz.OperationsEditTripDetails); err != nil {
 		return WriteResult{}, err
@@ -161,6 +164,7 @@ func (s *Service) PatchTripAPI(ctx context.Context, p *authz.Principal, rid stri
 	}
 	f.only(tripPatchFields...)
 	ch := tripChange{f: f, photos: parsePhotos(f)}
+	ch.stops, ch.stopsSet = parseTripStops(f)
 	if f.has("reviewStatus") {
 		if v := f.optText("reviewStatus"); v != nil && *v != reviewPending {
 			ck.add("reviewStatus", "invalid")
@@ -199,12 +203,17 @@ func (s *Service) PatchTripAPI(ctx context.Context, p *authz.Principal, rid stri
 				return tripNoError(err, cur.TripNo)
 			}
 		}
+		shaped, taskEvs, err := s.applyTripShape(ctx, q, d, cur, params, changed, ch)
+		if err != nil {
+			return err
+		}
 		if len(ch.photos) > 0 {
 			if err := s.putPhotos(ctx, tx, p, id, ch.photos); err != nil {
 				return err
 			}
 			changed = append(changed, "photos")
 		}
+		changed = append(changed, shaped...)
 		if len(changed) == 0 {
 			return nil
 		}
@@ -220,7 +229,7 @@ func (s *Service) PatchTripAPI(ctx context.Context, p *authz.Principal, rid stri
 		if slices.Contains(changed, "deliveredAt") && cur.Status == TripDelivered {
 			evs = append(evs, tripEvent(RouteTripDeliveredAtCh, next, []string{"deliveredAt"})) // billing only: no topic
 		}
-		return appendEvents(ctx, tx, rid, "", evs...)
+		return appendEvents(ctx, tx, rid, "", append(evs, taskEvs...)...)
 	})
 	if err != nil {
 		return WriteResult{}, err

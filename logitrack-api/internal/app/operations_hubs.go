@@ -22,7 +22,7 @@ func (a OperationsHubs) Hubs(ctx context.Context, p *authz.Principal) ([]operati
 	out := make([]operations.Hub, len(list))
 	for i, h := range list {
 		out[i] = operations.Hub{ID: h.ID, Code: h.SourceID, NameTh: h.SourceNameTh, NameEn: h.SourceNameEn,
-			LinkedCustomerName: h.LinkedCustomerName, LinkedPartyID: h.LinkedPartyID}
+			LinkedCustomerName: h.LinkedCustomerName, LinkedPartyID: h.LinkedPartyID, StationType: h.StationType}
 	}
 	return out, nil
 }

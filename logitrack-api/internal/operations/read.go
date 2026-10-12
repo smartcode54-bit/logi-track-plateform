@@ -47,6 +47,8 @@ type Hub struct {
 	// LinkedPartyID is the billing party the hub is linked to (the hub-derived customer link a task write copies,
 	// sourceHubLinkedCustomerId / destinationLinkedCustomerId of the legacy forms, T31).
 	LinkedPartyID *uuid.UUID
+	// StationType is HUB or SOC (hubs.station_type): an origin at a SOC makes a trip line_haul (T34).
+	StationType string
 }
 
 // Hubs lists the hub master for p (hubs.Service.List through an adapter of internal/app: the shared cache, global read).

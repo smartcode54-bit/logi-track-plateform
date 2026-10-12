@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,18 +49,22 @@ func (s *Service) answerTrip(ctx context.Context, p *authz.Principal, id uuid.UU
 	return res, nil
 }
 
-// patchTripWriteBack writes the changed fields of a trip edit to its document.
+// patchTripWriteBack writes the changed fields of a trip edit to its document. Stops, the derived job type and the task
+// mirror (T34) are a read-modify-write of the trip and task documents in one commit (shapeDocs), retried twice when a
+// document changed between the read and the commit.
 func (s *Service) patchTripWriteBack(ctx context.Context, p *authz.Principal, rid string, d directory, id uuid.UUID, ch tripChange) (WriteResult, error) {
 	var cur Trip
 	var changed []string
+	var pr operationsdb.UpdateTripDetailsParams
+	var plan wbShape
 	doc := map[string]any{}
-	err := s.lockedTrip(ctx, p, id, func(tx pgx.Tx, _ *operationsdb.Queries, c Trip) error {
+	err := s.lockedTrip(ctx, p, id, func(tx pgx.Tx, q *operationsdb.Queries, c Trip) error {
 		cur = c
-		pr, ch2, err := s.mergeTrip(ctx, tx, d, cur, ch)
+		var err error
+		pr, changed, err = s.mergeTrip(ctx, tx, d, cur, ch)
 		if err != nil {
 			return err
 		}
-		changed = ch2
 		for _, k := range changed {
 			switch k {
 			case "sealCode":
@@ -90,21 +95,36 @@ func (s *Service) patchTripWriteBack(ctx context.Context, p *authz.Principal, ri
 				doc["destination"] = optStr(pr.DestinationRaw)
 			}
 		}
-		return nil
+		plan, err = s.planShapeWriteBack(ctx, q, d, cur, pr, changed, ch)
+		return err
 	})
 	if err != nil {
 		return WriteResult{}, err
 	}
-	if len(changed) == 0 {
-		return s.tripView(ctx, p, id, http.StatusOK)
+	for attempt := 0; ; attempt++ {
+		docs, taskChanged, write, err := s.shapeDocs(ctx, d, cur, pr, changed, ch, plan, doc, s.now().UTC())
+		if err != nil {
+			return WriteResult{}, err
+		}
+		if !write {
+			return s.tripView(ctx, p, id, http.StatusOK)
+		}
+		at, acked, err := s.writeBack(ctx, docs...)
+		if errors.Is(err, writeback.ErrConflict) && ch.stopsSet && attempt < 2 {
+			continue // a document changed between the read and the commit: read it again
+		}
+		if err != nil {
+			return WriteResult{}, err
+		}
+		if len(taskChanged) > 0 && plan.task != nil {
+			next := *plan.task
+			if jt, ok := d.jobTypeOf(pr.OriginRaw); ok && slices.Contains(taskChanged, "taskType") {
+				next.TaskType = jt
+			}
+			s.notifyWriteBack(ctx, p, rid, at, onDoc(*next.LegacyDocID, taskEvent(RouteTaskUpdated, next, taskChanged))...)
+		}
+		return s.answerTrip(ctx, p, id, docs[0], at, acked)
 	}
-	doc["updatedAt"] = s.now().UTC()
-	w := wbDoc{collection: CollTrips, docID: *cur.LegacyDocID, fields: doc, mustExist: true}
-	at, acked, err := s.writeBack(ctx, w)
-	if err != nil {
-		return WriteResult{}, err
-	}
-	return s.answerTrip(ctx, p, id, w, at, acked)
 }
 
 // legacyJSON turns decoded JSON numbers (float64) into the Firestore client's value types (an integral number stays a

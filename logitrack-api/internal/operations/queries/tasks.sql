@@ -119,6 +119,18 @@ RETURNING *;
 -- The first extra stop upgrades a single-stop task (addDeliveryStop, multiDeliveryTrips.ts:420-424).
 UPDATE tasks SET is_multi_delivery = true WHERE id = sqlc.arg(id) AND NOT is_multi_delivery;
 
+-- name: SetTaskFromTrip :one
+-- A trip edit mirrored on its task (PATCH /v1/trips/{id}, T34; EditTripDetailsDialog.tsx:569-606): the route (the
+-- origin with its hub's billing link, the destination), the multi-drop flag of the edited stops and the type derived
+-- from an edited origin. The task number keeps its prefix (no renumbering).
+UPDATE tasks
+SET source_hub_raw = sqlc.arg(source_hub_raw), source_hub_id = sqlc.narg(source_hub_id),
+    source_linked_party_id = sqlc.narg(source_linked_party_id), destination_raw = sqlc.arg(destination_raw),
+    destination_hub_id = sqlc.narg(destination_hub_id), destination_soc_key = sqlc.narg(destination_soc_key),
+    is_multi_delivery = sqlc.arg(is_multi_delivery), task_type = sqlc.arg(task_type)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
 -- --- delivery stops (task_delivery_stops: parent-scoped, the parent's reach writes, the assigned driver too) -------
 
 -- name: InsertTaskStop :one
@@ -129,6 +141,19 @@ INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, destinati
 VALUES (sqlc.arg(task_id), sqlc.arg(stop_index), sqlc.arg(destination_raw), sqlc.narg(destination_hub_id),
         sqlc.narg(destination_linked_party_id), sqlc.narg(sequence), sqlc.narg(added_at), sqlc.narg(source_id),
         sqlc.arg(is_custom))
+RETURNING *;
+
+-- name: CopyTaskStop :one
+-- A planned stop rewritten by a trip's stop edit (T34): the task's stops are deleted and inserted again as stop 1..n
+-- (UNIQUE (task_id, destination_raw) would refuse a swap in place), each with the fields of the old stop at the same
+-- destination carried over.
+INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, destination_hub_id, destination_linked_party_id,
+                                 status, delivered_at, delivered_lat, delivered_lng, estimated_rate_thb, drop_fee_thb,
+                                 sequence, added_at, source_id, is_custom)
+VALUES (sqlc.arg(task_id), sqlc.arg(stop_index), sqlc.arg(destination_raw), sqlc.narg(destination_hub_id),
+        sqlc.narg(destination_linked_party_id), sqlc.arg(status), sqlc.narg(delivered_at), sqlc.narg(delivered_lat),
+        sqlc.narg(delivered_lng), sqlc.narg(estimated_rate_thb), sqlc.narg(drop_fee_thb), sqlc.narg(sequence),
+        sqlc.narg(added_at), sqlc.narg(source_id), sqlc.arg(is_custom))
 RETURNING *;
 
 -- name: TaskStops :many

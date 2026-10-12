@@ -270,6 +270,28 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			return err
 		},
 			[]string{"task_delivery_stops_task_id_stop_index_key", "task_delivery_stops_task_id_destination_raw_key"}},
+		// --- the trip edit's stops, type and task mirror (T34)
+		{"SetTaskFromTrip", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.SetTaskFromTrip(ctx, operationsdb.SetTaskFromTripParams{ID: task, SourceHubRaw: "A", DestinationRaw: "B",
+				TaskType: "line_haul"})
+			return err
+		}, []string{"tasks_pkey"}},
+		{"CopyTaskStop", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.CopyTaskStop(ctx, operationsdb.CopyTaskStopParams{TaskID: task, StopIndex: 9, DestinationRaw: "X", Status: "pending"})
+			return err
+		}, nil},
+		{"PutTripStop", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.PutTripStop(ctx, operationsdb.PutTripStopParams{TripID: trip, StopIndex: 2, DestinationRaw: "X", Status: "delivered"})
+			return err
+		}, nil},
+		{"DeleteTripStopsFrom", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.DeleteTripStopsFrom(ctx, operationsdb.DeleteTripStopsFromParams{TripID: trip, LastIndex: 2})
+			return err
+		}, []string{"trip_delivery_stops_trip_id_stop_index_key"}},
+		{"SetTripShape", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.SetTripShape(ctx, operationsdb.SetTripShapeParams{ID: trip, IsMultiDelivery: true, JobType: "line_haul"})
+			return err
+		}, []string{"trip_records_pkey"}},
 		{"SetTaskStopStatus", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.SetTaskStopStatus(ctx, operationsdb.SetTaskStopStatusParams{TaskID: task, StopIndex: 1, Status: "delivered"})
 			return err
