@@ -22,6 +22,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/apikey"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase/firebasetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -100,6 +101,19 @@ func (w *world) keyTestGroups(svc *auth.Service) []ingress.Group {
 		}},
 		{Prefix: "/v1/mobile", Public: true, Mount: func(r fiber.Router) {
 			r.Get("/keytest", machine, ok)
+			// A callable shim target (T38's RequireShim): the end user's principal, the key as attribution.
+			r.Post("/shimtest", svc.RequireShim("shimtest"), authz.RequireCap(authz.MobileSubmitTrip), func(c fiber.Ctx) error {
+				p := authz.PrincipalFrom(c)
+				out := map[string]any{"user": p.UserID.String(), "amr": p.AMR, "scope": string(p.APIKeyScope),
+					"role": string(p.TenantRole)}
+				if p.APIKeyID != nil {
+					out["keyId"] = p.APIKeyID.String()
+				}
+				if p.DriverID != nil {
+					out["driver"] = p.DriverID.String()
+				}
+				return httpx.JSON(c, http.StatusOK, out)
+			})
 		}},
 	}
 }
@@ -381,8 +395,8 @@ func TestAPIKeyRevokedAndInvalid(t *testing.T) {
 
 // Scope enforcement (R82, Appendix C §C.4.11): integration and script keys on the internal routes that admit
 // them, with exactly their capabilities and RLS in their tenant; release_publisher only on the publish routes;
-// cf_shim nowhere until its shim targets ship (M2); no key on the public listener, on a route that does not
-// admit keys, or with X-Act-On-Tenant.
+// cf_shim only on the shim targets (TestShimTargetAuthentication); no key on the public listener, on a route that
+// does not admit keys, or with X-Act-On-Tenant.
 func TestAPIKeyScopeEnforcement(t *testing.T) {
 	w := newWorld(t)
 	taA, pa := w.login("ta.a@example.test"), w.login("pa@example.test")
@@ -448,7 +462,7 @@ func TestAPIKeyScopeEnforcement(t *testing.T) {
 	scopeRefusal(w.keyed(http.MethodGet, "/v1/keytest/whoami", publisher))
 	scopeRefusal(w.keyed(http.MethodPost, "/v1/keytest/publish", platformKey))
 
-	// cf_shim: created and listed, used nowhere yet; a bearer beside it changes nothing here.
+	// cf_shim: created and listed, refused on every route but a shim target; a bearer beside it changes nothing here.
 	if !slices.Contains(keyIDs(w.get("/v1/api-keys", pa)), shimID) {
 		t.Fatal("the cf_shim key is not listed")
 	}
@@ -656,4 +670,69 @@ func TestAPIKeyRefusedOnSelfAuthenticatingAuthRoutes(t *testing.T) {
 	ta2 := w.login2(email, "another long passphrase 2")
 	expect(t, w.send(http.MethodPost, "/v1/auth/logout", ta2, map[string]any{}), http.StatusNoContent, "")
 	expect(t, w.get("/v1/me", ta2), http.StatusUnauthorized, auth.CodeSessionRevoked)
+}
+
+// The callable shim targets (Appendix C §C.6.5, §C.4.11; R45; first used by T38): a cf_shim key together with the
+// end user's Firebase ID token, on the public listener only. The principal is the user's (driver:self, capabilities
+// from RBAC), the key is attribution. Missing either credential is 401, a key of another scope with the token 401
+// (multiple_credentials), the internal listener 403 (api_key_scope), a revoked key 401, a forged token 401, a staff user
+// without mobile:submit_trip 403.
+func TestShimTargetAuthentication(t *testing.T) {
+	fb := firebasetest.New(t, "logitrack-shim-test")
+	w := newWorldWith(t, auth.Firebase{Verifier: fb.Verifier(nil)})
+	pa := w.login("pa@example.test")
+	shimID, shim := w.mustKey(pa, map[string]any{"name": "callable shims", "scope": "cf_shim",
+		"capabilities": []string{"mobile:submit_trip"}})
+	_, integ := w.mustKey(pa, map[string]any{"name": "master-data", "scope": "integration", "capabilities": []string{"fleet:manage_customers"}})
+
+	drvUser := w.user("shim.driver@example.test")
+	w.member(drvUser, w.A, "driver")
+	drv := w.id(`INSERT INTO drivers (tenant_id, tenant_source, user_id, first_name, last_name, mobile)
+		VALUES ($1, 'self', $2, 'ส', 'ข', '0811111111') RETURNING id::text`, w.A, drvUser)
+	w.exec(`UPDATE users SET legacy_auth_uid = 'fbShimDriver000000000000001' WHERE id = $1`, drvUser)
+	staff := w.user("shim.staff@example.test")
+	w.member(staff, w.O, "operator")
+	w.exec(`UPDATE users SET legacy_auth_uid = 'fbShimStaff0000000000000001' WHERE id = $1`, staff)
+	now := time.Now()
+	token := func(uid string) string { return fb.SignIDToken(fb.IDTokenClaims(uid, now.Add(-5*time.Minute), now)) }
+	call := func(base, bearer string, headers ...string) resp {
+		t.Helper()
+		return w.call(base, http.MethodPost, "/v1/mobile/shimtest", bearer, headers...)
+	}
+	scopeRefusal := func(r resp) {
+		t.Helper()
+		expect(t, r, http.StatusForbidden, authz.CodePermissionDenied)
+		if reason(r) != auth.ReasonKeyScope {
+			t.Fatalf("want reason %s: %s", auth.ReasonKeyScope, r.raw)
+		}
+	}
+
+	r := call(w.public, token("fbShimDriver000000000000001"), auth.HeaderAPIKey, shim)
+	expect(t, r, http.StatusOK, "")
+	if d := r.data().(map[string]any); d["user"] != drvUser || d["driver"] != drv || d["amr"] != auth.AMRFirebase ||
+		d["scope"] != "cf_shim" || d["keyId"] != shimID || d["role"] != "driver" {
+		t.Fatalf("shim principal: %s", r.raw)
+	}
+	// Either credential alone is 401.
+	expect(t, call(w.public, token("fbShimDriver000000000000001")), http.StatusUnauthorized, "unauthenticated")
+	expect(t, call(w.public, "", auth.HeaderAPIKey, shim), http.StatusUnauthorized, "unauthenticated")
+	// A token Firebase did not sign is 401; a key of another scope with a bearer is two credentials (401,
+	// multiple_credentials, C.4.3); a cf_shim key on the internal listener is 403.
+	expect(t, call(w.public, "not-a-token", auth.HeaderAPIKey, shim), http.StatusUnauthorized, "invalid_token")
+	r = call(w.public, token("fbShimDriver000000000000001"), auth.HeaderAPIKey, integ)
+	expect(t, r, http.StatusUnauthorized, "invalid_token")
+	if reason(r) != auth.ReasonMultipleCreds {
+		t.Fatalf("another scope: %s", r.raw)
+	}
+	scopeRefusal(call(w.internal, token("fbShimDriver000000000000001"), auth.HeaderAPIKey, shim))
+	// The route's capability applies to the user: an operator does not submit trips.
+	expect(t, call(w.public, token("fbShimStaff0000000000000001"), auth.HeaderAPIKey, shim), http.StatusForbidden,
+		authz.CodePermissionDenied)
+	// A revoked key is 401.
+	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+shimID, pa, nil), http.StatusNoContent, "")
+	r = call(w.public, token("fbShimDriver000000000000001"), auth.HeaderAPIKey, shim)
+	expect(t, r, http.StatusUnauthorized, "invalid_token")
+	if reason(r) != auth.ReasonKeyRevoked {
+		t.Fatalf("revoked: %s", r.raw)
+	}
 }

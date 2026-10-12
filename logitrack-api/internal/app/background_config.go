@@ -259,6 +259,15 @@ func (c *WorkerConfig) Validate() error {
 	return nil
 }
 
+// FirestorePricing is the pricing gate of billing.compute and billing.backfill (main spec §6.13 coexistence, T38): the
+// deployment runs the FS->PG mirror (ETL_SYNC_ENABLED, set on every worker replica of the deployment, not only the one
+// that runs group sync) while billing is not in PG_OWNED_DOMAINS (P1-P2). Firestore's Cloud Functions then still price
+// the trips and standby records the mirror writes, and Go prices only the records born in PostgreSQL. Without the
+// mirror (the staging VM: PostgreSQL only) or once billing is owned (P3), Go is the only pricer.
+func FirestorePricing(etlSyncEnabled bool, owned map[string]bool) bool {
+	return etlSyncEnabled && !owned["billing"]
+}
+
 // SchedulerConfig is the scheduler process configuration.
 type SchedulerConfig struct {
 	Common

@@ -55,7 +55,10 @@ const (
 // The task type of a task is checked too: operations:view_first_mile reads first-mile tasks, operations:view_line_haul
 // line-haul ones (dispatch:view_operations both). A dispatcher or a customer-scope principal is served from the scope_*
 // projections (Appendix C §C.3.7).
-func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
+//
+// more are routes other packages serve below these prefixes (one group per prefix): the billing routes of T38 below
+// /v1/trips and /v1/standby (internal/billing TripRoutes, StandbyRoutes).
+func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
 	return []ingress.Group{
@@ -84,16 +87,32 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Post("/:id/deliver", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.DeliverTripAPI))
 			r.Post("/:id/cancel", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.CancelTripAPI))
 			r.Post("/:id/rename", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.RenameTripAPI))
+			for _, m := range more {
+				for _, mount := range m.Trips {
+					mount(r)
+				}
+			}
 		}},
 		{Prefix: StandbyPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.DispatchViewOperations), h.listStandby)
 			r.Post("/backfill", requireAuth, need(authz.OperationsCreateStandby), h.write(h.s.StandbyBackfillAPI))
+			for _, m := range more {
+				for _, mount := range m.Standby {
+					mount(r)
+				}
+			}
 		}},
 		{Prefix: IncidentsPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewIncidents, authz.DispatchViewOperations), h.listIncidents)
 			r.Post("", requireAuth, need(authz.OperationsEditTripDetails), h.write(h.s.CreateIncidentAPI))
 		}},
 	}
+}
+
+// Mounts are routes another package serves below the trips and standby prefixes (fleet.Groups' truckRoutes pattern).
+type Mounts struct {
+	Trips   []func(r fiber.Router)
+	Standby []func(r fiber.Router)
 }
 
 // write is the handler of a write route without a path id: no query parameter, the JSON body to the service, the

@@ -44,7 +44,6 @@ import {
     FILTER_NONE,
     INVOICE_CATEGORIES,
     INVOICE_TYPES,
-    invalidateBillingMonth,
     missingBillingDateQuery,
     rowsParamsComplete,
     standbyDiagnosticsQuery,
@@ -54,7 +53,7 @@ import {
     type StandbyIssueDTO,
     type StatementDTO,
 } from "../../api/billing.go";
-import { assignStandbyCustomer, computeStandbyBilling, computeTripBilling } from "../../api/billingWrites.go";
+import { assignStandbyCustomer, computeStandbyBilling, repairTrips } from "../../api/billingWrites.go";
 
 import { JobCategoryBadge } from "./badges";
 import { ApiErrorAlert, CustomerSelect, formatDateTime, formatDay, formatThb, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
@@ -65,9 +64,6 @@ interface LoadedPeriod {
     year: number;
     month: number;
 }
-
-/** Makes the period's billing keys stale (a repair whose last call failed before it could). */
-const computeTripBillingInvalidate = (p: LoadedPeriod) => invalidateBillingMonth(p.customerId, p.year, p.month);
 
 const TYPE_COLORS: Record<string, string> = { trip: "bg-blue-500", standby: "bg-orange-500", multidrop: "bg-purple-500" };
 
@@ -238,33 +234,13 @@ function IssuesPanel({
     if (!any) return null;
     const repair = async () => {
         const total = repairIds.length;
-        let repriced = 0;
-        let moved = 0;
-        let unchanged = 0;
-        let failed = 0;
-        const blocked = new Set<string>();
         setProgress({ done: 0, total });
         setResult(null);
-        for (let n = 0; n < total; n++) {
-            const last = n === total - 1;
-            try {
-                const out = await computeTripBilling(repairIds[n], { forceRecompute: true, month: period, skipInvalidate: !last });
-                if (out.blockedInvoiceNumber) blocked.add(out.blockedInvoiceNumber);
-                else if (!out.ok) failed += 1;
-                else if (out.billingDateMoved) moved += 1;
-                else if (out.skipped) unchanged += 1;
-                else repriced += 1;
-            } catch {
-                failed += 1;
-                // The last call failed before it could invalidate: the month's keys still need it.
-                if (last) await computeTripBillingInvalidate(period);
-            }
-            setProgress({ done: n + 1, total });
-        }
+        const { repriced, moved, unchanged, failed, blocked } = await repairTrips(repairIds, period, (done) => setProgress({ done, total }));
         setProgress(null);
         setResult(
             t("accounting.billingDocument.repair.result", { repriced, moved, unchanged, failed }) +
-                (blocked.size > 0 ? ` ${t("accounting.billingDocument.repair.blocked", { invoiceNumbers: [...blocked].join(", ") })}` : "")
+                (blocked.length > 0 ? ` ${t("accounting.billingDocument.repair.blocked", { invoiceNumbers: blocked.join(", ") })}` : "")
         );
     };
     return (

@@ -31,7 +31,10 @@ const (
 // 3.x app keeps writing on them (lastLogin*, fcmTokens; class C) are mirrored, field by field. permissions_config is
 // auth-rbac's and never mirrored.
 var collectionDomains = func() map[string][]string {
-	m := map[string][]string{"mobile_installations": nil, "transactions": {"masterdata", "hr"}, "users": {"auth"}}
+	m := map[string][]string{"mobile_installations": nil, "transactions": {"masterdata", "hr"}, "users": {"auth"},
+		// The billing fields of trips and standby records (T38): projected once billing is PostgreSQL-owned (P3), while
+		// the records themselves stay mirrored (class C).
+		ProjectionTripBilling: {"billing"}, ProjectionStandbyBilling: {"billing"}}
 	for domain, names := range map[string][]string{
 		"masterdata": {"subcontractors", "customers", "companies", "hubs", "hub_soc_distances", "soc_hub_distances", "metadata",
 			"trucks", "drivers", "truckAssignment"},
@@ -114,10 +117,10 @@ var MobileOwnedFields = map[string][]string{
 // installed APKs read (class B) and the customers, carrier profiles and companies Cloud Functions read until P5 (R71);
 // metadata is the distances_last_calculated document of the distance matrix, settings the version gate
 // settings/mobile_app installed APKs read (class B, domain mobile_release: projected once that domain is
-// PostgreSQL-owned, P6). holidays, broadcasts and the billing fields of trips and standby records join with their
-// phases.
+// PostgreSQL-owned, P6); trip_billing and standby_billing are the billing fields of the Firestore-written trips and
+// standby records (T38, domain billing: P3; fieldProjections). holidays and broadcasts join with their phases.
 var ProjectedCollections = []string{"subcontractors", "customers", "companies", "hubs", "hub_soc_distances", "soc_hub_distances",
-	"metadata", "trucks", "drivers", "truckAssignment", "settings"}
+	"metadata", "trucks", "drivers", "truckAssignment", "settings", ProjectionTripBilling, ProjectionStandbyBilling}
 
 // MirrorEntry is one collection of a sweep.
 type MirrorEntry struct {

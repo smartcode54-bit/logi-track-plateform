@@ -50,6 +50,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
 )
 
@@ -107,6 +108,7 @@ type world struct {
 	svc      *billing.Service
 	files    *storage.Service // the local backend in a temporary directory (T39 documents)
 	feed     *fakeFeed
+	wb       *writeback.Memory // the class C write-back of the job-category and standby-customer endpoints (T38)
 	internal string
 	hash     string
 	tokens   map[string]string
@@ -125,7 +127,7 @@ func newWorld(t *testing.T) *world {
 	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{t: t, db: d, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}, feed: &fakeFeed{}}
+	w := &world{t: t, db: d, pool: d.Pool(t, db.RoleApp), tokens: map[string]string{}, feed: &fakeFeed{}, wb: writeback.NewMemory()}
 	var err error
 	if w.etl, err = pgx.Connect(ctx, d.URL(db.RoleETL)); err != nil {
 		t.Fatal(err)
@@ -178,13 +180,17 @@ func newWorld(t *testing.T) *world {
 	}
 	t.Cleanup(w.files.Close)
 	w.svc, err = billing.New(billing.Deps{Pool: w.pool, Cache: caches, Jobs: jobSvc, Bangchak: w.feed, Files: w.files,
-		Now: func() time.Time { return now }, Log: zerolog.Nop()})
+		WriteBack: w.wb, Now: func() time.Time { return now }, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	deps := app.APIDeps{Auth: svc, Jobs: jobSvc, Billing: w.svc}
 	groups := append(svc.Groups(), billing.Groups(w.svc, svc.RequireAuth())...)
 	groups = append(groups, app.JobGroups(deps)...)
+	// T38: the trip and standby billing routes (mounted by operations.Groups in cmd/api) and the billing jobs.
+	groups = append(groups, billing.JobGroups(w.svc, svc.RequireAuth())...)
+	groups = append(groups, ingress.Group{Prefix: "/v1/trips", Mount: billing.TripRoutes(w.svc, svc.RequireAuth())},
+		ingress.Group{Prefix: "/v1/standby", Mount: billing.StandbyRoutes(w.svc, svc.RequireAuth())})
 	groups = append(groups, ingress.Group{Prefix: "/v1/billingtest", Mount: w.testRoutes(svc.RequireAuth())})
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
