@@ -80,7 +80,7 @@ ORDER BY driver_id;
 -- app knows (legacy_doc_id, else the uuid; main.dart:71-82 opens the room by chatId).
 SELECT m.id, m.sender_role, coalesce(m.text, '')::text AS text, (m.image_file_id IS NOT NULL)::boolean AS has_image,
        coalesce(m.legacy_doc_id, m.id::text)::text AS message_ref,
-       c.id AS chat_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+       c.id AS chat_id, c.tenant_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
        coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
          AS driver_name
 FROM chat_messages m
@@ -89,13 +89,37 @@ LEFT JOIN drivers d ON d.id = c.driver_id
 WHERE m.id = @id;
 
 -- name: GetChatForPush :one
--- The chat of a write-back message (its row exists once the mirror applied it): the driver and the driver's name.
-SELECT c.id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+-- The chat of a write-back message (its row exists once the mirror applied it), by its row id, else by its document id
+-- (a chat the mirror had not applied when the handler wrote): the tenant, the driver, the driver's name, the assignee.
+SELECT c.id, c.tenant_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
        coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
          AS driver_name
 FROM chats c
 LEFT JOIN drivers d ON d.id = c.driver_id
-WHERE c.id = @id;
+WHERE c.id = @id::uuid OR c.legacy_doc_id = @ref::text
+ORDER BY (c.id = @id::uuid) DESC, c.id
+LIMIT 1;
+
+-- name: ChatAssigneeRoles :many
+-- The memberships through which the assigned admin may read a chat's push (NOTIFY_ADMIN_ON_DRIVER_MESSAGE): an active
+-- staff membership of an active (or reset_required) user in the chat's tenant or in the contractor that tenant works
+-- for (R60). The planner then requires chat:view in the role set of the membership's tenant (RoleOverrides).
+SELECT m.tenant_id, m.role
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+JOIN tenants t ON t.id = @chat_tenant_id::uuid
+WHERE m.user_id = @user_id::uuid AND m.status = 'active' AND u.status IN ('active', 'reset_required')
+  AND m.role IN ('tenant_admin', 'manager', 'operation_staff', 'operator', 'user')
+  AND (m.tenant_id = t.id OR m.tenant_id = t.contractor_tenant_id)
+ORDER BY m.tenant_id, m.role;
+
+-- name: RoleOverrides :many
+-- The override rows of one role that apply in one tenant (the platform-wide rows and the tenant's; Appendix C
+-- §C.2.5), for authz.RoleCaps.
+SELECT tenant_id, capability, allowed
+FROM role_capability_overrides
+WHERE role = @role::text AND (tenant_id IS NULL OR tenant_id = @tenant_id::uuid)
+ORDER BY tenant_id NULLS FIRST, capability;
 
 -- name: UserDevices :many
 -- The devices of one user (the assigned admin's web or phone; NOTIFY_ADMIN_ON_DRIVER_MESSAGE): at most @per_user, the

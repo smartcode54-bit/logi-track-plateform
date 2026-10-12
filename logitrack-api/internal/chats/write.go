@@ -196,7 +196,9 @@ func (s *Service) Send(ctx context.Context, p *authz.Principal, rid string, chat
 }
 
 // MySend is POST /v1/mobile/chat/messages (chat_repository.dart:97-160): the driver's message to its own chat, created
-// when it has none.
+// when it has none. Staff may close that chat between the lookup of the driver's open chat and the send: the send is
+// then refused (chat_closed) and runs once more, which opens a new chat for it, as a fresh send would (the legacy app
+// never refused a driver's send).
 func (s *Service) MySend(ctx context.Context, p *authz.Principal, rid string, in SendInput) (WriteResult, error) {
 	driver, err := driverOf(p)
 	if err != nil {
@@ -206,30 +208,49 @@ func (s *Service) MySend(ctx context.Context, p *authz.Principal, rid string, in
 	if err != nil {
 		return WriteResult{}, err
 	}
+	res, err := s.mySend(ctx, p, rid, driver, v)
+	if isChatClosed(err) {
+		res, err = s.mySend(ctx, p, rid, driver, v)
+	}
+	return res, err
+}
+
+func (s *Service) mySend(ctx context.Context, p *authz.Principal, rid string, driver uuid.UUID, v send) (WriteResult, error) {
+	m, err := s.mode()
+	if err != nil {
+		return WriteResult{}, err
+	}
 	// A replay of a send the driver made before staff closed that chat answers the stored message: it must neither open
 	// a new chat nor store a second copy there (client_message_id is unique per chat only, R63).
-	var prev *Message
+	var prev *chatsdb.ChatMessage
+	var out Message
 	err = s.tx(ctx, p, func(_ pgx.Tx, q *chatsdb.Queries) error {
-		m, err := q.DriverMessageByClientID(ctx, chatsdb.DriverMessageByClientIDParams{DriverID: driver, ClientMessageID: v.clientID})
+		row, err := q.DriverMessageByClientID(ctx, chatsdb.DriverMessageByClientIDParams{DriverID: driver, ClientMessageID: v.clientID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		out, err := replay(ctx, q, p, m, v)
-		prev = &out
+		prev = &row
+		if m == modeWriteBack {
+			return nil // wbSend answers the replay (and appends its push again while it is young)
+		}
+		out, err = replay(ctx, q, p, row, v)
 		return err
 	})
-	if err != nil {
+	switch {
+	case err != nil:
 		return WriteResult{}, err
-	}
-	if prev != nil {
-		out, err := s.signed(ctx, *prev)
-		if err != nil {
+	case prev != nil && m == modeWriteBack:
+		return s.wbSend(ctx, p, prev.ChatID, RoleDriver, v)
+	case prev != nil:
+		if out, err = s.signed(ctx, out); err != nil {
 			return WriteResult{}, err
 		}
 		return WriteResult{Status: http.StatusOK, Data: out}, nil
+	case m == modeWriteBack:
+		return s.wbMySend(ctx, p, driver, v)
 	}
 	opened, err := s.open(ctx, p, rid, driver)
 	if err != nil {
@@ -237,9 +258,7 @@ func (s *Service) MySend(ctx context.Context, p *authz.Principal, rid string, in
 	}
 	d, ok := opened.Data.(ChatDetail)
 	if !ok {
-		// A chat the write-back created that the mirror has not applied yet: the app's outbox retries the send.
-		return WriteResult{}, httpx.ErrUnavailable("the driver's new chat is not mirrored yet").
-			WithDetails(map[string]any{"reason": "write_back_pending"})
+		return WriteResult{}, errors.New("chats: the PostgreSQL open answered no chat")
 	}
 	return s.send(ctx, p, rid, d.ID, RoleDriver, v)
 }
@@ -386,8 +405,7 @@ func replay(ctx context.Context, q *chatsdb.Queries, p *authz.Principal, prev ch
 	same := prev.SenderUserID != nil && *prev.SenderUserID == p.UserID && eqStr(prev.Text, v.text) &&
 		(prev.ImageFileID != nil) == (v.imageKey != "")
 	if !same {
-		return Message{}, httpx.NewError(http.StatusConflict, CodeIdempotencyConflict,
-			"the clientMessageId was used for another message").WithDetails(map[string]any{"field": "clientMessageId"})
+		return Message{}, errIdempotencyConflict()
 	}
 	row, err := q.GetMessage(ctx, prev.ID)
 	if err != nil {
@@ -505,7 +523,8 @@ func markRead(ctx context.Context, tx pgx.Tx, q *chatsdb.Queries, p *authz.Princ
 // --- assignment, close, reopen, priority ---------------------------------------------------------------------------
 
 // AssignInput is the body of POST /v1/chats/{id}/assign: adminUserId absent = the caller, null = back to the queue
-// (room/page.tsx:220-238 "return to queue"), a user id = that staff member of the chat's tenant.
+// (room/page.tsx:220-238 "return to queue"), a user id = an active staff member who reaches the chat's tenant (its
+// own, or the contractor it works for, R60) and holds chat:view and chat:send there.
 type AssignInput struct {
 	AdminUserID Field[string] `json:"adminUserId"`
 }
@@ -537,7 +556,11 @@ func (s *Service) Assign(ctx context.Context, p *authz.Principal, rid string, ch
 			return c, errChatClosed()
 		}
 		if target != nil && *target != p.UserID {
-			ok, err := q.StaffMember(ctx, chatsdb.StaffMemberParams{UserID: *target, TenantID: c.TenantID})
+			rows, err := q.AssigneeRoles(ctx, chatsdb.AssigneeRolesParams{UserID: *target, ChatTenantID: c.TenantID})
+			if err != nil {
+				return c, err
+			}
+			ok, err := s.handlesChats(ctx, rows)
 			if err != nil {
 				return c, err
 			}
@@ -555,6 +578,26 @@ func (s *Service) Assign(ctx context.Context, p *authz.Principal, rid string, ch
 		c.AssignedAdminUserID, c.AssignedAt, c.Status = target, &now, StatusInProgress
 		return c, nil
 	})
+}
+
+// handlesChats reports whether one of a user's memberships may handle a chat: its role set (the catalog default with
+// the tenant's overrides, Roles; the catalog default without them) holds chat:view and chat:send. An assignee reads
+// the chat's messages (and, with NOTIFY_ADMIN_ON_DRIVER_MESSAGE, gets them pushed) and answers them.
+func (s *Service) handlesChats(ctx context.Context, rows []chatsdb.AssigneeRolesRow) (bool, error) {
+	for _, r := range rows {
+		role := authz.TenantRole(r.Role)
+		caps := authz.TenantDefaults(role)
+		if s.roles != nil {
+			var err error
+			if caps, err = s.roles.RoleCaps(ctx, r.TenantID, role); err != nil {
+				return false, err
+			}
+		}
+		if caps.Has(authz.ChatView) && caps.Has(authz.ChatSend) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Close is POST /v1/chats/{id}/close (room/page.tsx:177-198): closed, the assignment kept; closing a closed chat changes

@@ -190,10 +190,24 @@ func loadChatMessage(c *docCtx) error {
 		return c.reject("text", ReasonMissingRequired, "a message needs text or an image", nil)
 	}
 	// clientMessageId: written by the Go write-back (T47, R63; the 3.x app writes none), so a later replay of the same
-	// send is answered from this row. Anything but a uuid is left empty (no writer produces one).
+	// send is answered from this row. Anything but a uuid is left empty (no writer produces one). It is unique per chat
+	// (chat_messages_client_id): the write-back's id is its document id, so only a document written by hand or by a
+	// modified client can repeat another message's id, and that one loads without it (a finding), never failing the
+	// load, the sweep or a listener poll of every other collection.
 	var client *uuid.UUID
 	if v, err := uuid.Parse(strings.TrimSpace(c.str("clientMessageId"))); err == nil && v != uuid.Nil {
 		client = &v
+		var holder string
+		err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text) FROM chat_messages
+			WHERE chat_id = $1 AND client_message_id = $2 AND id <> $3`, chat.id, v, id).Scan(&holder)
+		switch {
+		case err == nil:
+			c.find("clientMessageId", ReasonDuplicateNaturalKey, "the client message id is already message "+holder+
+				"; client_message_id NULL (chat_messages_client_id)", c.get("clientMessageId"))
+			client = nil
+		case !errors.Is(err, pgx.ErrNoRows):
+			return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+		}
 	}
 	r := newRow("chat_messages").set("id", id).set("legacy_doc_id", c.doc.ID).set("chat_id", chat.id).set("sender_user_id", sender).
 		set("sender_role", role).set("text", text).set("image_file_id", img).set("message_type", typ).set("client_message_id", client).

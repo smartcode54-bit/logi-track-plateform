@@ -12,6 +12,50 @@ import (
 	"github.com/google/uuid"
 )
 
+const chatAssigneeRoles = `-- name: ChatAssigneeRoles :many
+SELECT m.tenant_id, m.role
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+JOIN tenants t ON t.id = $1::uuid
+WHERE m.user_id = $2::uuid AND m.status = 'active' AND u.status IN ('active', 'reset_required')
+  AND m.role IN ('tenant_admin', 'manager', 'operation_staff', 'operator', 'user')
+  AND (m.tenant_id = t.id OR m.tenant_id = t.contractor_tenant_id)
+ORDER BY m.tenant_id, m.role
+`
+
+type ChatAssigneeRolesParams struct {
+	ChatTenantID uuid.UUID
+	UserID       uuid.UUID
+}
+
+type ChatAssigneeRolesRow struct {
+	TenantID uuid.UUID
+	Role     string
+}
+
+// The memberships through which the assigned admin may read a chat's push (NOTIFY_ADMIN_ON_DRIVER_MESSAGE): an active
+// staff membership of an active (or reset_required) user in the chat's tenant or in the contractor that tenant works
+// for (R60). The planner then requires chat:view in the role set of the membership's tenant (RoleOverrides).
+func (q *Queries) ChatAssigneeRoles(ctx context.Context, arg ChatAssigneeRolesParams) ([]ChatAssigneeRolesRow, error) {
+	rows, err := q.db.Query(ctx, chatAssigneeRoles, arg.ChatTenantID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatAssigneeRolesRow{}
+	for rows.Next() {
+		var i ChatAssigneeRolesRow
+		if err := rows.Scan(&i.TenantID, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteInvalidToken = `-- name: DeleteInvalidToken :execrows
 DELETE FROM device_tokens WHERE user_id = $1 AND install_id = $2 AND token = $3
 `
@@ -88,28 +132,38 @@ func (q *Queries) DriverDevices(ctx context.Context, arg DriverDevicesParams) ([
 }
 
 const getChatForPush = `-- name: GetChatForPush :one
-SELECT c.id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+SELECT c.id, c.tenant_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
        coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
          AS driver_name
 FROM chats c
 LEFT JOIN drivers d ON d.id = c.driver_id
-WHERE c.id = $1
+WHERE c.id = $1::uuid OR c.legacy_doc_id = $2::text
+ORDER BY (c.id = $1::uuid) DESC, c.id
+LIMIT 1
 `
+
+type GetChatForPushParams struct {
+	ID  uuid.UUID
+	Ref string
+}
 
 type GetChatForPushRow struct {
 	ID                  uuid.UUID
+	TenantID            uuid.UUID
 	ChatRef             string
 	DriverID            *uuid.UUID
 	AssignedAdminUserID *uuid.UUID
 	DriverName          string
 }
 
-// The chat of a write-back message (its row exists once the mirror applied it): the driver and the driver's name.
-func (q *Queries) GetChatForPush(ctx context.Context, id uuid.UUID) (GetChatForPushRow, error) {
-	row := q.db.QueryRow(ctx, getChatForPush, id)
+// The chat of a write-back message (its row exists once the mirror applied it), by its row id, else by its document id
+// (a chat the mirror had not applied when the handler wrote): the tenant, the driver, the driver's name, the assignee.
+func (q *Queries) GetChatForPush(ctx context.Context, arg GetChatForPushParams) (GetChatForPushRow, error) {
+	row := q.db.QueryRow(ctx, getChatForPush, arg.ID, arg.Ref)
 	var i GetChatForPushRow
 	err := row.Scan(
 		&i.ID,
+		&i.TenantID,
 		&i.ChatRef,
 		&i.DriverID,
 		&i.AssignedAdminUserID,
@@ -121,7 +175,7 @@ func (q *Queries) GetChatForPush(ctx context.Context, id uuid.UUID) (GetChatForP
 const getChatMessageForPush = `-- name: GetChatMessageForPush :one
 SELECT m.id, m.sender_role, coalesce(m.text, '')::text AS text, (m.image_file_id IS NOT NULL)::boolean AS has_image,
        coalesce(m.legacy_doc_id, m.id::text)::text AS message_ref,
-       c.id AS chat_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+       c.id AS chat_id, c.tenant_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
        coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
          AS driver_name
 FROM chat_messages m
@@ -137,6 +191,7 @@ type GetChatMessageForPushRow struct {
 	HasImage            bool
 	MessageRef          string
 	ChatID              uuid.UUID
+	TenantID            uuid.UUID
 	ChatRef             string
 	DriverID            *uuid.UUID
 	AssignedAdminUserID *uuid.UUID
@@ -156,6 +211,7 @@ func (q *Queries) GetChatMessageForPush(ctx context.Context, id uuid.UUID) (GetC
 		&i.HasImage,
 		&i.MessageRef,
 		&i.ChatID,
+		&i.TenantID,
 		&i.ChatRef,
 		&i.DriverID,
 		&i.AssignedAdminUserID,
@@ -334,6 +390,46 @@ func (q *Queries) RevokedSessionDevices(ctx context.Context, arg RevokedSessionD
 	for rows.Next() {
 		var i RevokedSessionDevicesRow
 		if err := rows.Scan(&i.SessionID, &i.InstallID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const roleOverrides = `-- name: RoleOverrides :many
+SELECT tenant_id, capability, allowed
+FROM role_capability_overrides
+WHERE role = $1::text AND (tenant_id IS NULL OR tenant_id = $2::uuid)
+ORDER BY tenant_id NULLS FIRST, capability
+`
+
+type RoleOverridesParams struct {
+	Role     string
+	TenantID uuid.UUID
+}
+
+type RoleOverridesRow struct {
+	TenantID   *uuid.UUID
+	Capability string
+	Allowed    bool
+}
+
+// The override rows of one role that apply in one tenant (the platform-wide rows and the tenant's; Appendix C
+// §C.2.5), for authz.RoleCaps.
+func (q *Queries) RoleOverrides(ctx context.Context, arg RoleOverridesParams) ([]RoleOverridesRow, error) {
+	rows, err := q.db.Query(ctx, roleOverrides, arg.Role, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RoleOverridesRow{}
+	for rows.Next() {
+		var i RoleOverridesRow
+		if err := rows.Scan(&i.TenantID, &i.Capability, &i.Allowed); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -185,14 +185,18 @@ ON CONFLICT (chat_id, user_id) DO UPDATE
 SET last_read_at = greatest(chat_read_state.last_read_at, EXCLUDED.last_read_at)
 RETURNING last_read_at;
 
--- name: StaffMember :one
--- POST /v1/chats/{id}/assign to another user: an active staff member of the chat's tenant (memberships p_staff_read:
--- the caller sees the members of its reach).
-SELECT EXISTS (
-  SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id
-  WHERE m.user_id = sqlc.arg(user_id)::uuid AND m.tenant_id = sqlc.arg(tenant_id)::uuid AND m.status = 'active'
-    AND m.role IN ('tenant_admin', 'manager', 'operation_staff', 'operator', 'user') AND u.status = 'active'
-)::boolean AS ok;
+-- name: AssigneeRoles :many
+-- POST /v1/chats/{id}/assign to another user: the active staff memberships of an active user through which it reaches
+-- the chat's tenant (that tenant, or the contractor the tenant works for, R60; memberships p_staff_read: the caller sees
+-- the members of its own reach). The service then requires chat:view and chat:send in the membership's role set.
+SELECT m.tenant_id, m.role
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+JOIN tenants t ON t.id = sqlc.arg(chat_tenant_id)::uuid
+WHERE m.user_id = sqlc.arg(user_id)::uuid AND m.status = 'active' AND u.status = 'active'
+  AND m.role IN ('tenant_admin', 'manager', 'operation_staff', 'operator', 'user')
+  AND (m.tenant_id = t.id OR m.tenant_id = t.contractor_tenant_id)
+ORDER BY m.tenant_id, m.role;
 
 -- name: DriverUnread :one
 -- GET /v1/mobile/chat/unread-count (main_layout.dart:156-173 counted it in the app): the driver's chats that are not

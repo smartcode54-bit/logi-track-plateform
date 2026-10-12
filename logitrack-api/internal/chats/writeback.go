@@ -3,12 +3,8 @@ package chats
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"net/http"
-	"slices"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,35 +13,53 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats/chatsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // The class C write-back of the chat writes (main spec §11.10, §12.1, §13.7-§13.8). While comms is not in
 // PG_OWNED_DOMAINS the installed 3.x APKs and the legacy web keep writing chats in Firestore, so Firestore stays the
-// only writer: a chat write Go serves goes to the Firestore documents first, in the legacy shape (legacy.go), and the
-// FS->PG mirror fills PostgreSQL. The handler then waits up to WriteBack.Wait (3 s) for the mirror's read-your-writes
-// acknowledgement (cache:mirror_ack:{collection}:{docId}, R53) and answers like the PostgreSQL path, else 202 with
-// the document it wrote (WriteBackEcho). The chats and messages collections have listeners (etl.ListenFields), so
-// the acknowledgement normally comes within the listener's interval.
+// only writer: a chat write Go serves goes to the Firestore documents first, in the legacy shape (legacy.go), through
+// the write-back port of T31 (writeback.Writer: one documents:commit per request, all of its documents or none), and
+// the FS->PG mirror fills PostgreSQL. The handler then waits up to WriteBack.Wait (3 s) for the mirror's
+// read-your-writes acknowledgement (cache:mirror_ack:{collection}:{docId}, R53) and answers like the PostgreSQL path,
+// else 202 with the document it wrote (WriteBackEcho). The chats and messages collections have listeners
+// (etl.ListenFields), so the acknowledgement normally comes within the listener's interval.
 //
-//   - A message document's id is the client's message id: a replay writes the same document (create-only: a second
-//     write of it is a replay, never a second message), and the mirror stores clientMessageId, so a later replay is
-//     answered from PostgreSQL. A message with an image uploaded to Go's storage is 422 write_back_unsupported (the 3.x
-//     app reads Firebase Storage URLs only).
-//   - The push is the writer's: the handler appends its own chat.message_created (header origin=writeback, no realtime
-//     topic, the message in the payload, since its row exists only once the mirror applied it); the mirror's event of
-//     the same message (origin=etl.sync) feeds SSE and pushes nothing (internal/notify).
-//   - The documents of one request are written in order (the message, then its chat), each with its precondition; a
-//     failure answers 503 unavailable (details.reason write_back) and the client retries with the same
-//     clientMessageId. writeback.Writer.Commit (T31) makes them one atomic commit once it lands.
+//   - A message is one commit: the message document (create-only; its id is the client's message id) and its chat's
+//     last-message fields, auto-assignment and reopening (update-only). A replay of the clientMessageId lands on the same
+//     document, before or after the mirror loaded it (the mirror stores clientMessageId): the same message is answered
+//     as stored, another one under the same id is 409 idempotency_conflict, and nothing is written. A message with an
+//     image uploaded to Go's storage is 422 write_back_unsupported (the 3.x app reads Firebase Storage URLs only).
+//   - The push is the writer's: the handler appends its own chat.message_created after the commit (header
+//     origin=writeback, no realtime topic, the message in the payload, since its row exists only once the mirror
+//     applied it); the mirror's event of the same message (origin=etl.sync) feeds SSE and pushes nothing
+//     (internal/notify). A replay younger than ReplayPushWindow appends it again, so a push whose append failed after
+//     the commit still goes out; notify.fcm sends one message once per device whatever the number of its events (the
+//     first event that pushes it holds idem:push:chat:{chatRef}:{messageRef}).
+//   - The driver's chat is found or created under the driver's advisory lock (the PostgreSQL path's lock): the open chat
+//     the mirror holds, else a chat document of the driver that is not closed and that the mirror has not applied yet
+//     (writeback.Writer.Find on driverId: an earlier attempt, a concurrent open, the 3.x app's), else a new document (a
+//     minted uuidv7 as its id, R25). Retries and concurrent opens land on one chat document while the mirror lags (one
+//     open chat per driver, R14), and a driver's message goes into that document at once.
+//   - The legacy writers store assignedAdminId, assignedAt and closedAt as null and the legacy queue reads
+//     where('assignedAdminId', '==', null), which matches only a stored null: a nil of the encoders is written as
+//     writeback.Null, never as a deleted field.
+//   - A precondition refused for another reason (the chat document is gone) is 409 failed_precondition
+//     (details.reason document_changed); any other Firestore failure is 503 unavailable (details.reason write_back),
+//     and the client retries with the same clientMessageId.
 //
 // Reads always come from PostgreSQL (the mirror). Switching the write-back on in an environment is an operator step
 // with the coexistence runbook; the staging VM has no Firestore and runs with comms in PG_OWNED_DOMAINS.
 
 // DefaultMirrorWait is how long a write-back handler waits for the mirror's acknowledgement (main spec §13.7, R53).
 const DefaultMirrorWait = 3 * time.Second
+
+// ReplayPushWindow bounds the replays that append their push again: a send replayed within it (a client's retry of a
+// send whose answer or push event was lost) appends chat.message_created once more, which notify.fcm deduplicates per
+// message for cache.ChatPushTTL (24 h); an older replay appends nothing, so a stale message is never pushed late.
+const ReplayPushWindow = time.Hour
 
 // MirrorAcks waits for the mirror's acknowledgement (cache.Cache.WaitMirrorAck): true once the mirror applied the
 // document at or after want, false when the timeout passed first.
@@ -55,33 +69,13 @@ type MirrorAcks interface {
 
 // WriteBack is the Firestore-first path of the chat writes.
 type WriteBack struct {
-	// Writer writes the Firestore documents (GCPWriter over the REST client; Memory in tests).
-	Writer DocWriter
+	// Writer writes the Firestore documents (writeback.Firestore over the REST client; writeback.Memory in tests).
+	Writer writeback.Writer
 	// Acks is the mirror acknowledgement; nil answers every write-back 202.
 	Acks MirrorAcks
 	// Wait bounds the wait for the acknowledgement; 0 = DefaultMirrorWait.
 	Wait time.Duration
 }
-
-// Doc is one document write: a masked merge of exactly Fields (a nil value deletes the field). Create writes only when
-// the document does not exist (ErrDocExists), Update only when it does (ErrDocMissing).
-type Doc struct {
-	Path   string
-	Fields map[string]any
-	Create bool
-	Update bool
-}
-
-// DocWriter writes one document and returns its update time.
-type DocWriter interface {
-	Write(ctx context.Context, d Doc) (time.Time, error)
-}
-
-// Errors of a precondition.
-var (
-	ErrDocExists  = errors.New("chats: the document exists")
-	ErrDocMissing = errors.New("chats: the document does not exist")
-)
 
 // WriteBackEcho is the 202 data of a write-back the mirror did not acknowledge within the wait (main spec §11.10): the
 // PostgreSQL id when the row is known, the Firestore document written, its update time and the fields written in the
@@ -95,13 +89,24 @@ type WriteBackEcho struct {
 	Document   map[string]any `json:"document"`
 }
 
-func errWriteBack(cause error) error {
-	return httpx.NewError(http.StatusServiceUnavailable, httpx.CodeUnavailable, "the Firestore write-back failed").
+// writeBackError maps a failed commit: a refused precondition is 409 document_changed, anything else 503 write_back.
+func writeBackError(err error) error {
+	if errors.Is(err, writeback.ErrConflict) {
+		return errDocumentChanged().Wrap(err)
+	}
+	return writeback.ErrUnavailable(err)
+}
+
+// errPushPending is a message committed in Firestore whose push event could not be queued: the client retries the
+// send with the same clientMessageId, and the replay appends it (ReplayPushWindow).
+func errPushPending(cause error) error {
+	return httpx.NewError(http.StatusServiceUnavailable, httpx.CodeUnavailable,
+		"the message is written; its notification is not queued yet: retry the send").
 		WithDetails(map[string]any{"reason": "write_back"}).Wrap(cause)
 }
 
 func (w *WriteBack) wait(ctx context.Context, collection, docID string, at time.Time) bool {
-	if w.Acks == nil {
+	if w.Acks == nil || at.IsZero() {
 		return false
 	}
 	d := w.Wait
@@ -112,12 +117,28 @@ func (w *WriteBack) wait(ctx context.Context, collection, docID string, at time.
 	return err == nil && ok
 }
 
+// legacyDoc is a document of the encoders as the write-back commits it: a nil value is a Firestore null
+// (writeback.Null), since every legacy chat writer stores null and none deletes a chat field.
+func legacyDoc(f map[string]any) map[string]any {
+	out := make(map[string]any, len(f))
+	for k, v := range f {
+		if v == nil {
+			out[k] = writeback.Null
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
 // echoFields is the legacy document as JSON (times RFC 3339).
 func echoFields(f map[string]any) map[string]any {
 	out := make(map[string]any, len(f))
 	for k, v := range f {
 		switch x := v.(type) {
 		case time.Time:
+			out[k] = x.UTC()
+		case dump.Timestamp:
 			out[k] = x.UTC()
 		case map[string]any:
 			out[k] = echoFields(x)
@@ -127,6 +148,21 @@ func echoFields(f map[string]any) map[string]any {
 	}
 	return out
 }
+
+// docTime reads a timestamp field of a document as the Firestore client (dump.Timestamp) or writeback.Memory
+// (time.Time) holds it.
+func docTime(v any) (time.Time, bool) {
+	switch x := v.(type) {
+	case time.Time:
+		return x, true
+	case dump.Timestamp:
+		return x.Time, true
+	}
+	return time.Time{}, false
+}
+
+// messagesOf is the messages collection of a chat document.
+func messagesOf(chatDoc string) string { return ChatPath(chatDoc) + "/" + CollMessages }
 
 // wbState is what the write-back reads from PostgreSQL (the mirror) before it writes: the chat, the legacy ids of its
 // driver and users, and the staff read states (lastReadByAdmin).
@@ -184,18 +220,62 @@ func (s *Service) load(ctx context.Context, p *authz.Principal, chatID uuid.UUID
 	return st, err
 }
 
-func (st wbState) ref(id uuid.UUID) string {
-	if r, ok := st.refs[id]; ok {
+func (st wbState) ref(id uuid.UUID) string { return st.target().ref(id) }
+
+// target is the mirrored chat as a message write-back writes to it.
+func (st wbState) target() wbChat {
+	c := st.chat
+	return wbChat{id: c.ID, docID: st.docID, tenant: c.TenantID, driver: c.DriverID, assigned: c.AssignedAdminUserID,
+		reads: st.adminReads, refs: st.refs}
+}
+
+// wbChat is the chat a write-back message goes to: its row (uuid.Nil while the mirror has not applied the document),
+// its document, tenant and driver, the assignee, the staff read states the mirror holds (lastReadByAdmin) and the
+// users' legacy ids.
+type wbChat struct {
+	id       uuid.UUID
+	docID    string
+	tenant   uuid.UUID
+	driver   *uuid.UUID
+	assigned *uuid.UUID
+	reads    map[string]time.Time
+	refs     map[uuid.UUID]string
+}
+
+func (c wbChat) ref(id uuid.UUID) string {
+	if r, ok := c.refs[id]; ok {
 		return r
 	}
 	return id.String()
 }
 
-// wbOpen is Open on a Firestore-owned domain: the driver's open chat when the mirror holds one, else a new chat
-// document (a minted uuidv7 as its id, R25).
-func (s *Service) wbOpen(ctx context.Context, p *authz.Principal, driver uuid.UUID) (WriteResult, error) {
-	var existing uuid.UUID
-	var ref, name string
+// aggregate is the outbox aggregate id of the chat: its row id, else (not mirrored yet) its document id, which is the
+// row id the mirror will keep for a document Go created (R25).
+func (c wbChat) aggregate() string {
+	if c.id != uuid.Nil {
+		return c.id.String()
+	}
+	return c.docID
+}
+
+// driverChat is the driver's chat a write-back open or driver send writes to.
+type driverChat struct {
+	row        uuid.UUID      // the open chat the mirror holds (uuid.Nil: none)
+	tenant     uuid.UUID      // the driver's tenant
+	docID      string         // else the chat document,
+	fields     map[string]any // its fields as read or written,
+	updateTime time.Time      // its update time,
+	created    bool           // and whether this call created it
+	sender     string         // the caller's legacy id (senderId)
+}
+
+// wbDriverChat finds or creates the driver's chat on a Firestore-owned domain, holding the driver's advisory lock
+// throughout (the PostgreSQL path's LockDriverChats): the open chat the mirror holds; else the first chat document of
+// the driver (driverId = its Firebase uid) that is not closed, which the mirror has not applied yet (an earlier attempt
+// of this open, a concurrent one, or the 3.x app's); else a new document. Retries and concurrent opens therefore
+// converge on one chat document while the mirror lags (one open chat per driver, R14).
+func (s *Service) wbDriverChat(ctx context.Context, p *authz.Principal, driver uuid.UUID) (driverChat, error) {
+	var dc driverChat
 	err := s.tx(ctx, p, func(_ pgx.Tx, q *chatsdb.Queries) error {
 		d, err := q.GetDriver(ctx, driver)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -204,53 +284,109 @@ func (s *Service) wbOpen(ctx context.Context, p *authz.Principal, driver uuid.UU
 		if err != nil {
 			return err
 		}
-		name = d.Name
-		if ref, err = q.DriverRef(ctx, driver); err != nil {
+		dc.tenant = d.TenantID
+		if err := q.LockDriverChats(ctx, driver); err != nil {
 			return err
 		}
-		existing, err = openChat(ctx, q, driver)
-		if errors.Is(err, pgx.ErrNoRows) {
+		switch id, err := openChat(ctx, q, driver); {
+		case err == nil:
+			dc.row = id
 			return nil
+		case !errors.Is(err, pgx.ErrNoRows):
+			return err
 		}
-		return err
+		ref, err := q.DriverRef(ctx, driver)
+		if err != nil {
+			return err
+		}
+		if ref == "" {
+			return httpx.ErrInvalidArgument(violation("driverId", "no_login"))
+		}
+		refs, err := q.UserRefs(ctx, []uuid.UUID{p.UserID})
+		if err != nil {
+			return err
+		}
+		dc.sender = p.UserID.String()
+		for _, r := range refs {
+			dc.sender = r.Ref
+		}
+		docs, err := s.wb.Writer.Find(ctx, CollChats, fDriverID, ref)
+		if err != nil {
+			return writeback.ErrUnavailable(err)
+		}
+		for _, doc := range docs {
+			if st, _ := doc.Fields[fStatus].(string); st != StatusClosed {
+				dc.docID, dc.fields, dc.updateTime = doc.ID, doc.Fields, doc.UpdateTime
+				return nil
+			}
+		}
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		fields := LegacyNewChat(ref, d.Name, time.Now().UTC())
+		ut, err := s.wb.Writer.Commit(ctx, writeback.DocWrite{Collection: CollChats, DocID: id.String(), Fields: legacyDoc(fields),
+			MustNotExist: true})
+		if err != nil {
+			return writeBackError(err)
+		}
+		dc.docID, dc.fields, dc.updateTime, dc.created = id.String(), fields, ut, true
+		return nil
 	})
+	return dc, err
+}
+
+// wbOpen is Open on a Firestore-owned domain: the driver's chat wbDriverChat finds or creates, answered as the mirror
+// holds it (200 an existing chat, 201 a new one), else 202 with its document.
+func (s *Service) wbOpen(ctx context.Context, p *authz.Principal, driver uuid.UUID) (WriteResult, error) {
+	dc, err := s.wbDriverChat(ctx, p, driver)
 	if err != nil {
 		return WriteResult{}, err
 	}
-	if existing != uuid.Nil {
-		out, err := s.Get(ctx, p, existing)
+	if dc.row != uuid.Nil {
+		out, err := s.Get(ctx, p, dc.row)
 		return WriteResult{Status: http.StatusOK, Data: out}, err
 	}
-	if ref == "" {
-		return WriteResult{}, httpx.ErrInvalidArgument(violation("driverId", "no_login"))
+	status := http.StatusOK
+	if dc.created {
+		status = http.StatusCreated
 	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return WriteResult{}, err
-	}
-	at := time.Now().UTC()
-	fields := LegacyNewChat(ref, name, at)
-	ut, err := s.wb.Writer.Write(ctx, Doc{Path: ChatPath(id.String()), Fields: fields, Create: true})
-	if err != nil {
-		return WriteResult{}, errWriteBack(err)
-	}
-	if s.wb.wait(ctx, CollChats, id.String(), ut) {
+	if s.wb.wait(ctx, CollChats, dc.docID, dc.updateTime) {
 		var pg uuid.UUID
 		err := s.tx(ctx, p, func(_ pgx.Tx, q *chatsdb.Queries) error {
 			var err error
-			pg, err = q.ChatIDByLegacyDoc(ctx, id.String())
+			pg, err = q.ChatIDByLegacyDoc(ctx, dc.docID)
 			return err
 		})
 		if err == nil {
 			out, err := s.Get(ctx, p, pg)
-			return WriteResult{Status: http.StatusCreated, Data: out}, err
+			return WriteResult{Status: status, Data: out}, err
 		}
 	}
+	id, _ := uuid.Parse(dc.docID)
 	return WriteResult{Status: http.StatusAccepted, Data: WriteBackEcho{Pending: true, ID: id, Collection: CollChats,
-		DocID: id.String(), UpdateTime: ut, Document: echoFields(fields)}}, nil
+		DocID: dc.docID, UpdateTime: dc.updateTime, Document: echoFields(dc.fields)}}, nil
 }
 
-// wbSend is send on a Firestore-owned domain.
+// wbMySend is the driver's send on a Firestore-owned domain to the chat wbDriverChat finds or creates: the mirrored
+// chat takes wbSend; a chat document the mirror has not applied yet takes the message at once (no retry loop).
+func (s *Service) wbMySend(ctx context.Context, p *authz.Principal, driver uuid.UUID, v send) (WriteResult, error) {
+	if v.imageKey != "" {
+		return WriteResult{}, httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "imageKey", Reason: ReasonWriteBackUnsupported})
+	}
+	dc, err := s.wbDriverChat(ctx, p, driver)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	if dc.row != uuid.Nil {
+		return s.wbSend(ctx, p, dc.row, RoleDriver, v)
+	}
+	return s.wbMessage(ctx, p, wbChat{docID: dc.docID, tenant: dc.tenant, driver: &driver,
+		refs: map[uuid.UUID]string{p.UserID: dc.sender}}, RoleDriver, v, false)
+}
+
+// wbSend is send on a Firestore-owned domain, to a chat the mirror holds. A replay the mirror loaded already is
+// answered from its row (200) and its push appended again while it is young; anything else is wbMessage.
 func (s *Service) wbSend(ctx context.Context, p *authz.Principal, chatID uuid.UUID, role string, v send) (WriteResult, error) {
 	if v.imageKey != "" {
 		return WriteResult{}, httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "imageKey", Reason: ReasonWriteBackUnsupported})
@@ -291,67 +427,166 @@ func (s *Service) wbSend(ctx context.Context, p *authz.Principal, chatID uuid.UU
 	if err != nil {
 		return WriteResult{}, err
 	}
+	wc := st.target()
 	if stored != nil {
-		return WriteResult{Status: http.StatusOK, Data: *stored}, nil
+		if time.Since(stored.CreatedAt) < ReplayPushWindow {
+			ref := stored.ID.String()
+			if stored.LegacyDocID != nil {
+				ref = *stored.LegacyDocID
+			}
+			if err := s.wbPush(ctx, p, wc, wbPushMsg{ref: ref, clientID: stored.ClientMessageID, role: stored.SenderRole,
+				text: stored.Text, at: stored.CreatedAt, admin: wc.assigned}); err != nil {
+				return WriteResult{}, errPushPending(err)
+			}
+		}
+		out, err := s.signed(ctx, *stored)
+		if err != nil {
+			return WriteResult{}, err
+		}
+		return WriteResult{Status: http.StatusOK, Data: out}, nil
 	}
-	c := st.chat
+	return s.wbMessage(ctx, p, wc, role, v, reopen)
+}
+
+// wbMessage writes a message in one commit (the message document, create-only, and its chat's update, update-only),
+// then appends the writer's push. A refused commit is wbReplay.
+func (s *Service) wbMessage(ctx context.Context, p *authz.Principal, wc wbChat, role string, v send, reopen bool) (WriteResult, error) {
 	at := time.Now().UTC()
-	sender := st.ref(p.UserID)
+	sender := wc.ref(p.UserID)
 	msgDoc := v.clientID.String()
 	msg := LegacyMessage(sender, role, v.text, at, v.clientID)
-	ut, err := s.wb.Writer.Write(ctx, Doc{Path: MessagePath(st.docID, msgDoc), Fields: msg, Create: true})
-	switch {
-	case errors.Is(err, ErrDocExists):
-		// Written by an earlier attempt whose chat update failed: the chat update and the push follow again.
-	case err != nil:
-		return WriteResult{}, errWriteBack(err)
+	reads := maps.Clone(wc.reads)
+	if reads == nil {
+		reads = map[string]time.Time{}
 	}
-	reads := maps.Clone(st.adminReads)
 	if role == RoleAdmin {
 		reads[sender] = at
 	}
-	assign := role == RoleAdmin && c.AssignedAdminUserID == nil
-	if _, err := s.wb.Writer.Write(ctx, Doc{Path: ChatPath(st.docID), Update: true,
-		Fields: LegacyLastMessage(role, sender, v.text, at, reads, assign, reopen)}); err != nil {
-		return WriteResult{}, errWriteBack(err)
+	assign := role == RoleAdmin && wc.assigned == nil
+	ut, err := s.wb.Writer.Commit(ctx,
+		writeback.DocWrite{Collection: messagesOf(wc.docID), DocID: msgDoc, Fields: legacyDoc(msg), MustNotExist: true},
+		writeback.DocWrite{Collection: CollChats, DocID: wc.docID, MustExist: true,
+			Fields: legacyDoc(LegacyLastMessage(role, sender, v.text, at, reads, assign, reopen))})
+	switch {
+	case errors.Is(err, writeback.ErrConflict):
+		return s.wbReplay(ctx, p, wc, role, v)
+	case err != nil:
+		return WriteResult{}, writeback.ErrUnavailable(err)
 	}
-	// The push of the writer (notify.fcm): the message is in the payload, its row exists once the mirror applied it.
-	err = s.tx(ctx, p, func(tx pgx.Tx, _ *chatsdb.Queries) error {
-		payload := map[string]any{"entity": EntityMessage, "chatId": c.ID, "tenantId": c.TenantID, "at": at,
-			"chatRef": st.docID, "messageRef": msgDoc, "senderUserId": p.UserID, "senderRole": role, "text": v.text,
-			"clientMessageId": v.clientID, "driverId": c.DriverID, "assignedAdminUserId": c.AssignedAdminUserID, "writeBack": true}
-		if assign {
-			payload["assignedAdminUserId"] = p.UserID
+	admin := wc.assigned
+	if assign {
+		admin = &p.UserID
+	}
+	if err := s.wbPush(ctx, p, wc, wbPushMsg{ref: msgDoc, clientID: &v.clientID, role: role, text: v.text, at: at,
+		admin: admin}); err != nil {
+		return WriteResult{}, errPushPending(err)
+	}
+	return s.wbAnswer(ctx, p, wc, msgDoc, ut, msg, http.StatusCreated)
+}
+
+// wbReplay answers a send whose commit was refused. When the message document exists, the send is a replay: the
+// stored document is answered (its chat update was in the same commit) when it is the same message (sender, role,
+// text, client message id, no image), else 409 idempotency_conflict, and nothing is written; a young replay appends
+// its push again. When it does not exist, the chat document is gone: 409 document_changed.
+func (s *Service) wbReplay(ctx context.Context, p *authz.Principal, wc wbChat, role string, v send) (WriteResult, error) {
+	msgDoc := v.clientID.String()
+	doc, ut, ok, err := s.wb.Writer.Get(ctx, messagesOf(wc.docID), msgDoc)
+	switch {
+	case err != nil:
+		return WriteResult{}, writeback.ErrUnavailable(err)
+	case !ok:
+		return WriteResult{}, errDocumentChanged()
+	}
+	if !sameLegacyMessage(doc, wc.ref(p.UserID), role, v) {
+		return WriteResult{}, errIdempotencyConflict()
+	}
+	at, ok := docTime(doc[fCreatedAt])
+	if !ok {
+		at = ut
+	}
+	if time.Since(at) < ReplayPushWindow {
+		if err := s.wbPush(ctx, p, wc, wbPushMsg{ref: msgDoc, clientID: &v.clientID, role: role, text: v.text, at: at,
+			admin: wc.assigned}); err != nil {
+			return WriteResult{}, errPushPending(err)
 		}
-		_, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteMessageCreated, AggregateType: AggregateChat,
-			AggregateID: c.ID.String(), TenantID: &c.TenantID, Payload: payload,
-			Headers: map[string]string{outbox.HeaderOrigin: outbox.OriginWriteBack}})
-		return err
-	})
-	if err != nil {
-		return WriteResult{}, err
 	}
-	if !ut.IsZero() && s.wb.wait(ctx, CollMessages, msgDoc, ut) {
-		var row chatsdb.ChatMessage
+	return s.wbAnswer(ctx, p, wc, msgDoc, ut, doc, http.StatusOK)
+}
+
+// sameLegacyMessage reports whether a stored message document is the send replayed: the same sender, role, text and
+// client message id, and no image (the write-back sends none).
+func sameLegacyMessage(doc map[string]any, sender, role string, v send) bool {
+	text := ""
+	if v.text != nil {
+		text = *v.text
+	}
+	str := func(k string) string { s, _ := doc[k].(string); return s }
+	return str(fSenderID) == sender && str(fSenderRole) == role && str(fText) == text &&
+		str(fClientMessageID) == v.clientID.String() && str(fImageURL) == ""
+}
+
+// wbAnswer answers a written or replayed message: the mirrored row once the mirror acknowledged the message document
+// within the wait, else 202 with the document.
+func (s *Service) wbAnswer(ctx context.Context, p *authz.Principal, wc wbChat, msgDoc string, ut time.Time,
+	doc map[string]any, status int) (WriteResult, error) {
+	if s.wb.wait(ctx, CollMessages, msgDoc, ut) {
+		var stored *Message
 		err := s.tx(ctx, p, func(_ pgx.Tx, q *chatsdb.Queries) error {
-			var err error
-			row, err = q.MessageByLegacyDoc(ctx, chatsdb.MessageByLegacyDocParams{ChatID: c.ID, LegacyDocID: msgDoc})
+			chat := wc.id
+			if chat == uuid.Nil {
+				var err error
+				if chat, err = q.ChatIDByLegacyDoc(ctx, wc.docID); err != nil {
+					return err
+				}
+			}
+			row, err := q.MessageByLegacyDoc(ctx, chatsdb.MessageByLegacyDocParams{ChatID: chat, LegacyDocID: msgDoc})
 			if err != nil {
 				return err
 			}
 			r, err := q.GetMessage(ctx, row.ID)
-			if err == nil {
-				m := messageOf(r.ChatMessage, r.SenderName)
-				stored = &m
+			if err != nil {
+				return err
 			}
-			return err
+			m := messageOf(r.ChatMessage, r.SenderName)
+			stored = &m
+			return nil
 		})
 		if err == nil && stored != nil {
-			return WriteResult{Status: http.StatusCreated, Data: *stored}, nil
+			out, err := s.signed(ctx, *stored)
+			return WriteResult{Status: status, Data: out}, err
 		}
 	}
-	return WriteResult{Status: http.StatusAccepted, Data: WriteBackEcho{Pending: true, ID: v.clientID,
-		Collection: ChatPath(st.docID) + "/" + CollMessages, DocID: msgDoc, UpdateTime: ut, Document: echoFields(msg)}}, nil
+	id, _ := uuid.Parse(msgDoc)
+	return WriteResult{Status: http.StatusAccepted, Data: WriteBackEcho{Pending: true, ID: id, Collection: messagesOf(wc.docID),
+		DocID: msgDoc, UpdateTime: ut, Document: echoFields(doc)}}, nil
+}
+
+// wbPushMsg is the message a write-back push names.
+type wbPushMsg struct {
+	ref      string     // the message document id (messageRef)
+	clientID *uuid.UUID // the client's message id
+	role     string
+	text     *string
+	at       time.Time
+	admin    *uuid.UUID // the chat's assignee after the write
+}
+
+// wbPush appends the writer's chat.message_created (header origin=writeback, no realtime topic): notify.fcm pushes
+// from its payload, since the message's row exists only once the mirror applied it, and pushes one message once per
+// device however often it is appended (idem:push:chat).
+func (s *Service) wbPush(ctx context.Context, p *authz.Principal, wc wbChat, m wbPushMsg) error {
+	return s.tx(ctx, p, func(tx pgx.Tx, _ *chatsdb.Queries) error {
+		payload := map[string]any{"entity": EntityMessage, "tenantId": wc.tenant, "at": m.at.UTC(), "chatRef": wc.docID,
+			"messageRef": m.ref, "senderUserId": p.UserID, "senderRole": m.role, "text": m.text, "clientMessageId": m.clientID,
+			"driverId": wc.driver, "assignedAdminUserId": m.admin, "writeBack": true}
+		if wc.id != uuid.Nil {
+			payload["chatId"] = wc.id
+		}
+		_, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteMessageCreated, AggregateType: AggregateChat,
+			AggregateID: wc.aggregate(), TenantID: &wc.tenant, Payload: payload,
+			Headers: map[string]string{outbox.HeaderOrigin: outbox.OriginWriteBack}})
+		return err
+	})
 }
 
 // wbRead is MarkRead on a Firestore-owned domain: lastReadByDriver, or the whole lastReadByAdmin map (LegacyRead).
@@ -386,16 +621,17 @@ func (s *Service) wbRead(ctx context.Context, p *authz.Principal, chatID uuid.UU
 	}
 	reads := maps.Clone(st.adminReads)
 	reads[st.ref(p.UserID)] = when
-	ut, err := s.wb.Writer.Write(ctx, Doc{Path: ChatPath(st.docID), Update: true, Fields: LegacyRead(role, when, reads)})
+	ut, err := s.wb.Writer.Commit(ctx, writeback.DocWrite{Collection: CollChats, DocID: st.docID, MustExist: true,
+		Fields: legacyDoc(LegacyRead(role, when, reads))})
 	if err != nil {
-		return errWriteBack(err)
+		return writeBackError(err)
 	}
 	s.wb.wait(ctx, CollChats, st.docID, ut)
 	return nil
 }
 
 // wbMutate is mutate on a Firestore-owned domain: the change is computed from the mirrored row and written to the chat
-// document (only the fields it changed).
+// document (only the fields it changed; a cleared assignment is a stored null).
 func (s *Service) wbMutate(ctx context.Context, p *authz.Principal, chatID uuid.UUID, fn change) (WriteResult, error) {
 	now := time.Now().UTC()
 	var next chatsdb.Chat
@@ -426,9 +662,10 @@ func (s *Service) wbMutate(ctx context.Context, p *authz.Principal, chatID uuid.
 		out, err := s.Get(ctx, p, chatID)
 		return WriteResult{Status: http.StatusOK, Data: out}, err
 	}
-	ut, err := s.wb.Writer.Write(ctx, Doc{Path: ChatPath(st.docID), Update: true, Fields: fields})
+	ut, err := s.wb.Writer.Commit(ctx, writeback.DocWrite{Collection: CollChats, DocID: st.docID, Fields: legacyDoc(fields),
+		MustExist: true})
 	if err != nil {
-		return WriteResult{}, errWriteBack(err)
+		return WriteResult{}, writeBackError(err)
 	}
 	if s.wb.wait(ctx, CollChats, st.docID, ut) {
 		out, err := s.Get(ctx, p, chatID)
@@ -436,171 +673,4 @@ func (s *Service) wbMutate(ctx context.Context, p *authz.Principal, chatID uuid.
 	}
 	return WriteResult{Status: http.StatusAccepted, Data: WriteBackEcho{Pending: true, ID: chatID, Collection: CollChats,
 		DocID: st.docID, UpdateTime: ut, Document: echoFields(fields)}}, nil
-}
-
-// --- the Firestore REST adapter --------------------------------------------------------------------------------------
-
-// GCPWriter is the DocWriter over the Firestore REST client of internal/etl/gcp (a masked PATCH per document, with
-// currentDocument.exists as the precondition).
-type GCPWriter struct{ FS *gcp.Firestore }
-
-// Write implements DocWriter.
-func (w GCPWriter) Write(ctx context.Context, d Doc) (time.Time, error) {
-	if w.FS == nil {
-		return time.Time{}, errors.New("chats: no Firestore client")
-	}
-	if d.Path == "" || strings.Count(d.Path, "/")%2 == 0 {
-		return time.Time{}, fmt.Errorf("chats: %q is not a document path", d.Path)
-	}
-	fields := map[string]any{}
-	mask := make([]string, 0, len(d.Fields))
-	for _, k := range slices.Sorted(maps.Keys(d.Fields)) {
-		mask = append(mask, k)
-		v, err := dumpValue(d.Fields[k])
-		if err != nil {
-			return time.Time{}, fmt.Errorf("chats: %s.%s: %w", d.Path, k, err)
-		}
-		if v != nil {
-			fields[k] = v
-		}
-	}
-	var pre gcp.Precondition
-	switch {
-	case d.Create:
-		no := false
-		pre.Exists = &no
-	case d.Update:
-		yes := true
-		pre.Exists = &yes
-	}
-	doc, err := w.FS.Patch(ctx, d.Path, fields, mask, pre)
-	switch {
-	case d.Create && errors.Is(err, gcp.ErrPrecondition):
-		return time.Time{}, ErrDocExists
-	case d.Update && (errors.Is(err, gcp.ErrNotFound) || errors.Is(err, gcp.ErrPrecondition)):
-		return time.Time{}, ErrDocMissing
-	case err != nil:
-		return time.Time{}, err
-	}
-	return doc.UpdateTime, nil
-}
-
-// dumpValue maps a field value onto the value types of the Firestore client (nil = delete the field).
-func dumpValue(v any) (any, error) {
-	switch x := v.(type) {
-	case nil:
-		return nil, nil
-	case string, bool, int64, float64:
-		return x, nil
-	case int:
-		return int64(x), nil
-	case time.Time:
-		return dump.Timestamp{Time: x.UTC()}, nil
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for k, e := range x {
-			ev, err := dumpValue(e)
-			if err != nil {
-				return nil, err
-			}
-			if ev != nil {
-				out[k] = ev
-			}
-		}
-		return out, nil
-	}
-	return nil, fmt.Errorf("unsupported value type %T", v)
-}
-
-// --- the in-memory Firestore of tests --------------------------------------------------------------------------------
-
-// Memory is the in-memory DocWriter of tests: documents by path, the accepted writes in order, a logical clock (one
-// microsecond per write). OnWrite, when set, is called after each accepted write (outside the lock), so a test can play
-// the mirror; Fail makes every write fail.
-type Memory struct {
-	mu      sync.Mutex
-	docs    map[string]map[string]any
-	writes  []Doc
-	fail    error
-	clock   time.Time
-	OnWrite func(d Doc, at time.Time)
-}
-
-// NewMemory returns an empty Memory.
-func NewMemory() *Memory {
-	return &Memory{docs: map[string]map[string]any{}, clock: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
-}
-
-// Write implements DocWriter.
-func (m *Memory) Write(_ context.Context, d Doc) (time.Time, error) {
-	m.mu.Lock()
-	if m.fail != nil {
-		err := m.fail
-		m.mu.Unlock()
-		return time.Time{}, err
-	}
-	for k, v := range d.Fields {
-		if _, err := dumpValue(v); err != nil {
-			m.mu.Unlock()
-			return time.Time{}, fmt.Errorf("chats: %s.%s: %w", d.Path, k, err)
-		}
-	}
-	doc, exists := m.docs[d.Path]
-	switch {
-	case d.Create && exists:
-		m.mu.Unlock()
-		return time.Time{}, ErrDocExists
-	case d.Update && !exists:
-		m.mu.Unlock()
-		return time.Time{}, ErrDocMissing
-	}
-	if doc == nil {
-		doc = map[string]any{}
-		m.docs[d.Path] = doc
-	}
-	for k, v := range d.Fields {
-		if v == nil {
-			delete(doc, k)
-			continue
-		}
-		doc[k] = v
-	}
-	m.clock = m.clock.Add(time.Microsecond)
-	at := m.clock
-	m.writes = append(m.writes, Doc{Path: d.Path, Fields: maps.Clone(d.Fields), Create: d.Create, Update: d.Update})
-	hook := m.OnWrite
-	m.mu.Unlock()
-	if hook != nil {
-		hook(d, at)
-	}
-	return at, nil
-}
-
-// Put stores a document as it stands in Firestore (a fixture).
-func (m *Memory) Put(path string, fields map[string]any) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.docs[path] = maps.Clone(fields)
-}
-
-// Doc returns a copy of the document at path.
-func (m *Memory) Doc(path string) (map[string]any, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	d, ok := m.docs[path]
-	return maps.Clone(d), ok
-}
-
-// Writes returns the accepted writes in order.
-func (m *Memory) Writes() []Doc {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return slices.Clone(m.writes)
-}
-
-// Fail makes every following write return err (nil restores normal operation).
-func (m *Memory) Fail(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.fail = err
 }

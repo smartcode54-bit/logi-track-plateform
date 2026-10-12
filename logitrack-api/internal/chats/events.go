@@ -20,7 +20,9 @@ import (
 //     assignedAdminUserId, driverId, changed[]};
 //   - chat.message_created: chat:{id}, tenant:{tid}:chats and user:{driverUserId}, payload the message (entity
 //     chat_message, id = the message, chatId, tenantId, at, senderUserId, senderRole, senderName, text, imageFileId,
-//     messageType, clientMessageId, createdAt); notify.fcm reads it and pushes "chat" to the driver's devices for a
+//     messageType, clientMessageId, createdAt); senderName is the driver's name on a driver message and null on a staff
+//     message, because the chat's driver subscribes to chat:{id} and never reads staff users (RLS; GET .../messages
+//     gives a driver reader senderName null too); notify.fcm reads it and pushes "chat" to the driver's devices for a
 //     staff message (and to the assigned admin's for a driver message when NOTIFY_ADMIN_ON_DRIVER_MESSAGE is on);
 //   - chat.read: chat:{id}, payload {entity: chat, id, chatId, tenantId, at, userId, lastReadAt}.
 const (
@@ -66,7 +68,7 @@ func chatEvent(ctx context.Context, tx pgx.Tx, rid, key string, c chatsdb.Chat, 
 func messageEvent(ctx context.Context, tx pgx.Tx, rid string, c chatsdb.Chat, driverUser *uuid.UUID, m Message) error {
 	payload := map[string]any{"entity": EntityMessage, "id": m.ID, "chatId": m.ChatID, "tenantId": c.TenantID,
 		"at": m.CreatedAt.UTC(), "legacyDocId": m.LegacyDocID, "senderUserId": m.SenderUserID, "senderRole": m.SenderRole,
-		"senderName": m.SenderName, "text": m.Text, "imageFileId": m.ImageFileID, "messageType": m.MessageType,
+		"senderName": EventSenderName(m.SenderRole, m.SenderName), "text": m.Text, "imageFileId": m.ImageFileID, "messageType": m.MessageType,
 		"clientMessageId": m.ClientMessageID, "createdAt": m.CreatedAt.UTC()}
 	topics := []string{realtime.ChatTopic(c.ID.String()), realtime.TenantTopic(c.TenantID.String(), realtime.FamilyChats)}
 	if driverUser != nil {
@@ -75,6 +77,15 @@ func messageEvent(ctx context.Context, tx pgx.Tx, rid string, c chatsdb.Chat, dr
 	_, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteMessageCreated, AggregateType: AggregateChat,
 		AggregateID: c.ID.String(), TenantID: &c.TenantID, Payload: payload, Headers: headers(rid), Topics: topics})
 	return err
+}
+
+// EventSenderName is the senderName of a chat.message_created payload: the sender's name on a driver message, nil on a
+// staff message (chat:{id} is the driver's topic too, and a driver never reads staff users).
+func EventSenderName(role string, name *string) *string {
+	if role != RoleDriver {
+		return nil
+	}
+	return name
 }
 
 // readEvent appends chat.read: a reader's read state moved (SSE read.updated on chat:{id}).

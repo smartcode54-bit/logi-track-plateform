@@ -243,3 +243,44 @@ func TestCommitPreconditionsAsFirestoreAnswersThem(t *testing.T) {
 		t.Fatalf("a missing database: %v, want ErrNotFound without the message", err)
 	}
 }
+
+// Where (T47): a string equality on one field of a top-level collection, ordered by name and paged with a name cursor
+// at one read time; documents of subcollections, other values and other types are not answered.
+func TestWherePagesAnEquality(t *testing.T) {
+	b := gcptest.New(t, "logitrack-test")
+	for i := range 302 {
+		driver := "uidD"
+		if i%2 == 1 {
+			driver = "uidE"
+		}
+		b.Put(dump.Doc{ID: fmt.Sprintf("c%03d", i), Path: fmt.Sprintf("chats/c%03d", i), CreateTime: at(1), UpdateTime: at(2),
+			Fields: map[string]any{"driverId": driver}})
+	}
+	for i := range 160 {
+		b.Put(dump.Doc{ID: fmt.Sprintf("x%03d", i), Path: fmt.Sprintf("chats/x%03d", i), CreateTime: at(1), UpdateTime: at(2),
+			Fields: map[string]any{"driverId": "uidD"}})
+	}
+	b.Put(dump.Doc{ID: "m1", Path: "chats/c000/messages/m1", CreateTime: at(1), UpdateTime: at(2), Fields: map[string]any{"driverId": "uidD"}})
+	b.Put(dump.Doc{ID: "n1", Path: "chats/n1", CreateTime: at(1), UpdateTime: at(2), Fields: map[string]any{"driverId": int64(1)}})
+	f := b.Firestore()
+	ctx := context.Background()
+	docs, err := f.Where(ctx, "chats", "driverId", "uidD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 151+160 || docs[0].Path != "chats/c000" || docs[150].Path != "chats/c300" || docs[151].Path != "chats/x000" ||
+		b.RunQueryCalls() != 2 {
+		t.Fatalf("got %d docs (%v ... ), %d calls", len(docs), docs[0].Path, b.RunQueryCalls())
+	}
+	for _, d := range docs {
+		if d.Fields["driverId"] != "uidD" || d.ParentPath() != "" {
+			t.Fatalf("answered %s %v", d.Path, d.Fields)
+		}
+	}
+	if none, err := f.Where(ctx, "chats", "driverId", "nobody"); err != nil || len(none) != 0 {
+		t.Fatalf("no match: %v %v", none, err)
+	}
+	if _, err := f.Where(ctx, "chats", "", "x"); err == nil {
+		t.Fatal("a field is required")
+	}
+}

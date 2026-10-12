@@ -211,6 +211,11 @@ func emitMessageEvent(c *docCtx, id uuid.UUID) (int, error) {
 	if tenant == c.e.quar {
 		return 0, nil
 	}
+	if role != "driver" {
+		// chat:{id} is the driver's topic too, and a driver never reads staff users (RLS): a staff message carries no
+		// name, as internal/chats' own event (chats.EventSenderName).
+		senderName = nil
+	}
 	legacy := c.doc.ID
 	payload := map[string]any{"entity": "chat_message", "id": id, "chatId": chat, "tenantId": tenant, "at": created.UTC(),
 		"legacyDocId": legacy, "senderUserId": sender, "senderRole": role, "senderName": senderName, "text": text,

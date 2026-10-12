@@ -52,6 +52,21 @@ func TestMirrorChatEvents(t *testing.T) {
 		t.Fatalf("a re-applied version emitted %v", keys(evs))
 	}
 
+	// A staff message: chat:{id} is the driver's topic too, so the event names no staff user (senderName null), as the
+	// REST messages page answers a driver reader.
+	h.exec(`INSERT INTO users (email, display_name, legacy_auth_uid) VALUES ('sn.staff@example.test', 'Staff Name', 'uid_sn_staff')`)
+	h.fs.Set("chats/chat_1/messages/m_staff", map[string]any{"senderId": "uid_sn_staff", "senderRole": "admin",
+		"text": "รับทราบ", "createdAt": dump.Timestamp{Time: at.Add(time.Minute)}})
+	h.sweep(p)
+	evs = h.eventsAfter(mark)
+	if len(evs) != 1 || evs[0].payload["senderUserId"] == nil {
+		t.Fatalf("staff message events %v", evs)
+	}
+	if v, ok := evs[0].payload["senderName"]; !ok || v != nil {
+		t.Fatalf("a staff message's event names its sender: %v", evs[0].payload)
+	}
+	mark = h.lastEvent()
+
 	// The legacy room takes the chat in progress and reads it; the app reads it too (the fixture's admin uid matches no
 	// user, so its assignment was never loaded).
 	fields := h.doc("chats/chat_1")
@@ -93,6 +108,52 @@ func TestMirrorChatEvents(t *testing.T) {
 	if len(evs) != 1 || evs[0].key != "chat.created" || evs[0].payload["legacyDocId"] != "chat_new" {
 		t.Fatalf("new chat events %v", keys(evs))
 	}
+}
+
+// A clientMessageId is unique per chat (chat_messages_client_id). Only a document written by hand or by a modified
+// client can repeat another message's id (the write-back's is its document id): that one loads without it, with a
+// duplicate_natural_key finding, and neither the listener poll nor the sweep fails, so every other collection keeps
+// mirroring (T47 review).
+func TestDuplicateClientMessageIDLoadsWithoutIt(t *testing.T) {
+	h := newSyncHarness(t)
+	p := h.plan(owned("auth", "masterdata"))
+	h.sweep(p)
+	cursors := h.cursors(p)
+	now := h.readTime().Add(time.Second)
+	cid := uuid.NewString()
+	for _, id := range []string{"m_dup_a", "m_dup_b"} {
+		h.fs.Set("chats/chat_1/messages/"+id, map[string]any{"senderId": "uid_own", "senderRole": "driver", "text": id,
+			"createdAt": dump.Timestamp{Time: now}, "clientMessageId": cid})
+	}
+	h.fs.Set("trip_records/DUPCLIENT", map[string]any{"status": "in_transit", "jobType": "first_mile", "taskId": "task_1",
+		"driverId": "uid_own", "createdAt": ts(now), "updatedAt": ts(now)})
+	rep, _ := h.poll(h.client, p, cursors)
+	if applied(rep, "messages") != 2 || applied(rep, "trip_records") != 1 {
+		t.Fatalf("listener poll: %+v", rep.Collections)
+	}
+	check := func(when string) {
+		t.Helper()
+		if n := h.scalar(`SELECT count(*) FROM chat_messages WHERE legacy_doc_id IN ('m_dup_a', 'm_dup_b')`); n != int64(2) {
+			t.Fatalf("%s: %v messages", when, n)
+		}
+		if n := h.scalar(`SELECT count(*) FROM chat_messages WHERE client_message_id = $1`, cid); n != int64(1) {
+			t.Fatalf("%s: %v messages hold the client message id", when, n)
+		}
+		if v := h.scalar(`SELECT q.field || ' ' || q.reason_code FROM chat_messages m JOIN etl.quarantine q
+			ON q.doc_path = 'chats/chat_1/messages/' || m.legacy_doc_id AND q.resolved_at IS NULL
+			WHERE m.legacy_doc_id IN ('m_dup_a', 'm_dup_b') AND m.client_message_id IS NULL`); v != "clientMessageId duplicate_natural_key" {
+			t.Fatalf("%s: finding %v", when, v)
+		}
+	}
+	check("poll")
+	// The sweep re-applies both documents and still commits.
+	h.fs.Set("trip_records/DUPCLIENT2", map[string]any{"status": "in_transit", "jobType": "first_mile", "taskId": "task_1",
+		"driverId": "uid_own", "createdAt": ts(now), "updatedAt": ts(now)})
+	h.sweep(p)
+	if n := h.scalar(`SELECT count(*) FROM trip_records WHERE legacy_doc_id IN ('DUPCLIENT', 'DUPCLIENT2')`); n != int64(2) {
+		t.Fatalf("the trips beside the duplicate: %v", n)
+	}
+	check("sweep")
 }
 
 // failingGroups is a ChangeSource whose collection-group reads fail, as on a project without the collection-group index.

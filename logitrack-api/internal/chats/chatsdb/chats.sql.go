@@ -12,6 +12,50 @@ import (
 	"github.com/google/uuid"
 )
 
+const assigneeRoles = `-- name: AssigneeRoles :many
+SELECT m.tenant_id, m.role
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+JOIN tenants t ON t.id = $1::uuid
+WHERE m.user_id = $2::uuid AND m.status = 'active' AND u.status = 'active'
+  AND m.role IN ('tenant_admin', 'manager', 'operation_staff', 'operator', 'user')
+  AND (m.tenant_id = t.id OR m.tenant_id = t.contractor_tenant_id)
+ORDER BY m.tenant_id, m.role
+`
+
+type AssigneeRolesParams struct {
+	ChatTenantID uuid.UUID
+	UserID       uuid.UUID
+}
+
+type AssigneeRolesRow struct {
+	TenantID uuid.UUID
+	Role     string
+}
+
+// POST /v1/chats/{id}/assign to another user: the active staff memberships of an active user through which it reaches
+// the chat's tenant (that tenant, or the contractor the tenant works for, R60; memberships p_staff_read: the caller sees
+// the members of its own reach). The service then requires chat:view and chat:send in the membership's role set.
+func (q *Queries) AssigneeRoles(ctx context.Context, arg AssigneeRolesParams) ([]AssigneeRolesRow, error) {
+	rows, err := q.db.Query(ctx, assigneeRoles, arg.ChatTenantID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AssigneeRolesRow{}
+	for rows.Next() {
+		var i AssigneeRolesRow
+		if err := rows.Scan(&i.TenantID, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const chatIDByLegacyDoc = `-- name: ChatIDByLegacyDoc :one
 SELECT id FROM chats WHERE legacy_doc_id = $1::text
 `
@@ -801,28 +845,6 @@ func (q *Queries) SetChat(ctx context.Context, arg SetChatParams) (Chat, error) 
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const staffMember = `-- name: StaffMember :one
-SELECT EXISTS (
-  SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id
-  WHERE m.user_id = $1::uuid AND m.tenant_id = $2::uuid AND m.status = 'active'
-    AND m.role IN ('tenant_admin', 'manager', 'operation_staff', 'operator', 'user') AND u.status = 'active'
-)::boolean AS ok
-`
-
-type StaffMemberParams struct {
-	UserID   uuid.UUID
-	TenantID uuid.UUID
-}
-
-// POST /v1/chats/{id}/assign to another user: an active staff member of the chat's tenant (memberships p_staff_read:
-// the caller sees the members of its reach).
-func (q *Queries) StaffMember(ctx context.Context, arg StaffMemberParams) (bool, error) {
-	row := q.db.QueryRow(ctx, staffMember, arg.UserID, arg.TenantID)
-	var ok bool
-	err := row.Scan(&ok)
-	return ok, err
 }
 
 const txNow = `-- name: TxNow :one

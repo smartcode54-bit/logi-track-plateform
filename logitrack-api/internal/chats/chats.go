@@ -105,6 +105,9 @@ const (
 	// ReasonWriteBackUnsupported: a field the write-back cannot carry (an image uploaded to Go's storage: the 3.x app
 	// reads Firebase Storage URLs only, main spec §13.8).
 	ReasonWriteBackUnsupported = "write_back_unsupported"
+	// ReasonDocumentChanged: the Firestore chat document a write-back names is gone (409 failed_precondition; the
+	// operations write-back's reason, T31).
+	ReasonDocumentChanged = "document_changed"
 	// CodeIdempotencyConflict: a clientMessageId replayed with another message.
 	CodeIdempotencyConflict = "idempotency_conflict"
 	// CodeDriverProfileRequired: a driver-app route called by a principal without a driver profile.
@@ -118,12 +121,21 @@ type Files interface {
 	SignedFiles(ctx context.Context, ids []uuid.UUID, ttl time.Duration) (map[uuid.UUID]storage.Signed, error)
 }
 
+// RoleSets reads the capability set of a tenant role in one tenant: the catalog default with the platform-wide and
+// tenant overrides (iam.RBAC, cached; Appendix C §C.2.5).
+type RoleSets interface {
+	RoleCaps(ctx context.Context, tenant uuid.UUID, role authz.TenantRole) (authz.CapSet, error)
+}
+
 // Deps are the collaborators of the service.
 type Deps struct {
 	// Pool is the logitrack_app pool: every request runs in db.WithPrincipal.
 	Pool db.Beginner
 	// Files commits and signs chat images; optional (without it an imageKey is refused and no URL is signed).
 	Files Files
+	// Roles decides who may be assigned a chat (chat:view and chat:send in the role set of their membership); nil uses
+	// the catalog defaults without overrides (tests).
+	Roles RoleSets
 	// PGOwned is whether PG_OWNED_DOMAINS holds comms: the writes go to PostgreSQL.
 	PGOwned bool
 	// WriteBack is the Firestore-first path while comms is not PostgreSQL-owned; nil = none (the writes answer 503).
@@ -135,6 +147,7 @@ type Deps struct {
 type Service struct {
 	pool    db.Beginner
 	files   Files
+	roles   RoleSets
 	pgOwned bool
 	wb      *WriteBack
 	log     zerolog.Logger
@@ -148,7 +161,7 @@ func New(d Deps) (*Service, error) {
 	if d.WriteBack != nil && d.WriteBack.Writer == nil {
 		return nil, errors.New("chats: a write-back needs a Firestore writer")
 	}
-	return &Service{pool: d.Pool, files: d.Files, pgOwned: d.PGOwned, wb: d.WriteBack, log: d.Log}, nil
+	return &Service{pool: d.Pool, files: d.Files, roles: d.Roles, pgOwned: d.PGOwned, wb: d.WriteBack, log: d.Log}, nil
 }
 
 // tx runs fn in a request transaction of p: RLS decides every row it reads or writes.
@@ -353,6 +366,22 @@ func errOpenChatExists(other uuid.UUID) *httpx.Error {
 func errChatClosed() *httpx.Error {
 	return httpx.NewError(http.StatusConflict, "failed_precondition", "the chat is closed").
 		WithDetails(map[string]any{"reason": ReasonChatClosed})
+}
+
+func errDocumentChanged() *httpx.Error {
+	return httpx.NewError(http.StatusConflict, "failed_precondition", "the Firestore chat document changed or does not exist").
+		WithDetails(map[string]any{"reason": ReasonDocumentChanged})
+}
+
+func errIdempotencyConflict() *httpx.Error {
+	return httpx.NewError(http.StatusConflict, CodeIdempotencyConflict, "the clientMessageId was used for another message").
+		WithDetails(map[string]any{"field": "clientMessageId"})
+}
+
+// isChatClosed reports the refusal of a send to a closed chat (errChatClosed).
+func isChatClosed(err error) bool {
+	he, ok := errors.AsType[*httpx.Error](err)
+	return ok && he.Details["reason"] == ReasonChatClosed
 }
 
 func errWriteBackUnconfigured() *httpx.Error {

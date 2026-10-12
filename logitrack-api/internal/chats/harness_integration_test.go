@@ -21,6 +21,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,6 +49,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push/pushtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
 )
 
@@ -69,6 +71,8 @@ type world struct {
 	rdb      redis.UniversalClient
 	ks       cache.Keyspace
 	svc      *chats.Service
+	hook     *hookPool         // the service's pool: a test runs code before one of its transactions
+	fs       *writeback.Memory // the Firestore of the write-back mode (worldOpts.writeBack)
 	internal string
 	public   string
 	hash     string
@@ -84,6 +88,38 @@ type world struct {
 type worldOpts struct {
 	// pgOwned false builds the service without a Firestore writer (comms Firestore-owned, write-back unconfigured).
 	notPGOwned bool
+	// writeBack builds the service on the Firestore write-back (comms Firestore-owned) over world.fs, without a mirror
+	// acknowledgement: every write-back answers 202 and PostgreSQL holds only what the test writes as the mirror.
+	writeBack bool
+}
+
+// hookPool is the service's pool with a hook that runs before each Begin (n counts the service's transactions from 1
+// since the hook was set): a test closes a chat between two transactions of one request, or fails one of them.
+type hookPool struct {
+	pool   *pgxpool.Pool
+	mu     sync.Mutex
+	n      int
+	before func(n int) error
+}
+
+func (h *hookPool) Begin(ctx context.Context) (pgx.Tx, error) {
+	h.mu.Lock()
+	h.n++
+	n, fn := h.n, h.before
+	h.mu.Unlock()
+	if fn != nil {
+		if err := fn(n); err != nil {
+			return nil, err
+		}
+	}
+	return h.pool.Begin(ctx)
+}
+
+// set installs fn (nil removes it) and restarts the count.
+func (h *hookPool) set(fn func(n int) error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.n, h.before = 0, fn
 }
 
 func newWorld(t *testing.T, opts ...worldOpts) *world {
@@ -150,14 +186,20 @@ func newWorld(t *testing.T, opts ...worldOpts) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(svc.Close)
-	if w.svc, err = chats.New(chats.Deps{Pool: w.pool, Files: st, PGOwned: !o.notPGOwned, Log: logger}); err != nil {
+	w.hook = &hookPool{pool: w.pool}
+	deps := chats.Deps{Pool: w.hook, Files: st, Roles: rbac, PGOwned: !o.notPGOwned && !o.writeBack, Log: logger}
+	if o.writeBack {
+		w.fs = writeback.NewMemory()
+		deps.WriteBack = &chats.WriteBack{Writer: w.fs}
+	}
+	if w.svc, err = chats.New(deps); err != nil {
 		t.Fatal(err)
 	}
-	deps := app.APIDeps{Auth: svc, Storage: st, Chats: w.svc, Jobs: jobs.NewService(w.pool, jobs.NewRedisLocker(rdb, ks)),
+	api := app.APIDeps{Auth: svc, Storage: st, Chats: w.svc, Jobs: jobs.NewService(w.pool, jobs.NewRedisLocker(rdb, ks)),
 		Limiter: limiter}
 	groups := append(svc.Groups(), chats.Groups(w.svc, svc.RequireAuth())...)
-	groups = append(groups, app.MobileGroups(deps)...)
-	groups = append(groups, app.StorageGroups(deps)...)
+	groups = append(groups, app.MobileGroups(api)...)
+	groups = append(groups, app.StorageGroups(api)...)
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
 		Runtime:      app.Runtime{MetricsAddr: "127.0.0.1:0", ShutdownTimeout: 3 * time.Second},

@@ -1,11 +1,13 @@
 //go:build integration
 
 // The chat write-back of T47 end to end against the coexistence it was built for: with comms Firestore-owned the chat
-// writes go to the Firestore documents first (the gcptest fake, through the chats.GCPWriter adapter), the mirror's
+// writes go to the Firestore documents first (the gcptest fake, through the write-back port of T31, one commit per
+// request), the mirror's
 // listeners (chats, and the messages collection group) apply them to PostgreSQL, emit the chat events (SSE from the
 // mirror) and raise cache:mirror_ack, and the handler, which waited for that ack, answers with the row as GET reads it.
 // PostgreSQL is never written by the handler itself; the push is the handler's own event (origin=writeback), the
-// mirror's event of the same message (origin=etl.sync) pushes nothing.
+// mirror's event of the same message (origin=etl.sync) pushes nothing. The legacy nulls (assignedAdminId, assignedAt,
+// closedAt) are stored nulls, as the legacy queue's where('assignedAdminId', '==', null) needs.
 package coexist
 
 import (
@@ -22,6 +24,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 func TestChatWriteBackThroughTheMirror(t *testing.T) {
@@ -41,7 +44,7 @@ func TestChatWriteBackThroughTheMirror(t *testing.T) {
 	t.Cleanup(func() { cancel(); <-done })
 
 	svc, err := chats.New(chats.Deps{Pool: f.app, Log: zerolog.Nop(),
-		WriteBack: &chats.WriteBack{Writer: chats.GCPWriter{FS: f.fs.Firestore()}, Acks: acks, Wait: 10 * time.Second}})
+		WriteBack: &chats.WriteBack{Writer: writeback.Firestore{FS: f.fs.Firestore()}, Acks: acks, Wait: 10 * time.Second}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +110,10 @@ func TestChatWriteBackThroughTheMirror(t *testing.T) {
 	if det := res.Data.(chats.ChatDetail); det.Status != chats.StatusOpen || det.AssignedAdminUserID != nil {
 		t.Fatalf("returned to the queue %+v", det.Chat)
 	}
-	if cd, _ := f.fs.Doc("chats/chat_1"); cd.Fields["assignedAdminId"] != nil || cd.Fields["status"] != "open" {
+	if cd, _ := f.fs.Doc("chats/chat_1"); cd.Fields["status"] != "open" {
 		t.Fatalf("chat document after the assign %v", cd.Fields)
+	} else if v, ok := cd.Fields["assignedAdminId"]; !ok || v != nil {
+		t.Fatalf("assignedAdminId after the return to the queue: %v (present %v), want a stored null", v, ok)
 	}
 	if n := countEvents(t, f, "chat.updated", chat); n == 0 {
 		t.Fatal("the mirror emitted no chat.updated")
@@ -129,8 +134,19 @@ func TestChatWriteBackThroughTheMirror(t *testing.T) {
 	if det.DriverID == nil || *det.DriverID != driver || det.LegacyDocID == nil {
 		t.Fatalf("new chat %+v", det.Chat)
 	}
-	if nd, ok := f.fs.Doc("chats/" + *det.LegacyDocID); !ok || nd.Fields["driverId"] != ref || nd.Fields["status"] != "open" {
+	nd, ok := f.fs.Doc("chats/" + *det.LegacyDocID)
+	if !ok || nd.Fields["driverId"] != ref || nd.Fields["status"] != "open" {
 		t.Fatalf("new chat document %v %v", ok, nd.Fields)
+	}
+	for _, k := range []string{"assignedAdminId", "assignedAt", "closedAt"} {
+		if v, ok := nd.Fields[k]; !ok || v != nil {
+			t.Fatalf("new chat %s = %v (present %v), want a stored null", k, v, ok)
+		}
+	}
+	// A second open of the same driver lands on that chat (the mirror holds it now).
+	if again, err := svc.Open(f.ctx, staff, "rid-4b", chats.OpenInput{DriverID: driver.String()}); err != nil ||
+		again.Status != http.StatusOK || again.Data.(chats.ChatDetail).ID != det.ID {
+		t.Fatalf("second open %d %v", again.Status, err)
 	}
 	if n := countEvents(t, f, "chat.created", det.ID); n != 1 {
 		t.Fatalf("%d chat.created", n)

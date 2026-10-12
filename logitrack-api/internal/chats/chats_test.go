@@ -2,7 +2,6 @@ package chats
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,9 +10,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats/chatsdb"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp/gcptest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -178,79 +177,85 @@ func TestLegacyEncoders(t *testing.T) {
 	}
 }
 
-func TestMemoryPreconditions(t *testing.T) {
+// The legacy writers store null (with-driver/page.tsx:52-54, room/page.tsx:236, chat_repository.dart:33-35) and the
+// legacy queue reads where('assignedAdminId', '==', null): every nil of the encoders is committed as a Firestore null,
+// in the Firestore REST adapter of the write-back port as in its Memory, never as a deleted field.
+func TestLegacyNullsAreStoredNulls(t *testing.T) {
 	ctx := context.Background()
-	m := NewMemory()
-	if _, err := m.Write(ctx, Doc{Path: "chats/c1", Fields: map[string]any{"status": "open"}, Update: true}); !errors.Is(err, ErrDocMissing) {
-		t.Fatalf("update of a missing doc: %v", err)
+	at := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
+	u := uuid.New()
+	refs := map[uuid.UUID]string{u: "uidA"}
+	back := LegacyChatChange(legacyChat{status: StatusInProgress, priority: PriorityNormal, assigned: &u, assignedAt: &at},
+		legacyChat{status: StatusOpen, priority: PriorityNormal}, refs, at)
+	if d := legacyDoc(LegacyNewChat("uidD", "สมชาย", at)); d[fAssignedAdminID] != writeback.Null || d[fClosedAt] != writeback.Null ||
+		d[fStatus] != StatusOpen {
+		t.Fatalf("legacyDoc %v", d)
 	}
-	t1, err := m.Write(ctx, Doc{Path: "chats/c1", Fields: map[string]any{"status": "open", "x": "y"}, Create: true})
-	if err != nil {
-		t.Fatal(err)
+	b := gcptest.New(t, "chats-test")
+	for name, w := range map[string]writeback.Writer{"firestore": writeback.Firestore{FS: b.Firestore()}, "memory": writeback.NewMemory()} {
+		if _, err := w.Commit(ctx, writeback.DocWrite{Collection: CollChats, DocID: "c1-" + name, MustNotExist: true,
+			Fields: legacyDoc(LegacyNewChat("uidD", "สมชาย", at))}); err != nil {
+			t.Fatalf("%s: create %v", name, err)
+		}
+		doc, _, ok, err := w.Get(ctx, CollChats, "c1-"+name)
+		if err != nil || !ok {
+			t.Fatalf("%s: get %v %v", name, ok, err)
+		}
+		for _, k := range []string{fAssignedAdminID, fAssignedAt, fClosedAt} {
+			if v, ok := doc[k]; !ok || v != nil {
+				t.Errorf("%s: new chat %s = %v (present %v), want a stored null", name, k, v, ok)
+			}
+		}
+		if _, err := w.Commit(ctx, writeback.DocWrite{Collection: CollChats, DocID: "c1-" + name, MustExist: true,
+			Fields: legacyDoc(LegacyLastMessage(RoleAdmin, "uidA", ptr("hi"), at, nil, true, false))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Commit(ctx, writeback.DocWrite{Collection: CollChats, DocID: "c1-" + name, MustExist: true,
+			Fields: legacyDoc(back)}); err != nil {
+			t.Fatal(err)
+		}
+		doc, _, _, _ = w.Get(ctx, CollChats, "c1-"+name)
+		if v, ok := doc[fAssignedAdminID]; !ok || v != nil || doc[fStatus] != StatusOpen || doc[fDriverID] != "uidD" {
+			t.Errorf("%s: back to the queue %v", name, doc)
+		}
 	}
-	if _, err := m.Write(ctx, Doc{Path: "chats/c1", Fields: map[string]any{"status": "open"}, Create: true}); !errors.Is(err, ErrDocExists) {
-		t.Fatalf("second create: %v", err)
+	// The PATCH body itself names the field with a null value.
+	var named bool
+	for _, wr := range b.Writes() {
+		if v, ok := wr.Fields[fAssignedAdminID]; ok && v == nil {
+			named = true
+		}
 	}
-	t2, err := m.Write(ctx, Doc{Path: "chats/c1", Fields: map[string]any{"status": "closed", "x": nil}, Update: true})
-	if err != nil || !t2.After(t1) {
-		t.Fatalf("update %v %v", t2, err)
-	}
-	if d, _ := m.Doc("chats/c1"); d["status"] != "closed" || d["x"] != nil {
-		t.Fatalf("doc %v", d)
-	}
-	m.Fail(errors.New("down"))
-	if _, err := m.Write(ctx, Doc{Path: "chats/c2", Fields: map[string]any{}}); err == nil {
-		t.Fatal("Fail")
-	}
-	if len(m.Writes()) != 2 {
-		t.Fatalf("writes %d", len(m.Writes()))
+	if !named {
+		t.Fatal("no commit wrote assignedAdminId as a null")
 	}
 }
 
-// The REST adapter against the in-process fake Google: create-only and update-only preconditions, a masked merge that
-// keeps the fields it does not name, deletes a nil field, stores instants as timestamps and maps as maps.
-func TestGCPWriter(t *testing.T) {
-	ctx := context.Background()
-	b := gcptest.New(t, "chats-test")
-	w := GCPWriter{FS: b.Firestore()}
+// A replay is the same message only with the same sender, role, text and client message id, and no image.
+func TestSameLegacyMessage(t *testing.T) {
 	at := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
-	ut, err := w.Write(ctx, Doc{Path: "chats/c1", Fields: LegacyNewChat("uidD", "สมชาย", at), Create: true})
-	if err != nil || ut.IsZero() {
-		t.Fatalf("create: %v %v", ut, err)
+	cid := uuid.New()
+	doc := LegacyMessage("uidA", RoleAdmin, ptr("hi"), at, cid)
+	v := send{text: ptr("hi"), clientID: cid}
+	if !sameLegacyMessage(doc, "uidA", RoleAdmin, v) {
+		t.Fatal("the same message")
 	}
-	if _, err := w.Write(ctx, Doc{Path: "chats/c1", Fields: map[string]any{"status": "open"}, Create: true}); !errors.Is(err, ErrDocExists) {
-		t.Fatalf("second create: %v", err)
+	for name, c := range map[string]struct {
+		sender, role string
+		v            send
+	}{
+		"another sender":    {"uidB", RoleAdmin, v},
+		"another role":      {"uidA", RoleDriver, v},
+		"another text":      {"uidA", RoleAdmin, send{text: ptr("ho"), clientID: cid}},
+		"no text":           {"uidA", RoleAdmin, send{clientID: cid}},
+		"another client id": {"uidA", RoleAdmin, send{text: ptr("hi"), clientID: uuid.New()}},
+	} {
+		if sameLegacyMessage(doc, c.sender, c.role, c.v) {
+			t.Errorf("%s: taken for the same message", name)
+		}
 	}
-	if _, err := w.Write(ctx, Doc{Path: "chats/nope", Fields: map[string]any{"status": "open"}, Update: true}); !errors.Is(err, ErrDocMissing) {
-		t.Fatalf("update of a missing doc: %v", err)
-	}
-	reads := map[string]time.Time{"uidA": at}
-	if _, err := w.Write(ctx, Doc{Path: "chats/c1", Update: true,
-		Fields: LegacyLastMessage(RoleAdmin, "uidA", ptr("hi"), at, reads, true, false)}); err != nil {
-		t.Fatal(err)
-	}
-	d, ok := b.Doc("chats/c1")
-	if !ok || d.Fields["status"] != StatusInProgress || d.Fields["assignedAdminId"] != "uidA" || d.Fields["driverId"] != "uidD" ||
-		d.Fields["driverDisplayName"] != "สมชาย" || d.Fields["lastMessage"] != "hi" {
-		t.Fatalf("chat %v", d.Fields)
-	}
-	if ts, ok := d.Fields["lastMessageAt"].(dump.Timestamp); !ok || !ts.Equal(at) {
-		t.Fatalf("lastMessageAt %#v", d.Fields["lastMessageAt"])
-	}
-	if m, ok := d.Fields["lastReadByAdmin"].(map[string]any); !ok || len(m) != 1 {
-		t.Fatalf("lastReadByAdmin %#v", d.Fields["lastReadByAdmin"])
-	}
-	if _, err := w.Write(ctx, Doc{Path: "chats/c1/messages/" + uuid.NewString(), Create: true,
-		Fields: LegacyMessage("uidA", RoleAdmin, ptr("hi"), at, uuid.New())}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Write(ctx, Doc{Path: "chats", Fields: map[string]any{}}); err == nil {
-		t.Fatal("a collection path is not a document")
-	}
-	if _, err := w.Write(ctx, Doc{Path: "chats/c1", Fields: map[string]any{"bad": struct{}{}}}); err == nil {
-		t.Fatal("an unsupported value is refused")
-	}
-	if _, err := (GCPWriter{}).Write(ctx, Doc{Path: "chats/c1"}); err == nil {
-		t.Fatal("no client")
+	doc[fImageURL] = "https://firebasestorage.example.test/x.jpg"
+	if sameLegacyMessage(doc, "uidA", RoleAdmin, v) {
+		t.Error("a stored image is another message")
 	}
 }

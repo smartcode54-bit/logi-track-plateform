@@ -1,7 +1,7 @@
 // Package gcptest is an in-process stand-in for the Google endpoints cmd/etl talks to: the OAuth2 token
 // endpoint of the service-account JWT bearer grant (the assertion's signature is verified), the Firestore v1
-// REST methods runQuery (by name, or the listeners' timestamp filter field >= since ordered by the field and the
-// name, T29), listCollectionIds, get (at a read time too), patch (with preconditions and update masks) and commit
+// REST methods runQuery (by name, the listeners' timestamp filter field >= since ordered by the field and the
+// name, T29, or a string equality filter ordered by name, T47), listCollectionIds, get (at a read time too), patch (with preconditions and update masks) and commit
 // (an atomic batch of masked updates and deletes with preconditions, one tick for the batch, T31) over an
 // in-memory document table with deletes (Delete, and Rename for renameTripRecord's copy-and-delete batch), and Cloud
 // Storage media downloads. Everything is served through an
@@ -426,6 +426,7 @@ func (b *Backend) restDoc(d dump.Doc) map[string]any {
 type queryValue struct {
 	ReferenceValue *string `json:"referenceValue"`
 	TimestampValue *string `json:"timestampValue"`
+	StringValue    *string `json:"stringValue"`
 }
 
 func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
@@ -464,31 +465,39 @@ func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 	q := req.StructuredQuery
 	from := q.From[0]
 	// A where clause is the listeners' timestamp filter (gcp.Firestore.Changed): field >= since, ordered by the field
-	// and then by name, the cursor (timestamp, name). Without one the query is ordered by name, the cursor a name.
+	// and then by name, the cursor (timestamp, name); or a string equality (gcp.Firestore.Where), ordered by name, the
+	// cursor a name. Without one the query is ordered by name, the cursor a name.
 	field := ""
 	var since time.Time
+	var equals *string
 	if q.Where != nil {
 		ff := q.Where.FieldFilter
 		field = strings.Trim(ff.Field.FieldPath, "`")
-		if ff.Op != "GREATER_THAN_OR_EQUAL" || ff.Value.TimestampValue == nil || len(q.OrderBy) != 2 ||
-			strings.Trim(q.OrderBy[0].Field.FieldPath, "`") != field || q.OrderBy[1].Field.FieldPath != "__name__" {
-			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
-			return
-		}
-		var err error
-		if since, err = time.Parse(time.RFC3339Nano, *ff.Value.TimestampValue); err != nil {
+		switch {
+		case ff.Op == "EQUAL" && ff.Value.StringValue != nil && len(q.OrderBy) <= 1 &&
+			(len(q.OrderBy) == 0 || q.OrderBy[0].Field.FieldPath == "__name__"):
+			equals = ff.Value.StringValue
+		case ff.Op == "GREATER_THAN_OR_EQUAL" && ff.Value.TimestampValue != nil && len(q.OrderBy) == 2 &&
+			strings.Trim(q.OrderBy[0].Field.FieldPath, "`") == field && q.OrderBy[1].Field.FieldPath == "__name__":
+			var err error
+			if since, err = time.Parse(time.RFC3339Nano, *ff.Value.TimestampValue); err != nil {
+				apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
+				return
+			}
+		default:
 			apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
 			return
 		}
 	}
+	byName := field == "" || equals != nil
 	afterName := ""
 	var afterTS time.Time
 	if q.StartAt != nil {
 		vals := q.StartAt.Values
 		switch {
-		case field == "" && len(vals) == 1 && vals[0].ReferenceValue != nil:
+		case byName && len(vals) == 1 && vals[0].ReferenceValue != nil:
 			afterName = strings.TrimPrefix(*vals[0].ReferenceValue, b.Root()+"/")
-		case field != "" && len(vals) == 2 && vals[0].TimestampValue != nil && vals[1].ReferenceValue != nil:
+		case !byName && len(vals) == 2 && vals[0].TimestampValue != nil && vals[1].ReferenceValue != nil:
 			t, err := time.Parse(time.RFC3339Nano, *vals[0].TimestampValue)
 			if err != nil {
 				apiError(w, http.StatusBadRequest, "INVALID_ARGUMENT")
@@ -524,7 +533,11 @@ func (b *Backend) handleRunQuery(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		h := hit{path: path}
-		if field != "" {
+		if equals != nil {
+			if v, ok := d.Fields[field].(string); !ok || v != *equals || (afterName != "" && path <= afterName) {
+				continue
+			}
+		} else if field != "" {
 			ts, ok := d.Fields[field].(dump.Timestamp)
 			if !ok || ts.Before(since) {
 				continue

@@ -8,7 +8,8 @@
 //
 // Writer is the port; Firestore adapts the Firestore REST client of internal/etl/gcp (service-account token, update
 // masks, atomic commits); Memory is the in-memory stand-in of tests. The operations staff writes of T31
-// (internal/operations) call it while the operations domain is Firestore-owned; the expenses and maintenance services
+// (internal/operations) and the chat writes of T47 (internal/chats) call it while their domain is Firestore-owned; the
+// expenses and maintenance services
 // (T40) still write PostgreSQL only (#60's open question). Switching it on in an environment is an operator decision
 // recorded with the coexistence runbook: on a PostgreSQL-owned domain and on a deployment without the mirror (the
 // staging VM) nothing calls it.
@@ -21,6 +22,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,9 +34,9 @@ import (
 // Writer writes staff changes of a Firestore-owned document.
 type Writer interface {
 	// Merge writes the given fields of collection/docID and keeps every other field (an update mask); the document is
-	// created when it does not exist. A nil value removes the field (the legacy code's deleteField()). Values are
-	// string, bool, int, int32, int64, float64, time.Time (a Firestore timestamp), []any and map[string]any of those
-	// (arrays and maps, e.g. deliveryStops) and nil.
+	// created when it does not exist. A nil value removes the field (the legacy code's deleteField()); Null writes a
+	// null. Values are string, bool, int, int32, int64, float64, time.Time (a Firestore timestamp), []any and
+	// map[string]any of those (arrays and maps, e.g. deliveryStops), nil and, at the top level, Null.
 	Merge(ctx context.Context, collection, docID string, fields map[string]any) error
 	// Commit applies the writes of one request atomically (all or none, one documents:commit) and returns the commit
 	// time: the update time of every document written, which the mirror acknowledges (cache:mirror_ack) once it
@@ -42,6 +44,30 @@ type Writer interface {
 	Commit(ctx context.Context, writes ...DocWrite) (time.Time, error)
 	// Get reads one document's fields and update time; ok is false when it does not exist.
 	Get(ctx context.Context, collection, docID string) (fields map[string]any, updateTime time.Time, ok bool, err error)
+	// Find reads the documents of a top-level collection whose field holds the string value, in id order: one
+	// equality query, which the single-field index Firestore keeps by default serves (the 3.x app runs the same one on
+	// chats.driverId). The chat write-back finds a driver's chat documents the mirror has not applied yet with it (T47).
+	Find(ctx context.Context, collection, field, value string) ([]Doc, error)
+}
+
+// Doc is a document Find read: its id, fields and update time.
+type Doc struct {
+	ID         string
+	Fields     map[string]any
+	UpdateTime time.Time
+}
+
+// Null is the value of a field written as a Firestore null: the field stays on the document and holds null, where a
+// nil value removes it. Legacy writers that store field: null (the chats' assignedAdminId, assignedAt and closedAt,
+// T47) are read with where(field, '==', null), which matches a document that holds the null and never one that lacks
+// the field. It names a top-level field only.
+var Null any = nullValue{}
+
+type nullValue struct{}
+
+func isNull(v any) bool {
+	_, ok := v.(nullValue)
+	return ok
 }
 
 // DocWrite is one write of a Commit. Delete removes the document; otherwise Fields are merged as Merge merges them
@@ -70,8 +96,8 @@ func ErrUnavailable(cause error) error {
 // Firestore is the Writer over the Firestore REST API (internal/etl/gcp).
 type Firestore struct{ FS *gcp.Firestore }
 
-// Merge implements Writer with a masked PATCH: the mask names every field, so a field sent as nil is deleted and the
-// fields not named keep their values.
+// Merge implements Writer with a masked PATCH: the mask names every field, so a field sent as nil is deleted, one sent
+// as Null holds null, and the fields not named keep their values.
 func (f Firestore) Merge(ctx context.Context, collection, docID string, fields map[string]any) error {
 	if f.FS == nil {
 		return errors.New("writeback: no Firestore client")
@@ -83,6 +109,10 @@ func (f Firestore) Merge(ctx context.Context, collection, docID string, fields m
 	mask := make([]string, 0, len(fields))
 	for _, k := range slices.Sorted(maps.Keys(fields)) {
 		mask = append(mask, k)
+		if isNull(fields[k]) {
+			enc[k] = nil // a present nil: gcp encodes it as nullValue
+			continue
+		}
 		v, err := dumpValue(fields[k])
 		if err != nil {
 			return fmt.Errorf("writeback: %s/%s.%s: %w", collection, docID, k, err)
@@ -123,6 +153,22 @@ func (f Firestore) Get(ctx context.Context, collection, docID string) (map[strin
 	return d.Fields, d.UpdateTime, true, nil
 }
 
+// Find implements Writer with one runQuery (field == value, ordered by name, paged).
+func (f Firestore) Find(ctx context.Context, collection, field, value string) ([]Doc, error) {
+	if f.FS == nil {
+		return nil, errors.New("writeback: no Firestore client")
+	}
+	docs, err := f.FS.Where(ctx, collection, field, value)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Doc, 0, len(docs))
+	for _, d := range docs {
+		out = append(out, Doc{ID: d.ID, Fields: d.Fields, UpdateTime: d.UpdateTime})
+	}
+	return out, nil
+}
+
 // gcpWrites maps the writes of a commit onto the client's (each Merge-like write masks exactly its fields).
 func gcpWrites(writes []DocWrite) ([]gcp.Write, error) {
 	if len(writes) == 0 {
@@ -150,6 +196,10 @@ func gcpWrites(writes []DocWrite) ([]gcp.Write, error) {
 				if !w.Replace {
 					g.Mask = append(g.Mask, k)
 				}
+				if isNull(w.Fields[k]) {
+					g.Fields[k] = nil // a present nil: gcp encodes it as nullValue
+					continue
+				}
 				v, err := dumpValue(w.Fields[k])
 				if err != nil {
 					return nil, fmt.Errorf("writeback: %s/%s.%s: %w", w.Collection, w.DocID, k, err)
@@ -164,11 +214,14 @@ func gcpWrites(writes []DocWrite) ([]gcp.Write, error) {
 	return out, nil
 }
 
-// dumpValue maps a field value onto the value types of the Firestore client (nil = delete the field).
+// dumpValue maps a field value onto the value types of the Firestore client (nil = delete the field; Null is handled
+// by the callers, at the top level only).
 func dumpValue(v any) (any, error) {
 	switch x := v.(type) {
 	case nil:
 		return nil, nil
+	case nullValue:
+		return nil, errors.New("writeback.Null names a top-level field only")
 	case string, bool, int64, float64:
 		return x, nil
 	case int:
@@ -269,11 +322,7 @@ func (m *Memory) Commit(_ context.Context, writes ...DocWrite) (time.Time, error
 			m.docs[path] = doc
 		}
 		for k, v := range w.Fields {
-			if v == nil {
-				delete(doc, k)
-				continue
-			}
-			doc[k] = v
+			setField(doc, k, v)
 		}
 		m.times[path] = at
 		m.writes = append(m.writes, Write{Collection: w.Collection, DocID: w.DocID, Fields: maps.Clone(w.Fields)})
@@ -317,6 +366,9 @@ func (m *Memory) Merge(_ context.Context, collection, docID string, fields map[s
 		return errors.New("writeback: a document path needs a collection and an id")
 	}
 	for k, v := range fields {
+		if isNull(v) {
+			continue
+		}
 		if _, err := dumpValue(v); err != nil {
 			return fmt.Errorf("writeback: %s/%s.%s: %w", collection, docID, k, err)
 		}
@@ -328,17 +380,47 @@ func (m *Memory) Merge(_ context.Context, collection, docID string, fields map[s
 		m.docs[path] = doc
 	}
 	for k, v := range fields {
-		if v == nil {
-			delete(doc, k)
-			continue
-		}
-		doc[k] = v
+		setField(doc, k, v)
 	}
 	m.writes = append(m.writes, Write{Collection: collection, DocID: docID, Fields: maps.Clone(fields)})
 	return nil
 }
 
-// Fail makes every following Merge return err (nil restores normal operation).
+// setField applies one written field to a Memory document as Firestore would: nil removes it, Null keeps it with a
+// nil value.
+func setField(doc map[string]any, k string, v any) {
+	switch {
+	case v == nil:
+		delete(doc, k)
+	case isNull(v):
+		doc[k] = nil
+	default:
+		doc[k] = v
+	}
+}
+
+// Find implements Writer: the documents directly in collection whose field holds value, in id order.
+func (m *Memory) Find(_ context.Context, collection, field, value string) ([]Doc, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail != nil {
+		return nil, m.fail
+	}
+	var out []Doc
+	for path, d := range m.docs {
+		id, ok := strings.CutPrefix(path, collection+"/")
+		if !ok || id == "" || strings.Contains(id, "/") {
+			continue
+		}
+		if s, ok := d[field].(string); ok && s == value {
+			out = append(out, Doc{ID: id, Fields: maps.Clone(d), UpdateTime: m.times[path]})
+		}
+	}
+	slices.SortFunc(out, func(a, b Doc) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+// Fail makes every following Merge, Commit, Get and Find return err (nil restores normal operation).
 func (m *Memory) Fail(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

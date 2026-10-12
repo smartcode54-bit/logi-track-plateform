@@ -567,6 +567,69 @@ func TestMessageEventTopics(t *testing.T) {
 	if ev[0].Headers["requestId"] == "" {
 		t.Fatal("no request id")
 	}
+	// chat:{id} is the driver's topic too and a driver never reads staff users (RLS; the REST page answers a driver
+	// reader senderName null): a staff message's event names no sender, a driver message's names the driver.
+	if v, ok := p["senderName"]; !ok || v != nil {
+		t.Fatalf("a staff message's event names its sender: %v", p)
+	}
+	expect(t, w.driverSays(w.login("d.o@example.test"), "ครับ"), http.StatusCreated, "")
+	ev = keys(w.events(chat), "chat.message_created")
+	if len(ev) != 2 || ev[1].Payload["senderName"] != "d.o@example.test" {
+		t.Fatalf("driver message payload %v", ev[len(ev)-1].Payload)
+	}
+}
+
+// A driver's send that loses a race with staff closing its open chat (closed between the lookup of the open chat and
+// the send's transaction) lands in a new chat (201), as a fresh send would, instead of 409 chat_closed.
+func TestMySendAfterAConcurrentClose(t *testing.T) {
+	w := newWorld(t)
+	ta, drv := w.login("ta.o@example.test"), w.login("d.o@example.test")
+	chat := w.openChat(ta, w.dO)
+	// MySend's transactions: the replay lookup (1), the open (2), the send (3).
+	w.hook.set(func(n int) error {
+		if n != 3 {
+			return nil
+		}
+		_, err := w.etl.Exec(w.ctx, `UPDATE chats SET status = 'closed', closed_at = now() WHERE id = $1`, chat)
+		return err
+	})
+	r := w.driverSays(drv, "ถึงแล้วครับ")
+	w.hook.set(nil)
+	expect(t, r, http.StatusCreated, "")
+	if str(r.data()["chatId"]) == chat {
+		t.Fatalf("the message went to the closed chat %s", r.raw)
+	}
+	if n := w.count(`SELECT count(*) FROM chats WHERE driver_id = $1 AND status <> 'closed'`, w.dO); n != 1 {
+		t.Fatalf("%d open chats", n)
+	}
+	if n := w.count(`SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id WHERE c.driver_id = $1`, w.dO); n != 1 {
+		t.Fatalf("%d messages", n)
+	}
+}
+
+// An assignee may read and answer the chat: a staff member who reaches its tenant (its own, or the contractor it works
+// for) with chat:view and chat:send in the role set of that membership, overrides included; a member of the user
+// role (no chat capability) or of a role whose override removes chat:view is 422 adminUserId not_found.
+func TestAssignNeedsChatCapabilities(t *testing.T) {
+	w := newWorld(t)
+	ta := w.login("ta.o@example.test")
+	chat := w.openChat(ta, w.dO)
+	r := w.post("/v1/chats/"+chat+"/assign", ta, map[string]any{"adminUserId": w.usO})
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	expect(t, w.post("/v1/chats/"+chat+"/assign", ta, map[string]any{"adminUserId": w.osO}), http.StatusOK, "")
+	w.exec(`INSERT INTO role_capability_overrides (tenant_id, role, capability, allowed, updated_by)
+		VALUES ($1, 'operation_staff', 'chat:view', false, $2)`, w.O, w.taO)
+	if err := w.rdb.Incr(w.ctx, w.ks.RBACVersion()).Err(); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, w.post("/v1/chats/"+chat+"/assign", ta, map[string]any{"adminUserId": w.osO}), http.StatusUnprocessableEntity, "invalid_argument")
+	// The carrier A works for O: O's operator handles A's driver chat.
+	chatA := w.openChat(ta, w.dA)
+	r = w.post("/v1/chats/"+chatA+"/assign", ta, map[string]any{"adminUserId": w.opO})
+	expect(t, r, http.StatusOK, "")
+	if r.data()["assignedAdminUserId"] != w.opO {
+		t.Fatalf("contractor reach %s", r.raw)
+	}
 }
 
 // A chat image: presigned for the chat (purpose chat_image), committed with the message in its transaction, signed

@@ -383,7 +383,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	chatSvc, err := buildChats(cfg, pool, st, wbFS, caches, log)
+	chatSvc, err := buildChats(cfg, pool, st, wbFS, caches, rbac, log)
 	if err != nil {
 		closeAll()
 		return nil, nil, err

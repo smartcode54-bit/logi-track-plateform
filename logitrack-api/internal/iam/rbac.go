@@ -252,6 +252,13 @@ func (r *RBAC) roleSet(ctx context.Context, tid uuid.UUID, role authz.TenantRole
 	return cache.GetJSON(ctx, r.cache, r.ks.RBACCapabilities(tid.String(), string(role), ver, authz.RoleSetFingerprint), CapsTTL, load)
 }
 
+// RoleCaps is the capability set of role in tenant tid before the steward rule (which only global keys follow,
+// authz.ApplySteward): the catalog default with the platform-wide and tenant overrides, cached like the sets of the
+// request principals (rbac:caps). The chats service asks it who may be assigned a chat (T47).
+func (r *RBAC) RoleCaps(ctx context.Context, tid uuid.UUID, role authz.TenantRole) (authz.CapSet, error) {
+	return r.roleSet(ctx, tid, role)
+}
+
 // overrides reads the platform-wide and tenant rows of role_capability_overrides for role in tid.
 func (r *RBAC) overrides(ctx context.Context, tid uuid.UUID, role authz.TenantRole) ([]authz.Override, error) {
 	var rows []iamdb.RoleOverridesRow

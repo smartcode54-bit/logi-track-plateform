@@ -11,9 +11,10 @@ import (
 // (main spec §13.8): the field names and literals the installed 3.x APKs and the legacy web read, and the inverse of
 // the ETL's loadChat / loadChatMessage (Appendix A §A.3.10). Users are named by the id the 3.x app knows (their
 // Firebase uid, legacy_auth_uid, else the uuid the bridge gives a user born in Go); times are Firestore timestamps
-// (time.Time); a nil value deletes the field (the legacy null writes become absent fields, which every reader treats
-// alike). A change writes only the fields it changed, so the fields the 3.x app writes on the same document
-// (lastReadByDriver, the last message of its own sends) stay the app's.
+// (time.Time); a nil value is the legacy writers' null, which the write-back stores as a Firestore null
+// (writeback.Null): the legacy queue and dashboard read where('assignedAdminId', '==', null), which matches a stored
+// null only, never an absent field. A change writes only the fields it changed, so the fields the 3.x app writes on
+// the same document (lastReadByDriver, the last message of its own sends) stay the app's.
 
 // Legacy field names.
 const (
@@ -36,6 +37,7 @@ const (
 	fSenderID        = "senderId"
 	fSenderRole      = "senderRole"
 	fText            = "text"
+	fImageURL        = "imageUrl"
 	fClientMessageID = "clientMessageId"
 )
 

@@ -196,6 +196,26 @@ func (f *Firestore) changed(ctx context.Context, collection string, group bool, 
 	return docs, read, err
 }
 
+// Where reads the documents of a top-level collection whose field holds the string value, ordered by name and paged
+// with a name cursor, at one read time. An equality filter needs only the single-field index Firestore keeps by default
+// (the chat write-back finds a driver's chat documents by driverId with it, T47).
+func (f *Firestore) Where(ctx context.Context, collection, field, value string) ([]dump.Doc, error) {
+	if field == "" {
+		return nil, errors.New("gcp: Where needs a field")
+	}
+	q := map[string]any{
+		"from": []any{map[string]any{"collectionId": collection, "allDescendants": false}},
+		"where": map[string]any{"fieldFilter": map[string]any{"field": map[string]any{"fieldPath": quoteFieldPath(field)}, "op": "EQUAL",
+			"value": map[string]any{"stringValue": value}}},
+		"orderBy": []any{map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
+		"limit":   pageSize,
+	}
+	docs, _, err := f.query(ctx, collection, false, q, time.Time{}, func(d dump.Doc) []any {
+		return []any{map[string]any{"referenceValue": f.root + "/" + d.Path}}
+	})
+	return docs, err
+}
+
 // query pages one structured query at one read time; cursor gives the startAt values after a page's last document.
 func (f *Firestore) query(ctx context.Context, collection string, group bool, q map[string]any, at time.Time,
 	cursor func(dump.Doc) []any) ([]dump.Doc, time.Time, error) {
