@@ -1,20 +1,12 @@
 // TW4 (#84; developer-spec.md §10.5, §10.7; Appendix E §E.5 row 19): the sidebar shows exactly the
-// routes the proxy.ts gate allows over ['me'], and its waitlist badge is ['badges'] (one count query,
-// polled), not a listener on the whole waitlist collection. T54R (#74): with the `dashboard` web flag on,
-// the badge is `GET /v1/badges` and no Firestore query runs at all.
+// routes the proxy.ts gate allows over ['me'], and its waitlist badge is ['badges'] (`GET /v1/badges`,
+// polled), not a listener on the whole waitlist collection. TW7: the badge reads Go only, with no web
+// flag to wait for (T54R had a Firestore count query while the `dashboard` flag was off).
 import React from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const firestore = vi.hoisted(() => ({
-    onSnapshot: vi.fn(() => () => undefined),
-    getCountFromServer: vi.fn(async () => ({ data: () => ({ count: 7 }) })),
-    collection: vi.fn((_db: unknown, name: string) => ({ name })),
-}));
-
-vi.mock("@/firebase/client", () => ({ db: {}, auth: {}, functions: {}, storage: {} }));
-vi.mock("firebase/firestore", () => firestore);
 vi.mock("next/navigation", () => ({ usePathname: () => "/app/dashboard", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("@/context/auth", () => ({
     useAuth: () => ({ logout: vi.fn(), customClaims: { role: "manager", admin: false } }),
@@ -24,7 +16,7 @@ const { AppSidebar } = await import("../app-sidebar");
 const { SidebarProvider } = await import("@/components/ui/sidebar");
 const { LanguageProvider } = await import("@/context/language");
 const { createQueryClient } = await import("@/lib/queryClient");
-const { BADGES_POLL_MS, badgesQueryOptions, fetchBadgesFromFirestore } = await import("@/features/dashboard/api/badges");
+const { BADGES_POLL_MS, badgesQueryOptions } = await import("@/features/dashboard/api/badges");
 
 function principal(capabilities: string[]) {
     return {
@@ -44,19 +36,14 @@ function principal(capabilities: string[]) {
     };
 }
 
-let domains: Record<string, string> = {};
 let fetched: string[] = [];
 
 beforeEach(() => {
-    firestore.onSnapshot.mockClear();
-    firestore.getCountFromServer.mockClear();
-    domains = {};
     fetched = [];
     vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL) => {
             fetched.push(String(input));
-            if (String(input) === "/api/go/v1/config/web-flags") return new Response(JSON.stringify({ data: { domains } }), { status: 200 });
             if (String(input) === "/api/go/v1/badges") return new Response(JSON.stringify({ data: { waitlist: 12 } }), { status: 200 });
             throw new Error(`unexpected ${String(input)}`);
         })
@@ -96,33 +83,13 @@ describe("AppSidebar", () => {
         for (const hidden of ["/app/drivers", "/app/accounting/fuel", "/app/security-center", "/app/utilities/backfill", "/app/companies"]) {
             expect(links).not.toContain(hidden);
         }
-        // Let the badge's fetch end here: its Firestore source is a lazy import (T54R), which would
-        // otherwise land in the next test.
-        expect(await screen.findByText("Waitlist (7)")).toBeInTheDocument();
+        expect(await screen.findByText("Waitlist (12)")).toBeInTheDocument();
     });
 
-    it("counts the waitlist with one count query and opens no listener", async () => {
-        await renderSidebar(["waitlist:view"]);
-        await waitFor(() => expect(screen.getByText("Waitlist (7)")).toBeInTheDocument());
-        expect(firestore.getCountFromServer).toHaveBeenCalledTimes(1);
-        expect(firestore.onSnapshot).not.toHaveBeenCalled();
-    });
-
-    it("with the dashboard flag on, counts the waitlist from GET /v1/badges and runs no Firestore query (T54R)", async () => {
-        domains = { auth: "go", dashboard: "go" };
+    it("counts the waitlist from one GET /v1/badges, with no web flags request (TW7)", async () => {
         await renderSidebar(["waitlist:view"]);
         await waitFor(() => expect(screen.getByText("Waitlist (12)")).toBeInTheDocument());
-        expect(fetched.filter((u) => u === "/api/go/v1/badges")).toHaveLength(1);
-        expect(firestore.getCountFromServer).not.toHaveBeenCalled();
-        expect(firestore.onSnapshot).not.toHaveBeenCalled();
-    });
-
-    it("reads no waitlist count without waitlist:view", async () => {
-        await renderSidebar(["fleet:view_trucks"]);
-        await waitFor(() => expect(hrefs()).toContain("/app/trucks"));
-        await new Promise((r) => setTimeout(r, 20));
-        expect(firestore.getCountFromServer).not.toHaveBeenCalled();
-        expect(firestore.onSnapshot).not.toHaveBeenCalled();
+        expect(fetched).toEqual(["/api/go/v1/badges"]);
     });
 });
 
@@ -133,14 +100,5 @@ describe("['badges']", () => {
         expect(badgesQueryOptions.refetchInterval).toBe(BADGES_POLL_MS);
         expect(BADGES_POLL_MS).toBe(60_000);
         expect(badgesQueryOptions.refetchIntervalInBackground).toBe(false);
-    });
-
-    it("the P0 source gates each counter by its capability", async () => {
-        const client = createQueryClient();
-        client.setQueryData(["me"], principal(["chat:view"]));
-        await expect(fetchBadgesFromFirestore({ client })).resolves.toEqual({});
-        client.setQueryData(["me"], principal(["waitlist:view"]));
-        await expect(fetchBadgesFromFirestore({ client })).resolves.toEqual({ waitlist: 7 });
-        expect(firestore.getCountFromServer).toHaveBeenCalledTimes(1);
     });
 });

@@ -1,52 +1,15 @@
-// TW4 / T25 (developer-spec.md §10.7; Appendix E §E.4): customers, subcontractors and the owner company
-// are read once per stale time for the whole tab, whichever page or dialog asks, from Firestore while the
-// `masterdata` flag is off, and their writes invalidate the cached copy. The writes go through the save
-// hooks the forms use (`useSaveCustomer`, `useSaveSubcontractor`, `useSaveCompany`): the write functions
-// themselves invalidate nothing, the hooks' `meta.invalidates` does (T25 review), so these tests fail
-// when a hook loses its meta.
+// TW4 / T25 / TW7 (developer-spec.md §10.7; Appendix E §E.4): customer and carrier pickers and the owner
+// company are read once per stale time for the whole tab, whichever page or dialog asks, and their writes
+// invalidate the cached copy. Since TW7 Go is the only source (the Firestore adapters and the `masterdata`
+// flag are gone). The writes go through the save hooks the forms use (`useSaveCustomer`,
+// `useSaveSubcontractor`, `useSaveCompany`): the write functions themselves invalidate nothing, the
+// hooks' `meta.invalidates` does (T25 review), so these tests fail when a hook loses its meta.
 import React from "react";
 import { act, renderHook } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const store = vi.hoisted(() => ({ reads: [] as string[], writes: [] as string[] }));
-
-vi.mock("@/firebase/client", () => ({ db: {}, auth: {}, functions: {}, storage: {} }));
-vi.mock("firebase/storage", () => ({ ref: vi.fn(), uploadBytes: vi.fn(), getDownloadURL: vi.fn() }));
-vi.mock("firebase/firestore", () => {
-    const snapshot = (name: string) => {
-        const docs =
-            name === "customers"
-                ? [{ id: "c1", data: () => ({ code: "CJ", name: "CJ Express", branchType: "สาขา", branchNumber: "00001" }) }]
-                : name === "subcontractors"
-                  ? [{ id: "s1", data: () => ({ name: "Carrier A", type: "company" }) }]
-                  : [{ id: "co1", data: () => ({ nameTh: "บริษัท", companyType: "owner", taxId: "1234567890123" }) }];
-        return { docs, empty: docs.length === 0, forEach: (fn: (d: unknown) => void) => docs.forEach(fn) };
-    };
-    return {
-        collection: (_db: unknown, name: string) => ({ name }),
-        doc: (_db: unknown, name?: string) => ({ name: typeof name === "string" ? name : (_db as { name: string }).name, id: "new-id" }),
-        query: (ref: { name: string }) => ref,
-        where: () => ({}),
-        orderBy: () => ({}),
-        limit: () => ({}),
-        getDocs: async (ref: { name: string }) => {
-            store.reads.push(ref.name);
-            return snapshot(ref.name);
-        },
-        getDoc: vi.fn(),
-        setDoc: async (ref: { name: string }) => void store.writes.push(ref.name),
-        updateDoc: async (ref: { name: string }) => void store.writes.push(ref.name),
-        addDoc: async (ref: { name: string }) => {
-            store.writes.push(ref.name);
-            return { id: "new-id" };
-        },
-        serverTimestamp: () => "now",
-        Timestamp: { now: () => "now" },
-    };
-});
-
-const { getCustomers, customersQueryOptions, fetchCustomerOptions } = await import("./customers");
+const { fetchCustomerOptions } = await import("./customers");
 const { useSaveCustomer } = await import("./useCustomers");
 const { fetchSubcontractorOptions } = await import("@/features/subcontractors/api/subcontractors");
 const { useSaveSubcontractor } = await import("@/features/subcontractors/api/useSubcontractors");
@@ -58,29 +21,48 @@ function wrapper({ children }: { children: React.ReactNode }) {
     return <QueryClientProvider client={getQueryClient()}>{children}</QueryClientProvider>;
 }
 
+/** Every browser request, as `METHOD path` (query string dropped). */
+let calls: string[] = [];
+const reads = (prefix: string) => calls.filter((c) => c.startsWith(`GET /api/go/v1/${prefix}`));
+const writes = () => calls.filter((c) => !c.startsWith("GET "));
+
+const ok = (data: unknown) => new Response(JSON.stringify({ data }), { status: 200, headers: { "Content-Type": "application/json" } });
+
+const OWNER = {
+    id: "co1", tenantId: null, nameTh: "บริษัท", nameEn: null, shortName: null, taxId: "1234567890123", branchType: "headquarters",
+    branchNumber: null, address: "กรุงเทพฯ", phone: null, email: null, signatoryName: null, bankName: null, accountNumber: null,
+    accountName: null, withholdingTaxRate: 1, companyType: "owner", isActive: true, maxTrucks: null, maxDrivers: null,
+};
+
 beforeEach(() => {
-    store.reads = [];
-    store.writes = [];
+    calls = [];
     resetQueryClientForTests();
-    // Every domain on Firestore (flags without `masterdata: go`).
     vi.stubGlobal(
         "fetch",
-        vi.fn(async (input: RequestInfo | URL) => {
-            if (String(input) === "/api/go/v1/config/web-flags") return new Response(JSON.stringify({ data: { domains: {} } }), { status: 200 });
-            throw new Error(`unexpected ${String(input)}`);
+        vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+            const url = String(input);
+            const method = (init.method ?? "GET").toUpperCase();
+            calls.push(`${method} ${url.split("?")[0]}`);
+            if (url.includes("firebase") || url.includes("web-flags")) throw new Error(`no Firebase and no web flags since TW7: ${url}`);
+            if (method === "GET" && url.startsWith("/api/go/v1/customers?")) return ok([{ id: "c1", billingPartyId: null, code: "CJ", name: "CJ Express" }]);
+            if (method === "GET" && url.startsWith("/api/go/v1/subcontractors?")) {
+                return ok([{ id: "s1", code: null, nameTh: "Carrier A", nameEn: null, status: "active" }]);
+            }
+            if (method === "GET" && url === "/api/go/v1/companies/owner") return ok(OWNER);
+            if (method === "PATCH") return ok({});
+            throw new Error(`unexpected ${method} ${url}`);
         })
     );
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("cached master data (masterdata flag off)", () => {
-    it("['customers']: fifteen callers, one read; a write through the form's hook refreshes it", async () => {
-        expect(customersQueryOptions.queryKey).toEqual(["customers"]);
-        expect(customersQueryOptions.staleTime).toBe(600_000);
-        const lists = await Promise.all(Array.from({ length: 15 }, () => getCustomers()));
-        expect(lists[14][0]).toMatchObject({ id: "c1", code: "CJ" });
-        expect(store.reads).toEqual(["customers"]);
+describe("cached master data over Go", () => {
+    it("['customers','options']: shared by every caller, one read; a write through the form's hook refreshes it", async () => {
+        const lists = await Promise.all(Array.from({ length: 15 }, () => fetchCustomerOptions()));
+        expect(lists[14]).toEqual([{ id: "c1", billingPartyId: null, code: "CJ", name: "CJ Express" }]);
+        expect(lists[14]).toBe(lists[0]);
+        expect(reads("customers")).toHaveLength(1);
         const { result } = renderHook(() => useSaveCustomer(), { wrapper });
         await act(() =>
             result.current.update.mutateAsync({
@@ -92,42 +74,41 @@ describe("cached master data (masterdata flag off)", () => {
                 },
             })
         );
-        expect(store.writes).toEqual(["customers"]);
-        await getCustomers();
-        expect(store.reads).toEqual(["customers", "customers"]);
-    });
-
-    it("['customers','options']: the picker list maps the Thai branch label away and is shared", async () => {
-        const [a, b] = await Promise.all([fetchCustomerOptions(), fetchCustomerOptions()]);
-        expect(a).toEqual([{ id: "c1", billingPartyId: null, code: "CJ", name: "CJ Express" }]);
-        expect(b).toBe(a);
-        expect(store.reads).toEqual(["customers"]);
+        expect(writes()).toEqual(["PATCH /api/go/v1/customers/c1"]);
+        await fetchCustomerOptions();
+        expect(reads("customers")).toHaveLength(2);
     });
 
     it("['subcontractors','options']: one read for the truck and driver forms; a write through the form's hook refreshes it", async () => {
         const options = await fetchSubcontractorOptions();
         await fetchSubcontractorOptions();
         expect(options).toEqual([{ id: "s1", code: null, nameTh: "Carrier A", nameEn: null, status: "active" }]);
-        expect(store.reads).toEqual(["subcontractors"]);
+        expect(reads("subcontractors")).toHaveLength(1);
         const { result } = renderHook(() => useSaveSubcontractor(), { wrapper });
         await act(() =>
             result.current.update.mutateAsync({ id: "s1", values: { name: "Carrier B", type: "company", taxId: "", contactPerson: "a", phone: "1" } as never })
         );
-        expect(store.writes).toEqual(["subcontractors"]);
+        expect(writes()).toEqual(["PATCH /api/go/v1/subcontractors/s1"]);
         await fetchSubcontractorOptions();
-        expect(store.reads).toEqual(["subcontractors", "subcontractors"]);
+        expect(reads("subcontractors")).toHaveLength(2);
     });
 
     it("['companies',{owner:true}]: shared by three pages; the profile form reads fresh; its save refreshes it", async () => {
         const owner = await getOwnerCompany();
         await getOwnerCompany();
         expect(owner).toMatchObject({ id: "co1", nameTh: "บริษัท", companyType: "owner", branchType: "headquarters" });
-        expect(store.reads).toEqual(["companies"]);
+        expect(reads("companies")).toHaveLength(1);
         await getOwnerCompany({ fresh: true });
-        expect(store.reads).toEqual(["companies", "companies"]);
+        expect(reads("companies")).toHaveLength(2);
         const { result } = renderHook(() => useSaveCompany(), { wrapper });
-        await act(() => result.current.mutateAsync({ id: "co1", values: { nameTh: "บริษัท" } as never }));
+        await act(() =>
+            result.current.mutateAsync({
+                id: "co1",
+                values: { nameTh: "บริษัท", taxId: "1234567890123", branchType: "headquarters", address: "กรุงเทพฯ", companyType: "owner", isActive: true, withholdingTaxRate: 1 } as never,
+            })
+        );
+        expect(writes()).toEqual(["PATCH /api/go/v1/companies/co1"]);
         await getOwnerCompany();
-        expect(store.reads).toEqual(["companies", "companies", "companies"]);
+        expect(reads("companies")).toHaveLength(3);
     });
 });

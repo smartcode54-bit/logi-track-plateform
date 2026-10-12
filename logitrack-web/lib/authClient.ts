@@ -10,12 +10,12 @@
  * | `changePasswordWithTicket` | `POST /api/go/v1/auth/password/change` | `{passwordChangeTicket, newPassword}`, no session (anonymous) |
  * | `requestPasswordReset`, `resetPassword` | `POST /api/go/v1/auth/password/forgot`, `/reset` | anonymous; forgot always 202 (R4) |
  * | `switchTenant` | `POST /api/auth/tenant` | replaces `lt_at` (R83) |
- * | `firebaseCustomToken` | `POST /api/auth/firebase-token` | the bridge (R40, R80), until TW7 |
  * | `signOutSession` | `POST /api/auth/logout` | revokes the session, expires both cookies; never throws |
  *
- * The two session-bound routes (`tenant`, `firebase-token`) send the access cookie as the bearer, so
- * they follow `goFetch`'s 401 rule: one shared refresh and one retry on `token_expired` (forced for
- * `claims_changed`) or a missing access cookie; anything else ends the session (lib/sessionEnd.ts).
+ * The session-bound route (`tenant`) sends the access cookie as the bearer, so it follows `goFetch`'s
+ * 401 rule: one shared refresh and one retry on `token_expired` (forced for `claims_changed`) or a
+ * missing access cookie; anything else ends the session (lib/sessionEnd.ts). TW7 removed the Firebase
+ * bridge call (`POST /api/auth/firebase-token`).
  */
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
 import { goFetch } from "./goFetch";
@@ -27,7 +27,6 @@ export const AUTH_LOGIN_PATH = "/api/auth/login";
 export const AUTH_GOOGLE_PATH = "/api/auth/google";
 export const AUTH_GOOGLE_NONCE_PATH = "/api/auth/google/nonce";
 export const AUTH_TENANT_PATH = "/api/auth/tenant";
-export const AUTH_FIREBASE_TOKEN_PATH = "/api/auth/firebase-token";
 export const AUTH_SIGN_OUT_PATH = "/api/auth/logout";
 
 /** The body the BFF returns for a sign-in: Go's answer without the two tokens (Appendix C §C.8). */
@@ -36,7 +35,6 @@ export interface SignInResult {
     defaultTenantId: string | null;
     expiresIn: number;
 }
-
 
 const REFRESHABLE = new Set(["token_expired", "unauthenticated"]);
 
@@ -146,11 +144,6 @@ export function resetPassword(token: string, newPassword: string): Promise<void>
 /** `POST /api/auth/tenant`: the session's active tenant becomes `tenantId` (204, new `lt_at`). */
 export function switchTenant(tenantId: string): Promise<void> {
     return sessionCall<void>(AUTH_TENANT_PATH, { tenantId });
-}
-
-/** `POST /api/auth/firebase-token`: a Firebase custom token for `signInWithCustomToken` (R40). */
-export function firebaseCustomToken(): Promise<{ customToken: string; expiresIn: number }> {
-    return sessionCall(AUTH_FIREBASE_TOKEN_PATH);
 }
 
 /** `POST /api/auth/logout`: revokes this session and expires both cookies. Never throws. */

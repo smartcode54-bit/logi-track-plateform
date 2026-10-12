@@ -1,7 +1,7 @@
-// T50 (issue #70): with the `comms` flag on, the chat console reads and writes through /api/go only. Each of the
+// T50 (issue #70), TW7: the chat console reads and writes through /api/go only. Each of the
 // four routes and the layout render their Go module, whose import graph (static and lazy, test-utils/importGraph
 // .ts) holds no Firebase module: no listener on chats or messages, no read of every driver, no sendBroadcast or
-// notifyChatMessageCreated callable (AC). The Firestore console keeps them (features/chat/legacy, removed with TW7).
+// notifyChatMessageCreated callable (AC). TW7 removed the Firestore console (features/chat/legacy) and the comms switch.
 import { readFileSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
@@ -20,15 +20,14 @@ function goLayoutModule(): string {
 }
 
 describe("the Go chat console's import graph (T50)", () => {
-    it("switches every route and the layout on the comms flag", () => {
+    it("renders only the Go module on every route and the layout (TW7: no Firestore console, no comms switch)", () => {
         for (const r of ROUTES) {
             const src = readFileSync(r, "utf8");
-            expect(src, path.relative(root, r)).toContain('<DomainPage domain="comms"');
-            expect(src, path.relative(root, r)).toMatch(/const FirestorePage = dynamic\(\(\) => import\("@\/features\/chat\/legacy\//);
+            expect(src, path.relative(root, r)).toMatch(/const GoPage = dynamic\(/);
+            expect(src, path.relative(root, r)).not.toMatch(/DomainPage|FirestorePage|useDomainPageSource|\/legacy\//);
         }
         const layout = readFileSync(LAYOUT, "utf8");
-        expect(layout).toContain('useDomainPageSource("comms")');
-        expect(layout).toMatch(/const FirestoreLayout = dynamic\(\(\) => import\("@\/features\/chat\/legacy\/LegacyChatLayout"\)/);
+        expect(layout).not.toMatch(/DomainPage|FirestoreLayout|useDomainPageSource|\/legacy\//);
         expect(ROUTES.map((r) => path.relative(root, goPageModule(r)))).toEqual([
             "features/chat/components/ChatHomeGo.tsx",
             "features/chat/components/ChatRoomGo.tsx",
@@ -43,10 +42,4 @@ describe("the Go chat console's import graph (T50)", () => {
             expect(firebaseImports(entry)).toEqual([]);
         }
     );
-
-    it("the Firestore console still reaches Firestore (what the flag falls back to until TW7)", () => {
-        for (const legacy of ["LegacyChatLayout.tsx", "LegacyChatRoomPage.tsx", "LegacyChatWithDriverPage.tsx", "LegacyBroadcastComposer.tsx"]) {
-            expect(firebaseImports(path.join(root, "features/chat/legacy", legacy)).length, legacy).toBeGreaterThan(0);
-        }
-    });
 });

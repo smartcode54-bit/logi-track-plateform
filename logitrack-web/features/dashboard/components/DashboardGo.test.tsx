@@ -1,5 +1,5 @@
-// T54R (issue #74): the dashboard over Go. The page imports no Firebase module (the mocks below throw on a
-// static import; firebaseImports.test.ts walks the import graph). One summary request per period carries
+// T54R (issue #74): the dashboard over Go. The page imports no Firebase module (the web has none since TW7;
+// firebaseImports.test.ts walks the import graph). One summary request per period carries
 // every figure (TW6), the counters come from ['badges'] (no expense or chat listener), the map and the
 // position list share ['vehicleLocations'], and a principal without a block's capability neither asks for
 // it nor sees its card.
@@ -8,12 +8,6 @@ import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go dashboard must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go dashboard must not import Firestore");
-});
 // Leaflet needs a real layout; the map client is replaced by a probe of what the card hands it.
 vi.mock("./FleetMapClient", () => ({
     FleetMapClient: ({ vehicles, incidentTruckIds, incidentPlates }: { vehicles: { truckId: string }[]; incidentTruckIds: Set<string>; incidentPlates: Set<string> }) => (
@@ -21,7 +15,6 @@ vi.mock("./FleetMapClient", () => ({
     ),
 }));
 
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
@@ -37,14 +30,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/dashboard");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the dashboard");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const ALL = [
@@ -110,9 +99,8 @@ const INCIDENTS = [
 
 function setup(capabilities: string[] = ALL, meOver: Partial<MeDTO> = {}) {
     const web = fakeWeb();
-    const me = makeMe({ id: "u-self", legacyAuthUid: undefined, capabilities, ...meOver });
+    const me = makeMe({ id: "u-self", capabilities, ...meOver });
     web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { auth: "go", dashboard: "go" } } }));
     web.on("GET", "/api/go/v1/dashboard/summary", (call) => {
         const q = new URL(call.url, "http://web.test").searchParams;
         return json(200, { data: { ...SUMMARY, period: { from: q.get("from"), to: q.get("to"), days: 7 } } });

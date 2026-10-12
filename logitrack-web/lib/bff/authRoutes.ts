@@ -12,7 +12,9 @@
  * | `GET /api/auth/refresh?next=` | same | the proxy.ts bounce of a navigation: rotate, then 303 to `next` (an `/app` path); refused: 303 `/login?next=`, both cleared; Go unreachable or failing: 503/504, cookies kept; not a navigation: 400 |
  * | `POST /api/auth/logout` | `POST /v1/auth/logout` | revokes the session, expires both cookies, 204 |
  * | `POST /api/auth/tenant` `{tenantId}` | `POST /v1/auth/tenant` | replaces `lt_at`, 204 |
- * | `POST /api/auth/firebase-token` | `POST /v1/bridge/firebase-token` | pass-through of the custom token (P0 until TW7, R80) |
+ *
+ * TW7 removed `POST /api/auth/firebase-token` (the Firebase bridge, R80); the Go proxy still answers 404
+ * for `/api/go/v1/bridge/*` (lib/bff/goProxy.ts).
  *
  * Every POST passes the Origin check first (403 `permission_denied`, `details.reason = "origin"`).
  * Errors from Go pass through with their status, envelope, `X-Request-Id` and `Retry-After`.
@@ -482,15 +484,3 @@ export async function tenant(req: Request, deps: AuthDeps = {}): Promise<Respons
     return new Response(null, { status: 204, headers });
 }
 
-/**
- * POST /api/auth/firebase-token: the Firebase custom token for `signInWithCustomToken` (R8, R40, R80),
- * from the P0 login switch until TW7. Go answers 404 unless AUTH_FIREBASE_BRIDGE_MODE is web or both.
- */
-export async function firebaseToken(req: Request, deps: AuthDeps = {}): Promise<Response> {
-    const ctx = context(req, deps);
-    if (ctx instanceof Response) return ctx;
-    if (!sameOrigin(req, ctx.cfg)) return originRefused(ctx.requestId);
-    const call = await goCall(req, ctx, { method: "POST", path: "/v1/bridge/firebase-token", bearer: cookie(req, ACCESS_COOKIE) });
-    if (!call.ok) return call.response;
-    return passThrough(call.res, ctx);
-}

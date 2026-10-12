@@ -1,20 +1,20 @@
 "use client";
 
 /**
- * The client providers of every page (developer-spec.md §10.6; TW4, T18):
+ * The client providers of every page (developer-spec.md §10.6; TW4, T18, TW7):
  *
- *   QueryClientProvider > LanguageProvider > AuthProvider (`['me']` + the Firebase bridge, T18)
+ *   QueryClientProvider > LanguageProvider > AuthProvider (`['me']`, T18)
  *     > RealtimeProvider (the tab's event stream: session.revoked, T18; the event -> cache map, TW5)
  *     > children + Toaster
  *
  * plus, beside them, the runtime that belongs to the cache rather than to any page: `['me']` is
  * fetched at once (in parallel with the language chunk, which the LanguageProvider waits for), the
  * cache follows the session (`bindQueryClientToSession`: emptied on a session end and on any change
- * of principal in `['me']`, invalidated after a `claims_changed` refresh), `['webFlags']` is kept
- * polled for a signed-in tab (`useWebFlagsSync`, T17), a 403 shows one toast in the active language,
- * and the TanStack devtools load lazily in development. The AuthProvider owns only what concerns the
- * Firebase bridge (sign-out, the forced re-mint) and the sign-in, logout and tenant-switch flows; it
- * never clears or invalidates the cache on those session events itself.
+ * of principal in `['me']`, invalidated after a `claims_changed` refresh), a 403 shows one toast in
+ * the active language, and the TanStack devtools load lazily in development. The AuthProvider owns
+ * the sign-in, logout and tenant-switch flows; it never clears or invalidates the cache on those
+ * session events itself. Since TW7 every page reads Go only: no Firebase bridge and no
+ * `['webFlags']` poll (the per-domain Firestore/Go switch went with the Firestore pages).
  */
 import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
@@ -27,7 +27,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { apiErrorText } from "@/lib/apiError";
 import { bindQueryClientToSession, getQueryClient, setForbiddenNotifier } from "@/lib/queryClient";
 import { meQueryOptions } from "@/features/auth/api/me";
-import { useWebFlagsSync } from "@/features/platform/api/useWebFlags";
 
 // Development only: the condition is a build-time constant, so production bundles never reference it.
 const QueryDevtools =
@@ -44,19 +43,13 @@ const QueryDevtools =
           )
         : () => null;
 
-/** Keeps `['webFlags']` polled and watches for a domain flip (mounted only while signed in). */
-function WebFlagsSync() {
-    useWebFlagsSync();
-    return null;
-}
-
-/** Cache-level runtime that needs no translation: session binding, `['me']`, web flags. */
+/** Cache-level runtime that needs no translation: session binding and `['me']`. */
 function QueryRuntime() {
     const client = useQueryClient();
     useEffect(() => bindQueryClientToSession(client), [client]);
     // Starts `GET /v1/me` before the language chunk is in; the AuthProvider observes the same query.
-    const { data: me } = useQuery(meQueryOptions);
-    return me ? <WebFlagsSync /> : null;
+    useQuery(meQueryOptions);
+    return null;
 }
 
 /** One toast for a 403 from any query or mutation, in the active language. */

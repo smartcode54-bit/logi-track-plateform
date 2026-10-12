@@ -1,8 +1,8 @@
 // T42: the Go accounting, maintenance and billing-utility pages import no Firebase module, statically or
 // lazily, so their chunks carry no Firebase SDK (developer-spec.md §12.6 T42: "with the domain flag on,
-// pages use only /api/go"). This walks the import graph of the module each route's `GoPage` loads; the
-// Firestore pages (`features/*/legacy/*`) keep theirs until P3 exit. As for the Security Center (T54S),
-// the auth bridge still loads the Firebase client lazily on every /app route until TW7.
+// pages use only /api/go"). This walks the import graph of the module each route's `GoPage` loads. TW7
+// removed the Firestore pages (`features/*/legacy/*`) and the `billing` flag switch: each route renders
+// its Go page only.
 //
 // It also pins R69 on the Go pages: no jspdf, jspdf-autotable or xlsx-js-style in their graph, and jszip
 // only behind a click (the lazily imported photo-ZIP helper).
@@ -83,17 +83,16 @@ function importsMatching(entry: string, rx: RegExp): string[] {
     return found;
 }
 
-
 const firebaseImports = (entry: string) => importsMatching(entry, FIREBASE_RX);
 const DOCUMENT_STACK_RX = /^(jspdf|jspdf-autotable|xlsx-js-style|bahttext)$|billingDocumentRender|shopeeExpressReport|pdfThai/;
 const JSZIP_RX = /^jszip$/;
 
 describe("the Go accounting and maintenance pages' import graph", () => {
-    it("has a Go page and a Firestore page per route, switched on the billing flag", () => {
+    it("renders only its Go page per route (TW7: no Firestore page, no billing flag switch)", () => {
         for (const r of ROUTES) {
             const src = readFileSync(r, "utf8");
-            expect(src, path.relative(root, r)).toContain('<DomainPage domain="billing"');
-            expect(src, path.relative(root, r)).toMatch(/const FirestorePage = dynamic\(\(\) => import\("@\/features\/(accounting|maintenance)\/legacy\//);
+            expect(src, path.relative(root, r)).toMatch(/const GoPage = dynamic\(/);
+            expect(src, path.relative(root, r)).not.toMatch(/DomainPage|FirestorePage|useDomainPageSource|\/legacy\//);
         }
     });
 
@@ -105,10 +104,5 @@ describe("the Go accounting and maintenance pages' import graph", () => {
         const entry = goPageModule(route);
         expect(importsMatching(entry, DOCUMENT_STACK_RX)).toEqual([]);
         for (const chain of importsMatching(entry, JSZIP_RX)) expect(chain).toMatch(/import\(/);
-    });
-
-    it("sees Firebase where it is: the Firestore pages", () => {
-        expect(firebaseImports(path.join(root, "features/accounting/legacy/LegacyIncomePage.tsx")).length).toBeGreaterThan(0);
-        expect(firebaseImports(path.join(root, "features/maintenance/legacy/LegacyMaintenanceOverviewPage.tsx")).length).toBeGreaterThan(0);
     });
 });

@@ -50,7 +50,7 @@ func lines(kv ...string) []dotenv.Line {
 var goodEnv = []string{
 	"APP_ENV=local", "DATABASE_URL=", "MIGRATE_DATABASE_URL=", "ETL_DATABASE_URL=", "API_PUBLIC_ADDR=:8081",
 	"JWT_ISSUER=x", "GO_API_INTERNAL_URL=http://api:8080", "WEB_DOMAIN=http://localhost",
-	"WEB_PUBLIC_ORIGIN=http://localhost", "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=", "NEXT_PUBLIC_FIREBASE_API_KEY=",
+	"WEB_PUBLIC_ORIGIN=http://localhost", "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=",
 }
 
 func TestEnvExample(t *testing.T) {
@@ -64,6 +64,8 @@ func TestEnvExample(t *testing.T) {
 	}{
 		"mobile name":           {append(clone(goodEnv), "API_BASE_URL=x"), "API_BASE_URL belongs to another consumer"},
 		"dropped server secret": {append(clone(goodEnv), "FIREBASE_PRIVATE_KEY="), "FIREBASE_PRIVATE_KEY is a DROP row"},
+		// TW7: the Firebase web config left with the Firebase SDK; a DROP web-public row is refused too.
+		"dropped web-public":    {append(clone(goodEnv), "NEXT_PUBLIC_FIREBASE_API_KEY="), "NEXT_PUBLIC_FIREBASE_API_KEY is a DROP row"},
 		"unknown":               {append(clone(goodEnv), "NEXT_PUBLIC_API_URL=x"), "NEXT_PUBLIC_API_URL is not in §16.1"},
 		"banned":                {append(clone(goodEnv), "HTTP_ADDR=x"), "HTTP_ADDR is a spelling not adopted"},
 		"secret value":          {append(clone(goodEnv[1:]), "APP_ENV=local", "DATABASE_URL=postgres://x"), "DATABASE_URL is a secret"},
@@ -116,7 +118,7 @@ func goodCompose() composeConfig {
 	set("etl", map[string]*string{"APP_ENV": str(""), "ETL_DATABASE_URL": str("")}, nil)
 	set("web",
 		map[string]*string{"JWT_ISSUER": str(""), "GO_API_INTERNAL_URL": str(""), "WEB_PUBLIC_ORIGIN": str(""), "PORT": str("3000"), "HOSTNAME": str("0.0.0.0")},
-		map[string]*string{"NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID": str(""), "NEXT_PUBLIC_FIREBASE_API_KEY": str("")})
+		map[string]*string{"NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID": str("")})
 	set("caddy", map[string]*string{"API_PUBLIC_ADDR": str(""), "WEB_DOMAIN": str("")}, nil)
 	return cfg
 }
@@ -133,6 +135,7 @@ func TestCompose(t *testing.T) {
 		"web gets a Go-only name":    {func(c composeConfig) { c.Services["web"].Environment["DATABASE_URL"] = str("") }, "web receives DATABASE_URL"},
 		"web misses a server name":   {func(c composeConfig) { delete(c.Services["web"].Environment, "WEB_PUBLIC_ORIGIN") }, "web does not receive WEB_PUBLIC_ORIGIN"},
 		"server value as build arg":  {func(c composeConfig) { c.Services["web"].Build.Args["GO_API_INTERNAL_URL"] = str("") }, "build arg GO_API_INTERNAL_URL is not"},
+		"dropped web-public arg":     {func(c composeConfig) { c.Services["web"].Build.Args["NEXT_PUBLIC_FIREBASE_API_KEY"] = str("") }, "build arg NEXT_PUBLIC_FIREBASE_API_KEY is not"},
 		"missing web-public arg":     {func(c composeConfig) { delete(c.Services["web"].Build.Args, "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID") }, "does not receive NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID"},
 		"caddy gets more":            {func(c composeConfig) { c.Services["caddy"].Environment["JWT_ISSUER"] = str("") }, "caddy receives JWT_ISSUER"},
 		"caddy misses upstream":      {func(c composeConfig) { delete(c.Services["caddy"].Environment, "API_PUBLIC_ADDR") }, "caddy does not receive API_PUBLIC_ADDR"},

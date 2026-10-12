@@ -9,11 +9,10 @@
  * `./selectors.ts`; plain async functions (billing, income) use `fetchHubsCached`, which goes
  * through the same cache. Hub writes call `invalidateHubs`.
  *
- * Source per fetch (`domainQueryFn`, flag `masterdata`): the Firestore adapter
- * (`./hubs.firestore.ts`, loaded with `import()` on that path only, T25) until P1, then
- * `GET /v1/hubs` (T21) without a key change. Hub writes, the hub import, the distance reads and the
- * Distance Matrix job follow the same flag (T25: `POST/PATCH /v1/hubs`, `POST /v1/hubs/import`,
- * `GET /v1/distances[/meta]`, `POST /v1/jobs/distances.compute`).
+ * Source: `GET /v1/hubs` (T21). Hub writes, the hub import, the distance reads and the Distance
+ * Matrix job are Go routes too (T25: `POST/PATCH /v1/hubs`, `POST /v1/hubs/import`,
+ * `GET /v1/distances[/meta]`, `POST /v1/jobs/distances.compute`). TW7 removed the Firestore adapter
+ * and the `masterdata` flag switch; the fields marked legacy below are no longer filled or sent.
  */
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath } from "@/lib/goFetch";
@@ -21,9 +20,6 @@ import { fetchAllPages } from "@/lib/goPages";
 import { goQueryFn } from "@/lib/goQuery";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
-
-const firestore = () => import("./hubs.firestore");
 
 export const HUBS_PATH = "/v1/hubs";
 export const HUB_MAPS_PATH = "/v1/hubs/maps";
@@ -93,21 +89,14 @@ export function buildHubMaps(hubs: readonly HubDTO[]): HubMaps {
 
 export const hubsQueryOptions = queryOptions({
     queryKey: queryKeys.hubs.all(),
-    queryFn: domainQueryFn<HubDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).fetchHubsFromFirestore(),
-        go: goQueryFn<HubDTO[]>(HUBS_PATH),
-    }),
+    queryFn: goQueryFn<HubDTO[]>(HUBS_PATH),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
 
 export const hubMapsQueryOptions = queryOptions({
     queryKey: queryKeys.hubs.maps(),
-    queryFn: domainQueryFn<HubMaps>("masterdata", {
-        // Derived from the cached list: no second read of the collection.
-        firestore: async ({ client }) => buildHubMaps(await client.fetchQuery(hubsQueryOptions)),
-        go: goQueryFn<HubMaps>(HUB_MAPS_PATH),
-    }),
+    queryFn: goQueryFn<HubMaps>(HUB_MAPS_PATH),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
@@ -138,7 +127,7 @@ export interface HubInput {
     /** A customer (`customer`) or a carrier tenant (`partner`); `null` unlinks. */
     linkedCustomerId: string | null;
     linkedCustomerKind: "customer" | "partner" | null;
-    /** Firestore only: the legacy denormalised `CODE — Name` of the linked party. */
+    /** Legacy (the denormalised `CODE — Name` of the retired Firestore source): never sent to Go. */
     linkedCustomerName?: string | null;
 }
 
@@ -152,9 +141,9 @@ export interface HubImportRow {
     stationType?: "HUB" | "SOC";
     linkedCustomerId?: string | null;
     linkedCustomerKind?: "customer" | "partner" | null;
-    /** Firestore only: the document to update (the template's first column). */
+    /** Legacy (the template's first column, the retired Firestore document id): never sent to Go. */
     firestoreDocId?: string;
-    /** Firestore only: the sheet had a Thai name column (an empty cell then clears the name). */
+    /** Legacy (whether the sheet had a Thai name column): never sent to Go. */
     hasThaiColumn?: boolean;
 }
 
@@ -170,33 +159,26 @@ function goHubBody({ linkedCustomerName: _n, ...input }: HubInput): Record<strin
     return input as unknown as Record<string, unknown>;
 }
 
-/** Creates a hub or SOC; a taken code is `409 already_exists` (`details.field = sourceId`) on both sources. */
-export const createHub = domainMutationFn<string, HubInput>("masterdata", {
-    firestore: async (input) => (await firestore()).createHubFirestore(input),
-    go: async (input) => (await goFetch<HubDTO>(HUBS_PATH, { method: "POST", body: goHubBody(input) })).id,
-});
+/** Creates a hub or SOC; a taken code is `409 already_exists` (`details.field = sourceId`). */
+export async function createHub(input: HubInput): Promise<string> {
+    return (await goFetch<HubDTO>(HUBS_PATH, { method: "POST", body: goHubBody(input) })).id;
+}
 
-export const updateHub = domainMutationFn<void, { id: string; input: HubInput }>("masterdata", {
-    firestore: async ({ id, input }) => (await firestore()).updateHubFirestore(id, input),
-    go: async ({ id, input }) => {
-        await goFetch(goPath`/v1/hubs/${id}`, { method: "PATCH", body: goHubBody(input) });
-    },
-});
+export async function updateHub({ id, input }: { id: string; input: HubInput }): Promise<void> {
+    await goFetch(goPath`/v1/hubs/${id}`, { method: "PATCH", body: goHubBody(input) });
+}
 
-/** Upserts rows by code (Go: one transaction, all or nothing; Firestore: batches of 500). */
-export const importHubs = domainMutationFn<HubImportResult, { rows: HubImportRow[] }>("masterdata", {
-    firestore: async ({ rows }) => (await firestore()).importHubsFirestore(rows),
-    go: async ({ rows }) => {
-        const body = {
-            rows: rows.map(({ firestoreDocId: _d, hasThaiColumn: _h, ...row }) => {
-                void _d;
-                void _h;
-                return row;
-            }),
-        };
-        return goFetch<HubImportResult>(`${HUBS_PATH}/import`, { method: "POST", body });
-    },
-});
+/** Upserts rows by code in one transaction, all or nothing. */
+export function importHubs({ rows }: { rows: HubImportRow[] }): Promise<HubImportResult> {
+    const body = {
+        rows: rows.map(({ firestoreDocId: _d, hasThaiColumn: _h, ...row }) => {
+            void _d;
+            void _h;
+            return row;
+        }),
+    };
+    return goFetch<HubImportResult>(`${HUBS_PATH}/import`, { method: "POST", body });
+}
 
 // --- distances (T25) ---------------------------------------------------------------------------
 
@@ -238,10 +220,7 @@ export interface DistanceQuery {
 /** `['distances','meta']`. */
 export const distancesMetaQuery = queryOptions({
     queryKey: queryKeys.distances.meta(),
-    queryFn: domainQueryFn<DistancesMeta>("masterdata", {
-        firestore: async () => (await firestore()).fetchDistancesMetaFirestore(),
-        go: goQueryFn<DistancesMeta>(`${DISTANCES_PATH}/meta`),
-    }),
+    queryFn: goQueryFn<DistancesMeta>(`${DISTANCES_PATH}/meta`),
     ...QUERY_POLICY.masterData,
 });
 
@@ -249,17 +228,14 @@ export const distancesMetaQuery = queryOptions({
 export function distanceRowsQuery(q: DistanceQuery) {
     return queryOptions({
         queryKey: queryKeys.distances.list({ code: q.code, isSoc: q.isSoc, mode: q.mode }),
-        queryFn: domainQueryFn<DistanceRow[]>("masterdata", {
-            firestore: async () => (await firestore()).fetchDistanceRowsFirestore(q),
-            go: async ({ signal }) => {
-                const rows = await fetchAllPages<GoDistance>(
-                    DISTANCES_PATH,
-                    { hubId: q.code, direction: q.mode === "HUB_SOC" ? "hub_to_soc" : "soc_to_hub" },
-                    { signal }
-                );
-                return rows.map((r) => ({ socId: r.socKey, destId: r.hubSourceId, distanceKm: r.distanceKm, durationMinutes: r.durationMinutes }));
-            },
-        }),
+        queryFn: async ({ signal }): Promise<DistanceRow[]> => {
+            const rows = await fetchAllPages<GoDistance>(
+                DISTANCES_PATH,
+                { hubId: q.code, direction: q.mode === "HUB_SOC" ? "hub_to_soc" : "soc_to_hub" },
+                { signal }
+            );
+            return rows.map((r) => ({ socId: r.socKey, destId: r.hubSourceId, distanceKm: r.distanceKm, durationMinutes: r.durationMinutes }));
+        },
         ...QUERY_POLICY.masterData,
         enabled: q.code !== "",
     });
@@ -270,16 +246,14 @@ export function fetchDistanceRows(q: DistanceQuery, client: QueryClient = getQue
     return client.fetchQuery(distanceRowsQuery(q));
 }
 
-/** The answer of a Distance Matrix run: a Go job to follow, or the callable's finished result. */
+/** The answer of a Distance Matrix run: a Go job to follow (`done` was the retired callable's answer). */
 export type ComputeDistancesResult =
     | { kind: "job"; jobId: string }
     | { kind: "done"; written: number; hubsCount: number; socsCount: number; calculatedAt?: string };
 
-/** Starts the Distance Matrix: Go `POST /v1/jobs/distances.compute` (`202 {jobId}`), or the legacy callable. */
-export const computeDistances = domainMutationFn<ComputeDistancesResult, Record<string, never>>("masterdata", {
-    firestore: async () => (await firestore()).computeDistancesFirestore(),
-    go: async () => {
-        const { jobId } = await goFetch<{ jobId: string }>("/v1/jobs/distances.compute", { method: "POST", body: {} });
-        return { kind: "job", jobId };
-    },
-});
+/** Starts the Distance Matrix: Go `POST /v1/jobs/distances.compute` (`202 {jobId}`). */
+export async function computeDistances(_variables: Record<string, never> = {}): Promise<ComputeDistancesResult> {
+    void _variables;
+    const { jobId } = await goFetch<{ jobId: string }>("/v1/jobs/distances.compute", { method: "POST", body: {} });
+    return { kind: "job", jobId };
+}

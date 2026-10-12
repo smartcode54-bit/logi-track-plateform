@@ -11,8 +11,7 @@
  *   and driver forms and the hub dialog (`fields=minimal`, any staff).
  * - `['subcontractors','detail',id]`: `GET /v1/subcontractors/{id}` (profile + documents).
  *
- * Source: flag `masterdata`; the Firestore side is `./subcontractors.firestore.ts`, loaded with
- * `import()` on that path only.
+ * Go is the only source (TW7 removed the Firestore adapter and the `masterdata` flag switch of T25).
  */
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath } from "@/lib/goFetch";
@@ -20,10 +19,7 @@ import { fetchAllPages } from "@/lib/goPages";
 import { uploadToGo } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
 import type { SubcontractorFormValues } from "@/validate/subcontractorSchema";
-
-const firestore = () => import("./subcontractors.firestore");
 
 export const SUBCONTRACTORS_PATH = "/v1/subcontractors";
 
@@ -57,7 +53,7 @@ export interface SubcontractorSummaryDTO {
     billingPartyId: string | null;
     billingDateBasis: "delivered" | "plan" | null;
     createdAt: string | null;
-    /** Firestore only (the legacy list showed it); Go keeps the regions on the profile. */
+    /** Unset: Go keeps the regions on the profile (the retired Firestore list showed them). */
     serviceArea?: string | null;
 }
 
@@ -143,7 +139,7 @@ export function subcontractorFormValues(s: SubcontractorDTO): SubcontractorFormV
     };
 }
 
-/** Preview URL of each document ref of a stored profile (a key on Go, the URL itself on Firestore). */
+/** Preview URL of each document ref of a stored profile (a key on Go; a legacy URL is shown as it is). */
 export function documentPreviewUrls(s: SubcontractorDTO): Record<string, string> {
     const out: Record<string, string> = {};
     for (const d of s.documents) {
@@ -158,10 +154,7 @@ export function documentPreviewUrls(s: SubcontractorDTO): Record<string, string>
 /** `['subcontractors', {view:'full'}]`: every carrier for the list page. */
 export const subcontractorsListQuery = queryOptions({
     queryKey: queryKeys.subcontractors.list({ view: "full" }),
-    queryFn: domainQueryFn<SubcontractorSummaryDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).listSubcontractorsFirestore(),
-        go: ({ signal }) => fetchAllPages<SubcontractorSummaryDTO>(SUBCONTRACTORS_PATH, {}, { signal, maxPages: 100 }),
-    }),
+    queryFn: ({ signal }) => fetchAllPages<SubcontractorSummaryDTO>(SUBCONTRACTORS_PATH, {}, { signal, maxPages: 100 }),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
@@ -169,10 +162,7 @@ export const subcontractorsListQuery = queryOptions({
 /** `['subcontractors','options']`: every carrier for a picker. */
 export const subcontractorOptionsQuery = queryOptions({
     queryKey: queryKeys.subcontractors.options(),
-    queryFn: domainQueryFn<SubcontractorOptionDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).listSubcontractorOptionsFirestore(),
-        go: ({ signal }) => fetchAllPages<SubcontractorOptionDTO>(SUBCONTRACTORS_PATH, { fields: "minimal" }, { signal, maxPages: 100 }),
-    }),
+    queryFn: ({ signal }) => fetchAllPages<SubcontractorOptionDTO>(SUBCONTRACTORS_PATH, { fields: "minimal" }, { signal, maxPages: 100 }),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
@@ -181,10 +171,7 @@ export const subcontractorOptionsQuery = queryOptions({
 export function subcontractorQuery(id: string) {
     return queryOptions({
         queryKey: queryKeys.subcontractors.detail(id),
-        queryFn: domainQueryFn<SubcontractorDTO | null>("masterdata", {
-            firestore: async () => (await firestore()).getSubcontractorFirestore(id),
-            go: ({ signal }) => goFetch<SubcontractorDTO>(goPath`/v1/subcontractors/${id}`, { signal }),
-        }),
+        queryFn: ({ signal }) => goFetch<SubcontractorDTO>(goPath`/v1/subcontractors/${id}`, { signal }),
         ...QUERY_POLICY.entity,
         enabled: id !== "",
     });
@@ -211,39 +198,32 @@ export interface SubcontractorUpdate extends SubcontractorSave {
     statusChanged?: boolean;
 }
 
-/** Uploads a carrier document now (Go: a `tenant_document` key; Firestore: a download URL). */
-export const uploadSubcontractorDocument = domainMutationFn<
-    { ref: string; previewUrl: string },
-    { subcontractorId: string; file: File; variant: "id_card" | "company_doc" }
->("masterdata", {
-    firestore: async ({ file, variant }) => {
-        const url = await (await firestore()).uploadSubcontractorFileFirestore(file, variant === "id_card" ? "id_cards" : "company_docs");
-        return { ref: url, previewUrl: url };
-    },
-    go: async ({ subcontractorId, file, variant }) => {
-        const key = await uploadToGo(file, { purpose: "tenant_document", entityId: subcontractorId, variant });
-        return { ref: key, previewUrl: URL.createObjectURL(file) };
-    },
-});
+/** Uploads a carrier document now: a `tenant_document` key (presigned or local upload, §9.4). */
+export async function uploadSubcontractorDocument({
+    subcontractorId,
+    file,
+    variant,
+}: {
+    subcontractorId: string;
+    file: File;
+    variant: "id_card" | "company_doc";
+}): Promise<{ ref: string; previewUrl: string }> {
+    const key = await uploadToGo(file, { purpose: "tenant_document", entityId: subcontractorId, variant });
+    return { ref: key, previewUrl: URL.createObjectURL(file) };
+}
 
 /** Creates a carrier profile; returns its id. */
-export const createSubcontractor = domainMutationFn<string, SubcontractorSave>("masterdata", {
-    firestore: async ({ values }) => (await firestore()).createSubcontractorFirestore(values),
-    go: async ({ values }) => {
-        const body = { ...subcontractorInputFromForm(values), status: values.status ?? "active" };
-        const created = await goFetch<SubcontractorDTO>(SUBCONTRACTORS_PATH, { method: "POST", body });
-        return created.id;
-    },
-});
+export async function createSubcontractor({ values }: SubcontractorSave): Promise<string> {
+    const body = { ...subcontractorInputFromForm(values), status: values.status ?? "active" };
+    const created = await goFetch<SubcontractorDTO>(SUBCONTRACTORS_PATH, { method: "POST", body });
+    return created.id;
+}
 
-/** Updates a carrier profile (and, on Go, its status through the tenants route when it changed). */
-export const updateSubcontractor = domainMutationFn<void, SubcontractorUpdate>("masterdata", {
-    firestore: async ({ id, values }) => (await firestore()).updateSubcontractorFirestore(id, values),
-    go: async ({ id, values, statusChanged }) => {
-        const body = { ...subcontractorInputFromForm(values), documentKeys: values.documents ?? [] };
-        await goFetch(goPath`/v1/subcontractors/${id}`, { method: "PATCH", body });
-        if (statusChanged && values.status) {
-            await goFetch(goPath`/v1/tenants/${id}`, { method: "PATCH", body: { status: values.status } });
-        }
-    },
-});
+/** Updates a carrier profile, and its status through the tenants route when it changed. */
+export async function updateSubcontractor({ id, values, statusChanged }: SubcontractorUpdate): Promise<void> {
+    const body = { ...subcontractorInputFromForm(values), documentKeys: values.documents ?? [] };
+    await goFetch(goPath`/v1/subcontractors/${id}`, { method: "PATCH", body });
+    if (statusChanged && values.status) {
+        await goFetch(goPath`/v1/tenants/${id}`, { method: "PATCH", body: { status: values.status } });
+    }
+}

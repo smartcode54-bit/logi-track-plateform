@@ -1,7 +1,7 @@
 // T50 (issue #70; Appendix E §E.2.1, §E.5 rows 1-4, §E.10 row 15): the chat console and broadcasts over Go,
-// rendered under the app's providers with every request through the BFF (/api/go/v1/...). The Firebase modules
-// throw if a Go page imports one (AC: no Firestore listener on chats or messages; features/chat/firebaseImports
-// .test.ts walks the lazy edges). Pinned here: the lists are Go's queue and mine (closed chats left out by Go,
+// rendered under the app's providers with every request through the BFF (/api/go/v1/...). The web has no Firebase
+// SDK since TW7 (AC: no Firestore listener on chats or messages; features/chat/firebaseImports.test.ts walks the
+// import graph). Pinned here: the lists are Go's queue and mine (closed chats left out by Go,
 // AC note), a room loads 50 messages per page (AC), a new message arrives through SSE chat:{id} in well under
 // 5 s (AC), the read state is one POST per newest message seen, and the broadcast picker searches
 // GET /v1/drivers?fields=minimal instead of reading every driver (AC).
@@ -11,16 +11,6 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import type { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go chat pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go chat pages must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go chat pages must not call Cloud Functions");
-});
-
 const nav = vi.hoisted(() => ({ params: new URLSearchParams(), pathname: "/app/chat", replace: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => {
     // One router object, as Next's is (an effect that depends on it does not restart on every render).
@@ -28,7 +18,6 @@ vi.mock("next/navigation", () => {
     return { useRouter: () => router, usePathname: () => nav.pathname, useSearchParams: () => nav.params };
 });
 
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { resetQueryClientForTests } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import { RealtimeProvider } from "@/lib/realtime/RealtimeProvider";
@@ -58,9 +47,6 @@ beforeEach(() => {
     nav.replace.mockReset();
     nav.push.mockReset();
     resetRealtimeTopicsForTests();
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the Go chat pages");
-    });
 });
 afterEach(() => {
     resetQueryClientForTests();
@@ -68,7 +54,6 @@ afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const CAPS = ["chat:view", "chat:send", "broadcasts:view", "broadcasts:send", "drivers:view", "operations:edit_trip_details"];
@@ -129,8 +114,7 @@ function message(n: number, over: Partial<ChatMessageDTO> = {}): ChatMessageDTO 
 function setup(over: { chat?: Partial<ChatDetailDTO>; capabilities?: string[]; steward?: boolean } = {}) {
     const web = fakeWeb();
     let detail = chat(over.chat);
-    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ id: ME, legacyAuthUid: undefined, capabilities: over.capabilities ?? CAPS, steward: over.steward ?? false }) }));
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { auth: "go", comms: "go", masterdata: "go" } } }));
+    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ id: ME, capabilities: over.capabilities ?? CAPS, steward: over.steward ?? false }) }));
     web.on("GET", "/api/go/v1/chats", (call) => {
         const filter = q(call).get("filter");
         const row = (n: number, extra: Partial<ChatDTO> = {}): ChatDTO => ({ ...chat(), id: `0192b3a4-0000-7000-8000-00000000c${n}0`, driverName: `${filter} driver ${n}`, ...extra });

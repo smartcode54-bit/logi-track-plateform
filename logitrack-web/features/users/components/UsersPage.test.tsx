@@ -1,25 +1,18 @@
-// T18 (R49, R81; Appendix E §E.5 row 14, §E.10): the Security Center users page on Go. Firebase is not
-// reachable from this page at all (the module mocks below throw on import), and every request goes to
-// the BFF (/api/go/v1/users*, /api/go/v1/tenants/{id}/members/*).
+// T18 (R49, R81; Appendix E §E.5 row 14, §E.10): the Security Center users page on Go. The web has no
+// Firebase SDK since TW7, and every request goes to the BFF (/api/go/v1/users*,
+// /api/go/v1/tenants/{id}/members/*).
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the users page must not load the Firebase client");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the users page must not call Cloud Functions");
-});
 vi.mock("@/lib/loginGeo", () => ({ resolveLoginGeoForClient: async () => null }));
 
 import { UsersPage } from "./UsersPage";
 import { USERS_PAGE_SIZE, useUsers, type UserDTO } from "../api/users";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { createQueryClient } from "@/lib/queryClient";
-import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 
 beforeAll(() => {
@@ -67,14 +60,9 @@ function usersRoute(total: () => UserDTO[]) {
 
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/security-center/users");
-    // The bridge is irrelevant here: Go refuses it, so no Firebase SDK is loaded.
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the users page");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
-    configureFirebaseBridge(undefined);
 });
 
 describe("useUsers", () => {
@@ -116,9 +104,8 @@ describe("useUsers", () => {
 describe("UsersPage", () => {
     function setup(meOver = {}) {
         const web = fakeWeb();
-        const me = makeMe({ id: "u-self", legacyAuthUid: undefined, ...meOver });
+        const me = makeMe({ id: "u-self", ...meOver });
         web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
-        web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
         return { web, me };
     }
 

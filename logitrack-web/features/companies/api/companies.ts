@@ -7,7 +7,7 @@
  *   company profile, Billing Document and the Shopee report (`GET /v1/companies/owner`, `404` = none).
  * - `['companies', {view:'all'}]`: the companies page (`GET /v1/companies`, every page).
  *
- * Source: flag `masterdata`; the Firestore side is `./companies.firestore.ts`, loaded with `import()`.
+ * Go is the only source (TW7 removed the Firestore adapter and the `masterdata` flag switch of T25).
  * The Go DTO has the stored field names of the Firestore document (T20 kept them), plus the private
  * asset keys; `getOwnerCompany()` returns the legacy `CompanyWithId` shape for its billing callers.
  */
@@ -17,10 +17,7 @@ import { fetchAllPages } from "@/lib/goPages";
 import { uploadToGo, type UploadPurpose } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
 import type { Company, CompanyFormValues } from "@/validate/companySchema";
-
-const firestore = () => import("./companies.firestore");
 
 export const COMPANIES_PATH = "/v1/companies";
 
@@ -146,10 +143,7 @@ async function ownerFromGo(signal?: AbortSignal): Promise<CompanyDTO | null> {
 /** `['companies',{owner:true}]`: shared by the profile form, Billing Document and the Shopee report. */
 export const ownerCompanyQueryOptions = queryOptions({
     queryKey: queryKeys.companies.owner(),
-    queryFn: domainQueryFn<CompanyDTO | null>("masterdata", {
-        firestore: async () => (await firestore()).fetchOwnerCompanyFirestore(),
-        go: ({ signal }) => ownerFromGo(signal),
-    }),
+    queryFn: ({ signal }) => ownerFromGo(signal),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
@@ -157,10 +151,7 @@ export const ownerCompanyQueryOptions = queryOptions({
 /** `['companies',{view:'all'}]`: the companies page. */
 export const companiesQueryOptions = queryOptions({
     queryKey: queryKeys.companies.list({ view: "all" }),
-    queryFn: domainQueryFn<CompanyDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).fetchCompaniesFirestore(),
-        go: ({ signal }) => fetchAllPages<CompanyDTO>(COMPANIES_PATH, {}, { signal, maxPages: 100 }),
-    }),
+    queryFn: ({ signal }) => fetchAllPages<CompanyDTO>(COMPANIES_PATH, {}, { signal, maxPages: 100 }),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
@@ -212,7 +203,4 @@ async function saveOnGo({ id, values, files = {} }: CompanySave): Promise<string
 }
 
 /** Creates or updates a company with its staged asset files; returns its id. */
-export const saveCompany = domainMutationFn<string, CompanySave>("masterdata", {
-    firestore: async (save) => (await firestore()).saveCompanyFirestore(save),
-    go: saveOnGo,
-});
+export const saveCompany = (save: CompanySave): Promise<string> => saveOnGo(save);

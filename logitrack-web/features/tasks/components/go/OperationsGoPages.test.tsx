@@ -1,6 +1,6 @@
 // T34 (issue #54): the Go operations pages rendered under the app's providers, every request through the BFF
-// (/api/go/v1/...). The Firebase modules throw if a page imports one (operationsImports.test.ts walks the lazy
-// edges). Pinned here: each page loads from its one Go list (the monitor from one aggregate request, no rate
+// (/api/go/v1/...). The web has no Firebase SDK since TW7 (operationsImports.test.ts walks the import
+// graph). Pinned here: each page loads from its one Go list (the monitor from one aggregate request, no rate
 // card, no pricing call: AC 2), a task event makes the board refetch and show the mobile's change without a
 // reload (AC 3, through the realtime map's keys), and the export pages through the monitor's cursor and writes
 // the file with the lazily loaded xlsx (AC 4).
@@ -14,21 +14,11 @@ vi.mock("xlsx", () => ({
     utils: { aoa_to_sheet: (rows: unknown[][]) => (xlsx.aoa(rows), {}), book_new: () => ({}), book_append_sheet: () => undefined },
     writeFile: xlsx.writeFile,
 }));
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go operations pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go operations pages must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go operations pages must not call Cloud Functions");
-});
 
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
 import { effectsOf } from "@/lib/realtime/eventMap";
-import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+import { fakeWeb, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
@@ -52,15 +42,11 @@ beforeAll(() => {
 });
 afterAll(() => restoreLayout());
 beforeEach(() => {
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the Go operations pages");
-    });
 });
 afterEach(() => {
     resetQueryClientForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
     xlsx.writeFile.mockReset();
     xlsx.aoa.mockReset();
 });
@@ -77,8 +63,7 @@ const CAPS = [
 
 function setup() {
     const web = fakeWeb();
-    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ legacyAuthUid: undefined, capabilities: CAPS }) }));
-    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
+    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities: CAPS }) }));
     return web;
 }
 

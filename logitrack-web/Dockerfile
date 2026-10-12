@@ -27,20 +27,9 @@ RUN --mount=type=cache,id=logitrack-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "logi-track..."
 
 FROM deps AS build
-# Public build-time values only (§16.1 web-public). The Firebase and App Check values stay until
-# TW7 removes the Firebase SDK (P6); firebase/client.ts fails the build when the required ones are
-# missing.
+# Public build-time values only (§16.1 web-public). TW7 (P6) removed the Firebase SDK, and with it the
+# seven NEXT_PUBLIC_FIREBASE_* and three NEXT_PUBLIC_APP_CHECK_* build arguments.
 ARG NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=""
-ARG NEXT_PUBLIC_FIREBASE_API_KEY=""
-ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=""
-ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID=""
-ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=""
-ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=""
-ARG NEXT_PUBLIC_FIREBASE_APP_ID=""
-ARG NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=""
-ARG NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY=""
-ARG NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE=""
-ARG NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN=""
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY shared-docs shared-docs
 COPY logitrack-web logitrack-web

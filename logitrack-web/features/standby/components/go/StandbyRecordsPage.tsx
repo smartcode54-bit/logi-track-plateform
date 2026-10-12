@@ -8,7 +8,7 @@
  * photo with `['tasks','detail',id]` while it is open. The backfill dialog (`operations:create_standby`) is mounted
  * on open only. SSE `standby.completed` / `standby.priced` refresh the list in every tab. The detail resends the
  * customer's LINE card and revokes its photo link (T49, `operations:edit_trip_details`; the legacy page's button),
- * shown only once the `comms` web flag is `go` (P5, `LineNotifyActions`).
+ * shown by `LineNotifyActions` (P5; no web flag since TW7).
  */
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";

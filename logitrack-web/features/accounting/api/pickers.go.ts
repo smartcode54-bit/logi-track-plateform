@@ -1,7 +1,7 @@
 /**
- * Go-only pickers of the accounting and maintenance pages (T42). These pages render only while the
- * `billing` flag is on, so they read PostgreSQL ids directly instead of the `masterdata`-flagged option
- * keys of T25 (whose Firestore side would load the Firebase SDK and could hand back Firestore ids):
+ * Go-only pickers of the accounting and maintenance pages (T42). They read PostgreSQL ids directly under
+ * their own keys (T42 kept them apart from the then `masterdata`-flagged option keys of T25, whose
+ * Firestore side TW7 removed):
  * - `['customers',{fields:'minimal'}]`: every customer `{id, billingPartyId, code, name}` (the key and
  *   request of the users page's picker, T18; 10 min);
  * - `['drivers',{fields:'minimal',q}]`: drivers searched on the server (the users page's key, 20 rows);

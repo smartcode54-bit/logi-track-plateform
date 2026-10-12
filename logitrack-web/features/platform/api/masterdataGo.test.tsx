@@ -1,6 +1,6 @@
-// T25 (issue #45): the master-data hooks with the `masterdata` web flag on read and write through the
-// BFF (`/api/go/v1/...`) and never load Firebase: every Firebase module is mocked to throw when it is
-// loaded, so a Firestore adapter reached by mistake fails the test.
+// T25 (issue #45), TW7: the master-data hooks read and write through the BFF (`/api/go/v1/...`) only:
+// TW7 removed the Firestore adapters, the Firebase SDK and the `masterdata` web flag, so no request
+// goes anywhere else (the fake fetch below refuses every unknown route, the web flags included).
 //
 // Acceptance covered here: hubs and customers are fetched once per stale time whoever asks; the drivers
 // and trucks lists page past 100 rows (keyset `nextCursor`) and poll every 60 s while visible; driver
@@ -12,24 +12,11 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("firebase/client loaded with the masterdata flag on");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("firebase/firestore loaded with the masterdata flag on");
-});
-vi.mock("firebase/storage", () => {
-    throw new Error("firebase/storage loaded with the masterdata flag on");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("firebase/functions loaded with the masterdata flag on");
-});
-
 const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
 const { useCustomerOptions } = await import("@/features/customers/api/useCustomers");
 const { fetchCustomerOptions, createCustomer } = await import("@/features/customers/api/customers");
-const { useHubs } = await import("@/features/hubs/api/useHubs");
 const { fetchHubsCached, createHub, hubsQueryOptions } = await import("@/features/hubs/api/hubs");
+const useHubs = () => useQuery(hubsQueryOptions);
 const { useDriverPages, useCreateDriverLogin } = await import("@/features/drivers/api/useDrivers");
 const { createDriverLogin, updateDriver, driverFormValues } = await import("@/features/drivers/api/drivers");
 const { useTruckPages } = await import("@/features/trucks/api/useTrucks");
@@ -61,7 +48,6 @@ beforeEach(() => {
     calls = [];
     routes = [];
     resetQueryClientForTests();
-    route("GET", "/api/go/v1/config/web-flags", () => json({ domains: { masterdata: "go" } }));
     vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -99,7 +85,7 @@ function truck(i: number) {
     return { id: `t-${i}`, tenantId: "t-own", ownershipType: "own", licensePlate: `กข-${1000 + i}`, province: "กรุงเทพมหานคร", status: "active", type: "6 Wheels" };
 }
 
-describe("masterdata flag on: reads through /api/go", () => {
+describe("master data reads through /api/go", () => {
     it("customers and hubs: one request per stale time for every observer and async caller", async () => {
         route("GET", (u) => u.startsWith("/api/go/v1/customers?"), () => json([{ id: "c-1", billingPartyId: "bp-1", code: "CJ", name: "CJ Express" }]));
         route("GET", "/api/go/v1/hubs", () => json([{ id: "h-1", sourceId: "ALANG-A", sourceNameTh: "อลัง", sourceNameEn: null, latitude: null, longitude: null, stationType: "HUB", linkedCustomerId: null, linkedCustomerName: null, linkedCustomerKind: null, createdByDriver: false }]));
@@ -181,7 +167,7 @@ describe("masterdata flag on: reads through /api/go", () => {
     });
 });
 
-describe("masterdata flag on: writes through /api/go", () => {
+describe("master data writes through /api/go", () => {
     function presignRoutes(keys: string[]) {
         route("POST", "/api/go/v1/uploads/presign", (_u, body) => {
             const b = body as { purpose: string; entityId: string };

@@ -20,20 +20,15 @@ const HEAVY_LIBRARIES = [
   "leaflet-geosearch",
 ];
 const LAZY_MODULES = [
-  "app/app/first-mile/import-dialog.tsx",
-  "app/app/line-haul/import-dialog.tsx",
-  "app/app/job-assign/import-dialog.tsx",
   "app/app/sources/pickup-import-dialog.tsx",
   "features/trucks/components/TruckImportDialog.tsx",
-  "features/accounting/components/RateCardImportDialog.tsx",
-  "features/accounting/components/TollExpenseImportDialog.tsx",
   "features/holidays/components/HolidayCalendar.tsx",
   "lib/billingDocumentRender.ts",
+  // No page imports it since TW7: it stays as the source of the Go renderer's Shopee reference
+  // (logitrack-api/internal/billing/render/testdata/shopee_ts.mjs; Appendix E §E.7 row 15).
   "lib/shopeeExpressReport.ts",
   "components/map/LocationPicker.tsx",
   "components/map/SourcesMap.tsx",
-  "features/security-center/components/SessionLoginLocationMap.tsx",
-  "features/dashboard/legacy/DashboardVehicleMapClient.tsx",
   // T54R: the Go dashboard's map client (leaflet), loaded by FleetMap through next/dynamic.
   "features/dashboard/components/FleetMapClient.tsx",
   "features/incident-reports/components/IncidentLocationMapClient.tsx",
@@ -49,6 +44,16 @@ const LAZY_MODULE_IMPORT = {
 };
 const HEAVY_LIBRARY_MESSAGE =
   "Heavy library: import it inside a lazily loaded module (see LAZY_MODULES in eslint.config.mjs) or with await import() in a handler (developer-spec.md §10.11).";
+
+// TW7 (issue #87, developer-spec.md §10.14 #8): the web holds no Firebase SDK. Pages read and write
+// through the BFF (`lib/goFetch.ts` -> `/api/go/v1/*`), uploads go to Go's presigned or local upload
+// routes and the web sends no push, so neither Storage nor FCM needs the client SDK. Type imports are
+// refused too (the package is not installed). `firebase-admin` is not matched: it is a devDependency
+// of the operator scripts under scripts/ (ignored here) and of functions/.
+const FIREBASE_MESSAGE =
+  "The web has no Firebase SDK since TW7 (developer-spec.md §10.13, §10.14 #8): read and write through lib/goFetch.ts and the BFF (/api/go/v1/*).";
+const FIREBASE_PATHS = [{ name: "firebase", message: FIREBASE_MESSAGE }];
+const FIREBASE_PATTERNS = [{ group: ["firebase/*", "@firebase/*", "@/firebase", "@/firebase/*"], message: FIREBASE_MESSAGE }];
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -85,10 +90,11 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-restricted-imports": [
         "error",
         {
-          paths: HEAVY_LIBRARIES.map((name) => ({ name, allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE })),
+          paths: [...HEAVY_LIBRARIES.map((name) => ({ name, allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE })), ...FIREBASE_PATHS],
           patterns: [
             { group: ["@fullcalendar/*"], allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE },
             LAZY_MODULE_IMPORT,
+            ...FIREBASE_PATTERNS,
           ],
         },
       ],
@@ -98,7 +104,7 @@ const eslintConfig = defineConfig([
     // The lazily loaded modules themselves may import the heavy libraries.
     files: LAZY_MODULES,
     rules: {
-      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [LAZY_MODULE_IMPORT] }],
+      "@typescript-eslint/no-restricted-imports": ["error", { paths: FIREBASE_PATHS, patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] }],
     },
   },
 ]);

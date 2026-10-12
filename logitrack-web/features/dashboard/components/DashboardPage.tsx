@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The dashboard over Go (T54R, issue #74; developer-spec.md §10.13; Appendix E §E.2.1), rendered while
- * the `dashboard` web flag is on. The page is a handful of requests instead of about 10.7k document
+ * The dashboard over Go (T54R, issue #74; developer-spec.md §10.13; Appendix E §E.2.1), the only source
+ * since TW7. The page is a handful of requests instead of about 10.7k document
  * reads and two listeners:
  *
  * - `GET /v1/dashboard/summary?from&to` (`['dashboard','summary',{from,to}]`, 60 s poll): the trips,

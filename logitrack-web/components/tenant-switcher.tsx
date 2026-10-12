@@ -4,8 +4,8 @@
  * Tenant switcher of the app header (T18 owner addition, 2026-10-10; R83). Shown only when
  * `GET /v1/me/tenants` lists more than one tenant; the select itself is a lazily loaded chunk
  * (components/tenant-switcher-menu.tsx), so single-tenant principals never download it. A switch
- * calls `POST /api/auth/tenant`, which replaces `lt_at`; `['me']`, the Firebase bridge and every
- * tenant-scoped query follow (context/auth.tsx `switchTenant`, lib/queryClient.ts `watchPrincipal`),
+ * calls `POST /api/auth/tenant`, which replaces `lt_at`; `['me']` and every tenant-scoped query
+ * follow (context/auth.tsx `switchTenant`, lib/queryClient.ts `watchPrincipal`),
  * and the route is checked again by the edge gate (`router.refresh`).
  */
 import { useState } from "react";

@@ -3,8 +3,8 @@
  * §10.7; Appendix E §E.6). Hooks in `features/<domain>/api/use*.ts` build their Go source from
  * these, so every query passes TanStack's `signal` (unmount or a key change aborts the BFF and Go
  * request), lists page by keyset cursor, and idempotent mutations send one Idempotency-Key per user
- * action. Choosing between a domain's Firestore and Go source is `domainQueryFn`
- * (`features/platform/api/webFlags.ts`). Paths built from values go through `goPath`.
+ * action. Go is the only source of every domain (TW7 removed the Firestore adapters and the
+ * per-fetch flag switch). Paths built from values go through `goPath`.
  *
  *   useQuery({ queryKey: ["hubs"], queryFn: goQueryFn<HubDTO[]>("/v1/hubs") })
  *   useInfiniteQuery({

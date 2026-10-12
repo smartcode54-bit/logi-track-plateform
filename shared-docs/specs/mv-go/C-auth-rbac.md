@@ -1664,6 +1664,8 @@ These are exactly the claims the legacy code reads: `isWebAdmin` (`firestore.rul
 
 The Firebase web session refreshes itself independently of Go; when the tab's own Go session ends (logout, or a `401 session_revoked` after an SSE `session.revoked` of another reason than `claims_changed`, C.4.7) the web client also calls Firebase `signOut()`, and the account mirror revokes Firebase refresh tokens on disable and password events (C.6.4). A signed-out visitor holds no Firebase session either (a previous user's is signed out on every page), and a Firebase session of anyone but the principal being bridged is signed out before the mint, so a failed mint never leaves Firestore running as another user (T18).
 
+As built (TW7, issue #87): the web holds no Firebase SDK and no bridge, so it can no longer call `signOut()`. A Firebase session a pre-TW7 build persisted in the browser (IndexedDB `firebaseLocalStorageDb`, with the legacy claims and a refresh token that does not expire on its own, and the SDK's `firebase:*` storage keys) would otherwise outlive the Go session for good. For the transition the web deletes it where it used to sign it out: on logout, on every session end and once per browser on load, for a signed-in or a signed-out visitor alike (`lib/legacyFirebaseCleanup.ts`, called by `context/auth.tsx`; it also drops the SDK's App Check, heartbeat and installations databases). Like `signOut()` this removes only the local copy; a refresh token already copied out of a browser stays valid until the account mirror sets `validSince` (C.6.4), which is the operator step of C.6.6 for a deployment that ran `web`.
+
 ### C.6.4 Account mirror (Go -> Firebase Auth)
 
 While the mode is not `off`, account changes made in Go are written to Firebase Auth **synchronously inside the request, before the PostgreSQL commit**; a mirror failure fails the request with `503 bridge_unavailable` so the two stores never diverge. Plaintext passwords exist only in memory for the duration of the call and never enter the outbox, logs or any table.
@@ -1697,7 +1699,7 @@ As built (T32R review): the one `cf_shim` key is shared by every driver, so `Req
 
 | Direction off | Criteria |
 |---|---|
-| `web` | TW7 done: no `firebase` import in the web bundle, `/v1/bridge/firebase-token` at zero traffic for 7 days |
+| `web` | TW7 done: no `firebase` import in the web bundle, `/v1/bridge/firebase-token` at zero traffic for 7 days. As built (TW7, issue #87): the web has no Firebase SDK and no `/api/auth/firebase-token` route, so no browser can reach the bridge, and the web deletes a bridge session a pre-TW7 build left in the browser (C.6.3 as built). Switching a deployment that ran `web` to `mobile` (or `off`) is the operator's step once it serves the post-TW7 web (main spec §10.13, the TW7 precondition) and the bridge saw 7 days without traffic; with the switch the operator revokes the bridge sessions browsers may still hold: an admin revoke of every session (`DELETE /v1/users/{id}/sessions`, never one's own, which sets `validSince` through the mirror, C.6.4; the mirror runs in `web` and `mobile`, not in `off`, so before a switch to `off`) for each user with `users.legacy_auth_uid` who used the web, or, where the Firestore project holds no real data (staging), an explicit acceptance of the risk |
 | `mobile` and the mirror | P7b gate passed (≥ 95 % of heartbeats on ≥ 4.0.0, `minAllowedVersion` raised to 4.0.0, ADR 0007), all five shims and every callable at zero traffic for ≥ 2 release cycles, Cloud Functions deleted (P8) |
 
 ---

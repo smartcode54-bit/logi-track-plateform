@@ -2,8 +2,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { resetJwksForTests } from "../accessToken";
+import { existsSync } from "fs";
+import path from "path";
+
+import * as authRoutes from "../authRoutes";
 import {
-    firebaseToken,
     google,
     googleNonce,
     login,
@@ -456,28 +459,10 @@ describe("POST /api/auth/tenant", () => {
     });
 });
 
-describe("POST /api/auth/firebase-token (P0 bridge, R80)", () => {
-    it("passes the custom token through, called with the bearer", async () => {
-        go.on("POST", "/v1/bridge/firebase-token", () => ({ status: 200, body: { data: { customToken: "fb.custom.token" } } }));
-        const res = await firebaseToken(webRequest("/api/auth/firebase-token", { method: "POST", headers: SAME_ORIGIN, cookies: { lt_at: "a.b.c" } }), {
-            config: go.config(),
-        });
-        expect(res.status).toBe(200);
-        expect(await res.json()).toEqual({ data: { customToken: "fb.custom.token" } });
-        expect(go.calls("POST", "/v1/bridge/firebase-token")[0].headers.authorization).toBe("Bearer a.b.c");
-    });
-
-    it("passes 404 through when the bridge mode excludes web", async () => {
-        go.on("POST", "/v1/bridge/firebase-token", () => ({ status: 404, body: goError("not_found") }));
-        const res = await firebaseToken(webRequest("/api/auth/firebase-token", { method: "POST", headers: SAME_ORIGIN, cookies: { lt_at: "a.b.c" } }), {
-            config: go.config(),
-        });
-        expect(res.status).toBe(404);
-    });
-
-    it("refuses a foreign Origin", async () => {
-        const res = await firebaseToken(webRequest("/api/auth/firebase-token", { method: "POST", headers: { Origin: "https://evil.test" } }), { config: go.config() });
-        expect(res.status).toBe(403);
+describe("no Firebase bridge route (TW7, R80)", () => {
+    it("the BFF has no /api/auth/firebase-token handler or route file", () => {
+        expect(Object.keys(authRoutes)).not.toContain("firebaseToken");
+        expect(existsSync(path.resolve(__dirname, "../../../app/api/auth/firebase-token"))).toBe(false);
     });
 });
 

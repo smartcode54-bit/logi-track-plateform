@@ -6,7 +6,6 @@ import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { subcontractorSchema, SubcontractorFormValues, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
 import { documentPreviewUrls, subcontractorFormValues } from "../api/subcontractors";
 import { useSaveSubcontractor, useSubcontractor } from "../api/useSubcontractors";
-import { useDomainSource } from "@/features/platform/api/useWebFlags";
 import { useCan } from "@/features/auth/api/useMe";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { useRouter, useParams } from "next/navigation";
@@ -45,10 +44,9 @@ export default function SubcontractorEdit() {
     const query = useSubcontractor(id ?? "");
     const { update, upload } = useSaveSubcontractor();
     const isSubmitting = update.isPending;
-    const onGo = useDomainSource("masterdata") === "go";
-    // On Go a carrier's status is a tenant column (`PATCH /v1/tenants/{id}`, platform admins).
+    // A carrier's status is a tenant column (`PATCH /v1/tenants/{id}`, platform admins).
     const { allowed: canSetStatus } = useCan("platform:manage_tenants");
-    const statusLocked = onGo && !canSetStatus;
+    const statusLocked = !canSetStatus;
     const [previews, setPreviews] = useState<Record<string, string>>({});
 
     const form = useForm<SubcontractorFormValues>({

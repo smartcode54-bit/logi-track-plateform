@@ -1,22 +1,14 @@
 // T46 (issue #66; Appendix E §E.2.2, §E.5 row 10): leave requests over Go. The list is keyset pages of 50
 // with the filters and the status counts on the server, polled every 60 s while visible (AC: no unbounded
 // listener on leave_requests, `leave-requests/page.tsx:61-66`); decisions are Go routes, a rejection with its
-// reason, and a decision written back to the driver app (202) says it is waiting for the sync. No Firebase
-// module is imported (the mocks throw).
+// reason, and a decision written back to the driver app (202) says it is waiting for the sync. The web has no
+// Firebase SDK since TW7.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go leave page must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go leave page must not import Firestore");
-});
-
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
@@ -30,14 +22,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/leave-requests");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the leave page");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const q = (call: FakeCall) => new URL(call.url, "http://web.test").searchParams;
@@ -73,7 +61,6 @@ function setup(capabilities = ["hr:view_leave", "hr:manage_leave"]) {
         ["l2", leave(2, { status: "approved", type: "business" })],
     ]);
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities }) }));
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { auth: "go", hr: "go" } } }));
     web.on("GET", "/api/go/v1/leave-requests", (call) => {
         const p = q(call);
         if (p.get("cursor") === "c2") return json(200, { data: [leave(3, { status: "rejected", rejectionReason: "no certificate" })] });

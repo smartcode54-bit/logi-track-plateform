@@ -9,6 +9,13 @@
  *      grouped by driver.
  *
  * Runs client-side. Thai text is rendered with Sarabun (helvetica cannot render Thai).
+ *
+ * No page imports it any more: the report is rendered by Go (`GET /v1/billing/shopee-report.pdf`,
+ * T39). It stays, with lib/billingDocumentRender.ts and lib/pdfThai.ts, because the Go renderer's
+ * browser reference is generated from it (`logitrack-api/internal/billing/render/testdata/shopee_ts.mjs`
+ * writes `shopee_ts.json` for `TestShopeeReportMatchesTheBrowser`); the three modules, their
+ * generators and jspdf / jspdf-autotable / xlsx-js-style / bahttext go together (Appendix E §E.7
+ * row 15; developer-spec.md §10.13 as built, TW7).
  */
 
 import { jsPDF } from "jspdf";
@@ -16,7 +23,32 @@ import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 import { loadThaiFont, registerThaiFont, fetchImageAsBase64, imageFormat } from "./pdfThai";
 import type { BillingProviderInfo, BillingCustomer, BillingPeriod } from "./billingDocumentModel";
-import type { ShopeeReportTripRow, BillingHalf } from "@/features/accounting/api/billing";
+
+/**
+ * Billing round within a month. TTP is billed in two half-month rounds:
+ *  - "first"  → days 1–15
+ *  - "second" → day 16 to end of month
+ *  - "full"   → the whole month (both rounds)
+ *
+ * (Defined in the Firestore billing API, `features/accounting/api/billing.ts`, until TW7 deleted it.)
+ */
+export type BillingHalf = "full" | "first" | "second";
+
+/** One delivered trip of the report (the row the Firestore billing API read until TW7). */
+export interface ShopeeReportTripRow {
+  id: string;
+  spxTripId?: string;
+  deliveredTimestamp?: Date;
+  driverId?: string;
+  driverName: string;
+  originDisplay: string;
+  destinationDisplay: string;
+  vehicleClass?: string;
+  truckLicensePlate?: string;
+  parcelCount?: number;
+  /** URLs of run-sheets that carry the recipient's signature (runsheet_received + per-stop variants). */
+  signedRunsheetPhotos: string[];
+}
 
 // ─── Layout constants (A4 portrait, mm) ───────────────────────────────────────
 const PAGE_W = 210;

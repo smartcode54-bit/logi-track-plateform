@@ -16,9 +16,9 @@
  *    records the completion time.
  * 4. A forced refresh that succeeded (here, or in another tab and found through its marker) runs this
  *    tab's `onClaimsRefreshed` listeners once, after the lock is released and before the caller
- *    retries: TW4 invalidates `['me']` and the active queries, T18 mints the Firebase bridge token
- *    again (the legacy claims follow the new role), the realtime provider reopens the stream. Each
- *    tab has its own cache, bridge and stream, so each tab reacts; several `claims_changed` failures
+ *    retries: TW4 invalidates `['me']` and the active queries, the AuthProvider waits for that
+ *    `['me']` refetch, the realtime provider reopens the stream (TW7 removed the Firebase bridge
+ *    re-mint). Each tab has its own cache and stream, so each tab reacts; several `claims_changed` failures
  *    served by one forced refresh notify once.
  *
  * The race the lock cannot see (a `GET /api/auth/refresh?next=` navigation in another tab) is

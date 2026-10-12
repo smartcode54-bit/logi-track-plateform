@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Holidays over Go (T46, issue #66; Appendix E §E.2.2, §E.5 row 6), rendered while the `hr` web flag is on.
+ * Holidays over Go (T46, issue #66; Appendix E §E.2.2, §E.5 row 6), the only source since TW7.
  *
  * The page reads one Bangkok year at a time, `['holidays', year]` (`GET /v1/holidays?year`), a plain fetch
  * (10 min, no listener and no poll): the year the calendar shows (FullCalendar's `datesSet`) or the list's

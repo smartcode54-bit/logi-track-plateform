@@ -1,6 +1,6 @@
 /**
  * Broadcasts over Go (T50, issue #70; T48 routes, Appendix B §B.2.16; Appendix E §E.2.1 `?view=broadcast`,
- * §E.6, §E.10 row 15). Rendered while the `comms` web flag is on; replaces the composer's read of every
+ * §E.6, §E.10 row 15). The only source since TW7; replaces the composer's read of every
  * driver (`BroadcastComposer.tsx:58`, used to build the recipient lists in the browser), the history's
  * silent cap of 50 (`:140-144`), the `sendBroadcast` callable and the browser's `deleteDoc`:
  *

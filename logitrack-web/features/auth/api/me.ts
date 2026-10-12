@@ -12,12 +12,11 @@
  * - Freshness: 5 min stale / 30 min gc. A sign-in and a tenant switch set it from a fresh
  *   `GET /v1/me` (context/auth.tsx `completeSignIn`, `switchTenant`); a forced refresh after
  *   `claims_changed` invalidates it (lib/queryClient.ts `bindQueryClientToSession`) and the
- *   AuthProvider awaits that refetch (`refetchMe`) before it mints the bridge token again; a
+ *   AuthProvider awaits that refetch (`refetchMe`); a
  *   `session.revoked` for another session of the user checks it (`refetchMe`,
  *   lib/realtime/RealtimeProvider.tsx). A logout or a session end sets it to `null`. The role-matrix
  *   save over Go (`PUT /v1/roles/matrix`, T54S) and the realtime `roles.changed` event
- *   (lib/realtime/eventMap.ts) invalidate it too. While the `security` web flag is off, the Role
- *   Matrix page still saves to Firestore `permissions_config`, which Go never reads.
+ *   (lib/realtime/eventMap.ts) invalidate it too.
  * - `['me','tenants']` (`GET /v1/me/tenants`, the tenant switcher) sits under the `['me']` prefix.
  *
  * Every read of `GET /v1/me` goes through `parseMe`, so a body without an id or a capability list is a
@@ -83,8 +82,6 @@ export interface MeDTO {
     /** Effective capability keys, colon form (`shared-docs/schemas/capabilities.ts`). */
     capabilities: string[];
     mustChangePassword: boolean;
-    /** The Firebase uid, only while the bridge mints web custom tokens (T08, R80). */
-    legacyAuthUid?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -120,7 +117,6 @@ export function parseMe(data: unknown): MeDTO {
               .map((s) => ({ billingPartyId: s.billingPartyId as string, name: str(s.name) ?? "" }))
         : [];
     const driver = isRecord(data.driver) && typeof data.driver.id === "string" ? { id: data.driver.id } : null;
-    const legacyAuthUid = str(data.legacyAuthUid);
     return {
         id: data.id,
         email: str(data.email),
@@ -135,7 +131,6 @@ export function parseMe(data: unknown): MeDTO {
         customerScopes: scopes,
         capabilities: strings(data.capabilities),
         mustChangePassword: data.mustChangePassword === true,
-        ...(legacyAuthUid ? { legacyAuthUid } : {}),
     };
 }
 
@@ -224,7 +219,7 @@ export function tenantName(t: Pick<MeTenant, "nameTh" | "nameEn">, language: str
 }
 
 /**
- * The legacy role label of a principal, as the bridge's custom token would carry it (Appendix C
+ * The legacy role label of a principal (the label the retired Firebase bridge token carried, Appendix C
  * §C.6.3): own-fleet `tenant_admin` and `platform_admin` are `admin`; a carrier `tenant_admin` is
  * `partner`; other tenant roles keep their name; a scope-only customer is `customer`. A principal
  * with none of these (a dispatcher or `support` without a membership) is `user`, the legacy fallback.
@@ -243,21 +238,13 @@ export function legacyRoleOf(me: MeDTO): { admin: boolean; role: RoleId } {
     return { admin: false, role: "user" };
 }
 
-/** The legacy id claims a Firebase bridge token carries (Appendix C §C.6.3); read from it, never from Go. */
-export interface BridgeScopeClaims {
-    customerScopeId?: string;
-    partnerScopeId?: string;
-    driverId?: string;
-}
-
 /**
- * The `customClaims` object `useAuth()` keeps for its 41 consumers until TW7 (developer-spec.md
- * §10.6): `admin` and `role` synthesised from `['me']` for `getRole()` / `isAdmin()`, the Go
- * `capabilities` for `can()`, and the legacy Firestore ids (`customerScopeId`, `partnerScopeId`,
- * `driverId`) that only the Firebase bridge token knows, because Firestore-backed pages filter by
- * those ids until their domain moves to Go.
+ * The `customClaims` object `useAuth()` keeps for its consumers (developer-spec.md §10.6): `admin`
+ * and `role` synthesised from `['me']` for `getRole()` / `isAdmin()`, the Go `capabilities` for
+ * `can()`. Since TW7 nothing comes from Firebase: the legacy Firestore ids (`customerScopeId`,
+ * `partnerScopeId`, `driverId`) that only the bridge token carried went with the Firestore pages.
  */
-export interface SynthesizedClaims extends BridgeScopeClaims {
+export interface SynthesizedClaims {
     admin: boolean;
     role: RoleId;
     capabilities: string[];
@@ -265,18 +252,8 @@ export interface SynthesizedClaims extends BridgeScopeClaims {
     [key: string]: unknown;
 }
 
-function pickString(source: Record<string, unknown> | null | undefined, key: string): string | undefined {
-    const v = source?.[key];
-    return typeof v === "string" && v.trim() !== "" ? v : undefined;
-}
-
-export function claimsFromMe(me: MeDTO | null | undefined, bridgeClaims?: Record<string, unknown> | null): SynthesizedClaims | null {
+export function claimsFromMe(me: MeDTO | null | undefined): SynthesizedClaims | null {
     if (!me) return null;
     const { admin, role } = legacyRoleOf(me);
-    const claims: SynthesizedClaims = { admin, role, capabilities: me.capabilities, dispatcher: me.dispatcher };
-    for (const key of ["customerScopeId", "partnerScopeId", "driverId"] as const) {
-        const v = pickString(bridgeClaims, key);
-        if (v) claims[key] = v;
-    }
-    return claims;
+    return { admin, role, capabilities: me.capabilities, dispatcher: me.dispatcher };
 }

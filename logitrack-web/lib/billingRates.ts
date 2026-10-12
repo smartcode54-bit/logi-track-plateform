@@ -1,19 +1,13 @@
-import {
-    collection,
-    getDocs,
-    query,
-    where,
-    type Firestore,
-} from "firebase/firestore";
-import { COLLECTIONS } from "@/lib/collections";
+/**
+ * The web's trip-pricing helpers over lib/billingCompute.ts: the reference implementation the Go
+ * golden vectors are exported from (logitrack-api/testdata/golden/billing, §6.16). Pricing itself runs
+ * on the server only. TW7 removed the Firestore readers of the rate entries and fuel adjustments
+ * (`fetchRateEntriesForCustomers`, `fetchFuelAdjustmentsForCustomers`) with the Firestore pages.
+ */
 import {
     computeTripBillingFromParts,
-    extractHubId,
     getTripBillingDateMs as getTripBillingDateMsFromTimestamps,
-    normalizeDestinationCode,
-    normalizeVehicleClass,
     resolveTaskCustomerId as resolveTaskCustomerFromTaskInput,
-    timestampLikeToMillis,
     type BillingRateEntry,
     type FuelRateAdjustment,
     type TaskBillingInput,
@@ -26,10 +20,6 @@ import type { TripRecord } from "@/validate/tripRecordSchema";
 export type { BillingRateEntry, FuelRateAdjustment, TripBillingComputed } from "@/lib/billingCompute";
 
 export { extractHubId, normalizeDestinationCode } from "@/lib/billingCompute";
-
-function toMillis(val: unknown): number {
-    return timestampLikeToMillis(val);
-}
 
 export function getTripBillingDateMs(trip: TripRecord): number {
     return getTripBillingDateMsFromTimestamps({
@@ -83,88 +73,4 @@ export function computeTripBilling(
         computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, "PRIMARY") ??
         computeTripBillingFromParts(tripParts, input, rateEntries, fuelAdjustments, "SUPPLEMENTARY")
     );
-}
-
-export async function fetchRateEntriesForCustomers(
-    db: Firestore,
-    customerIds: string[]
-): Promise<BillingRateEntry[]> {
-    const ids = Array.from(new Set(customerIds.map((id) => id.trim()).filter(Boolean)));
-    if (!ids.length) return [];
-    const snaps = await Promise.all(
-        ids.map((customerId) =>
-            getDocs(
-                query(
-                    collection(db, COLLECTIONS.CUSTOMER_RATE_ENTRIES),
-                    where("customerId", "==", customerId)
-                )
-            )
-        )
-    );
-    const all: BillingRateEntry[] = [];
-    snaps.forEach((snap) => {
-        snap.docs.forEach((docSnap) => {
-            const d = docSnap.data();
-            const customerId = String(d.customerId ?? "");
-            all.push({
-                id: docSnap.id,
-                customerId,
-                importId: String(d.importId ?? ""),
-                hubId: normalizeCode(String(d.hubId ?? "")),
-                destinationCode: normalizeDestinationCode(String(d.destinationCode ?? "")),
-                vehicleClass: normalizeVehicleClass(String(d.vehicleClass ?? "4WJ")),
-                rateThb: Number(d.rateThb ?? 0),
-                effectiveFromMs: toMillis(d.effectiveFrom),
-                // หลัก/เสริม is a rate-lookup dimension (ADR-0005). Dropping it made every เสริม card
-                // look like a หลัก card, so the client priced เสริม trips with the fuel adjustment.
-                jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
-                // Without this a voided announcement would still price the web preview, and the
-                // preview would disagree with the server (ADR 0009 §1).
-                voided: d.voided === true,
-            });
-        });
-    });
-    return all;
-}
-
-function normalizeCode(v: string | null | undefined): string {
-    return (v ?? "").trim().toUpperCase();
-}
-
-export async function fetchFuelAdjustmentsForCustomers(
-    db: Firestore,
-    customerIds: string[]
-): Promise<FuelRateAdjustment[]> {
-    const ids = Array.from(new Set(customerIds.map((id) => id.trim()).filter(Boolean)));
-    if (!ids.length) return [];
-    const snaps = await Promise.all(
-        ids.map((customerId) =>
-            getDocs(
-                query(
-                    collection(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS),
-                    where("customerId", "==", customerId)
-                )
-            )
-        )
-    );
-    const all: FuelRateAdjustment[] = [];
-    snaps.forEach((snap) => {
-        snap.docs.forEach((docSnap) => {
-            const d = docSnap.data();
-            const customerId = String(d.customerId ?? "");
-            all.push({
-                id: docSnap.id,
-                customerId,
-                effectiveFromMs: toMillis(d.effectiveFrom),
-                rateMultiplier: Number(d.rateMultiplier ?? 1),
-                addThbPerTrip: Number(d.addThbPerTrip ?? 0),
-                referenceFuelPriceThb:
-                    d.referenceFuelPriceThbPerLitre != null
-                        ? Number(d.referenceFuelPriceThbPerLitre)
-                        : undefined,
-                voided: d.voided === true,
-            });
-        });
-    });
-    return all;
 }

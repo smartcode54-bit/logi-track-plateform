@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Compensation config over Go (T46, issue #66; Appendix E §E.2.2), rendered while the `hr` web flag is on.
+ * Compensation config over Go (T46, issue #66; Appendix E §E.2.2), the only source since TW7.
  * The form starts from the version in effect now (`['compConfig','active']`, `GET /v1/payroll/config?at=`),
  * or the legacy page's PRD defaults (`DEFAULT_COMPENSATION_CONFIG`: fuel and trip-volume tiers, `LATE_SLA`)
  * for a tenant without one; "Save new version" appends a version

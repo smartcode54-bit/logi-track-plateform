@@ -9,7 +9,6 @@ describe("queryKeys (W6)", () => {
         expect(queryKeys.myTenants()).toEqual(["me", "tenants"]);
         expect(queryKeys.tenants.list({ all: true })).toEqual(["tenants", { all: true }]);
         expect(queryKeys.tenants.members("t1", { role: "tenant_admin" })).toEqual(["tenants", "t1", "members", { role: "tenant_admin" }]);
-        expect(queryKeys.webFlags()).toEqual(["webFlags"]);
         expect(queryKeys.badges()).toEqual(["badges"]);
         expect(queryKeys.hubs.all()).toEqual(["hubs"]);
         expect(queryKeys.hubs.maps()).toEqual(["hubs", "maps"]);

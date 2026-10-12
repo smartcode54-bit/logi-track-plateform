@@ -11,21 +11,18 @@
  * - `['trucks','detail',id]`: `GET /v1/trucks/{id}` (status history, current assignments, files).
  * - `['renewals', {}]`: `GET /v1/trucks/renewals` (tax and insurance state per truck, Bangkok calendar).
  *
- * The hooks return the Go DTOs; with the `masterdata` flag off `./trucks.firestore.ts` (loaded with
- * `import()` only then) maps the `trucks` documents into them, so the pages render one shape.
+ * The hooks return the Go DTOs. Go is the only source (TW7 removed the Firestore adapter and the
+ * `masterdata` flag switch of T25).
  */
 import { infiniteQueryOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { apiDate } from "@/lib/calendarDate";
 import { goFetch, goPath } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
-import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
+import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { uploadToGo, type UploadPurpose } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
 import type { TruckFormValues } from "@/validate/truckSchema";
-
-const firestore = () => import("./trucks.firestore");
 
 export const TRUCKS_PATH = "/v1/trucks";
 /** Page size of the trucks list (Appendix E §E.10: the list stopped at 100 rows; now it pages). */
@@ -41,7 +38,7 @@ export type PaymentMethod = "cash" | "transfer" | "company_credit";
 /** A truck as `GET /v1/trucks` lists it (internal/fleet `Truck`); dates `yyyy-MM-dd`. */
 export interface TruckDTO {
     id: string;
-    /** The truck's tenant: the own fleet, or the carrier (= subcontractor id). "" on Firestore own trucks. */
+    /** The truck's tenant: the own fleet, or the carrier (= subcontractor id). */
     tenantId: string;
     ownershipType: Ownership;
     licensePlate: string;
@@ -393,17 +390,14 @@ type TruckListKey = ReturnType<typeof queryKeys.trucks.list<ReturnType<typeof tr
 export function truckPagesQuery(filter: TruckListFilter) {
     return infiniteQueryOptions({
         queryKey: queryKeys.trucks.list(truckListParams(filter)),
-        queryFn: domainQueryFn<GoPage<TruckDTO>, TruckListKey, string | undefined>("masterdata", {
-            firestore: async ({ queryKey: [, p] }) => ({ data: await (await firestore()).listTrucksFirestore(p) }),
-            go: goInfiniteQueryFn<TruckDTO, TruckListKey>(TRUCKS_PATH, {
-                query: ([, p]) => ({
-                    ownership: p.ownership || undefined,
-                    status: p.status || undefined,
-                    type: p.type || undefined,
-                    q: p.q || undefined,
-                    tenantId: p.tenantId || undefined,
-                    limit: TRUCKS_PAGE_SIZE,
-                }),
+        queryFn: goInfiniteQueryFn<TruckDTO, TruckListKey>(TRUCKS_PATH, {
+            query: ([, p]) => ({
+                ownership: p.ownership || undefined,
+                status: p.status || undefined,
+                type: p.type || undefined,
+                q: p.q || undefined,
+                tenantId: p.tenantId || undefined,
+                limit: TRUCKS_PAGE_SIZE,
             }),
         }),
         initialPageParam: undefined as string | undefined,
@@ -415,21 +409,15 @@ export function truckPagesQuery(filter: TruckListFilter) {
 /** `['trucks','fleetStats']`: every truck, for the counters above the list. */
 export const fleetStatsQuery = queryOptions({
     queryKey: queryKeys.trucks.fleetStats(),
-    queryFn: domainQueryFn<TruckDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).listTrucksFirestore({}),
-        go: ({ signal }) => fetchAllPages<TruckDTO>(TRUCKS_PATH, {}, { signal, maxPages: TRUCKS_MAX_PAGES }),
-    }),
+    queryFn: ({ signal }) => fetchAllPages<TruckDTO>(TRUCKS_PATH, {}, { signal, maxPages: TRUCKS_MAX_PAGES }),
     ...QUERY_POLICY.entity,
 });
 
 /** `['trucks','options']`: own-fleet trucks not in maintenance, for the truck-assignment picker. */
 export const truckOptionsQuery = queryOptions({
     queryKey: queryKeys.trucks.options(),
-    queryFn: domainQueryFn<TruckOption[]>("masterdata", {
-        firestore: async () => toOptions(await (await firestore()).listTrucksFirestore({ ownership: "own" })),
-        go: async ({ signal }) =>
-            toOptions(await fetchAllPages<TruckDTO>(TRUCKS_PATH, { ownership: "own" }, { signal, maxPages: TRUCKS_MAX_PAGES })),
-    }),
+    queryFn: async ({ signal }) =>
+        toOptions(await fetchAllPages<TruckDTO>(TRUCKS_PATH, { ownership: "own" }, { signal, maxPages: TRUCKS_MAX_PAGES })),
     ...QUERY_POLICY.entity,
 });
 
@@ -443,10 +431,7 @@ function toOptions(trucks: TruckDTO[]): TruckOption[] {
 export function truckQuery(id: string) {
     return queryOptions({
         queryKey: queryKeys.trucks.detail(id),
-        queryFn: domainQueryFn<TruckDetailDTO | null>("masterdata", {
-            firestore: async () => (await firestore()).getTruckFirestore(id),
-            go: ({ signal }) => goFetch<TruckDetailDTO>(goPath`/v1/trucks/${id}`, { signal }),
-        }),
+        queryFn: ({ signal }) => goFetch<TruckDetailDTO>(goPath`/v1/trucks/${id}`, { signal }),
         ...QUERY_POLICY.entity,
         enabled: id !== "",
     });
@@ -455,10 +440,7 @@ export function truckQuery(id: string) {
 /** `['renewals', {}]`: every truck's tax and insurance state (the renewals page). */
 export const renewalsQuery = queryOptions({
     queryKey: queryKeys.renewals({}),
-    queryFn: domainQueryFn<RenewalDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).listRenewalsFirestore(),
-        go: ({ signal }) => fetchAllPages<RenewalDTO>(`${TRUCKS_PATH}/renewals`, {}, { signal, maxPages: TRUCKS_MAX_PAGES }),
-    }),
+    queryFn: ({ signal }) => fetchAllPages<RenewalDTO>(`${TRUCKS_PATH}/renewals`, {}, { signal, maxPages: TRUCKS_MAX_PAGES }),
     ...QUERY_POLICY.entity,
 });
 
@@ -479,7 +461,7 @@ export interface TruckSave {
     pending: PendingFiles;
     /** The loaded truck's file refs per kind (`storedFileKeys`); absent on a create. */
     stored?: Partial<Record<TruckFileKind, string[]>>;
-    /** Firestore: the actor recorded as `createdBy` / `updatedBy`. */
+    /** Legacy (the actor the retired Firestore path recorded): Go takes the actor from the session. */
     userId?: string;
 }
 
@@ -549,15 +531,9 @@ async function updateOnGo(id: string, save: TruckSave): Promise<void> {
 }
 
 /** Registers a truck (`409 already_exists` on a taken plate); returns its id. */
-export const createTruck = domainMutationFn<string, TruckSave>("masterdata", {
-    firestore: async (save) => (await firestore()).createTruckFirestore(save),
-    go: createOnGo,
-});
+export const createTruck = (save: TruckSave): Promise<string> => createOnGo(save);
 
-export const updateTruck = domainMutationFn<void, TruckSave & { id: string }>("masterdata", {
-    firestore: async ({ id, ...save }) => (await firestore()).updateTruckFirestore(id, save),
-    go: ({ id, ...save }) => updateOnGo(id, save),
-});
+export const updateTruck = ({ id, ...save }: TruckSave & { id: string }): Promise<void> => updateOnGo(id, save);
 
 /** `POST /v1/trucks/{id}/renewals` (RenewalForm): one renewal, saved or completed. */
 export interface RenewalSave {
@@ -577,17 +553,17 @@ export interface RenewalSave {
     coverage?: string;
     /** Insurance only: the truck's insurance notes (never the ledger row's note, which stays the legacy text). */
     insuranceNotes?: string;
-    /** Insurance documents: the stored refs (keys; URLs on Firestore) kept and the new files. */
+    /** Insurance documents: the stored refs (keys) kept and the new files. */
     documents?: string[];
     newDocuments?: File[];
-    /** Firestore: the actor of the status history and the ledger row. */
+    /** Legacy (the actor the retired Firestore path recorded): Go takes the actor from the session. */
     actorLabel?: string;
     userId?: string;
 }
 
 /**
  * The Go renewal. `notes` (the ledger row's note) is never sent: the form has no such input, so Go
- * writes the legacy "Expiry: …" / "Policy: … | Expiry: …" text as the Firestore path does. The
+ * writes the legacy "Expiry: …" / "Policy: … | Expiry: …" text as the retired Firestore path did. The
  * insurance form's own fields go where the legacy form wrote them (T25 review): its notes are the
  * truck's `insuranceNotes`, its person in charge `responsible` (Go stores it as
  * `maintenanceResponsible` on an insurance renewal), and its document list, when it changed, is
@@ -619,10 +595,7 @@ async function renewOnGo(r: RenewalSave): Promise<void> {
     await goFetch(goPath`/v1/trucks/${r.truck.id}/renewals`, { method: "POST", body });
 }
 
-export const renewTruck = domainMutationFn<void, RenewalSave>("masterdata", {
-    firestore: async (r) => (await firestore()).renewTruckFirestore(r),
-    go: renewOnGo,
-});
+export const renewTruck = (r: RenewalSave): Promise<void> => renewOnGo(r);
 
 /** The answer of an import (Go `POST /v1/trucks/import`). */
 export interface TruckImportResult {
@@ -634,12 +607,9 @@ export interface TruckImportResult {
 
 /**
  * Imports the parsed sheet: Go takes the rows as they are (headers of the legacy template, the API
- * names or Thai; it validates and upserts by plate); Firestore writes the rows the dialog validated.
+ * names or Thai; it validates and upserts by plate). `validRows` (what the dialog validated for the
+ * retired Firestore path) is not sent.
  */
-export const importTrucks = domainMutationFn<
-    TruckImportResult,
-    { rawRows: Record<string, unknown>[]; validRows: Record<string, unknown>[] }
->("masterdata", {
-    firestore: async ({ validRows }) => (await firestore()).importTrucksFirestore(validRows),
-    go: ({ rawRows }) => goFetch<TruckImportResult>(`${TRUCKS_PATH}/import`, { method: "POST", body: { rows: rawRows } }),
-});
+export function importTrucks({ rawRows }: { rawRows: Record<string, unknown>[]; validRows: Record<string, unknown>[] }): Promise<TruckImportResult> {
+    return goFetch<TruckImportResult>(`${TRUCKS_PATH}/import`, { method: "POST", body: { rows: rawRows } });
+}

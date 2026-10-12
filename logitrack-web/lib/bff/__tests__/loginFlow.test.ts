@@ -5,14 +5,13 @@
  * with a cookie jar that honours Path, and the handlers talk to a fake Go over HTTP. Covers the issue's
  * acceptance criteria that do not need a browser: the login sets `lt_at` (`Path=/`) and `lt_rt`
  * (`Path=/api/auth`) and returns no token; a must-change-password user holds no cookie until the ticket
- * is redeemed, then signs in with the new password (R79); the bridge token, the tenant switch and the
- * logout go through their BFF routes; the users page actions reach only Go routes.
+ * is redeemed, then signs in with the new password (R79); the tenant switch and the logout go through
+ * their BFF routes (TW7 removed the Firebase bridge token); the users page actions reach only Go routes.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
     changePasswordWithTicket,
-    firebaseCustomToken,
     passwordChangeTicket,
     signInWithPassword,
     signOutSession,
@@ -22,7 +21,7 @@ import { goFetch } from "../../goFetch";
 import { createUser, revokeUserSessions, setMemberRole, setUserDisabled } from "@/features/users/api/users";
 import { createTenant } from "@/features/tenants/api/tenants";
 import { resetJwksForTests } from "../accessToken";
-import { firebaseToken, login, logout, resetRotationsForTests, tenant } from "../authRoutes";
+import { login, logout, resetRotationsForTests, tenant } from "../authRoutes";
 import { proxyToGo } from "../goProxy";
 import { FakeGo, goError, parseSetCookie, WEB_ORIGIN } from "./fakeGo";
 
@@ -70,7 +69,6 @@ async function browserFetch(input: RequestInfo | URL, init: RequestInit = {}): P
     else if (path === "/api/auth/login") res = await login(req, deps);
     else if (path === "/api/auth/logout") res = await logout(req, deps);
     else if (path === "/api/auth/tenant") res = await tenant(req, deps);
-    else if (path === "/api/auth/firebase-token") res = await firebaseToken(req, deps);
     else res = new Response(null, { status: 404 });
     store(res);
     return res;
@@ -162,11 +160,8 @@ describe("web login through the BFF (T18)", () => {
         expect(browserRequests.map((r) => r.url)).toEqual(["/api/go/v1/auth/password/change"]);
     });
 
-    it("mints the bridge token, switches tenant and logs out through the BFF; logout leaves no cookie", async () => {
+    it("switches tenant and logs out through the BFF; logout leaves no cookie", async () => {
         go.on("POST", "/v1/auth/login", () => ({ status: 200, body: { data: { ...tokens(3), tenants: [], defaultTenantId: null } } }));
-        go.on("POST", "/v1/bridge/firebase-token", (r) =>
-            r.headers.authorization === "Bearer access.token.3" ? { status: 200, body: { data: { customToken: "ct", expiresIn: 3600 } } } : { status: 401, body: goError("unauthenticated") }
-        );
         go.on("POST", "/v1/auth/tenant", (r) => {
             const body = JSON.parse(r.body) as { tenantId: string };
             return body.tenantId === "t2" ? { status: 200, body: { data: { accessToken: "access.token.t2", expiresIn: 900 } } } : { status: 403, body: goError("permission_denied") };
@@ -174,7 +169,6 @@ describe("web login through the BFF (T18)", () => {
         go.on("POST", "/v1/auth/logout", () => ({ status: 204 }));
 
         await signInWithPassword("a@b.test", "pw");
-        expect(await firebaseCustomToken()).toEqual({ customToken: "ct", expiresIn: 3600 });
 
         await switchTenant("t2");
         expect(jar.get("lt_at")?.value).toBe("access.token.t2");
@@ -187,12 +181,14 @@ describe("web login through the BFF (T18)", () => {
         expect(JSON.parse(out.body)).toEqual({ refreshToken: "refresh-3" });
     });
 
-    it("a user Go refuses a Firestore session for gets 403 from the bridge (a dispatcher created in Go)", async () => {
+    it("the browser reaches no bridge: /api/auth/firebase-token is gone and /api/go/v1/bridge/* answers 404 at the BFF", async () => {
         go.on("POST", "/v1/auth/login", () => ({ status: 200, body: { data: { ...tokens(4), tenants: [], defaultTenantId: null } } }));
-        go.on("POST", "/v1/bridge/firebase-token", () => ({ status: 403, body: goError("permission_denied") }));
+        go.on("POST", "/v1/bridge/firebase-token", () => ({ status: 200, body: { data: { customToken: "must-not-leak" } } }));
         await signInWithPassword("dispatcher@b.test", "pw");
-        await expect(firebaseCustomToken()).rejects.toMatchObject({ status: 403, code: "permission_denied" });
-        // The session itself stays: a 403 is not a session end.
+        const viaProxy = await fetch("/api/go/v1/bridge/firebase-token", { method: "POST" });
+        expect(viaProxy.status).toBe(404);
+        expect(go.calls("POST", "/v1/bridge/firebase-token")).toHaveLength(0);
+        // The session itself stays.
         expect(jar.get("lt_at")?.value).toBe("access.token.4");
     });
 

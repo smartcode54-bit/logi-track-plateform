@@ -1,19 +1,11 @@
 // T54R (issue #74; Appendix E §E.5 row 18): the waitlist over Go: keyset pages of GET /v1/waitlist with
 // meta.total, "load more" by cursor, and DELETE /v1/waitlist/{id} behind a confirmation, which refreshes
-// the list and the sidebar's ['badges']. No Firebase module is imported (the mocks throw).
+// the list and the sidebar's ['badges']. The web has no Firebase SDK since TW7 (lib/noFirebase.test.ts).
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go waitlist page must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go waitlist page must not import Firestore");
-});
-
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
@@ -27,14 +19,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/waitlist");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the waitlist page");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 function entry(n: number): WaitlistEntryDTO {
@@ -50,10 +38,9 @@ function entry(n: number): WaitlistEntryDTO {
 
 function setup() {
     const web = fakeWeb();
-    const me = makeMe({ id: "u-self", legacyAuthUid: undefined, capabilities: ["waitlist:view"] });
+    const me = makeMe({ id: "u-self", capabilities: ["waitlist:view"] });
     let rows = [entry(1), entry(2), entry(3)];
     web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { auth: "go", dashboard: "go" } } }));
     web.on("GET", "/api/go/v1/waitlist", (call) => {
         const q = new URL(call.url, "http://web.test").searchParams;
         if (q.get("cursor") === "c2") return json(200, { data: [entry(4)], meta: { total: rows.length + 1 } });

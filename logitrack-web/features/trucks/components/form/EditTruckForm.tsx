@@ -41,7 +41,6 @@ import {
 import { useTruck, useTruckWrites } from "../../api/useTrucks";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
-import { useDomainSource } from "@/features/platform/api/useWebFlags";
 import { applyServerFieldErrors } from "@/lib/formServerErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -78,11 +77,10 @@ export default function EditTruckForm() {
     const { t } = useLanguage();
     const authContext = useAuth();
     const currentUser = authContext?.currentUser ?? null;
-    // `['trucks','detail',id]` (T25); on Go a truck's tenant (ownership) is fixed after creation.
+    // `['trucks','detail',id]` (T25); a truck's tenant (ownership) is fixed after creation.
     const truckQuery = useTruck(truckId ?? "");
     const { update } = useTruckWrites();
     const isSubmitting = update.isPending;
-    const onGo = useDomainSource("masterdata") === "go";
     // The loaded truck's file refs (keys) and their preview URLs: the form holds refs, so a stored file
     // without a URL (missing at source) is shown as unavailable and kept by the save (T25 review).
     const [stored, setStored] = useState<Partial<Record<TruckFileKind, string[]>>>({});
@@ -183,7 +181,7 @@ export default function EditTruckForm() {
                                                 <div className="flex gap-4">
                                                     <Button
                                                         type="button"
-                                                        disabled={onGo}
+                                                        disabled
                                                         variant={field.value === "own" ? "default" : "outline"}
                                                         onClick={() => {
                                                             field.onChange("own");
@@ -195,7 +193,7 @@ export default function EditTruckForm() {
                                                     </Button>
                                                     <Button
                                                         type="button"
-                                                        disabled={onGo}
+                                                        disabled
                                                         variant={field.value === "subcontractor" ? "default" : "outline"}
                                                         onClick={() => field.onChange("subcontractor")}
                                                         className="flex-1"
@@ -204,7 +202,7 @@ export default function EditTruckForm() {
                                                     </Button>
                                                 </div>
                                             </FormControl>
-                                            {onGo && <p className="text-xs text-muted-foreground">{t("masterData.trucks.ownershipFixed")}</p>}
+                                            <p className="text-xs text-muted-foreground">{t("masterData.trucks.ownershipFixed")}</p>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -219,7 +217,7 @@ export default function EditTruckForm() {
                                                 <SubcontractorSelector
                                                     value={field.value}
                                                     onChange={field.onChange}
-                                                    disabled={onGo}
+                                                    disabled
                                                 />
                                                 <FormMessage />
                                             </FormItem>

@@ -1,43 +1,38 @@
 "use client";
 
 /**
- * The web session (T18 over TW4's `['me']`; developer-spec.md §10.4, §10.6; Appendix C §C.4.5, §C.6.3;
- * Appendix E §E.3.3-§E.3.4; R36-R38, R40, R50, R79, R80). Go owns identity: who is signed in comes from
+ * The web session (T18 over TW4's `['me']`, TW7; developer-spec.md §10.4, §10.6; Appendix C §C.4.5;
+ * Appendix E §E.3.3-§E.3.4; R36-R38, R50, R79, R80). Go owns identity: who is signed in comes from
  * `['me']` (`GET /v1/me` through the BFF, features/auth/api/me.ts), and the HttpOnly cookies `lt_at` /
- * `lt_rt` are set and read only by the BFF routes under `/api/auth/*`. Firebase remains a bridge until
- * TW7: a principal entitled to a Firestore session signs in to Firebase with a custom token from
- * `POST /api/auth/firebase-token` (lib/firebaseBridge.ts), so the pages still on Firestore keep working
- * (R9).
+ * `lt_rt` are set and read only by the BFF routes under `/api/auth/*`. Since TW7 the web holds no
+ * Firebase session at all: the bridge (`POST /api/auth/firebase-token`, `signInWithCustomToken`) went
+ * with the last Firestore page (R80).
  *
- * `useAuth()` keeps its shape for the unmigrated consumers:
- * - `currentUser`: the Firebase uid while bridged (Firestore writes carry it), else the Go user id;
- *   email, name and photo from `['me']`.
+ * `useAuth()` keeps its shape for its consumers:
+ * - `currentUser`: the Go user id as `uid` and `id`; email, name and photo from `['me']`.
  * - `me`: `['me']` itself (prefer `useMe(select)` in new code).
- * - `customClaims`: synthesised from `['me']` by `claimsFromMe` for `getRole()`, `isAdmin()` and
- *   `can()` until TW7: `admin`, `role`, `capabilities` and `dispatcher` from Go, and only the legacy
- *   Firestore ids (`customerScopeId`, `partnerScopeId`, `driverId`) from the bridge token, so no page
- *   decides what a user may do from Firebase claims (R5, R27).
- * - `loading`: until `['me']` has answered and, for a signed-in principal, the bridge has first
- *   settled. A later forced re-mint (`claims_changed`, tenant switch) does not bring it back, so the
- *   `/app` layout keeps the page mounted (lib/firebaseBridge.ts).
- * - The context value is memoised and every function in it is stable (ends `context/auth.tsx:171`).
+ * - `customClaims`: synthesised from `['me']` alone by `claimsFromMe` for `getRole()`, `isAdmin()` and
+ *   `can()`: `admin`, `role`, `capabilities` and `dispatcher` from Go (R5, R27).
+ * - `loading`: until `['me']` has answered.
+ * - The context value is memoised and every function in it is stable.
  *
  * The cache follows the session through TW4's runtime (lib/queryClient.ts `bindQueryClientToSession`,
  * mounted by app/providers.tsx): a session end empties it, a `claims_changed` refresh invalidates every
  * query, and any change of principal in `['me']` (another user, another tenant, signed out) drops or
- * resets the previous principal's data. This provider never repeats those; it owns the Firebase bridge
- * (sign-out on a session end or for a signed-out visitor, the forced re-mint after `claims_changed`,
- * which waits for the `['me']` refetch) and the sign-in, logout and tenant-switch flows.
+ * resets the previous principal's data. This provider never repeats those; it owns the sign-in,
+ * logout, forced-refresh and tenant-switch flows.
  *
- * A signed-out visitor (`['me']` resolved `null`, no error) holds no Firebase session either: one
- * left in this browser by a previous user (IndexedDB outlives the Go session) is signed out on every
- * page, the landing page's sign-in dialogs included, before anyone signs in there.
+ * Removed by T18: the Firebase auth listener, `setAdminClaims` on every load, and the
+ * `users/{uid}.forceLogoutAt` listener, replaced by SSE `session.revoked`
+ * (lib/realtime/RealtimeProvider.tsx). Removed by TW7: the Firebase bridge and its forced re-mints, and
+ * the legacy `users/{uid}` last-login write (Go records `users.last_login_*` through `PATCH /v1/me`).
  *
- * Removed by T18: the Firebase auth listener, `setAdminClaims` on every load (`context/auth.tsx:51-59`
- * before), and the `users/{uid}.forceLogoutAt` listener (`:91-129`), replaced by SSE `session.revoked`
- * (lib/realtime/RealtimeProvider.tsx).
+ * The Firebase session a pre-TW7 build persisted in this browser (IndexedDB outlives the Go session) is
+ * still removed where the bridge used to sign it out: on logout, on every session end, and once per
+ * browser on load, for a signed-in or a signed-out visitor alike (lib/legacyFirebaseCleanup.ts;
+ * Appendix C §C.6.3 as built).
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import {
@@ -50,38 +45,29 @@ import {
 } from "@/features/auth/api/me";
 import { ApiError, isApiError } from "@/lib/apiError";
 import { recordLoginGeo, signInWithGoogle, signInWithPassword, signOutSession, switchTenant as switchSessionTenant } from "@/lib/authClient";
-import {
-    bridgeSettledFor,
-    getBridgeState,
-    signOutFirebaseBridge,
-    subscribeBridge,
-    syncFirebaseBridge,
-    type BridgeState,
-} from "@/lib/firebaseBridge";
+import { clearLegacyFirebaseSession } from "@/lib/legacyFirebaseCleanup";
 import { resolveLoginGeoForClient } from "@/lib/loginGeo";
 import { clearCacheExceptMe, resetSessionCache } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import { endSession, onSessionEnd } from "@/lib/sessionEnd";
 import { onClaimsRefreshed, sharedRefresh } from "@/lib/sharedRefresh";
 
-/** The signed-in user as the unmigrated pages read it (the fields of the Firebase `User` they use). */
+/** The signed-in user as the pages read it (the fields of the former Firebase `User` they use). */
 export interface AuthUser {
-    /** The Firebase uid while bridged (the uid of Firestore documents), else the Go user id. */
+    /** The Go user id (`users.id`), as `id`. */
     uid: string;
     /** The Go user id (`users.id`). */
     id: string;
     email: string | null;
     displayName: string | null;
     photoURL: string | null;
-    emailVerified: boolean;
-    metadata: { creationTime?: string; lastSignInTime?: string };
 }
 
 export type AuthContextType = {
     currentUser: AuthUser | null;
     /** `['me']`: the Go principal, `null` when signed out or still loading. Prefer `useMe(select)` in new code. */
     me: MeDTO | null;
-    /** Legacy claims synthesised from `['me']` (plus the bridge token's legacy ids) until TW7. */
+    /** Legacy-shaped claims synthesised from `['me']` alone (`getRole()`, `isAdmin()`, `can()`). */
     customClaims: SynthesizedClaims | null;
     loading: boolean;
     /** `['me']` failed for another reason than "signed out" (the api unreachable); the shell offers a retry. */
@@ -91,105 +77,58 @@ export type AuthContextType = {
     login: (email: string, password: string) => Promise<void>;
     /** `POST /api/auth/google` with a GIS ID token and the nonce it was issued for. */
     loginWithGoogle: (idToken: string, nonce: string) => Promise<void>;
-    /** Revokes the session, expires both cookies, signs out of Firebase and drops every cached query. */
+    /** Revokes the session, expires both cookies and drops every cached query. */
     logout: () => Promise<void>;
-    /** A forced refresh: new claims in the access token, `['me']` and the bridge token (stays signed in). */
+    /** A forced refresh: new claims in the access token and `['me']` (stays signed in). */
     refreshClaims: () => Promise<void>;
-    /** `POST /api/auth/tenant`, then `['me']`, the bridge and every tenant-scoped query follow. */
+    /** `POST /api/auth/tenant`, then `['me']` and every tenant-scoped query follow. */
     switchTenant: (tenantId: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 /**
- * After a sign-in: the principal (`GET /v1/me` through `parseMe`), then the bridge (forced: once per
- * login, the legacy claims follow the current role, R80), and only then the cache, so the bridge
- * effect below finds it settled and does not mint a second token. A tab with no principal cached
- * drops what it held while signed out first; a tab that held another principal is reset by
- * `watchPrincipal` (lib/queryClient.ts) when `['me']` is set, and the same principal keeps its cache.
+ * After a sign-in: the principal (`GET /v1/me` through `parseMe`), then the cache. A tab with no
+ * principal cached drops what it held while signed out first; a tab that held another principal is
+ * reset by `watchPrincipal` (lib/queryClient.ts) when `['me']` is set, and the same principal keeps
+ * its cache.
  */
 export async function completeSignIn(client: QueryClient): Promise<MeDTO> {
     const me = await readMe();
-    await syncFirebaseBridge({ id: me.id, legacyAuthUid: me.legacyAuthUid }, { force: true });
     if (!client.getQueryData<MeDTO | null>(queryKeys.me())) clearCacheExceptMe(client);
     client.setQueryData<MeDTO | null>(queryKeys.me(), me);
     return me;
 }
 
 /**
- * Where the user signed in: Go `users.last_login_*` (`PATCH /v1/me`), and while bridged the legacy
- * `users/{uid}` document the Security Center active-users list reads until P6. Best effort, in the
- * background: it may wait for the browser's location prompt and must not delay the navigation.
+ * Where the user signed in: Go `users.last_login_*` (`PATCH /v1/me`). Best effort, in the background:
+ * it may wait for the browser's location prompt and must not delay the navigation.
  */
-function recordSignInLocation(client: QueryClient): void {
+function recordSignInLocation(): void {
     void (async () => {
         const geo = await resolveLoginGeoForClient().catch(() => null);
         await recordLoginGeo(geo);
-        const bridge = getBridgeState();
-        if (bridge.status !== "ready" || !bridge.firebaseUid) return;
-        // Still the principal who signed in (the location prompt may have taken a while).
-        const me = client.getQueryData<MeDTO | null>(queryKeys.me());
-        if (!me || me.id !== bridge.userId) return;
-        const { updateUserLastLogin } = await import("@/lib/updateUserLastLogin");
-        await updateUserLastLogin({ uid: bridge.firebaseUid, email: me.email, displayName: me.displayName }, geo);
     })().catch(() => undefined);
 }
 
-function bridgedFor(me: MeDTO, bridge: BridgeState): boolean {
-    return bridge.status === "ready" && bridge.userId === me.id && Boolean(bridge.firebaseUid);
-}
-
-function authUserFrom(me: MeDTO, bridge: BridgeState): AuthUser {
-    const bridged = bridgedFor(me, bridge);
-    return {
-        uid: bridged ? (bridge.firebaseUid as string) : me.id,
-        id: me.id,
-        email: me.email,
-        displayName: me.displayName,
-        photoURL: me.photoUrl,
-        emailVerified: bridged ? Boolean(bridge.profile?.emailVerified) : false,
-        metadata: bridged
-            ? { creationTime: bridge.profile?.creationTime, lastSignInTime: bridge.profile?.lastSignInTime }
-            : {},
-    };
+function authUserFrom(me: MeDTO): AuthUser {
+    return { uid: me.id, id: me.id, email: me.email, displayName: me.displayName, photoURL: me.photoUrl };
 }
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const client = useQueryClient();
     const meQuery = useQuery(meQueryOptions);
-    const bridge = useSyncExternalStore(subscribeBridge, getBridgeState, getBridgeState);
     const me = meQuery.data ?? null;
-    const meId = me?.id;
-    const legacyAuthUid = me?.legacyAuthUid;
-
-    // The bridge for whoever `['me']` names. Not forced: a restored Firebase session of that very uid
-    // is kept, and a user Go refused stays without one for this tab (lib/firebaseBridge.ts).
-    useEffect(() => {
-        if (meId) void syncFirebaseBridge({ id: meId, legacyAuthUid });
-    }, [meId, legacyAuthUid]);
-
-    // A signed-out visitor: whatever Firebase session this browser still holds (a previous user's,
-    // restored from IndexedDB) is signed out, so no Firestore session outlives the Go one and a
-    // sign-in from any page starts clean.
-    const signedOut = !meQuery.isPending && me === null && !meQuery.error;
-    useEffect(() => {
-        if (signedOut) void signOutFirebaseBridge();
-    }, [signedOut]);
-
-    // A session that ended in this tab (lib/sessionEnd.ts): the Firebase session goes too (R50, §10.4
-    // step 4). The cache and `['me']` are emptied by the runtime's own listener (bindQueryClientToSession).
-    useEffect(() => onSessionEnd(() => void signOutFirebaseBridge()), []);
 
     // New claims (a `claims_changed` 401 or `session.revoked`, served by a forced refresh in any tab):
     // the runtime invalidates every query, `['me']` included; this waits for that `['me']` refetch
-    // (joined, not repeated) and mints the bridge token again, so the legacy claims follow the new role
-    // while the user stays signed in (R50, R78, R80).
+    // (joined, not repeated), so the role and capabilities follow while the user stays signed in
+    // (R50, R78).
     const claimsWork = useRef<Promise<void> | null>(null);
     const applyNewClaims = useCallback((): Promise<void> => {
         if (claimsWork.current) return claimsWork.current;
         const work = (async () => {
-            const next = await refetchMe(client);
-            if (next) await syncFirebaseBridge({ id: next.id, legacyAuthUid: next.legacyAuthUid }, { force: true });
+            await refetchMe(client);
         })()
             .catch((error) => console.warn("[auth] applying new claims failed", error))
             .finally(() => {
@@ -201,11 +140,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     useEffect(() => onClaimsRefreshed(() => void applyNewClaims()), [applyNewClaims]);
 
+    // TW7 transition: no page reads a Firebase session, so one a pre-TW7 build left in this browser is
+    // deleted once on load and again whenever the Go session ends (lib/legacyFirebaseCleanup.ts).
+    useEffect(() => {
+        clearLegacyFirebaseSession({ once: true });
+        return onSessionEnd(() => clearLegacyFirebaseSession());
+    }, []);
+
     const login = useCallback(
         async (email: string, password: string) => {
             await signInWithPassword(email, password);
             await completeSignIn(client);
-            recordSignInLocation(client);
+            recordSignInLocation();
         },
         [client]
     );
@@ -214,7 +160,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         async (idToken: string, nonce: string) => {
             await signInWithGoogle(idToken, nonce);
             await completeSignIn(client);
-            recordSignInLocation(client);
+            recordSignInLocation();
         },
         [client]
     );
@@ -222,7 +168,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const logout = useCallback(async () => {
         // The Go session first: the BFF revokes it and expires both cookies whatever Go answers.
         await signOutSession();
-        await signOutFirebaseBridge();
+        // A Firebase session a pre-TW7 build persisted here must not outlive the user's logout.
+        clearLegacyFirebaseSession();
         // No data of this user survives in the tab; `['me']` reads as signed out without a request.
         resetSessionCache(client);
     }, [client]);
@@ -240,10 +187,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         async (tenantId: string) => {
             await switchSessionTenant(tenantId);
             const next = await readMe();
-            // The bridge first, so the Firestore reads that refetch below already run as the new tenant.
-            await syncFirebaseBridge({ id: next.id, legacyAuthUid: next.legacyAuthUid }, { force: true });
             // Another tenant is another principal: `watchPrincipal` cancels and resets every other query
-            // (`['me','tenants']` and `['webFlags']` included), and the mounted ones refetch.
+            // (`['me','tenants']` included), and the mounted ones refetch.
             client.setQueryData<MeDTO | null>(queryKeys.me(), next);
         },
         [client]
@@ -257,12 +202,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!queryError) return null;
         return isApiError(queryError) ? queryError : new ApiError({ status: 0, code: "unavailable", message: String(queryError) });
     }, [queryError]);
-    const loading = meQuery.isPending || (me !== null && !bridgeSettledFor(bridge, me.id));
+    const loading = meQuery.isPending;
 
-    const currentUser = useMemo(() => (me ? authUserFrom(me, bridge) : null), [me, bridge]);
-    // Only the bridge token of this very principal contributes its legacy Firestore ids.
-    const bridgeClaims = me && bridgedFor(me, bridge) ? bridge.claims : undefined;
-    const customClaims = useMemo(() => claimsFromMe(me, bridgeClaims), [me, bridgeClaims]);
+    const currentUser = useMemo(() => (me ? authUserFrom(me) : null), [me]);
+    const customClaims = useMemo(() => claimsFromMe(me), [me]);
 
     const value = useMemo<AuthContextType>(
         () => ({

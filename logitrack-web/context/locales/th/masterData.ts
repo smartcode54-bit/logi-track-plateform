@@ -79,7 +79,6 @@ const masterData: Record<string, string> = {
     "masterData.drivers.login.temporaryHint": "แสดงเพียงครั้งเดียว ส่งให้คนขับ แอปจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบครั้งแรก",
     "masterData.drivers.login.inviteSent": "ส่งอีเมลเชิญให้ตั้งรหัสผ่านแล้ว",
     "masterData.drivers.login.temporaryExplain": "ระบบสร้างรหัสผ่านชั่วคราวและแสดงเพียงครั้งเดียว คนขับต้องตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบครั้งแรก",
-    "masterData.drivers.login.notSynced": "คนขับรายนี้ยังไม่อยู่ในระบบใหม่ สร้างบัญชีเข้าใช้จาก Security Center → Users เมื่อคนขับปรากฏในระบบแล้ว",
     "masterData.drivers.login.createLater": "บันทึกคนขับแล้วโดยยังไม่มีบัญชีเข้าใช้ สร้างได้จากหน้าแก้ไขคนขับหรือ Security Center → Users",
     "masterData.drivers.login.outOfReach": "คนขับนี้อยู่ในองค์กรที่คุณไม่มีสิทธิ์จัดการ กรุณาให้ผู้ดูแลขององค์กรนั้นสร้างบัญชีเข้าใช้งาน",
 

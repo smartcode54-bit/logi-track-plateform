@@ -14,8 +14,10 @@
  *   node scripts/bundle-report.mjs                         # Markdown table on stdout
  *   node scripts/bundle-report.mjs --json out.json         # also write the machine-readable report
  *   node scripts/bundle-report.mjs --check                 # fail on a forbidden library or a
- *                                                          # locale dictionary in initial JS, or a
- *                                                          # split namespace in a base dictionary chunk
+ *                                                          # locale dictionary in initial JS, a
+ *                                                          # split namespace in a base dictionary chunk,
+ *                                                          # or a banned package (Firebase, TW7) in
+ *                                                          # any client chunk, lazy ones included
  *   node scripts/bundle-report.mjs --check --baseline bundle-budget.json [--max-growth 5]
  *                                                          # also fail when a route's initial gzip
  *                                                          # grows more than 5% over the baseline
@@ -51,6 +53,21 @@ export const FORBIDDEN_INITIAL_PACKAGES = [
     "react-leaflet",
     "leaflet-geosearch",
 ];
+
+/**
+ * Packages that must not be in any client chunk at all, initial or lazy (TW7, developer-spec.md §10.14
+ * item 8: "Bundle analyzer shows no firebase chunk"). The web holds no Firebase SDK; a trailing slash
+ * marks a scope.
+ */
+export const BANNED_PACKAGES = ["firebase", "@firebase/"];
+
+/**
+ * True when `pkg` is banned from the client bundle (exact name, or inside a banned scope).
+ * @param {string} pkg
+ */
+export function isBannedPackage(pkg) {
+    return BANNED_PACKAGES.some((f) => (f.endsWith("/") ? pkg.startsWith(f) : pkg === f));
+}
 
 /** Default allowed growth of a route's initial gzip size over the committed baseline, in percent. */
 export const DEFAULT_MAX_GROWTH_PERCENT = 5;
@@ -164,6 +181,7 @@ function leafModules(node, out = []) {
  */
 function summariseChunk(chunk) {
     /** @type {Map<string, number>} */ const forbidden = new Map();
+    /** @type {Map<string, number>} */ const banned = new Map();
     /** @type {Map<string, number>} */ const locales = new Map();
     /** @type {Set<string>} */ const localeFiles = new Set();
     for (const mod of leafModules(chunk)) {
@@ -171,6 +189,7 @@ function summariseChunk(chunk) {
         const gzip = typeof mod.gzipSize === "number" ? mod.gzipSize : 0;
         const pkg = packageOfModulePath(modulePath);
         if (pkg && isForbiddenPackage(pkg)) forbidden.set(pkg, (forbidden.get(pkg) ?? 0) + gzip);
+        if (pkg && isBannedPackage(pkg)) banned.set(pkg, (banned.get(pkg) ?? 0) + gzip);
         const lang = pkg ? undefined : localeOfModulePath(modulePath);
         if (lang) locales.set(lang, (locales.get(lang) ?? 0) + gzip);
         const file = pkg ? undefined : localeFileOfModulePath(modulePath);
@@ -182,6 +201,7 @@ function summariseChunk(chunk) {
         gzipSize: Number(chunk.gzipSize ?? 0),
         initial: /** @type {Record<string, boolean>} */ (chunk.isInitialByEntrypoint ?? {}),
         forbidden,
+        banned,
         locales,
         localeFiles,
     };
@@ -191,8 +211,9 @@ function summariseChunk(chunk) {
  * Build the per-route report from webpack-bundle-analyzer client data.
  * @param {any[]} clientChunks parsed `.next/analyze/client.json`
  * `localeChunks` lists every chunk holding dictionary files (`<lang>/<namespace>`), so the gate can
- * check that the base dictionaries leave the split namespaces to their own chunks.
- * @returns {{ routes: Record<string, { chunks: number, parsedBytes: number, gzipBytes: number, forbidden: Record<string, number>, locales: Record<string, number> }>, localeChunks?: Record<string, { gzipBytes: number, files: string[] }> }}
+ * check that the base dictionaries leave the split namespaces to their own chunks. `bannedChunks`
+ * lists every chunk, initial or not, that holds a banned package (none once TW7 is done).
+ * @returns {{ routes: Record<string, { chunks: number, parsedBytes: number, gzipBytes: number, forbidden: Record<string, number>, locales: Record<string, number> }>, localeChunks?: Record<string, { gzipBytes: number, files: string[] }>, bannedChunks?: Record<string, Record<string, number>> }}
  */
 export function buildReport(clientChunks) {
     const chunks = clientChunks.filter((c) => String(c.label).endsWith(".js")).map(summariseChunk);
@@ -219,19 +240,21 @@ export function buildReport(clientChunks) {
         };
     }
     /** @type {Record<string, { gzipBytes: number, files: string[] }>} */ const localeChunks = {};
+    /** @type {Record<string, Record<string, number>>} */ const bannedChunks = {};
     for (const c of chunks) {
         // Labels without the content hash, so a committed report does not churn on every build.
         const label = c.label.replace(/\.[0-9a-f]{8,}(\.js)$/, "$1");
         if (c.localeFiles.size > 0) localeChunks[label] = { gzipBytes: c.gzipSize, files: [...c.localeFiles].sort() };
+        if (c.banned.size > 0) bannedChunks[label] = sortKeys(Object.fromEntries(c.banned));
     }
-    return { routes: sortKeys(routes), localeChunks: sortKeys(localeChunks) };
+    return { routes: sortKeys(routes), localeChunks: sortKeys(localeChunks), bannedChunks: sortKeys(bannedChunks) };
 }
 
 /**
  * Gate violations: a forbidden library or any locale dictionary in a route's initial JS (the
  * provider loads exactly the active language through `context/locales/load.ts`), a split namespace
- * inside a base dictionary chunk (TW4), and, with a baseline, initial gzip growth above
- * `maxGrowthPercent`.
+ * inside a base dictionary chunk (TW4), a banned package in any client chunk (TW7), and, with a
+ * baseline, initial gzip growth above `maxGrowthPercent`.
  * @param {ReturnType<typeof buildReport>} report
  * @param {ReturnType<typeof buildReport> | undefined} baseline
  * @param {number} maxGrowthPercent
@@ -239,6 +262,9 @@ export function buildReport(clientChunks) {
  */
 export function gateViolations(report, baseline, maxGrowthPercent = DEFAULT_MAX_GROWTH_PERCENT) {
     const problems = [];
+    for (const [label, pkgs] of Object.entries(report.bannedChunks ?? {})) {
+        problems.push(`${label}: ${Object.keys(pkgs).join(", ")} in a client chunk (the web holds no Firebase SDK, TW7)`);
+    }
     for (const [label, c] of Object.entries(report.localeChunks ?? {})) {
         for (const lang of new Set(c.files.map((f) => f.split("/")[0]))) {
             if (!c.files.includes(`${lang}/index`)) continue;

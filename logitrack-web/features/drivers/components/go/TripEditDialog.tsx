@@ -18,7 +18,7 @@
  * - `POST /v1/trips/{id}/rename` (tenant_admin), `POST /v1/incidents` (an admin report);
  * - `POST /v1/trips/{id}/notify-line {force: true}` and `POST /v1/trips/{id}/evidence/revoke` (T49) on a delivered
  *   trip: resend the customer's LINE card (the legacy "ส่งแจ้งเตือน LINE" button) and revoke its photo link. Both are
- *   P5 routes: `LineNotifyActions` shows them only once the `comms` web flag is `go`. Closing a trip here calls no LINE
+ *   P5 routes, shown by `LineNotifyActions` (no web flag since TW7). Closing a trip here calls no LINE
  *   route either way: from the LINE cut-over (P5: `comms` owned, `LINE_NOTIFY_ENABLED` on) Go's `trip.delivered`
  *   reaches the worker's `notify.line`, which sends the card; before it a close from this page sends no card (the
  *   legacy callable is the browser's, which this page does not call; as since T34).

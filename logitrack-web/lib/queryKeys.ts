@@ -28,8 +28,6 @@ export interface QueryPolicy {
 export const QUERY_POLICY = {
     /** `['me']` */
     me: { staleTime: 5 * MINUTE, gcTime: 30 * MINUTE },
-    /** `['webFlags']` (T17, `features/platform/api/webFlags.ts`) */
-    webFlags: { staleTime: MINUTE, gcTime: 30 * MINUTE },
     /** hubs, hub maps, customers, subcontractors, companies, holidays, compConfig, roles, distances, rate-card tables */
     masterData: { staleTime: 10 * MINUTE, gcTime: 60 * MINUTE },
     /** detail keys, drivers, trucks, renewals, truck assignments, billing, income, statements, mobile settings */
@@ -79,7 +77,6 @@ export const queryKeys = {
     me: () => ["me"] as const,
     /** `GET /v1/me/tenants` (the tenant switcher, T18): under the `['me']` prefix, same policy row. */
     myTenants: () => ["me", "tenants"] as const,
-    webFlags: () => ["webFlags"] as const,
     /** Sidebar and dashboard counters (`GET /v1/badges`; P0: one count query, Appendix E §E.5 row 19). */
     badges: () => ["badges"] as const,
     jobs: (id: string) => ["jobs", id] as const,

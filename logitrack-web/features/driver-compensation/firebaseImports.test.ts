@@ -1,8 +1,7 @@
-// T46 (issue #66): the five HR routes switch as whole pages on the `hr` flag, and their Go pages import no
-// Firebase module, statically or lazily (test-utils/importGraph.ts), so with the flag on they call none of
-// generateDriverPayoutRun, approveDriverPayout or the holiday callables (saveHoliday, deleteHoliday,
-// saveGeneratedHolidays): AC 1 of the issue. The Firestore pages (`features/*/legacy/*`) keep theirs while the
-// flag can still be turned off.
+// T46 (issue #66), TW7: the five HR routes render their Go pages only, which import no Firebase module,
+// statically or lazily (test-utils/importGraph.ts), so they call none of generateDriverPayoutRun,
+// approveDriverPayout or the holiday callables (saveHoliday, deleteHoliday, saveGeneratedHolidays): AC 1 of
+// the issue. TW7 removed the Firestore pages (`features/*/legacy/*`) and the `hr` flag switch.
 import { existsSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
@@ -38,11 +37,11 @@ function graph(entry: string): string[] {
 }
 
 describe("the Go HR pages' import graph", () => {
-    it("has a Go page and a Firestore page per route, switched on the hr flag", () => {
+    it("renders only its Go page per route (TW7: no Firestore page, no hr flag switch)", () => {
         for (const r of ROUTES) {
             const src = readFileSync(r, "utf8");
-            expect(src, path.relative(root, r)).toContain('<DomainPage domain="hr"');
-            expect(src, path.relative(root, r)).toMatch(/const FirestorePage = dynamic\(\(\) => import\("@\/features\/(driver-compensation|leave|holidays)\/legacy\//);
+            expect(src, path.relative(root, r)).toMatch(/const GoPage = dynamic\(/);
+            expect(src, path.relative(root, r)).not.toMatch(/DomainPage|FirestorePage|useDomainPageSource|\/legacy\//);
         }
     });
 
@@ -55,16 +54,5 @@ describe("the Go HR pages' import graph", () => {
             .filter((f) => CALLABLES.test(code(f)))
             .map((f) => path.relative(root, f));
         expect(offenders).toEqual([]);
-    });
-
-    it("sees Firebase and the callables where they are: the Firestore pages", () => {
-        for (const legacy of [
-            "features/driver-compensation/legacy/LegacyPayrollPage.tsx",
-            "features/leave/legacy/LegacyLeaveRequestsPage.tsx",
-            "features/holidays/legacy/LegacyHolidaysPage.tsx",
-        ]) {
-            expect(firebaseImports(path.join(root, legacy)).length, legacy).toBeGreaterThan(0);
-        }
-        expect(code(path.join(root, "features/driver-compensation/legacy/LegacyPayrollPage.tsx"))).toMatch(/generateDriverPayoutRun/);
     });
 });

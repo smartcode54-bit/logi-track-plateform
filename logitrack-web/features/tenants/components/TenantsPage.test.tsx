@@ -14,8 +14,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, replace: vi.fn(
 
 import { TenantsPage } from "./TenantsPage";
 import { TenantSwitcher } from "@/components/tenant-switcher";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
-import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { TenantDTO } from "../api/tenants";
 
@@ -31,14 +30,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/security-center/tenants");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK here");
-    });
     refresh.mockReset();
 });
 afterEach(() => {
     vi.unstubAllGlobals();
-    configureFirebaseBridge(undefined);
 });
 
 const platformAdmin = makeMe({
@@ -47,8 +42,7 @@ const platformAdmin = makeMe({
     tenants: [],
     platformRoles: ["platform_admin"],
     capabilities: ["platform:manage_tenants", "platform:manage_platform_roles", "users:view", "users:manage", "users:assign_role", "users:revoke_sessions"],
-    legacyAuthUid: undefined,
-});
+    });
 
 function carrier(id: string, over: Partial<TenantDTO> = {}): TenantDTO {
     return { id, kind: "carrier", code: id.toUpperCase(), nameTh: `ขนส่ง ${id}`, nameEn: null, status: "active", legalType: "company", contractorTenantId: null, createdAt: "2026-10-10T00:00:00Z", ...over };
@@ -221,8 +215,7 @@ describe("TenantsPage", () => {
 
     it("is closed to everyone without platform:manage_tenants (no tenant request at all)", async () => {
         const web = fakeWeb();
-        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ legacyAuthUid: undefined }) }));
-        web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({}) }));
         renderWithProviders(<TenantsPage />);
         expect(await screen.findByText("Only platform administrators can manage tenants.")).toBeInTheDocument();
         expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/tenants"))).toBe(false);
@@ -235,7 +228,7 @@ describe("TenantSwitcher", () => {
 
     it("is hidden with a single tenant", async () => {
         const web = fakeWeb();
-        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ tenant: tenantA, legacyAuthUid: undefined }) }));
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ tenant: tenantA }) }));
         web.on("GET", "/api/go/v1/me/tenants", () => json(200, { data: [tenantA] }));
         renderWithProviders(<TenantSwitcher />);
         await waitFor(() => expect(web.calls.some((c) => c.url === "/api/go/v1/me/tenants")).toBe(true));
@@ -245,9 +238,8 @@ describe("TenantSwitcher", () => {
     it("switches the session tenant, refetches ['me'] and re-runs the edge gate for the page", async () => {
         const web = fakeWeb();
         let active = tenantA;
-        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ tenant: active, legacyAuthUid: undefined }) }));
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ tenant: active }) }));
         web.on("GET", "/api/go/v1/me/tenants", () => json(200, { data: [tenantA, tenantB] }));
-        web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
         web.on("POST", "/api/auth/tenant", (c) => {
             active = (c.body as { tenantId: string }).tenantId === "t-b" ? tenantB : tenantA;
             return new Response(null, { status: 204 });

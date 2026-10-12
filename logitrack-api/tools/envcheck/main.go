@@ -3,9 +3,9 @@
 //
 //   - .env.example holds exactly the §16.1 names consumed by the Go binaries,
 //     infra and caddy, plus the web-server and web-public names compose passes
-//     to the `web` container (a web-public name may be a DROP row that lives
-//     until P6, the Firebase web config); secret names are blank; no "spelling
-//     not adopted" (§16.4) and no container-only name appears;
+//     to the `web` container; no DROP row (TW7 removed the last ones it allowed,
+//     the Firebase web config); secret names are blank; no "spelling not
+//     adopted" (§16.4) and no container-only name appears;
 //   - every ${NAME} interpolated in the compose file is listed in .env.example,
 //     so `make env` yields a complete .env;
 //   - each Go service in compose receives exactly the names whose consumer
@@ -171,7 +171,7 @@ func checkEnvExample(path string, lines []dotenv.Line, inv inventory, banned map
 		switch {
 		case isLive && !required[l.Key] && !hasAny(live, webConsumers):
 			add("%s: %s belongs to another consumer (%v), not to logitrack-api", path, l.Key, keys(live.consumers))
-		case !isLive && isDrop && !drop.consumers["web-public"]:
+		case !isLive && isDrop:
 			add("%s: %s is a DROP row of §16.1 (%v)", path, l.Key, keys(drop.consumers))
 		case !isLive && !isDrop:
 			add("%s: %s is not in §16.1 (container-only or unknown name)", path, l.Key)
@@ -289,11 +289,8 @@ func checkCompose(cfg composeConfig, inv inventory) []string {
 			args = web.Build.Args
 		}
 		for n := range args {
-			e := inv.live[n]
-			if e == nil {
-				e = inv.dropped[n]
-			}
-			if e == nil || !e.consumers["web-public"] {
+			// Live rows only: the DROP web-public rows (the Firebase web config) left with TW7.
+			if e := inv.live[n]; e == nil || !e.consumers["web-public"] {
 				add("compose: web build arg %s is not a §16.1 web-public name (only NEXT_PUBLIC_* values may be inlined)", n)
 			}
 		}
