@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { HttpsError } from "firebase-functions/v2/https";
-import { type ShimAnswer, type ShimLogger, callShim } from "./goShim";
+import { type ShimAnswer, type ShimLogger, callShim, markReadShimUrl } from "./goShim";
 import {
     ADD_STOP_MESSAGES,
+    BROADCAST_NOT_FOUND_REASON,
+    MARK_READ_MESSAGES,
     TASK_NOT_FOUND_REASON,
     type ClaimsStore,
     addStopForwards,
     addStopShimBody,
     driverIdFromMe,
     mapAddStopAnswer,
+    mapMarkReadAnswer,
+    markReadForwards,
     setDriverClaimsViaGo,
 } from "./goShimCallables";
 
@@ -186,5 +190,56 @@ describe("addDeliveryStop shim (mv-go T32 -> POST /v1/mobile/tasks/{id}/stops)",
             await httpsError(() => mapAddStopAnswer(answer, log));
             expect(log.errs).toEqual([]);
         }
+    });
+});
+
+describe("markBroadcastRead shim (mv-go T48 -> POST /v1/mobile/broadcasts/{id}/read)", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("targets the read receipt of the Firestore doc id, path-escaped", () => {
+        expect(markReadShimUrl("https://api.test", "bcDoc1")).toBe("https://api.test/v1/mobile/broadcasts/bcDoc1/read");
+        expect(markReadShimUrl("https://api.test", "a/b c")).toBe("https://api.test/v1/mobile/broadcasts/a%2Fb%20c/read");
+    });
+
+    it("forwards drivers only, never an admin, and only when the shim is on", () => {
+        expect(markReadForwards("https://api.test", { role: "driver" })).toBe(true);
+        expect(markReadForwards("https://api.test", { driverId: "drvDoc1" })).toBe(true);
+        expect(markReadForwards("https://api.test", { role: "driver", admin: true })).toBe(false);
+        expect(markReadForwards("https://api.test", { role: "admin" })).toBe(false);
+        expect(markReadForwards("https://api.test", undefined)).toBe(false);
+        expect(markReadForwards("", { role: "driver" })).toBe(false);
+    });
+
+    it("rebuilds {ok, alreadyRead} byte for byte", () => {
+        expect(JSON.stringify(mapMarkReadAnswer(ok({ broadcastId: "b", alreadyRead: false }), quiet))).toBe('{"ok":true,"alreadyRead":false}');
+        expect(JSON.stringify(mapMarkReadAnswer(ok({ broadcastId: "b", alreadyRead: true }), quiet))).toBe('{"ok":true,"alreadyRead":true}');
+    });
+
+    it("answers the legacy not-found for Go's broadcast_not_found only, every other failure internal and logged once", async () => {
+        const e = await httpsError(() => mapMarkReadAnswer(fail(404, "not_found", { reason: BROADCAST_NOT_FOUND_REASON }), quiet));
+        expect([e.code, e.message]).toEqual(["not-found", MARK_READ_MESSAGES.notFound]);
+        const envelope = (status: number, code: string, details: Record<string, unknown> = {}) =>
+            new Response(JSON.stringify({ error: { code, message: "x", details } }), { status });
+        const cases: [string, Response][] = [
+            ["bare not_found 404 (an older API without the route)", envelope(404, "not_found")],
+            ["not the Go API", new Response("<html></html>", { status: 404, headers: { "Content-Type": "text/html" } })],
+            ["no driver profile in PostgreSQL", envelope(403, "driver_profile_required")],
+            ["rate limited", envelope(429, "resource_exhausted", { bucket: "shim_user" })],
+            ["revoked key", envelope(401, "invalid_token", { reason: "revoked" })],
+            ["server error", envelope(500, "internal")],
+        ];
+        for (const [name, res] of cases) {
+            vi.stubGlobal("fetch", async () => res);
+            const log = errors();
+            const answer = await callShim("markBroadcastRead", "POST", markReadShimUrl("https://api.test", "bc"), "k", "Bearer t", {}, log);
+            const err = await httpsError(() => mapMarkReadAnswer(answer, log));
+            expect([name, err.code, err.message]).toEqual([name, "internal", MARK_READ_MESSAGES.failed]);
+            expect([name, log.errs.length]).toEqual([name, 1]);
+        }
+        vi.stubGlobal("fetch", async () => envelope(404, "not_found", { reason: BROADCAST_NOT_FOUND_REASON }));
+        const log = errors();
+        const answer = await callShim("markBroadcastRead", "POST", markReadShimUrl("https://api.test", "bc"), "k", "Bearer t", {}, log);
+        await httpsError(() => mapMarkReadAnswer(answer, log));
+        expect(log.errs).toEqual([]);
     });
 });

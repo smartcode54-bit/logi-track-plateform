@@ -61,6 +61,10 @@ type ExportDoc struct {
 	// version gate of another flavor's fleet (settings/mobile_app). A held document is not written (counted skipped,
 	// logged) and the reconciliation reports it as differing.
 	Hold func(cur map[string]any) string
+	// Absent marks a row whose document must not exist (a voided broadcast, T48: the soft delete of PostgreSQL is the
+	// delete of the legacy writer): the projection deletes the document when it exists, and the reconciliation reports
+	// it as differing until then. Only Path is read.
+	Absent bool
 }
 
 // ExportOptions select an export-back run.

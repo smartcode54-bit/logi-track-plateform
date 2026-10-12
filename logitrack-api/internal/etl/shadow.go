@@ -105,10 +105,10 @@ var singleDocument = map[string]bool{"metadata": true, "settings": true}
 
 // ShadowTargets maps one firestore.shadow event onto its projections. Payloads are thin (main spec §7.1): the
 // projection re-reads the rows. trip.priced and trip.repriced project the trip's billing fields, standby.priced the
-// standby record's (T38, shadow_billing.go), holidays.changed the holidays (T45, shadow_holidays.go). broadcast.created
-// and settings.changed of a key other than the distance matrix and the version gate belong to a later phase (T48) and
-// project nothing yet. A body that does not decode or an unknown routing key is an error the consumer acks as
-// permanent.
+// standby record's (T38, shadow_billing.go), holidays.changed the holidays (T45, shadow_holidays.go), broadcast.created
+// and broadcast.voided the broadcast (T48, shadow_broadcasts.go: a voided one's document is deleted). settings.changed
+// of a key other than the distance matrix and the version gate projects nothing. A body that does not decode or an
+// unknown routing key is an error the consumer acks as permanent.
 func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 	var p struct {
 		IDs      []string `json:"ids"`
@@ -215,8 +215,8 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 		return one(ProjectionTripBilling, p.ID)
 	case "standby.priced":
 		return one(ProjectionStandbyBilling, p.ID)
-	case "broadcast.created":
-		return nil, nil
+	case "broadcast.created", "broadcast.voided":
+		return one("broadcasts", p.ID)
 	}
 	return nil, fmt.Errorf("etl: firestore.shadow does not project %s", routingKey)
 }
@@ -231,7 +231,7 @@ var projectors = map[string]encoder{
 	"hubs": encodeHubs, "hub_soc_distances": encodeDistances("hub_to_soc"), "soc_hub_distances": encodeDistances("soc_to_hub"),
 	"metadata": encodeMetadata, "trucks": encodeTrucks, "drivers": encodeDrivers, "truckAssignment": encodeAssignments,
 	"settings": encodeMobileAppSettings, "holidays": encodeHolidays, ProjectionTripBilling: encodeTripBilling,
-	ProjectionStandbyBilling: encodeStandbyBilling,
+	ProjectionStandbyBilling: encodeStandbyBilling, "broadcasts": encodeBroadcasts,
 }
 
 // ProjectStats count one projection.
@@ -243,7 +243,8 @@ type ProjectStats struct {
 	Skipped int `json:"skipped"`
 	// NotProjected is a target outside the projection plan (its domain is Firestore-owned, or the pin excludes it).
 	NotProjected int `json:"notProjected"`
-	// Deleted are the documents of rows deleted in PostgreSQL (a deletable collection, holidays) that were deleted.
+	// Deleted are the documents of rows deleted in PostgreSQL (a deletable collection, holidays) and of rows that must
+	// have none (ExportDoc.Absent: a voided broadcast) that were deleted.
 	Deleted int `json:"deleted,omitempty"`
 }
 
@@ -450,6 +451,18 @@ func (p *Projector) write(ctx context.Context, coll string, docs []ExportDoc) (P
 		if d.Skip != "" {
 			st.Skipped++
 			p.Log.Debug().Str("path", d.Path).Str("reason", d.Skip).Msg("firestore.shadow: not projected")
+			continue
+		}
+		if d.Absent {
+			deleted, err := deleteAbsent(ctx, p.FS, d.Path)
+			if err != nil {
+				return st, err
+			}
+			if deleted {
+				st.Deleted++
+			} else {
+				st.Unchanged++
+			}
 			continue
 		}
 		changed, held, err := writeDoc(ctx, p.FS, d, foreign)

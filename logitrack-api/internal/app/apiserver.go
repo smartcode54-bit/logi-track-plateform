@@ -18,6 +18,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/broadcasts"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
@@ -93,6 +94,9 @@ type APIDeps struct {
 	Forms *forms.Service
 	// Chats are the admin-driver chat of T47: /v1/chats* (staff) and /v1/mobile/chat* (the driver's own chat).
 	Chats *chats.Service
+	// Broadcasts are the broadcasts of T48: /v1/broadcasts* (staff) and /v1/mobile/broadcasts* (the driver's side and
+	// the markBroadcastRead shim target).
+	Broadcasts *broadcasts.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
@@ -400,10 +404,18 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Broadcasts are class B (the web writes them, the 3.x APKs read them): PostgreSQL writes them whatever
+	// PG_OWNED_DOMAINS says and firestore.shadow projects them once comms is owned (T48).
+	broadcastSvc, err := broadcasts.New(broadcasts.Deps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
 		Storage: st,
-		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc, Limiter: limiter,
+		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc,
+		Broadcasts: broadcastSvc, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP)})
 	if err != nil {
 		closeAll()

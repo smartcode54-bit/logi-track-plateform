@@ -1,5 +1,8 @@
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { MARK_BROADCAST_READ_SHIM, callShim, logitrackApiKey, markReadShimUrl, shimTarget } from "./core/goShim";
+import { markReadForwards, mapMarkReadAnswer } from "./core/goShimCallables";
 
 const db = admin.firestore();
 
@@ -199,11 +202,18 @@ export const sendBroadcast = onCall(
 
 /**
  * Callable: driver opened broadcast detail (tapped read on mobile). Counts each auth user once.
+ *
+ * mv-go shim (T48, R45): while LOGITRACK_SHIM_CALLABLES lists markBroadcastRead (P5, with comms in PG_OWNED_DOMAINS),
+ * a driver's read goes to the Go API (POST /v1/mobile/broadcasts/{id}/read with the cf_shim key and the caller's own
+ * Firebase ID token; {id} is the Firestore broadcast doc id): the read receipt is a broadcast_reads row, idempotent per
+ * user, and the answer keeps its legacy shape {ok, alreadyRead} (goShimCallables.ts). Any other caller keeps the legacy
+ * path below.
  */
 export const markBroadcastRead = onCall(
   {
     region: "asia-southeast1",
     cors: true,
+    secrets: [logitrackApiKey],
   },
   async (request): Promise<{ ok: boolean; alreadyRead?: boolean }> => {
     if (!request.auth?.uid) {
@@ -212,6 +222,13 @@ export const markBroadcastRead = onCall(
     const broadcastId = (request.data as { broadcastId?: string })?.broadcastId?.trim();
     if (!broadcastId) {
       throw new HttpsError("invalid-argument", "broadcastId is required");
+    }
+    const base = shimTarget(MARK_BROADCAST_READ_SHIM);
+    if (markReadForwards(base, request.auth.token as Record<string, unknown>)) {
+      const bearer = String(request.rawRequest?.headers?.authorization ?? "");
+      const answer = await callShim(MARK_BROADCAST_READ_SHIM, "POST", markReadShimUrl(base, broadcastId),
+        logitrackApiKey.value(), bearer, {});
+      return mapMarkReadAnswer(answer, logger);
     }
     const uid = request.auth.uid;
     const ref = db.collection(BROADCASTS_COLL).doc(broadcastId);

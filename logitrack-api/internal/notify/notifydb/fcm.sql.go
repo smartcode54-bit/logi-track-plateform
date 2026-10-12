@@ -12,6 +12,51 @@ import (
 	"github.com/google/uuid"
 )
 
+const broadcastDevices = `-- name: BroadcastDevices :many
+SELECT user_id, install_id, token
+FROM (SELECT r.user_id, dt.install_id, dt.token,
+             row_number() OVER (PARTITION BY r.user_id ORDER BY dt.last_seen_at DESC, dt.install_id) AS rank
+      FROM broadcast_recipients r
+      JOIN users u ON u.id = r.user_id AND u.status IN ('active', 'reset_required')
+      JOIN device_tokens dt ON dt.user_id = r.user_id
+      WHERE r.broadcast_id = $1) devices
+WHERE rank <= $2::bigint
+ORDER BY user_id, install_id
+`
+
+type BroadcastDevicesParams struct {
+	BroadcastID uuid.UUID
+	PerUser     int64
+}
+
+type BroadcastDevicesRow struct {
+	UserID    uuid.UUID
+	InstallID string
+	Token     string
+}
+
+// The devices of a broadcast's recipients (broadcast_recipients, persisted at send time): the device_tokens rows of each
+// recipient whose login is active or reset_required, at most @per_user per recipient, the most recently seen.
+func (q *Queries) BroadcastDevices(ctx context.Context, arg BroadcastDevicesParams) ([]BroadcastDevicesRow, error) {
+	rows, err := q.db.Query(ctx, broadcastDevices, arg.BroadcastID, arg.PerUser)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BroadcastDevicesRow{}
+	for rows.Next() {
+		var i BroadcastDevicesRow
+		if err := rows.Scan(&i.UserID, &i.InstallID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const chatAssigneeRoles = `-- name: ChatAssigneeRoles :many
 SELECT m.tenant_id, m.role
 FROM memberships m
@@ -129,6 +174,32 @@ func (q *Queries) DriverDevices(ctx context.Context, arg DriverDevicesParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const getBroadcastForPush = `-- name: GetBroadcastForPush :one
+SELECT id, coalesce(title, '')::text AS title, message_text, voided_at
+FROM broadcasts
+WHERE id = $1
+`
+
+type GetBroadcastForPushRow struct {
+	ID          uuid.UUID
+	Title       string
+	MessageText string
+	VoidedAt    *time.Time
+}
+
+// broadcast.created (T48): the title and text of the push; a broadcast voided before its push is read sends nothing.
+func (q *Queries) GetBroadcastForPush(ctx context.Context, id uuid.UUID) (GetBroadcastForPushRow, error) {
+	row := q.db.QueryRow(ctx, getBroadcastForPush, id)
+	var i GetBroadcastForPushRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.MessageText,
+		&i.VoidedAt,
+	)
+	return i, err
 }
 
 const getChatForPush = `-- name: GetChatForPush :one
