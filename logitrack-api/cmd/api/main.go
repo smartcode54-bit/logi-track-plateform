@@ -62,7 +62,9 @@ func main() {
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
 // installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
-// API keys); extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
+// API keys); the vehicle locations, the Cartrack probe, the dashboard summary, the badges and the forms of T53 come from
+// deps.Locations, deps.Dashboard and deps.Forms (app.DashboardGroups: the anonymous form posts are internal-only and
+// rate-limited); extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
 // only register handlers and never read a service, so the table needs no database, Redis or signing
 // key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
@@ -88,6 +90,7 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, app.EventGroups(deps)...)
 	groups = append(groups, app.MobileGroups(deps)...)
 	groups = append(groups, app.MobileReleaseGroups(deps)...)
+	groups = append(groups, app.DashboardGroups(deps)...)
 	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }
 

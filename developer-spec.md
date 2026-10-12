@@ -1124,7 +1124,7 @@ Exchanges `lt.events`, `lt.retry`, `lt.requeue` (topic), `lt.jobs`, `lt.dlx` (di
 | Cron | Job | Contract | Live |
 |---|---|---|---|
 | continuous | outbox relay | §7.1 | P0 |
-| `*/3 * * * *` | `cartrack.sync` | `CARTRACK_SYNC_ENABLED`; `GET …/rest/vehicles/status` on `CARTRACK_API_BASE_URL`, Basic auth `CARTRACK_API_USERNAME` / `CARTRACK_API_PASSWORD` (rotate first), 20 s timeout (legacy none, `fn:cartrack.ts:66-72`); bad coordinates skipped; failures on the job (`:141-146`) | P6 (R70) |
+| `*/3 * * * *` | `cartrack.sync` | `CARTRACK_SYNC_ENABLED`; `GET …/rest/vehicles/status` on `CARTRACK_API_BASE_URL`, Basic auth `CARTRACK_API_USERNAME` / `CARTRACK_API_PASSWORD` (rotate first), 20 s timeout (legacy none, `fn:cartrack.ts:66-72`); bad coordinates skipped; failures on the job (`:141-146`) | P6 (R70); as built (T53): `internal/fleet/locations`, `scheduler.Gated`, the probe of `GET /v1/admin/cartrack/probe` is a run of this job in the worker (the api holds no Cartrack credential) |
 | `0 5 * * *` | `bangchak.snapshot` | `FUEL_MONTHLY_SNAPSHOT_ENABLED`; 15 s timeout; monthly row upserted **only on success** (fixes `fn:core/persistFuelMonthlySnapshot.ts:88-96`, which overwrote it with `status:'error', items:[]`) | P3 (R70) |
 | `*/15 * * * *` | `billing.safety-net` | §6.13 | P3 |
 | `*/5 * * * *` | `etl.sync` | `ETL_SYNC_ENABLED`, `ETL_SYNC_INTERVAL`; catch-up behind the worker's listeners | P1–P7b |
