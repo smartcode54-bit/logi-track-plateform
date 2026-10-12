@@ -239,7 +239,8 @@ func (h handlers) listTasks(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := onlyQuery(c, "taskType", "date", "from", "to", "status", "driverId", "truckId", "q", "limit", "cursor"); err != nil {
+	if err := onlyQuery(c, "taskType", "date", "from", "to", "status", "driverId", "truckId", "q", "sourceHub", "destination",
+		"limit", "cursor"); err != nil {
 		return err
 	}
 	limit, err := queryLimit(c)
@@ -248,7 +249,8 @@ func (h handlers) listTasks(c fiber.Ctx) error {
 	}
 	items, next, err := h.s.ListTasksView(c.Context(), p, TaskListInput{TaskType: c.Query("taskType"), Date: c.Query("date"),
 		From: c.Query("from"), To: c.Query("to"), Statuses: multi(c, "status"), DriverID: c.Query("driverId"),
-		TruckID: c.Query("truckId"), Q: c.Query("q"), Limit: limit, Cursor: c.Query("cursor")})
+		TruckID: c.Query("truckId"), Q: c.Query("q"), SourceHub: c.Query("sourceHub"), Destination: c.Query("destination"),
+		Limit: limit, Cursor: c.Query("cursor")})
 	if err != nil {
 		return err
 	}

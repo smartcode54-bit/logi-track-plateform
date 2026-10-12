@@ -119,6 +119,18 @@ RETURNING *;
 -- The first extra stop upgrades a single-stop task (addDeliveryStop, multiDeliveryTrips.ts:420-424).
 UPDATE tasks SET is_multi_delivery = true WHERE id = sqlc.arg(id) AND NOT is_multi_delivery;
 
+-- name: SetTaskFromTrip :one
+-- A trip edit mirrored on its task (PATCH /v1/trips/{id}, T34; EditTripDetailsDialog.tsx:569-606): the route (the
+-- origin with its hub's billing link, the destination), the multi-drop flag of the edited stops and the type derived
+-- from an edited origin. The task number keeps its prefix (no renumbering).
+UPDATE tasks
+SET source_hub_raw = sqlc.arg(source_hub_raw), source_hub_id = sqlc.narg(source_hub_id),
+    source_linked_party_id = sqlc.narg(source_linked_party_id), destination_raw = sqlc.arg(destination_raw),
+    destination_hub_id = sqlc.narg(destination_hub_id), destination_soc_key = sqlc.narg(destination_soc_key),
+    is_multi_delivery = sqlc.arg(is_multi_delivery), task_type = sqlc.arg(task_type)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
 -- --- delivery stops (task_delivery_stops: parent-scoped, the parent's reach writes, the assigned driver too) -------
 
 -- name: InsertTaskStop :one
@@ -129,6 +141,19 @@ INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, destinati
 VALUES (sqlc.arg(task_id), sqlc.arg(stop_index), sqlc.arg(destination_raw), sqlc.narg(destination_hub_id),
         sqlc.narg(destination_linked_party_id), sqlc.narg(sequence), sqlc.narg(added_at), sqlc.narg(source_id),
         sqlc.arg(is_custom))
+RETURNING *;
+
+-- name: CopyTaskStop :one
+-- A planned stop rewritten by a trip's stop edit (T34): the task's stops are deleted and inserted again as stop 1..n
+-- (UNIQUE (task_id, destination_raw) would refuse a swap in place), each with the fields of the old stop at the same
+-- destination carried over.
+INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, destination_hub_id, destination_linked_party_id,
+                                 status, delivered_at, delivered_lat, delivered_lng, estimated_rate_thb, drop_fee_thb,
+                                 sequence, added_at, source_id, is_custom)
+VALUES (sqlc.arg(task_id), sqlc.arg(stop_index), sqlc.arg(destination_raw), sqlc.narg(destination_hub_id),
+        sqlc.narg(destination_linked_party_id), sqlc.arg(status), sqlc.narg(delivered_at), sqlc.narg(delivered_lat),
+        sqlc.narg(delivered_lng), sqlc.narg(estimated_rate_thb), sqlc.narg(drop_fee_thb), sqlc.narg(sequence),
+        sqlc.narg(added_at), sqlc.narg(source_id), sqlc.arg(is_custom))
 RETURNING *;
 
 -- name: TaskStops :many
@@ -178,7 +203,9 @@ SELECT * FROM tasks WHERE driver_id = sqlc.arg(driver_id)::uuid AND client_op_id
 -- name: ListTasksByCreated :many
 -- GET /v1/tasks without a date: newest first, keyset (created_at, id) (tasks_tenant_type_created; tasks_created under
 -- X-Act-On-Tenant: *). driver_id matches the driver or the helper; q is a substring of the number, the places or the
--- plate.
+-- plate. source / destination (T34, the boards' source-hub and SOC filters) are the monitor's place buckets of the
+-- task's own source and destination (Place: the hub stored at write, else the SOC key, stored or of the raw text,
+-- else the trimmed raw text, else none): a place filter value of the row's source.key / destinationPlace.key matches.
 SELECT * FROM tasks t
 WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.narg(task_type)::text IS NULL OR t.task_type = sqlc.narg(task_type)::text)
@@ -189,6 +216,25 @@ WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)
   AND (sqlc.narg(q)::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower(sqlc.narg(q)::text)) > 0)
+  AND (NOT sqlc.arg(source_on)::boolean
+       OR t.source_hub_id = ANY (sqlc.arg(source_hubs)::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(source_soc)::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(source_raw)::text)
+       OR (sqlc.arg(source_none)::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = ''))
+  AND (NOT sqlc.arg(destination_on)::boolean
+       OR t.destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
+       OR (sqlc.arg(destination_none)::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = ''))
   AND (sqlc.narg(after_created)::timestamptz IS NULL
        OR (t.created_at, t.id) < (sqlc.narg(after_created)::timestamptz, sqlc.arg(after_id)::uuid))
 ORDER BY t.created_at DESC, t.id DESC
@@ -196,7 +242,7 @@ LIMIT sqlc.arg(row_limit);
 
 -- name: ListTasksByPlan :many
 -- GET /v1/tasks?date | from&to: the plan days (Bangkok) of the range, latest day first, keyset (plan_date, id)
--- (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *).
+-- (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *). The filters of ListTasksByCreated.
 SELECT * FROM tasks t
 WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND t.plan_date >= sqlc.arg(from_date)::date AND t.plan_date <= sqlc.arg(to_date)::date
@@ -208,6 +254,25 @@ WHERE (sqlc.arg(all_tenants)::boolean OR t.tenant_id = ANY (sqlc.arg(tenant_ids)
   AND (sqlc.narg(q)::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower(sqlc.narg(q)::text)) > 0)
+  AND (NOT sqlc.arg(source_on)::boolean
+       OR t.source_hub_id = ANY (sqlc.arg(source_hubs)::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)), 4) END = sqlc.narg(source_soc)::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(source_raw)::text)
+       OR (sqlc.arg(source_none)::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, sqlc.arg(trim_chars)::text) = ''))
+  AND (NOT sqlc.arg(destination_on)::boolean
+       OR t.destination_hub_id = ANY (sqlc.arg(destination_hubs)::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)), 4) END) = sqlc.narg(destination_soc)::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, sqlc.arg(trim_chars)::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = sqlc.narg(destination_raw)::text)
+       OR (sqlc.arg(destination_none)::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, sqlc.arg(trim_chars)::text) = ''))
   AND (sqlc.narg(after_plan)::date IS NULL
        OR (t.plan_date, t.id) < (sqlc.narg(after_plan)::date, sqlc.arg(after_id)::uuid))
 ORDER BY t.plan_date DESC, t.id DESC

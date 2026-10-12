@@ -13,10 +13,13 @@ import {
     JOB_SUCCESS_KEYS,
     LIST_WINDOW_MS,
     MOBILE_SETTINGS_KEYS,
+    MONITOR_KEY,
     MONITOR_WINDOW_MS,
     REALTIME_EVENTS,
     ROLES_CHANGED_KEYS,
     STATEMENT_EVENTS,
+    TASK_EVENTS,
+    TRIP_EVENTS,
     WAITLIST_KEYS,
 } from "./eventMap";
 
@@ -44,6 +47,8 @@ const CATALOGUE = {
     billing: ["ratecard.changed", "statement.created", "statement.status_changed", "documents.rendered"],
     expenses: ["expense.created", "expense.updated", "expense.approved", "expense.status_changed"],
     trips: ["trip.created", "trip.updated", "trip.delivered", "trip.priced", "trip.repriced", "trip.cancelled", "trip.resubmitted", "standby.completed", "standby.priced", "incident.created"],
+    // M2 (T34): tenant:{tid}:tasks (dispatchers: dispatch:{partyId}:tasks).
+    tasks: ["task.created", "task.updated", "task.assigned", "task.checked_in", "task.cancelled", "task.reassigned", "task.plan_date_changed"],
     // M6 (T54R): tenant:{tid}:chats (the dashboard's chat counters), tenant:{tid}:vehicle_locations, platform:security.
     chats: ["chat.created", "chat.updated", "chat.message_created"],
     vehicleLocations: ["vehicle_locations.updated"],
@@ -100,15 +105,17 @@ describe("event map (M1 slice)", () => {
         }
     });
 
-    it("list invalidations use the 500 ms window (the priced events use the 2 s window, below)", () => {
+    it("list invalidations use the 500 ms window (the monitor and the priced events use the 2 s window, below)", () => {
         const priced = new Set(["trip.priced", "trip.repriced", "standby.priced"]);
         for (const name of REALTIME_EVENTS.filter((n) => n !== "job.updated" && !priced.has(n))) {
-            for (const i of effectsOf({ event: name, data: {} }).invalidate) expect(i.windowMs).toBe(LIST_WINDOW_MS);
+            for (const i of effectsOf({ event: name, data: {} }).invalidate) {
+                expect(i.windowMs).toBe(partialMatchKey(i.queryKey, MONITOR_KEY) ? MONITOR_WINDOW_MS : LIST_WINDOW_MS);
+            }
         }
     });
 
     it("an event outside the map, or a prototype name, has no effect", () => {
-        for (const name of ["task.assigned", "trip.delivered", "message.created", "constructor", "__proto__", "toString", ""]) {
+        for (const name of ["task.deleted", "trip.photos_changed", "message.created", "constructor", "__proto__", "toString", ""]) {
             expect(effectsOf({ event: name, data: {} })).toEqual({ invalidate: [], write: [] });
         }
     });
@@ -200,6 +207,51 @@ describe("billing, expenses and income (M3, T42)", () => {
         expect(reaches(done("documents.regenerate"), queryKeys.statements.detail("s1"))).toBe(true);
         expect(reaches(done("documents.shopee-report"), queryKeys.billing.shopee("c1", 2026, 9, "full"))).toBe(true);
         expect(reaches(done("bangchak.snapshot"), queryKeys.fuel.monthly())).toBe(true);
+    });
+});
+
+describe("operations (M2, T34): the boards, the monitor, standby and incidents", () => {
+    const monitor = queryKeys.trips.monitor({ from: "2026-10-01", to: "2026-10-31", status: "all" });
+    const board = queryKeys.tasks.list({ date: "2026-10-12", type: "first_mile" });
+
+    it("listens to every task and trip event of the catalogue", () => {
+        expect([...TASK_EVENTS].sort()).toEqual([...CATALOGUE.tasks].sort());
+        for (const name of [...TASK_EVENTS, ...TRIP_EVENTS, "standby.completed", "incident.created"]) expect(REALTIME_EVENTS).toContain(name);
+    });
+
+    it("task.* refreshes the boards (500 ms) and the monitor (2 s), never income or billing", () => {
+        for (const name of TASK_EVENTS) {
+            const fx = effectsOf({ event: name, data: { entity: "task", id: "t1", changed: ["status"] } }).invalidate;
+            const keys = fx.map((i) => i.queryKey);
+            expect(reaches(keys, board)).toBe(true);
+            expect(reaches(keys, queryKeys.tasks.detail("t1"))).toBe(true);
+            expect(reaches(keys, monitor)).toBe(true);
+            expect(fx.find((i) => partialMatchKey(monitor, i.queryKey))?.windowMs).toBe(MONITOR_WINDOW_MS);
+            expect(fx.find((i) => partialMatchKey(board, i.queryKey))?.windowMs).toBe(LIST_WINDOW_MS);
+            expect(reaches(keys, queryKeys.income({}))).toBe(false);
+            expect(reaches(keys, queryKeys.billing.rows("c1", 2026, 9))).toBe(false);
+        }
+    });
+
+    it("trip.* refreshes the monitor (2 s), the trip's detail, the boards' trip column, standby and incidents", () => {
+        for (const name of TRIP_EVENTS) {
+            const keys = keysOf(name);
+            for (const k of [monitor, queryKeys.trips.detail("r1"), queryKeys.tasks.trip("t1"), board, queryKeys.standby({ from: "", to: "" }),
+                queryKeys.incidents({ from: "", to: "" })]) {
+                expect(reaches(keys, k), `${name} ${JSON.stringify(k)}`).toBe(true);
+            }
+            expect(reaches(keys, queryKeys.income({}))).toBe(false);
+        }
+    });
+
+    it("standby.completed and incident.created reach their lists and the monitor; priced events reach the monitor's price", () => {
+        expect(reaches(keysOf("standby.completed"), queryKeys.standby({ from: "", to: "" }))).toBe(true);
+        expect(reaches(keysOf("standby.completed"), monitor)).toBe(true);
+        expect(reaches(keysOf("standby.completed"), queryKeys.billing.standbyDiag("c1", 2026, 9))).toBe(true);
+        expect(reaches(keysOf("incident.created"), queryKeys.incidents({ from: "", to: "" }))).toBe(true);
+        expect(reaches(keysOf("incident.created"), queryKeys.incidents({ tripId: "r1" }))).toBe(true);
+        expect(reaches(keysOf("incident.created"), monitor)).toBe(true);
+        for (const name of ["trip.priced", "trip.repriced", "standby.priced"]) expect(reaches(keysOf(name), monitor)).toBe(true);
     });
 });
 

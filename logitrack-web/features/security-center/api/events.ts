@@ -16,6 +16,7 @@
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
 
+import { neutraliseCsvFormula } from "@/lib/csv";
 import type { GoPage } from "@/lib/goQuery";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
@@ -193,7 +194,7 @@ export function eventTarget(e: Pick<SecurityEventDTO, "details" | "targetUserId"
  * summaries and details hold user-chosen text (names, emails).
  */
 export function eventsCsv(rows: readonly SecurityEventDTO[]): string {
-    const q = (v: string) => `"${(/^[=+\-@\t\r]/.test(v) ? `'${v}` : v).replaceAll('"', '""')}"`;
+    const q = (v: string) => `"${neutraliseCsvFormula(v).replaceAll('"', '""')}"`;
     const header = ["timestamp", "type", "severity", "actor", "actorUserId", "target", "summary", "details", "tenantId", "requestId"];
     const lines = [header.join(",")];
     for (const r of rows) {

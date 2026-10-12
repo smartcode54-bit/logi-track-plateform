@@ -162,9 +162,9 @@
       "locales": {}
     },
     "/app/driver-monitor": {
-      "chunks": 41,
-      "parsedBytes": 1596948,
-      "gzipBytes": 489119,
+      "chunks": 25,
+      "parsedBytes": 754033,
+      "gzipBytes": 236483,
       "forbidden": {},
       "locales": {}
     },
@@ -197,9 +197,9 @@
       "locales": {}
     },
     "/app/first-mile": {
-      "chunks": 42,
-      "parsedBytes": 1588095,
-      "gzipBytes": 487750,
+      "chunks": 25,
+      "parsedBytes": 754012,
+      "gzipBytes": 236479,
       "forbidden": {},
       "locales": {}
     },
@@ -211,16 +211,16 @@
       "locales": {}
     },
     "/app/incident-reports": {
-      "chunks": 36,
-      "parsedBytes": 1308476,
-      "gzipBytes": 408981,
+      "chunks": 25,
+      "parsedBytes": 753903,
+      "gzipBytes": 236459,
       "forbidden": {},
       "locales": {}
     },
     "/app/job-assign": {
-      "chunks": 42,
-      "parsedBytes": 1591763,
-      "gzipBytes": 489084,
+      "chunks": 25,
+      "parsedBytes": 754012,
+      "gzipBytes": 236479,
       "forbidden": {},
       "locales": {}
     },
@@ -232,9 +232,9 @@
       "locales": {}
     },
     "/app/line-haul": {
-      "chunks": 42,
-      "parsedBytes": 1587947,
-      "gzipBytes": 487692,
+      "chunks": 25,
+      "parsedBytes": 754013,
+      "gzipBytes": 236480,
       "forbidden": {},
       "locales": {}
     },
@@ -358,9 +358,9 @@
       "locales": {}
     },
     "/app/standby-records": {
-      "chunks": 37,
-      "parsedBytes": 1352639,
-      "gzipBytes": 421436,
+      "chunks": 25,
+      "parsedBytes": 753911,
+      "gzipBytes": 236450,
       "forbidden": {},
       "locales": {}
     },

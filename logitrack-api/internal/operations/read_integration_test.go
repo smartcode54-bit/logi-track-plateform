@@ -893,6 +893,93 @@ func TestTaskBoards(t *testing.T) {
 	}
 }
 
+// The boards' SOC and source-hub filters are server parameters (T34, W9: a filter is in the key and the request): a
+// busy day of 260 tasks whose 20 SOCN ones sit past row 200 lists them on the first page; the place buckets are the
+// task's own (Place: the stored hub, else the SOC key, else the raw text); RLS under the app role (another tenant's
+// staff reads none) and the scope_tasks path (the dispatcher) apply the same filters.
+func TestTaskBoardPlaceFilters(t *testing.T) {
+	r := newReadWorld(t)
+	hubZ := r.id(`INSERT INTO hubs (source_id, name_th, network) VALUES ('HUB-Z', 'ฮับแซด', 'SPX') RETURNING id`)
+	// Inserted first: the lowest ids, so the last rows of the day's (plan_date, id) DESC order.
+	r.exec(`INSERT INTO tasks (tenant_id, tenant_source, task_type, status, plan_at, source_hub_raw, source_hub_id, destination_raw,
+		destination_soc_key, billing_party_id, created_at)
+		SELECT $1, 'form', 'first_mile', 'pending', timestamptz '2026-10-07 02:00Z', 'HUB-Z', $2, 'SOCN', 'SOCN', $3,
+		       timestamptz '2026-10-01 00:00Z' + i * interval '1 minute'
+		FROM generate_series(1, 20) i`, r.O, hubZ, r.partyX)
+	r.exec(`INSERT INTO tasks (tenant_id, tenant_source, task_type, status, plan_at, source_hub_raw, source_hub_id, destination_raw,
+		destination_hub_id, billing_party_id, created_at)
+		SELECT $1, 'form', 'first_mile', 'pending', timestamptz '2026-10-07 02:00Z', 'ALANG-A', $2, 'SOCE', $3, $4,
+		       timestamptz '2026-10-02 00:00Z' + i * interval '1 minute'
+		FROM generate_series(1, 240) i`, r.O, r.hubSrc, r.hubDst, r.partyX)
+	// A raw source that resolves to no hub: its own bucket.
+	r.exec(`INSERT INTO tasks (tenant_id, tenant_source, task_type, status, plan_at, source_hub_raw, destination_raw, billing_party_id)
+		VALUES ($1, 'form', 'first_mile', 'pending', timestamptz '2026-10-07 02:00Z', ' ลานจอด ', '', $2)`, r.O, r.partyX)
+	day := "/v1/tasks?taskType=first_mile&date=2026-10-07&limit=200"
+
+	data, next, _ := r.ok("staffO", day)
+	for _, x := range rows(data) {
+		if x["destination"] == "SOCN" {
+			t.Fatal("the fixture must keep the SOCN tasks past the first page")
+		}
+	}
+	if next == "" {
+		t.Fatal("the day must hold more than one page")
+	}
+	all := func(who, path string) []map[string]any {
+		var out []map[string]any
+		cursor := ""
+		for {
+			p := path
+			if cursor != "" {
+				p += "&cursor=" + url.QueryEscape(cursor)
+			}
+			data, next, _ := r.ok(who, p)
+			out = append(out, rows(data)...)
+			if next == "" {
+				return out
+			}
+			cursor = next
+		}
+	}
+	for who, wantSocn := range map[string]int{"staffO": 20, "dispatcher": 20, "staffA": 0} {
+		data, _, _ := r.ok(who, day+"&destination="+url.QueryEscape("code:SOCN"))
+		got := rows(data)
+		if len(got) != wantSocn {
+			t.Fatalf("%s: %d SOCN tasks on the first page, want %d", who, len(got), wantSocn)
+		}
+		for _, x := range got {
+			if x["destinationSocKey"] != "SOCN" {
+				t.Fatalf("%s: a SOCN filter listed %v", who, x["destination"])
+			}
+		}
+		if n := len(all(who, day+"&sourceHub="+url.QueryEscape("code:hub-z"))); n != wantSocn {
+			t.Fatalf("%s: %d tasks from HUB-Z, want %d", who, n, wantSocn)
+		}
+	}
+	// SOCE: the hub coded SOCE (stored at write) and the SOC key are one bucket; across pages, every one.
+	if n := len(all("staffO", day+"&destination="+url.QueryEscape("code:SOCE"))); n != 240 {
+		t.Fatalf("%d SOCE tasks, want 240", n)
+	}
+	if n := len(all("staffO", day+"&destination="+url.QueryEscape("code:SOCE")+"&sourceHub="+url.QueryEscape("code:HUB-Z"))); n != 0 {
+		t.Fatalf("SOCE from HUB-Z: %d", n)
+	}
+	if got := all("staffO", day+"&sourceHub="+url.QueryEscape("raw:ลานจอด")); len(got) != 1 {
+		t.Fatalf("raw source bucket %d", len(got))
+	}
+	if got := all("dispatcher", day+"&destination=__none__"); len(got) != 1 {
+		t.Fatalf("no destination bucket %d", len(got))
+	}
+	// The created axis takes the same filters.
+	if n := len(all("staffO", "/v1/tasks?taskType=first_mile&limit=200&destination="+url.QueryEscape("code:SOCN"))); n != 20 {
+		t.Fatalf("created axis: %d SOCN tasks", n)
+	}
+	for _, q := range []string{"&destination=SOCN", "&sourceHub=hub:x"} {
+		if status, m := r.get("staffO", day+q); status != 422 || !strings.HasSuffix(respCode(m), " invalid") {
+			t.Errorf("%s: %d %s", q, status, respCode(m))
+		}
+	}
+}
+
 // The standby list: projection of the billing carrier, signed photos, the ended axis, the scope projection.
 func TestStandbyList(t *testing.T) {
 	r := newReadWorld(t)

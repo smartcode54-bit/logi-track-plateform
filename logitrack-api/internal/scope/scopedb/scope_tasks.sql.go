@@ -131,26 +131,56 @@ SELECT id, tenant_id, task_no, task_type, job_category, status, plan_at, plan_da
    AND ($5::text IS NULL
         OR strpos(lower(concat_ws(' ', task_no, source_hub_raw, destination_raw, license_plate_snapshot)),
                   lower($5::text)) > 0)
-   AND ($6::timestamptz IS NULL
-        OR (created_at, id) < ($6::timestamptz, $7::uuid))
+   AND (NOT $6::boolean
+        OR source_hub_id = ANY ($7::uuid[])
+        OR (source_hub_id IS NULL
+            AND CASE WHEN upper(btrim(source_hub_raw, $8::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                     THEN left(upper(btrim(source_hub_raw, $8::text)), 4) END = $9::text)
+        OR (source_hub_id IS NULL AND upper(btrim(source_hub_raw, $8::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(source_hub_raw, $8::text) = $10::text)
+        OR ($11::boolean AND source_hub_id IS NULL AND btrim(source_hub_raw, $8::text) = ''))
+   AND (NOT $12::boolean
+        OR destination_hub_id = ANY ($13::uuid[])
+        OR (destination_hub_id IS NULL
+            AND coalesce(destination_soc_key,
+                         CASE WHEN upper(btrim(destination_raw, $8::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                              THEN left(upper(btrim(destination_raw, $8::text)), 4) END) = $14::text)
+        OR (destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND upper(btrim(destination_raw, $8::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(destination_raw, $8::text) = $15::text)
+        OR ($16::boolean AND destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND btrim(destination_raw, $8::text) = ''))
+   AND ($17::timestamptz IS NULL
+        OR (created_at, id) < ($17::timestamptz, $18::uuid))
  ORDER BY created_at DESC, id DESC
- LIMIT $8
+ LIMIT $19
 `
 
 type ListScopeTasksByCreatedParams struct {
-	TaskType     *string    `json:"taskType"`
-	Statuses     []string   `json:"statuses"`
-	DriverID     *uuid.UUID `json:"driverId"`
-	TruckID      *uuid.UUID `json:"truckId"`
-	Q            *string    `json:"q"`
-	AfterCreated *time.Time `json:"afterCreated"`
-	AfterID      uuid.UUID  `json:"afterId"`
-	RowLimit     int32      `json:"rowLimit"`
+	TaskType        *string     `json:"taskType"`
+	Statuses        []string    `json:"statuses"`
+	DriverID        *uuid.UUID  `json:"driverId"`
+	TruckID         *uuid.UUID  `json:"truckId"`
+	Q               *string     `json:"q"`
+	SourceOn        bool        `json:"sourceOn"`
+	SourceHubs      []uuid.UUID `json:"sourceHubs"`
+	TrimChars       string      `json:"trimChars"`
+	SourceSoc       *string     `json:"sourceSoc"`
+	SourceRaw       *string     `json:"sourceRaw"`
+	SourceNone      bool        `json:"sourceNone"`
+	DestinationOn   bool        `json:"destinationOn"`
+	DestinationHubs []uuid.UUID `json:"destinationHubs"`
+	DestinationSoc  *string     `json:"destinationSoc"`
+	DestinationRaw  *string     `json:"destinationRaw"`
+	DestinationNone bool        `json:"destinationNone"`
+	AfterCreated    *time.Time  `json:"afterCreated"`
+	AfterID         uuid.UUID   `json:"afterId"`
+	RowLimit        int32       `json:"rowLimit"`
 }
 
-// The boards without a date for a scope principal (T30): the filters of the staff list, newest first,
-// keyset (created_at, id). driver_id matches the driver or the helper; q is a substring of the number, the places
-// or the plate.
+// The boards without a date for a scope principal (T30): the filters of the staff list (the source and destination
+// place buckets of T34 included), newest first, keyset (created_at, id). driver_id matches the driver or the helper;
+// q is a substring of the number, the places or the plate.
 func (q *Queries) ListScopeTasksByCreated(ctx context.Context, arg ListScopeTasksByCreatedParams) ([]ScopeTask, error) {
 	rows, err := q.db.Query(ctx, listScopeTasksByCreated,
 		arg.TaskType,
@@ -158,6 +188,17 @@ func (q *Queries) ListScopeTasksByCreated(ctx context.Context, arg ListScopeTask
 		arg.DriverID,
 		arg.TruckID,
 		arg.Q,
+		arg.SourceOn,
+		arg.SourceHubs,
+		arg.TrimChars,
+		arg.SourceSoc,
+		arg.SourceRaw,
+		arg.SourceNone,
+		arg.DestinationOn,
+		arg.DestinationHubs,
+		arg.DestinationSoc,
+		arg.DestinationRaw,
+		arg.DestinationNone,
 		arg.AfterCreated,
 		arg.AfterID,
 		arg.RowLimit,
@@ -221,23 +262,53 @@ SELECT id, tenant_id, task_no, task_type, job_category, status, plan_at, plan_da
    AND ($7::text IS NULL
         OR strpos(lower(concat_ws(' ', task_no, source_hub_raw, destination_raw, license_plate_snapshot)),
                   lower($7::text)) > 0)
-   AND ($8::date IS NULL
-        OR (plan_date, id) < ($8::date, $9::uuid))
+   AND (NOT $8::boolean
+        OR source_hub_id = ANY ($9::uuid[])
+        OR (source_hub_id IS NULL
+            AND CASE WHEN upper(btrim(source_hub_raw, $10::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                     THEN left(upper(btrim(source_hub_raw, $10::text)), 4) END = $11::text)
+        OR (source_hub_id IS NULL AND upper(btrim(source_hub_raw, $10::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(source_hub_raw, $10::text) = $12::text)
+        OR ($13::boolean AND source_hub_id IS NULL AND btrim(source_hub_raw, $10::text) = ''))
+   AND (NOT $14::boolean
+        OR destination_hub_id = ANY ($15::uuid[])
+        OR (destination_hub_id IS NULL
+            AND coalesce(destination_soc_key,
+                         CASE WHEN upper(btrim(destination_raw, $10::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                              THEN left(upper(btrim(destination_raw, $10::text)), 4) END) = $16::text)
+        OR (destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND upper(btrim(destination_raw, $10::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+            AND btrim(destination_raw, $10::text) = $17::text)
+        OR ($18::boolean AND destination_hub_id IS NULL AND destination_soc_key IS NULL
+            AND btrim(destination_raw, $10::text) = ''))
+   AND ($19::date IS NULL
+        OR (plan_date, id) < ($19::date, $20::uuid))
  ORDER BY plan_date DESC, id DESC
- LIMIT $10
+ LIMIT $21
 `
 
 type ListScopeTasksByPlanParams struct {
-	FromDate  time.Time  `json:"fromDate"`
-	ToDate    time.Time  `json:"toDate"`
-	TaskType  *string    `json:"taskType"`
-	Statuses  []string   `json:"statuses"`
-	DriverID  *uuid.UUID `json:"driverId"`
-	TruckID   *uuid.UUID `json:"truckId"`
-	Q         *string    `json:"q"`
-	AfterPlan *time.Time `json:"afterPlan"`
-	AfterID   uuid.UUID  `json:"afterId"`
-	RowLimit  int32      `json:"rowLimit"`
+	FromDate        time.Time   `json:"fromDate"`
+	ToDate          time.Time   `json:"toDate"`
+	TaskType        *string     `json:"taskType"`
+	Statuses        []string    `json:"statuses"`
+	DriverID        *uuid.UUID  `json:"driverId"`
+	TruckID         *uuid.UUID  `json:"truckId"`
+	Q               *string     `json:"q"`
+	SourceOn        bool        `json:"sourceOn"`
+	SourceHubs      []uuid.UUID `json:"sourceHubs"`
+	TrimChars       string      `json:"trimChars"`
+	SourceSoc       *string     `json:"sourceSoc"`
+	SourceRaw       *string     `json:"sourceRaw"`
+	SourceNone      bool        `json:"sourceNone"`
+	DestinationOn   bool        `json:"destinationOn"`
+	DestinationHubs []uuid.UUID `json:"destinationHubs"`
+	DestinationSoc  *string     `json:"destinationSoc"`
+	DestinationRaw  *string     `json:"destinationRaw"`
+	DestinationNone bool        `json:"destinationNone"`
+	AfterPlan       *time.Time  `json:"afterPlan"`
+	AfterID         uuid.UUID   `json:"afterId"`
+	RowLimit        int32       `json:"rowLimit"`
 }
 
 // The boards on a plan day or range for a scope principal (T30): the Bangkok plan days of the range, latest day first,
@@ -251,6 +322,17 @@ func (q *Queries) ListScopeTasksByPlan(ctx context.Context, arg ListScopeTasksBy
 		arg.DriverID,
 		arg.TruckID,
 		arg.Q,
+		arg.SourceOn,
+		arg.SourceHubs,
+		arg.TrimChars,
+		arg.SourceSoc,
+		arg.SourceRaw,
+		arg.SourceNone,
+		arg.DestinationOn,
+		arg.DestinationHubs,
+		arg.DestinationSoc,
+		arg.DestinationRaw,
+		arg.DestinationNone,
 		arg.AfterPlan,
 		arg.AfterID,
 		arg.RowLimit,
