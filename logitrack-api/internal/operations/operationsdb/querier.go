@@ -33,6 +33,10 @@ type Querier interface {
 	// The delivery of a trip (POST /v1/trips/{id}/deliver, admin_web) ends the job the driver was running: the driver's
 	// active truck is cleared when it still names this task (a driver who has since checked in to another job keeps it).
 	ClearDriverActiveTask(ctx context.Context, arg ClearDriverActiveTaskParams) (int64, error)
+	// A planned stop rewritten by a trip's stop edit (T34): the task's stops are deleted and inserted again as stop 1..n
+	// (UNIQUE (task_id, destination_raw) would refuse a swap in place), each with the fields of the old stop at the same
+	// destination carried over.
+	CopyTaskStop(ctx context.Context, arg CopyTaskStopParams) (TaskDeliveryStop, error)
 	// The monitor's incident count per trip of a page (useDriverMonitor.ts:482-503 listened to every incident).
 	CountIncidentsOfTrips(ctx context.Context, arg CountIncidentsOfTripsParams) ([]CountIncidentsOfTripsRow, error)
 	// The day counts of the boards (taskService.ts:77-83 counted every tenant's tasks; the reach is named now).
@@ -42,6 +46,8 @@ type Querier interface {
 	// them yet); the new plan is inserted as stop 1..n in the same transaction.
 	DeleteTaskStops(ctx context.Context, taskID uuid.UUID) (int64, error)
 	DeleteTripPhoto(ctx context.Context, arg DeleteTripPhotoParams) (int64, error)
+	// The stops an admin removed: every index past the new length (their photos keep the trip, stop_id becomes NULL).
+	DeleteTripStopsFrom(ctx context.Context, arg DeleteTripStopsFromParams) (int64, error)
 	// The trip's delivery (driver or admin_web): only an in-transit or incident trip is delivered; a repeat finds no row.
 	DeliverTrip(ctx context.Context, arg DeliverTripParams) (TripRecord, error)
 	// POST /v1/mobile/trips/{id}/stops/{index}/deliver: a pending stop only (a repeat finds no row and the service returns
@@ -159,10 +165,12 @@ type Querier interface {
 	ListStandbyByEnded(ctx context.Context, arg ListStandbyByEndedParams) ([]ListStandbyByEndedRow, error)
 	// GET /v1/tasks without a date: newest first, keyset (created_at, id) (tasks_tenant_type_created; tasks_created under
 	// X-Act-On-Tenant: *). driver_id matches the driver or the helper; q is a substring of the number, the places or the
-	// plate.
+	// plate. source / destination (T34, the boards' source-hub and SOC filters) are the monitor's place buckets of the
+	// task's own source and destination (Place: the hub stored at write, else the SOC key, stored or of the raw text,
+	// else the trimmed raw text, else none): a place filter value of the row's source.key / destinationPlace.key matches.
 	ListTasksByCreated(ctx context.Context, arg ListTasksByCreatedParams) ([]Task, error)
 	// GET /v1/tasks?date | from&to: the plan days (Bangkok) of the range, latest day first, keyset (plan_date, id)
-	// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *).
+	// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *). The filters of ListTasksByCreated.
 	ListTasksByPlan(ctx context.Context, arg ListTasksByPlanParams) ([]Task, error)
 	// GET /v1/trips?axis=billing: delivered trips by their billing axis day (Bangkok day of billing_date, else of
 	// delivered_at; ADR 0027), latest first, keyset (billing_axis_date, id) (trip_records_party_axis; without a customer
@@ -248,18 +256,28 @@ type Querier interface {
 	// Resume the pending trip (trip_records_repository.dart:195-201; trip_records_pending_driver): the newest in-transit
 	// trip of the driver.
 	PendingInTransitTrip(ctx context.Context, driverID uuid.UUID) (TripRecord, error)
+	// PATCH /v1/trips/{id} stops (the admin correction of the stop progress, T34): the stop at stop_index re-pointed and its
+	// progress set, inserted when the trip has no such index yet. An existing row keeps its id, so the trip_photos.stop_id
+	// links of its photos survive; its source_id stays only while the destination does.
+	PutTripStop(ctx context.Context, arg PutTripStopParams) (TripDeliveryStop, error)
 	// POST /v1/trips/{id}/rename: the number changes in place (the row, its photos and incidents keep their ids, so
 	// nothing is re-pointed, unlike renameTripRecord.ts:51); the history row is written in the same transaction.
 	RenameTripNo(ctx context.Context, arg RenameTripNoParams) (TripRecord, error)
 	// The photos of an admin-reported incident (POST /v1/incidents): committed after the insert with the report as their
 	// owner, then linked here in the same transaction (a NULL keeps the column).
 	SetIncidentPhotos(ctx context.Context, arg SetIncidentPhotosParams) (IncidentReport, error)
+	// A trip edit mirrored on its task (PATCH /v1/trips/{id}, T34; EditTripDetailsDialog.tsx:569-606): the route (the
+	// origin with its hub's billing link, the destination), the multi-drop flag of the edited stops and the type derived
+	// from an edited origin. The task number keeps its prefix (no renumbering).
+	SetTaskFromTrip(ctx context.Context, arg SetTaskFromTripParams) (Task, error)
 	// The first extra stop upgrades a single-stop task (addDeliveryStop, multiDeliveryTrips.ts:420-424).
 	SetTaskMultiDelivery(ctx context.Context, id uuid.UUID) error
 	// A lifecycle step written by another aggregate's transaction: in_transit at loading, completed at delivery or standby.
 	SetTaskStatus(ctx context.Context, arg SetTaskStatusParams) (Task, error)
 	// A planned stop's outcome (delivered / failed) when its trip stop is delivered.
 	SetTaskStopStatus(ctx context.Context, arg SetTaskStopStatusParams) (TaskDeliveryStop, error)
+	// The multi-drop flag of an edited stop list and the job type derived from an edited origin (T34).
+	SetTripShape(ctx context.Context, arg SetTripShapeParams) (TripRecord, error)
 	// incident / standby / cancelled written by another aggregate's transaction (an incident report, a standby submit, a
 	// cancel).
 	SetTripStatus(ctx context.Context, arg SetTripStatusParams) (TripRecord, error)

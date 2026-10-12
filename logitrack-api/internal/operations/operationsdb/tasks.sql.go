@@ -237,6 +237,78 @@ func (q *Queries) CheckInTask(ctx context.Context, arg CheckInTaskParams) (Task,
 	return i, err
 }
 
+const copyTaskStop = `-- name: CopyTaskStop :one
+INSERT INTO task_delivery_stops (task_id, stop_index, destination_raw, destination_hub_id, destination_linked_party_id,
+                                 status, delivered_at, delivered_lat, delivered_lng, estimated_rate_thb, drop_fee_thb,
+                                 sequence, added_at, source_id, is_custom)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7, $8,
+        $9, $10, $11, $12,
+        $13, $14, $15)
+RETURNING id, task_id, stop_index, destination_raw, destination_hub_id, destination_linked_party_id, status, delivered_at, delivered_lat, delivered_lng, estimated_rate_thb, drop_fee_thb, sequence, added_at, source_id, is_custom
+`
+
+type CopyTaskStopParams struct {
+	TaskID                   uuid.UUID
+	StopIndex                int32
+	DestinationRaw           string
+	DestinationHubID         *uuid.UUID
+	DestinationLinkedPartyID *uuid.UUID
+	Status                   string
+	DeliveredAt              *time.Time
+	DeliveredLat             *float64
+	DeliveredLng             *float64
+	EstimatedRateThb         *float64
+	DropFeeThb               *float64
+	Sequence                 *int32
+	AddedAt                  *time.Time
+	SourceID                 *string
+	IsCustom                 bool
+}
+
+// A planned stop rewritten by a trip's stop edit (T34): the task's stops are deleted and inserted again as stop 1..n
+// (UNIQUE (task_id, destination_raw) would refuse a swap in place), each with the fields of the old stop at the same
+// destination carried over.
+func (q *Queries) CopyTaskStop(ctx context.Context, arg CopyTaskStopParams) (TaskDeliveryStop, error) {
+	row := q.db.QueryRow(ctx, copyTaskStop,
+		arg.TaskID,
+		arg.StopIndex,
+		arg.DestinationRaw,
+		arg.DestinationHubID,
+		arg.DestinationLinkedPartyID,
+		arg.Status,
+		arg.DeliveredAt,
+		arg.DeliveredLat,
+		arg.DeliveredLng,
+		arg.EstimatedRateThb,
+		arg.DropFeeThb,
+		arg.Sequence,
+		arg.AddedAt,
+		arg.SourceID,
+		arg.IsCustom,
+	)
+	var i TaskDeliveryStop
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.StopIndex,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.DestinationLinkedPartyID,
+		&i.Status,
+		&i.DeliveredAt,
+		&i.DeliveredLat,
+		&i.DeliveredLng,
+		&i.EstimatedRateThb,
+		&i.DropFeeThb,
+		&i.Sequence,
+		&i.AddedAt,
+		&i.SourceID,
+		&i.IsCustom,
+	)
+	return i, err
+}
+
 const countTasksOnDay = `-- name: CountTasksOnDay :many
 SELECT t.task_type, t.status, count(*)::int AS n
 FROM tasks t
@@ -692,28 +764,60 @@ WHERE ($1::boolean OR t.tenant_id = ANY ($2::uuid[]))
   AND ($7::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower($7::text)) > 0)
-  AND ($8::timestamptz IS NULL
-       OR (t.created_at, t.id) < ($8::timestamptz, $9::uuid))
+  AND (NOT $8::boolean
+       OR t.source_hub_id = ANY ($9::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, $10::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, $10::text)), 4) END = $11::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, $10::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, $10::text) = $12::text)
+       OR ($13::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, $10::text) = ''))
+  AND (NOT $14::boolean
+       OR t.destination_hub_id = ANY ($15::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, $10::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, $10::text)), 4) END) = $16::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, $10::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, $10::text) = $17::text)
+       OR ($18::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, $10::text) = ''))
+  AND ($19::timestamptz IS NULL
+       OR (t.created_at, t.id) < ($19::timestamptz, $20::uuid))
 ORDER BY t.created_at DESC, t.id DESC
-LIMIT $10
+LIMIT $21
 `
 
 type ListTasksByCreatedParams struct {
-	AllTenants   bool
-	TenantIds    []uuid.UUID
-	TaskType     *string
-	Statuses     []string
-	DriverID     *uuid.UUID
-	TruckID      *uuid.UUID
-	Q            *string
-	AfterCreated *time.Time
-	AfterID      uuid.UUID
-	RowLimit     int32
+	AllTenants      bool
+	TenantIds       []uuid.UUID
+	TaskType        *string
+	Statuses        []string
+	DriverID        *uuid.UUID
+	TruckID         *uuid.UUID
+	Q               *string
+	SourceOn        bool
+	SourceHubs      []uuid.UUID
+	TrimChars       string
+	SourceSoc       *string
+	SourceRaw       *string
+	SourceNone      bool
+	DestinationOn   bool
+	DestinationHubs []uuid.UUID
+	DestinationSoc  *string
+	DestinationRaw  *string
+	DestinationNone bool
+	AfterCreated    *time.Time
+	AfterID         uuid.UUID
+	RowLimit        int32
 }
 
 // GET /v1/tasks without a date: newest first, keyset (created_at, id) (tasks_tenant_type_created; tasks_created under
 // X-Act-On-Tenant: *). driver_id matches the driver or the helper; q is a substring of the number, the places or the
-// plate.
+// plate. source / destination (T34, the boards' source-hub and SOC filters) are the monitor's place buckets of the
+// task's own source and destination (Place: the hub stored at write, else the SOC key, stored or of the raw text,
+// else the trimmed raw text, else none): a place filter value of the row's source.key / destinationPlace.key matches.
 func (q *Queries) ListTasksByCreated(ctx context.Context, arg ListTasksByCreatedParams) ([]Task, error) {
 	rows, err := q.db.Query(ctx, listTasksByCreated,
 		arg.AllTenants,
@@ -723,6 +827,17 @@ func (q *Queries) ListTasksByCreated(ctx context.Context, arg ListTasksByCreated
 		arg.DriverID,
 		arg.TruckID,
 		arg.Q,
+		arg.SourceOn,
+		arg.SourceHubs,
+		arg.TrimChars,
+		arg.SourceSoc,
+		arg.SourceRaw,
+		arg.SourceNone,
+		arg.DestinationOn,
+		arg.DestinationHubs,
+		arg.DestinationSoc,
+		arg.DestinationRaw,
+		arg.DestinationNone,
 		arg.AfterCreated,
 		arg.AfterID,
 		arg.RowLimit,
@@ -801,29 +916,59 @@ WHERE ($1::boolean OR t.tenant_id = ANY ($2::uuid[]))
   AND ($9::text IS NULL
        OR strpos(lower(concat_ws(' ', t.task_no, t.source_hub_raw, t.destination_raw, t.license_plate_snapshot)),
                  lower($9::text)) > 0)
-  AND ($10::date IS NULL
-       OR (t.plan_date, t.id) < ($10::date, $11::uuid))
+  AND (NOT $10::boolean
+       OR t.source_hub_id = ANY ($11::uuid[])
+       OR (t.source_hub_id IS NULL
+           AND CASE WHEN upper(btrim(t.source_hub_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    THEN left(upper(btrim(t.source_hub_raw, $12::text)), 4) END = $13::text)
+       OR (t.source_hub_id IS NULL AND upper(btrim(t.source_hub_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.source_hub_raw, $12::text) = $14::text)
+       OR ($15::boolean AND t.source_hub_id IS NULL AND btrim(t.source_hub_raw, $12::text) = ''))
+  AND (NOT $16::boolean
+       OR t.destination_hub_id = ANY ($17::uuid[])
+       OR (t.destination_hub_id IS NULL
+           AND coalesce(t.destination_soc_key,
+                        CASE WHEN upper(btrim(t.destination_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                             THEN left(upper(btrim(t.destination_raw, $12::text)), 4) END) = $18::text)
+       OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND upper(btrim(t.destination_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.destination_raw, $12::text) = $19::text)
+       OR ($20::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+           AND btrim(t.destination_raw, $12::text) = ''))
+  AND ($21::date IS NULL
+       OR (t.plan_date, t.id) < ($21::date, $22::uuid))
 ORDER BY t.plan_date DESC, t.id DESC
-LIMIT $12
+LIMIT $23
 `
 
 type ListTasksByPlanParams struct {
-	AllTenants bool
-	TenantIds  []uuid.UUID
-	FromDate   time.Time
-	ToDate     time.Time
-	TaskType   *string
-	Statuses   []string
-	DriverID   *uuid.UUID
-	TruckID    *uuid.UUID
-	Q          *string
-	AfterPlan  *time.Time
-	AfterID    uuid.UUID
-	RowLimit   int32
+	AllTenants      bool
+	TenantIds       []uuid.UUID
+	FromDate        time.Time
+	ToDate          time.Time
+	TaskType        *string
+	Statuses        []string
+	DriverID        *uuid.UUID
+	TruckID         *uuid.UUID
+	Q               *string
+	SourceOn        bool
+	SourceHubs      []uuid.UUID
+	TrimChars       string
+	SourceSoc       *string
+	SourceRaw       *string
+	SourceNone      bool
+	DestinationOn   bool
+	DestinationHubs []uuid.UUID
+	DestinationSoc  *string
+	DestinationRaw  *string
+	DestinationNone bool
+	AfterPlan       *time.Time
+	AfterID         uuid.UUID
+	RowLimit        int32
 }
 
 // GET /v1/tasks?date | from&to: the plan days (Bangkok) of the range, latest day first, keyset (plan_date, id)
-// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *).
+// (tasks_tenant_type_plan; tasks_plan_date under X-Act-On-Tenant: *). The filters of ListTasksByCreated.
 func (q *Queries) ListTasksByPlan(ctx context.Context, arg ListTasksByPlanParams) ([]Task, error) {
 	rows, err := q.db.Query(ctx, listTasksByPlan,
 		arg.AllTenants,
@@ -835,6 +980,17 @@ func (q *Queries) ListTasksByPlan(ctx context.Context, arg ListTasksByPlanParams
 		arg.DriverID,
 		arg.TruckID,
 		arg.Q,
+		arg.SourceOn,
+		arg.SourceHubs,
+		arg.TrimChars,
+		arg.SourceSoc,
+		arg.SourceRaw,
+		arg.SourceNone,
+		arg.DestinationOn,
+		arg.DestinationHubs,
+		arg.DestinationSoc,
+		arg.DestinationRaw,
+		arg.DestinationNone,
 		arg.AfterPlan,
 		arg.AfterID,
 		arg.RowLimit,
@@ -1019,6 +1175,92 @@ func (q *Queries) NextTaskSeq(ctx context.Context, arg NextTaskSeqParams) (int32
 	var seq int32
 	err := row.Scan(&seq)
 	return seq, err
+}
+
+const setTaskFromTrip = `-- name: SetTaskFromTrip :one
+UPDATE tasks
+SET source_hub_raw = $1, source_hub_id = $2,
+    source_linked_party_id = $3, destination_raw = $4,
+    destination_hub_id = $5, destination_soc_key = $6,
+    is_multi_delivery = $7, task_type = $8
+WHERE id = $9
+RETURNING id, legacy_doc_id, tenant_id, tenant_source, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, legacy_date_str, actual_pickup_at, source_hub_raw, source_hub_id, source_linked_party_id, destination_raw, destination_hub_id, destination_soc_key, destination_linked_party_id, billing_party_id, truck_id, truck_type, legacy_truck_type, license_plate_snapshot, driver_id, legacy_driver_ref, driver_ref_match, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, line_checkin_notified_at, cancelled_at, cancel_reason, client_op_id, created_by, created_at, updated_at
+`
+
+type SetTaskFromTripParams struct {
+	SourceHubRaw        string
+	SourceHubID         *uuid.UUID
+	SourceLinkedPartyID *uuid.UUID
+	DestinationRaw      string
+	DestinationHubID    *uuid.UUID
+	DestinationSocKey   *string
+	IsMultiDelivery     bool
+	TaskType            string
+	ID                  uuid.UUID
+}
+
+// A trip edit mirrored on its task (PATCH /v1/trips/{id}, T34; EditTripDetailsDialog.tsx:569-606): the route (the
+// origin with its hub's billing link, the destination), the multi-drop flag of the edited stops and the type derived
+// from an edited origin. The task number keeps its prefix (no renumbering).
+func (q *Queries) SetTaskFromTrip(ctx context.Context, arg SetTaskFromTripParams) (Task, error) {
+	row := q.db.QueryRow(ctx, setTaskFromTrip,
+		arg.SourceHubRaw,
+		arg.SourceHubID,
+		arg.SourceLinkedPartyID,
+		arg.DestinationRaw,
+		arg.DestinationHubID,
+		arg.DestinationSocKey,
+		arg.IsMultiDelivery,
+		arg.TaskType,
+		arg.ID,
+	)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.LegacyDocID,
+		&i.TenantID,
+		&i.TenantSource,
+		&i.TaskNo,
+		&i.TaskType,
+		&i.JobCategory,
+		&i.Status,
+		&i.PlanAt,
+		&i.PlanDate,
+		&i.PlanTime,
+		&i.LegacyDateStr,
+		&i.ActualPickupAt,
+		&i.SourceHubRaw,
+		&i.SourceHubID,
+		&i.SourceLinkedPartyID,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.DestinationSocKey,
+		&i.DestinationLinkedPartyID,
+		&i.BillingPartyID,
+		&i.TruckID,
+		&i.TruckType,
+		&i.LegacyTruckType,
+		&i.LicensePlateSnapshot,
+		&i.DriverID,
+		&i.LegacyDriverRef,
+		&i.DriverRefMatch,
+		&i.HelperDriverID,
+		&i.RunOrder,
+		&i.CheckInAt,
+		&i.CheckInPhotoFileID,
+		&i.CheckInAppScreenshotFileID,
+		&i.CheckInLat,
+		&i.CheckInLng,
+		&i.IsMultiDelivery,
+		&i.LineCheckinNotifiedAt,
+		&i.CancelledAt,
+		&i.CancelReason,
+		&i.ClientOpID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setTaskMultiDelivery = `-- name: SetTaskMultiDelivery :exec

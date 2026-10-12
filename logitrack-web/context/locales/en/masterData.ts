@@ -82,6 +82,18 @@ const masterData: Record<string, string> = {
     "masterData.drivers.login.notSynced": "This driver is not in the new system yet. Create the login from Security Center → Users once the driver appears there.",
     "masterData.drivers.login.createLater": "The driver was saved without a login. Create it from the driver's edit page or Security Center → Users.",
     "masterData.drivers.login.outOfReach": "This driver belongs to an organisation you cannot manage. Ask its administrator to create the login.",
+
+    // Field reasons of the operations writes (T34)
+    "masterData.fieldReason.not_in_tenant": "This item belongs to another organisation.",
+    "masterData.fieldReason.not_truck_class": "The class must match the truck's class.",
+    "masterData.fieldReason.not_supported": "This field cannot be sent here.",
+    "masterData.fieldReason.before_start": "The end must be after the start.",
+    "masterData.fieldReason.before_from": "The end must be after the start.",
+    "masterData.fieldReason.task_mismatch": "The trip belongs to another task.",
+    "masterData.fieldReason.write_back_unsupported": "Not available while this data is still kept in Firestore.",
+    "masterData.fieldReason.not_settable": "This value cannot be set here.",
+    "masterData.fieldReason.mismatch": "This value does not match the row.",
+    "masterData.fieldReason.exclusive": "Use only one of these fields.",
 };
 
 export default masterData;

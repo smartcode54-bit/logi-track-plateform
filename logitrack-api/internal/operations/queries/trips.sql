@@ -154,6 +154,33 @@ RETURNING *;
 -- name: TripStops :many
 SELECT * FROM trip_delivery_stops WHERE trip_id = sqlc.arg(trip_id) ORDER BY stop_index;
 
+-- name: PutTripStop :one
+-- PATCH /v1/trips/{id} stops (the admin correction of the stop progress, T34): the stop at stop_index re-pointed and its
+-- progress set, inserted when the trip has no such index yet. An existing row keeps its id, so the trip_photos.stop_id
+-- links of its photos survive; its source_id stays only while the destination does.
+INSERT INTO trip_delivery_stops (trip_id, stop_index, destination_raw, destination_hub_id, status, delivered_at,
+                                 delivered_lat, delivered_lng, completed_seq)
+VALUES (sqlc.arg(trip_id), sqlc.arg(stop_index), sqlc.arg(destination_raw), sqlc.narg(destination_hub_id),
+        sqlc.arg(status), sqlc.narg(delivered_at), sqlc.narg(delivered_lat), sqlc.narg(delivered_lng),
+        sqlc.narg(completed_seq))
+ON CONFLICT (trip_id, stop_index) DO UPDATE
+SET destination_raw = EXCLUDED.destination_raw, destination_hub_id = EXCLUDED.destination_hub_id,
+    source_id = CASE WHEN trip_delivery_stops.destination_raw = EXCLUDED.destination_raw
+                     THEN trip_delivery_stops.source_id END,
+    status = EXCLUDED.status, delivered_at = EXCLUDED.delivered_at, delivered_lat = EXCLUDED.delivered_lat,
+    delivered_lng = EXCLUDED.delivered_lng, completed_seq = EXCLUDED.completed_seq
+RETURNING *;
+
+-- name: DeleteTripStopsFrom :execrows
+-- The stops an admin removed: every index past the new length (their photos keep the trip, stop_id becomes NULL).
+DELETE FROM trip_delivery_stops WHERE trip_id = sqlc.arg(trip_id) AND stop_index > sqlc.arg(last_index)::int;
+
+-- name: SetTripShape :one
+-- The multi-drop flag of an edited stop list and the job type derived from an edited origin (T34).
+UPDATE trip_records SET is_multi_delivery = sqlc.arg(is_multi_delivery), job_type = sqlc.arg(job_type)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
 -- --- reads ------------------------------------------------------------------------------------------------------
 
 -- name: GetTrip :one

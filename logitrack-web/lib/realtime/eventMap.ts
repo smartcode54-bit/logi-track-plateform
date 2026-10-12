@@ -34,9 +34,14 @@
  *   (`['waitlist']`, `['badges']`; tenant stewards poll), and the chat events of `tenant:{tid}:chats` for
  *   the dashboard's chat widget, which reads the chat counters of `['badges']` (Appendix E §E.5 row 21;
  *   the chat pages add their own keys in M5).
- * Still to come: tasks and trips with the 2 s monitor window (M2), HR and holidays (M4), the chat lists
- * and the explicit `chat:{id}` topic (M5), `security.event` on `platform:security` (the security pages
- * poll).
+ * - the M2 slice (T34, the operations pages; producers T31 and T33): `task.*` on `tenant:{tid}:tasks`
+ *   (dispatchers `dispatch:{partyId}:tasks`) makes the boards stale (`['tasks']`, 500 ms) and the monitor
+ *   (`['trips','monitor']`, 2 s); `trip.*`, `standby.completed`, `incident.created` on `tenant:{tid}:trips`
+ *   (`dispatch:{partyId}:trips`) make the monitor stale (2 s), the trip's detail and the boards' trip column
+ *   (500 ms), the standby and incident lists (500 ms); the priced events also make the monitor stale (its
+ *   stored price), besides `['income']`.
+ * Still to come: HR and holidays (M4), the chat lists and the explicit `chat:{id}` topic (M5),
+ * `security.event` on `platform:security` (the security pages poll).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
@@ -81,6 +86,8 @@ const NONE: CacheEffects = { invalidate: [], write: [] };
 
 type EventRule =
     | { invalidate: readonly QueryKey[]; windowMs?: number }
+    /** Keys with their own windows (the monitor's 2 s beside the lists' 500 ms). */
+    | { windows: readonly Invalidation[] }
     /** Effects that depend on the payload (`data` is the envelope's `data`, untrusted). */
     | { effects: (data: unknown) => CacheEffects };
 
@@ -197,6 +204,56 @@ export const EXPENSE_KEYS: readonly QueryKey[] = [["expenses"], queryKeys.badges
 /** The priced events reach `['income']` (2 s window); never the billing rows or missing-date keys. */
 export const PRICED_EVENTS = ["trip.priced", "trip.repriced"] as const;
 
+// --- operations (T34, M2) --------------------------------------------------------------------------
+
+/** The monitor's rows (`['trips','monitor', …]`), refreshed at most once per 2 s under a steady stream. */
+export const MONITOR_KEY: QueryKey = ["trips", "monitor"];
+
+/** `task.*` (tenant:{tid}:tasks, dispatch:{partyId}:tasks; Appendix B §B.4.2). */
+export const TASK_EVENTS = [
+    "task.created",
+    "task.updated",
+    "task.assigned",
+    "task.checked_in",
+    "task.cancelled",
+    "task.reassigned",
+    "task.plan_date_changed",
+] as const;
+
+/** `trip.*` besides the priced ones (tenant:{tid}:trips, dispatch:{partyId}:trips). */
+export const TRIP_EVENTS = ["trip.created", "trip.updated", "trip.delivered", "trip.cancelled", "trip.resubmitted"] as const;
+
+const TASK_WINDOWS: readonly Invalidation[] = [
+    { queryKey: queryKeys.tasks.all(), windowMs: LIST_WINDOW_MS },
+    { queryKey: MONITOR_KEY, windowMs: MONITOR_WINDOW_MS },
+];
+
+/** A trip change: the monitor (2 s), the trip's detail, the boards' trip column, standby and incidents. */
+const TRIP_WINDOWS: readonly Invalidation[] = [
+    { queryKey: MONITOR_KEY, windowMs: MONITOR_WINDOW_MS },
+    { queryKey: ["trips", "detail"], windowMs: LIST_WINDOW_MS },
+    { queryKey: ["tasks", "trip"], windowMs: LIST_WINDOW_MS },
+    { queryKey: queryKeys.tasks.all(), windowMs: LIST_WINDOW_MS },
+    { queryKey: queryKeys.standby(), windowMs: LIST_WINDOW_MS },
+    { queryKey: queryKeys.incidents(), windowMs: LIST_WINDOW_MS },
+];
+
+const STANDBY_WINDOWS: readonly Invalidation[] = [
+    { queryKey: MONITOR_KEY, windowMs: MONITOR_WINDOW_MS },
+    { queryKey: queryKeys.standby(), windowMs: LIST_WINDOW_MS },
+    { queryKey: ["billing", "standbyDiag"], windowMs: LIST_WINDOW_MS },
+];
+
+const INCIDENT_WINDOWS: readonly Invalidation[] = [
+    { queryKey: MONITOR_KEY, windowMs: MONITOR_WINDOW_MS },
+    { queryKey: queryKeys.incidents(), windowMs: LIST_WINDOW_MS },
+];
+
+const PRICED_WINDOWS: readonly Invalidation[] = [
+    { queryKey: ["income"], windowMs: MONITOR_WINDOW_MS },
+    { queryKey: MONITOR_KEY, windowMs: MONITOR_WINDOW_MS },
+];
+
 // --- dashboard and waitlist (T54R, M6) -------------------------------------------------------------
 
 /**
@@ -249,9 +306,23 @@ const RULES = new Map<string, EventRule>([
     ...STATEMENT_EVENTS.map((name) => [name, { invalidate: [queryKeys.statements.all()] }] as [string, EventRule]),
     // tenant:{tid}:expenses (T42)
     ...EXPENSE_EVENTS.map((name) => [name, { invalidate: EXPENSE_KEYS }] as [string, EventRule]),
-    // tenant:{tid}:trips, the priced events (T42; producer T38)
-    ...PRICED_EVENTS.map((name) => [name, { invalidate: [["income"]], windowMs: MONITOR_WINDOW_MS }] as [string, EventRule]),
-    ["standby.priced", { invalidate: [["income"], ["billing", "standbyDiag"]], windowMs: MONITOR_WINDOW_MS }],
+    // tenant:{tid}:trips, the priced events (T42; producer T38): income, and the monitor's stored price (T34)
+    ...PRICED_EVENTS.map((name) => [name, { windows: PRICED_WINDOWS }] as [string, EventRule]),
+    [
+        "standby.priced",
+        {
+            windows: [
+                ...PRICED_WINDOWS,
+                { queryKey: ["billing", "standbyDiag"], windowMs: MONITOR_WINDOW_MS },
+                { queryKey: queryKeys.standby(), windowMs: MONITOR_WINDOW_MS },
+            ],
+        },
+    ],
+    // tenant:{tid}:tasks and tenant:{tid}:trips, the operations events (T34; producers T31, T33)
+    ...TASK_EVENTS.map((name) => [name, { windows: TASK_WINDOWS }] as [string, EventRule]),
+    ...TRIP_EVENTS.map((name) => [name, { windows: TRIP_WINDOWS }] as [string, EventRule]),
+    ["standby.completed", { windows: STANDBY_WINDOWS }],
+    ["incident.created", { windows: INCIDENT_WINDOWS }],
     // tenant:{tid}:vehicle_locations, platform:security, tenant:{tid}:chats (T54R)
     ["vehicle_locations.updated", { effects: vehicleLocationEffects }],
     ["waitlist.created", { invalidate: WAITLIST_KEYS }],
@@ -266,5 +337,6 @@ export function effectsOf(frame: Pick<RealtimeFrame, "event" | "data">): CacheEf
     const rule = RULES.get(frame.event);
     if (!rule) return NONE;
     if ("effects" in rule) return rule.effects(frame.data);
+    if ("windows" in rule) return { invalidate: [...rule.windows], write: [] };
     return { invalidate: invalidations(rule.invalidate, rule.windowMs), write: [] };
 }

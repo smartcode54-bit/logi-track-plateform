@@ -80,6 +80,8 @@ export interface HubPick {
     sourceNameTh: string | null;
     sourceNameEn: string | null;
     stationType: string | null;
+    /** The hub's billing party (the task forms' customer prefill, T34). */
+    linkedPartyId?: string | null;
 }
 
 /**

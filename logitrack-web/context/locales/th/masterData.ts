@@ -82,6 +82,18 @@ const masterData: Record<string, string> = {
     "masterData.drivers.login.notSynced": "คนขับรายนี้ยังไม่อยู่ในระบบใหม่ สร้างบัญชีเข้าใช้จาก Security Center → Users เมื่อคนขับปรากฏในระบบแล้ว",
     "masterData.drivers.login.createLater": "บันทึกคนขับแล้วโดยยังไม่มีบัญชีเข้าใช้ สร้างได้จากหน้าแก้ไขคนขับหรือ Security Center → Users",
     "masterData.drivers.login.outOfReach": "คนขับนี้อยู่ในองค์กรที่คุณไม่มีสิทธิ์จัดการ กรุณาให้ผู้ดูแลขององค์กรนั้นสร้างบัญชีเข้าใช้งาน",
+
+    // Field reasons of the operations writes (T34)
+    "masterData.fieldReason.not_in_tenant": "รายการนี้เป็นของหน่วยงานอื่น",
+    "masterData.fieldReason.not_truck_class": "ประเภทรถต้องตรงกับประเภทของรถที่เลือก",
+    "masterData.fieldReason.not_supported": "ส่งช่องนี้ที่นี่ไม่ได้",
+    "masterData.fieldReason.before_start": "เวลาสิ้นสุดต้องหลังเวลาเริ่ม",
+    "masterData.fieldReason.before_from": "วันสิ้นสุดต้องหลังวันเริ่ม",
+    "masterData.fieldReason.task_mismatch": "เที่ยวนี้เป็นของงานอื่น",
+    "masterData.fieldReason.write_back_unsupported": "ยังใช้ไม่ได้ระหว่างที่ข้อมูลนี้ยังเก็บใน Firestore",
+    "masterData.fieldReason.not_settable": "ตั้งค่านี้ที่นี่ไม่ได้",
+    "masterData.fieldReason.mismatch": "ค่านี้ไม่ตรงกับแถว",
+    "masterData.fieldReason.exclusive": "ใช้ได้เพียงช่องเดียว",
 };
 
 export default masterData;
