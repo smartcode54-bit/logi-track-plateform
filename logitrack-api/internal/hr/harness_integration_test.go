@@ -62,6 +62,7 @@ type world struct {
 	etl      *pgx.Conn
 	rdb      *redis.Client
 	ks       cache.Keyspace
+	caches   *cache.Cache
 	internal string
 	hash     string
 	tokens   map[string]string
@@ -82,7 +83,8 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-func newWorld(t *testing.T) *world {
+// newWorld builds the fixture and the API; opts adjust the hr service's dependencies (T45: the leave write-back).
+func newWorld(t *testing.T, opts ...func(w *world, d *hr.Deps)) *world {
 	t.Helper()
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
@@ -107,6 +109,7 @@ func newWorld(t *testing.T) *world {
 
 	w.rdb, w.ks = cachetest.NewClient(t)
 	caches := cache.New(w.rdb, w.ks)
+	w.caches = caches
 	rbac, err := iam.NewRBAC(iam.Deps{Pool: w.pool, Cache: caches, Redis: w.rdb, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +146,11 @@ func newWorld(t *testing.T) *world {
 	}
 	t.Cleanup(svc.Close)
 	jobSvc := jobs.NewService(w.pool, jobs.NewRedisLocker(w.rdb, w.ks))
-	hs, err := hr.New(hr.Deps{Pool: w.pool, Jobs: jobSvc, Files: st, Log: zerolog.Nop()})
+	hd := hr.Deps{Pool: w.pool, Jobs: jobSvc, Files: st, Log: zerolog.Nop()}
+	for _, o := range opts {
+		o(w, &hd)
+	}
+	hs, err := hr.New(hd)
 	if err != nil {
 		t.Fatal(err)
 	}

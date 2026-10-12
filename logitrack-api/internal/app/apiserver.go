@@ -37,6 +37,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/sse"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 // APIDeps are the services BuildAPI wires and cmd/api's newAPI turns into route groups. `api routes`
@@ -69,7 +70,7 @@ type APIDeps struct {
 	// APIs /v1/tasks*, /v1/trips* (the monitor too), /v1/standby, /v1/incidents (T30); the write-back (T31) joins it.
 	Operations *operations.Service
 	// HR is driver compensation and payroll (T44): /v1/payroll* (runs, approve, status, config versions),
-	// /v1/penalties*, POST /v1/jobs/payroll.run.
+	// /v1/penalties*, POST /v1/jobs/payroll.run; leave requests and holidays (T45): /v1/leave-requests*, /v1/holidays*.
 	HR      *hr.Service
 	Jobs    *jobs.Service
 	Storage *storage.Service
@@ -316,8 +317,17 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		return nil, nil, err
 	}
 	// Driver compensation and payroll (T44): configs, penalties and runs under RLS (db.WithPrincipal, never Redis on the
-	// money path); POST /v1/jobs/payroll.run submits through the jobs service (the worker generates the runs).
-	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, Log: log})
+	// money path); POST /v1/jobs/payroll.run submits through the jobs service (the worker generates the runs). Leave
+	// requests and holidays (T45): holidays are PostgreSQL's (firestore.shadow projects them); leave decisions write
+	// PostgreSQL only once every domain is (LeavePGOwned), else they are Firestore write-backs (class C).
+	leavePG := leavePGOwned(cfg.PGOwnedDomains)
+	if leavePG {
+		log.Info().Msg("leave decisions: PostgreSQL (PG_OWNED_DOMAINS holds every domain)")
+	} else {
+		log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
+			"and the api has no Firestore writer (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
+	}
+	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, LeavePGOwned: leavePG, Log: log})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -421,3 +431,12 @@ func (c checker) Check(ctx context.Context) error {
 }
 
 var _ health.Checker = checker{}
+
+// leavePGOwned is whether PostgreSQL writes leave_requests (T45): every domain is PostgreSQL-owned (PG_OWNED_DOMAINS
+// "all", or a list naming the nine), which is P7b (the 3.x APKs and the FS->PG mirror are gone) and a deployment
+// without Firestore (the staging VM). Before that the 3.x APKs write leave requests in Firestore (class C, main spec
+// §11.10) whatever hr's own flag says, so a staff decision is a write-back. The value was validated by APIConfig.
+func leavePGOwned(pgOwnedDomains string) bool {
+	owned, err := webcfg.ParseOwned(pgOwnedDomains)
+	return err == nil && len(owned) == len(webcfg.Domains)
+}

@@ -1,4 +1,5 @@
-// Package hr serves driver compensation and payroll (T44, Appendix B §B.2.17, main spec §6.15): the effective-dated
+// Package hr serves driver compensation and payroll (T44, Appendix B §B.2.17, main spec §6.15), leave requests and
+// holidays (T45: leave.go, holidays.go): the effective-dated
 // compensation config versions (GET/POST /v1/payroll/config), driver penalties (GET/POST /v1/penalties, POST
 // /v1/penalties/{id}/cancel), the payroll runs (GET /v1/payroll, GET /v1/payroll/{id}, POST /v1/payroll/{id}/approve,
 // POST /v1/payroll/{id}/status) and the payroll.run job (POST /v1/jobs/payroll.run and the worker's consumer), which
@@ -84,9 +85,10 @@ const (
 )
 
 // Files is the storage service as this package uses it (internal/storage implements it): Commit runs in the request
-// transaction.
+// transaction; SignedFiles signs the leave evidence after it (on its own connection).
 type Files interface {
 	Commit(ctx context.Context, tx pgx.Tx, in storage.CommitInput) (storage.Committed, error)
+	SignedFiles(ctx context.Context, ids []uuid.UUID, ttl time.Duration) (map[uuid.UUID]storage.Signed, error)
 }
 
 // Submitter submits a job under its lock (internal/jobs.Service).
@@ -100,17 +102,29 @@ type Deps struct {
 	Pool db.Beginner
 	// Jobs submits payroll.run; nil answers the route 503 (no Redis lock, no run).
 	Jobs Submitter
-	// Files commits penalty evidence; optional (without it an evidence key is refused).
+	// Files commits penalty evidence and signs leave evidence; optional (without it an evidence key is refused and the
+	// leave evidence has no URL).
 	Files Files
-	Log   zerolog.Logger
+	// LeavePGOwned is whether PostgreSQL writes leave_requests: every domain is PostgreSQL-owned (PG_OWNED_DOMAINS=all:
+	// P7b, when the 3.x APKs and the FS->PG mirror are gone, and a deployment without Firestore such as the staging
+	// VM). Otherwise the installed 3.x APKs still write them in Firestore (class C) and a staff decision is written back
+	// (LeaveWriteBack), whatever hr's own flag says (hr is PostgreSQL-owned from P4 for payroll and the holiday
+	// projection).
+	LeavePGOwned bool
+	// LeaveWriteBack is the Firestore-first path of the leave decisions while Firestore writes leave_requests; nil
+	// answers them 503 unavailable (write_back_unconfigured): PostgreSQL is never written in Firestore's place.
+	LeaveWriteBack *LeaveWriteBack
+	Log            zerolog.Logger
 }
 
-// Service serves /v1/payroll*, /v1/penalties* and POST /v1/jobs/payroll.run.
+// Service serves /v1/payroll*, /v1/penalties*, POST /v1/jobs/payroll.run, /v1/leave-requests* and /v1/holidays*.
 type Service struct {
-	pool  db.Beginner
-	jobs  Submitter
-	files Files
-	log   zerolog.Logger
+	pool    db.Beginner
+	jobs    Submitter
+	files   Files
+	leavePG bool
+	leaveWB *LeaveWriteBack
+	log     zerolog.Logger
 }
 
 // New builds the service.
@@ -118,7 +132,7 @@ func New(d Deps) (*Service, error) {
 	if d.Pool == nil {
 		return nil, errors.New("hr: the service needs a pool")
 	}
-	return &Service{pool: d.Pool, jobs: d.Jobs, files: d.Files, log: d.Log}, nil
+	return &Service{pool: d.Pool, jobs: d.Jobs, files: d.Files, leavePG: d.LeavePGOwned, leaveWB: d.LeaveWriteBack, log: d.Log}, nil
 }
 
 // tx runs fn in a request transaction of p under the money-path mark: RLS decides every row, and no statement of

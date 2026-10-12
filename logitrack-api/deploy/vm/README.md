@@ -356,6 +356,13 @@ gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alon
   `UPLOAD_MAX_BYTES` needs the same `client_max_body_size` in both vhosts (`nginx/`).
 - Web domain flags: P0 state, `WEB_FLAG_OVERRIDES=auth=go` with `PG_OWNED_DOMAINS` empty (every other domain on
   the dev Firebase project); change them in the `.env` and reload `logitrack-api` (no web rebuild).
+- Leave decisions (T45): leave requests are written by the 3.x APKs in Firestore until P7b, so
+  `POST /v1/leave-requests/{id}/approve|reject|cancel` write PostgreSQL only when `PG_OWNED_DOMAINS` holds every
+  domain (`all`, the P7b state, which fits this PostgreSQL-only VM); with any domain left out they answer
+  `503 write_back_unconfigured` (the api has no Firestore writer here). `PG_OWNED_DOMAINS=all` also turns every web
+  flag to `go`: pin the domains whose pages are not on Go yet back with `WEB_FLAG_OVERRIDES` (e.g.
+  `operations=firebase,hr=firebase,comms=firebase,dashboard=firebase`) until their web tasks land. Holidays need
+  nothing: they are written in PostgreSQL and their Firestore projection stays off with `COMPAT_PROJECTION_ENABLED`.
 - Coexistence consumers (T24S): the VM runs PostgreSQL only, so `ETL_SYNC_ENABLED` and `COMPAT_PROJECTION_ENABLED`
   stay `false`: the worker then opens no ETL pool and no Firestore client, and its `etl.sync` and `firestore.shadow`
   queues drain without effect (a sweep command fails its job naming the switch, an event is answered unprojected).

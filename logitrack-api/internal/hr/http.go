@@ -19,6 +19,8 @@ const (
 	PayrollPrefix   = "/v1/payroll"
 	PenaltiesPrefix = "/v1/penalties"
 	JobPrefix       = "/v1/jobs/" + jobs.TypePayrollRun
+	LeavePrefix     = "/v1/leave-requests"
+	HolidaysPrefix  = "/v1/holidays"
 )
 
 // Groups are the HR routes on the internal listener behind requireAuth (auth.Service.RequireAuth, which resolves the
@@ -35,6 +37,13 @@ const (
 //	POST  /v1/penalties                  hr:manage_payroll
 //	POST  /v1/penalties/{id}/cancel      hr:manage_payroll
 //	POST  /v1/jobs/payroll.run           hr:manage_payroll
+//	GET   /v1/leave-requests             hr:view_leave
+//	POST  /v1/leave-requests/{id}/approve  hr:manage_leave (also reject, cancel)
+//	GET   /v1/holidays                   authenticated (?year; ETag)
+//	POST  /v1/holidays                   hr:manage_holidays (public rows: steward)
+//	PUT   /v1/holidays/generate          hr:manage_holidays (public rows: steward)
+//	PATCH /v1/holidays/{id}              hr:manage_holidays (public rows: steward)
+//	DELETE /v1/holidays/{id}             hr:manage_holidays (public rows: steward)
 func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
@@ -54,6 +63,19 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 		}},
 		{Prefix: JobPrefix, Mount: func(r fiber.Router) {
 			r.Post("", requireAuth, need(jobs.TypeCapabilities[jobs.TypePayrollRun]), h.submitRun)
+		}},
+		{Prefix: LeavePrefix, Mount: func(r fiber.Router) {
+			r.Get("", requireAuth, need(authz.HRViewLeave), h.leaveRequests)
+			for _, action := range []string{ActionApprove, ActionReject, ActionCancel} {
+				r.Post("/:id/"+action, requireAuth, need(authz.HRManageLeave), h.decide(action))
+			}
+		}},
+		{Prefix: HolidaysPrefix, Mount: func(r fiber.Router) {
+			r.Get("", requireAuth, h.holidays)
+			r.Post("", requireAuth, need(authz.HRManageHolidays), h.saveHoliday)
+			r.Put("/generate", requireAuth, need(authz.HRManageHolidays), h.generateHolidays)
+			r.Patch("/:id", requireAuth, need(authz.HRManageHolidays), h.patchHoliday)
+			r.Delete("/:id", requireAuth, need(authz.HRManageHolidays), h.deleteHoliday)
 		}},
 	}
 }

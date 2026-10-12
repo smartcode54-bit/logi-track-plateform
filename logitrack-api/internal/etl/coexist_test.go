@@ -117,14 +117,32 @@ func TestPlanProjection(t *testing.T) {
 	if c, _ := PlanProjection(set("auth"), nil); len(c) != 0 {
 		t.Errorf("a Firestore-owned masterdata is projected: %v", c)
 	}
-	// P1: the master data; the version gate settings/mobile_app stays Firestore's (mobile_release is not owned).
+	// P1: the master data; the version gate settings/mobile_app and the holidays stay Firestore's (mobile_release and hr
+	// are not owned).
+	without := func(names ...string) []string {
+		return slices.DeleteFunc(slices.Clone(ProjectedCollections), func(s string) bool { return slices.Contains(names, s) })
+	}
 	c, _ := PlanProjection(set("auth", "masterdata"), nil)
-	if !slices.Equal(c, slices.DeleteFunc(slices.Clone(ProjectedCollections), func(s string) bool { return s == "settings" })) {
+	if !slices.Equal(c, without("settings", "holidays")) {
 		t.Errorf("P1 projection %v", c)
 	}
+	// P4 (hr owned, T45): the holidays join, alone when hr is the only owned domain.
+	if c, _ := PlanProjection(set("auth", "masterdata", "billing", "hr"), nil); !slices.Equal(c, without("settings")) {
+		t.Errorf("P4 projection %v", c)
+	}
+	if c, _ := PlanProjection(set("hr"), nil); strings.Join(c, ",") != "holidays" {
+		t.Errorf("hr projection %v", c)
+	}
+	// Once hr is PostgreSQL's, holidays are no longer mirrored (no second writer, no echo); leave requests (class C) are.
+	if p, _ := PlanMirror(set("auth", "hr"), nil); p.Mode("holidays") != "" || p.Mode("leave_requests") != MirrorFull {
+		t.Errorf("hr owned: holidays %q, leave_requests %q", p.Mode("holidays"), p.Mode("leave_requests"))
+	}
 	// P6 (mobile_release owned): the version gate joins; alone, it is the only projected collection.
-	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
+	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c, without("holidays")) {
 		t.Errorf("P6 projection %v", c)
+	}
+	if c, _ := PlanProjection(set("auth", "masterdata", "hr", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
+		t.Errorf("P6 projection with hr %v", c)
 	}
 	if c, _ := PlanProjection(set("mobile_release"), nil); strings.Join(c, ",") != "settings" {
 		t.Errorf("mobile_release projection %v", c)
@@ -137,7 +155,7 @@ func TestPlanProjection(t *testing.T) {
 	if strings.Join(c, ",") != "hubs,drivers" {
 		t.Errorf("pinned projection %v", c)
 	}
-	if _, err := PlanProjection(set("masterdata"), []string{"holidays"}); err == nil {
+	if _, err := PlanProjection(set("masterdata"), []string{"broadcasts"}); err == nil {
 		t.Error("a pin outside the projected collections was accepted")
 	}
 	if f := ForeignFields("trucks", set("masterdata")); strings.Join(f, ",") != "activeMaintenanceId,currentMileage,lastAlertMileage,lastServiceDate,nextServiceMileage,truckStatus" {
@@ -170,7 +188,10 @@ func TestShadowTargets(t *testing.T) {
 			{Collection: "soc_hub_distances", All: true}, {Collection: "metadata", All: true}}},
 		{"settings.changed", `{"key":"mobile_app","flavor":"prod"}`, []ShadowTarget{{Collection: "settings", All: true}}},
 		{"settings.changed", `{"key":"branding"}`, nil},
-		{"holidays.changed", `{}`, nil},
+		{"holidays.changed", `{"entity":"holiday","year":2026,"ids":["` + a.String() + `"],"deletedDocIds":["hol_legacy","` + b.String() + `"]}`,
+			[]ShadowTarget{{Collection: "holidays", IDs: []uuid.UUID{a}, DeletedDocIDs: []string{"hol_legacy", b.String()}}}},
+		{"holidays.changed", `{}`, []ShadowTarget{{Collection: "holidays", IDs: []uuid.UUID{}}}},
+		{"broadcast.created", `{}`, nil},
 		{"trip.priced", `{"id":"x"}`, nil},
 	}
 	for _, tc := range cases {
@@ -186,7 +207,8 @@ func TestShadowTargets(t *testing.T) {
 		for i := range got {
 			g, w := got[i], tc.want[i]
 			if g.Collection != w.Collection || g.All != w.All || !sameIDs(g.IDs, w.IDs) || !sameIDs(g.Hubs, w.Hubs) ||
-				!sameIDs(g.Customers, w.Customers) || !sameIDs(g.Tenants, w.Tenants) {
+				!sameIDs(g.Customers, w.Customers) || !sameIDs(g.Tenants, w.Tenants) ||
+				strings.Join(g.DeletedDocIDs, ",") != strings.Join(w.DeletedDocIDs, ",") {
 				t.Errorf("%s target %d: %+v, want %+v", tc.key, i, g, w)
 			}
 		}

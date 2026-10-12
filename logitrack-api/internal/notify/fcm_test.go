@@ -18,8 +18,8 @@ type nopSender struct{}
 
 func (nopSender) Send(context.Context, push.Message) error { return nil }
 
-// Every routing key bound to notify.fcm is handled: the task, session and maintenance (T40) events now;
-// the chat, broadcast and leave events fail transiently (dead-letter, replay once their planner lands)
+// Every routing key bound to notify.fcm is handled: the task, session, maintenance (T40) and leave (T45) events now;
+// the chat and broadcast events fail transiently (dead-letter, replay once their planner lands)
 // instead of being acked and lost; a key that is not bound is a permanent error. FCM_ENABLED
 // false acks everything without sending. None of these paths touch PostgreSQL or Redis.
 func TestFCMRouting(t *testing.T) {
@@ -34,9 +34,8 @@ func TestFCMRouting(t *testing.T) {
 	}
 	planned := []string{notify.RouteTaskAssigned, notify.RouteTaskReassigned, notify.RouteTaskCancelled, notify.RouteTaskUpdated,
 		notify.RouteTaskCheckedIn, notify.RouteTaskPlanDateChanged, notify.RouteSessionsRevoked,
-		notify.RouteMaintenanceCreated, notify.RouteMaintenanceReminder}
-	pending := map[string]string{notify.RouteChatMessageCreated: "T47", notify.RouteBroadcastCreated: "T48",
-		notify.RouteLeaveDecided: "T45"}
+		notify.RouteMaintenanceCreated, notify.RouteMaintenanceReminder, notify.RouteLeaveDecided}
+	pending := map[string]string{notify.RouteChatMessageCreated: "T47", notify.RouteBroadcastCreated: "T48"}
 	if len(bound) != len(planned)+len(pending) {
 		t.Fatalf("notify.fcm binds %d keys, the consumer knows %d", len(bound), len(planned)+len(pending))
 	}

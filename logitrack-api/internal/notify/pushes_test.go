@@ -151,3 +151,36 @@ func TestParseClaim(t *testing.T) {
 		t.Fatalf("TokenID: %s", TokenID("abc"))
 	}
 }
+
+// leave_decided (T45): a new push (the legacy system sent none), visible on the task channel, Thai texts on the
+// Buddhist-era calendar; a rejection carries its reason cut like a chat preview.
+func TestLeaveDecided(t *testing.T) {
+	long := strings.Repeat("ก", 90)
+	cases := []struct {
+		name, status, typ, start, end, reason string
+		title, body                           string
+	}{
+		{"approved sick, two days", "approved", "sick", "2026-10-12", "2026-10-13", "", "อนุมัติการลาแล้ว", "ลาป่วย 12/10/2569 - 13/10/2569"},
+		{"rejected business, one day, reason", "rejected", "business", "2026-01-05", "2026-01-05", " งานเร่ง ", "ไม่อนุมัติการลา",
+			"ลากิจ 05/01/2569: งานเร่ง"},
+		{"rejected, long reason cut", "rejected", "sick", "2026-01-05", "2026-01-05", long, "ไม่อนุมัติการลา",
+			"ลาป่วย 05/01/2569: " + strings.Repeat("ก", 80) + "…"},
+		{"cancelled ignores a reason", "cancelled", "business", "2026-12-31", "2027-01-02", "x", "ยกเลิกการลาแล้ว",
+			"ลากิจ 31/12/2569 - 02/01/2570"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := LeaveDecided("lr1", "drv1", tc.status, tc.typ, tc.start, tc.end, tc.reason)
+			if p.Kind != KindLeaveDecided || p.Channel != ChannelTaskAssignments || p.Silent() {
+				t.Fatalf("kind %s channel %s silent %v", p.Kind, p.Channel, p.Silent())
+			}
+			if p.Notification.Title != tc.title || p.Notification.Body != tc.body {
+				t.Errorf("title %q body %q, want %q %q", p.Notification.Title, p.Notification.Body, tc.title, tc.body)
+			}
+			want := map[string]string{"type": "leave_decided", "leaveRequestId": "lr1", "driverId": "drv1", "status": tc.status}
+			if !maps.Equal(p.Data, want) {
+				t.Errorf("data %v", p.Data)
+			}
+		})
+	}
+}
