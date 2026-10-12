@@ -26,8 +26,8 @@
  *   the badges), the priced events on `tenant:{tid}:trips` (`trip.priced`, `trip.repriced`,
  *   `standby.priced`: `['income']` with the 2 s window, `standby.priced` also the standby diagnostics;
  *   never `['billing','rows' | 'missingDate']`, R89) and the success keys of the billing, document and
- *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery); until it merges they never
- *   arrive and the pages refetch after their own writes.
+ *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery: billing.compute and the billing
+ *   endpoints append them on the trips topic of the tenant that ran the record and of its billing carrier).
  * Still to come: tasks and trips with the 2 s monitor window (M2), HR and holidays (M4), chats and the
  * explicit `chat:{id}` topic (M5), vehicle locations, `platform:security` (no producer yet: the security
  * pages poll) and badges (M6).

@@ -56,6 +56,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Outbox routing keys of the domain (Appendix B §B.5.2) and their aggregate types.
@@ -118,17 +119,22 @@ type Deps struct {
 	// Now is the clock of generated_at, imports and voids (default time.Now).
 	Now func() time.Time
 	Log zerolog.Logger
+	// WriteBack is the class C write-back of the job-category and standby-customer endpoints (legacy.go; main spec
+	// §12.1, §13.8): set where the FS->PG mirror runs, so the task's and the standby record's Firestore documents take
+	// the change before PostgreSQL commits. nil writes PostgreSQL only (the staging VM; until T31 wires the adapter).
+	WriteBack writeback.Writer
 }
 
 // Service serves the billing routes of T37.
 type Service struct {
-	pool     db.Beginner
-	cache    *cache.Cache
-	jobs     Jobs
-	bangchak bangchak.Client
-	files    Files
-	now      func() time.Time
-	log      zerolog.Logger
+	pool      db.Beginner
+	cache     *cache.Cache
+	jobs      Jobs
+	bangchak  bangchak.Client
+	files     Files
+	writeBack writeback.Writer
+	now       func() time.Time
+	log       zerolog.Logger
 }
 
 // New builds the service.
@@ -139,7 +145,8 @@ func New(d Deps) (*Service, error) {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{pool: d.Pool, cache: d.Cache, jobs: d.Jobs, bangchak: d.Bangchak, files: d.Files, now: d.Now, log: d.Log}, nil
+	return &Service{pool: d.Pool, cache: d.Cache, jobs: d.Jobs, bangchak: d.Bangchak, files: d.Files, writeBack: d.WriteBack,
+		now: d.Now, log: d.Log}, nil
 }
 
 // tx runs fn in a request transaction of p: RLS decides every row it reads or writes.

@@ -87,6 +87,7 @@ type StandbyRecord struct {
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
 	BillingTenantID           *uuid.UUID
+	BillingLastEventID        *int64
 }
 
 type Task struct {

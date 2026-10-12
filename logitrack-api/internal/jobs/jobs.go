@@ -69,18 +69,31 @@ const (
 // runs in the payroll.run queue (group hr).
 const TypePayrollRun = "payroll.run"
 
+// The billing jobs of T38 (main spec §6.13, Appendix B §B.2.20): the two backfills and the read-only impact report
+// (POST /v1/jobs/billing.*, queue billing.backfill), and the 15-minute safety net (a scheduler command consumed by
+// billing.compute).
+const (
+	TypeBillingBackfillTrips   = "billing.backfill-trips"
+	TypeBillingBackfillStandby = "billing.backfill-standby"
+	TypeBillingImpactReport    = "billing.impact-report"
+	TypeBillingSafetyNet       = "billing.safety-net"
+)
+
 // TypeCapabilities maps each job type a per-type POST /v1/jobs/{type} route submits to the capability
 // that route checks (Appendix B §B.2.20, developer-spec.md §7.5): staff of the job's tenant
 // (EffectiveTenant() = jobs.tenant_id) holding it read the job besides its owner and the platform. T21
-// registers distances.compute, T37 bangchak.snapshot, T39 the two documents.render jobs, T44 payroll.run; T38 adds its
-// types here. Types without a row (queue.replay) stay owner + platform; a cron fire of a listed type has no owner and no
-// tenant, so only the platform reads it.
+// registers distances.compute, T37 bangchak.snapshot, T39 the two documents.render jobs, T44 payroll.run, T38 the
+// billing backfills and the impact report. Types without a row (queue.replay, billing.safety-net) stay owner +
+// platform; a cron fire of a listed type has no owner and no tenant, so only the platform reads it.
 var TypeCapabilities = map[string]authz.Cap{
-	TypeDistancesCompute:      authz.OperationsCalcDistances,
-	TypeBangchakSnapshot:      authz.AccountingEditRateCard,
-	TypeDocumentsRegenerate:   authz.AccountingManageStatements,
-	TypeDocumentsShopeeReport: authz.AccountingShopeeReport,
-	TypePayrollRun:            authz.HRManagePayroll,
+	TypeDistancesCompute:       authz.OperationsCalcDistances,
+	TypeBangchakSnapshot:       authz.AccountingEditRateCard,
+	TypeDocumentsRegenerate:    authz.AccountingManageStatements,
+	TypeDocumentsShopeeReport:  authz.AccountingShopeeReport,
+	TypePayrollRun:             authz.HRManagePayroll,
+	TypeBillingBackfillTrips:   authz.AccountingEditRateCard,
+	TypeBillingBackfillStandby: authz.AccountingEditRateCard,
+	TypeBillingImpactReport:    authz.SecurityViewOverview,
 }
 
 var typeRx = regexp.MustCompile(`^[a-z]+(\.[a-z0-9-]+)+$`) // the CHECK of jobs.type

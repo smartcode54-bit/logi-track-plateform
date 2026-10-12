@@ -64,8 +64,8 @@ func (e *Engine) ReconcileSync(ctx context.Context, src DocSource, o SyncReconci
 	docs := map[string][]dump.Doc{}
 	names := o.Mirror.Names()
 	for _, c := range o.Projection {
-		if !slices.Contains(names, c) {
-			names = append(names, c)
+		if fc := firestoreCollection(c); !slices.Contains(names, fc) {
+			names = append(names, fc)
 		}
 	}
 	at := o.ReadAt
@@ -97,7 +97,7 @@ func (e *Engine) ReconcileSync(ctx context.Context, src DocSource, o SyncReconci
 			}
 		}
 		for _, c := range o.Projection {
-			if err := reconcileProjection(ctx, tx, c, docs[c], o.Mirror.Owned, rec); err != nil {
+			if err := reconcileProjection(ctx, tx, c, docs[firestoreCollection(c)], o.Mirror.Owned, rec); err != nil {
 				return err
 			}
 		}
@@ -406,6 +406,9 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 	rec.add("projection", coll, rows, rows-len(missing)-len(differ), len(missing)+len(differ) == 0, note)
 	if singleDocument[coll] {
 		return nil // the collection's other documents are settings keys the projection does not own
+	}
+	if _, fields := fieldProjections[coll]; fields {
+		return nil // the collection's other documents are records without a price, which the mirror reconciles
 	}
 	var orphans []string
 	for _, d := range docs {

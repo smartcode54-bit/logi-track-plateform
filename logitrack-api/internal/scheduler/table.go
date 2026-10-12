@@ -28,9 +28,8 @@ const (
 // Pending lists the cron jobs of main spec §7.4 that are not in the table yet because the queue
 // consumer that does their work arrives with a later issue (each turns its entry on there, behind its
 // env gate where §7.4 names one). Firing them now would only pile commands up in an unconsumed queue.
-var Pending = []struct{ Name, Spec, Issue, Gate string }{
-	{"billing.safety-net", "*/15 * * * *", "T38", ""},
-}
+// Empty since T38 (billing.safety-net) and T53 (cartrack.sync): every command cron of §7.4 has its consumer.
+var Pending = []struct{ Name, Spec, Issue, Gate string }{}
 
 // Gated lists the command crons whose consumer has landed but which run only while their env gate is on (main spec
 // §7.4): Table adds each one whose Gates field is set.
@@ -56,13 +55,16 @@ type Gates struct {
 // Table is the live cron table (Asia/Bangkok): the P0 housekeeping that the scheduler runs itself, the command crons
 // whose consumer has landed (storage.gc, T11: hourly job.storage.gc to the worker's storage.gc queue, Appendix B
 // §B.5.6; tenancy.orphan-scan, T28: daily at 03:00 job.tenancy.orphan-scan to the worker's tenancy.orphan-scan queue,
-// Appendix C §C.3.10), and the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S; etl.reconcile, T29:
-// the daily coexistence reconciliation at 02:30 on the same worker; cartrack.sync, T53). Only the leader fires, and
-// lock:cron guards each slot, so two scheduler replicas fire a slot once.
+// Appendix C §C.3.10; billing.safety-net, T38: every 15 minutes job.billing.safety-net to the worker's billing.compute
+// queue, main spec §6.13, which skips the records the FS->PG mirror writes while billing is not PostgreSQL-owned), and
+// the Gated crons whose gate is on (bangchak.snapshot, T37; etl.sync, T24S; etl.reconcile, T29: the daily coexistence
+// reconciliation at 02:30 on the same worker; cartrack.sync, T53). Only the leader fires, and lock:cron guards each
+// slot, so two scheduler replicas fire a slot once.
 func Table(pool *pgxpool.Pool, rt *realtime.Writer, gates Gates) []Job {
 	jobs := []Job{
 		{Name: "storage.gc", Spec: "0 * * * *", Kind: Command},
 		{Name: "tenancy.orphan-scan", Spec: "0 3 * * *", Kind: Command},
+		{Name: "billing.safety-net", Spec: "*/15 * * * *", Kind: Command},
 		{Name: "auth.token-cleanup", Spec: "*/10 * * * *", Kind: Local, Run: func(ctx context.Context) (any, error) {
 			return TokenCleanup(ctx, pool, time.Now())
 		}},

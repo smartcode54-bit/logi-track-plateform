@@ -38,6 +38,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
@@ -133,7 +134,8 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	}
 
 	// STORAGE_BACKEND=local; LOCAL_MEDIA_PUBLIC_BASE_URL reaches /media on the public listener.
-	publicAddr := freeAddr(t)
+	publicLn := listentest.Loopback(t)
+	publicAddr := publicLn.Addr().String()
 	dir := t.TempDir()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: dir, PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("e"), 40), APIUploadPath: storage.LocalUploadPath})
@@ -171,7 +173,7 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	if err := a.CheckRoutes(); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Listen(); err != nil {
+	if err := a.ListenOn(app.Listeners{Public: publicLn}); err != nil {
 		t.Fatal(err)
 	}
 	sctx, cancel := context.WithCancel(ctx)

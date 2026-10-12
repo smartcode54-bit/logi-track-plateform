@@ -10,19 +10,17 @@ import (
 	"time"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 )
 
-// freeAddr reserves a loopback port for METRICS_ADDR: the processes log their bound address, so a
-// test that probes /readyz picks it beforehand.
-func freeAddr(t *testing.T) string {
+// metricsListener binds METRICS_ADDR for a worker or scheduler up front and names it in the env: the test
+// probes /readyz there while the process starts, and the process serves the listener as it is (FLAKE3: a port
+// picked, released and bound again later can be taken in between).
+func metricsListener(t *testing.T) net.Listener {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
+	ln := listentest.Loopback(t)
+	t.Setenv("METRICS_ADDR", ln.Addr().String())
+	return ln
 }
 
 type readiness struct {
@@ -30,8 +28,15 @@ type readiness struct {
 	checks map[string]any
 }
 
-func probeReady(addr string) (readiness, bool) {
-	resp, err := http.Get("http://" + addr + "/readyz")
+// probeReady asks /readyz on addr once; ctx bounds the request. A listener bound before the process serves it
+// (metricsListener) takes the connection into its backlog, so a request without a deadline would wait for as
+// long as the process takes to build, or forever if it hangs there.
+func probeReady(ctx context.Context, addr string) (readiness, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/readyz", nil)
+	if err != nil {
+		return readiness{}, false
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return readiness{}, false
 	}
@@ -52,30 +57,73 @@ func probeReady(addr string) (readiness, bool) {
 	return r, true
 }
 
-// waitReadiness polls /readyz until ok accepts the answer.
-func waitReadiness(t *testing.T, addr string, within time.Duration, ok func(readiness) bool) readiness {
-	t.Helper()
-	deadline := time.Now().Add(within)
+// pollReadiness polls /readyz until ok accepts an answer (true) or within has passed (false, with the last
+// answer); within bounds each request too.
+func pollReadiness(addr string, within time.Duration, ok func(readiness) bool) (readiness, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), within)
+	defer cancel()
 	var last readiness
-	for time.Now().Before(deadline) {
-		if r, answered := probeReady(addr); answered {
+	for ctx.Err() == nil {
+		if r, answered := probeReady(ctx, addr); answered {
 			last = r
 			if ok(r) {
-				return r
+				return r, true
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	t.Fatalf("/readyz on %s: last answer %d %v", addr, last.status, last.checks)
-	return last
+	return last, false
 }
 
-// startProcess runs main until the returned stop function, which waits for exit code 0.
-func startProcess(t *testing.T, main func(context.Context, io.Writer, io.Writer) int) func() {
+// waitReadiness polls /readyz until ok accepts the answer, and fails the test once within has passed.
+func waitReadiness(t *testing.T, addr string, within time.Duration, ok func(readiness) bool) readiness {
+	t.Helper()
+	r, done := pollReadiness(addr, within, ok)
+	if !done {
+		t.Fatalf("/readyz on %s: last answer %d %v", addr, r.status, r.checks)
+	}
+	return r
+}
+
+// The deadline of waitReadiness holds while nothing serves the bound listener: the process may hang before it
+// serves METRICS_ADDR, and the test must then fail at its deadline, not at go test's -timeout.
+func TestWaitReadinessKeepsItsDeadline(t *testing.T) {
+	ln := listentest.Loopback(t) // bound, never served: connections wait in the backlog
+	const within = 300 * time.Millisecond
+	type result struct {
+		done    bool
+		elapsed time.Duration
+	}
+	res := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		_, done := pollReadiness(ln.Addr().String(), within, func(readiness) bool { return true })
+		res <- result{done, time.Since(start)}
+	}()
+	select {
+	case r := <-res:
+		if r.done {
+			t.Fatal("pollReadiness accepted an answer nothing gave")
+		}
+		if r.elapsed > within+2*time.Second {
+			t.Fatalf("pollReadiness returned after %v, deadline %v", r.elapsed, within)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("pollReadiness still waits after 10s on an unserved listener, deadline %v", within)
+	}
+}
+
+// startProcess runs main with /metrics on metrics until the returned stop function, which waits for exit
+// code 0.
+func startProcess(t *testing.T, main func(context.Context, net.Listener, io.Writer, io.Writer) int, metrics net.Listener) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel) // a test that fails before stop does not leave the process running
 	code := make(chan int, 1)
-	go func() { code <- main(ctx, io.Discard, io.Discard) }()
+	go func() { code <- main(ctx, metrics, io.Discard, io.Discard) }()
 	return func() {
 		t.Helper()
 		cancel()
@@ -120,15 +168,13 @@ func TestBackgroundReadinessReportsDependencies(t *testing.T) {
 		}
 	}
 
-	addr := freeAddr(t)
-	t.Setenv("METRICS_ADDR", addr)
-	stop := startProcess(t, app.RunWorker)
-	waitReadiness(t, addr, 10*time.Second, unreachable("postgres", "redis", "rabbitmq"))
+	ln := metricsListener(t)
+	stop := startProcess(t, app.RunWorkerOn, ln)
+	waitReadiness(t, ln.Addr().String(), 10*time.Second, unreachable("postgres", "redis", "rabbitmq"))
 	stop()
 
-	addr = freeAddr(t)
-	t.Setenv("METRICS_ADDR", addr)
-	stop = startProcess(t, app.RunScheduler)
-	waitReadiness(t, addr, 10*time.Second, unreachable("postgres", "redis"))
+	ln = metricsListener(t)
+	stop = startProcess(t, app.RunSchedulerOn, ln)
+	waitReadiness(t, ln.Addr().String(), 10*time.Second, unreachable("postgres", "redis"))
 	stop()
 }

@@ -313,6 +313,10 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	if feed == nil {
 		log.Info().Msg("Bangchak prices off: BANGCHAK_API_BASE_URL is unset (GET /v1/fuel/retail answers 503)")
 	}
+	// T38: no WriteBack yet. The job-category and standby-customer endpoints write their class C fields (the task's
+	// jobCategory, the standby customerId) to PostgreSQL only, which a deployment without the FS->PG mirror (the staging
+	// VM) needs; T31 wires the Firestore adapter of internal/writeback here, a precondition of billing in
+	// PG_OWNED_DOMAINS on a deployment that runs the mirror (main spec §6.13 as built).
 	billingSvc, err := billing.New(billing.Deps{Pool: pool, Cache: caches, Jobs: jobSvc, Bangchak: feed, Files: st, Log: log})
 	if err != nil {
 		closeAll()
