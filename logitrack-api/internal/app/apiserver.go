@@ -347,9 +347,16 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// T32: the driver-app shim target of addDeliveryStop resolves the task it names (a Firestore doc id included) in
+	// iam's read-only system transaction, so another driver's task is 403 not_task_owner, then writes as the driver.
+	taskOwners, err := iam.NewTaskOwners(pool)
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover, Files: st,
 		Hubs: OperationsHubs{Service: hubSvc}, PGOwned: cfg.OperationsOwned, WriteBack: wbs.Operations, Renamer: tripRenamer,
-		Commits: st})
+		Commits: st, Owners: taskOwners})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

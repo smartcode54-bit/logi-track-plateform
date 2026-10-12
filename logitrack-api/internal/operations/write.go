@@ -577,6 +577,15 @@ type wbDoc struct {
 // acknowledge the first one (the row the answer reads). It returns the update time of the write and whether the
 // mirror acknowledged it.
 func (s *Service) writeBack(ctx context.Context, docs ...wbDoc) (time.Time, bool, error) {
+	at, err := s.commitWriteBack(ctx, docs...)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return at, s.waitAck(ctx, docs[0].collection, docs[0].docID, at), nil
+}
+
+// commitWriteBack is writeBack without the wait for the mirror: the one commit and its update time.
+func (s *Service) commitWriteBack(ctx context.Context, docs ...wbDoc) (time.Time, error) {
 	writes := make([]writeback.DocWrite, 0, len(docs))
 	for _, d := range docs {
 		writes = append(writes, writeback.DocWrite{Collection: d.collection, DocID: d.docID, Fields: d.fields,
@@ -585,16 +594,16 @@ func (s *Service) writeBack(ctx context.Context, docs ...wbDoc) (time.Time, bool
 	at, err := s.wb.Writer.Commit(ctx, writes...)
 	switch {
 	case errors.Is(err, writeback.ErrConflict):
-		return time.Time{}, false, fmt.Errorf("%w: %w", writeback.ErrConflict,
+		return time.Time{}, fmt.Errorf("%w: %w", writeback.ErrConflict,
 			errPrecondition(ReasonDocumentChanged, "the Firestore document changed or does not exist; reload and retry"))
 	case err != nil:
 		var he *httpx.Error
 		if errors.As(err, &he) {
-			return time.Time{}, false, err
+			return time.Time{}, err
 		}
-		return time.Time{}, false, writeback.ErrUnavailable(err)
+		return time.Time{}, writeback.ErrUnavailable(err)
 	}
-	return at, s.waitAck(ctx, docs[0].collection, docs[0].docID, at), nil
+	return at, nil
 }
 
 // waitAck waits for the mirror's acknowledgement of one written document (false after the wait, or without Redis).

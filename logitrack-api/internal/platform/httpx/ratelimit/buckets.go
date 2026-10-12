@@ -50,14 +50,17 @@ var (
 	OCRDriver        = Bucket{Name: "ocr_driver", Default: per(60, time.Minute)}
 	Webhook          = Bucket{Name: "webhook"}
 	APIKey           = Bucket{Name: "apikey", Default: per(600, time.Minute)}
-	User             = Bucket{Name: "user", Default: per(600, time.Minute)}
+	// ShimUser is one end user's calls through one cf_shim key (subject "{key id}:{user id}"), counted after the
+	// Firebase ID token is verified and before the key's own apikey bucket, which every driver shares (T32R).
+	ShimUser = Bucket{Name: "shim_user", Default: per(60, time.Minute)}
+	User     = Bucket{Name: "user", Default: per(600, time.Minute)}
 )
 
 // Buckets lists every bucket of Appendix B §B.6.3.
 var Buckets = []Bucket{
 	LoginIP, LoginFail, GoogleIP, GoogleNonceIP, RefreshSession, ExchangeIP, SSETicket, ForgotEmail, ForgotIP, ResetIP,
 	PublicFormIP, PublicFormEmail, PublicIP, EvidenceIP, HeartbeatInstall, PresignUser, OCRDriver, Webhook,
-	APIKey, User,
+	APIKey, ShimUser, User,
 }
 
 // Config is the rate-limit configuration (main spec §16.1). Enabled switches the request buckets; the
