@@ -45,7 +45,7 @@ internal/release             the client of the APK publish routes that cmd/relea
 internal/webcfg              runtime web domain flags: GET /v1/config/web-flags from PG_OWNED_DOMAINS + WEB_FLAG_OVERRIDES (T17)
 internal/sse                 SSE streams GET /v1/events (web, bearer) and GET /v1/mobile/events (ticket): topics, leases, replay, live relay (T12)
 internal/platform/config     env loading: all missing/invalid names in one error, never values
-internal/platform/logx       zerolog + redacting writer (authorization, password, *token, cookie, idCard, ...)
+internal/platform/logx       zerolog + redacting writer (authorization, password, *token, cookie, idCard, ...); the RFC 3339 nanosecond timestamp layout (a zerolog package variable) is set once when the package loads, never by New, so a second logger cannot race a running one (CIFIX1)
 internal/platform/httpx      envelopes, error codes, request id, client IP, access log
 internal/platform/ingress    route groups and the public allow-list
 internal/platform/health     /healthz, /readyz, /startupz, drain state
