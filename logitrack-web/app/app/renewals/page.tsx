@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { RenewalTruckData, getRenewalOverview } from "./actions.client";
+import { useState } from "react";
+import { useRenewals } from "@/features/trucks/api/useTrucks";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,49 +22,40 @@ import { useLanguage } from "@/context/language";
 
 export default function RenewalsPage() {
     const { t } = useLanguage();
-    const [trucks, setTrucks] = useState<RenewalTruckData[]>([]);
-    const [loading, setLoading] = useState(true);
+    // `['renewals', {}]` (T25): `GET /v1/trucks/renewals` (state on the Bangkok calendar) or Firestore.
+    const { renewals: trucks, isPending: loading } = useRenewals();
     const [searchTerm, setSearchTerm] = useState("");
     const [filter, setFilter] = useState<"all" | "critical" | "warning">("all");
 
-    useEffect(() => {
-        async function loadData() {
-            setLoading(true);
-            const data = await getRenewalOverview();
-            setTrucks(data);
-            setLoading(false);
-        }
-        loadData();
-    }, []);
-
     // Derived stats
     const totalTrucks = trucks.length;
-    const taxOverdue = trucks.filter(t => t.taxStatus === "overdue").length;
-    const taxExpiring = trucks.filter(t => t.taxStatus === "expiring_soon").length;
-    const insuranceOverdue = trucks.filter(t => t.insuranceStatus === "overdue").length;
-    const insuranceExpiring = trucks.filter(t => t.insuranceStatus === "expiring_soon").length;
+    const taxOverdue = trucks.filter(t => t.tax.state === "overdue").length;
+    const taxExpiring = trucks.filter(t => t.tax.state === "expiring_soon").length;
+    const insuranceOverdue = trucks.filter(t => t.insurance.state === "overdue").length;
+    const insuranceExpiring = trucks.filter(t => t.insurance.state === "expiring_soon").length;
 
     // Calculate total estimated cost
-    const totalCost = trucks.reduce((sum, t) => sum + (t.taxExpense || 0) + (t.insurancePremium || 0), 0);
+    const totalCost = trucks.reduce((sum, t) => sum + (t.tax.amountThb || 0) + (t.insurance.amountThb || 0), 0);
 
     // Renewal rate: items renewed on time / total items needing renewal
     const totalRenewalItems = totalTrucks * 2; // each truck has tax + insurance
-    const renewedOnTime = trucks.filter(t => t.taxStatus === "ok").length + trucks.filter(t => t.insuranceStatus === "ok").length;
+    const renewedOnTime = trucks.filter(t => t.tax.state === "ok").length + trucks.filter(t => t.insurance.state === "ok").length;
     const renewalRate = totalRenewalItems > 0 ? ((renewedOnTime / totalRenewalItems) * 100).toFixed(2) : "0.00";
 
     // Filter Logic
     const filteredTrucks = trucks.filter(truck => {
         const matchesSearch =
             truck.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            truck.brand.toLowerCase().includes(searchTerm.toLowerCase());
+            truck.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            truck.province.toLowerCase().includes(searchTerm.toLowerCase());
 
         if (!matchesSearch) return false;
 
         if (filter === "critical") {
-            return truck.taxStatus === "overdue" || truck.insuranceStatus === "overdue";
+            return truck.tax.state === "overdue" || truck.insurance.state === "overdue";
         }
         if (filter === "warning") {
-            return truck.taxStatus === "expiring_soon" || truck.insuranceStatus === "expiring_soon";
+            return truck.tax.state === "expiring_soon" || truck.insurance.state === "expiring_soon";
         }
 
         return true;
@@ -188,10 +179,10 @@ export default function RenewalsPage() {
                         </TableHeader>
                         <TableBody>
                             {filteredTrucks.map((truck) => (
-                                <TableRow key={truck.id}>
+                                <TableRow key={truck.truckId}>
                                     <TableCell>
                                         <div className="font-semibold">{truck.licensePlate}</div>
-                                        <div className="text-xs text-muted-foreground">{truck.brand} {truck.model}</div>
+                                        <div className="text-xs text-muted-foreground">{truck.type} · {truck.province}</div>
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <Badge variant="outline" className="capitalize text-xs">
@@ -200,25 +191,25 @@ export default function RenewalsPage() {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
-                                            <StatusBadge status={truck.taxStatus} label="Tax" />
+                                            <StatusBadge status={truck.tax.state} />
                                             <span className="text-xs text-muted-foreground">
-                                                {truck.taxExpiryDate ? format(new Date(truck.taxExpiryDate), "dd MMM yyyy") : "No Data"}
+                                                {truck.tax.expiryDate ? format(new Date(truck.tax.expiryDate), "dd MMM yyyy") : t("masterData.renewals.noDate")}
                                             </span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right font-medium">
-                                        {truck.taxExpense ? `฿${truck.taxExpense.toLocaleString()}` : "-"}
+                                        {truck.tax.amountThb ? `฿${truck.tax.amountThb.toLocaleString()}` : "-"}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
-                                            <StatusBadge status={truck.insuranceStatus} label="Insurance" />
+                                            <StatusBadge status={truck.insurance.state} />
                                             <span className="text-xs text-muted-foreground">
-                                                {truck.insuranceExpiryDate ? format(new Date(truck.insuranceExpiryDate), "dd MMM yyyy") : "No Data"}
+                                                {truck.insurance.expiryDate ? format(new Date(truck.insurance.expiryDate), "dd MMM yyyy") : t("masterData.renewals.noDate")}
                                             </span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right font-medium">
-                                        {truck.insurancePremium ? `฿${truck.insurancePremium.toLocaleString()}` : "-"}
+                                        {truck.insurance.amountThb ? `฿${truck.insurance.amountThb.toLocaleString()}` : "-"}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <DropdownMenu>
@@ -231,18 +222,18 @@ export default function RenewalsPage() {
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuLabel>{t("renewals.table.actions")}</DropdownMenuLabel>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/app/trucks/renew?id=${truck.id}&type=tax`} prefetch={false}>
+                                                    <Link href={`/app/trucks/renew?id=${truck.truckId}&type=tax`} prefetch={false}>
                                                         {t("renewals.action.renewTax")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/app/trucks/renew?id=${truck.id}&type=insurance`} prefetch={false}>
+                                                    <Link href={`/app/trucks/renew?id=${truck.truckId}&type=insurance`} prefetch={false}>
                                                         {t("renewals.action.renewInsurance")}
                                                     </Link>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem asChild>
-                                                    <Link href={`/app/trucks/view?id=${truck.id}`} prefetch={false}>
+                                                    <Link href={`/app/trucks/view?id=${truck.truckId}`} prefetch={false}>
                                                         {t("renewals.action.viewDetails")}
                                                     </Link>
                                                 </DropdownMenuItem>
@@ -266,7 +257,7 @@ export default function RenewalsPage() {
     );
 }
 
-function StatusBadge({ status, label }: { status: string, label: string }) {
+function StatusBadge({ status }: { status: string }) {
     const { t } = useLanguage();
     if (status === "in_progress") {
         return <Badge variant="secondary" className="w-fit text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200">{t("renewals.status.inProgress")}</Badge>

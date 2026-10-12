@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 // fixtures is the committed fixture dump (`--fixtures`, make etl-fixtures): no production data.
@@ -49,7 +51,8 @@ const usage = `usage: etl <command> [flags]      (OWN_FLEET_TENANT_ID is require
 
 Firestore (ETL_FIRESTORE_PROJECT_ID, FIRESTORE_DATABASE_ID, GOOGLE_APPLICATION_CREDENTIALS):
   dump --collections=all|a,b [--groups=mobile_installations,messages] --out=DIR|s3
-        read Firestore into NDJSON.gz + manifest.json; s3 writes S3_BUCKET etl/dumps/{ts}/ (R74)
+        read Firestore into NDJSON.gz + manifest.json; s3 writes S3_BUCKET etl/dumps/{ts}/ (R74); all also
+        reads every collection reconcile --finance requires, an empty one included
 
 Database (ETL_DATABASE_URL, logged in as logitrack_etl):
   load (--dump=DIR|s3:etl/dumps/{ts} | --fixtures) [--collections=a,b] [--dry-run] [--report=FILE]
@@ -58,15 +61,32 @@ Database (ETL_DATABASE_URL, logged in as logitrack_etl):
         commits nothing; --force re-applies unchanged documents (after a mapping change); --since=watermark
         looks back 10 minutes; --fixtures without --dry-run is refused unless APP_ENV=local
   reconcile (--dump=... | --fixtures) [--period=YYYY-MM] [--out=DIR] [--accept-findings=NAME]
+       [--finance [--months=3] [--through=YYYY-MM]]
         counts and money against the dump, open findings per reason code against the last matching run (a new
         code or a higher count blocks); exit 2 on a mismatch (etl.reconciliation_runs); --accept-findings records
-        the owner's sign-off of the open findings, so a matching run becomes the next baseline
+        the owner's sign-off of the open findings, so a matching run becomes the next baseline; --finance adds the
+        billing cut-over checks (T41): rate tables and voids, the D5 fee dedupe, legacy statements (WHT 0.0100),
+        counters, fuel snapshots, and the parity dry run of the last --months closed Bangkok months ending at
+        --through (default: the month before now; nothing written or locked); --out also writes parity-{ts}.csv
   export-back --collection=customers --frozen-at=RFC3339 [--overwrite-after-freeze] [--out=DIR]
         class A rollback to Firestore in the legacy shape (--out writes the documents to a dump instead)
   media-copy [--limit=N] [--verify]
-        GCS ETL_GCS_BUCKET -> S3_BUCKET under the identical key; --verify compares size and sha256
-  rewrite-urls
-        list columns that still hold Firebase Storage URLs; exit 2 when any does
+        GCS ETL_GCS_BUCKET -> S3_BUCKET (the APK: S3_PUBLIC_BUCKET) under the identical key; --verify compares
+        size and sha256
+  rewrite-urls [--apply]
+        list columns that still hold Firebase Storage URLs; exit 2 when any does; --apply first points
+        settings(mobile_app).apkDownloadUrl at S3_PUBLIC_BASE_URL once media-copy committed the APK
+  mirror --owned=none|all|DOMAINS [--collections=a,b]
+        one etl.sync sweep by hand (main spec §13.7; also needs the Firestore names): the collections the
+        PostgreSQL-owned domains leave to Firestore, whole, and the 3.x app's fields of the owned ones; --owned is the
+        deployment's PG_OWNED_DOMAINS; --collections pins like ETL_MIRROR_COLLECTIONS (default: that variable); exit 2
+        when a billable document cannot be applied (R19)
+  project --owned=none|all|DOMAINS [--collections=a,b]
+        one full firestore.shadow pass (main spec §13.8): every row of the projected collections, only the fields that
+        differ, document ids minted (R25); run it before COMPAT_PROJECTION_ENABLED is turned on, or back on
+  reconcile-sync --owned=none|all|DOMAINS [--dump=DIR|s3:etl/dumps/{ts}] [--out=DIR] [--accept-findings=NAME]
+        the daily coexistence reconciliation (live Firestore, or a dump of it): the mirror caught up, the projected
+        documents equivalent to their rows, open findings against the baseline; exit 2 on a mismatch
   quarantine list [--collection=C] [--reason=R] [--all]
   quarantine resolve --collection=C --doc=PATH --action=retry|skip|rehome [--tenant=UUID] [--by=NAME]
   status
@@ -131,6 +151,7 @@ func run(ctx context.Context, args, environ []string, stdout, stderr io.Writer, 
 		"dump": cmdDump, "load": cmdLoad, "reconcile": cmdReconcile, "export-back": cmdExportBack, "media-copy": cmdMediaCopy,
 		"rewrite-urls": cmdRewriteURLs, "quarantine list": cmdQuarantineList, "quarantine resolve": cmdQuarantineResolve,
 		"status": cmdStatus, "auth-import": cmdAuthImport, "auth-weak-scan": cmdAuthWeakScan, "auth-rbac": cmdAuthRBAC,
+		"mirror": cmdMirror, "project": cmdProject, "reconcile-sync": cmdReconcileSync,
 	}
 	fn, ok := commands[cmd]
 	if !ok {
@@ -183,7 +204,8 @@ func (e *env) engine() (*etl.Engine, func(), int) {
 		_, _ = fmt.Fprintf(e.stderr, "etl: runs as %s through ETL_DATABASE_URL (R66), not as %s\n", db.RoleETL, l.RoleName)
 		return nil, nil, app.ExitConfigError
 	}
-	eng, err := etl.New(etl.Config{Tx: systemTx(pool), OwnFleetTenantID: e.cfg.OwnFleet, Bucket: e.cfg.S3Bucket, Log: e.log, Now: e.deps.now})
+	eng, err := etl.New(etl.Config{Tx: systemTx(pool), OwnFleetTenantID: e.cfg.OwnFleet, Bucket: e.cfg.S3Bucket,
+		PublicBucket: e.cfg.S3PublicBucket, Log: e.log, Now: e.deps.now})
 	if err != nil {
 		pool.Close()
 		return nil, nil, e.fail(app.ExitConfigError, err, "etl configuration")
@@ -191,16 +213,11 @@ func (e *env) engine() (*etl.Engine, func(), int) {
 	return eng, pool.Close, app.ExitOK
 }
 
-// systemTx runs every ETL statement in the system context (Appendix C §C.3.2) with app.etl_load on, which the
-// frozen-tenant, driver-link and file-registry triggers accept from cmd/etl only.
+// systemTx runs every ETL statement in the system context (Appendix C §C.3.2) with app.etl_load on (db.WithETL), which
+// the frozen-tenant, driver-link and file-registry triggers accept from the ETL load path only.
 func systemTx(pool *pgxpool.Pool) etl.TxFunc {
 	return func(ctx context.Context, fn func(pgx.Tx) error) error {
-		return db.WithSystem(ctx, pool, nil, func(tx pgx.Tx) error {
-			if _, err := tx.Exec(ctx, `SELECT set_config('app.etl_load', 'on', true)`); err != nil {
-				return fmt.Errorf("etl: enable the ETL load context: %w", err)
-			}
-			return fn(tx)
-		})
+		return db.WithETL(ctx, pool, fn)
 	}
 }
 
@@ -284,6 +301,14 @@ func cmdDump(e *env, args []string) int {
 		if err != nil {
 			return e.fail(app.ExitRuntimeError, err, "list collections")
 		}
+		// Firestore lists no empty collection: the ones `reconcile --finance` requires are always read, so a collection
+		// empty at source still has its manifest entry (count 0).
+		for _, n := range etl.FinanceCollections {
+			if !slices.Contains(ids, n) {
+				ids = append(ids, n)
+			}
+		}
+		slices.Sort(ids)
 		for _, id := range ids {
 			list = append(list, coll{id, false})
 		}
@@ -523,8 +548,17 @@ func cmdReconcile(e *env, args []string) int {
 	period := fl.String("period", "", "YYYY-MM (Asia/Bangkok) for the money checks")
 	out := fl.String("out", "", "directory for reconcile-{ts}.md and .csv")
 	accept := fl.String("accept-findings", "", "owner name: accept the open findings (new codes and deltas) as the next baseline")
+	finance := fl.Bool("finance", false, "add the billing cut-over checks and the parity dry run (T41)")
+	months := fl.Int("months", 3, "--finance: closed Bangkok months the parity dry run recomputes")
+	through := fl.String("through", "", "--finance: the last of them, YYYY-MM (default: the month before now)")
 	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
 		return usageError(e.stderr, "reconcile: bad flags")
+	}
+	if !*finance && (*through != "" || *months != 3) {
+		return usageError(e.stderr, "reconcile: --months and --through go with --finance")
+	}
+	if *finance && (*months < 1 || *months > 24) {
+		return usageError(e.stderr, "reconcile: --months must be 1-24")
 	}
 	d, cleanup, code := e.openDump(*src, *useFixtures)
 	defer cleanup()
@@ -536,8 +570,13 @@ func cmdReconcile(e *env, args []string) int {
 		return code
 	}
 	defer closeDB()
-	rec, err := eng.Reconcile(e.ctx, d, etl.ReconcileOptions{Period: *period, AcceptFindingsBy: *accept})
+	rec, err := eng.Reconcile(e.ctx, d, etl.ReconcileOptions{Period: *period, AcceptFindingsBy: *accept, Finance: *finance,
+		Months: *months, Through: *through})
 	if err != nil {
+		if errors.Is(err, etl.ErrBadWindow) {
+			_, _ = fmt.Fprintf(e.stderr, "etl: %v\n", err)
+			return app.ExitConfigError
+		}
 		return e.fail(app.ExitRuntimeError, err, "reconcile failed")
 	}
 	if *out != "" {
@@ -551,6 +590,20 @@ func cmdReconcile(e *env, args []string) int {
 		if err := writeTo(base+".csv", e.stdout, rec.WriteCSV); err != nil {
 			return e.fail(app.ExitRuntimeError, err, "write report")
 		}
+		if rec.Finance != nil {
+			parity := filepath.Join(*out, "parity-"+e.deps.now().UTC().Format("20060102T150405Z")+".csv")
+			if err := writeTo(parity, e.stdout, rec.WriteParityCSV); err != nil {
+				return e.fail(app.ExitRuntimeError, err, "write parity report")
+			}
+		}
+	}
+	if rec.Finance != nil {
+		n := map[string]int{}
+		for _, p := range rec.Finance.Parity {
+			n[p.Outcome]++
+		}
+		_, _ = fmt.Fprintf(e.stdout, "parity %s: %d recomputed, %d exact, %d allow-listed, %d mismatched\n",
+			strings.Join(rec.Finance.Window.Months, " "), len(rec.Finance.Parity), n[etl.ParityExact], n[etl.ParityAllowed], n[etl.ParityMismatch])
 	}
 	for _, c := range rec.Mismatches() {
 		_, _ = fmt.Fprintf(e.stdout, "MISMATCH\t%s\t%s\tsource %s\ttarget %s\t%s\n", c.Name, c.Key, c.Source, c.Target, c.Note)
@@ -679,14 +732,31 @@ func cmdMediaCopy(e *env, args []string) int {
 }
 
 func cmdRewriteURLs(e *env, args []string) int {
-	if len(args) != 0 {
-		return usageError(e.stderr, "rewrite-urls takes no arguments")
+	fl := flag.NewFlagSet("rewrite-urls", flag.ContinueOnError)
+	fl.SetOutput(e.stderr)
+	apply := fl.Bool("apply", false, "point settings(mobile_app).apkDownloadUrl at S3_PUBLIC_BASE_URL once the APK is committed")
+	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
+		return usageError(e.stderr, "rewrite-urls takes only --apply")
+	}
+	if *apply && e.cfg.S3PublicBaseURL == "" {
+		_, _ = fmt.Fprintln(e.stderr, "etl: rewrite-urls --apply needs S3_PUBLIC_BASE_URL")
+		return app.ExitConfigError
 	}
 	eng, closeDB, code := e.engine()
 	if code != app.ExitOK {
 		return code
 	}
 	defer closeDB()
+	if *apply {
+		res, err := eng.ApplyURLRewrites(e.ctx, e.cfg.S3PublicBaseURL)
+		if err != nil {
+			return e.fail(app.ExitRuntimeError, err, "rewrite-urls --apply failed")
+		}
+		for _, p := range res.Pending {
+			_, _ = fmt.Fprintf(e.stdout, "PENDING\t%s (not committed yet: run media-copy)\n", p)
+		}
+		_, _ = fmt.Fprintf(e.stdout, "rewrite-urls --apply: %d rewritten\n", res.Rewritten)
+	}
 	hits, err := eng.RewriteURLs(e.ctx)
 	if err != nil {
 		return e.fail(app.ExitRuntimeError, err, "rewrite-urls failed")
@@ -808,5 +878,194 @@ func cmdStatus(e *env, args []string) int {
 			s.Counts["rejected"], s.Counts["dropped"], s.Counts["pending"], s.OpenFindings)
 	}
 	_ = tw.Flush()
+	return app.ExitOK
+}
+
+// ownedDomains parses --owned: the deployment's PG_OWNED_DOMAINS ("none" for an empty value, "all", or a comma list).
+// It is required: a sweep or a projection planned for the wrong owner would write the other side.
+func ownedDomains(v string) (map[string]bool, error) {
+	if v == "" {
+		return nil, errors.New("--owned is required (the deployment's PG_OWNED_DOMAINS: none, all or a comma list)")
+	}
+	if v == "none" {
+		v = ""
+	}
+	list, err := webcfg.ParseOwned(v)
+	if err != nil {
+		return nil, fmt.Errorf("--owned: %w", err)
+	}
+	out := map[string]bool{}
+	for _, d := range list {
+		out[d] = true
+	}
+	return out, nil
+}
+
+func cmdMirror(e *env, args []string) int {
+	fl := flag.NewFlagSet("mirror", flag.ContinueOnError)
+	fl.SetOutput(e.stderr)
+	ownedFl := fl.String("owned", "", "the deployment's PG_OWNED_DOMAINS: none, all or a comma list")
+	colls := fl.String("collections", e.cfg.MirrorCollections, "pin: a comma list of collections (default ETL_MIRROR_COLLECTIONS)")
+	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
+		return usageError(e.stderr, "mirror: bad flags")
+	}
+	owned, err := ownedDomains(*ownedFl)
+	if err != nil {
+		return usageError(e.stderr, err.Error())
+	}
+	plan, err := etl.PlanMirror(owned, splitList(*colls))
+	if err != nil {
+		return usageError(e.stderr, err.Error())
+	}
+	f, code := e.firestore()
+	if code != app.ExitOK {
+		return code
+	}
+	eng, closeDB, code := e.engine()
+	if code != app.ExitOK {
+		return code
+	}
+	defer closeDB()
+	rep, err := eng.Mirror(e.ctx, f, plan)
+	if err != nil {
+		return e.abortCode(err, "mirror failed")
+	}
+	tw := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "collection\tmode\tread\tunchanged\tbefore watermark\tapplied\theld")
+	held := 0
+	for _, c := range rep.Collections {
+		n := 0
+		for _, v := range c.Outcomes {
+			n += v
+		}
+		held += c.Held
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n", c.Name, c.Mode, c.Total, c.Unchanged, c.BeforeMark, n, c.Held)
+	}
+	_ = tw.Flush()
+	_, _ = fmt.Fprintf(e.stdout, "mirror: %d document(s) applied\n", rep.Applied())
+	if held > 0 {
+		// A billable document the sweep could not apply (R19) is held, the rest committed: name it for the fix at source.
+		for _, d := range rep.Docs {
+			if d.Outcome == etl.Pending && len(d.Findings) > 0 {
+				_, _ = fmt.Fprintf(e.stderr, "etl: held %s (%s): fix it at the source; every sweep retries it\n", d.Path, d.Findings[0].Reason)
+			}
+		}
+		return app.ExitConfigError
+	}
+	return app.ExitOK
+}
+
+func cmdProject(e *env, args []string) int {
+	fl := flag.NewFlagSet("project", flag.ContinueOnError)
+	fl.SetOutput(e.stderr)
+	ownedFl := fl.String("owned", "", "the deployment's PG_OWNED_DOMAINS: none, all or a comma list")
+	colls := fl.String("collections", "", "pin: a comma list of projected collections")
+	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
+		return usageError(e.stderr, "project: bad flags")
+	}
+	owned, err := ownedDomains(*ownedFl)
+	if err != nil {
+		return usageError(e.stderr, err.Error())
+	}
+	plan, err := etl.PlanProjection(owned, splitList(*colls))
+	if err != nil {
+		return usageError(e.stderr, err.Error())
+	}
+	if len(plan) == 0 {
+		_, _ = fmt.Fprintln(e.stdout, "project: nothing to project (no projected collection is PostgreSQL-owned under --owned)")
+		return app.ExitOK
+	}
+	f, code := e.firestore()
+	if code != app.ExitOK {
+		return code
+	}
+	eng, closeDB, code := e.engine()
+	if code != app.ExitOK {
+		return code
+	}
+	defer closeDB()
+	stats, err := eng.Projector(f, plan, owned).ProjectAll(e.ctx)
+	tw := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "collection\twritten\tunchanged\tskipped")
+	var total etl.ProjectStats
+	for _, c := range plan {
+		st, ok := stats[c]
+		if !ok {
+			continue
+		}
+		total.Written += st.Written
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\n", c, st.Written, st.Unchanged, st.Skipped)
+	}
+	_ = tw.Flush()
+	if err != nil {
+		return e.fail(app.ExitRuntimeError, err, "project failed")
+	}
+	_, _ = fmt.Fprintf(e.stdout, "project: %d document(s) written\n", total.Written)
+	return app.ExitOK
+}
+
+func cmdReconcileSync(e *env, args []string) int {
+	fl := flag.NewFlagSet("reconcile-sync", flag.ContinueOnError)
+	fl.SetOutput(e.stderr)
+	ownedFl := fl.String("owned", "", "the deployment's PG_OWNED_DOMAINS: none, all or a comma list")
+	src := fl.String("dump", "", "compare with a dump instead of the live Firestore")
+	out := fl.String("out", "", "directory for reconcile-sync-{ts}.md and .csv")
+	accept := fl.String("accept-findings", "", "owner name: accept the open findings (new codes and deltas) as the next baseline")
+	if err := fl.Parse(args); err != nil || fl.NArg() != 0 {
+		return usageError(e.stderr, "reconcile-sync: bad flags")
+	}
+	owned, err := ownedDomains(*ownedFl)
+	if err != nil {
+		return usageError(e.stderr, err.Error())
+	}
+	mirror, err := etl.PlanMirror(owned, splitList(e.cfg.MirrorCollections))
+	if err != nil {
+		return usageError(e.stderr, "ETL_MIRROR_COLLECTIONS: "+err.Error())
+	}
+	projection, _ := etl.PlanProjection(owned, nil)
+	var source etl.DocSource
+	if *src != "" {
+		d, cleanup, code := e.openDump(*src, false)
+		defer cleanup()
+		if code != app.ExitOK {
+			return code
+		}
+		source = etl.DumpSource{Dump: d}
+	} else {
+		f, code := e.firestore()
+		if code != app.ExitOK {
+			return code
+		}
+		source = f
+	}
+	eng, closeDB, code := e.engine()
+	if code != app.ExitOK {
+		return code
+	}
+	defer closeDB()
+	rec, err := eng.ReconcileSync(e.ctx, source, etl.SyncReconcileOptions{Mirror: mirror, Projection: projection, AcceptFindingsBy: *accept})
+	if err != nil {
+		return e.fail(app.ExitRuntimeError, err, "reconcile-sync failed")
+	}
+	if *out != "" {
+		if err := os.MkdirAll(*out, 0o750); err != nil {
+			return e.fail(app.ExitRuntimeError, err, "report directory")
+		}
+		base := filepath.Join(*out, "reconcile-sync-"+e.deps.now().UTC().Format("20060102T150405Z"))
+		if err := writeTo(base+".md", e.stdout, rec.WriteMarkdown); err != nil {
+			return e.fail(app.ExitRuntimeError, err, "write report")
+		}
+		if err := writeTo(base+".csv", e.stdout, rec.WriteCSV); err != nil {
+			return e.fail(app.ExitRuntimeError, err, "write report")
+		}
+	}
+	for _, c := range rec.Mismatches() {
+		_, _ = fmt.Fprintf(e.stdout, "MISMATCH\t%s\t%s\tsource %s\ttarget %s\t%s\n", c.Name, c.Key, c.Source, c.Target, c.Note)
+	}
+	if !rec.Match {
+		_, _ = fmt.Fprintf(e.stdout, "reconcile-sync: %d mismatch(es)\n", len(rec.Mismatches()))
+		return app.ExitConfigError
+	}
+	_, _ = fmt.Fprintf(e.stdout, "reconcile-sync: match (%d checks)\n", len(rec.Checks))
 	return app.ExitOK
 }

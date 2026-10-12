@@ -73,6 +73,19 @@ const (
 	Pending     Outcome = "pending"
 )
 
+// The tombstones of etl.source_docs (0018, T29): a document the mirror settled because Firestore no longer has it,
+// kept with the instant it was known gone so that no copy of it read earlier loads again (settleGone). Neither is a
+// load outcome: every reader that lists documents treats both as settled.
+const (
+	// StatusRenamed is the former id of a trip renameTripRecord re-keyed (renamedFrom).
+	StatusRenamed = "renamed"
+	// StatusRemoved is a document whose row the mirror removed where the legacy app deletes (mirrorRemoved).
+	StatusRemoved = "removed"
+)
+
+// tombstone reports whether an etl.source_docs status is one of the tombstones.
+func tombstone(status string) bool { return status == StatusRenamed || status == StatusRemoved }
+
 // Finding is one etl.quarantine row: Field "" is a whole-row finding.
 type Finding struct {
 	Field  string

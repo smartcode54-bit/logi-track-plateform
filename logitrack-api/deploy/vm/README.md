@@ -57,7 +57,7 @@ Tree on the VM:
 | `env-names/<program>.txt` | the exact §16.1 names each program receives (checked by `make env-check`) |
 | `provision.sh` | one-time, idempotent set-up as root (`--dry-run` prints the plan) |
 | `deploy.sh` | build and ship from the operator's machine (`--dry-run`, `--rollback`, `--status`, `--provision`, `--kit`) |
-| `rollout.sh` | the VM side of a deploy: migrate, first-deploy seed, switch, pm2, checks, rollback, pruning; `rollout.sh pm2 ...` |
+| `rollout.sh` | the VM side of a deploy: migrate, first-deploy seed (or the `--reseed` top-up), switch, pm2, checks, rollback, pruning; `rollout.sh pm2 ...` |
 | `run-app.sh` | starts a program with its names from `shared/.env`, read at exec time (also `release`, section 8) |
 | `ecosystem.config.cjs` | the four pm2 apps and their per-process listener settings |
 | `nginx/` | the two vhosts, the Cloudflare real-IP and proxy-header snippets, the access-log format |
@@ -204,7 +204,13 @@ Sign in at `https://logi.showkhun.co/login` as `ssadmin@showkhun.co`. Demo users
 ## 4. Later deploys
 
 The same command from a newer commit of `mv-go`: no seed, `migrate up` first (expand/contract: the running release
-keeps serving on the new schema), then the switch and the checks. Redeploying the commit that is already live is
+keeps serving on the new schema), then the switch and the checks. When the release's seed generators add rows (a
+seed PR such as T35's demo operations), deploy it with `--reseed`: `rollout.sh activate --reseed` then runs
+`seed --profile demo --allow-shared` after `migrate up` and before the switch (`APP_ENV=dev` loads in upsert mode:
+only missing rows; the admin bootstrap stays a first-deploy step). The top-up uses the new release's seed, which prices
+the rows it adds from the rate tables and hubs the database holds; a failed top-up stops the deploy with `current`
+unchanged. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
+would add a second set of anchor-relative rows next to the first. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
 current release, the kept ones and the last activations, and says so when the current release was never
 recorded as live (a deploy interrupted between the on-VM checks and `confirm`).
@@ -328,9 +334,13 @@ With the Gradle `output-metadata.json` next to the APK, `--metadata=FILE` replac
 `--build-number` and refuses a split-per-ABI build, another version and the other flavor's applicationId. A
 published version is immutable (bump the version); `--force` only replaces an upload that was never published.
 If a publish is cut off before it answers (an SSH drop), rerun the same command: a build that was published
-already answers "Already published" without uploading again. Until the coexistence projection of
-`settings/mobile_app` exists (T24), installed 3.x APKs keep reading their floor and link from Firestore; this
-publish reaches `GET /v1/mobile/settings` only.
+already answers "Already published" without uploading again. Installed 3.x APKs read their floor and link
+from Firestore `settings/mobile_app`, which the `firestore.shadow` consumer projects from this gate (T52R) only
+where `COMPAT_PROJECTION_ENABLED` is on and `PG_OWNED_DOMAINS` holds `mobile_release`; this VM runs PostgreSQL
+only (both off), so here a publish or a floor reaches `GET /v1/mobile/settings` only, and
+`WEB_FLAG_OVERRIDES=mobile_release=go` alone is safe because its Firestore project is empty. A deployment whose
+Firestore project serves a fleet switches the flag, the domain and the projection together after freezing the
+gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alone.
 
 ## Operations
 
@@ -346,6 +356,23 @@ publish reaches `GET /v1/mobile/settings` only.
   `UPLOAD_MAX_BYTES` needs the same `client_max_body_size` in both vhosts (`nginx/`).
 - Web domain flags: P0 state, `WEB_FLAG_OVERRIDES=auth=go` with `PG_OWNED_DOMAINS` empty (every other domain on
   the dev Firebase project); change them in the `.env` and reload `logitrack-api` (no web rebuild).
+- Operations writes (T31): the task, trip, standby-backfill and incident write routes write PostgreSQL only while
+  `operations` is in `PG_OWNED_DOMAINS` (this VM has no Firestore). With it absent they would write Firestore first
+  (the class C write-back), and since `WRITEBACK_FIRESTORE_PROJECT_ID` stays empty here they answer `503
+  write_back_unconfigured` instead: add `operations` to `PG_OWNED_DOMAINS` (e.g. `PG_OWNED_DOMAINS=auth,operations`,
+  keeping `WEB_FLAG_OVERRIDES` for the web pages' own switch, `operations=firebase` while the operations pages are
+  not on Go yet) and reload `logitrack-api`. Never set `WRITEBACK_FIRESTORE_PROJECT_ID` on this VM: it would point
+  the api's writes at a real Firestore project.
+- Coexistence consumers (T24S): the VM runs PostgreSQL only, so `ETL_SYNC_ENABLED` and `COMPAT_PROJECTION_ENABLED`
+  stay `false`: the worker then opens no ETL pool and no Firestore client, and its `etl.sync` and `firestore.shadow`
+  queues drain without effect (a sweep command fails its job naming the switch, an event is answered unprojected).
+  The worker never receives `ETL_DATABASE_URL` (not in `env-names/worker.txt`; `shared/.env` keeps it for seed):
+  the mirror logs in as the BYPASSRLS `logitrack_etl` (R66) only on its own replica, `worker-sync`
+  (`WORKER_CONSUMERS=sync`), which this VM does not run, and a worker refuses to start holding that URL without the
+  mirror. Turning either switch on against a real Firestore project is an owner step (logitrack-api README
+  "Coexistence"). `ETL_LISTEN_INTERVAL` (T29, the mirror's listeners) is in the worker's allow-list and
+  `env.vm.example` but does nothing here: the listeners run only on `worker-sync` with `ETL_SYNC_ENABLED`, and so
+  does the daily `etl.reconcile` cron.
 - Cloudflare ranges: `nginx/logitrack-cloudflare-realip.conf` holds the list of
   https://www.cloudflare.com/ips/; update it there and run `deploy.sh --provision`.
 - Switching storage to S3 later: fill `S3_*`, set `STORAGE_BACKEND=s3`, keep `LOCAL_MEDIA_*` while local rows
@@ -361,7 +388,7 @@ of api, worker, scheduler, migrate and seed (`STORAGE_BACKEND=local`, empty `S3_
 node, every script run against a temporary tree with stub commands (dry runs change nothing; no generated secret
 in any output or process argument; a second provision changes nothing; a JWT key path outside `shared/secrets/`
 is refused; deploy from a clean export, refusal of untracked files, rollback, the public-check failure path,
-the first-deploy seed, pruning; the section 2 reload; the backup commands' modes). With `-tags=integration`
+the first-deploy seed and the `--reseed` top-up of a later deploy, pruning; the section 2 reload; the backup commands' modes). With `-tags=integration`
 (`make test-integration`, or `make vm-check`): `nginx -t`, the routing of both vhosts and the error logs of an
 unreachable upstream (no credential in them) under `nginx:1.24` with a dummy certificate at the real paths,
 shellcheck over every script, and section 7's restore run as written on PostgreSQL 18 (definer owners kept,

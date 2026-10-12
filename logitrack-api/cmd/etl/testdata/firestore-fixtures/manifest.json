@@ -7,7 +7,7 @@
     {
       "name": "settings",
       "file": "settings.ndjson",
-      "count": 1
+      "count": 3
     },
     {
       "name": "permissions_config",
@@ -27,27 +27,27 @@
     {
       "name": "trucks",
       "file": "trucks.ndjson",
-      "count": 4
+      "count": 5
     },
     {
       "name": "drivers",
       "file": "drivers.ndjson",
-      "count": 4
+      "count": 5
     },
     {
       "name": "tasks",
       "file": "tasks.ndjson",
-      "count": 7
+      "count": 9
     },
     {
       "name": "trip_records",
       "file": "trip_records.ndjson",
-      "count": 7
+      "count": 8
     },
     {
       "name": "standby_records",
       "file": "standby_records.ndjson",
-      "count": 2
+      "count": 3
     },
     {
       "name": "incidentReport",
@@ -62,7 +62,7 @@
     {
       "name": "maintenance",
       "file": "maintenance.ndjson",
-      "count": 2
+      "count": 6
     },
     {
       "name": "checkin",
@@ -72,6 +72,148 @@
     {
       "name": "legacy_tmp",
       "file": "legacy_tmp.ndjson",
+      "count": 1
+    },
+    {
+      "name": "companies",
+      "file": "companies.ndjson",
+      "count": 4
+    },
+    {
+      "name": "customer_rate_entries",
+      "file": "customer_rate_entries.ndjson",
+      "count": 5
+    },
+    {
+      "name": "customer_fuel_rate_adjustments",
+      "file": "customer_fuel_rate_adjustments.ndjson",
+      "count": 3
+    },
+    {
+      "name": "customer_service_fees",
+      "file": "customer_service_fees.ndjson",
+      "count": 5
+    },
+    {
+      "name": "standby_rate_entries",
+      "file": "standby_rate_entries.ndjson",
+      "count": 1
+    },
+    {
+      "name": "fuel_daily_snapshots",
+      "file": "fuel_daily_snapshots.ndjson",
+      "count": 2
+    },
+    {
+      "name": "fuel_monthly_snapshots",
+      "file": "fuel_monthly_snapshots.ndjson",
+      "count": 2
+    },
+    {
+      "name": "hubs",
+      "file": "hubs.ndjson",
+      "count": 8
+    },
+    {
+      "name": "hub_soc_distances",
+      "file": "hub_soc_distances.ndjson",
+      "count": 3
+    },
+    {
+      "name": "soc_hub_distances",
+      "file": "soc_hub_distances.ndjson",
+      "count": 1
+    },
+    {
+      "name": "metadata",
+      "file": "metadata.ndjson",
+      "count": 1
+    },
+    {
+      "name": "truckAssignment",
+      "file": "truckAssignment.ndjson",
+      "count": 4
+    },
+    {
+      "name": "mobile_installations",
+      "file": "mobile_installations.ndjson",
+      "count": 4,
+      "group": true
+    },
+    {
+      "name": "billing_statements",
+      "file": "billing_statements.ndjson",
+      "count": 2
+    },
+    {
+      "name": "billing_counters",
+      "file": "billing_counters.ndjson",
+      "count": 2
+    },
+    {
+      "name": "driver_compensation_config",
+      "file": "driver_compensation_config.ndjson",
+      "count": 1
+    },
+    {
+      "name": "driver_penalties",
+      "file": "driver_penalties.ndjson",
+      "count": 3
+    },
+    {
+      "name": "payroll",
+      "file": "payroll.ndjson",
+      "count": 3
+    },
+    {
+      "name": "transactions",
+      "file": "transactions.ndjson",
+      "count": 3
+    },
+    {
+      "name": "chats",
+      "file": "chats.ndjson",
+      "count": 3
+    },
+    {
+      "name": "messages",
+      "file": "messages.ndjson",
+      "count": 3,
+      "group": true
+    },
+    {
+      "name": "broadcasts",
+      "file": "broadcasts.ndjson",
+      "count": 1
+    },
+    {
+      "name": "leave_requests",
+      "file": "leave_requests.ndjson",
+      "count": 3
+    },
+    {
+      "name": "holidays",
+      "file": "holidays.ndjson",
+      "count": 3
+    },
+    {
+      "name": "security_events",
+      "file": "security_events.ndjson",
+      "count": 1
+    },
+    {
+      "name": "vehicle_locations",
+      "file": "vehicle_locations.ndjson",
+      "count": 2
+    },
+    {
+      "name": "waitlist",
+      "file": "waitlist.ndjson",
+      "count": 1
+    },
+    {
+      "name": "partner-interest",
+      "file": "partner-interest.ndjson",
       "count": 1
     }
   ]

@@ -48,6 +48,12 @@ var ErrNotFound = errors.New("gcp: not found")
 // ErrPrecondition: a write's precondition failed (the document changed since it was read).
 var ErrPrecondition = errors.New("gcp: precondition failed")
 
+// errNoDocument marks a 404 whose message is Firestore's "No document to update" (or delete): a write with
+// currentDocument.exists=true named a document that does not exist. Real Firestore answers that precondition with
+// NOT_FOUND, not FAILED_PRECONDITION; Commit reports it as ErrPrecondition. Any other 404 (a missing database or
+// project) stays ErrNotFound.
+var errNoDocument = errors.New("gcp: no such document")
+
 // APIError is an error answer of a Google API; Code is Google's status ("PERMISSION_DENIED"), never body text.
 type APIError struct {
 	Op     string
@@ -126,16 +132,71 @@ func (f *Firestore) CollectionIDs(ctx context.Context) ([]string, error) {
 // so no --since=watermark load built on this dump can filter it out. Firestore accepts a past readTime for one
 // hour (seven days with point-in-time recovery); a read that runs longer fails instead of mixing instants.
 func (f *Firestore) Documents(ctx context.Context, collection string, group bool) ([]dump.Doc, error) {
-	var docs []dump.Doc
-	last, readTime := "", ""
-	for {
-		q := map[string]any{
-			"from":    []any{map[string]any{"collectionId": collection, "allDescendants": group}},
-			"orderBy": []any{map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
-			"limit":   pageSize,
+	docs, _, err := f.DocumentsAt(ctx, collection, group, time.Time{})
+	return docs, err
+}
+
+// DocumentsAt is Documents at the read time at (zero: the first response's), and returns the read time it used, so
+// a mirror sweep reads every collection at one instant (T29: a trip renamed in the same batch that re-points its
+// incident reports is seen renamed in both collections, or in neither).
+func (f *Firestore) DocumentsAt(ctx context.Context, collection string, group bool, at time.Time) ([]dump.Doc, time.Time, error) {
+	q := map[string]any{
+		"from":    []any{map[string]any{"collectionId": collection, "allDescendants": group}},
+		"orderBy": []any{map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
+		"limit":   pageSize,
+	}
+	return f.query(ctx, collection, group, q, at, func(d dump.Doc) []any {
+		return []any{map[string]any{"referenceValue": f.root + "/" + d.Path}}
+	})
+}
+
+// Changed reads the documents of a top-level collection whose timestamp field is at or after since, ordered by that
+// field and then by name, paged with a cursor, at one read time (at, or the first response's), which it returns. A
+// document whose field is missing or holds no timestamp is not returned: the mirror's sweep, which reads whole
+// collections, applies it (main spec §13.7, T29: the listeners poll this query between sweeps). The query needs only
+// the single-field index Firestore keeps by default.
+func (f *Firestore) Changed(ctx context.Context, collection, field string, since, at time.Time) ([]dump.Doc, time.Time, error) {
+	if field == "" || since.IsZero() {
+		return nil, time.Time{}, errors.New("gcp: Changed needs a field and an instant")
+	}
+	fp := quoteFieldPath(field)
+	q := map[string]any{
+		"from": []any{map[string]any{"collectionId": collection, "allDescendants": false}},
+		"where": map[string]any{"fieldFilter": map[string]any{"field": map[string]any{"fieldPath": fp}, "op": "GREATER_THAN_OR_EQUAL",
+			"value": map[string]any{"timestampValue": since.UTC().Format(time.RFC3339Nano)}}},
+		"orderBy": []any{
+			map[string]any{"field": map[string]any{"fieldPath": fp}, "direction": "ASCENDING"},
+			map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"},
+		},
+		"limit": pageSize,
+	}
+	var bad error
+	docs, read, err := f.query(ctx, collection, false, q, at, func(d dump.Doc) []any {
+		ts, ok := d.Fields[field].(dump.Timestamp)
+		if !ok {
+			bad = fmt.Errorf("gcp: runQuery %s answered %s without a timestamp %s", collection, d.Path, field)
 		}
-		if last != "" {
-			q["startAt"] = map[string]any{"values": []any{map[string]any{"referenceValue": last}}, "before": false}
+		return []any{map[string]any{"timestampValue": ts.UTC().Format(time.RFC3339Nano)},
+			map[string]any{"referenceValue": f.root + "/" + d.Path}}
+	})
+	if err == nil && bad != nil {
+		err = bad
+	}
+	return docs, read, err
+}
+
+// query pages one structured query at one read time; cursor gives the startAt values after a page's last document.
+func (f *Firestore) query(ctx context.Context, collection string, group bool, q map[string]any, at time.Time,
+	cursor func(dump.Doc) []any) ([]dump.Doc, time.Time, error) {
+	var docs []dump.Doc
+	var last *dump.Doc
+	readTime := ""
+	if !at.IsZero() {
+		readTime = at.UTC().Format(time.RFC3339Nano)
+	}
+	for {
+		if last != nil {
+			q["startAt"] = map[string]any{"values": cursor(*last), "before": false}
 		}
 		body := map[string]any{"structuredQuery": q}
 		if readTime != "" {
@@ -146,13 +207,13 @@ func (f *Firestore) Documents(ctx context.Context, collection string, group bool
 			ReadTime string   `json:"readTime"`
 		}
 		if err := do(ctx, f.client, f.tokens, "runQuery", http.MethodPost, f.base+":runQuery", body, &out); err != nil {
-			return nil, err
+			return nil, time.Time{}, err
 		}
 		n := 0
 		for _, r := range out {
 			if readTime == "" && r.ReadTime != "" {
 				if _, err := time.Parse(time.RFC3339Nano, r.ReadTime); err != nil {
-					return nil, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, r.ReadTime, err)
+					return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, r.ReadTime, err)
 				}
 				readTime = r.ReadTime
 			}
@@ -160,23 +221,48 @@ func (f *Firestore) Documents(ctx context.Context, collection string, group bool
 				continue // the readTime-only element of an empty page
 			}
 			n++
-			last = r.Document.Name
 			d, err := f.decodeDoc(*r.Document)
 			if err != nil {
-				return nil, err
+				return nil, time.Time{}, err
 			}
 			if d.Collection() != collection || (!group && d.ParentPath() != "") {
-				return nil, fmt.Errorf("gcp: runQuery %s answered %s", collection, d.Path)
+				return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s answered %s", collection, d.Path)
 			}
 			docs = append(docs, d)
+			last = &docs[len(docs)-1]
 		}
 		if n < pageSize {
-			return docs, nil
+			if readTime == "" {
+				return docs, time.Time{}, nil
+			}
+			rt, err := time.Parse(time.RFC3339Nano, readTime)
+			if err != nil {
+				return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s: readTime %q: %w", collection, readTime, err)
+			}
+			return docs, rt.UTC(), nil
 		}
 		if readTime == "" {
-			return nil, fmt.Errorf("gcp: runQuery %s: a full page without readTime cannot be continued as one snapshot", collection)
+			return nil, time.Time{}, fmt.Errorf("gcp: runQuery %s: a full page without readTime cannot be continued as one snapshot", collection)
 		}
 	}
+}
+
+// Lookup reads one document at the read time at (zero: now); ok false when it does not exist then.
+func (f *Firestore) Lookup(ctx context.Context, path string, at time.Time) (dump.Doc, bool, error) {
+	u := f.base + "/" + escapePath(path)
+	if !at.IsZero() {
+		u += "?" + url.Values{"readTime": {at.UTC().Format(time.RFC3339Nano)}}.Encode()
+	}
+	var out restDoc
+	err := do(ctx, f.client, f.tokens, "get", http.MethodGet, u, nil, &out)
+	if errors.Is(err, ErrNotFound) {
+		return dump.Doc{}, false, nil
+	}
+	if err != nil {
+		return dump.Doc{}, false, err
+	}
+	d, err := f.decodeDoc(out)
+	return d, err == nil, err
 }
 
 // Get reads one document; ErrNotFound when it does not exist.
@@ -222,6 +308,72 @@ func (f *Firestore) Patch(ctx context.Context, path string, fields map[string]an
 		return dump.Doc{}, err
 	}
 	return f.decodeDoc(out)
+}
+
+// Write is one write of a Commit: Delete removes the document at Path; otherwise Fields are written under Mask (a
+// field in Mask but not in Fields is deleted, fields outside Mask are kept; an empty Mask replaces the document).
+// Pre guards the write.
+type Write struct {
+	Path   string
+	Fields map[string]any
+	Mask   []string
+	Delete bool
+	Pre    Precondition
+}
+
+// Commit applies writes atomically (documents:commit: all of them or none) and returns the commit time, which is the
+// update time of every document it wrote. A failed precondition is ErrPrecondition and nothing is written.
+func (f *Firestore) Commit(ctx context.Context, writes []Write) (time.Time, error) {
+	if len(writes) == 0 {
+		return time.Time{}, errors.New("gcp: commit without writes")
+	}
+	body := make([]map[string]any, 0, len(writes))
+	for _, w := range writes {
+		name := f.root + "/" + w.Path
+		var out map[string]any
+		if w.Delete {
+			out = map[string]any{"delete": name}
+		} else {
+			enc := map[string]any{}
+			for k, v := range w.Fields {
+				ev, err := EncodeValue(f.root, v)
+				if err != nil {
+					return time.Time{}, fmt.Errorf("gcp: %s.%s: %w", w.Path, k, err)
+				}
+				enc[k] = ev
+			}
+			out = map[string]any{"update": map[string]any{"name": name, "fields": enc}}
+			if len(w.Mask) > 0 {
+				paths := make([]string, len(w.Mask))
+				for i, m := range w.Mask {
+					paths[i] = quoteFieldPath(m)
+				}
+				out["updateMask"] = map[string]any{"fieldPaths": paths}
+			}
+		}
+		switch {
+		case w.Pre.Exists != nil:
+			out["currentDocument"] = map[string]any{"exists": *w.Pre.Exists}
+		case !w.Pre.UpdateTime.IsZero():
+			out["currentDocument"] = map[string]any{"updateTime": w.Pre.UpdateTime.UTC().Format(time.RFC3339Nano)}
+		}
+		body = append(body, out)
+	}
+	var res struct {
+		CommitTime time.Time `json:"commitTime"`
+	}
+	if err := do(ctx, f.client, f.tokens, "commit", http.MethodPost, f.base+":commit", map[string]any{"writes": body}, &res); err != nil {
+		if errors.Is(err, errNoDocument) && slices.ContainsFunc(writes, func(w Write) bool {
+			return (w.Pre.Exists != nil && *w.Pre.Exists) || !w.Pre.UpdateTime.IsZero()
+		}) {
+			return time.Time{}, fmt.Errorf("%w: commit: a document a write names does not exist", ErrPrecondition)
+		}
+		return time.Time{}, err
+	}
+	if res.CommitTime.IsZero() {
+		return time.Time{}, errors.New("gcp: commit: the answer has no commit time")
+	}
+	return res.CommitTime, nil
 }
 
 type restDoc struct {
@@ -473,6 +625,8 @@ func do(ctx context.Context, client *http.Client, tokens oauth2.TokenSource, op,
 	if res.StatusCode/100 != 2 {
 		code := statusCode(raw)
 		switch {
+		case res.StatusCode == http.StatusNotFound && strings.HasPrefix(errorMessage(raw), "No document to "):
+			return fmt.Errorf("%w: %w: %s", ErrNotFound, errNoDocument, op)
 		case res.StatusCode == http.StatusNotFound:
 			return fmt.Errorf("%w: %s", ErrNotFound, op)
 		case res.StatusCode == http.StatusPreconditionFailed || code == "FAILED_PRECONDITION" || code == "ALREADY_EXISTS":
@@ -486,6 +640,20 @@ func do(ctx context.Context, client *http.Client, tokens oauth2.TokenSource, op,
 		}
 	}
 	return nil
+}
+
+// errorMessage is the message of Google's {"error":{"message":"..."}}, only tested for a prefix: an error never carries
+// it (it names the document path).
+func errorMessage(raw []byte) string {
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) != nil {
+		return ""
+	}
+	return e.Error.Message
 }
 
 // statusCode keeps only Google's upper-case status of {"error":{"status":"..."}}.

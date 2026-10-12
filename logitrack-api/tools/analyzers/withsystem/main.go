@@ -12,6 +12,8 @@
 //     a key InTx in a jobs.SubmitInput literal (or one whose type is elided) or a write of .InTx, in a
 //     file that imports internal/jobs (a request reads tenant rows under db.WithPrincipal before it
 //     calls Submit; go vet's composites check refuses an unkeyed jobs.SubmitInput outside its package);
+//   - a reference to db.WithETL (WithSystem plus app.etl_load, the ETL load path) outside ETLAllowed: cmd/etl
+//     and the worker's etl.sync mirror consumer (internal/coexist, T24);
 //   - a reference to db.RLS outside RLSAllowed: db.WithPrincipal trusts the RLS() of the principal it
 //     is given, so only internal/authz (authz.Principal.RLS) may build a request context; a hand-made
 //     type with an RLS() method could otherwise ask for the bypass or any tenant with the steward flag;
@@ -84,11 +86,22 @@ var Allowed = []string{
 	"internal/notify",    // notify.* consumers (worker, T10)
 	"internal/scheduler", // scheduler jobs (T10)
 	"internal/hubs",      // read-only loads of the shared hub caches, the distances.compute consumer (T21)
+	"internal/billing",   // read-only loads of the rate-card bundle and the invoice-set count, the bangchak.snapshot consumer (T37); pricing (T38)
+	"internal/coexist",   // the etl.sync mirror and firestore.shadow projection consumers of the worker (T24)
+	"internal/forms",     // the anonymous waitlist / partner-interest inserts: RLS-exempt tables, no principal exists (T53)
+	// the cartrack.sync consumer of the worker: GPS trucks of every tenant, the latest-only vehicle_locations upsert (T53)
+	"internal/fleet/locations",
+	"internal/hr", // the payroll.run consumer of the worker: draft runs of the job's tenant (T44)
 	"cmd/worker",
 	"cmd/scheduler",
 	"cmd/etl",
 	"cmd/seed",
 }
+
+// ETLAllowed may name db.WithETL (app.etl_load on top of the system context): the ETL load path only, that is
+// cmd/etl and the worker's etl.sync mirror consumer, which applies Firestore documents through the same load
+// transforms (main spec §13.7, T24).
+var ETLAllowed = []string{"internal/platform/db", "cmd/etl", "internal/coexist"}
 
 // RLSAllowed may name db.RLS: its definition and authz.Principal.RLS, the one mapping of a principal to
 // the request GUCs.
@@ -263,6 +276,8 @@ func inspect(f *ast.File) []hit {
 			switch {
 			case isDB(e, "WithSystem"):
 				out = append(out, hit{e.Pos(), "db.WithSystem", "use db.WithPrincipal", nil})
+			case isDB(e, "WithETL"):
+				out = append(out, hit{e.Pos(), "db.WithETL (the ETL load context)", "only cmd/etl and the etl.sync mirror load documents", ETLAllowed})
 			case isDB(e, "RLS"):
 				out = append(out, hit{e.Pos(), "db.RLS", "pass the request's authz.Principal to db.WithPrincipal", RLSAllowed})
 			case isAuth(e, "RolePlayPrincipal"):

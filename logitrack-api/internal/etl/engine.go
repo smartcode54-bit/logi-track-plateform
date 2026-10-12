@@ -32,9 +32,12 @@ type Config struct {
 	Tx TxFunc
 	// OwnFleetTenantID is OWN_FLEET_TENANT_ID: the single own-fleet tenant (R56). Required.
 	OwnFleetTenantID uuid.UUID
-	// Bucket is S3_BUCKET: file_objects.bucket of every registered legacy object (APKs excepted, T24).
+	// Bucket is S3_BUCKET: file_objects.bucket of every registered legacy object but the APKs.
 	Bucket string
-	Log    zerolog.Logger
+	// PublicBucket is S3_PUBLIC_BUCKET: file_objects.bucket of the legacy APK (settings/mobile_app, visibility public,
+	// R23). Default logitrack-public, the default of the storage configuration.
+	PublicBucket string
+	Log          zerolog.Logger
 	// Now is the clock of reports and resolutions (tests pin it).
 	Now func() time.Time
 }
@@ -60,6 +63,12 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.Bucket == "" {
 		return nil, errors.New("etl: S3_BUCKET is required")
 	}
+	if cfg.PublicBucket == "" {
+		cfg.PublicBucket = "logitrack-public"
+	}
+	if cfg.PublicBucket == cfg.Bucket {
+		return nil, errors.New("etl: S3_PUBLIC_BUCKET must differ from S3_BUCKET")
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -70,8 +79,10 @@ func New(cfg Config) (*Engine, error) {
 // trip number collision needs a manual decision, or the own-fleet configuration disagrees with the database.
 type AbortError struct {
 	Collection, Path string
-	Reason           Reason
-	Detail           string
+	// Field is the document field the rejection names ("" for the row or the run).
+	Field  string
+	Reason Reason
+	Detail string
 }
 
 func (e *AbortError) Error() string {
@@ -93,33 +104,70 @@ type LoadOptions struct {
 	SinceWatermark bool
 	// Force re-applies documents whose _updateTime is not newer than the stored one (after a mapping change).
 	Force bool
+	// Mirror is an etl.sync sweep (Engine.Mirror): each document applies in a savepoint, an out-of-vocabulary literal
+	// keeps PostgreSQL's value of its field, and a billable document that still cannot be applied is held instead of
+	// stopping the sweep (mirrorApply).
+	Mirror bool
+	// Changes marks documents that are only the changes a listener read since an instant (Engine.MirrorChanges, T29),
+	// not whole collections: no prepare, no presence for the rename check (the run's lookup answers), and the
+	// collection's watermark is left to the sweep, so a change the listener cannot see (no updatedAt) is never passed.
+	Changes bool
 }
 
 // CollectionStats count one collection of a run.
 type CollectionStats struct {
-	Name       string
-	Mapped     bool
+	Name   string
+	Mapped bool
+	// Mode is the mirror mode of a sweep's collection (MirrorFull, MirrorFields); empty for a load.
+	Mode       string
 	Total      int // documents in the dump
 	Unchanged  int // _updateTime not newer than etl.source_docs (skipped)
 	BeforeMark int // filtered out by --since / the watermark
 	Outcomes   map[Outcome]int
+	// Held are the billable documents a sweep could not apply (R19): recorded pending with their finding, retried by
+	// every sweep, never counted as applied (mirrorApply).
+	Held int `json:",omitempty"`
+	// Events counts the domain events the mirror appended to the outbox for this collection (T29).
+	Events int `json:",omitempty"`
+	// Deferred counts the documents a listener read but could not apply (a rejection or a hold needs the whole
+	// collection's knowledge): the next sweep applies them (T29).
+	Deferred int `json:",omitempty"`
+	// Removed counts the documents Firestore no longer has whose rows the mirror removed where the legacy app deletes
+	// (mirrorRemoved, T29); Kept the ones it reported and left in place.
+	Removed int `json:",omitempty"`
+	Kept    int `json:",omitempty"`
 }
 
 // DocResult is one applied document.
 type DocResult struct {
 	Collection, Path string
-	Outcome          Outcome
-	Table, TargetID  string
-	TenantSource     string
-	Findings         []Finding
+	// DocID and UpdateTime name the version applied (the read-your-writes ack of the mirror, R53, T29).
+	DocID           string
+	UpdateTime      time.Time
+	Outcome         Outcome
+	Table, TargetID string
+	TenantSource    string
+	Findings        []Finding
 }
 
 // Report is the result of a load.
 type Report struct {
-	DryRun      bool
-	ExportedAt  time.Time
+	DryRun     bool
+	ExportedAt time.Time
+	// ReadAt is the Firestore read time of a mirror run that read at one (a sweep over a SnapshotSource, a listener's
+	// poll); zero otherwise. The daily reconciliation compares that same snapshot (SyncReconcileOptions.ReadAt).
+	ReadAt      time.Time
 	Collections []CollectionStats
 	Docs        []DocResult
+	// Extra are findings a collection's after-hook raised on documents of an earlier collection (a trip whose
+	// restamp would cross a locked period is known only once the statements are loaded).
+	Extra []ExtraFinding
+}
+
+// ExtraFinding is a finding written on another collection's document.
+type ExtraFinding struct {
+	Collection, Path string
+	Finding          Finding
 }
 
 // Applied counts the documents a run wrote.
@@ -156,12 +204,16 @@ func (e *Engine) Load(ctx context.Context, d *dump.Dump, o LoadOptions) (*Report
 		if err := e.ensureOwnFleet(ctx, tx, d); err != nil {
 			return err
 		}
+		if _, err := e.settleRehomed(ctx, tx); err != nil {
+			return err
+		}
+		r := e.newRun(ctx, tx, rep)
 		for _, spec := range plan {
 			docs, err := d.Read(spec.name)
 			if err != nil {
 				return err
 			}
-			stats, err := e.loadCollection(ctx, tx, spec, docs, d.Manifest.ExportedAt, o, billable, rep)
+			stats, err := e.loadCollection(ctx, tx, spec, docs, d.Manifest.ExportedAt, o, billable, rep, r)
 			if err != nil {
 				return err
 			}
@@ -206,8 +258,25 @@ func loadPlan(names, selected []string) []collectionSpec {
 const watermarkOverlap = 10 * time.Minute
 
 func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionSpec, docs []dump.Doc, exportedAt time.Time,
-	o LoadOptions, billable billableSet, rep *Report) (CollectionStats, error) {
+	o LoadOptions, billable billableSet, rep *Report, r *runState) (CollectionStats, error) {
 	stats := CollectionStats{Name: spec.name, Mapped: spec.mapper != nil, Total: len(docs), Outcomes: map[Outcome]int{}}
+	if r == nil {
+		r = e.newRun(ctx, tx, rep)
+	}
+	if spec.prepare != nil && !o.Changes {
+		// docs is the whole collection of the dump (a dump reads whole collections; --since and the watermark
+		// filter below, after prepare), so a stored document it lacks was deleted at source.
+		if err := spec.prepare(&docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, run: r}, docs, true); err != nil {
+			return stats, err
+		}
+	}
+	if !o.Changes {
+		set := make(map[string]bool, len(docs))
+		for _, d := range docs {
+			set[d.Path] = true
+		}
+		r.present[spec.name] = set
+	}
 	since := o.Since.Truncate(time.Microsecond)
 	var mark watermark
 	if o.SinceWatermark {
@@ -230,7 +299,10 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		ut := doc.UpdateTime.Truncate(time.Microsecond)
 		beforeMark := (!since.IsZero() && !ut.After(since)) ||
 			(o.SinceWatermark && !mark.at.IsZero() && ut.Before(mark.at.Add(-watermarkOverlap)))
-		if beforeMark && !pending[doc.Path] {
+		// reapply: prepare decided this document must be applied although Firestore did not change it (a hub
+		// duplicate that takes the row over once the winner was deleted at source).
+		reapply := spec.reapply != nil && spec.reapply(r, doc.Path)
+		if beforeMark && !pending[doc.Path] && !reapply {
 			stats.BeforeMark++
 			continue
 		}
@@ -249,16 +321,59 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		case errors.Is(err, pgx.ErrNoRows):
 		case err != nil:
 			return stats, fmt.Errorf("etl: %s: read source doc: %w", doc.Path, err)
-		case !o.Force && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
+		case !o.Force && !reapply && !ut.After(storedUT) && (storedStatus != string(Pending) || spec.mapper == nil):
 			// A pending document waits for its mapping: it is applied by the first load that has one.
+			if storedStatus == string(Rejected) && spec.rowNow != nil {
+				found, err := spec.rowNow(ctx, tx, doc)
+				if err != nil {
+					return stats, fmt.Errorf("etl: %s: %w", doc.Path, err)
+				}
+				if found {
+					break // rejected before its row existed: apply it now
+				}
+			}
 			stats.Unchanged++
 			if storedStatus != string(Pending) {
 				advance()
 			}
 			continue
 		}
-		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc)}
-		if err := e.apply(c, spec); err != nil {
+		// A listener cannot know every billable reference (it reads only changes): any document it could not apply is
+		// left to the next sweep (Deferred) instead of being rejected or held on partial knowledge.
+		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc) || o.Changes, run: r}
+		if o.Mirror {
+			var before opsState
+			if r.events {
+				var err error
+				if before, err = opsBefore(c); err != nil {
+					return stats, err
+				}
+			}
+			held, err := e.mirrorApply(c, spec)
+			if err != nil {
+				return stats, err
+			}
+			if held != nil && o.Changes {
+				stats.Deferred++
+				continue
+			}
+			if held != nil {
+				if err := e.hold(c, held, exportedAt); err != nil {
+					return stats, err
+				}
+				stats.Held++
+				rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, DocID: doc.ID, UpdateTime: ut,
+					Outcome: Pending, Findings: c.findings})
+				continue
+			}
+			if r.events {
+				n, err := emitOpsEvents(c, before)
+				if err != nil {
+					return stats, err
+				}
+				stats.Events += n
+			}
+		} else if err := e.apply(c, spec); err != nil {
 			return stats, err
 		}
 		if err := e.record(c, exportedAt); err != nil {
@@ -267,9 +382,17 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		if c.outcome != Pending {
 			advance()
 		}
+		if c.outcome == Loaded || c.outcome == Quarantined {
+			r.applied[spec.name] = append(r.applied[spec.name], doc)
+		}
 		stats.Outcomes[c.outcome]++
-		rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, Outcome: c.outcome, Table: c.table,
-			TargetID: c.target, TenantSource: string(c.tenantSource), Findings: c.findings})
+		rep.Docs = append(rep.Docs, DocResult{Collection: spec.name, Path: doc.Path, DocID: doc.ID, UpdateTime: ut, Outcome: c.outcome,
+			Table: c.table, TargetID: c.target, TenantSource: string(c.tenantSource), Findings: c.findings})
+	}
+	if spec.after != nil && spec.mapper != nil {
+		if err := spec.after(r, spec.name); err != nil {
+			return stats, fmt.Errorf("etl: %s: %w", spec.name, err)
+		}
 	}
 	// Deferred link checks (tenant consistency, driver membership) fire per collection, so a failure names it. A row
 	// keeps its tenant on re-apply and one that leaves the quarantine tenant takes its children along (lookups.go
@@ -280,7 +403,7 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 	if _, err := tx.Exec(ctx, `SET CONSTRAINTS ALL DEFERRED`); err != nil {
 		return stats, fmt.Errorf("etl: %s: %w", spec.name, err)
 	}
-	if !high.at.IsZero() {
+	if !high.at.IsZero() && !o.Changes {
 		if err := writeWatermark(ctx, tx, spec.name, high); err != nil {
 			return stats, err
 		}
@@ -321,7 +444,7 @@ func (e *Engine) apply(c *docCtx, spec collectionSpec) error {
 		}
 	case droppedCollections[spec.name]:
 		c.outcome = Dropped
-	case laterCollections[spec.name]:
+	case separateCollections[spec.name]:
 		c.outcome = Pending
 	default:
 		c.outcome = Dropped
@@ -420,6 +543,15 @@ func (e *Engine) record(c *docCtx, exportedAt time.Time) error {
 	if err != nil {
 		return fmt.Errorf("etl: %s: record source doc: %w", c.doc.Path, err)
 	}
+	if c.findingScope != nil {
+		rowLevel := slices.ContainsFunc(c.findings, func(f Finding) bool { return f.Field == "" })
+		if _, err := c.tx.Exec(c.ctx, `DELETE FROM etl.quarantine WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL
+			AND ((field IS NULL AND $4) OR field = ANY($3) OR split_part(field, '.', 1) = ANY($3))`,
+			c.coll, c.doc.Path, c.findingScope, rowLevel); err != nil {
+			return fmt.Errorf("etl: %s: clear findings: %w", c.doc.Path, err)
+		}
+		return insertFindings(c.ctx, c.tx, c.coll, c.doc.Path, c.findings)
+	}
 	return writeFindings(c.ctx, c.tx, c.coll, c.doc.Path, c.findings)
 }
 
@@ -427,6 +559,10 @@ func writeFindings(ctx context.Context, tx pgx.Tx, coll, path string, findings [
 	if _, err := tx.Exec(ctx, `DELETE FROM etl.quarantine WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL`, coll, path); err != nil {
 		return fmt.Errorf("etl: %s: clear findings: %w", path, err)
 	}
+	return insertFindings(ctx, tx, coll, path, findings)
+}
+
+func insertFindings(ctx context.Context, tx pgx.Tx, coll, path string, findings []Finding) error {
 	for _, f := range findings {
 		var field, detail *string
 		if f.Field != "" {

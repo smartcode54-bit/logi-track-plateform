@@ -304,7 +304,8 @@ func TestRLSCatalogMatchesAppendixC(t *testing.T) {
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'public' AND c.relkind = 'v' ORDER BY c.relname`)
 	wantViews := []string{}
-	for _, v := range []string{"scope_drivers", "scope_incidents", "scope_standby", "scope_tasks", "scope_tenants", "scope_trips", "scope_trucks"} {
+	for _, v := range []string{"scope_drivers", "scope_incidents", "scope_standby", "scope_standby_photos", "scope_task_stops",
+		"scope_tasks", "scope_tenants", "scope_trip_photos", "scope_trip_stops", "scope_trips", "scope_trucks", "scope_vehicle_locations"} {
 		wantViews = append(wantViews, v+" invoker=t app=SELECT")
 	}
 	if !slices.Equal(views, wantViews) {

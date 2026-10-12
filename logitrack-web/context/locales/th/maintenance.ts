@@ -143,4 +143,15 @@ export default {
     "maintenance.service.tire_rotation": "สลับยาง",
     "maintenance.service.brake_service": "ระบบเบรก",
 
+    // T42: the Go accounting / maintenance pages.
+    "maintenance.go.reminderSent": "ส่งการแจ้งเตือนไปที่แอปคนขับแล้ว",
+    "maintenance.go.remind": "เตือนคนขับ",
+    "maintenance.go.ofLoaded": "จากรายการที่โหลดแล้ว",
+    "maintenance.go.allStatuses": "ทุกสถานะ",
+    "maintenance.go.pickTruck": "เลือกรถ แล้วหน้าซ่อมบำรุงของรถคันนั้นจะเปิดพร้อมฟอร์ม",
+    "maintenance.go.openTruck": "เปิด",
+    "maintenance.go.fileType": "{name}: แนบได้เฉพาะไฟล์ JPEG, PNG, WebP หรือ PDF",
+    "maintenance.go.fileTooLarge": "{name} มีขนาดเกิน 10 MB",
+    "maintenance.go.photoNotAttached": "บันทึกรายการแล้ว แต่ยังแนบไฟล์ไม่สำเร็จ กดบันทึกอีกครั้งเพื่อแนบ",
+    "maintenance.go.queueLoaded": "{status}: โหลดแล้ว {loaded} จาก {total}",
 };

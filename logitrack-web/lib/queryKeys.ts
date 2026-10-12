@@ -64,6 +64,17 @@ function optionalParamsKey<const K extends readonly string[]>(...prefix: K) {
     return key;
 }
 
+function billingRowsKey(customerId: string, year: number, month: number): readonly ["billing", "rows", string, number, number];
+function billingRowsKey<P extends Params>(
+    customerId: string,
+    year: number,
+    month: number,
+    params: P
+): readonly ["billing", "rows", string, number, number, P];
+function billingRowsKey<P extends Params>(customerId: string, year: number, month: number, params?: P) {
+    return params === undefined ? (["billing", "rows", customerId, year, month] as const) : (["billing", "rows", customerId, year, month, params] as const);
+}
+
 export const queryKeys = {
     me: () => ["me"] as const,
     /** `GET /v1/me/tenants` (the tenant switcher, T18): under the `['me']` prefix, same policy row. */
@@ -81,21 +92,28 @@ export const queryKeys = {
     distances: {
         all: () => ["distances"] as const,
         byHub: (hubId: string) => ["distances", { hubId }] as const,
+        /** `GET /v1/distances?hubId&direction` (a hub's or a SOC's rows in one direction, T25). */
+        list: <P extends Params>(params: P) => ["distances", params] as const,
         meta: () => ["distances", "meta"] as const,
     },
     customers: {
         all: () => ["customers"] as const,
         list: <P extends Params>(params?: P) => listKey("customers", params),
         detail: (id: string) => ["customers", "detail", id] as const,
+        /** Every customer as a picker option (`fields=minimal`, flag `masterdata`, T25). */
+        options: () => ["customers", "options"] as const,
     },
     subcontractors: {
         all: () => ["subcontractors"] as const,
         list: <P extends Params>(params?: P) => listKey("subcontractors", params),
         detail: (id: string) => ["subcontractors", "detail", id] as const,
+        /** Every carrier as a picker option (`fields=minimal`, T25). */
+        options: () => ["subcontractors", "options"] as const,
     },
     companies: {
         all: () => ["companies"] as const,
         owner: () => ["companies", { owner: true }] as const,
+        list: <P extends Params>(params: P) => ["companies", params] as const,
     },
     holidays: {
         all: () => ["holidays"] as const,
@@ -112,11 +130,17 @@ export const queryKeys = {
         all: () => ["drivers"] as const,
         list: <P extends Params>(params: P) => ["drivers", params] as const,
         detail: (id: string) => ["drivers", "detail", id] as const,
+        /** Every driver as a picker option of the master-data pages (`fields=minimal`, T25). */
+        options: () => ["drivers", "options"] as const,
     },
     trucks: {
         all: () => ["trucks"] as const,
         list: <P extends Params>(params: P) => ["trucks", params] as const,
         detail: (id: string) => ["trucks", "detail", id] as const,
+        /** Every truck as a picker option of the truck assignment page (T25). */
+        options: () => ["trucks", "options"] as const,
+        /** The fleet status and PM counters of the trucks page (every truck, T25). */
+        fleetStats: () => ["trucks", "fleetStats"] as const,
     },
     renewals: <P extends Params>(params?: P) => listKey("renewals", params),
     truckAssignments: <P extends Params>(params?: P) => listKey("truckAssignments", params),
@@ -142,12 +166,18 @@ export const queryKeys = {
     },
 
     billing: {
-        rows: (customerId: string, year: number, month: number) => ["billing", "rows", customerId, year, month] as const,
+        /**
+         * `['billing','rows',cust,y,m]` is the prefix every write of the month invalidates; with `params`
+         * (`{types, categories, plate, vehicleClass, reviewMonth}`, every parameter that changes the answer,
+         * T39/T42) it is one cached answer.
+         */
+        rows: billingRowsKey,
         standbyDiag: (customerId: string, year: number, month: number) =>
             ["billing", "standbyDiag", customerId, year, month] as const,
         missingDate: (customerId: string, year: number, month: number) =>
             ["billing", "missingDate", customerId, year, month] as const,
-        shopee: (customerId: string, year: number, month: number, half: 1 | 2) =>
+        /** `half`: the Go report's round, `full` (the month), `first` (1-15) or `second` (16-end). */
+        shopee: (customerId: string, year: number, month: number, half: "full" | "first" | "second") =>
             ["billing", "shopee", customerId, year, month, half] as const,
     },
     income: <P extends Params>(params: P) => ["income", params] as const,

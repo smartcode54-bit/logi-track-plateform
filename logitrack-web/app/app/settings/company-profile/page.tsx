@@ -6,12 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  getOwnerCompany,
-  createCompany,
-  updateCompany,
-  uploadCompanyAsset,
-} from "@/features/companies/api/companies";
+import { companyFormValues, type CompanyAsset } from "@/features/companies/api/companies";
+import { useOwnerCompany, useSaveCompany } from "@/features/companies/api/useCompanies";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { CompanyFormSchema, type CompanyFormValues } from "@/validate/companySchema";
 import { useLanguage } from "@/context/language";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -34,24 +31,29 @@ import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type AssetType = "logo" | "stamp" | "signature";
+type AssetType = CompanyAsset;
 
 interface AssetState {
+  /** The stored image, or a local preview of a file staged for the next save. */
   url: string;
-  uploading: boolean;
+  /** A new file, uploaded when the form is saved (the Go keys embed the company id, §9.4). */
+  file?: File;
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CompanyProfilePage() {
   const { t } = useLanguage();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  // `['companies',{owner:true}]`, read fresh because this form writes it back (T25).
+  const ownerQuery = useOwnerCompany({ fresh: true });
+  const save = useSaveCompany();
+  const loading = ownerQuery.isPending;
+  const saving = save.isPending;
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [assets, setAssets] = useState<Record<AssetType, AssetState>>({
-    logo: { url: "", uploading: false },
-    stamp: { url: "", uploading: false },
-    signature: { url: "", uploading: false },
+    logo: { url: "" },
+    stamp: { url: "" },
+    signature: { url: "" },
   });
 
   const fileRefs = {
@@ -92,96 +94,55 @@ export default function CompanyProfilePage() {
 
   const branchType = watch("branchType");
 
-  // Load existing owner company (fresh: this form writes it back)
+  // Reset once when the stored owner company arrives; a background refetch must not overwrite edits.
+  const [loadedId, setLoadedId] = useState<string | null>(null);
   useEffect(() => {
-    setLoading(true);
-    getOwnerCompany({ fresh: true })
-      .then((company) => {
-        if (company) {
-          setCompanyId(company.id);
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { id: _id, createdAt: _c, updatedAt: _u, ...formData } = company;
-          reset(formData as CompanyFormValues);
-          setAssets({
-            logo: { url: company.logoUrl ?? "", uploading: false },
-            stamp: { url: company.stampUrl ?? "", uploading: false },
-            signature: { url: company.signatureUrl ?? "", uploading: false },
-          });
-        }
-      })
-      .catch((e) => {
-        console.error("[company-profile] load error:", e);
-        toast.error("ไม่สามารถโหลดข้อมูลบริษัทได้");
-      })
-      .finally(() => setLoading(false));
-  }, [reset]);
+    const company = ownerQuery.data;
+    if (!company || loadedId === company.id) return;
+    setCompanyId(company.id);
+    reset(companyFormValues(company));
+    setAssets({
+      logo: { url: company.logoUrl ?? "" },
+      stamp: { url: company.stampUrl ?? "" },
+      signature: { url: company.signatureUrl ?? "" },
+    });
+    setLoadedId(company.id);
+  }, [ownerQuery.data, loadedId, reset]);
 
-  // Handle asset upload
-  const handleAssetUpload = async (type: AssetType, file: File) => {
-    // Need a company doc ID to upload; create a placeholder owner company if none exists
-    let cId = companyId;
-    if (!cId) {
-      try {
-        cId = await createCompany({
-          nameTh: watch("nameTh") || "บริษัท (กำลังสร้าง)",
-          taxId: "0000000000000",
-          branchType: "headquarters",
-          address: "-",
-          withholdingTaxRate: 3,
-          companyType: "owner",
-          isActive: true,
-        });
-        setCompanyId(cId);
-      } catch {
-        toast.error(t("company.uploadError"));
-        return;
-      }
-    }
+  useEffect(() => {
+    if (ownerQuery.isError) toast.error(t("masterData.companies.loadError"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerQuery.isError]);
 
-    setAssets((prev) => ({ ...prev, [type]: { ...prev[type], uploading: true } }));
-    try {
-      const url = await uploadCompanyAsset(cId, type, file);
-      // Update form value + state
-      const fieldMap: Record<AssetType, keyof CompanyFormValues> = {
-        logo: "logoUrl",
-        stamp: "stampUrl",
-        signature: "signatureUrl",
-      };
-      setValue(fieldMap[type], url);
-      setAssets((prev) => ({ ...prev, [type]: { url, uploading: false } }));
-      toast.success(`อัปโหลด${type === "logo" ? "โลโก้" : type === "stamp" ? "ตราประทับ" : "ลายเซ็น"}สำเร็จ`);
-    } catch {
-      toast.error(t("company.uploadError"));
-      setAssets((prev) => ({ ...prev, [type]: { ...prev[type], uploading: false } }));
-    }
+  // A picked asset is staged and previewed; the save uploads it (with the company created first).
+  const handleAssetUpload = (type: AssetType, file: File) => {
+    setAssets((prev) => ({ ...prev, [type]: { url: URL.createObjectURL(file), file } }));
   };
 
   // Form submit
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onSubmit = async (data: any) => {
     const formData = data as CompanyFormValues;
-    setSaving(true);
     const toastId = toast.loading(t("company.saving"));
     try {
-      // Merge current asset URLs into formData
-      formData.logoUrl = assets.logo.url || formData.logoUrl;
-      formData.stampUrl = assets.stamp.url || formData.stampUrl;
-      formData.signatureUrl = assets.signature.url || formData.signatureUrl;
-
-      if (companyId) {
-        await updateCompany(companyId, formData);
-      } else {
-        const newId = await createCompany(formData);
-        setCompanyId(newId);
+      const files: Partial<Record<AssetType, File>> = {};
+      for (const type of ["logo", "stamp", "signature"] as const) {
+        if (assets[type].file) files[type] = assets[type].file;
       }
+      const id = await save.mutateAsync({ id: companyId, values: formData, files });
+      setCompanyId(id);
+      setLoadedId(id);
+      setAssets((prev) => ({
+        logo: { url: prev.logo.url },
+        stamp: { url: prev.stamp.url },
+        signature: { url: prev.signature.url },
+      }));
       toast.dismiss(toastId);
       toast.success(t("company.saved"));
     } catch (e) {
-      console.error("[company-profile] save error:", e);
       toast.dismiss(toastId);
-      toast.error(t("company.saveError"));
-    } finally {
-      setSaving(false);
+      applyServerFieldErrors(form, e, t);
+      toastSaveError(e, t, "company.saveError");
     }
   };
 
@@ -191,7 +152,7 @@ export default function CompanyProfilePage() {
     return (
       <div className="flex flex-col gap-2">
         <Label>
-          {label} <span className="text-muted-foreground font-normal text-xs">(ไม่บังคับ)</span>
+          {label} <span className="text-muted-foreground font-normal text-xs">{t("masterData.optional")}</span>
         </Label>
         <div className="flex items-center gap-4">
           {state.url && (
@@ -204,10 +165,10 @@ export default function CompanyProfilePage() {
               type="button"
               variant="outline"
               size="sm"
-              disabled={state.uploading}
+              disabled={saving}
               onClick={() => fileRefs[type].current?.click()}
             >
-              {state.uploading ? (
+              {saving && state.file ? (
                 <><Loader2 className="w-3 h-3 mr-1 animate-spin" />{t("company.uploading")}</>
               ) : (
                 <><Upload className="w-3 h-3 mr-1" />{state.url ? t("company.asset.change") : t("company.asset.upload")}</>
@@ -367,7 +328,7 @@ export default function CompanyProfilePage() {
                   placeholder={t("company.placeholder.signatoryName")}
                   {...register("signatoryName")}
                 />
-                <p className="text-xs text-muted-foreground">ชื่อที่แสดงใต้ลายเซ็นในใบวางบิล</p>
+                <p className="text-xs text-muted-foreground">{t("masterData.companies.signatoryHint")}</p>
               </div>
             </CardContent>
           </Card>
@@ -448,7 +409,7 @@ export default function CompanyProfilePage() {
                   max="100"
                   {...register("withholdingTaxRate", { valueAsNumber: true })}
                 />
-                <p className="text-xs text-muted-foreground">ตัวอย่าง: 3 = หัก 3%</p>
+                <p className="text-xs text-muted-foreground">{t("masterData.companies.whtHint")}</p>
               </div>
             </CardContent>
           </Card>
@@ -458,7 +419,7 @@ export default function CompanyProfilePage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Settings2 className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-base">สถานะบริษัท</CardTitle>
+                <CardTitle className="text-base">{t("masterData.companies.statusTitle")}</CardTitle>
               </div>
             </CardHeader>
             <CardContent>

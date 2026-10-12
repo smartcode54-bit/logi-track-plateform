@@ -31,8 +31,8 @@ const setContextSQL = `SELECT set_config('app.user_id', $1, true), set_config('a
 // Request transactions use WithPrincipal instead. tools/analyzers/withsystem (make lint) fails the build
 // when a package outside the allow-list of Appendix C §C.3.2 calls WithSystem: internal/auth,
 // internal/iam, internal/security, internal/storage, internal/public,
-// internal/platform/{outbox,inbox,tenancy}, internal/notify, internal/scheduler, internal/jobs, internal/hubs and
-// cmd/{worker,scheduler,etl,seed}/...; calls to inbox.Run and to jobs.Service.Submit with an InTx hook
+// internal/platform/{outbox,inbox,tenancy}, internal/notify, internal/scheduler, internal/jobs, internal/hubs, internal/billing,
+// internal/coexist, internal/hr and cmd/{worker,scheduler,etl,seed}/...; calls to inbox.Run and to jobs.Service.Submit with an InTx hook
 // count as WithSystem.
 func WithSystem(ctx context.Context, b Beginner, tenantID *uuid.UUID, fn func(pgx.Tx) error) error {
 	return pgx.BeginFunc(ctx, b, func(tx pgx.Tx) error {
@@ -42,6 +42,19 @@ func WithSystem(ctx context.Context, b Beginner, tenantID *uuid.UUID, fn func(pg
 		}
 		if _, err := tx.Exec(ctx, setContextSQL, "", tid, "system", "", "", "", "off", "off", "on"); err != nil {
 			return fmt.Errorf("db: set system context: %w", err)
+		}
+		return fn(tx)
+	})
+}
+
+// WithETL runs fn like WithSystem (no tenant) with app.etl_load on as well: the ETL load path, whose writes the
+// frozen-tenant, driver-link and file-registry triggers accept (Appendix C §C.3.2, §C.3.6). b must be a pool of the
+// logitrack_etl login (ETL_DATABASE_URL, R66): only that login reaches schema etl. Callers are cmd/etl and the
+// etl.sync mirror consumer of the worker (internal/coexist, T24); tools/analyzers/withsystem reports any other.
+func WithETL(ctx context.Context, b Beginner, fn func(pgx.Tx) error) error {
+	return WithSystem(ctx, b, nil, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT set_config('app.etl_load', 'on', true)`); err != nil {
+			return fmt.Errorf("db: set the ETL context: %w", err)
 		}
 		return fn(tx)
 	})

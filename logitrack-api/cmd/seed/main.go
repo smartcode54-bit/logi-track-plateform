@@ -1,6 +1,6 @@
 // Command seed loads the deterministic seed profiles and checks them (developer-spec.md §14, Appendix D):
-// uuid v5 ids, the smoke fixture of §D.4, the generated demo and load identities, placeholder media, and the
-// twelve --verify invariants. Writes go through ETL_DATABASE_URL as logitrack_etl inside db.WithSystem,
+// uuid v5 ids, the smoke fixture of §D.4, the generated demo and load identities and master data, placeholder
+// media, and the twelve --verify invariants. Writes go through ETL_DATABASE_URL as logitrack_etl inside db.WithSystem,
 // --reset and the schema check through MIGRATE_DATABASE_URL, the --verify isolation role-play through
 // DATABASE_URL as logitrack_app (R66, R87); nothing uses SET ROLE. Profile loads, --reset and --verify refuse
 // APP_ENV=prod; dev needs --allow-shared and loads in upsert mode.
@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,6 +41,16 @@ var fixtures embed.FS
 //
 //go:embed assets/Sarabun-Regular.ttf
 var sarabun []byte
+
+// media draws the placeholder objects of every load this process runs: the font is parsed once, and a load that
+// draws an object an earlier load of the process drew takes its bytes from the drawer's memo (seed.Media). A
+// command runs one load; the integration tests run many, each the demo's ~3,600 photos.
+var media = processMedia()
+
+// processMedia is a drawer with an empty memo, made on first use.
+func processMedia() func() (*seed.Media, error) {
+	return sync.OnceValues(func() (*seed.Media, error) { return seed.NewMedia(sarabun) })
+}
 
 // Exit codes of --verify (Appendix D §D.1.1): 0 pass, 1 invariant violation, 2 dependency unreachable.
 const (
@@ -242,16 +253,13 @@ func decideMode(appEnv string, o options) (seed.Mode, bool, string) {
 	return mode, reset, ""
 }
 
-// buildOptions maps the configuration onto the plan options.
+// buildOptions maps the configuration onto the plan options. RandomSeed 0 (SEED_RANDOM_SEED empty) is
+// seed.DefaultRandomSeed, which seed.Build applies, so the unit tests build the plan a load writes.
 func buildOptions(cfg *app.SeedConfig, profile seed.Profile) seed.Options {
-	o := seed.Options{
+	return seed.Options{
 		Profile: profile, Namespace: cfg.Namespace, OwnFleet: cfg.OwnFleet, RandomSeed: cfg.RandomSeed,
 		Anchor: cfg.Anchor, Bucket: cfg.S3Bucket, PublicBucket: cfg.S3PublicBucket, Backend: cfg.StorageBackend,
 	}
-	if o.RandomSeed == 0 {
-		o.RandomSeed = seed.DefaultRandomSeed
-	}
-	return o
 }
 
 func dryRun(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile seed.Profile, o options, stdout, stderr io.Writer) int {
@@ -389,14 +397,14 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 		log.Error().Err(err).Msg("password hasher")
 		return app.ExitConfigError
 	}
-	media, err := seed.NewMedia(sarabun)
+	m, err := media()
 	if err != nil {
 		log.Error().Err(err).Msg("overlay font")
 		return app.ExitRuntimeError
 	}
 	opts := buildOptions(cfg, profile)
 	opts.EmitEvents, opts.Materialize, opts.Hasher, opts.DefaultPassword = emitEvents, true, hasher, cfg.SeedDefaultPassword
-	opts.Scrypt, opts.Media = cfg.Scrypt, media
+	opts.Scrypt, opts.Media = cfg.Scrypt, m
 	opts.PublicURL = func(o storage.Object) (string, error) {
 		b, err := c.backends.For(cfg.StorageBackend)
 		if err != nil {

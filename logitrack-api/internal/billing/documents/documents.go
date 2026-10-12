@@ -1,8 +1,12 @@
 // Package documents holds the pure layout rules of the billing documents
 // (invoice, receipt, Excel detail): which date a row is billed on, the price
-// rounds of a period and the invoice line items (main spec §6.14, ADR 0009
-// §6-7, ADR 0027). Port of the pure part of web:lib/billingDocument.ts; the
-// renderers (PDF, Excel) arrive with the server-side documents (T39).
+// rounds of a period, the invoice line items, the detail sheet's rows and the
+// texts the documents print (Thai baht amounts, dates, period labels; main
+// spec §6.14, §9.9, ADR 0009 §6-7, ADR 0027). Port of the pure part of
+// web:lib/billingDocumentModel.ts and web:lib/billingDocumentRender.ts plus
+// npm bahttext; the renderers (PDF, Excel, ZIP) are internal/billing/render
+// (T39), which draws what this package computes. Dates print on the Bangkok
+// calendar (the browser printed its own zone).
 //
 // Money sums stay unrounded float sums in row order, as the browser computed
 // them (§6.2); every product would be wrapped in float64(...) (there are
@@ -41,7 +45,10 @@ const (
 type Row struct {
 	ID           string
 	TripRecordID string
-	DeliveredAt  time.Time // zero = absent
+	// TripNo is the trip number (legacy spxTripId; a multi-drop stop's is
+	// "{tripNo}-s{n}", standby's the trip it was migrated from, else "").
+	TripNo      string
+	DeliveredAt time.Time // zero = absent
 	// BillingDate is trip_records.billing_date, frozen when the row was
 	// priced; absent on standby and on trips priced before ADR 0027. Read it
 	// through AxisDate, never raw.
@@ -65,6 +72,12 @@ type Row struct {
 	FuelBandLowerTHB       *float64
 	FuelBandUpperTHB       *float64
 	ReferenceFuelPriceTHB  *float64
+	// Detail-sheet columns (generateDetailExcelBuffer): "" / zero = absent.
+	ActualPickupAt    time.Time
+	TruckLicensePlate string
+	DriverName        string
+	DriverPhone       string
+	SubcontractorName string // the carrier that ran the row; "" for the own fleet
 }
 
 // AxisDate is the date a row belongs to its statement by (billingAxisDate,

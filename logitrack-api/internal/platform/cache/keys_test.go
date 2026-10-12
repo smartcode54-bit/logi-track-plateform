@@ -35,6 +35,7 @@ func allKeys(ks Keyspace) map[string]string {
 		"TenantSubtenants":     ks.TenantSubtenants("t1"),
 		"WebFlags":             ks.WebFlags(),
 		"MirrorAck":            ks.MirrorAck("trips", "d1"),
+		"RunOrderHold":         ks.RunOrderHold("d1"),
 		"CacheGen":             ks.CacheGen("ratecard"),
 		"AuthRefresh":          ks.AuthRefresh("ab"),
 		"AuthSessionRevoked":   ks.AuthSessionRevoked("s1"),
@@ -61,6 +62,7 @@ func allKeys(ks Keyspace) map[string]string {
 		"RealtimeMarks":        ks.RealtimeMarks(),
 		"JobLock":              ks.JobLock("payroll.run", "2026-10"),
 		"CronLock":             ks.CronLock("rtlog.trim", "2026-10-10T04:00"),
+		"MirrorListenLock":     ks.MirrorListenLock(),
 	}
 }
 
@@ -87,6 +89,7 @@ func TestSpecKeyShapes(t *testing.T) {
 		"PeriodLocks":        "lt:prod:cache:period_locks:p1",
 		"TenantSubtenants":   "lt:prod:cache:tenant:subtenants:t1",
 		"MirrorAck":          "lt:prod:cache:mirror_ack:trips:d1",
+		"RunOrderHold":       "lt:prod:cache:run_order:d1",
 		"CacheGen":           "lt:prod:cache:gen:ratecard",
 		"AuthPasswordChange": "lt:prod:auth:pwchg:x",
 		"AuthFirebaseUID":    "lt:prod:auth:fbuid:f",
@@ -100,6 +103,7 @@ func TestSpecKeyShapes(t *testing.T) {
 		"SSEConnections":     "lt:prod:rl:sse_conns:u1",
 		"GeoReverse":         "lt:prod:cache:geo:rev:13.75000:100.50000",
 		"RBACCapabilities":   "lt:prod:rbac:caps:platform:tenant_admin:3:1a2b3c4d",
+		"MirrorListenLock":   "lt:prod:lock:mirror:listen",
 	}
 	got := allKeys(ks)
 	for name, w := range want {

@@ -80,12 +80,28 @@ func loadExpense(c *docCtx) error {
 	}
 	taxInv := c.text("taxInvId")
 	if typ == "fuel" && taxInv != nil && drv.ok() {
-		var other string
-		err := c.tx.QueryRow(c.ctx, `SELECT legacy_doc_id FROM vehicle_expenses WHERE expense_type = 'fuel' AND driver_id = $1
-			AND tax_inv_id = $2 AND legacy_doc_id IS DISTINCT FROM $3 LIMIT 1`, drv.id, *taxInv, c.doc.ID).Scan(&other)
+		var other, otherDoc string
+		err := c.tx.QueryRow(c.ctx, `SELECT coalesce(legacy_doc_id, id::text), coalesce(legacy_doc_id, '') FROM vehicle_expenses
+			WHERE expense_type = 'fuel' AND driver_id = $1 AND tax_inv_id = $2 AND legacy_doc_id IS DISTINCT FROM $3 LIMIT 1`,
+			drv.id, *taxInv, c.doc.ID).Scan(&other, &otherDoc)
 		switch {
 		case err == nil:
-			c.find("taxInvId", ReasonDuplicateNaturalKey, "the driver's fuel receipt is also "+other+" (D5: both loaded)", *taxInv)
+			enforced, err := c.run.d5Enforced(d5FuelTaxInv)
+			if err != nil {
+				return err
+			}
+			if enforced {
+				// After 0010 the receipt number is the driver's key: the duplicate loads without it (field
+				// quarantine) instead of stopping the load or the mirror on the unique index.
+				c.find("taxInvId", ReasonDuplicateNaturalKey, "the driver's fuel receipt is already "+other+"; tax_inv_id NULL (0010 vehicle_expenses_fuel_taxinv)", *taxInv)
+				taxInv = nil
+			} else {
+				c.find("taxInvId", ReasonDuplicateNaturalKey, "the driver's fuel receipt is also "+other+" (D5: both loaded)", *taxInv)
+				if err := c.flagHolder(otherDoc, Finding{Field: "taxInvId", Reason: ReasonDuplicateNaturalKey,
+					Detail: "the driver's fuel receipt is also " + c.doc.ID + " (D5: both loaded)", Raw: *taxInv}); err != nil {
+					return err
+				}
+			}
 		case !errors.Is(err, pgx.ErrNoRows):
 			return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 		}
@@ -119,8 +135,10 @@ func loadExpense(c *docCtx) error {
 
 var hhmm = regexp.MustCompile(`^[0-9]{2}:[0-9]{2}$`)
 
-// loadMaintenance: maintenance/{id} -> maintenance_records; tenant from the truck. Images, receipts and the
-// invoice (maintenance_files) load with T24.
+// loadMaintenance: maintenance/{id} -> maintenance_records + maintenance_files (images[], receipts[], invoiceUrl,
+// kinds image / receipt / invoice, purpose maintenance_file); tenant from the truck. The driver's check-in and
+// check-out times load too: check_in_at tells the 3.x app's 'In-Progress' (the driver checked in) from the web's
+// 'in_progress' (sent to the shop, check-in still ahead), which both normalise to in_progress (main spec §13.8).
 func loadMaintenance(c *docCtx) error {
 	typ := strings.ToUpper(c.str("type"))
 	switch typ {
@@ -178,12 +196,58 @@ func loadMaintenance(c *docCtx) error {
 		set("provider_lat", c.float("providerLat")).set("provider_lng", c.float("providerLng")).
 		set("payment_method", c.optVocab("paymentMethod", "cash", "credit_card", "billing", "transfer", "insurance_claim")).
 		set("current_mileage", c.integer("currentMileage")).set("next_service_mileage", c.integer("nextServiceMileage")).
-		set("driver_submitted", c.isTrue("driverSubmitted")).set("notes", c.text("notes"))
+		set("driver_submitted", c.isTrue("driverSubmitted")).set("check_in_at", c.ts("checkInAt")).
+		set("check_out_at", c.ts("checkOutAt")).set("notes", c.text("notes"))
 	c.times(r)
 	id, err := upsertLegacy(c, r)
 	if err != nil {
 		return err
 	}
+	if _, err := c.tx.Exec(c.ctx, `DELETE FROM maintenance_files WHERE maintenance_id = $1`, id); err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	pos := 0
+	put := func(field string, url any, kind string) error {
+		fid, err := c.fileRef(field, url, "maintenance_file", "maintenance", id, tenant)
+		if err != nil || fid == nil {
+			return err
+		}
+		if _, err := c.tx.Exec(c.ctx, `INSERT INTO maintenance_files (maintenance_id, file_id, kind, position) VALUES ($1, $2, $3, $4)
+			ON CONFLICT (maintenance_id, file_id) DO NOTHING`, id, *fid, kind, pos); err != nil {
+			return fmt.Errorf("etl: %s: maintenance file: %w", c.doc.Path, err)
+		}
+		pos++
+		return nil
+	}
+	for _, arr := range [][2]string{{"images", "image"}, {"receipts", "receipt"}} {
+		list, _ := c.get(arr[0]).([]any)
+		for i, u := range list {
+			if err := put(fmt.Sprintf("%s[%d]", arr[0], i), u, arr[1]); err != nil {
+				return err
+			}
+		}
+	}
+	if err := put("invoiceUrl", c.get("invoiceUrl"), "invoice"); err != nil {
+		return err
+	}
 	c.done("maintenance_records", id)
+	return nil
+}
+
+// afterMaintenance sets trucks.active_maintenance_id from the trucks' activeMaintenanceId (the FK is set after
+// maintenance loads, §A.3.4) for the trucks or maintenance rows this run applied.
+func afterMaintenance(r *runState, _ string) error {
+	trucks, err := r.appliedDocsOr("trucks", []string{"activeMaintenanceId"}, docIDs(r, "maintenance"))
+	if err != nil {
+		return err
+	}
+	for _, id := range sortedDocKeys(trucks) {
+		ref, _ := trucks[id]["activeMaintenanceId"].(string)
+		if _, err := r.tx.Exec(r.ctx, `UPDATE trucks t SET active_maintenance_id = m.id
+			FROM (SELECT (SELECT id FROM maintenance_records WHERE legacy_doc_id = nullif($2, '')) AS id) m
+			WHERE t.legacy_doc_id = $1 AND t.active_maintenance_id IS DISTINCT FROM m.id`, id, strings.TrimSpace(ref)); err != nil {
+			return fmt.Errorf("truck %s: active maintenance: %w", id, err)
+		}
+	}
 	return nil
 }

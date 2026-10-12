@@ -9,8 +9,10 @@
 //   - every ${NAME} interpolated in the compose file is listed in .env.example,
 //     so `make env` yields a complete .env;
 //   - each Go service in compose receives exactly the names whose consumer
-//     column lists it (so api, worker and scheduler get only DATABASE_URL and
-//     seed gets all three DB URLs, R66/R87);
+//     column lists it (so api, worker and scheduler get only DATABASE_URL,
+//     worker-sync, the worker replica of the etl.sync mirror, gets the worker's
+//     names and ETL_DATABASE_URL (T24S), and seed gets all three DB URLs,
+//     R66/R87);
 //   - `web` receives exactly the web-server names and is built with web-public
 //     names only; `caddy` receives exactly the caddy names (TW2);
 //   - with -vm-env and -vm-names, the staging VM kit (deploy/vm, OPSVM): the
@@ -35,11 +37,23 @@ import (
 )
 
 // goServices are the compose services built from the logitrack-api image.
-var goServices = []string{"api", "worker", "scheduler", "migrate", "seed", "etl"}
+var goServices = []string{"api", "worker", "worker-sync", "scheduler", "migrate", "seed", "etl"}
+
+// serviceConsumers are the §16.1 consumer labels a compose service receives
+// besides all-go (its own name by default): worker-sync is the worker, plus the
+// names of the mirror replica.
+var serviceConsumers = map[string][]string{"worker-sync": {"worker", "worker-sync"}}
+
+func consumersOf(svc string) []string {
+	if c, ok := serviceConsumers[svc]; ok {
+		return append(slices.Clone(c), "all-go")
+	}
+	return []string{svc, "all-go"}
+}
 
 // localConsumers are the §16.1 consumer labels whose names must all be in
 // logitrack-api/.env.example (mobile, ci and functions names live elsewhere).
-var localConsumers = []string{"all-go", "api", "worker", "scheduler", "migrate", "seed", "etl", "release", "infra", "infra (dev tunnel)", "caddy"}
+var localConsumers = []string{"all-go", "api", "worker", "worker-sync", "scheduler", "migrate", "seed", "etl", "release", "infra", "infra (dev tunnel)", "caddy"}
 
 // webConsumers may appear in .env.example because compose interpolates them for
 // the `web` service; they are required only when the compose file uses them.
@@ -241,12 +255,15 @@ func checkCompose(cfg composeConfig, inv inventory) []string {
 			add("compose: service %s missing (run config with --profile '*')", svc)
 			continue
 		}
-		exact(svc, s.Environment, liveWith(svc, "all-go"), "§16.1 consumer "+svc)
+		labels := consumersOf(svc)
+		exact(svc, s.Environment, liveWith(labels...), "§16.1 consumer "+strings.Join(labels[:len(labels)-1], ", "))
 	}
-	// The explicit R66/R87 rule, reported on its own for clarity.
+	// The explicit R66/R87 rule, reported on its own for clarity. The etl.sync mirror is the ETL load path (T24S): it
+	// logs in as logitrack_etl, the only login that reaches schema etl, on its own replica (worker-sync) so the
+	// general worker never holds that URL.
 	dbRule := map[string][]string{
-		"api": {"DATABASE_URL"}, "worker": {"DATABASE_URL"}, "scheduler": {"DATABASE_URL"},
-		"migrate": {"MIGRATE_DATABASE_URL"}, "etl": {"ETL_DATABASE_URL"},
+		"api": {"DATABASE_URL"}, "worker": {"DATABASE_URL"}, "worker-sync": {"DATABASE_URL", "ETL_DATABASE_URL"},
+		"scheduler": {"DATABASE_URL"}, "migrate": {"MIGRATE_DATABASE_URL"}, "etl": {"ETL_DATABASE_URL"},
 		"seed": {"DATABASE_URL", "ETL_DATABASE_URL", "MIGRATE_DATABASE_URL"},
 	}
 	for svc, want := range dbRule {

@@ -121,7 +121,7 @@ func TasksChanged() Push {
 
 // MaintenanceScheduled is "maintenance_scheduled" to a truck's driver (fn:triggers.ts:362-391): the
 // staff's title and body, else the legacy Thai defaults. The consumer of maintenance.created and
-// maintenance.reminder_requested lands with T40.
+// maintenance.reminder_requested (T40) passes the legacy reminder text when the staff wrote none.
 func MaintenanceScheduled(maintenanceRef, driverRef, title, body string) Push {
 	if title == "" {
 		title = "นัดเช็คระยะ"

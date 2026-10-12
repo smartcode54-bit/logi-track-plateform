@@ -1,18 +1,14 @@
 "use client";
 
+// A truck's maintenance: `GET /v1/maintenance?truckId`, `POST`/`PATCH /v1/maintenance` over Go while the `billing` web flag is on; the Firestore page otherwise (T42, P3;
+// developer-spec.md §10.13, Appendix E §E.2.3). Each source is its own chunk.
 import dynamic from "next/dynamic";
-import { Loader2 } from "lucide-react";
 
-const MaintenanceDashboard = dynamic(() => import("@/features/maintenance/components/MaintenanceDashboard"), {
-    ssr: false,
-    loading: () => (
-        <div className="flex items-center justify-center min-h-[400px]">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mr-2" />
-            <span className="text-muted-foreground">Loading...</span>
-        </div>
-    ),
-});
+import { DomainPage, PageLoading } from "@/features/platform/components/DomainPage";
 
-export default function MaintenancePage() {
-    return <MaintenanceDashboard />;
+const GoPage = dynamic(() => import("@/features/maintenance/components/go/TruckMaintenancePage").then((m) => m.TruckMaintenancePage), { loading: () => <PageLoading /> });
+const FirestorePage = dynamic(() => import("@/features/maintenance/legacy/LegacyMaintenanceDashboardPage"), { loading: () => <PageLoading /> });
+
+export default function TruckMaintenanceRoute() {
+    return <DomainPage domain="billing" go={GoPage} firestore={FirestorePage} />;
 }

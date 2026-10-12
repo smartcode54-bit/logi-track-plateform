@@ -213,17 +213,38 @@ func (c *docCtx) partyBasis(id *uuid.UUID) (string, error) {
 	return b, nil
 }
 
-// user resolves a Firebase uid to users.id; NULL + user_unresolved.
+// user resolves a user-valued field to users.id (userID); NULL + user_unresolved.
 func (c *docCtx) user(field, uid string) (*uuid.UUID, error) {
 	uid = strings.TrimSpace(uid)
 	if uid == "" {
 		return nil, nil
 	}
+	id, err := c.userID(uid)
+	if err != nil {
+		return nil, err
+	}
+	if id == nil {
+		c.find(field, ReasonUserUnresolved, "matches no users.legacy_auth_uid nor users.id", uid)
+	}
+	return id, nil
+}
+
+// userID resolves the value of a user-valued legacy field (reportedByUid, renamedBy, changedBy, ...): the Firebase uid
+// (users.legacy_auth_uid), else, for a login born in Go without one, its canonical users.id (the operations write-back
+// writes it when the caller has no Firebase uid, T31). A Firebase uid is never a canonical uuid held as another
+// user's id (the adoption rule of Appendix C §C.6.4), so the fallback cannot pick the wrong row. nil = no such user.
+func (c *docCtx) userID(uid string) (*uuid.UUID, error) {
 	var id uuid.UUID
 	err := c.tx.QueryRow(c.ctx, `SELECT id FROM users WHERE legacy_auth_uid = $1`, uid).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		c.find(field, ReasonUserUnresolved, "matches no users.legacy_auth_uid", uid)
-		return nil, nil
+		u, perr := uuid.Parse(uid)
+		if perr != nil || u.String() != uid {
+			return nil, nil
+		}
+		err = c.tx.QueryRow(c.ctx, `SELECT id FROM users WHERE id = $1`, u).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("etl: %s: user lookup: %w", c.doc.Path, err)
@@ -297,6 +318,8 @@ var stampTables = map[string]string{
 	tenancy.Tasks: "tasks", tenancy.TripRecords: "trip_records", tenancy.StandbyRecords: "standby_records",
 	tenancy.IncidentReport: "incident_reports", tenancy.Drivers: "drivers", tenancy.Trucks: "trucks",
 	tenancy.VehicleExpenses: "vehicle_expenses", tenancy.Maintenance: "maintenance_records",
+	tenancy.DriverPenalties: "driver_penalties", tenancy.Payroll: "payroll_runs", tenancy.LeaveRequests: "leave_requests",
+	tenancy.Chats: "chats", tenancy.Transactions: "transactions",
 }
 
 // stamp resolves the tenant of a tenant-stamped row through the pure resolver (tenancy.Resolve). When the chain
@@ -325,6 +348,15 @@ func (c *docCtx) stampWith(collection string, fields map[string]any, l tenancy.L
 	if err != nil {
 		return uuid.Nil, err
 	}
+	return c.settle(cur, found, tenant, source, why), nil
+}
+
+// settle applies the frozen-tenant rule of main spec §13.5 to a resolved chain (tenant, source; why is the
+// tenant_unresolved detail when the chain ran out): an existing row outside the quarantine tenant keeps its tenant
+// (drift is reported, never moved), a chain that ran out sends the row to the quarantine tenant, and a row leaving the
+// quarantine tenant marks c.leaving so its children follow it after the upsert. Mappers of tables tenancy.Resolve
+// has no chain for (companies, truck assignments, mobile installations) resolve their tenant themselves and call it.
+func (c *docCtx) settle(cur stampedRow, found bool, tenant uuid.UUID, source tenancy.Source, why string) uuid.UUID {
 	switch {
 	case found && cur.tenant != c.e.quar:
 		// Drift through a task or trip link is a re-link: keepLink reports it on the link and drops it.
@@ -333,15 +365,15 @@ func (c *docCtx) stampWith(collection string, fields map[string]any, l tenancy.L
 				tenant, source, cur.tenant), tenant.String())
 		}
 		c.tenantSource = cur.source
-		return cur.tenant, nil
+		return cur.tenant
 	case why != "":
 		c.find("", ReasonTenantUnresolved, why, nil)
-		return c.toQuarantine(), nil
+		return c.toQuarantine()
 	case found:
 		c.leaving = tenant
 	}
 	c.tenantSource = source
-	return tenant, nil
+	return tenant
 }
 
 // resolveTenant runs the chain; why is the tenant_unresolved detail when the row belongs in the quarantine tenant.

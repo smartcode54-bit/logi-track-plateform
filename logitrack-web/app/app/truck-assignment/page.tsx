@@ -1,40 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
     Truck,
     User,
     ClipboardList,
     ArrowRight,
-    Search,
-    Download,
-    MoreHorizontal,
-    Bell,
-    Settings,
-    Plus,
-    LayoutDashboard,
     RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 import { Combobox } from "@/components/ui/combobox";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow
-} from "@/components/ui/table";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
 import {
     Dialog,
     DialogContent,
@@ -43,27 +20,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 
-import {
-    getActiveAssignments,
-    getAvailableDrivers,
-    getAvailableTrucks,
-    createAssignment,
-    terminateAssignment,
-    getRecentHistory,
-    type AssignmentData,
-    type DriverOption,
-    type TruckOption
-} from "./actions.client";
 import { useAuth } from "@/context/auth";
+import { useActiveAssignments, useAssignmentWrites, useTruckOptions } from "@/features/trucks/api/useTrucks";
+import type { TruckAssignmentDTO } from "@/features/trucks/api/truckAssignments";
+import { AssignmentHistory } from "@/features/trucks/components/AssignmentHistory";
+import { useDriverOptions } from "@/features/drivers/api/useDrivers";
+import { toastSaveError } from "@/lib/formServerErrors";
 
 import { useLanguage } from "@/context/language";
 
@@ -71,113 +35,47 @@ export default function TruckAssignmentPage() {
     const { t } = useLanguage();
     const auth = useAuth();
     const currentUser = auth?.currentUser;
-    const [stats, setStats] = useState({
-        totalTrucks: 0,
-        availableDrivers: 0,
-        activeAssignments: 0
-    });
+    // `['truckAssignments', …]`, `['drivers','options']`, `['trucks','options']` (T25): Go
+    // `GET /v1/truck-assignments` and the pickers, or Firestore by the `masterdata` flag; a write
+    // invalidates the assignments, trucks and drivers instead of reloading four collections.
+    // The history (`['truckAssignments', {view:'history', status, q}]`) is its own virtualised,
+    // server-filtered list (`AssignmentHistory`, TW8).
+    const active = useActiveAssignments();
+    const driverOptions = useDriverOptions();
+    const truckOptions = useTruckOptions();
+    const { assign, revoke } = useAssignmentWrites();
+    const isLoading = active.isPending || driverOptions.isPending || truckOptions.isPending;
+    const isSubmitting = assign.isPending;
+    const isRevoking = revoke.isPending;
 
-    const [assignments, setAssignments] = useState<AssignmentData[]>([]);
-    const [history, setHistory] = useState<AssignmentData[]>([]);
-    const [drivers, setDrivers] = useState<DriverOption[]>([]);
-    const [trucks, setTrucks] = useState<TruckOption[]>([]);
+    // A driver with an active assignment is not offered again (several drivers may share a truck).
+    const drivers = useMemo(() => {
+        const assigned = new Set(active.assignments.map((a) => a.driverId));
+        return driverOptions.options
+            .filter((d) => !assigned.has(d.id))
+            .map((d) => ({ id: d.id, name: d.displayName, licenseType: d.licenseType ?? undefined }));
+    }, [active.assignments, driverOptions.options]);
+    const trucks = truckOptions.options;
+    const stats = { totalTrucks: trucks.length, availableDrivers: drivers.length, activeAssignments: active.assignments.length };
 
     const [selectedDriver, setSelectedDriver] = useState<string>("");
     const [selectedTruck, setSelectedTruck] = useState<string>("");
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
 
     const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
-    const [assignmentToRevoke, setAssignmentToRevoke] = useState<AssignmentData | null>(null);
-    const [isRevoking, setIsRevoking] = useState(false);
-
-    // Filter states
-    const [historyFilter, setHistoryFilter] = useState({
-        search: '',
-        status: 'all'
-    });
-
-    const filteredHistory = history.filter(item => {
-        const matchesSearch =
-            item.driverName?.toLowerCase().includes(historyFilter.search.toLowerCase()) ||
-            item.truckPlate?.toLowerCase().includes(historyFilter.search.toLowerCase()) ||
-            item.truckModel?.toLowerCase().includes(historyFilter.search.toLowerCase()) ||
-            item.adminName?.toLowerCase().includes(historyFilter.search.toLowerCase());
-
-        const matchesStatus =
-            historyFilter.status === 'all' ||
-            item.status === historyFilter.status;
-
-        return matchesSearch && matchesStatus;
-    });
-
-    const fetchData = async () => {
-        setIsLoading(true);
-        try {
-            const [
-                fetchedAssignments,
-                fetchedHistory,
-                fetchedDrivers,
-                fetchedTrucks
-            ] = await Promise.all([
-                getActiveAssignments(),
-                getRecentHistory(),
-                getAvailableDrivers(),
-                getAvailableTrucks()
-            ]);
-
-            setAssignments(fetchedAssignments);
-            setHistory(fetchedHistory);
-
-            // Filter out assigned drivers/trucks based on active assignments
-            // (Simple client-side filter for now)
-            const assignedDriverIds = new Set(fetchedAssignments.map(a => a.driverId));
-            const assignedTruckIds = new Set(fetchedAssignments.map(a => a.truckId));
-
-            const availableDrivers = fetchedDrivers.filter(d => !assignedDriverIds.has(d.id));
-            // Do NOT filter out assigned trucks. Trucks can have multiple assignments now.
-            // We might want to filter out 'maintenance' trucks, but that's handled in getAvailableTrucks.
-            const availableTrucks = fetchedTrucks;
-
-            setDrivers(availableDrivers);
-            setTrucks(availableTrucks);
-
-            setStats({
-                totalTrucks: fetchedTrucks.length, // Already includes absolute count of non-maintenance own trucks
-                availableDrivers: availableDrivers.length,
-                activeAssignments: fetchedAssignments.length
-            });
-
-        } catch (error) {
-            console.error("Failed to fetch data", error);
-            toast.error(t('assignments.toast.loadError'));
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchData();
-    }, []);
+    const [assignmentToRevoke, setAssignmentToRevoke] = useState<TruckAssignmentDTO | null>(null);
 
     const handleDeploy = async () => {
         if (!selectedDriver || !selectedTruck) {
             toast.error(t('assignments.toast.selectBoth'));
             return;
         }
+        const driver = drivers.find(d => d.id === selectedDriver);
+        const truck = trucks.find(t => t.id === selectedTruck);
+        if (!driver || !truck) return;
 
-        setIsSubmitting(true);
         try {
-            const driver = drivers.find(d => d.id === selectedDriver);
-            const truck = trucks.find(t => t.id === selectedTruck);
-
-            if (!driver || !truck) throw new Error("Invalid selection");
-
             // TODO: QA Insight - Block Dispatch if Insurance is OVERDUE
-            // Check truck.insuranceStatus or similar before proceeding
-            // if (truck.insuranceStatus === 'overdue') throw new Error("Truck has overdue insurance");
-
-            await createAssignment({
+            await assign.mutateAsync({
                 truckId: truck.id,
                 driverId: driver.id,
                 driverName: driver.name,
@@ -185,38 +83,28 @@ export default function TruckAssignmentPage() {
                 truckModel: truck.model,
                 adminName: currentUser?.displayName || "Admin",
             });
-
             toast.success(t('assignments.toast.deploySuccess'));
             setSelectedDriver("");
             setSelectedTruck("");
-            fetchData(); // Refresh data
         } catch (error) {
-            console.error("Deployment failed", error);
-            toast.error(t('assignments.toast.deployError'));
-        } finally {
-            setIsSubmitting(false);
+            toastSaveError(error, t, 'assignments.toast.deployError');
         }
     };
 
-    const openRevokeDialog = (assignment: AssignmentData) => {
+    const openRevokeDialog = useCallback((assignment: TruckAssignmentDTO) => {
         setAssignmentToRevoke(assignment);
         setRevokeDialogOpen(true);
-    };
+    }, []);
+
 
     const handleConfirmRevoke = async () => {
         if (!assignmentToRevoke) return;
-
-        setIsRevoking(true);
         try {
-            await terminateAssignment(assignmentToRevoke.id, assignmentToRevoke.truckId, assignmentToRevoke.driverId);
+            await revoke.mutateAsync({ id: assignmentToRevoke.id, truckId: assignmentToRevoke.truckId, driverId: assignmentToRevoke.driverId });
             toast.success(t('assignments.toast.revokeSuccess'));
-            fetchData();
             setRevokeDialogOpen(false);
         } catch (error) {
-            console.error("Revocation failed", error);
-            toast.error(t('assignments.toast.revokeError'));
-        } finally {
-            setIsRevoking(false);
+            toastSaveError(error, t, 'assignments.toast.revokeError');
         }
     };
 
@@ -407,119 +295,8 @@ export default function TruckAssignmentPage() {
                 </div>
             </div>
 
-            {/* History Table */}
-            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
-                <div className="p-6 border-b border-border/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <Settings className="h-4 w-4 text-blue-500" />
-                        {t('assignments.history')}
-                    </h2>
-                    <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder={t('assignments.filter.search')}
-                                value={historyFilter.search}
-                                onChange={(e) => setHistoryFilter(prev => ({ ...prev, search: e.target.value }))}
-                                className="pl-9 w-full md:w-[250px] bg-background/50"
-                            />
-                        </div>
-                        <Select
-                            value={historyFilter.status}
-                            onValueChange={(value) => setHistoryFilter(prev => ({ ...prev, status: value }))}
-                        >
-                            <SelectTrigger className="w-full md:w-[180px] bg-background/50">
-                                <SelectValue placeholder={t('assignments.filter.status')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">{t('assignments.filter.all')}</SelectItem>
-                                <SelectItem value="active">{t('assignments.status.active')}</SelectItem>
-                                <SelectItem value="revoked">{t('assignments.status.revoked')}</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <Button variant="ghost" size="sm" className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10">
-                            {t('assignments.downloadCsv')}
-                        </Button>
-                    </div>
-                </div>
-                <Table>
-                    <TableHeader className="bg-muted/30">
-                        <TableRow className="hover:bg-transparent border-border/50">
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase pl-6">{t('assignments.table.timestamp')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.driver')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.vehicle')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.admin')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.table.status')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right pr-6">{t('assignments.table.actions')}</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {isLoading ? (
-                            <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">{t('assignments.table.loading')}</TableCell>
-                            </TableRow>
-                        ) : filteredHistory.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">{t('assignments.table.noHistory')}</TableCell>
-                            </TableRow>
-                        ) : (
-                            filteredHistory.map((item) => (
-                                <TableRow key={item.id} className="border-border/50 hover:bg-muted/30 transition-colors">
-                                    <TableCell className="pl-6 font-medium text-foreground/80 py-4">
-                                        {/* Simple relative time logic for demo, usually use date-fns/moment */}
-                                        {new Date(item.createdAt).toLocaleString()}
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-7 w-7 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center text-xs font-bold ring-2 ring-background">
-                                                {(item.driverName || 'UK').substring(0, 2).toUpperCase()}
-                                            </div>
-                                            {item.driverName}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-foreground/80">
-                                        {item.truckModel} ({item.truckPlate})
-                                    </TableCell>
-                                    <TableCell className="text-muted-foreground">
-                                        {item.adminName}
-                                    </TableCell>
-                                    <TableCell>
-                                        {item.status === 'active' ? (
-                                            <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20 border-green-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">
-                                                {t('assignments.status.active')}
-                                            </Badge>
-                                        ) : (
-                                            <Badge variant="secondary" className="bg-muted text-muted-foreground uppercase text-[10px] tracking-wider px-2 py-0.5">
-                                                {t('assignments.status.revoked')}
-                                            </Badge>
-                                        )}
-                                    </TableCell>
-                                    <TableCell className="text-right pr-6">
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted">
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                 {/* Removed View Details */}
-                                                {item.status === 'active' && (
-                                                    <DropdownMenuItem
-                                                        className="text-destructive focus:text-destructive cursor-pointer"
-                                                        onClick={() => openRevokeDialog(item)}
-                                                    >
-                                                        {t('assignments.action.revoke')}
-                                                    </DropdownMenuItem>
-                                                )}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TableCell>
-                                </TableRow>
-                            ))
-                        )}
-                    </TableBody>
-                </Table>
-            </div>
+            {/* History: server-filtered keyset pages in a virtualised table (TW8) */}
+            <AssignmentHistory onRevoke={openRevokeDialog} />
             {/* Revoke Confirmation Dialog */}
             <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
                 <DialogContent>
@@ -528,8 +305,7 @@ export default function TruckAssignmentPage() {
                         <DialogDescription>
                             {t('assignments.revoke.desc')}
                             <br />
-                            This will mark the truck <strong>{assignmentToRevoke?.truckPlate}</strong> as available
-                            and set driver <strong>{assignmentToRevoke?.driverName}</strong> to active.
+                            {t('masterData.assignments.revokeEffect', { plate: assignmentToRevoke?.truckPlate ?? "-", driver: assignmentToRevoke?.driverName ?? "-" })}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>

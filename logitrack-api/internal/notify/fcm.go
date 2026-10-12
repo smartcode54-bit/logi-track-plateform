@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,6 +24,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/inbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 )
 
@@ -50,11 +52,25 @@ const (
 // fail as transient and dead-letter after the last retry, to be replayed once the planner exists
 // (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost.
 var pendingRoutes = map[string]string{
-	RouteChatMessageCreated:  "T47",
-	RouteBroadcastCreated:    "T48",
-	RouteMaintenanceCreated:  "T40",
-	RouteMaintenanceReminder: "T40",
-	RouteLeaveDecided:        "T45",
+	RouteChatMessageCreated: "T47",
+	RouteBroadcastCreated:   "T48",
+	RouteLeaveDecided:       "T45",
+}
+
+// FromMirror reports whether a delivery is a domain event the FS->PG mirror appended (header origin=etl.sync). While
+// Firestore writes the operations collections the mirror's task, trip and standby events feed SSE and billing.compute;
+// the notify consumers ack them without a push or a message, since the writer in Firestore notified already.
+func FromMirror(d *mq.Delivery) bool {
+	v, ok := d.Headers[outbox.HeaderOrigin].(string)
+	return ok && v == outbox.OriginMirror
+}
+
+// FromWriteBack reports whether a delivery is the notify event of a Go write-back handler (header origin=writeback,
+// T31): the writer's own push of a Firestore-owned change, sent while the mirror's event of the same change pushes
+// nothing.
+func FromWriteBack(d *mq.Delivery) bool {
+	v, ok := d.Headers[outbox.HeaderOrigin].(string)
+	return ok && v == outbox.OriginWriteBack
 }
 
 // Delivery statuses (notification_deliveries.status). queued is never written: a row is inserted once
@@ -99,8 +115,16 @@ const reasonClaimsChanged = "claims_changed"
 //     {first_mile|line_haul}_task_{assigned|unassigned|cancelled} on channel task_assignments;
 //   - task.updated / task.checked_in / task.plan_date_changed: the silent tasks_changed push to the
 //     task's driver and helper, one per driver per 30 s (R21; a suppressed push logs deduplicated);
+//   - maintenance.reminder_requested (POST /v1/maintenance/{id}/remind, a PM booking moved to scheduled or
+//     in_progress) and maintenance.created of a record created scheduled (the only created state with an
+//     appointment; the legacy page pushed on no creation): maintenance_scheduled to the drivers of the record's
+//     truck (T40);
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
 //     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
+//
+// While Firestore owns the operations collections, the task events of the mirror (origin=etl.sync) push nothing and
+// those of a Go write-back handler (origin=writeback) are the push; such an event waits (transient failures) until
+// the mirror applied the write it tells of (awaitMirror), so its plan never reads the row as it was before the write.
 //
 // Idempotency (at most once per token): a push is claimed in Redis (idem:fcm:{messageId}:{tokenId},
 // 24 h) before it is sent and the claim keeps its outcome, so a redelivered or retried message never
@@ -169,6 +193,8 @@ func (f *FCM) planner(key string) (planner, bool) {
 		return planTask, true
 	case RouteSessionsRevoked:
 		return planSessionsRevoked, true
+	case RouteMaintenanceCreated, RouteMaintenanceReminder:
+		return planMaintenance, true
 	}
 	return nil, false
 }
@@ -177,6 +203,12 @@ func (f *FCM) planner(key string) (planner, bool) {
 func (f *FCM) Handle(ctx context.Context, d *mq.Delivery) error {
 	if !f.Enabled {
 		f.logger(ctx).Debug().Msg("FCM_ENABLED is false: nothing sent")
+		return nil
+	}
+	if FromMirror(d) {
+		// The FS->PG mirror re-tells what a Firestore writer did (T29): that writer (a legacy callable, or the Go
+		// write-back handler with its own event) owns the push, so a second one is never sent.
+		f.logger(ctx).Debug().Msg("notify.fcm: an event of the FS->PG mirror: no push")
 		return nil
 	}
 	if f.Sender == nil {
@@ -192,6 +224,12 @@ func (f *FCM) Handle(ctx context.Context, d *mq.Delivery) error {
 	}
 	if d.MessageID == "" {
 		return mq.Permanent(errors.New("notify.fcm: the message has no message id"))
+	}
+	if isTaskRoute(d.RoutingKey) && FromWriteBack(d) {
+		// Before the plan reads tasks: a Go write-back's push waits until the mirror applied that write.
+		if err := f.awaitMirror(ctx, d); err != nil {
+			return err
+		}
 	}
 	var targets []target
 	recorded := false
@@ -421,6 +459,59 @@ func TokenID(token string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// --- the write-back's push (T31) ---------------------------------------------------------------------
+
+// legacyTasks is the Firestore collection of the task documents (cache:mirror_ack:tasks:{docId}).
+const legacyTasks = "tasks"
+
+func isTaskRoute(key string) bool {
+	switch key {
+	case RouteTaskAssigned, RouteTaskReassigned, RouteTaskCancelled, RouteTaskUpdated, RouteTaskCheckedIn,
+		RouteTaskPlanDateChanged:
+		return true
+	}
+	return false
+}
+
+// writeBackRef is the part of a write-back's task event that names the Firestore write it tells of: the task
+// document (legacyDocId) and the update time of that commit (writeUpdateTime), set by the operations write-back
+// handlers (T31). An event without them (an earlier producer) is planned from the row as it is.
+type writeBackRef struct {
+	DocID string     `json:"legacyDocId"`
+	At    *time.Time `json:"writeUpdateTime"`
+}
+
+// awaitMirror holds the push of a Go write-back until the FS->PG mirror applied that write to PostgreSQL. The writer's
+// event is appended as soon as Firestore committed (the handler answers 202 when the mirror's acknowledgement does not
+// come within 3 s), and the planner re-reads the task row: read before the mirror applied the change, the row still
+// shows the previous driver or status, the plan has no target and the push would be lost, since the mirror's own event
+// of the same change (origin=etl.sync) pushes nothing. So while cache:mirror_ack:tasks:{legacyDocId} is older than
+// the write's update time (or absent) the delivery fails transiently and the retry ladder (10 s, 1 m, 5 m, 30 m, 2 h)
+// re-plans after the mirror applied it; at or past that time the plan reads the row as usual, and a later change that
+// superseded this one is handled by the planner's still-assigned rules. An acknowledgement lives cache.MirrorAckTTL
+// (10 minutes): a write older than that whose acknowledgement is gone (expired, or lost to a Redis failure of the
+// mirror) is taken as applied and planned from the row.
+func (f *FCM) awaitMirror(ctx context.Context, d *mq.Delivery) error {
+	var ref writeBackRef
+	if err := d.Decode(&ref); err != nil {
+		return err
+	}
+	if ref.DocID == "" || ref.At == nil || f.now().Sub(*ref.At) >= cache.MirrorAckTTL {
+		return nil
+	}
+	rctx, cancel := context.WithTimeout(ctx, redisOpTimeout)
+	defer cancel()
+	got, ok, err := cache.ReadMirrorAck(rctx, f.Redis, f.Keys, legacyTasks, ref.DocID)
+	if err != nil {
+		return fmt.Errorf("notify.fcm: read the mirror acknowledgement: %w", err)
+	}
+	if ok && !got.Before(ref.At.Truncate(time.Microsecond)) {
+		return nil
+	}
+	return fmt.Errorf("notify.fcm: the task document %s written at %s is not mirrored yet", ref.DocID,
+		ref.At.UTC().Format(time.RFC3339Nano))
+}
+
 // --- planners ---------------------------------------------------------------------------------------
 
 // taskEvent is the part of a task.* payload notify.fcm reads: the task id (id, as in the thin SSE
@@ -481,6 +572,12 @@ func planTask(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targe
 	}
 	t, err := q.GetTaskForPush(ctx, ev.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if FromWriteBack(d) {
+			// The Go write-back created the Firestore document and queued its push; the FS->PG mirror has not loaded the
+			// row (an event without the write's update time, or an acknowledgement taken as applied). The retry ladder
+			// waits for the mirror (T31).
+			return nil, fmt.Errorf("notify.fcm: task %s of a write-back is not mirrored yet", ev.ID)
+		}
 		return nil, mq.Permanent(fmt.Errorf("notify.fcm: task %s not found", ev.ID))
 	}
 	if err != nil {
@@ -752,4 +849,79 @@ func (d *dedupe) decide(ctx context.Context, driverID uuid.UUID) dedupeDecision 
 		return dedupeDecision{suppressed: holder != d.messageID}
 	}
 	return dedupeDecision{err: errors.New("idem:push window: the key kept changing")}
+}
+
+// maintenanceEvent is the payload of maintenance.created and maintenance.reminder_requested (internal/maintenance):
+// the record, its status when it was created, and the staff's push text of a reminder. Everything else is re-read
+// from maintenance_records.
+type maintenanceEvent struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+	Title  string    `json:"title"`
+	Body   string    `json:"body"`
+}
+
+// MaintenanceReminderBody is the legacy reminder text (maintenance.ts:45-52): "รถ {plate} วันที่ {startDate} เวลา
+// {appointmentTime} ที่ {provider} — กรุณาเข้าอู่ตามนัด", each part only when it has a value.
+func MaintenanceReminderBody(plate, startDate, appointmentTime, provider string) string {
+	body := "รถ " + plate
+	if startDate != "" {
+		body += " วันที่ " + startDate
+	}
+	if appointmentTime != "" {
+		body += " เวลา " + appointmentTime
+	}
+	if provider != "" {
+		body += " ที่ " + provider
+	}
+	return strings.TrimSpace(body + " — กรุณาเข้าอู่ตามนัด")
+}
+
+// planMaintenance plans maintenance_scheduled to the drivers of the record's truck (read server-side; the legacy
+// callable took the driver id from the browser, fn:triggers.ts:362-391). maintenance.created pushes only a record
+// created scheduled (the event's status, else the record's): the legacy page pushed on no creation, only when a PM
+// booking moved to scheduled or in_progress (maintenance.reminder_requested), and a record created in_progress (the
+// form's default, a repair already in the shop) or as a PM booking has no appointment to announce. A record that is
+// completed or cancelled by the time the message is read pushes nothing. Without staff text the push is the legacy
+// title and body.
+func planMaintenance(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
+	var ev maintenanceEvent
+	if err := d.Decode(&ev); err != nil {
+		return nil, err
+	}
+	if ev.ID == uuid.Nil {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: %s without id", d.RoutingKey))
+	}
+	m, err := q.GetMaintenanceForPush(ctx, ev.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, mq.Permanent(fmt.Errorf("notify.fcm: maintenance %s not found", ev.ID))
+	}
+	if err != nil {
+		return nil, err
+	}
+	created := cmp.Or(ev.Status, m.Status)
+	switch {
+	case m.TruckID == nil, m.Status == "completed", m.Status == "cancelled":
+		return nil, nil
+	case d.RoutingKey == RouteMaintenanceCreated && created != "scheduled":
+		return nil, nil
+	}
+	drivers, err := q.TruckDrivers(ctx, *m.TruckID)
+	if err != nil {
+		return nil, err
+	}
+	title, body := ev.Title, ev.Body
+	if title == "" {
+		title = "นัดเช็คระยะ"
+	}
+	if body == "" {
+		body = MaintenanceReminderBody(m.Plate, m.StartDate, m.AppointmentTime, m.Provider)
+	}
+	pushes := make([]driverPush, 0, len(drivers))
+	for _, id := range drivers {
+		pushes = append(pushes, driverPush{driverID: id, build: func(ref string) Push {
+			return MaintenanceScheduled(m.MaintenanceRef, ref, title, body)
+		}})
+	}
+	return driverTargets(ctx, q, pushes)
 }

@@ -158,6 +158,9 @@ type Service struct {
 	mirrorFailures *prometheus.CounterVec
 	// customTokens counts minted Firebase custom tokens (exit criterion of the web bridge, C.6.6).
 	customTokens prometheus.Counter
+	// shimRequests counts the requests of the Cloud Functions callable shims per callable (shim_requests_total
+	// {callable}): with the Functions invocation metrics, the retirement evidence of the shims (R26, C.6.5).
+	shimRequests *prometheus.CounterVec
 	// postCommitFailed counts post-commit Redis writes that failed (op: version, revoked, rt_drop,
 	// rt_put); the security-relevant ones are retried in the background (Apply).
 	postCommitFailed *prometheus.CounterVec
@@ -208,6 +211,10 @@ func New(cfg Config, d Deps) (*Service, error) {
 			Name: "auth_firebase_custom_tokens_total",
 			Help: "Firebase custom tokens minted for the web (POST /v1/bridge/firebase-token).",
 		}),
+		shimRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "shim_requests_total",
+			Help: "Authenticated requests of the Cloud Functions callable shims on their /v1/mobile shim targets, per callable.",
+		}, []string{"callable"}),
 		retry: newRetrier(),
 	}
 	if s.now == nil {
@@ -217,9 +224,9 @@ func New(cfg Config, d Deps) (*Service, error) {
 }
 
 // Register adds the service's metrics (auth_revocation_fallback_total, auth_postcommit_failures_total,
-// auth_firebase_mirror_failures_total, auth_firebase_custom_tokens_total) to reg.
+// auth_firebase_mirror_failures_total, auth_firebase_custom_tokens_total, shim_requests_total) to reg.
 func (s *Service) Register(reg prometheus.Registerer) error {
-	for _, c := range []prometheus.Collector{s.fallback, s.postCommitFailed, s.mirrorFailures, s.customTokens} {
+	for _, c := range []prometheus.Collector{s.fallback, s.postCommitFailed, s.mirrorFailures, s.customTokens, s.shimRequests} {
 		if err := reg.Register(c); err != nil {
 			return err
 		}

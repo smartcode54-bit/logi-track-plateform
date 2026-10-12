@@ -3,9 +3,13 @@ package app
 import (
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/bangchak"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cartrack"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
@@ -20,6 +24,66 @@ func (a AMQPEnv) validate(errs *[]string) {
 	if a.RabbitMQURL != "" && !strings.HasPrefix(a.RabbitMQURL, "amqp://") && !strings.HasPrefix(a.RabbitMQURL, "amqps://") {
 		*errs = append(*errs, config.Invalidf("RABBITMQ_URL", "must be an amqp:// or amqps:// URL"))
 	}
+}
+
+// Bangchak is the Bangchak retail price feed (P3, R70; main spec §16.1): GET /v1/fuel/retail in the api, the
+// bangchak.snapshot consumer in the worker. Unset is off: the route answers 503 and a snapshot run ends failed naming
+// the variable, so no request leaves the process.
+type Bangchak struct {
+	BangchakBaseURL string `env:"BANGCHAK_API_BASE_URL"`
+}
+
+func (b Bangchak) validate(errs *[]string) {
+	if strings.TrimSpace(b.BangchakBaseURL) == "" {
+		return
+	}
+	if err := bangchak.ValidateBaseURL(b.BangchakBaseURL); err != nil {
+		*errs = append(*errs, config.Invalidf("BANGCHAK_API_BASE_URL", "%v", err))
+	}
+}
+
+// BangchakClient is the price client, nil when the feed is off. It does no I/O.
+func (b Bangchak) BangchakClient() (bangchak.Client, error) {
+	if strings.TrimSpace(b.BangchakBaseURL) == "" {
+		return nil, nil
+	}
+	c, err := bangchak.New(bangchak.Config{BaseURL: b.BangchakBaseURL})
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{"BANGCHAK_API_BASE_URL: " + err.Error()}}
+	}
+	return c, nil
+}
+
+// Cartrack is the Cartrack Fleet API of the worker's cartrack.sync consumer (P6, R70; main spec §16.1: the credentials
+// are the worker's alone, rotated before use, §16.5). The client is built only when the base URL and both credentials
+// are set; otherwise the sync is off and every cartrack.sync run (a cron fire, a probe) ends failed naming the
+// variables, so no request leaves the process. The local .env.example points the base URL at WireMock and leaves the
+// credentials blank, so the local worker starts with the sync off.
+type Cartrack struct {
+	CartrackBaseURL  string `env:"CARTRACK_API_BASE_URL"`
+	CartrackUsername string `env:"CARTRACK_API_USERNAME"`
+	CartrackPassword string `env:"CARTRACK_API_PASSWORD"`
+}
+
+func (c Cartrack) validate(errs *[]string) {
+	if strings.TrimSpace(c.CartrackBaseURL) == "" {
+		return
+	}
+	if err := cartrack.ValidateBaseURL(c.CartrackBaseURL); err != nil {
+		*errs = append(*errs, config.Invalidf("CARTRACK_API_BASE_URL", "%v", err))
+	}
+}
+
+// CartrackClient is the status client, nil while the base URL or a credential is unset. It does no I/O.
+func (c Cartrack) CartrackClient() (cartrack.Client, error) {
+	if strings.TrimSpace(c.CartrackBaseURL) == "" || strings.TrimSpace(c.CartrackUsername) == "" || c.CartrackPassword == "" {
+		return nil, nil
+	}
+	cl, err := cartrack.New(cartrack.Config{BaseURL: c.CartrackBaseURL, Username: c.CartrackUsername, Password: c.CartrackPassword})
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{"CARTRACK_API_BASE_URL: " + err.Error()}}
+	}
+	return cl, nil
 }
 
 // WorkerGroups are the consumer groups of Appendix B §B.5.3 that WORKER_CONSUMERS selects from.
@@ -67,8 +131,39 @@ type WorkerConfig struct {
 	DistanceMatrixEnabled  bool   `env:"DISTANCE_MATRIX_ENABLED"`
 	GoogleMapsServerAPIKey string `env:"GOOGLE_MAPS_SERVER_API_KEY"`
 
+	// bangchak.snapshot (T37): the daily and monthly fuel price snapshots (off without BANGCHAK_API_BASE_URL).
+	Bangchak
+	// cartrack.sync (T53): the vehicle positions (off without CARTRACK_API_BASE_URL and both credentials).
+	Cartrack
+
+	// The coexistence consumers of group sync (T24, developer-spec.md §13.7-§13.8): which collections are mirrored or
+	// projected follows from PG_OWNED_DOMAINS; the pins narrow it. The mirror (ETL_SYNC_ENABLED) is the ETL load path
+	// and logs in as logitrack_etl through ETL_DATABASE_URL (R66), on a replica that runs group sync alone
+	// (WORKER_CONSUMERS=sync; compose service worker-sync), the only one that may hold that URL; the projection
+	// (COMPAT_PROJECTION_ENABLED, the kill switch) uses DATABASE_URL. Both reach ETL_FIRESTORE_PROJECT_ID with the
+	// GOOGLE_APPLICATION_CREDENTIALS key. Off (the default, and the staging VM, which runs PostgreSQL only) neither
+	// needs a database URL or a key.
+	PGOwnedDomains       string `env:"PG_OWNED_DOMAINS"`
+	ETLSyncEnabled       bool   `env:"ETL_SYNC_ENABLED"`
+	ETLDatabaseURL       string `env:"ETL_DATABASE_URL"`
+	ETLMirrorCollections string `env:"ETL_MIRROR_COLLECTIONS"`
+	// ETLListenInterval is how often the mirror's listeners poll the operations collections between sweeps (T29;
+	// main spec §13.7); 0 turns them off and leaves the sweep alone.
+	ETLListenInterval           time.Duration `env:"ETL_LISTEN_INTERVAL" envDefault:"2s"`
+	CompatProjectionEnabled     bool          `env:"COMPAT_PROJECTION_ENABLED"`
+	CompatProjectionCollections string        `env:"COMPAT_PROJECTION_COLLECTIONS"`
+	FirestoreProjectID          string        `env:"ETL_FIRESTORE_PROJECT_ID"`
+	FirestoreDatabaseID         string        `env:"FIRESTORE_DATABASE_ID" envDefault:"(default)"`
+	GoogleCredentials           string        `env:"GOOGLE_APPLICATION_CREDENTIALS"`
+
+	// documents.render (T39, R69): the directory of Sarabun-Regular.ttf and Sarabun-Bold.ttf; empty = the copies built
+	// into the binary (logitrack-web/public/fonts).
+	PDFFontDir string `env:"PDF_FONT_DIR"`
+
 	// Groups is WORKER_CONSUMERS resolved by Validate ("all" = every group).
 	Groups []string `env:"-"`
+	// Coexist is the coexistence plan resolved by Validate.
+	Coexist coexist.Plan `env:"-"`
 }
 
 // Validate implements config.Validator.
@@ -80,6 +175,11 @@ func (c *WorkerConfig) Validate() error {
 	c.Redis.validate(c.AppEnv, &errs)
 	c.AMQPEnv.validate(&errs)
 	c.Storage.validate(&errs)
+	c.Bangchak.validate(&errs)
+	c.Cartrack.validate(&errs)
+	if d := strings.TrimSpace(c.PDFFontDir); d != "" && !strings.HasPrefix(d, "/") {
+		errs = append(errs, config.Invalidf("PDF_FONT_DIR", "must be an absolute directory (or empty for the built-in Sarabun)"))
+	}
 	if c.Prefetch < 0 || c.Prefetch > 1000 {
 		errs = append(errs, config.Invalidf("RABBITMQ_PREFETCH", "must be between 0 and 1000"))
 	}
@@ -118,6 +218,33 @@ func (c *WorkerConfig) Validate() error {
 	if c.DistanceMatrixEnabled && strings.TrimSpace(c.GoogleMapsServerAPIKey) == "" {
 		errs = append(errs, config.Invalidf("GOOGLE_MAPS_SERVER_API_KEY", "required when DISTANCE_MATRIX_ENABLED is true"))
 	}
+	plan, perrs := coexist.ParsePlan(c.PGOwnedDomains, c.ETLMirrorCollections, c.CompatProjectionCollections)
+	errs = append(errs, perrs...)
+	c.Coexist = plan
+	// R66 (T24S): the BYPASSRLS logitrack_etl login is held only by the replica that runs the mirror, and that replica
+	// runs group sync alone, so no other consumer of the worker ever holds it.
+	mirror := c.ETLSyncEnabled && slices.Contains(c.Groups, "sync")
+	switch {
+	case mirror && !slices.Equal(c.Groups, []string{"sync"}):
+		errs = append(errs, config.Invalidf("WORKER_CONSUMERS", "must be sync alone on the replica that runs the mirror (ETL_SYNC_ENABLED): "+
+			"it holds ETL_DATABASE_URL, which no other consumer may hold (R66); run the other groups on another replica"))
+	case mirror && c.ETLDatabaseURL == "":
+		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "is required on the replica that runs the mirror (ETL_SYNC_ENABLED, "+
+			"WORKER_CONSUMERS=sync): the mirror logs in as logitrack_etl (R66)"))
+	case mirror && !strings.HasPrefix(c.ETLDatabaseURL, "postgres://") && !strings.HasPrefix(c.ETLDatabaseURL, "postgresql://"):
+		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be a postgres:// URL"))
+	case !mirror && c.ETLDatabaseURL != "":
+		errs = append(errs, config.Invalidf("ETL_DATABASE_URL", "must be empty unless this replica runs the mirror (ETL_SYNC_ENABLED, "+
+			"WORKER_CONSUMERS=sync): the logitrack_etl login bypasses RLS (R66)"))
+	}
+	if c.ETLListenInterval != 0 && (c.ETLListenInterval < 500*time.Millisecond || c.ETLListenInterval > time.Minute) {
+		errs = append(errs, config.Invalidf("ETL_LISTEN_INTERVAL", "must be 0 (listeners off) or between 500ms and 1m"))
+	}
+	if (c.ETLSyncEnabled || c.CompatProjectionEnabled) && slices.Contains(c.Groups, "sync") {
+		if c.FirestoreProjectID == "" || c.GoogleCredentials == "" {
+			errs = append(errs, "ETL_FIRESTORE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS: required when ETL_SYNC_ENABLED or COMPAT_PROJECTION_ENABLED is true on a replica that runs group sync")
+		}
+	}
 	if c.FCMEnabled {
 		if !push.ValidProjectID(c.FCMProjectID) {
 			errs = append(errs, config.Invalidf("FCM_PROJECT_ID", "must be a Firebase project id when FCM_ENABLED is true"))
@@ -132,6 +259,15 @@ func (c *WorkerConfig) Validate() error {
 	return nil
 }
 
+// FirestorePricing is the pricing gate of billing.compute and billing.backfill (main spec §6.13 coexistence, T38): the
+// deployment runs the FS->PG mirror (ETL_SYNC_ENABLED, set on every worker replica of the deployment, not only the one
+// that runs group sync) while billing is not in PG_OWNED_DOMAINS (P1-P2). Firestore's Cloud Functions then still price
+// the trips and standby records the mirror writes, and Go prices only the records born in PostgreSQL. Without the
+// mirror (the staging VM: PostgreSQL only) or once billing is owned (P3), Go is the only pricer.
+func FirestorePricing(etlSyncEnabled bool, owned map[string]bool) bool {
+	return etlSyncEnabled && !owned["billing"]
+}
+
 // SchedulerConfig is the scheduler process configuration.
 type SchedulerConfig struct {
 	Common
@@ -143,9 +279,33 @@ type SchedulerConfig struct {
 	BatchSize     int           `env:"OUTBOX_BATCH_SIZE" envDefault:"500"`
 	RTLogMaxLen   int64         `env:"RTLOG_MAXLEN" envDefault:"1000"`
 	RTLogTTL      time.Duration `env:"RTLOG_TTL" envDefault:"24h"`
+	// FuelMonthlySnapshotEnabled schedules bangchak.snapshot at 05:00 Asia/Bangkok (T37, R70; main spec §7.4); off,
+	// the snapshots run only from POST /v1/jobs/bangchak.snapshot.
+	FuelMonthlySnapshotEnabled bool `env:"FUEL_MONTHLY_SNAPSHOT_ENABLED"`
+	// CartrackSyncEnabled schedules cartrack.sync every three minutes (T53, R70; main spec §7.4); off, positions move
+	// only through GET /v1/admin/cartrack/probe's probe runs, which write nothing.
+	CartrackSyncEnabled bool `env:"CARTRACK_SYNC_ENABLED"`
 	// JWTAccessTTL is the life of the revoked-session markers the relay re-applies from
 	// user.sessions_revoked (+ 30 s leeway, Appendix C §C.4.7): the same value the api signs with.
 	JWTAccessTTL time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`
+	// ETLSyncEnabled schedules the etl.sync sweep every ETLSyncInterval (main spec §7.4; T24); the interval is whole
+	// minutes that divide an hour, so the slots are Bangkok clock minutes (*/5 * * * * by default).
+	ETLSyncEnabled  bool          `env:"ETL_SYNC_ENABLED"`
+	ETLSyncInterval time.Duration `env:"ETL_SYNC_INTERVAL" envDefault:"5m"`
+}
+
+// ETLSyncSpec is the cron spec of ETL_SYNC_INTERVAL ("" when it is not whole minutes that divide an hour).
+func ETLSyncSpec(d time.Duration) string {
+	m := int(d / time.Minute)
+	switch {
+	case d%time.Minute != 0 || m < 1 || m > 60 || 60%m != 0:
+		return ""
+	case m == 60:
+		return "0 * * * *"
+	case m == 1:
+		return "* * * * *"
+	}
+	return "*/" + strconv.Itoa(m) + " * * * *"
 }
 
 // Validate implements config.Validator.
@@ -170,6 +330,9 @@ func (c *SchedulerConfig) Validate() error {
 	}
 	if c.JWTAccessTTL < time.Minute || c.JWTAccessTTL > time.Hour {
 		errs = append(errs, config.Invalidf("JWT_ACCESS_TTL", "must be between 1m and 1h"))
+	}
+	if ETLSyncSpec(c.ETLSyncInterval) == "" {
+		errs = append(errs, config.Invalidf("ETL_SYNC_INTERVAL", "must be whole minutes that divide an hour (1m ... 60m)"))
 	}
 	if len(errs) > 0 {
 		return &config.Error{Invalid: errs}

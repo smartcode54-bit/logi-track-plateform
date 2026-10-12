@@ -32,13 +32,27 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { hubSchema, Hub, STATION_TYPE_ENUM, CUSTOMER_LINK_KIND_ENUM } from "@/validate/hubSchema";
-import { collection, addDoc, doc, updateDoc, query, where, getDocs, deleteField } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { useMutation } from "@tanstack/react-query";
 import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
-import { invalidateHubs } from "@/features/hubs/api/hubs";
-import { getCustomers, CustomerData } from "@/features/customers/api/customers";
+import { createHub, updateHub, type HubInput } from "@/features/hubs/api/hubs";
+import { useCustomerOptions } from "@/features/customers/api/useCustomers";
+import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
+import { carrierName } from "@/features/subcontractors/api/subcontractors";
+import { isApiError } from "@/lib/apiError";
+import { queryKeys } from "@/lib/queryKeys";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
+
+/** API field -> form field of the hub form (422 / 409 details, T25). */
+const HUB_FIELD_MAP = {
+    sourceId: "source_id",
+    sourceNameTh: "source_name_th",
+    sourceNameEn: "source_name_en",
+    stationType: "station_type",
+    linkedCustomerId: "linkedCustomerId",
+    linkedCustomerKind: "customerLinkKind",
+} as const;
 
 interface HubDialogProps {
     trigger?: React.ReactNode;
@@ -52,9 +66,12 @@ interface HubDialogProps {
 
 export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValues, documentId }: HubDialogProps) {
     const [internalOpen, setInternalOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [customers, setCustomers] = useState<CustomerData[]>([]);
     const { t } = useLanguage();
+    // Every write invalidates `['hubs']` (and `['hubs','maps']`) in this tab; `hubs.changed` in the others.
+    const meta = { invalidates: [queryKeys.hubs.all()] };
+    const create = useMutation({ mutationFn: createHub, meta });
+    const update = useMutation({ mutationFn: updateHub, meta });
+    const loading = create.isPending || update.isPending;
 
     // Controlled open state
     const isOpen = open !== undefined ? open : internalOpen;
@@ -76,18 +93,19 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
 
     const isEditMode = Boolean(documentId && defaultValues);
 
+    // `['customers','options']` and `['subcontractors','options']` (T25): one request per stale time,
+    // shared by both dialog instances of Sources and the page's own filter.
+    const customersQuery = useCustomerOptions(isOpen);
+    const partnersQuery = useSubcontractorOptions(isOpen);
     useEffect(() => {
-        const fetchCustomers = async () => {
-            try {
-                const result = await getCustomers();
-                setCustomers(result);
-            } catch (error) {
-                console.error("Failed to fetch customers:", error);
-                toast.error(t("firstMile.hub.loadCustomersFailed"));
-            }
-        };
-        fetchCustomers();
-    }, []);
+        if (customersQuery.isError) toast.error(t("firstMile.hub.loadCustomersFailed"));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [customersQuery.isError]);
+    const linkKind = form.watch("customerLinkKind") ?? "customer";
+    const linkOptions =
+        linkKind === "partner"
+            ? partnersQuery.options.map((p) => ({ id: p.id, code: p.code ?? "", name: carrierName(p) }))
+            : customersQuery.options.map((c) => ({ id: c.id, code: c.code, name: c.name }));
 
     // Reset form when dialog opens (add vs edit)
     useEffect(() => {
@@ -125,60 +143,37 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
     }, [isOpen, isEditMode, defaultValues, form]);
 
     const onSubmit = async (values: Hub) => {
-        setLoading(true);
+        const sourceId = String(values.source_id ?? "").trim();
+        if (!sourceId) return;
+        const linkedCustomerId = String(values.linkedCustomerId ?? "").trim();
+        if (!linkedCustomerId) {
+            toast.error(t("firstMile.hub.linkedCustomerRequired"));
+            return;
+        }
+        const selected = linkOptions.find((c) => c.id === linkedCustomerId);
+        const input: HubInput = {
+            sourceId,
+            sourceNameTh: String(values.source_name_th ?? "").trim(),
+            sourceNameEn: String(values.source_name_en ?? "").trim() || null,
+            latitude: values.latitude ?? null,
+            longitude: values.longitude ?? null,
+            stationType: values.station_type === "SOC" ? "SOC" : "HUB",
+            linkedCustomerId,
+            linkedCustomerKind: values.customerLinkKind ?? "customer",
+            linkedCustomerName: selected ? `${selected.code} — ${selected.name}`.trim() : null,
+        };
         try {
-            const sourceId = String(values.source_id ?? "").trim();
-            if (!sourceId) return;
-            const linkedCustomerId = String(values.linkedCustomerId ?? "").trim();
-            if (!linkedCustomerId) {
-                toast.error(t("firstMile.hub.linkedCustomerRequired"));
-                setLoading(false);
-                return;
-            }
-
-            const selectedCustomer = customers.find((c) => c.id === linkedCustomerId);
-            const linkedCustomerName = selectedCustomer
-                ? `${String(selectedCustomer.code ?? "").trim()} — ${String(selectedCustomer.name ?? "").trim()}`.trim()
-                : "";
-            const linkedCustomerNameField =
-                linkedCustomerName.length > 0 ? linkedCustomerName : deleteField();
-
-            // เช็ครหัสซ้ำ (ยกเว้นเอกสารที่กำลังแก้ไข)
-            const q = query(
-                collection(db, "hubs"),
-                where("source_id", "==", sourceId)
-            );
-            const snap = await getDocs(q);
-            const existing = snap.docs.filter((d) => d.id !== documentId);
-            if (existing.length > 0) {
-                toast.error(t("firstMile.hub.duplicateCode"));
-                setLoading(false);
-                return;
-            }
-
-            const payload = {
-                ...values,
-                linkedCustomerId,
-                linkedCustomerName: linkedCustomerNameField,
-                customerLinkKind: values.customerLinkKind ?? "customer",
-                updatedAt: new Date(),
-            };
-            if (documentId) {
-                await updateDoc(doc(db, "hubs", documentId), payload);
-            } else {
-                await addDoc(collection(db, "hubs"), {
-                    ...payload,
-                    createdAt: new Date(),
-                });
-            }
-            // Every page reading `['hubs']` sees the change (TW4).
-            await invalidateHubs();
+            if (documentId) await update.mutateAsync({ id: documentId, input });
+            else await create.mutateAsync(input);
             setIsOpen(false);
             if (onSuccess) onSuccess();
         } catch (error) {
-            console.error("Error saving source:", error);
-        } finally {
-            setLoading(false);
+            if (isApiError(error) && error.code === "already_exists" && error.details.field === "sourceId" && error.details.reason !== "taken_as_name") {
+                toast.error(t("firstMile.hub.duplicateCode"));
+                return;
+            }
+            applyServerFieldErrors(form, error, t, HUB_FIELD_MAP);
+            toastSaveError(error, t);
         }
     };
 
@@ -302,9 +297,9 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent className="z-[1005]" position="popper">
-                                                {customers.map((customer) => (
-                                                    <SelectItem key={customer.id} value={customer.id}>
-                                                        {customer.code} - {customer.name}
+                                                {linkOptions.map((option) => (
+                                                    <SelectItem key={option.id} value={option.id}>
+                                                        {[option.code, option.name].filter(Boolean).join(" - ")}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>

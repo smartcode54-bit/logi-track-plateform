@@ -187,6 +187,52 @@ func (q *Queries) GetFileByKey(ctx context.Context, objectKey string) (FileObjec
 	return i, err
 }
 
+const getFiles = `-- name: GetFiles :many
+SELECT id, bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256, visibility, status, legacy_url, uploaded_by, expires_at, committed_at, created_at, deleted_at, storage_backend FROM file_objects WHERE id = ANY ($1::uuid[]) AND deleted_at IS NULL
+`
+
+// The files of a page of rows the caller already read under its own rights (T30: trip, standby and incident photos):
+// one round trip for every URL of the page.
+func (q *Queries) GetFiles(ctx context.Context, ids []uuid.UUID) ([]FileObject, error) {
+	rows, err := q.db.Query(ctx, getFiles, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FileObject{}
+	for rows.Next() {
+		var i FileObject
+		if err := rows.Scan(
+			&i.ID,
+			&i.Bucket,
+			&i.ObjectKey,
+			&i.TenantID,
+			&i.Purpose,
+			&i.OwnerKind,
+			&i.OwnerID,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.Sha256,
+			&i.Visibility,
+			&i.Status,
+			&i.LegacyUrl,
+			&i.UploadedBy,
+			&i.ExpiresAt,
+			&i.CommittedAt,
+			&i.CreatedAt,
+			&i.DeletedAt,
+			&i.StorageBackend,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertPending = `-- name: InsertPending :one
 
 INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, content_type, size_bytes, sha256, visibility,
@@ -307,6 +353,50 @@ func (q *Queries) InsertPendingPublic(ctx context.Context, arg InsertPendingPubl
 		&i.StorageBackend,
 	)
 	return i, err
+}
+
+const insertServerObject = `-- name: InsertServerObject :one
+INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes, sha256,
+                          visibility, status, committed_at, storage_backend)
+VALUES ($1, $2, $3::uuid, $4, $5::text, $6::uuid,
+        $7::text, $8::bigint, $9::text, 'private', 'committed', $10::timestamptz,
+        $11)
+RETURNING id
+`
+
+type InsertServerObjectParams struct {
+	Bucket         string
+	ObjectKey      string
+	TenantID       *uuid.UUID
+	Purpose        string
+	OwnerKind      string
+	OwnerID        uuid.UUID
+	ContentType    string
+	SizeBytes      int64
+	Sha256         string
+	CommittedAt    time.Time
+	StorageBackend string
+}
+
+// A server-side writer's object (rendered statement documents, reports; main spec §9.9): committed at once, owned by
+// its entity, never presigned by a client. The bytes are already stored under the key (PutServerObject).
+func (q *Queries) InsertServerObject(ctx context.Context, arg InsertServerObjectParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertServerObject,
+		arg.Bucket,
+		arg.ObjectKey,
+		arg.TenantID,
+		arg.Purpose,
+		arg.OwnerKind,
+		arg.OwnerID,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Sha256,
+		arg.CommittedAt,
+		arg.StorageBackend,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const isDirectSubtenant = `-- name: IsDirectSubtenant :one

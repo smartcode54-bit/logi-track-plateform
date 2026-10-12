@@ -1,17 +1,21 @@
 package fleet
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/fleetdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/xlsx"
 )
@@ -224,6 +228,47 @@ func TestCheckFiles(t *testing.T) {
 	}
 }
 
+// TestSearchParam: a list's ?q / ?type is trimmed, blank is no filter, and what PostgreSQL text cannot take (not
+// UTF-8, NUL) or what the search box cannot send (a control character) is a 422 before SQL, never a 500 (TW8).
+func TestSearchParam(t *testing.T) {
+	for _, c := range []struct {
+		in, want, bad string
+	}{
+		{"  กข-5101 ", "กข-5101", ""},
+		{"   ", "", ""},
+		{"", "", ""},
+		{strings.Repeat("ก", MaxSearchRunes), strings.Repeat("ก", MaxSearchRunes), ""},
+		{strings.Repeat("ก", MaxSearchRunes+1), "", "too_long"},
+		{"\xff", "", "invalid"},
+		{"a\x00b", "", "invalid"},
+		{"a\x01b", "", "invalid"},
+		{"a\x7fb", "", "invalid"},
+		{"a\tb", "", "invalid"},
+	} {
+		var ck checker
+		got := searchParam(&ck, "q", c.in)
+		if bad := fields(&ck)["q"]; bad != c.bad {
+			t.Errorf("searchParam(%q): reason %q, want %q", c.in, bad, c.bad)
+		}
+		if (got == nil) != (c.want == "") || (got != nil && *got != c.want) {
+			t.Errorf("searchParam(%q) = %v, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestMapDBError(t *testing.T) {
+	plain := errors.New("x")
+	if !errors.Is(mapDBError(plain), plain) {
+		t.Error("non-database errors pass through")
+	}
+	for code, want := range map[string]int{"23505": http.StatusConflict, "23503": http.StatusUnprocessableEntity,
+		"23514": http.StatusUnprocessableEntity, "22021": http.StatusUnprocessableEntity, "42501": http.StatusForbidden} {
+		if e := httpx.AsError(mapDBError(&pgconn.PgError{Code: code, ConstraintName: "c"})); e.Status != want {
+			t.Errorf("%s: %d", code, e.Status)
+		}
+	}
+}
+
 func TestCursor(t *testing.T) {
 	at := time.Date(2026, 10, 1, 1, 2, 3, 4000, time.UTC)
 	id := uuid.New()
@@ -323,6 +368,54 @@ func TestValidateRenewal(t *testing.T) {
 			t.Fatalf("tax renewal with startDate %+v: %v", start, err)
 		}
 	}
+	// T25: the insurance form's person in charge is maintenance_responsible, its notes the truck's insurance notes, and
+	// documents replaces the insurance documents (the stored ones it keeps plus the new ones; [] removes them all).
+	r, err = s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress"), Responsible: set("Somchai"),
+		InsuranceNotes: set("Claim #42"), Documents: set([]string{"k1", " k2 "}), DocumentKeys: set([]string{"k3"})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(r.replaceDocs, []string{"k1", "k2"}) || !slices.Equal(r.docs, []string{"k3"}) || r.notes != nil {
+		t.Fatalf("insurance draft %+v", r)
+	}
+	m = fleetdb.UpdateTruckParams{TaxResponsible: "Ops", MaintenanceResponsible: "Driver"}
+	r.apply(&m)
+	if m.MaintenanceResponsible != "Somchai" || m.TaxResponsible != "Ops" || m.InsuranceNotes == nil || *m.InsuranceNotes != "Claim #42" {
+		t.Fatalf("insurance draft applied %+v", m)
+	}
+	if r, err = s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress"), Documents: set([]string{})}); err != nil ||
+		r.replaceDocs == nil || len(r.replaceDocs) != 0 {
+		t.Fatalf("documents [] clears: %+v %v", r, err)
+	}
+	// Absent, null or (on a tax renewal) empty documents keep the stored ones.
+	for _, docs := range []Field[[]string]{{}, {Set: true, Null: true}} {
+		if r, err = s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress"), Documents: docs}); err != nil || r.replaceDocs != nil {
+			t.Fatalf("documents %+v: %+v %v", docs, r, err)
+		}
+	}
+	if r, err = s.validateRenewal(&RenewalInput{Type: "tax", Status: set("in_progress"), Documents: set([]string{})}); err != nil || r.replaceDocs != nil {
+		t.Fatalf("documents [] on a tax renewal: %+v %v", r, err)
+	}
+	_, err = s.validateRenewal(&RenewalInput{Type: "tax", Status: set("in_progress"), InsuranceNotes: set("x"), Documents: set([]string{"d"})})
+	got = map[string]string{}
+	for _, f := range errFields(t, err) {
+		got[f[0]] = f[1]
+	}
+	if want := map[string]string{"insuranceNotes": "not_available", "documents": "not_available"}; !maps.Equal(got, want) {
+		t.Fatalf("tax renewal with insurance fields\n got %v\nwant %v", got, want)
+	}
+	for _, in := range []RenewalInput{
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{"a", "a"})},
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{"a"}), DocumentKeys: set([]string{"a"})},
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{"r"}), ReceiptKey: set("r")},
+		{Type: "insurance", Status: set("in_progress"), Documents: set([]string{" "})},
+	} {
+		_, err := s.validateRenewal(&in)
+		if f := errFields(t, err); len(f) != 1 || f[0] != [2]string{"documents", "invalid"} {
+			t.Fatalf("documents %+v: %v", in.Documents, f)
+		}
+	}
+
 	// A draft (in_progress) needs neither.
 	if _, err := s.validateRenewal(&RenewalInput{Type: "insurance", Status: set("in_progress")}); err != nil {
 		t.Fatalf("draft: %v", err)

@@ -1,8 +1,8 @@
 // Package fleet is the truck master of T22 (Appendix B §B.2.8): trucks with their append-only status history
 // (status_history, entity 'truck'), files (truck_files -> file_objects), tax and insurance renewals with their ledger
 // rows (transactions), the renewal overview and the spreadsheet import, and the truck assignments of T23 (the
-// driver's home truck, truck_assignments with drivers.current_assignment_id, in one transaction). The PM check (P3)
-// and vehicle locations (P6) join this package later.
+// driver's home truck, truck_assignments with drivers.current_assignment_id, in one transaction). The PM check lives in
+// internal/maintenance (T40) and the vehicle locations with the Cartrack sync in internal/fleet/locations (T53).
 //
 // Every statement runs in db.WithPrincipal, so RLS decides (Appendix C §C.3.0): trucks and transactions are tenant
 // rows of the caller's reach (own tenant plus the carriers working for it, R60); truck_files and status_history follow
@@ -198,6 +198,28 @@ func cleanText(v string, max int) (string, string) {
 	return v, ""
 }
 
+// MaxSearchRunes is the longest search or filter text a list takes (?q, ?type), in characters.
+const MaxSearchRunes = 100
+
+// searchParam checks a list's search or filter text (?q, ?type): nil when blank (no filter); "too_long" over
+// MaxSearchRunes characters; "invalid" when it is not valid UTF-8 or holds a control character, NUL among them
+// (PostgreSQL text cannot hold NUL, and the bytes would otherwise reach SQL and fail there as a 500). Write fields
+// keep cleanText, which lets a note hold a line break.
+func searchParam(ck *checker, field, v string) *string {
+	s, bad := cleanText(v, MaxSearchRunes)
+	if bad == "" && strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		bad = "invalid"
+	}
+	if bad != "" {
+		ck.add(field, bad)
+		return nil
+	}
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // parseDate reads a yyyy-MM-dd calendar date (a Bangkok calendar day, Appendix B §B.1.5).
 func parseDate(v string) (time.Time, bool) {
 	d, err := time.Parse(time.DateOnly, strings.TrimSpace(v))
@@ -294,8 +316,8 @@ func errAlreadyExists(field, reason string) *httpx.Error {
 		WithDetails(map[string]any{"field": field, "reason": reason})
 }
 
-// mapDBError turns the database refusals a request can still meet into the API's codes: unique keys (409), checks
-// and foreign keys (422), and RLS (42501: a row outside the caller's write reach, 403); anything else is returned as
+// mapDBError turns the database refusals a request can still meet into the API's codes: unique keys (409), checks,
+// foreign keys and text PostgreSQL cannot store (422), and RLS (42501: a row outside the caller's write reach, 403); anything else is returned as
 // is (500 for an unknown database error).
 func mapDBError(err error) error {
 	var pe *pgconn.PgError
@@ -313,6 +335,10 @@ func mapDBError(err error) error {
 		return httpx.ErrInvalidArgument(violation(pe.ConstraintName, "not_found")).Wrap(err)
 	case "23514":
 		return httpx.ErrInvalidArgument(violation(pe.ConstraintName, "invalid")).Wrap(err)
+	case "22021":
+		// character_not_in_repertoire: bytes a validator let through that PostgreSQL text cannot hold (NUL, or not
+		// UTF-8); the request's fault, never a 500.
+		return httpx.ErrInvalidArgument(violation("body", "invalid_encoding")).Wrap(err)
 	case "42501":
 		return authz.ErrPermissionDenied("row-level security refused the write").Wrap(err)
 	}

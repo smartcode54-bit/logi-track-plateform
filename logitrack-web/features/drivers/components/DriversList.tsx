@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
-import { Driver } from "@/validate/driverSchema";
+import { useDriverPages } from "@/features/drivers/api/useDrivers";
+import type { DriverStatus } from "@/features/drivers/api/drivers";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { LoadMore } from "@/components/load-more";
 import {
     Download,
     Loader2,
@@ -42,79 +42,31 @@ import { useLanguage } from "@/context/language";
 export default function DriversList() {
     const router = useRouter();
     const { t } = useLanguage();
-    const [drivers, setDrivers] = useState<Driver[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
-    // Filters
+    // Filters: sent to the server (`GET /v1/drivers?status&q`, T25).
     const [searchQuery, setSearchQuery] = useState("");
-    const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [statusFilter, setStatusFilter] = useState<"all" | DriverStatus>("all");
+    const q = useDebouncedValue(searchQuery.trim());
 
-    // Pagination
+    // Pagination over the loaded rows; "load more" fetches the next keyset page.
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
+    useEffect(() => setCurrentPage(1), [q, statusFilter]);
 
-    // Fetch drivers
-    useEffect(() => {
-        setLoading(true);
-        const driversRef = collection(db, COLLECTIONS.DRIVERS);
-        const q = query(driversRef, orderBy("createdAt", "desc"), limit(100));
+    // `['drivers', {status, q}]`: keyset pages of 100 (no 100-row cap), polled every 60 s while the
+    // tab is visible (Appendix E §E.5 row 23, replacing the onSnapshot listener).
+    const pages = useDriverPages({ status: statusFilter === "all" ? "" : statusFilter, q });
+    const loading = pages.isPending;
+    const filteredDrivers = pages.drivers;
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedDrivers: Driver[] = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date();
+    // Stat cards: the server's counts over every matching driver, not only the loaded rows.
+    const counts = pages.statusCounts;
+    const stats = {
+        total: (counts.active ?? 0) + (counts.on_duty ?? 0) + (counts.inactive ?? 0),
+        active: (counts.active ?? 0) + (counts.on_duty ?? 0),
+        onLeave: counts.inactive ?? 0,
+    };
 
-                fetchedDrivers.push({
-                    id: doc.id,
-                    firstName: data.firstName || "",
-                    lastName: data.lastName || "",
-                    mobile: data.mobile || "",
-                    email: data.email || "",
-                    status: data.status || "Active",
-                    employmentType: data.employmentType || "FULL_TIME",
-                    truckLicenseId: data.truckLicenseId || "",
-                    currentAssignment: data.currentAssignment,
-                    ...data,
-                    createdAt
-                } as Driver);
-            });
-            setDrivers(fetchedDrivers);
-            setLoading(false);
-        }, (err) => {
-            console.error("Error fetching drivers:", err);
-            setError("Failed to load drivers");
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    // Derived Stats
-    const stats = useMemo(() => {
-        const total = drivers.length;
-        const active = drivers.filter(d => d.status === "Active" || d.status === "On-Duty").length;
-        const onLeave = drivers.filter(d => d.status === "Inactive").length;
-        return { total, active, onLeave };
-    }, [drivers]);
-
-    // Filtering Logic
-    const filteredDrivers = useMemo(() => {
-        return drivers.filter(driver => {
-            const fullName = `${driver.fullNameTh ?? ""} ${driver.firstName} ${driver.lastName}`.toLowerCase();
-            const matchSearch =
-                fullName.includes(searchQuery.toLowerCase()) ||
-                driver.truckLicenseId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                driver.mobile?.toLowerCase().includes(searchQuery.toLowerCase());
-
-            const matchStatus = statusFilter === "all" || driver.status === statusFilter;
-
-            return matchSearch && matchStatus;
-        });
-    }, [drivers, searchQuery, statusFilter]);
-
-    // Pagination Logic
     const paginatedDrivers = filteredDrivers.slice(
         (currentPage - 1) * itemsPerPage,
         currentPage * itemsPerPage
@@ -123,9 +75,9 @@ export default function DriversList() {
 
     const getStatusColor = (status: string) => {
         switch (status) {
-            case "Active": return "bg-green-500/10 text-green-500 border-green-500/20";
-            case "On-Duty": return "bg-blue-500/10 text-blue-500 border-blue-500/20";
-            case "Inactive": return "bg-gray-500/10 text-gray-500 border-gray-500/20";
+            case "active": return "bg-green-500/10 text-green-500 border-green-500/20";
+            case "on_duty": return "bg-blue-500/10 text-blue-500 border-blue-500/20";
+            case "inactive": return "bg-gray-500/10 text-gray-500 border-gray-500/20";
             default: return "bg-gray-500/10 text-gray-500";
         }
     };
@@ -218,22 +170,22 @@ export default function DriversList() {
                             {t("drivers.filter.all")}
                         </Button>
                         <Button
-                            variant={statusFilter === "On-Duty" ? "secondary" : "ghost"}
-                            onClick={() => setStatusFilter("On-Duty")}
+                            variant={statusFilter === "on_duty" ? "secondary" : "ghost"}
+                            onClick={() => setStatusFilter("on_duty")}
                             className="whitespace-nowrap"
                         >
                             {t("drivers.filter.onDuty")}
                         </Button>
                         <Button
-                            variant={statusFilter === "Active" ? "secondary" : "ghost"}
-                            onClick={() => setStatusFilter("Active")}
+                            variant={statusFilter === "active" ? "secondary" : "ghost"}
+                            onClick={() => setStatusFilter("active")}
                             className="whitespace-nowrap"
                         >
                             {t("drivers.filter.active")}
                         </Button>
                         <Button
-                            variant={statusFilter === "Inactive" ? "secondary" : "ghost"}
-                            onClick={() => setStatusFilter("Inactive")}
+                            variant={statusFilter === "inactive" ? "secondary" : "ghost"}
+                            onClick={() => setStatusFilter("inactive")}
                             className="whitespace-nowrap"
                         >
                             {t("drivers.filter.inactive")}
@@ -277,8 +229,8 @@ export default function DriversList() {
                                         <TableCell>
                                             <div className="flex items-center gap-3">
                                                 <Avatar className="h-9 w-9 border border-border">
-                                                    <AvatarImage src={driver.profileImage} alt={driver.firstName} />
-                                                    <AvatarFallback>{driver.firstName.slice(0, 1).toUpperCase()}{driver.lastName.slice(0, 1).toUpperCase()}</AvatarFallback>
+                                                    <AvatarImage src={driver.profileUrl ?? undefined} alt={driver.firstName} />
+                                                    <AvatarFallback>{(driver.firstName || driver.displayName).slice(0, 1).toUpperCase()}{driver.lastName.slice(0, 1).toUpperCase()}</AvatarFallback>
                                                 </Avatar>
                                                 <div className="flex flex-col">
                                                     <span className="font-medium text-sm text-foreground">{driver.firstName} {driver.lastName}</span>
@@ -289,9 +241,9 @@ export default function DriversList() {
                                         <TableCell className="text-sm text-muted-foreground">{driver.mobile}</TableCell>
                                         <TableCell>
                                             <div className="flex flex-col">
-                                                <span className="text-sm font-medium">{driver.employmentType.replace("_", " ")}</span>
-                                                {driver.employmentType === 'SUBCONTRACTOR' && driver.subcontractorName && (
-                                                    <span className="text-xs text-muted-foreground">{driver.subcontractorName}</span>
+                                                <span className="text-sm font-medium">{t(`masterData.drivers.employment.${driver.employmentType}`)}</span>
+                                                {driver.employmentType === 'subcontractor' && driver.tenantNameTh && (
+                                                    <span className="text-xs text-muted-foreground">{driver.tenantNameTh}</span>
                                                 )}
                                             </div>
                                         </TableCell>
@@ -299,7 +251,7 @@ export default function DriversList() {
                                             {driver.currentAssignment ? (
                                                 <div className="flex flex-col">
                                                     <span className="font-medium text-sm text-blue-600">{driver.currentAssignment.truckPlate}</span>
-                                                    <span className="text-xs text-muted-foreground">{(driver.currentAssignment as any).truckModel}</span>
+                                                    <span className="text-xs text-muted-foreground">{driver.currentAssignment.truckModel}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-muted-foreground text-xs italic">{t("drivers.table.unassigned")}</span>
@@ -314,7 +266,7 @@ export default function DriversList() {
                                         <TableCell>
                                             <Badge variant="secondary" className={`${getStatusColor(driver.status)} font-medium border`}>
                                                 <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
-                                                {driver.status}
+                                                {t(`masterData.drivers.status.${driver.status}`)}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right">
@@ -328,10 +280,10 @@ export default function DriversList() {
                                                     <DropdownMenuLabel>{t("drivers.action.label")}</DropdownMenuLabel>
                                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/view?id=${driver.id}`); }}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
                                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/edit?id=${driver.id}`); }}>{t("drivers.action.editDetails")}</DropdownMenuItem>
-                                                    {(driver as { authId?: string }).authId && (
-                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/chat/with-driver?authId=${(driver as { authId: string }).authId}`); }} className="gap-2">
+                                                    {driver.legacyAuthUid && (
+                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/chat/with-driver?authId=${driver.legacyAuthUid}`); }} className="gap-2">
                                                             <MessageCircle className="h-4 w-4" />
-                                                            Chat
+                                                            {t("masterData.drivers.chat")}
                                                         </DropdownMenuItem>
                                                     )}
                                                 </DropdownMenuContent>
@@ -344,7 +296,15 @@ export default function DriversList() {
                     </Table>
 
                     {/* Pagination Footer */}
-                    <div className="flex items-center justify-between px-4 py-4 border-t border-border/50 bg-muted/20">
+                    <div className="px-4 pt-4 border-t border-border/50 bg-muted/20">
+                        <LoadMore
+                            loaded={filteredDrivers.length}
+                            hasNextPage={pages.hasNextPage}
+                            isFetchingNextPage={pages.isFetchingNextPage}
+                            onLoadMore={() => void pages.fetchNextPage()}
+                        />
+                    </div>
+                    <div className="flex items-center justify-between px-4 py-4 bg-muted/20">
                         <div className="text-sm text-muted-foreground">
                             {t("drivers.pagination.showing")} {paginatedDrivers.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} {t("drivers.pagination.to")} {Math.min(currentPage * itemsPerPage, filteredDrivers.length)} {t("drivers.pagination.of")} {filteredDrivers.length} {t("drivers.pagination.entries")}
                         </div>

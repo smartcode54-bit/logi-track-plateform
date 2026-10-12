@@ -21,15 +21,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -50,11 +56,19 @@ func main() {
 // administration (T19, deps.Admin, with the carrier profiles of T20), the API keys administration (T32K,
 // deps.APIKeys), the customers and companies (T20, deps.Parties) and the hubs, distances and
 // POST /v1/jobs/distances.compute (T21, deps.Hubs), the trucks (T22, deps.Fleet) with the truck assignments and
-// the drivers (T23, deps.Fleet, deps.Drivers) sit behind
+// the drivers (T23, deps.Fleet, deps.Drivers), the vehicle expenses and maintenance with the PM check below /v1/trucks
+// (T40, deps.Expenses, deps.Maintenance), the billing rate tables, statements, fuel snapshots and POST
+// /v1/jobs/bangchak.snapshot (T37, deps.Billing), the compute-on-delivery routes of T38 (deps.Billing: the trip and
+// standby billing routes below /v1/trips and /v1/standby, mounted by operations.Groups, POST
+// /v1/jobs/billing.{backfill-trips,backfill-standby,impact-report} and the shim target below /v1/mobile), the R13 task
+// reassignment (T28, deps.Operations) and the payroll runs,
+// penalties, compensation config versions and POST /v1/jobs/payroll.run (T44, deps.HR) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
 // installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
-// API keys); extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
+// API keys); the vehicle locations, the Cartrack probe, the dashboard summary, the badges and the forms of T53 come from
+// deps.Locations, deps.Dashboard and deps.Forms (app.DashboardGroups: the anonymous form posts are internal-only and
+// rate-limited); extra exists for tests. `api routes` passes zero deps: Groups and RequireAuth
 // only register handlers and never read a service, so the table needs no database, Redis or signing
 // key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
@@ -67,13 +81,24 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, iam.APIKeyGroups(deps.APIKeys, deps.Auth.RequireAuth())...)
 	groups = append(groups, parties.Groups(deps.Parties, deps.Auth.RequireAuth())...)
 	groups = append(groups, hubs.Groups(deps.Hubs, deps.Auth.RequireAuth())...)
-	groups = append(groups, fleet.Groups(deps.Fleet, deps.Auth.RequireAuth())...)
+	groups = append(groups, fleet.Groups(deps.Fleet, deps.Auth.RequireAuth(),
+		maintenance.TruckRoutes(deps.Maintenance, deps.Auth.RequireAuth()))...)
 	groups = append(groups, drivers.Groups(deps.Drivers, deps.Auth.RequireAuth())...)
+	groups = append(groups, expenses.Groups(deps.Expenses, deps.Auth.RequireAuth())...)
+	groups = append(groups, maintenance.Groups(deps.Maintenance, deps.Auth.RequireAuth())...)
+	groups = append(groups, billing.Groups(deps.Billing, deps.Auth.RequireAuth())...)
+	groups = append(groups, billing.JobGroups(deps.Billing, deps.Auth.RequireAuth())...)
+	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth(), operations.Mounts{
+		Trips:   []func(fiber.Router){billing.TripRoutes(deps.Billing, deps.Auth.RequireAuth())},
+		Standby: []func(fiber.Router){billing.StandbyRoutes(deps.Billing, deps.Auth.RequireAuth())},
+	})...)
+	groups = append(groups, hr.Groups(deps.HR, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)
 	groups = append(groups, app.MobileGroups(deps)...)
 	groups = append(groups, app.MobileReleaseGroups(deps)...)
+	groups = append(groups, app.DashboardGroups(deps)...)
 	return app.NewAPI(cfg, log, append(groups, extra...)...)
 }
 

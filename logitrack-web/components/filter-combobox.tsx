@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronsUpDown, Search, X } from "lucide-react";
+import { Component, Suspense, lazy, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronsUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FilterComboboxRow as Row } from "./filter-combobox-row";
 
 /** One selectable option. `badge` is rendered next to the label (e.g. "not in fleet"). */
 export interface FilterComboboxOption {
@@ -10,7 +11,16 @@ export interface FilterComboboxOption {
     label: string;
     count?: number;
     badge?: string;
+    /** More text the search matches besides the label (a hub's code and other-language name). */
+    searchText?: string;
 }
+
+/**
+ * Above this many matching options the open list is virtualised (TanStack Virtual, TW8): only the
+ * rows in view are in the DOM, so a list of every hub (hundreds) opens as fast as a short one. Shorter
+ * lists render every row, as before.
+ */
+export const FILTER_COMBOBOX_VIRTUALIZE_ABOVE = 100;
 
 export interface FilterComboboxProps {
     options: FilterComboboxOption[];
@@ -33,11 +43,33 @@ export interface FilterComboboxProps {
     clearLabel?: string;
 }
 
+const loadVirtualOptions = () => import("./filter-combobox-virtual-options");
+
 /**
- * Searchable filter combobox shared by the plate, origin and destination filters.
+ * The virtualised list, in its own chunk, so `@tanstack/react-virtual` stays out of the initial JS of
+ * the pages that use the combobox (developer-spec.md §10.11). A combobox with more than
+ * `FILTER_COMBOBOX_VIRTUALIZE_ABOVE` options preloads it when it mounts, before the first open; until
+ * it is in, or if its chunk fails, the plain list renders every row (nothing is hidden either way).
+ */
+const VirtualOptions = lazy(() => loadVirtualOptions().then((m) => ({ default: m.FilterComboboxVirtualOptions })));
+
+/** Renders `fallback` (the plain list) when the virtualised list's chunk fails to load. */
+class VirtualListBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+    state = { failed: false };
+    static getDerivedStateFromError() {
+        return { failed: true };
+    }
+    render() {
+        return this.state.failed ? this.props.fallback : this.props.children;
+    }
+}
+
+/**
+ * Searchable filter combobox shared by the plate, origin and destination filters, and the hub filter
+ * of the task boards (every hub of `['hubs']`, no cap: Appendix E §E.10 row 7).
  *
- * Options are built from the loaded rows (not from a master collection), so each carries its row
- * count and values with no master record are badged rather than hidden.
+ * The plate and place filters build their options from the loaded rows (not from a master collection),
+ * so each carries its row count and values with no master record are badged rather than hidden.
  *
  * Hand-rolled popover rather than Radix Select, mirroring features/tasks/components/TruckPlateField:
  * it renders inside the current stacking context, so it also works inside a Dialog without the
@@ -59,13 +91,19 @@ export function FilterCombobox({
 }: FilterComboboxProps) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
+    const long = options.length > FILTER_COMBOBOX_VIRTUALIZE_ABOVE;
+    useEffect(() => {
+        if (long) loadVirtualOptions().catch(() => undefined);
+    }, [long]);
 
     const selected = useMemo(() => options.find((o) => o.value === value), [options, value]);
 
     const matching = useMemo(() => {
         const term = search.trim().toLowerCase();
         if (!term) return options;
-        return options.filter((o) => o.label.toLowerCase().includes(term));
+        return options.filter(
+            (o) => o.label.toLowerCase().includes(term) || (o.searchText?.toLowerCase().includes(term) ?? false)
+        );
     }, [options, search]);
 
     // The selection can outlive its option (e.g. the date range narrowed) — keep it readable rather
@@ -78,6 +116,27 @@ export function FilterCombobox({
         setOpen(false);
         setSearch("");
     };
+
+    // Every row: lists up to the threshold, and the fallback of the virtualised one.
+    const plainList = open ? (
+        <div className="max-h-[240px] overflow-y-auto p-1">
+            <Row selected={value === allValue} onClick={() => select(allValue)} label={allLabel} />
+            {matching.length === 0 ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">{noResultsLabel}</div>
+            ) : (
+                matching.map((option) => (
+                    <Row
+                        key={option.value}
+                        selected={option.value === value}
+                        onClick={() => select(option.value)}
+                        label={option.label}
+                        count={option.count}
+                        badge={option.badge}
+                    />
+                ))
+            )}
+        </div>
+    ) : null;
 
     return (
         <div className={cn("relative", className)}>
@@ -138,61 +197,24 @@ export function FilterCombobox({
                                 autoFocus
                             />
                         </div>
-                        <div className="max-h-[240px] overflow-y-auto p-1">
-                            <Row
-                                selected={value === allValue}
-                                onClick={() => select(allValue)}
-                                label={allLabel}
-                            />
-                            {matching.length === 0 ? (
-                                <div className="py-4 text-center text-sm text-muted-foreground">
-                                    {noResultsLabel}
-                                </div>
-                            ) : (
-                                matching.map((option) => (
-                                    <Row
-                                        key={option.value}
-                                        selected={option.value === value}
-                                        onClick={() => select(option.value)}
-                                        label={option.label}
-                                        count={option.count}
-                                        badge={option.badge}
+                        {matching.length > FILTER_COMBOBOX_VIRTUALIZE_ABOVE ? (
+                            <VirtualListBoundary fallback={plainList}>
+                                <Suspense fallback={plainList}>
+                                    <VirtualOptions
+                                        options={matching}
+                                        value={value}
+                                        allValue={allValue}
+                                        allLabel={allLabel}
+                                        search={search}
+                                        onSelect={select}
                                     />
-                                ))
-                            )}
-                        </div>
+                                </Suspense>
+                            </VirtualListBoundary>
+                        ) : (
+                            plainList
+                        )}
                     </div>
                 </>
-            )}
-        </div>
-    );
-}
-
-function Row({
-    selected,
-    onClick,
-    label,
-    count,
-    badge,
-}: {
-    selected: boolean;
-    onClick: () => void;
-    label: string;
-    count?: number;
-    badge?: string;
-}) {
-    return (
-        <div
-            className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
-            onClick={onClick}
-        >
-            <Check className={cn("h-4 w-4 shrink-0", selected ? "opacity-100" : "opacity-0")} />
-            <span className="min-w-0 flex-1 truncate">
-                {label}
-                {badge && <span className="ml-2 text-xs text-amber-600">{badge}</span>}
-            </span>
-            {typeof count === "number" && (
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
             )}
         </div>
     );

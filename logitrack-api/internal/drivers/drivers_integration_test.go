@@ -583,3 +583,95 @@ func TestDriverTenantMove(t *testing.T) {
 		t.Errorf("tenant %s after the platform move", v)
 	}
 }
+
+// T25 (PR #131 review): the driver forms create a driver's login in the driver's own tenant. An own-fleet admin
+// registers a carrier's driver in that carrier (POST /v1/drivers tenantId) and then creates its login with
+// POST /v1/users {role: driver, driverId, tenantId: <the carrier>}: a tenant of the caller's write reach, as the
+// membership routes allow. Without tenantId the login would land in the caller's tenant, where the driver is not.
+// A tenant outside the reach stays a platform admin's (platform_only), and tenant_admin of a carrier stays its own
+// admin's or a platform admin's (tenant_admin_only).
+func TestDriverLoginInCarrierTenant(t *testing.T) {
+	w := newWorld(t)
+	taO := w.login("ta.o")
+	r := w.post("/v1/drivers", taO, newDriver("Carrier", map[string]any{"employmentType": "subcontractor", "tenantId": w.A}))
+	expect(t, r, http.StatusCreated, "")
+	drv := str(r.data()["id"])
+	if r.data()["tenantId"] != w.A {
+		t.Fatalf("carrier driver %s", r.raw)
+	}
+	login := func(email string, extra map[string]any) resp {
+		body := map[string]any{"email": email, "displayName": "Carrier Dee", "role": "driver", "driverId": drv}
+		for k, v := range extra {
+			body[k] = v
+		}
+		return w.post("/v1/users", taO, body)
+	}
+	// The caller's own tenant: the driver is not there.
+	r = login("carrier.driver@example.test", nil)
+	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
+	if r.fields()["driverId"] != "not_found" {
+		t.Fatalf("login in the caller's tenant: %s", r.raw)
+	}
+	// A tenant outside the reach, and tenant_admin of a carrier, stay refused.
+	r = login("carrier.driver@example.test", map[string]any{"tenantId": w.C})
+	expect(t, r, http.StatusForbidden, "permission_denied")
+	if r.detail("reason") != "platform_only" {
+		t.Errorf("tenant outside the reach: %s", r.raw)
+	}
+	r = w.post("/v1/users", taO, map[string]any{"email": "carrier.admin@example.test", "displayName": "x", "role": "tenant_admin",
+		"tenantId": w.A})
+	expect(t, r, http.StatusForbidden, "permission_denied")
+	if r.detail("reason") != "tenant_admin_only" {
+		t.Errorf("tenant_admin of a carrier: %s", r.raw)
+	}
+	users := w.count(`SELECT count(*) FROM users`)
+	// The carrier of its contractor reach: the login, its driver membership there and the link, in one transaction.
+	r = login("carrier.driver@example.test", map[string]any{"tenantId": w.A})
+	expect(t, r, http.StatusCreated, "")
+	uid := str(r.data()["user"].(map[string]any)["id"])
+	if str(r.data()["temporaryPassword"]) == "" || w.count(`SELECT count(*) FROM users`) != users+1 {
+		t.Fatalf("carrier driver login %s", r.raw)
+	}
+	if n := w.count(`SELECT count(*) FROM memberships WHERE user_id = $1 AND tenant_id = $2 AND role = 'driver'`, uid, w.A); n != 1 {
+		t.Errorf("driver membership in the carrier: %d", n)
+	}
+	if v := w.id(`SELECT user_id::text FROM drivers WHERE id = $1`, drv); v != uid {
+		t.Errorf("driver link %s", v)
+	}
+	// The carrier's own admin creates its drivers' logins in its tenant, with or without naming it.
+	taA := w.login("ta.a")
+	own := w.driver(w.A, "Own")
+	r = w.post("/v1/users", taA, map[string]any{"email": "own.driver@example.test", "displayName": "Own Dee", "role": "driver",
+		"driverId": own, "tenantId": w.A})
+	expect(t, r, http.StatusCreated, "")
+	// ... but not in the own fleet that contracts it.
+	r = w.post("/v1/users", taA, map[string]any{"email": "o.driver@example.test", "displayName": "O Dee", "role": "driver",
+		"tenantId": w.O})
+	expect(t, r, http.StatusForbidden, "permission_denied")
+}
+
+// T25 (PR #131 review): the drivers list and detail carry the driver's legacy Firebase uid (the chat pages, Firestore
+// until P5, key chats by it); a driver without one has null.
+func TestDriverLegacyAuthUID(t *testing.T) {
+	w := newWorld(t)
+	taO := w.login("ta.o")
+	withUID := w.driver(w.O, "Legacy", "legacy_auth_uid", "'fb-uid-1'")
+	without := w.driver(w.O, "Native")
+	items := w.get("/v1/drivers", taO).list()
+	got := map[string]any{}
+	for _, it := range items {
+		v, ok := it["legacyAuthUid"]
+		if !ok {
+			t.Fatalf("list item without legacyAuthUid: %v", it)
+		}
+		got[str(it["id"])] = v
+	}
+	if got[withUID] != "fb-uid-1" || got[without] != nil {
+		t.Fatalf("list legacyAuthUid %v", got)
+	}
+	r := w.get("/v1/drivers/"+withUID, taO)
+	expect(t, r, http.StatusOK, "")
+	if r.data()["legacyAuthUid"] != "fb-uid-1" {
+		t.Fatalf("detail %s", r.raw)
+	}
+}

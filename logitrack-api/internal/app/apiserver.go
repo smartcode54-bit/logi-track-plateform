@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -16,12 +17,21 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/password"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/forms"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
@@ -32,6 +42,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/sse"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // APIDeps are the services BuildAPI wires and cmd/api's newAPI turns into route groups. `api routes`
@@ -53,15 +64,36 @@ type APIDeps struct {
 	Fleet *fleet.Service
 	// Drivers are the driver master of T23: /v1/drivers*.
 	Drivers *drivers.Service
+	// Expenses are the vehicle expenses of T40: /v1/expenses* (server filter, audit with the PM check, toll import).
+	Expenses *expenses.Service
+	// Maintenance is the maintenance records of T40: /v1/maintenance* and POST /v1/trucks/{id}/pm-check.
+	Maintenance *maintenance.Service
+	// Billing is the billing data layer of T37: /v1/billing/{rate-entries,fuel-adjustments,service-fees,standby-rates,
+	// statements}*, /v1/fuel/*, POST /v1/jobs/bangchak.snapshot.
+	Billing *billing.Service
+	// Operations are the operations routes: PATCH /v1/tasks/{id} with tenantId, the R13 reassignment (T28); the read
+	// APIs /v1/tasks*, /v1/trips* (the monitor too), /v1/standby, /v1/incidents (T30); the write-back (T31) joins it.
+	Operations *operations.Service
+	// HR is driver compensation and payroll (T44): /v1/payroll* (runs, approve, status, config versions),
+	// /v1/penalties*, POST /v1/jobs/payroll.run.
+	HR      *hr.Service
 	Jobs    *jobs.Service
 	Storage *storage.Service
 	Events  *sse.Service
 	// Mobile is the driver app's installations, version gate and releases (T52): /v1/mobile/settings,
 	// /v1/mobile/heartbeat, /v1/app-installations*, /v1/app-releases*.
 	Mobile *mobileapp.Service
+	// Locations are the truck positions of T53: GET /v1/vehicle-locations, GET /v1/admin/cartrack/probe.
+	Locations *locations.Service
+	// Dashboard is the W8 aggregates of T53: GET /v1/dashboard/summary, GET /v1/badges.
+	Dashboard *dashboard.Service
+	// Forms are the anonymous landing forms of T53 and the waitlist: /v1/waitlist*, POST /v1/partner-interest.
+	Forms *forms.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
+	// PublicFormsLimit is RATE_LIMIT_PUBLIC_FORMS (the public_form_ip bucket of the forms, T53); zero = the default.
+	PublicFormsLimit ratelimit.Limit
 }
 
 // EventGroups is GET /v1/events (internal, behind auth.RequireAuth) of T12 (main spec §8, Appendix B §B.2.20). GET
@@ -253,6 +285,76 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// Maintenance and vehicle expenses (T40): RLS decides (db.WithPrincipal); an approval runs the PM check in its
+	// transaction. Staff writes go to PostgreSQL, as a PostgreSQL-owned domain and a deployment without the FS->PG
+	// mirror need; the class C write-back (Firestore first, main spec §11.10) lands with T31 (internal/writeback).
+	maintSvc, err := maintenance.New(maintenance.Deps{Pool: pool, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	expenseSvc, err := expenses.New(expenses.Deps{Pool: pool, Files: st, PM: maintSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	// Billing (T37): rate tables, statements and invoice numbers, fuel snapshots, under RLS (db.WithPrincipal); the
+	// rate-card bundle and the Bangchak retail prices through the cache: layer (UI only); POST
+	// /v1/jobs/bangchak.snapshot submits through the jobs service (the worker runs it). T39: the read aggregates, and
+	// the documents the worker renders, downloaded through signed URLs of the storage service.
+	feed, err := cfg.BangchakClient()
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	if feed == nil {
+		log.Info().Msg("Bangchak prices off: BANGCHAK_API_BASE_URL is unset (GET /v1/fuel/retail answers 503)")
+	}
+	// T38: no WriteBack yet. The job-category and standby-customer endpoints write their class C fields (the task's
+	// jobCategory, the standby customerId) to PostgreSQL only, which a deployment without the FS->PG mirror (the staging
+	// VM) needs; T31 wires the Firestore adapter of internal/writeback here, a precondition of billing in
+	// PG_OWNED_DOMAINS on a deployment that runs the mirror (main spec §6.13 as built).
+	billingSvc, err := billing.New(billing.Deps{Pool: pool, Cache: caches, Jobs: jobSvc, Bangchak: feed, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	// Operations (T27 data layer; T28 the R13 task reassignment, performed by iam.TaskMover in a system transaction
+	// after Go authorization; T30 the read APIs: photos signed by the storage service, places resolved against the hub
+	// master of the hubs service).
+	taskMover, err := iam.NewTaskMover(iam.TaskMoverDeps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	// T31: the operations writes. PostgreSQL-owned (PG_OWNED_DOMAINS holds operations, the staging VM): the routes
+	// write PostgreSQL under the caller's RLS. Otherwise they write the Firestore documents first (the class C
+	// write-back, main spec §13.8) and wait up to 3 s for the mirror's cache:mirror_ack; without a Firestore project
+	// they answer 503 write_back_unconfigured. A trip rename and its audit row run in iam's system transaction.
+	tripRenamer, err := iam.NewTripRenamer(iam.TripRenamerDeps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	wb, err := operationsWriteBack(cfg, caches, log)
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover, Files: st,
+		Hubs: OperationsHubs{Service: hubSvc}, PGOwned: cfg.OperationsOwned, WriteBack: wb, Renamer: tripRenamer,
+		Commits: st})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	// Driver compensation and payroll (T44): configs, penalties and runs under RLS (db.WithPrincipal, never Redis on the
+	// money path); POST /v1/jobs/payroll.run submits through the jobs service (the worker generates the runs).
+	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	// The driver app's fleet (T52): installations under RLS, the version gate through cache:settings:mobile_app, the
 	// APKs in the public bucket through the storage service.
 	mobile, err := mobileapp.New(mobileapp.Deps{Pool: pool, Storage: st, Cache: caches, Log: log})
@@ -260,9 +362,28 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// T53: the truck positions (the probe submits a cartrack.sync job the worker runs: the api holds no Cartrack
+	// credential), the dashboard aggregates under RLS, and the anonymous forms (exempt tables, the service writes).
+	locSvc, err := locations.New(locations.Deps{Pool: pool, Jobs: jobSvc, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	dashSvc, err := dashboard.New(dashboard.Deps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	formSvc, err := forms.New(forms.Deps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
-		Drivers: driverSvc, Jobs: jobSvc, Storage: st, Events: events, Mobile: mobile, Limiter: limiter,
-		RateLimitEnabled: cfg.RateLimit.Enabled})
+		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
+		Storage: st,
+		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Limiter: limiter,
+		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP)})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -300,6 +421,34 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	)
 	bootstrapS3(ctx, s3, log)
 	return a, closeAll, nil
+}
+
+// operationsWriteBack builds the Firestore writer of the operations writes while operations is not PostgreSQL-owned
+// (T31). No I/O: the access token is fetched on the first write, so the api starts while Google is unreachable. nil
+// when operations is PostgreSQL-owned, or when no Firestore project is configured (the writes then answer 503).
+func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (*operations.WriteBack, error) {
+	if cfg.OperationsOwned {
+		log.Info().Msg("operations writes: PostgreSQL (operations is in PG_OWNED_DOMAINS)")
+		return nil, nil
+	}
+	if cfg.WriteBack.FirestoreProjectID == "" {
+		log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
+			"(the write routes answer 503 write_back_unconfigured)")
+		return nil, nil
+	}
+	sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
+	if err != nil { // names the variable, never the content
+		return nil, &config.Error{Invalid: []string{err.Error()}}
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	fs, err := gcp.NewFirestore(cfg.WriteBack.FirestoreProjectID, cfg.WriteBack.FirestoreDatabaseID, client,
+		sa.TokenSource(client, gcp.FirestoreScope))
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{err.Error()}}
+	}
+	log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
+	return &operations.WriteBack{Writer: writeback.Firestore{FS: fs}, Acks: acks, Wait: operations.DefaultMirrorWait,
+		RunOrders: acks}, nil
 }
 
 // buildFirebase builds the bridge's collaborators (Appendix C §C.6) without I/O beyond reading the key

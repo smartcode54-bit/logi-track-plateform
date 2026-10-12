@@ -27,9 +27,20 @@ func testFixture() FixtureFS {
 	return FixtureFS{FS: os.DirFS("../../testdata"), Registry: "registry.json", Smoke: "smoke"}
 }
 
+// plan builds a profile as seed --profile does with SEED_RANDOM_SEED empty (Build applies DefaultRandomSeed).
 func plan(t *testing.T, p Profile) *Plan {
 	t.Helper()
-	pl, err := Build(context.Background(), testFixture(), Options{Profile: p, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "s3"})
+	return planSeed(t, p, 0)
+}
+
+// integrationSeed is the SEED_RANDOM_SEED of the cmd/seed integration tests (main_integration_test.go).
+const integrationSeed uint64 = 20261009
+
+// planSeed builds a profile with SEED_RANDOM_SEED = seed (0: the default).
+func planSeed(t *testing.T, p Profile, seed uint64) *Plan {
+	t.Helper()
+	pl, err := Build(context.Background(), testFixture(), Options{Profile: p, RandomSeed: seed, Bucket: "logitrack",
+		PublicBucket: "logitrack-public", Backend: "s3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,9 +195,30 @@ func TestSmokePlan(t *testing.T) {
 }
 
 // Native object keys follow the purpose templates of internal/storage (main spec §9.2): uuid of the owner,
-// variant, millisecond stamp of the upload; legacy keys stay as the ETL copies them.
+// variant, millisecond stamp of the upload; legacy keys stay as the ETL copies them. The demo's generated objects
+// (T35) are checked as well: every one but the photos of its legacy trips, which keep their legacy keys.
 func TestNativeKeysFollowPurposes(t *testing.T) {
-	p := plan(t, ProfileSmoke)
+	smoke := plan(t, ProfileSmoke)
+	demo := plan(t, ProfileDemo)
+	generated := 0
+	for _, r := range demo.Tables["file_objects"][len(smoke.Tables["file_objects"]):] {
+		if r["legacy_url"] == nil {
+			generated++
+		}
+	}
+	if generated < 3000 {
+		t.Fatalf("the demo generates %d native objects", generated)
+	}
+	for _, tc := range []struct {
+		p    *Plan
+		want int
+	}{{smoke, 11}, {demo, 11 + generated}} {
+		checkNativeKeys(t, tc.p, tc.want)
+	}
+}
+
+func checkNativeKeys(t *testing.T, p *Plan, want int) {
+	t.Helper()
 	checked := 0
 	for _, r := range p.Tables["file_objects"] {
 		key := r.Str("object_key")
@@ -227,13 +259,14 @@ func TestNativeKeysFollowPurposes(t *testing.T) {
 		}
 		checked++
 	}
-	if checked != 11 {
-		t.Errorf("checked %d native keys, want 11", checked)
+	if checked != want {
+		t.Errorf("%s: checked %d native keys, want %d", p.Profile, checked, want)
 	}
 }
 
-// Placeholders are deterministic and decode; the PDF's cross-reference offsets point at its objects.
-func TestPlaceholderMedia(t *testing.T) {
+// testMedia is a placeholder drawer with an empty memo.
+func testMedia(t *testing.T) *Media {
+	t.Helper()
 	ttf, err := os.ReadFile("../../assets/Sarabun-Regular.ttf")
 	if err != nil {
 		t.Fatal(err)
@@ -242,11 +275,18 @@ func TestPlaceholderMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return m
+}
+
+// Placeholders are deterministic and decode; the PDF's cross-reference offsets point at its objects.
+func TestPlaceholderMedia(t *testing.T) {
+	m := testMedia(t)
 	a, err := m.JPEG("trips/x/seal-1.jpg", "seal · ZXJB26071000101 · 2026-07-10 09:50")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := m.JPEG("trips/x/seal-1.jpg", "seal · ZXJB26071000101 · 2026-07-10 09:50")
+	// Another drawer, so the bytes are drawn again rather than taken from m's memo.
+	b, _ := testMedia(t).JPEG("trips/x/seal-1.jpg", "seal · ZXJB26071000101 · 2026-07-10 09:50")
 	if !bytes.Equal(a, b) {
 		t.Fatal("the same JPEG differs between two draws")
 	}
@@ -284,6 +324,55 @@ func TestPlaceholderMedia(t *testing.T) {
 	sum := sha256.Sum256(APK())
 	if hex.EncodeToString(sum[:]) != APKSHA256 || len(APK()) != APKSize {
 		t.Fatal("the placeholder APK is not 1 MiB of zeros")
+	}
+}
+
+// A drawer keeps what it drew (T35): the same content type, key and overlay come back without a second draw, a
+// different overlay or content type is drawn anew, and a second plan built with the same drawer takes every
+// object's bytes from the memo (the integration tests' demo loads, ~3,600 photos each under the race detector).
+func TestMediaMemo(t *testing.T) {
+	m := testMedia(t)
+	const key, overlay = "trips/x/seal-1.jpg", "seal · ZXJB26071000101 · 2026-07-10 09:50"
+	a, err := m.JPEG(key, overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := m.JPEG(key, overlay); &a[0] != &b[0] {
+		t.Fatal("the second JPEG of the same key and overlay was drawn again")
+	}
+	if c, _ := m.JPEG(key, "seal · ZXJB26071000102 · 2026-07-10 09:50"); bytes.Equal(a, c) {
+		t.Fatal("another overlay of the same key came from the memo")
+	}
+	if pdf, _ := m.PDF(key, overlay); !bytes.HasPrefix(pdf, []byte("%PDF-1.4\n")) || !bytes.Contains(pdf, a) {
+		t.Fatal("the PDF of a key and overlay is not the PDF page around that JPEG")
+	}
+	build := func() *Plan {
+		t.Helper()
+		p, err := Build(context.Background(), testFixture(), Options{Profile: ProfileSmoke, RandomSeed: integrationSeed,
+			Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "s3", Materialize: true, Hasher: stubHasher{},
+			DefaultPassword: "unit-test-only", Media: m,
+			PublicURL: func(storage.Object) (string, error) { return "http://localhost:9000/logitrack-public/x", nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	first, second := build(), build()
+	drawnTwice := 0
+	for i, o := range first.Objects {
+		s := second.Objects[i]
+		if o.Key != s.Key || o.SHA256 != s.SHA256 {
+			t.Fatalf("object %d: %s %s, then %s %s", i, o.Key, o.SHA256, s.Key, s.SHA256)
+		}
+		if len(o.Body) == 0 || o.ContentType == "application/vnd.android.package-archive" {
+			continue // missing_at_source, and the all-zero APK, which is not drawn
+		}
+		if &o.Body[0] != &s.Body[0] {
+			drawnTwice++
+		}
+	}
+	if drawnTwice != 0 {
+		t.Fatalf("the second plan drew %d object(s) again", drawnTwice)
 	}
 }
 
@@ -401,7 +490,7 @@ var temporaryRx = regexp.MustCompile(`^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$`)
 // deterministic.
 func TestTemporaryPassword(t *testing.T) {
 	ctx := context.Background()
-	o := Options{Namespace: DefaultNamespace, RandomSeed: 20261009, Materialize: true, Hasher: stubHasher{},
+	o := Options{Namespace: DefaultNamespace, RandomSeed: integrationSeed, Materialize: true, Hasher: stubHasher{},
 		DefaultPassword: "unit-test-only", Scrypt: nil}
 	seen := map[string]bool{}
 	for range 3 {

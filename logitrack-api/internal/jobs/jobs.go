@@ -49,13 +49,51 @@ const LockTTL = time.Hour
 // TypeDistancesCompute is the Hub <-> SOC distance matrix job (POST /v1/jobs/distances.compute, T21).
 const TypeDistancesCompute = "distances.compute"
 
+// TypeBangchakSnapshot is the Bangchak fuel price snapshot (POST /v1/jobs/bangchak.snapshot and the 05:00 cron, T37).
+const TypeBangchakSnapshot = "bangchak.snapshot"
+
+// TypeCartrackSync is the Cartrack vehicle position sync (the */3 cron behind CARTRACK_SYNC_ENABLED, T53) and its
+// probe mode (GET /v1/admin/cartrack/probe, params {"probe": true}); platform principals and the owner read it, so it
+// has no TypeCapabilities row.
+const TypeCartrackSync = "cartrack.sync"
+
+// TypeDocumentsRegenerate re-renders a statement's documents (POST /v1/billing/statements/{id}/documents/regenerate,
+// T39); TypeDocumentsShopeeReport renders the Shopee Express report PDF (started by GET /v1/billing/shopee-report.pdf,
+// T39). Both run in the documents.render queue.
+const (
+	TypeDocumentsRegenerate   = "documents.regenerate"
+	TypeDocumentsShopeeReport = "documents.shopee-report"
+)
+
+// TypePayrollRun generates the draft payroll runs of a tenant's period and round (POST /v1/jobs/payroll.run, T44). It
+// runs in the payroll.run queue (group hr).
+const TypePayrollRun = "payroll.run"
+
+// The billing jobs of T38 (main spec §6.13, Appendix B §B.2.20): the two backfills and the read-only impact report
+// (POST /v1/jobs/billing.*, queue billing.backfill), and the 15-minute safety net (a scheduler command consumed by
+// billing.compute).
+const (
+	TypeBillingBackfillTrips   = "billing.backfill-trips"
+	TypeBillingBackfillStandby = "billing.backfill-standby"
+	TypeBillingImpactReport    = "billing.impact-report"
+	TypeBillingSafetyNet       = "billing.safety-net"
+)
+
 // TypeCapabilities maps each job type a per-type POST /v1/jobs/{type} route submits to the capability
 // that route checks (Appendix B §B.2.20, developer-spec.md §7.5): staff of the job's tenant
 // (EffectiveTenant() = jobs.tenant_id) holding it read the job besides its owner and the platform. T21
-// registers distances.compute; T37, T38 and T44 add their types here. Types without a row (queue.replay,
-// the scheduler's cron jobs) stay owner + platform.
+// registers distances.compute, T37 bangchak.snapshot, T39 the two documents.render jobs, T44 payroll.run, T38 the
+// billing backfills and the impact report. Types without a row (queue.replay, billing.safety-net) stay owner +
+// platform; a cron fire of a listed type has no owner and no tenant, so only the platform reads it.
 var TypeCapabilities = map[string]authz.Cap{
-	TypeDistancesCompute: authz.OperationsCalcDistances,
+	TypeDistancesCompute:       authz.OperationsCalcDistances,
+	TypeBangchakSnapshot:       authz.AccountingEditRateCard,
+	TypeDocumentsRegenerate:    authz.AccountingManageStatements,
+	TypeDocumentsShopeeReport:  authz.AccountingShopeeReport,
+	TypePayrollRun:             authz.HRManagePayroll,
+	TypeBillingBackfillTrips:   authz.AccountingEditRateCard,
+	TypeBillingBackfillStandby: authz.AccountingEditRateCard,
+	TypeBillingImpactReport:    authz.SecurityViewOverview,
 }
 
 var typeRx = regexp.MustCompile(`^[a-z]+(\.[a-z0-9-]+)+$`) // the CHECK of jobs.type

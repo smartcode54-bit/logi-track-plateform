@@ -358,8 +358,17 @@ func loadTruck(c *docCtx) error {
 		set("payment_method", c.optVocab("paymentMethod", "cash", "transfer", "company_credit")).
 		setPresent("tax_responsible", c.text("taxResponsible")).setPresent("maintenance_responsible", c.text("maintenanceResponsible"))
 	c.times(r)
-	id, err := upsertLegacy(c, r)
+	id, err := c.rowID("trucks")
 	if err != nil {
+		return err
+	}
+	if _, err := upsertLegacy(c, r.set("id", id)); err != nil {
+		return err
+	}
+	if err := c.truckFileRows(id, tenant); err != nil {
+		return err
+	}
+	if err := c.truckStatusHistory(id); err != nil {
 		return err
 	}
 	c.done("trucks", id)
@@ -424,7 +433,7 @@ func loadDriver(c *docCtx) error {
 		set("assign_to_project", c.text("assignToProject")).setPresent("probation_passed", c.boolean("probationPassed")).
 		setPresent("employment_type", c.optVocab("employmentType", "full_time", "subcontractor", "part_time"))
 	if at, ok := c.get("activeTruck").(map[string]any); ok {
-		sub := &docCtx{ctx: c.ctx, tx: c.tx, e: c.e, coll: c.coll, doc: c.doc, f: at}
+		sub := c.sub(at)
 		tr, err := sub.truck("truckId")
 		if err != nil {
 			return err
@@ -461,6 +470,12 @@ func loadDriver(c *docCtx) error {
 			ON CONFLICT (user_id, tenant_id) DO NOTHING`, *userID, tenant); err != nil {
 			return fmt.Errorf("etl: %s: driver membership: %w", c.doc.Path, err)
 		}
+	}
+	if err := c.driverStatusHistory(id); err != nil {
+		return err
+	}
+	if err := c.driverCustomerCodes(id); err != nil {
+		return err
 	}
 	c.done("drivers", id)
 	return nil

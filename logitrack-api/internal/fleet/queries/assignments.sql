@@ -9,7 +9,10 @@
 
 -- name: ListAssignments :many
 -- GET /v1/truck-assignments, newest first; keyset (created_at, id). The truck and driver columns read under the
--- caller's RLS (NULL / '' when not visible).
+-- caller's RLS (NULL / '' when not visible). q (TW8): a case-insensitive substring of the plate, the model, the
+-- driver's name (Thai full name or first + last) or the admin label, the four columns the history shows, so the
+-- page's search runs on the server instead of over the loaded pages (Appendix E §E.10 rule); a driver the caller
+-- cannot read matches on the truck and admin columns only.
 SELECT a.id, a.tenant_id, a.truck_id, a.driver_id, a.status, a.admin_user_id, a.admin_label, a.created_at,
        a.revoked_at, tr.license_plate AS truck_plate, tr.model AS truck_model,
        coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
@@ -20,6 +23,12 @@ WHERE (sqlc.arg(all_tenants)::boolean OR a.tenant_id = ANY (sqlc.arg(tenant_ids)
   AND (sqlc.narg(status)::text IS NULL OR a.status = sqlc.narg(status)::text)
   AND (sqlc.narg(truck_id)::uuid IS NULL OR a.truck_id = sqlc.narg(truck_id)::uuid)
   AND (sqlc.narg(driver_id)::uuid IS NULL OR a.driver_id = sqlc.narg(driver_id)::uuid)
+  AND (sqlc.narg(q)::text IS NULL
+       OR strpos(lower(coalesce(tr.license_plate, '')), lower(sqlc.narg(q)::text)) > 0
+       OR strpos(lower(coalesce(tr.model, '')), lower(sqlc.narg(q)::text)) > 0
+       OR strpos(lower(coalesce(d.full_name_th, '')), lower(sqlc.narg(q)::text)) > 0
+       OR strpos(lower(coalesce(d.first_name, '') || ' ' || coalesce(d.last_name, '')), lower(sqlc.narg(q)::text)) > 0
+       OR strpos(lower(a.admin_label), lower(sqlc.narg(q)::text)) > 0)
   AND (sqlc.narg(after_created)::timestamptz IS NULL
        OR (a.created_at, a.id) < (sqlc.narg(after_created)::timestamptz, sqlc.arg(after_id)::uuid))
 ORDER BY a.created_at DESC, a.id DESC

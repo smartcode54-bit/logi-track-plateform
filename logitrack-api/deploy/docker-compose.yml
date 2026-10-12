@@ -80,6 +80,8 @@ x-env-api: &env-api
   EVIDENCE_TOKEN_TTL_DAYS: ${EVIDENCE_TOKEN_TTL_DAYS:-}
   PG_OWNED_DOMAINS: ${PG_OWNED_DOMAINS:-}
   GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  FIRESTORE_DATABASE_ID: ${FIRESTORE_DATABASE_ID:-}
+  WRITEBACK_FIRESTORE_PROJECT_ID: ${WRITEBACK_FIRESTORE_PROJECT_ID:-}
   LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
   BANGCHAK_API_BASE_URL: ${BANGCHAK_API_BASE_URL:-}
   GOOGLE_MAPS_SERVER_API_KEY: ${GOOGLE_MAPS_SERVER_API_KEY:-}
@@ -139,6 +141,7 @@ x-env-worker: &env-worker
   ETL_SYNC_ENABLED: ${ETL_SYNC_ENABLED:-}
   ETL_SYNC_INTERVAL: ${ETL_SYNC_INTERVAL:-}
   ETL_MIRROR_COLLECTIONS: ${ETL_MIRROR_COLLECTIONS:-}
+  ETL_LISTEN_INTERVAL: ${ETL_LISTEN_INTERVAL:-}
   COMPAT_PROJECTION_ENABLED: ${COMPAT_PROJECTION_ENABLED:-}
   COMPAT_PROJECTION_COLLECTIONS: ${COMPAT_PROJECTION_COLLECTIONS:-}
   FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
@@ -167,6 +170,14 @@ x-env-worker: &env-worker
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
   OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-}
   SENTRY_DSN: ${SENTRY_DSN:-}
+# The replica that runs the etl.sync mirror (T24S, R66): the worker with group sync alone and ETL_DATABASE_URL, the
+# logitrack_etl login the mirror needs (it is the ETL load path); no other replica holds that URL, and the worker
+# refuses one unless it runs the mirror. Profile coexist, started with ETL_SYNC_ENABLED=true while the worker's
+# WORKER_CONSUMERS leaves sync out (developer-spec.md §13.7).
+x-env-worker-sync: &env-worker-sync
+  <<: *env-worker
+  WORKER_CONSUMERS: sync
+  ETL_DATABASE_URL: ${ETL_DATABASE_URL:-}
 x-env-scheduler: &env-scheduler
   APP_ENV: ${APP_ENV:-}
   LOG_LEVEL: ${LOG_LEVEL:-}
@@ -248,6 +259,8 @@ x-env-etl: &env-etl
   S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
   S3_BUCKET: ${S3_BUCKET:-}
+  S3_PUBLIC_BUCKET: ${S3_PUBLIC_BUCKET:-}
+  S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
   S3_USE_PATH_STYLE: ${S3_USE_PATH_STYLE:-}
   S3_USE_SSL: ${S3_USE_SSL:-}
   PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
@@ -434,6 +447,16 @@ services:
     <<: *go
     command: ["/app/bin/worker"]
     environment: *env-worker
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      retries: 12
+
+  worker-sync:
+    <<: *go
+    profiles: [coexist]
+    command: ["/app/bin/worker"]
+    environment: *env-worker-sync
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/readyz"]
       interval: 5s

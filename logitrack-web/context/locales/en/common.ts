@@ -397,4 +397,8 @@ export default {
     "shell.retry": "Try again",
     "shell.namespaceLoadFailed": "Could not load the text of this page.",
     "shell.reload": "Reload",
+
+    // T42: the Go accounting / maintenance pages.
+    "common.searchPlaceholder": "Search...",
+    "common.noResults": "No results",
 };

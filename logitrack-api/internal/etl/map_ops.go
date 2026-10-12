@@ -1,15 +1,17 @@
 package etl
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/tripcheck"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
 
@@ -19,19 +21,8 @@ import (
 // DefaultCustomerID is the hard-coded customer of the blanket link backfill (backfillCustomerLinks.ts:6, Q9).
 const DefaultCustomerID = "7gbnX0Tv9xNQgTKrgp0F"
 
-// trip photo types of TRIP_PHOTO_TYPE_ENUM and the per-stop pattern (photo_type_known, 0004).
-var (
-	tripPhotoTypes = map[string]bool{"pre_close": true, "closing": true, "seal": true, "runsheet": true, "runsheet_extra_1": true,
-		"runsheet_extra_2": true, "runsheet_extra_3": true, "pre_open": true, "opening": true, "empty_container": true,
-		"runsheet_received": true, "checkin_app": true, "truck_release": true, "arrived": true}
-	stopPhotoType = regexp.MustCompile(`^stop_[0-9]+_(arrived|pre_open|opening|empty_container|runsheet_received)$`)
-	// tripNoCharset is the trip_records.trip_no CHECK (core/tripDocId.ts:10-18).
-	tripNoBad = regexp.MustCompile(`/|^\.{1,2}$|^__.*__$`)
-)
-
-func knownTripPhotoType(t string) bool { return tripPhotoTypes[t] || stopPhotoType.MatchString(t) }
-
-func validTripNo(s string) bool { return s != "" && len(s) <= 1500 && !tripNoBad.MatchString(s) }
+// The trip_records.trip_no CHECK and the known trip photo types (photo_type_known, 0004) are tripcheck's, the one Go
+// copy of both rules (the operations integration tests compare it with the schema).
 
 // jobCategory is PRIMARY, SUPPLEMENTARY or NULL (absent legacy: never defaulted, ADR 0010).
 func (c *docCtx) jobCategory(field string) *string {
@@ -183,7 +174,9 @@ func loadTask(c *docCtx) error {
 		set("driver_id", drv.idPtr()).set("legacy_driver_ref", drv.rawPtr()).set("driver_ref_match", drv.match).
 		set("helper_driver_id", helper).set("run_order", runOrder).
 		set("is_multi_delivery", c.isTrue("isMultiDelivery")).
-		set("line_checkin_notified_at", c.ts("lineCheckinNotifiedAt"))
+		set("line_checkin_notified_at", c.ts("lineCheckinNotifiedAt")).
+		set("plan_time", c.planTime("time")).set("actual_pickup_at", c.ts("actualPickupAt")).
+		set("cancelled_at", c.ts("cancelledAt")).set("cancel_reason", c.text("cancelReason"))
 	c.times(r)
 	id, err := c.rowID("tasks")
 	if err != nil {
@@ -196,7 +189,88 @@ func loadTask(c *docCtx) error {
 	if _, err := upsertLegacy(c, r.set("id", id)); err != nil {
 		return err
 	}
+	if err := c.taskStops(id); err != nil {
+		return err
+	}
 	c.done("tasks", id)
+	return nil
+}
+
+// planTime is a task's time "HH:MM" (tasks.plan_time CHECK); "" and any other form are NULL (the legacy forms wrote
+// "" for no time and the 3.x app writes "HH:MM"; a value the CHECK would refuse is reported, never loaded).
+func (c *docCtx) planTime(field string) *string {
+	s := strings.TrimSpace(c.str(field))
+	if s == "" {
+		return nil
+	}
+	if t, err := time.Parse("15:04", s); err == nil && t.Format("15:04") == s {
+		return &s
+	}
+	if t, err := time.Parse("15:04", "0"+s); err == nil && len(s) == 4 { // "9:30" as the sheet import may give it
+		v := t.Format("15:04")
+		return &v
+	}
+	c.find(field, ReasonBadTimestamp, "not an HH:MM time; plan_time left empty", c.get(field))
+	return nil
+}
+
+// taskStops replaces task_delivery_stops from deliveryStops[] (+ the CF-only sequence, addedAt, sourceId, isCustom;
+// §A.3.5): destinationLinked* -> party; a destination repeated within the task is not loaded (the UNIQUE (task_id,
+// destination_raw) would refuse it) and raises duplicate_natural_key; the duplicate stays in etl.source_docs.
+func (c *docCtx) taskStops(id uuid.UUID) error {
+	if _, err := c.tx.Exec(c.ctx, `DELETE FROM task_delivery_stops WHERE task_id = $1`, id); err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	stops, _ := c.get("deliveryStops").([]any)
+	usedIndex, usedDest := map[int64]bool{}, map[string]bool{}
+	for i, s := range stops {
+		m, _ := s.(map[string]any)
+		sc := c.sub(m)
+		field := fmt.Sprintf("deliveryStops[%d]", i)
+		dest := sc.str("destination")
+		if dest == "" {
+			c.find(field+".destination", ReasonMissingRequired, "a stop without destination is not loaded", s)
+			continue
+		}
+		if usedDest[dest] {
+			c.find(field+".destination", ReasonDuplicateNaturalKey, "the destination is already a stop of this task; not loaded", dest)
+			continue
+		}
+		idx := int64(i + 1)
+		if n := sc.integer("index"); n != nil && *n >= 1 && !usedIndex[*n] {
+			idx = *n
+		} else if usedIndex[idx] {
+			c.find(field+".index", ReasonBadNumber, "no free stop index; not loaded", m["index"])
+			continue
+		}
+		usedIndex[idx], usedDest[dest] = true, true
+		place, err := sc.hub("destination", dest)
+		if err != nil {
+			return err
+		}
+		party, err := sc.party("destinationLinkedCustomerId")
+		if err != nil {
+			return err
+		}
+		status, ok := lowerVocab(m["status"], "pending", "delivered", "failed")
+		if !ok {
+			sc.find("status", ReasonStatusOutOfVocab, "not pending, delivered or failed; pending kept", m["status"])
+			status = ""
+		}
+		if status == "" {
+			status = "pending"
+		}
+		r := newRow("task_delivery_stops").set("task_id", id).set("stop_index", idx).set("destination_raw", dest).
+			set("destination_hub_id", place.hubID).set("destination_linked_party_id", party).set("status", status).
+			set("delivered_at", sc.ts("deliveredAt")).set("delivered_lat", sc.float("deliveredLat")).set("delivered_lng", sc.float("deliveredLng")).
+			set("estimated_rate_thb", sc.money("estimatedRateThb", false)).set("drop_fee_thb", sc.money("dropFeeThb", false)).
+			set("sequence", sc.integer("sequence")).set("added_at", sc.ts("addedAt")).set("source_id", sc.text("sourceId")).
+			set("is_custom", sc.isTrue("isCustom"))
+		c.adopt(sc, field+".")
+		if err := insert(c.ctx, c.tx, r); err != nil {
+			return fmt.Errorf("%s: %w", c.doc.Path, err)
+		}
+	}
 	return nil
 }
 
@@ -301,6 +375,9 @@ func loadTrip(c *docCtx) error {
 	if jobType == "" {
 		return c.reject("jobType", ReasonMissingRequired, "trip_records.job_type is NOT NULL and the task gives none", nil)
 	}
+	if err := c.renamedFrom(); err != nil {
+		return err
+	}
 	drv, err := c.driverField("driverId")
 	if err != nil {
 		return err
@@ -331,6 +408,11 @@ func loadTrip(c *docCtx) error {
 		return err
 	} else if basis == "plan" && billingDate == nil && (status == "delivered" || hasBillingEvidence("trip_records", c.f)) {
 		c.find("billingDate", ReasonMissingBillingDate, "plan-basis party without billingDate (D7)", nil)
+		if locked, err := c.restampLocked(party, task); err != nil {
+			return err
+		} else if locked {
+			c.find("billingDate", ReasonBillingDateLocked, "the task's plan month has a sent or paid statement of this party: no restamp (D7)", nil)
+		}
 	}
 	if status == "standby" {
 		c.find("status", ReasonLegacyStandbyTrip, "legacy standby trip not migrated to standby_records (Q5)", nil)
@@ -381,6 +463,17 @@ func loadTrip(c *docCtx) error {
 		set("review_reason", c.text("reviewReason")).set("resubmitted_at", c.ts("resubmittedAt")).
 		set("line_delivered_notified_at", c.ts("lineDeliveredNotifiedAt")).set("evidence_token", c.text("evidenceToken")).
 		set("created_at", createdAt).setPresent("updated_at", c.ts("updatedAt"))
+	if c.billingOwned() {
+		r.unset("billing_party_id", "billing_date")
+		// The resolved หลัก/เสริม is the pricer's from its first write on (trip_billing projects it): a version of the
+		// document applied between the pricer's commit and its projection would otherwise put the stale value back.
+		if priced, err := c.pricedInPG(`SELECT EXISTS (SELECT 1 FROM trip_records tr JOIN trip_billing_snapshots s
+			ON s.trip_id = tr.id WHERE tr.legacy_doc_id = $1)`); err != nil {
+			return err
+		} else if priced {
+			r.unset("job_category")
+		}
+	}
 	id, err := upsertLegacy(c, r)
 	if err != nil {
 		return err
@@ -391,8 +484,14 @@ func loadTrip(c *docCtx) error {
 	if err := c.tripPhotos(id, tenant); err != nil {
 		return err
 	}
-	if err := c.tripSnapshot(id); err != nil {
+	if err := c.tripStops(id, tenant); err != nil {
 		return err
+	}
+	// Once billing is PostgreSQL-owned the price is the pricer's (billing.compute), projected back by firestore.shadow.
+	if !c.billingOwned() {
+		if err := c.tripSnapshot(id, party, task); err != nil {
+			return err
+		}
 	}
 	c.done("trip_records", id)
 	return nil
@@ -411,7 +510,7 @@ func strPtr(s string) *string {
 func (c *docCtx) tripNo() (string, error) {
 	no := c.doc.ID
 	if spx := c.str("spxTripId"); spx != "" && spx != c.doc.ID {
-		if !validTripNo(spx) {
+		if tripcheck.ValidateTripNo(spx) != "" {
 			c.find("spxTripId", ReasonTripNoMismatch, "fails the trip number charset; the doc id is the trip number", spx)
 		} else {
 			no = spx
@@ -470,10 +569,121 @@ func (c *docCtx) tripCreatedAt() time.Time {
 	return c.doc.CreateTime.Truncate(time.Microsecond)
 }
 
-// tripHistory appends trip_no_history for a renamed trip (append-only: written once per rename).
+// renamedFrom re-keys the row of a renamed trip (main spec §13.7, T29). renameTripRecord copies trip_records/{old} to
+// trip_records/{new} with renamedFromTripId = old and deletes the old document in one batch (renameTripRecord.ts:110-124),
+// so the first run that sees the new document finds no row of its id while the old document's row is still there.
+// When the source no longer holds the old document, that row takes the new document id (legacy_doc_id): the upsert of
+// loadTrip then updates it in place, trip_no becomes the new number and tripHistory appends the one trip_no_history
+// row, so the trip keeps its id, its children and every link to it (incident reports re-pointed in the same batch
+// resolve the new id to the same row).
+//
+// The old document's etl.source_docs entry becomes a 'renamed' tombstone (0018) at the batch's commit (the new
+// document's create time, which no version of the old one passes): its open findings are resolved fixed_at_source,
+// nothing reports it deleted at source, and a copy of the old document that an overlapping run read before the rename
+// (a sweep and a listener each read Firestore before they take the load lock) is not newer than the tombstone, so the
+// update-time guard skips it instead of loading it as a second row with a second trip.delivered. The tombstone is
+// written also when no row holds the old id (a trip renamed before any run applied it), for the same reason.
+//
+// The copy carries the original's data (renameTripRecord spreads it), so its driverId is the row's: a document that
+// names the trip of another driver (firestore.rules let any driver create a trip_records document with their own
+// driverId and any other field) is not a rename of it; it loads as its own row with a trip_no_mismatch finding and the
+// trip keeps its row. An old document the source still holds (a rename-trip-doc.js copy, Q3) keeps its row and the
+// new document loads as its own, as before; a run that cannot tell (a quarantine retry) does not re-key. A trip
+// renamed twice between two runs names only the middle id, which no row holds: it loads as a new row and the
+// reconciliation reports the first id deleted at source.
+func (c *docCtx) renamedFrom() error {
+	old := c.str("renamedFromTripId")
+	if old == "" || old == c.doc.ID {
+		return nil
+	}
+	var x int
+	err := c.tx.QueryRow(c.ctx, `SELECT 1 FROM trip_records WHERE legacy_doc_id = $1`, c.doc.ID).Scan(&x)
+	switch {
+	case err == nil:
+		return nil // the row already holds the new id
+	case !errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	var id uuid.UUID
+	var sameDriver bool
+	err = c.tx.QueryRow(c.ctx, `SELECT id, legacy_driver_ref IS NOT DISTINCT FROM nullif($2, '') FROM trip_records
+		WHERE legacy_doc_id = $1 FOR UPDATE`, old, c.str("driverId")).Scan(&id, &sameDriver)
+	held := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	if held && !sameDriver {
+		c.find("renamedFromTripId", ReasonTripNoMismatch, "names the trip of another driver: not a rename of it; loaded as its own row", old)
+		c.claim = true
+		return nil
+	}
+	oldPath := c.doc.ParentPath()
+	if oldPath != "" {
+		oldPath += "/"
+	}
+	oldPath += c.coll + "/" + old
+	found, known, err := c.run.exists(c.coll, oldPath)
+	if err != nil {
+		return fmt.Errorf("etl: %s: is %s still there: %w", c.doc.Path, oldPath, err)
+	}
+	if found || !known {
+		return nil
+	}
+	keep, err := c.run.tombstones()
+	if err != nil {
+		return err
+	}
+	if !held && !keep {
+		return nil // nothing to re-key, and no tombstone to leave (a load, or before 0018)
+	}
+	if held {
+		if _, err := c.tx.Exec(c.ctx, `UPDATE trip_records SET legacy_doc_id = $2 WHERE id = $1`, id, c.doc.ID); err != nil {
+			return fmt.Errorf("etl: %s: re-key the renamed trip: %w", c.doc.Path, err)
+		}
+		c.renamed = old
+	}
+	gone := c.doc.CreateTime
+	if gone.IsZero() || c.doc.UpdateTime.Before(gone) {
+		gone = c.doc.UpdateTime
+	}
+	return settleGone(c.ctx, c.tx, keep, c.coll, oldPath, old, StatusRenamed, gone, "etl-rename")
+}
+
+// settleGone records a document Firestore no longer has as a tombstone of etl.source_docs (0018): status (renamed,
+// removed), target cleared, the update time raised to gone (the instant it was known gone), so the update-time guard
+// refuses any copy of the document a run read before then; a document created again at the path later is newer and
+// applies (record takes the entry back). Its open findings are resolved fixed_at_source by by. With keep false (a
+// load, or a schema without 0018: runState.tombstones) the entry is deleted instead.
+func settleGone(ctx context.Context, tx pgx.Tx, keep bool, coll, path, docID, status string, gone time.Time, by string) error {
+	if _, err := tx.Exec(ctx, `UPDATE etl.quarantine SET resolved_at = now(), resolved_by = $3, resolution = 'fixed_at_source'
+		WHERE collection = $1 AND doc_path = $2 AND resolved_at IS NULL`, coll, path, by); err != nil {
+		return fmt.Errorf("etl: settle %s: %w", path, err)
+	}
+	if !keep {
+		if _, err := tx.Exec(ctx, `DELETE FROM etl.source_docs WHERE collection = $1 AND doc_path = $2`, coll, path); err != nil {
+			return fmt.Errorf("etl: settle %s: %w", path, err)
+		}
+		return nil
+	}
+	var at *time.Time
+	if !gone.IsZero() {
+		t := gone.UTC().Truncate(time.Microsecond)
+		at = &t
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO etl.source_docs (collection, doc_path, doc_id, raw, source_update_time, exported_at, status)
+		VALUES ($1, $2, $3, '{}', coalesce($4, now()), now(), $5)
+		ON CONFLICT (collection, doc_path) DO UPDATE SET status = EXCLUDED.status, target_table = NULL, target_id = NULL,
+		  source_update_time = greatest(etl.source_docs.source_update_time, $4)`, coll, path, docID, at, status); err != nil {
+		return fmt.Errorf("etl: settle %s: %w", path, err)
+	}
+	return nil
+}
+
+// tripHistory appends trip_no_history for a renamed trip (append-only: written once per rename); a document that names
+// another driver's trip (renamedFrom) gets none, so the trip's former number never resolves to it.
 func (c *docCtx) tripHistory(id uuid.UUID, tripNo string) error {
 	old := c.str("renamedFromTripId")
-	if old == "" || old == tripNo {
+	if old == "" || old == tripNo || c.claim {
 		return nil
 	}
 	by, err := c.user("renamedBy", c.str("renamedBy"))
@@ -506,7 +716,7 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 			c.find(field+".type", ReasonPhotoTypeUnknown, "photo without a type is not loaded", p)
 			continue
 		}
-		if !knownTripPhotoType(typ) {
+		if !tripcheck.PhotoTypeKnown(typ) {
 			c.find(field+".type", ReasonPhotoTypeUnknown, "outside TRIP_PHOTO_TYPE_ENUM and stop_{n}_*; loaded with photo_type_known=false", typ)
 		}
 		fid, err := c.fileRef(field+".url", m["url"], "trip_photo", "trip", id, tenant)
@@ -520,11 +730,9 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 		var addr *string
 		var at *time.Time
 		if g, ok := m["geocoding"].(map[string]any); ok {
-			sub := &docCtx{ctx: c.ctx, tx: c.tx, e: c.e, coll: c.coll, doc: c.doc, f: g}
+			sub := c.sub(g)
 			lat, lng, addr, at = sub.float("lat"), sub.float("lng"), sub.text("address"), sub.ts("timestamp")
-			for _, f := range sub.findings {
-				c.find(field+".geocoding."+f.Field, f.Reason, f.Detail, f.Raw)
-			}
+			c.adopt(sub, field+".geocoding.")
 		}
 		if _, err := c.tx.Exec(c.ctx, `INSERT INTO trip_photos (trip_id, photo_type, file_id, geocode_lat, geocode_lng, geocode_address,
 			geocoded_at, position) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -537,11 +745,116 @@ func (c *docCtx) tripPhotos(id, tenant uuid.UUID) error {
 	return nil
 }
 
+// restampLocked reports whether the restamp of a plan-basis trip without billingDate (its task's plan date) would land
+// in a period the party already has a sent or paid statement for (D7). The statements load after the trips, so the
+// first full load raises the finding in afterStatements; a later load of the trip raises it here.
+func (c *docCtx) restampLocked(party *uuid.UUID, task ref) (bool, error) {
+	if party == nil || !task.ok() {
+		return false, nil
+	}
+	var locked bool
+	err := c.tx.QueryRow(c.ctx, `SELECT EXISTS (SELECT 1 FROM billing_statements s, tasks t WHERE t.id = $2 AND s.billing_party_id = $1
+		AND s.status IN ('sent', 'paid') AND s.period_year = extract(year FROM bkk_date(t.plan_at))::int
+		AND s.period_month = extract(month FROM bkk_date(t.plan_at))::int)`, *party, task.id).Scan(&locked)
+	if err != nil {
+		return false, fmt.Errorf("etl: %s: period lock: %w", c.doc.Path, err)
+	}
+	return locked, nil
+}
+
+// tripStops replaces trip_delivery_stops from deliveryStopsProgress[] (completion order, Q16): completed_seq is the
+// array position, stop_index the plan index; photos[] inside a stop link their trip_photos row (merge-by-type, ADR
+// 0018: the flat photos[] is the whole evidence set, so a stop photo is usually already there) through stop_id.
+func (c *docCtx) tripStops(id, tenant uuid.UUID) error {
+	if _, err := c.tx.Exec(c.ctx, `DELETE FROM trip_delivery_stops WHERE trip_id = $1`, id); err != nil {
+		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	stops, _ := c.get("deliveryStopsProgress").([]any)
+	used := map[int64]bool{}
+	for i, s := range stops {
+		m, _ := s.(map[string]any)
+		sc := c.sub(m)
+		field := fmt.Sprintf("deliveryStopsProgress[%d]", i)
+		dest := sc.str("destination")
+		idx := sc.integer("index")
+		if dest == "" || idx == nil || *idx < 1 || used[*idx] {
+			c.find(field, ReasonMissingRequired, "a stop needs a destination and a unique index >= 1; not loaded", s)
+			continue
+		}
+		used[*idx] = true
+		place, err := sc.hub("destination", dest)
+		if err != nil {
+			return err
+		}
+		status, ok := lowerVocab(m["status"], "pending", "delivered", "failed")
+		if !ok {
+			sc.find("status", ReasonStatusOutOfVocab, "not pending, delivered or failed; pending kept", m["status"])
+			status = ""
+		}
+		if status == "" {
+			status = "pending"
+		}
+		var stopID uuid.UUID
+		if err := c.tx.QueryRow(c.ctx, `INSERT INTO trip_delivery_stops (trip_id, stop_index, destination_raw, destination_hub_id, source_id,
+			status, delivered_at, delivered_lat, delivered_lng, completed_seq) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+			id, *idx, dest, place.hubID, sc.text("sourceId"), status, sc.ts("deliveredAt"), sc.float("deliveredLat"), sc.float("deliveredLng"),
+			i+1).Scan(&stopID); err != nil {
+			return fmt.Errorf("etl: %s: stop: %w", c.doc.Path, err)
+		}
+		photos, _ := m["photos"].([]any)
+		for j, p := range photos {
+			pm, _ := p.(map[string]any)
+			typ, _ := pm["type"].(string)
+			pf := fmt.Sprintf("%s.photos[%d]", field, j)
+			if strings.TrimSpace(typ) == "" {
+				sc.find(fmt.Sprintf("photos[%d].type", j), ReasonPhotoTypeUnknown, "photo without a type is not loaded", p)
+				continue
+			}
+			if !tripcheck.PhotoTypeKnown(typ) {
+				sc.find(fmt.Sprintf("photos[%d].type", j), ReasonPhotoTypeUnknown, "outside TRIP_PHOTO_TYPE_ENUM and stop_{n}_*; loaded with photo_type_known=false", typ)
+			}
+			fid, err := c.fileRef(pf+".url", pm["url"], "trip_photo", "trip", id, tenant)
+			if err != nil {
+				return err
+			}
+			if fid == nil {
+				continue
+			}
+			if _, err := c.tx.Exec(c.ctx, `INSERT INTO trip_photos (trip_id, stop_id, photo_type, file_id, position)
+				VALUES ($1, $2, $3, $4, (SELECT coalesce(max(position) + 1, 0) FROM trip_photos WHERE trip_id = $1))
+				ON CONFLICT (trip_id, photo_type) DO UPDATE SET stop_id = EXCLUDED.stop_id`, id, stopID, typ, *fid); err != nil {
+				return fmt.Errorf("etl: %s: stop photo: %w", c.doc.Path, err)
+			}
+		}
+		c.adopt(sc, field+".")
+	}
+	return nil
+}
+
+// billingOwned reports a mirror sweep once the billing domain is PostgreSQL-owned (P3, T38): the billing fields of the
+// Firestore-written trips and standby records (billingCustomerId, billingDate, the billing* snapshot) are then the
+// pricer's: billing.compute writes them in PostgreSQL and firestore.shadow projects them onto the document
+// (shadow_billing.go), so the mirror leaves them as PostgreSQL holds them (one writer per field, no echo loop). The
+// record's jobCategory joins them once the pricer has written the record (pricedInPG): before that it is the 3.x app's
+// (seeded at loading) and the mirror applies it. A load (P1) and a sweep before P3 still apply them all.
+func (c *docCtx) billingOwned() bool { return c.run != nil && c.run.owned["billing"] }
+
+// pricedInPG runs an EXISTS query on the document id: whether the pricer has written the record's billing state.
+func (c *docCtx) pricedInPG(query string) (bool, error) {
+	var ok bool
+	if err := c.tx.QueryRow(c.ctx, query, c.doc.ID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	return ok, nil
+}
+
 // tripSnapshot loads trip_billing_snapshots iff billingEstimateThb is a number or any billing* field is present
 // ("stamped but unpriced"). Legacy prices are never recomputed (R15): computed_by 'etl', compute_version 0. The
-// tenant is the billing carrier, the own fleet today (form, R61). Rate entries and fuel adjustments are linked by
-// T24 once the rate tables load; rate_import_id keeps the legacy id meanwhile.
-func (c *docCtx) tripSnapshot(id uuid.UUID) error {
+// tenant is the billing carrier, the own fleet today (form, R61). billingRateImportId stays in rate_import_id and
+// resolves to rate_entry_id by (import_id, party, hub, destination, class, category) when exactly one rate row
+// matches (the class from the trip's or its task's truck type, left out when neither has one); billingFuelAdjustmentId
+// resolves by legacy doc id. billingMultiDeliveryBreakdown[] -> trip_billing_stop_breakdown.
+func (c *docCtx) tripSnapshot(id uuid.UUID, party *uuid.UUID, task ref) error {
 	if _, err := c.tx.Exec(c.ctx, `DELETE FROM trip_billing_snapshots WHERE trip_id = $1`, id); err != nil {
 		return fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 	}
@@ -585,10 +898,91 @@ func (c *docCtx) tripSnapshot(id uuid.UUID) error {
 		set("is_multi_delivery", c.isTrue("billingIsMultiDelivery")).set("manual_override", c.isTrue("billingManualOverride")).
 		set("job_category_at_pricing", c.jobCategory("billingJobCategory")).
 		set("computed_by", "etl").set("compute_version", 0).set("computed_at", computedAt)
+	rateEntry, err := c.snapshotRateEntry(party, task)
+	if err != nil {
+		return err
+	}
+	fuel, err := c.legacyRef("customer_fuel_rate_adjustments", c.str("billingFuelAdjustmentId"))
+	if err != nil {
+		return err
+	}
+	r.set("rate_entry_id", rateEntry).set("fuel_adjustment_id", fuel)
 	if err := insert(c.ctx, c.tx, r); err != nil {
 		return fmt.Errorf("%s: %w", c.doc.Path, err)
 	}
+	stops, _ := c.get("billingMultiDeliveryBreakdown").([]any)
+	used := map[int64]bool{}
+	for i, s := range stops {
+		m, _ := s.(map[string]any)
+		sc := c.sub(m)
+		idx := sc.integer("stopIndex")
+		dest := sc.str("destination")
+		base, okBase := sc.moneyCents("baseRateThb", false)
+		final, okFinal := sc.moneyCents("finalRateThb", false)
+		if idx == nil || *idx < 1 || used[*idx] || dest == "" || okBase != moneyOK || okFinal != moneyOK {
+			c.find(fmt.Sprintf("billingMultiDeliveryBreakdown[%d]", i), ReasonBadNumber,
+				"a breakdown line needs a unique stopIndex >= 1, a destination and both rates; not loaded", s)
+			continue
+		}
+		used[*idx] = true
+		if _, err := c.tx.Exec(c.ctx, `INSERT INTO trip_billing_stop_breakdown (trip_id, stop_index, destination_code, base_rate_thb, final_rate_thb)
+			VALUES ($1, $2, $3, $4, $5)`, id, *idx, dest, numeric2(base), numeric2(final)); err != nil {
+			return fmt.Errorf("etl: %s: breakdown: %w", c.doc.Path, err)
+		}
+	}
 	return nil
+}
+
+// legacyRef is the id of the row of table whose legacy_doc_id is raw (nil when blank or unknown). table is a
+// constant of the mappers.
+func (c *docCtx) legacyRef(table, raw string) (*uuid.UUID, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var id uuid.UUID
+	err := c.tx.QueryRow(c.ctx, `SELECT id FROM `+pgx.Identifier{table}.Sanitize()+` WHERE legacy_doc_id = $1`, raw).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	return &id, nil
+}
+
+// snapshotRateEntry resolves billingRateImportId to the one rate row of that import for the trip's party, lookup
+// hub and destination, category (billingJobCategory, PRIMARY when absent, as the selector coerces it) and, when the
+// trip or its task has one, the folded vehicle class. 'manual' and an ambiguous or unknown match stay NULL.
+func (c *docCtx) snapshotRateEntry(party *uuid.UUID, task ref) (*uuid.UUID, error) {
+	imp := c.str("billingRateImportId")
+	if imp == "" || imp == "manual" || party == nil {
+		return nil, nil
+	}
+	cat := strings.ToUpper(c.str("billingJobCategory"))
+	if cat != "SUPPLEMENTARY" {
+		cat = "PRIMARY"
+	}
+	class, hasClass := compute.FoldVehicleClass(c.str("truckType"))
+	if !hasClass && task.ok() {
+		var tt *string
+		if err := c.tx.QueryRow(c.ctx, `SELECT truck_type FROM tasks WHERE id = $1`, task.id).Scan(&tt); err != nil {
+			return nil, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+		}
+		if tt != nil {
+			class, hasClass = compute.FoldVehicleClass(*tt)
+		}
+	}
+	rows, err := c.tx.Query(c.ctx, `SELECT id FROM customer_rate_entries WHERE import_id = $1 AND billing_party_id = $2
+		AND hub_code = upper($3) AND destination_code = $4 AND job_category = $5 AND (NOT $6 OR vehicle_class = $7) LIMIT 2`,
+		imp, *party, c.str("billingLookupHubId"), c.str("billingLookupDestination"), cat, hasClass, class)
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: rate entry: %w", c.doc.Path, err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil || len(ids) != 1 {
+		return nil, err
+	}
+	return &ids[0], nil
 }
 
 // loadStandby: standby_records/{id} -> standby_records + standby_photos (§A.3.8); tenant task -> trip -> driver.
@@ -650,8 +1044,15 @@ func loadStandby(c *docCtx) error {
 		s := "service_fee"
 		source = &s
 	case e != "":
-		s := "standby_rate" // the FK to standby_rate_entries is linked by T24 once the rate rows load
+		s := "standby_rate"
 		source = &s
+	}
+	var rateEntry *uuid.UUID
+	if source != nil && *source == "standby_rate" {
+		var err error
+		if rateEntry, err = c.legacyRef("standby_rate_entries", c.str("billingRateEntryId")); err != nil {
+			return err
+		}
 	}
 	var unpriced *string
 	if u := c.str("billingUnpricedReason"); u != "" && estimate == nil {
@@ -673,7 +1074,7 @@ func loadStandby(c *docCtx) error {
 		set("duration_minutes", c.integer("durationMinutes")).set("note", c.text("note")).set("status", status).
 		set("lat", c.float("lat")).set("lng", c.float("lng")).set("truck_license_plate_snapshot", c.text("truckLicensePlate")).
 		set("backfilled_by_admin", c.isTrue("backfilledByAdmin")).set("migrated_from_trip_no", migrated).
-		set("billing_estimate_thb", estimate).set("billing_party_id", billingParty).set("billing_rate_source", source).
+		set("billing_estimate_thb", estimate).set("billing_party_id", billingParty).set("billing_rate_source", source).set("billing_rate_entry_id", rateEntry).
 		set("billing_effective_from_date", c.date("billingEffectiveFromDateStr")).set("billing_unpriced_reason", unpriced).
 		set("billing_computed_at", c.ts("billingComputedAt")).set("line_notified_at", c.ts("lineNotifiedAt")).
 		set("evidence_token", c.text("evidenceToken"))
@@ -682,6 +1083,17 @@ func loadStandby(c *docCtx) error {
 		return err
 	}
 	r.set("truck_id", refID(tr))
+	if c.billingOwned() {
+		r.unset("billing_estimate_thb", "billing_party_id", "billing_rate_source", "billing_rate_entry_id",
+			"billing_effective_from_date", "billing_unpriced_reason", "billing_computed_at")
+		// As on trips: the denormalised หลัก/เสริม is the pricer's (standby_billing) once it priced the record.
+		if priced, err := c.pricedInPG(`SELECT EXISTS (SELECT 1 FROM standby_records WHERE legacy_doc_id = $1
+			AND (billing_estimate_thb IS NOT NULL OR billing_unpriced_reason IS NOT NULL OR billing_computed_at IS NOT NULL))`); err != nil {
+			return err
+		} else if priced {
+			r.unset("job_category")
+		}
+	}
 	c.times(r)
 	id, err := upsertLegacy(c, r)
 	if err != nil {

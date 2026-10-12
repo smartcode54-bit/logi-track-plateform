@@ -1,24 +1,14 @@
 "use client";
-import { PagePermissionGuard } from "@/components/page-permission-guard"
-import { CAPABILITIES } from "@/lib/capabilities"
 
+// Maintenance overview: `GET /v1/maintenance` (keyset pages, server status and type filters) over Go while the `billing` web flag is on; the Firestore page otherwise (T42, P3;
+// developer-spec.md §10.13, Appendix E §E.2.3). Each source is its own chunk.
 import dynamic from "next/dynamic";
-import { Loader2 } from "lucide-react";
 
-const MaintenanceOverview = dynamic(() => import("@/features/maintenance/components/MaintenanceOverview"), {
-    ssr: false,
-    loading: () => (
-        <div className="flex items-center justify-center min-h-[400px]">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mr-2" />
-            <span className="text-muted-foreground">Loading...</span>
-        </div>
-    ),
-});
+import { DomainPage, PageLoading } from "@/features/platform/components/DomainPage";
 
-export default function MaintenanceDashboardPage() {
-    return (
-        <PagePermissionGuard capability={CAPABILITIES.fleet_manage_maintenance}>
-            <MaintenanceOverview />
-        </PagePermissionGuard>
-    );
+const GoPage = dynamic(() => import("@/features/maintenance/components/go/MaintenanceOverviewPage").then((m) => m.MaintenanceOverviewPage), { loading: () => <PageLoading /> });
+const FirestorePage = dynamic(() => import("@/features/maintenance/legacy/LegacyMaintenanceOverviewPage"), { loading: () => <PageLoading /> });
+
+export default function MaintenanceOverviewRoute() {
+    return <DomainPage domain="billing" go={GoPage} firestore={FirestorePage} />;
 }

@@ -3,8 +3,9 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
-import { subcontractorSchema, SubcontractorFormValues, SubcontractorValidatedData, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
-import { createSubcontractor } from "../../services/subcontractorService";
+import { subcontractorSchema, SubcontractorFormValues, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
+import { useSaveSubcontractor } from "../../api/useSubcontractors";
+import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,8 @@ export default function NewSubcontractorWizard() {
     const router = useRouter();
     const { t } = useLanguage();
     const [currentStep, setCurrentStep] = useState(1);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const { create } = useSaveSubcontractor();
+    const isSubmitting = create.isPending;
 
     const STEPS = [
         { id: 1, title: t("subcontractors.step1.title"), description: t("subcontractors.step1.description") },
@@ -55,15 +57,12 @@ export default function NewSubcontractorWizard() {
 
     const onSubmit = async (data: SubcontractorFormValues) => {
         try {
-            setIsSubmitting(true);
-            await createSubcontractor(data as unknown as SubcontractorValidatedData);
+            await create.mutateAsync({ values: data });
             toast.success(t("subcontractors.toast.registerSuccess"));
             router.push("/app/subcontractors");
         } catch (error) {
-            console.error(error);
-            toast.error(t("subcontractors.toast.registerError"));
-        } finally {
-            setIsSubmitting(false);
+            applyServerFieldErrors(form, error, t, { nameTh: "name", legalType: "type" });
+            toastSaveError(error, t, "subcontractors.toast.registerError");
         }
     };
 

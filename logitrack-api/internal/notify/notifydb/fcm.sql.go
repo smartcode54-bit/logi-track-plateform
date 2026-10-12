@@ -87,6 +87,45 @@ func (q *Queries) DriverDevices(ctx context.Context, arg DriverDevicesParams) ([
 	return items, nil
 }
 
+const getMaintenanceForPush = `-- name: GetMaintenanceForPush :one
+SELECT m.id, coalesce(m.legacy_doc_id, m.id::text)::text AS maintenance_ref, m.status, m.truck_id,
+       coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
+       to_char(m.start_date, 'YYYY-MM-DD')::text AS start_date,
+       coalesce(m.appointment_time, '')::text AS appointment_time, coalesce(m.provider, '')::text AS provider
+FROM maintenance_records m
+LEFT JOIN trucks t ON t.id = m.truck_id
+WHERE m.id = $1
+`
+
+type GetMaintenanceForPushRow struct {
+	ID              uuid.UUID
+	MaintenanceRef  string
+	Status          string
+	TruckID         *uuid.UUID
+	Plate           string
+	StartDate       string
+	AppointmentTime string
+	Provider        string
+}
+
+// maintenance.created / maintenance.reminder_requested (T40): maintenance_ref is the id the app knows (legacy_doc_id,
+// else the uuid the write-back mints as the document id, R25); the plate, day, time and place build the legacy body.
+func (q *Queries) GetMaintenanceForPush(ctx context.Context, id uuid.UUID) (GetMaintenanceForPushRow, error) {
+	row := q.db.QueryRow(ctx, getMaintenanceForPush, id)
+	var i GetMaintenanceForPushRow
+	err := row.Scan(
+		&i.ID,
+		&i.MaintenanceRef,
+		&i.Status,
+		&i.TruckID,
+		&i.Plate,
+		&i.StartDate,
+		&i.AppointmentTime,
+		&i.Provider,
+	)
+	return i, err
+}
+
 const getTaskForPush = `-- name: GetTaskForPush :one
 SELECT id, coalesce(legacy_doc_id, id::text)::text AS task_ref, task_type, status, driver_id, helper_driver_id,
        source_hub_raw, destination_raw, to_char(plan_date, 'YYYY-MM-DD')::text AS plan_date,
@@ -221,6 +260,36 @@ func (q *Queries) RevokedSessionDevices(ctx context.Context, arg RevokedSessionD
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const truckDrivers = `-- name: TruckDrivers :many
+SELECT DISTINCT driver_id::uuid AS driver_id
+FROM (SELECT a.driver_id FROM truck_assignments a WHERE a.truck_id = $1 AND a.status = 'active'
+      UNION ALL
+      SELECT d.id FROM drivers d WHERE d.active_truck_id = $1) reach
+ORDER BY driver_id
+`
+
+// The drivers of a truck's maintenance (the maintenance gate of app_driver_truck_ids()): its active assignments and
+// the driver who holds it as the active truck (the legacy page pushed to currentAssignments[0], maintenance.ts:36-44).
+func (q *Queries) TruckDrivers(ctx context.Context, truckID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, truckDrivers, truckID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var driver_id uuid.UUID
+		if err := rows.Scan(&driver_id); err != nil {
+			return nil, err
+		}
+		items = append(items, driver_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

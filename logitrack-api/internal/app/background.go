@@ -6,16 +6,25 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/render"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
@@ -30,7 +39,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/telemetry"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy/orphanscan"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
@@ -156,14 +167,28 @@ func RunWorkerOn(ctx context.Context, metrics net.Listener, stdout, stderr io.Wr
 				}
 				return background{}, err
 			}
+			// The etl.sync mirror is the ETL load path: its own pool on ETL_DATABASE_URL (logitrack_etl, R66), opened only
+			// when the sync runs in this replica (T24).
+			var etlPool *pgxpool.Pool
+			if cfg.ETLSyncEnabled && slices.Contains(cfg.Groups, "sync") {
+				if etlPool, err = db.NewPool(ctx, cfg.ETLDatabaseURL, "logitrack-worker-etl", db.Options{MaxConns: 2}); err != nil {
+					st.Close()
+					pool.Close()
+					_ = rdb.Close()
+					return background{}, &config.Error{Invalid: []string{"ETL_DATABASE_URL: " + err.Error()}}
+				}
+			}
 			closeAll := func() {
 				st.Close()
 				pool.Close()
+				if etlPool != nil {
+					etlPool.Close()
+				}
 				if err := rdb.Close(); err != nil {
 					log.Warn().Err(err).Msg("redis close")
 				}
 			}
-			regs, err := workerRegistrations(cfg, pool, st, rdb, ks, log)
+			regs, runners, err := workerRegistrations(cfg, pool, etlPool, st, rdb, ks, m.Registry, log)
 			if err != nil {
 				closeAll()
 				return background{}, err
@@ -176,9 +201,16 @@ func RunWorkerOn(ctx context.Context, metrics net.Listener, stdout, stderr io.Wr
 			probe := &mq.ConnProbe{}
 			return background{
 				run: func(ctx context.Context) {
+					// Loops that are no queue consumer (the mirror's listeners, T29) run beside the consumers and are
+					// waited for before the pools close.
+					var wg sync.WaitGroup
+					for _, r := range runners {
+						wg.Go(func() { r(ctx) })
+					}
 					mq.Supervise(ctx, log, dial, func(cctx context.Context, conn *amqp.Connection) error {
 						return runConsumers(cctx, conn, regs, opts, log, probe)
 					})
+					wg.Wait()
 				},
 				close: closeAll,
 				checks: []health.Checker{
@@ -190,9 +222,11 @@ func RunWorkerOn(ctx context.Context, metrics net.Listener, stdout, stderr io.Wr
 		})
 }
 
-// workerRegistrations are the consumers of the selected groups. Queues of those groups whose
-// consumer arrives with a later issue are not consumed (their messages wait in the queue).
-func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace, log zerolog.Logger) ([]mq.Registration, error) {
+// workerRegistrations are the consumers of the selected groups, and the loops that run beside them (the mirror's
+// listeners). Queues of those groups whose consumer arrives with a later issue are not consumed (their messages wait
+// in the queue).
+func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *storage.Service, rdb *redis.Client, ks cache.Keyspace,
+	reg prometheus.Registerer, log zerolog.Logger) (regs []mq.Registration, runners []func(context.Context), err error) {
 	available := map[string]mq.Registration{}
 	var sender email.Sender
 	if cfg.EmailEnabled {
@@ -201,7 +235,7 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 			From: cfg.SMTPFrom, FromName: cfg.SMTPFromName, StartTLS: cfg.SMTPStartTLS,
 		})
 		if err != nil {
-			return nil, &config.Error{Invalid: []string{err.Error()}}
+			return nil, nil, &config.Error{Invalid: []string{err.Error()}}
 		}
 		sender = s
 	}
@@ -220,14 +254,14 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 		// starts while Google is unreachable. An unreadable or malformed file names the variable only.
 		creds, err := push.LoadCredentials(cfg.FCMServiceAccountJSON)
 		if err != nil {
-			return nil, &config.Error{Invalid: []string{err.Error()}}
+			return nil, nil, &config.Error{Invalid: []string{err.Error()}}
 		}
 		if p := creds.ProjectID(); p != "" && p != cfg.FCMProjectID {
 			log.Warn().Msg("FCM: the FCM_SERVICE_ACCOUNT_JSON service account belongs to another project than FCM_PROJECT_ID")
 		}
 		client, err := push.New(push.Config{ProjectID: cfg.FCMProjectID, Tokens: creds.TokenSource(nil)})
 		if err != nil {
-			return nil, &config.Error{Invalid: []string{"FCM_PROJECT_ID: " + err.Error()}}
+			return nil, nil, &config.Error{Invalid: []string{"FCM_PROJECT_ID: " + err.Error()}}
 		}
 		fcm.Sender = client
 	}
@@ -239,18 +273,107 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 	if cfg.DistanceMatrixEnabled {
 		client, err := gmaps.New(gmaps.Config{APIKey: cfg.GoogleMapsServerAPIKey})
 		if err != nil {
-			return nil, &config.Error{Invalid: []string{"GOOGLE_MAPS_SERVER_API_KEY: " + err.Error()}}
+			return nil, nil, &config.Error{Invalid: []string{"GOOGLE_MAPS_SERVER_API_KEY: " + err.Error()}}
 		}
 		matrix = client
 	}
 	log.Info().Bool("distance_matrix_enabled", cfg.DistanceMatrixEnabled).Msg("distances.compute")
 	distances, err := hubs.NewDistanceJob(hubs.JobDeps{Pool: pool, Matrix: matrix, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	available[hubs.QueueDistances] = distances.Registration()
 
-	var regs []mq.Registration
+	// bangchak.snapshot (T37, R70): the Bangchak client only when BANGCHAK_API_BASE_URL is set (no I/O here).
+	feed, err := cfg.BangchakClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Info().Bool("bangchak_enabled", feed != nil).Msg("bangchak.snapshot")
+	fuel, err := billing.NewFuelJob(billing.FuelJobDeps{Pool: pool, Bangchak: feed, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, nil, err
+	}
+	available[billing.QueueBangchak] = fuel.Registration()
+
+	// billing.compute and billing.backfill (T38): compute-on-delivery (the outbox events of delivered trips, moved dates
+	// and standby records, and the */15 safety net) and the backfill and impact-report jobs; PostgreSQL only (R17). While
+	// the mirror runs and billing is not PostgreSQL-owned (P1-P2), the records it writes stay Firestore's to price.
+	billingDeps := billing.JobDeps{Pool: pool, Locks: jobs.NewRedisLocker(rdb, ks), Log: log,
+		FirestorePricing: FirestorePricing(cfg.ETLSyncEnabled, cfg.Coexist.Owned)}
+	log.Info().Bool("firestore_pricing", billingDeps.FirestorePricing).Msg("billing.compute: records the mirror writes stay Firestore's to price")
+	billingCompute, err := billing.NewComputeJob(billingDeps, reg)
+	if err != nil {
+		return nil, nil, err
+	}
+	available[billing.QueueCompute] = billingCompute.Registration()
+	billingBackfill, err := billing.NewBackfillJob(billingDeps)
+	if err != nil {
+		return nil, nil, err
+	}
+	available[billing.QueueBackfill] = billingBackfill.Registration()
+
+	// payroll.run (T44): the draft payroll runs of a tenant's period and round (internal/hr), no outside service.
+	payroll, err := hr.NewPayrollJob(hr.JobDeps{Pool: pool, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, nil, err
+	}
+	available[hr.QueuePayroll] = payroll.Registration()
+
+	// cartrack.sync (T53, R70): the Cartrack client only when CARTRACK_API_BASE_URL and both credentials are set (no I/O
+	// here); off, every run ends failed naming the variables.
+	positions, err := cfg.CartrackClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Info().Bool("cartrack_enabled", positions != nil).Msg("cartrack.sync")
+	carSync, err := locations.NewSyncJob(locations.SyncDeps{Pool: pool, Cartrack: positions, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, nil, err
+	}
+	available[locations.QueueCartrack] = carSync.Registration()
+
+	// security.audit (T28): the consumer-written security_events rows (login_failed, login_lockout,
+	// password_reset_requested, tenant_orphans_detected, ...); tenancy.orphan-scan (T28): the daily quarantine
+	// counts and broker-drift report, tenant_orphan_rows_total on this process's /metrics.
+	audit := &security.Audit{Pool: pool, Log: log}
+	available[security.QueueAudit] = audit.Registration()
+	scan, err := orphanscan.New(orphanscan.Deps{Pool: pool, Registerer: reg, Log: log})
+	if err != nil {
+		return nil, nil, err
+	}
+	available[orphanscan.Queue] = scan.Registration()
+
+	// etl.sync and firestore.shadow (T24): registered whenever group sync runs, so their queues drain; with their
+	// switches off they answer without touching Firestore (a sweep command fails its job, an event is dropped).
+	if slices.Contains(cfg.Groups, "sync") {
+		cregs, listener, err := coexistRegistrations(cfg, pool, etlPool, rdb, ks, reg, log)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, r := range cregs {
+			available[r.Queue] = r
+		}
+		if listener != nil {
+			runners = append(runners, listener.Run)
+		}
+	}
+
+	// documents.render (T39, R69): statement documents and the Shopee report, stored through the storage service. The
+	// fonts are read (and parsed) once here, so a bad PDF_FONT_DIR stops the start instead of every render.
+	if st != nil && slices.Contains(cfg.Groups, "documents") {
+		fonts, err := render.LoadFonts(cfg.PDFFontDir)
+		if err != nil {
+			return nil, nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+		docs, err := billing.NewDocumentJob(billing.DocumentJobDeps{Pool: pool, Files: st, Fonts: fonts,
+			Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+		if err != nil {
+			return nil, nil, err
+		}
+		available[billing.QueueDocuments] = docs.Registration()
+	}
+
 	var waiting []string
 	for _, q := range mq.Default.Queues {
 		if !slices.Contains(cfg.Groups, q.Group) {
@@ -267,7 +390,68 @@ func workerRegistrations(cfg *WorkerConfig, pool *pgxpool.Pool, st *storage.Serv
 		names[i] = r.Queue
 	}
 	log.Info().Strs("groups", cfg.Groups).Strs("consuming", names).Strs("no_consumer_yet", waiting).Msg("worker queues")
-	return regs, nil
+	return regs, runners, nil
+}
+
+// coexistRegistrations builds the two coexistence consumers (internal/coexist) and, on the replica that runs the mirror,
+// its listeners (T29: every ETL_LISTEN_INTERVAL while the lease lock:mirror:listen is held). The Firestore client needs
+// no I/O: the access token is fetched on the first request, so the worker starts while Google is unreachable.
+func coexistRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, rdb *redis.Client, ks cache.Keyspace, reg prometheus.Registerer,
+	log zerolog.Logger) ([]mq.Registration, *coexist.Listener, error) {
+	var fs *gcp.Firestore
+	if cfg.ETLSyncEnabled || cfg.CompatProjectionEnabled {
+		sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
+		if err != nil { // names the variable, never the content
+			return nil, nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+		client := &http.Client{Timeout: 2 * time.Minute}
+		if fs, err = gcp.NewFirestore(cfg.FirestoreProjectID, cfg.FirestoreDatabaseID, client, sa.TokenSource(client, gcp.FirestoreScope)); err != nil {
+			return nil, nil, &config.Error{Invalid: []string{err.Error()}}
+		}
+	}
+	metrics := coexist.NewMetrics(reg)
+	// The read-your-writes acks (R53) of the mirror: Redis only, never the money path.
+	acks := cache.New(rdb, ks, cache.WithLogger(log))
+	sc := coexist.SyncConfig{Enabled: cfg.ETLSyncEnabled, AppPool: pool, Plan: cfg.Coexist.Mirror,
+		Bucket: cfg.S3Bucket, PublicBucket: cfg.S3PublicBucket, Acks: acks, Log: log, Metrics: metrics}
+	if cfg.CompatProjectionEnabled {
+		// The daily reconciliation compares the projection only while it runs: before the catch-up pass and the switch
+		// (main spec §13.9 step 4) every projected document differs by design.
+		sc.Projection = cfg.Coexist.Projection
+	}
+	shc := coexist.ShadowConfig{Enabled: cfg.CompatProjectionEnabled, Pool: pool, Plan: cfg.Coexist, Log: log, Metrics: metrics}
+	if fs != nil {
+		sc.Source, shc.FS = fs, fs
+	}
+	if etlPool != nil {
+		sc.ETLPool = etlPool
+	}
+	syncC, err := coexist.NewSync(sc)
+	if err != nil {
+		return nil, nil, err
+	}
+	shadow, err := coexist.NewShadow(shc)
+	if err != nil {
+		return nil, nil, err
+	}
+	var listener *coexist.Listener
+	if cfg.ETLSyncEnabled && etlPool != nil && fs != nil {
+		ttl := coexist.LeaseTTLFor(cfg.ETLListenInterval)
+		listener, err = coexist.NewListener(coexist.ListenConfig{Interval: cfg.ETLListenInterval, ETLPool: etlPool, Source: fs,
+			Plan: cfg.Coexist.Mirror, Bucket: cfg.S3Bucket, PublicBucket: cfg.S3PublicBucket,
+			Lease: coexist.NewRedisLease(rdb, ks.MirrorListenLock(), ttl), LeaseTTL: ttl, Acks: acks, Log: log, Metrics: metrics})
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	listened := []string{}
+	if listener != nil {
+		listened = listener.Collections()
+	}
+	log.Info().Bool("etl_sync_enabled", cfg.ETLSyncEnabled).Strs("mirror", cfg.Coexist.Mirror.Names()).Strs("listened", listened).
+		Bool("compat_projection_enabled", cfg.CompatProjectionEnabled).Strs("projection", cfg.Coexist.Projection).
+		Msg("coexistence consumers")
+	return []mq.Registration{syncC.Registration(), shadow.Registration()}, listener, nil
 }
 
 // runConsumers asserts the topology and runs every registration plus the dead-letter monitor on conn.
@@ -343,7 +527,10 @@ func RunSchedulerOn(ctx context.Context, metrics net.Listener, stdout, stderr io
 			}
 			locks := jobs.NewRedisLocker(rdb, ks)
 			rt := realtime.NewWriter(rdb, ks, cfg.RTLogMaxLen, cfg.RTLogTTL)
-			cron, err := scheduler.NewCron(pool, locks, scheduler.Table(pool, rt), log, m.Registry)
+			table := scheduler.Table(pool, rt, scheduler.Gates{FuelMonthlySnapshot: cfg.FuelMonthlySnapshotEnabled,
+				ETLSync: cfg.ETLSyncEnabled, ETLSyncSpec: ETLSyncSpec(cfg.ETLSyncInterval), CartrackSync: cfg.CartrackSyncEnabled})
+			log.Info().Bool("etl_sync_enabled", cfg.ETLSyncEnabled).Dur("etl_sync_interval", cfg.ETLSyncInterval).Msg("etl.sync cron")
+			cron, err := scheduler.NewCron(pool, locks, table, log, m.Registry)
 			if err != nil {
 				pool.Close()
 				_ = rdb.Close()
@@ -354,6 +541,10 @@ func RunSchedulerOn(ctx context.Context, metrics net.Listener, stdout, stderr io
 				pending[i] = p.Name + " (" + p.Issue + ")"
 			}
 			log.Info().Strs("pending_crons", pending).Msg("cron jobs whose consumer lands later are not scheduled")
+			for _, g := range scheduler.Gated {
+				log.Info().Str("cron", g.Name).Str("gate", g.Gate).Bool("scheduled", slices.ContainsFunc(table,
+					func(j scheduler.Job) bool { return j.Name == g.Name })).Msg("gated cron")
+			}
 			relayMetrics := outbox.NewRelayMetrics(m.Registry)
 			hooks := map[string]outbox.Hook{
 				auth.RouteSessionsRevoked: auth.RevocationHook(pool, auth.NewStore(rdb, ks.Prefix()), cfg.JWTAccessTTL, log),
