@@ -208,8 +208,9 @@ keeps serving on the new schema), then the switch and the checks. When the relea
 seed PR such as T35's demo operations), deploy it with `--reseed`: `rollout.sh activate --reseed` then runs
 `seed --profile demo --allow-shared` after `migrate up` and before the switch (`APP_ENV=dev` loads in upsert mode:
 only missing rows; the admin bootstrap stays a first-deploy step). The top-up uses the new release's seed, which prices
-the rows it adds from the rate tables and hubs the database holds; a failed top-up stops the deploy with `current`
-unchanged. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
+the rows it adds from the rate tables and hubs the database holds (and, since T43, writes the generated statements from
+the database's invoice sets, leaving out a party and month the VM already numbered through the API, with a warning); a
+failed top-up stops the deploy with `current` unchanged. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
 would add a second set of anchor-relative rows next to the first. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
 current release, the kept ones and the last activations, and says so when the current release was never

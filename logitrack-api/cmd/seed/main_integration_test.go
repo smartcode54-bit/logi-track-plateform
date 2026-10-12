@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/cmd/seed/internal/seed"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -229,12 +231,12 @@ func TestDemoLoadVerify(t *testing.T) {
 	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator, user (nwr.user, T26);
 	// TTP tenant_admin, operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR ->
 	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left: d13's TTP work of the 42 days
-	// before its move (T35: tasks, trips, photos and their objects, an incident, a standby wait). Every readable RLS
-	// table is classified.
+	// before its move (T35: tasks, trips, photos and their objects, an incident, a standby wait; T43: its expenses on the
+	// TTP truck and a receipt). Every readable RLS table is classified.
 	for _, want := range []string{
 		"11 carrier principal(s) (7 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
-		"d13.thawisak@logitrack.test (NWR, driver): file_objects 186, incident_reports 1, memberships 1, standby_records 1, " +
-			"tasks 42, trip_photos 183, trip_records 42, truck_assignments 1",
+		"d13.thawisak@logitrack.test (NWR, driver): file_objects 187, incident_reports 1, memberships 1, standby_records 1, " +
+			"tasks 42, trip_photos 183, trip_records 42, truck_assignments 1, vehicle_expenses 10",
 		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
 	} {
 		if !strings.Contains(v.stdout, want) {
@@ -324,6 +326,72 @@ func TestDemoLoadVerify(t *testing.T) {
 	if active != 7 || badActive != 0 || unsnapped != 0 || behind != 0 {
 		t.Errorf("demo operations: %d drivers with a task under way (want 7), %d whose active task or truck is not its task "+
 			"under way, %d delivered trips without a snapshot, %d task numbers past their counter", active, badActive, unsnapped, behind)
+	}
+	checkDemoBilling(t, s, conn)
+}
+
+// checkDemoBilling is the AC of issue #63 on the loaded demo (T43): every statement with lines carries their exact sums,
+// round2(total x rate) withholding and total - withholding net; and the period lock holds against the pricing the API
+// runs (billing.PriceTrip, POST /v1/trips/{id}/billing/compute with forceRecompute): a forced recompute of a trip on the
+// generated paid and sent statements is refused with that statement's invoice number and writes nothing, one on the
+// draft statement of the same carrier runs.
+func checkDemoBilling(t *testing.T, s *stack, conn *pgx.Conn) {
+	t.Helper()
+	ctx := context.Background()
+	var statements, bad int
+	if err := conn.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE b.total_amount <> l.total OR b.trip_count <> l.n
+		OR b.withholding_tax <> round(b.total_amount * b.withholding_tax_rate, 2) OR b.net_amount <> b.total_amount - b.withholding_tax)
+		FROM billing_statements b JOIN (SELECT statement_id, sum(amount_thb) AS total, count(*) AS n FROM billing_statement_lines
+		GROUP BY 1) l ON l.statement_id = b.id`).Scan(&statements, &bad); err != nil {
+		t.Fatal(err)
+	}
+	if statements != 7 || bad != 0 {
+		t.Errorf("%d statements with lines (want 7: ST1, ST3, ST4 and the generated four), %d whose totals are not their lines'", statements, bad)
+	}
+	app := s.d.Pool(t, db.RoleApp)
+	errRollback := errors.New("rolled back by the test")
+	for _, c := range []struct {
+		invoice string
+		blocked bool
+	}{{"SPK-202607-002", true}, {"SPK-202608-001", true}, {"SPX-202608-001", false}} {
+		var trip uuid.UUID
+		var before string
+		if err := conn.QueryRow(ctx, `SELECT t.id, sn.updated_at::text FROM billing_statement_lines l
+			JOIN billing_statements b ON b.id = l.statement_id JOIN trip_records t ON t.id = l.trip_id
+			JOIN trip_billing_snapshots sn ON sn.trip_id = t.id
+			WHERE b.invoice_number = $1 AND l.row_type = 'trip' AND NOT sn.manual_override
+			ORDER BY t.trip_no LIMIT 1`, c.invoice).Scan(&trip, &before); err != nil {
+			t.Fatalf("%s: a priced trip line: %v", c.invoice, err)
+		}
+		var out billing.TripOutcome
+		err := db.WithSystem(ctx, app, nil, func(tx pgx.Tx) error {
+			var err error
+			if out, err = billing.PriceTrip(ctx, tx, trip, billing.TripRequest{Mode: billing.ModeForce,
+				ComputedBy: billing.ComputedByAdminForce, At: time.Now()}); err != nil {
+				return err
+			}
+			if !c.blocked {
+				return errRollback // the reprice ran: leave the seeded row as it was
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, errRollback) {
+			t.Fatalf("%s: forced recompute: %v", c.invoice, err)
+		}
+		switch {
+		case c.blocked && (out.Outcome != billing.OutcomeBlocked || out.Lock == nil || out.Lock.InvoiceNumber != c.invoice ||
+			out.Result.BlockedInvoiceNumber != c.invoice):
+			t.Errorf("forced recompute of a trip on %s: %s %+v, want blocked by that invoice", c.invoice, out.Outcome, out.Result)
+		case !c.blocked && out.Outcome == billing.OutcomeBlocked:
+			t.Errorf("forced recompute of a trip on the draft %s was blocked by %+v", c.invoice, out.Lock)
+		}
+		var after string
+		if err := conn.QueryRow(ctx, `SELECT updated_at::text FROM trip_billing_snapshots WHERE trip_id = $1`, trip).Scan(&after); err != nil {
+			t.Fatal(err)
+		}
+		if after != before {
+			t.Errorf("%s: the trip's snapshot changed (%s -> %s)", c.invoice, before, after)
+		}
 	}
 }
 
@@ -627,7 +695,37 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 		FROM customer_rate_entries WHERE id = $1`, sym("RE01"), party, hub, dest, class); err != nil {
 		t.Fatal(err)
 	}
-	s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
+	// The staging VM numbers statements through the API (T37): an SPX August draft is already there, with its counter,
+	// so the top-up leaves that month alone (T43) and writes the other generated statements from what the database holds.
+	for _, q := range []string{`INSERT INTO billing_counters (billing_party_id, period_year, period_month, tenant_id, last_seq,
+		customer_code) VALUES ($1, 2026, 8, $2, 1, 'SPX')`, `INSERT INTO billing_statements (tenant_id, billing_party_id,
+		invoice_number, period_year, period_month, total_amount, withholding_tax_rate, withholding_tax, net_amount, status,
+		generated_at) VALUES ($2, $1, 'SPX-202608-001', 2026, 8, 0, 0.0100, 0, 0, 'draft', '2026-10-01T10:00:00+07:00')`} {
+		if _, err := conn.Exec(ctx, q, sym("BP_SPX"), sym("TN_OWN")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	top := s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
+	if !strings.Contains(top.stderr, "1 generated statement month(s) already numbered in the database") {
+		t.Errorf("the top-up does not report the SPX August month the database numbered:\n%s", top.stderr)
+	}
+	var spx, spk, badTotals int
+	if err := conn.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM billing_statements WHERE invoice_number LIKE 'SPX-202608-%'),
+		(SELECT count(*) FROM billing_statements WHERE invoice_number IN ('SPK-202607-001','SPK-202607-002','SPK-202608-001')
+		   AND uuid_extract_version(id) = 5),
+		(SELECT count(*) FROM billing_statements b JOIN (SELECT statement_id, sum(amount_thb) AS total FROM billing_statement_lines
+		   GROUP BY 1) l ON l.statement_id = b.id WHERE b.total_amount <> l.total)`).Scan(&spx, &spk, &badTotals); err != nil {
+		t.Fatal(err)
+	}
+	if spx != 1 || spk != 3 || badTotals != 0 {
+		t.Errorf("after the top-up: %d SPX August statements (want the API's one), %d generated SPK statements (want 3), "+
+			"%d statements whose totals are not their lines'", spx, spk, badTotals)
+	}
+	// The verify of a shared database differs from the manifest (the API's rows), never in the billing invariants.
+	if v := s.seed(t, "--verify", "--profile", "demo"); !strings.Contains(v.stdout, " 4 PASS") || !strings.Contains(v.stdout, " 5 PASS") {
+		t.Errorf("invariants 4 and 5 after the top-up:\n%s", v.stdout)
+	}
 	var trips, laterRound, newCard int
 	if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM trip_records),
 		(SELECT count(*) FROM trip_billing_snapshots s JOIN customer_rate_entries e ON e.id = s.rate_entry_id

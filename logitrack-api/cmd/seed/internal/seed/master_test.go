@@ -22,9 +22,9 @@ import (
 )
 
 // generatedTables are the tables whose demo and load counts the generators make exact: the identities of T16 and the
-// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) are exact in demo; load carries
-// the demo rows of them until T35V, the load-scale operations generator (developer-spec §18.3), lands (its column stays
-// a target). T43 adds its tables when its generator lands.
+// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) and the billing and finance tables
+// of T43 (finExactTables, issue #63) are exact in demo; load carries the demo rows of them until the load-scale
+// generators (T35V, developer-spec §18.3, and T43's on top of it) land (their column stays a target).
 var generatedTables = []string{"tenants", "billing_parties", "customers", "companies", "users", "memberships",
 	"auth_identities", "user_platform_roles", "user_scopes", "role_capability_overrides", "hubs", "hub_name_aliases",
 	"hub_soc_distances", "drivers", "trucks", "truck_assignments"}
@@ -71,7 +71,7 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 		p := plan(t, prof)
 		tables := generatedTables
 		if prof == ProfileDemo {
-			tables = append(slices.Clone(generatedTables), opsTables...)
+			tables = append(append(slices.Clone(generatedTables), opsTables...), finExactTables...)
 		}
 		if prof == ProfileSmoke {
 			tables = nil
@@ -96,9 +96,10 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 		}
 	}
 	demo, load := plan(t, ProfileDemo), plan(t, ProfileLoad)
-	for _, table := range opsTables {
+	for _, table := range append(slices.Clone(opsTables), finTables...) {
 		if demo.Expected[table] != load.Expected[table] {
-			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations rows only", table, load.Expected[table], demo.Expected[table])
+			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations, billing and finance rows only", table,
+				load.Expected[table], demo.Expected[table])
 		}
 	}
 }

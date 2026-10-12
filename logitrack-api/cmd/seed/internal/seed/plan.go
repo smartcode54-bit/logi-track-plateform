@@ -128,6 +128,8 @@ type Plan struct {
 	// objects (trip and task numbers) for the placeholder overlays.
 	ops    *opsResult
 	labels map[string]string
+	// fin are the generated statements (T43), which the load derives again from the database (statementTables).
+	fin *finResult
 }
 
 // Rows of a table.
@@ -216,12 +218,18 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 		if err := addDemoOps(p, o); err != nil {
 			return nil, err
 		}
+		if err := addDemoFinance(p, o); err != nil {
+			return nil, err
+		}
 	case ProfileLoad:
 		addDemo(p, o)
 		if err := addDemoMaster(p, o); err != nil {
 			return nil, err
 		}
 		if err := addDemoOps(p, o); err != nil {
+			return nil, err
+		}
+		if err := addDemoFinance(p, o); err != nil {
 			return nil, err
 		}
 		addLoad(p, o)
@@ -232,6 +240,12 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 	// Prices last, over every rate row the generators wrote (Appendix D §D.1.4: computed by the engine, never typed).
 	if err := priceOperations(p); err != nil {
 		return nil, err
+	}
+	// The statements of the closed months, over every price (T43): what POST /v1/billing/statements would invoice.
+	if o.Profile != ProfileSmoke {
+		if err := addStatements(p, o); err != nil {
+			return nil, err
+		}
 	}
 	if err := objects(p, o); err != nil {
 		return nil, err

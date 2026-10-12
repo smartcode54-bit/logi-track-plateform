@@ -461,6 +461,9 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 		}
 		return app.ExitRuntimeError
 	}
+	for _, n := range res.Notes {
+		log.Warn().Msg(n)
+	}
 	rows := 0
 	for _, n := range res.Inserted {
 		rows += n

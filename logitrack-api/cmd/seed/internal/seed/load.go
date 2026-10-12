@@ -33,7 +33,9 @@ type LoadResult struct {
 	// TemporaryUserInserted reports that this load inserted the must-change-password fixture user, so the
 	// temporary password of the plan is the one stored (an upsert that finds the user keeps its password).
 	TemporaryUserInserted bool
-	Duration              time.Duration
+	// Notes are worth a warning: the generated statements an upsert left out (statementTables).
+	Notes    []string
+	Duration time.Duration
 }
 
 // column is what the loader needs to know about one column.
@@ -258,6 +260,15 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 					return err
 				}
 				repriced = true
+			}
+			if table == "billing_statements" && p.fin != nil {
+				// Every priced row is in: the generated statements are what the database's invoice sets give (an
+				// insert checks them against the plan's, an upsert writes them).
+				var notes []string
+				if tables, notes, err = statementTables(ctx, tx, p, tables, mode); err != nil {
+					return err
+				}
+				res.Notes = append(res.Notes, notes...)
 			}
 			rows := tables[table]
 			if mode == ModeUpsert {
