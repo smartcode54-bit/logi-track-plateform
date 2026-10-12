@@ -5,6 +5,7 @@ import { partialMatchKey, type QueryKey } from "@tanstack/react-query";
 
 import { queryKeys } from "../queryKeys";
 import {
+    CHAT_EVENTS,
     effectsOf,
     EXPENSE_EVENTS,
     FLEET_EVENTS,
@@ -16,6 +17,7 @@ import {
     REALTIME_EVENTS,
     ROLES_CHANGED_KEYS,
     STATEMENT_EVENTS,
+    WAITLIST_KEYS,
 } from "./eventMap";
 
 const keysOf = (event: string, data: unknown = {}) => effectsOf({ event, data }).invalidate.map((i) => i.queryKey);
@@ -42,6 +44,10 @@ const CATALOGUE = {
     billing: ["ratecard.changed", "statement.created", "statement.status_changed", "documents.rendered"],
     expenses: ["expense.created", "expense.updated", "expense.approved", "expense.status_changed"],
     trips: ["trip.created", "trip.updated", "trip.delivered", "trip.priced", "trip.repriced", "trip.cancelled", "trip.resubmitted", "standby.completed", "standby.priced", "incident.created"],
+    // M6 (T54R): tenant:{tid}:chats (the dashboard's chat counters), tenant:{tid}:vehicle_locations, platform:security.
+    chats: ["chat.created", "chat.updated", "chat.message_created"],
+    vehicleLocations: ["vehicle_locations.updated"],
+    platformSecurity: ["security.event", "waitlist.created"],
 };
 
 describe("event map (M1 slice)", () => {
@@ -102,7 +108,7 @@ describe("event map (M1 slice)", () => {
     });
 
     it("an event outside the map, or a prototype name, has no effect", () => {
-        for (const name of ["task.assigned", "trip.delivered", "chat.created", "constructor", "__proto__", "toString", ""]) {
+        for (const name of ["task.assigned", "trip.delivered", "message.created", "constructor", "__proto__", "toString", ""]) {
             expect(effectsOf({ event: name, data: {} })).toEqual({ invalidate: [], write: [] });
         }
     });
@@ -194,5 +200,39 @@ describe("billing, expenses and income (M3, T42)", () => {
         expect(reaches(done("documents.regenerate"), queryKeys.statements.detail("s1"))).toBe(true);
         expect(reaches(done("documents.shopee-report"), queryKeys.billing.shopee("c1", 2026, 9, "full"))).toBe(true);
         expect(reaches(done("bangchak.snapshot"), queryKeys.fuel.monthly())).toBe(true);
+    });
+});
+
+describe("dashboard and waitlist (M6, T54R)", () => {
+    it("waitlist.created makes the waitlist and the badges stale", () => {
+        expect(keysOf("waitlist.created", { id: "w1" })).toEqual(WAITLIST_KEYS);
+        expect(reaches(keysOf("waitlist.created"), queryKeys.waitlist())).toBe(true);
+        expect(reaches(keysOf("waitlist.created"), queryKeys.badges())).toBe(true);
+        expect(reaches(keysOf("waitlist.created"), queryKeys.security.events({ reach: "all" }))).toBe(false);
+    });
+
+    it("chat events make only the badges stale (the dashboard's chat widget, Appendix E §E.5 row 21)", () => {
+        expect([...CHAT_EVENTS].sort()).toEqual([...CATALOGUE.chats].sort());
+        for (const name of CHAT_EVENTS) expect(keysOf(name, { entity: "chat", id: "c1" })).toEqual([queryKeys.badges()]);
+    });
+
+    it("vehicle_locations.updated writes the batch into ['vehicleLocations'] without a refetch", () => {
+        const at = "2026-10-12T01:03:00Z";
+        const fx = effectsOf({ event: "vehicle_locations.updated", data: { positions: [{ truckId: "a", lat: 14, lng: 101, speed: 30, heading: 0, at }] } });
+        expect(fx.invalidate).toEqual([]);
+        expect(fx.write).toHaveLength(1);
+        expect(fx.write[0].queryKey).toEqual(queryKeys.vehicleLocations());
+        const cached = [{ truckId: "a", tenantId: "t", licensePlate: "70-1", lat: 13, lng: 100, speedKmh: 0, heading: null, lastGpsAt: "2026-10-12T01:00:00Z", updatedAt: at }];
+        expect(fx.write[0].update(cached)).toEqual([{ ...cached[0], lat: 14, lng: 101, speedKmh: 30, heading: 0, lastGpsAt: at }]);
+        expect(fx.write[0].update(undefined)).toBeUndefined();
+    });
+
+    it("an unreadable vehicle_locations.updated makes the key stale instead", () => {
+        for (const data of [null, {}, { positions: [] }, { positions: [{ truckId: "a" }] }]) {
+            expect(effectsOf({ event: "vehicle_locations.updated", data })).toEqual({
+                invalidate: [{ queryKey: queryKeys.vehicleLocations(), windowMs: LIST_WINDOW_MS }],
+                write: [],
+            });
+        }
     });
 });

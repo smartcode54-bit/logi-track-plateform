@@ -28,13 +28,19 @@
  *   never `['billing','rows' | 'missingDate']`, R89) and the success keys of the billing, document and
  *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery); until it merges they never
  *   arrive and the pages refetch after their own writes.
- * Still to come: tasks and trips with the 2 s monitor window (M2), HR and holidays (M4), chats and the
- * explicit `chat:{id}` topic (M5), vehicle locations, `platform:security` (no producer yet: the security
- * pages poll) and badges (M6).
+ * - the dashboard and waitlist slice of M6 (T54R): `vehicle_locations.updated` on
+ *   `tenant:{tid}:vehicle_locations` (the Cartrack batch, data written into `['vehicleLocations']`, no
+ *   refetch), `waitlist.created` on `platform:security` (`['waitlist']`, `['badges']`; tenant stewards
+ *   poll), and the chat events of `tenant:{tid}:chats` for the dashboard's chat widget, which reads the
+ *   chat counters of `['badges']` (Appendix E §E.5 row 21; the chat pages add their own keys in M5).
+ * Still to come: tasks and trips with the 2 s monitor window (M2), HR and holidays (M4), the chat lists
+ * and the explicit `chat:{id}` topic (M5), `security.event` on `platform:security` (the security pages
+ * poll).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { isRateCardTable, rateCardChangedKeys } from "@/features/accounting/api/rateCardKeys";
+import { mergeVehiclePositions, parsePositions } from "@/features/dashboard/api/vehicleLocationEvents";
 import type { RealtimeFrame } from "./realtimeStream";
 
 /** Coalescing window of a list invalidation (Appendix E §E.5.1 "Backpressure": 500 ms). */
@@ -179,6 +185,27 @@ export const EXPENSE_KEYS: readonly QueryKey[] = [["expenses"], queryKeys.badges
 /** The priced events reach `['income']` (2 s window); never the billing rows or missing-date keys. */
 export const PRICED_EVENTS = ["trip.priced", "trip.repriced"] as const;
 
+// --- dashboard and waitlist (T54R, M6) -------------------------------------------------------------
+
+/**
+ * `vehicle_locations.updated {positions: [...]}` (tenant:{tid}:vehicle_locations, every 3 min with the
+ * Cartrack sync): the batch is written into `['vehicleLocations']` (Appendix E §E.5.1: vehicle-location
+ * batches are trusted as data), each known truck taking the newer fix. A payload without a readable
+ * position makes the key stale instead.
+ */
+function vehicleLocationEffects(data: unknown): CacheEffects {
+    const positions = parsePositions(data);
+    if (positions.length === 0) return { invalidate: invalidations([queryKeys.vehicleLocations()]), write: [] };
+    return { invalidate: [], write: [{ queryKey: queryKeys.vehicleLocations(), update: (cached) => mergeVehiclePositions(cached, positions) }] };
+}
+
+/** `waitlist.created` (platform:security): the waitlist page and the sidebar count. */
+export const WAITLIST_KEYS: readonly QueryKey[] = [queryKeys.waitlist(), queryKeys.badges()];
+
+/** `chat.*` (tenant:{tid}:chats): the chat counters of `['badges']` (the dashboard's chat widget). */
+export const CHAT_EVENTS = ["chat.created", "chat.updated", "chat.message_created"] as const;
+export const CHAT_BADGE_KEYS: readonly QueryKey[] = [queryKeys.badges()];
+
 // --- the map ---------------------------------------------------------------------------------------
 
 const RULES = new Map<string, EventRule>([
@@ -199,6 +226,10 @@ const RULES = new Map<string, EventRule>([
     // tenant:{tid}:trips, the priced events (T42; producer T38)
     ...PRICED_EVENTS.map((name) => [name, { invalidate: [["income"]], windowMs: MONITOR_WINDOW_MS }] as [string, EventRule]),
     ["standby.priced", { invalidate: [["income"], ["billing", "standbyDiag"]], windowMs: MONITOR_WINDOW_MS }],
+    // tenant:{tid}:vehicle_locations, platform:security, tenant:{tid}:chats (T54R)
+    ["vehicle_locations.updated", { effects: vehicleLocationEffects }],
+    ["waitlist.created", { invalidate: WAITLIST_KEYS }],
+    ...CHAT_EVENTS.map((name) => [name, { invalidate: CHAT_BADGE_KEYS }] as [string, EventRule]),
 ]);
 
 /** Every event name the provider listens to (besides `session.revoked` and the control events). */
