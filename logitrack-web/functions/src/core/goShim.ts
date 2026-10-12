@@ -27,9 +27,9 @@
  * Shims: setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32, P2;
  * goShimCallables.ts rebuilds their legacy answers), computeTripBillingSnapshot -> POST
  * /v1/mobile/trips/{id}/billing/compute (T38, P3), markBroadcastRead -> POST /v1/mobile/broadcasts/{id}/read (T48, P5,
- * with comms in PG_OWNED_DOMAINS: the read receipts are PostgreSQL's from then on); sendCustomerLineNotification (T49)
- * joins with its targets. Every call goes through callShim, which never follows a redirect (the key would go on to another
- * origin) and logs one line per call (callable, HTTP status, duration: the latency evidence of the shims, AC < 300 ms
+ * with comms in PG_OWNED_DOMAINS: the read receipts are PostgreSQL's from then on), sendCustomerLineNotification -> POST
+ * /v1/mobile/{tasks|trips|standby}/{id}/line-notify (T49, P5). Every call goes through callShim, which never follows a
+ * redirect (the key would go on to another origin) and logs one line per call (callable, HTTP status, duration: the latency evidence of the shims, AC < 300 ms
  * p95 added) and an error line when the API refuses the shim's credentials (401: a revoked, expired or unknown
  * LOGITRACK_API_KEY, or a token Go rejects), fails (5xx), answers something that is not a Go envelope, redirects or
  * cannot be reached; never the key or the token.
@@ -69,6 +69,12 @@ export const ADD_DELIVERY_STOP_SHIM = "addDeliveryStop";
 
 /** The callable's name in LOGITRACK_SHIM_CALLABLES (T48: forwarded to POST /v1/mobile/broadcasts/{id}/read). */
 export const MARK_BROADCAST_READ_SHIM = "markBroadcastRead";
+
+/**
+ * The callable's name in LOGITRACK_SHIM_CALLABLES (T49: forwarded to POST /v1/mobile/{tasks|trips|standby}/{id}/
+ * line-notify, P5).
+ */
+export const SEND_LINE_NOTIFICATION_SHIM = "sendCustomerLineNotification";
 
 /**
  * The API origin a callable forwards to, or "" while it keeps its legacy path: the origin must be set and the callable
@@ -136,6 +142,19 @@ export function addStopShimUrl(base: string, taskId: string): string {
 /** The shim target of markBroadcastRead: `{base}/v1/mobile/broadcasts/{id}/read`, the id (a Firestore doc id) path-escaped. */
 export function markReadShimUrl(base: string, broadcastId: string): string {
     return `${base}/v1/mobile/broadcasts/${encodeURIComponent(broadcastId)}/read`;
+}
+
+/** The LINE card of a sendCustomerLineNotification event (the legacy callable's `event`). */
+export type LineNotifyEvent = "checkin" | "delivered" | "standby";
+
+/**
+ * The shim target of sendCustomerLineNotification: `{base}/v1/mobile/tasks/{id}/line-notify` (checkin, the task),
+ * `.../trips/{id}/line-notify` (delivered, the trip) or `.../standby/{id}/line-notify` (standby), the id (a Firestore doc
+ * id) path-escaped.
+ */
+export function lineNotifyShimUrl(base: string, event: LineNotifyEvent, id: string): string {
+    const kind = event === "checkin" ? "tasks" : event === "delivered" ? "trips" : "standby";
+    return `${base}/v1/mobile/${kind}/${encodeURIComponent(id)}/line-notify`;
 }
 
 /** The Go error envelope's code and details.reason (R48: `{error: {code, message, details}}`), "" when absent. */

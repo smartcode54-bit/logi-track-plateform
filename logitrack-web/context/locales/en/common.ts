@@ -217,6 +217,23 @@ export default {
     "standbyRecords.detail.lineSkipAlready": "Already notified earlier",
     "standbyRecords.detail.lineSkipGeneric": "LINE send skipped",
 
+    // The customer LINE card over Go (T49): resend from the trip editor and the standby detail, photo link revocation
+    "lineNotify.send": "Send LINE notification",
+    "lineNotify.sendHint": "Send / resend the LINE notification to the customer's group",
+    "lineNotify.sending": "Sending LINE notification…",
+    "lineNotify.sent": "LINE notification sent to the group.",
+    "lineNotify.failed": "Failed to send the LINE notification",
+    "lineNotify.skipAlready": "Already notified earlier",
+    "lineNotify.skipNoGroup": "This customer/partner has no LINE Group ID set",
+    "lineNotify.skipDisabled": "LINE sending is turned off on the server (LINE_NOTIFY_ENABLED)",
+    "lineNotify.skipGeneric": "LINE send skipped",
+    "lineNotify.revoke": "Revoke photo link",
+    "lineNotify.revokeHint": "The photo link in the LINE messages already sent stops opening; the next LINE send carries a new link",
+    "lineNotify.revokeConfirm": "Revoke the photo link? Customers who open it from LINE will see that the link was not found until you send the LINE notification again.",
+    "lineNotify.revoked": "Photo link revoked. Send the LINE notification again to share a new link.",
+    "lineNotify.revokedLegacyOpen": "Photo link revoked here, but LINE messages sent by the old system may still open it until the old gallery redirects here.",
+    "lineNotify.revokeLegacyRefused": "This photo link was sent by the old system, which still serves it: it cannot be revoked here until LINE moves to the new system.",
+
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "Backfill Standby",
     "standbyRecords.create.title": "Backfill Standby Record",

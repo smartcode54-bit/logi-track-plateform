@@ -7,6 +7,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/broadcasts"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/linenotify"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
@@ -22,6 +23,8 @@ const (
 	ShimAddDeliveryStop    = "addDeliveryStop"            // POST /v1/mobile/tasks/{id}/stops (T32)
 	ShimComputeTripBilling = "computeTripBillingSnapshot" // POST /v1/mobile/trips/{id}/billing/compute (T38)
 	ShimMarkBroadcastRead  = "markBroadcastRead"          // POST /v1/mobile/broadcasts/{id}/read (T48)
+	// ShimSendLineNotification is POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify (T49).
+	ShimSendLineNotification = "sendCustomerLineNotification"
 )
 
 // MobileGroups is the one /v1/mobile group (ingress allows one group per prefix): GET /v1/mobile/events of T12
@@ -29,10 +32,11 @@ const (
 // /v1/mobile/heartbeat (a driver token, heartbeat_install 1/30 s per driver and install), the callable shim targets
 // (a cf_shim API key with the caller's Firebase ID token, auth.RequireShim, R45): GET /v1/mobile/me (setDriverClaims)
 // and POST /v1/mobile/tasks/{id}/stops (addDeliveryStop, then mobile:submit_trip) of T32, POST
-// /v1/mobile/trips/{id}/billing/compute (computeTripBillingSnapshot) of T38, the driver's own chat
+// /v1/mobile/trips/{id}/billing/compute (computeTripBillingSnapshot) of T38, the three POST
+// /v1/mobile/{tasks|trips|standby}/{id}/line-notify (sendCustomerLineNotification) of T49, the driver's own chat
 // /v1/mobile/chat* of T47 (a driver token, mobile:chat), and the driver's broadcasts of T48: GET
 // /v1/mobile/broadcasts[/latest] (a driver token, mobile:broadcasts) and POST /v1/mobile/broadcasts/{id}/read
-// (markBroadcastRead, then mobile:broadcasts). The driver-app API of T55 and the shim targets of T49 join this group.
+// (markBroadcastRead, then mobile:broadcasts). The driver-app API of T55 joins this group.
 //
 // The gate's public_ip limit (60/min per client address) applies on both listeners. On the internal listener the
 // address is the browser's, as for login_ip: nginx sets X-Forwarded-For and the BFF forwards it from an address of
@@ -51,6 +55,7 @@ func MobileGroups(d APIDeps) []ingress.Group {
 		r.Get("/me", d.Auth.RequireShim(ShimSetDriverClaims), d.Auth.HandleMobileMe)
 		operations.MobileRoutes(d.Operations, d.Auth.RequireShim(ShimAddDeliveryStop))(r)
 		billing.MobileRoutes(d.Billing, d.Auth.RequireShim(ShimComputeTripBilling))(r)
+		linenotify.MobileRoutes(d.LineNotify, d.Auth.RequireShim(ShimSendLineNotification))(r)
 		d.Chats.MountMobile(r, d.Auth.RequireAuth())
 		broadcasts.MobileRoutes(d.Broadcasts, d.Auth.RequireAuth(), d.Auth.RequireShim(ShimMarkBroadcastRead))(r)
 	}}}

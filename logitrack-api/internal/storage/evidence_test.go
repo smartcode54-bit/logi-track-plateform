@@ -61,3 +61,18 @@ func TestEvidenceTokenForSend(t *testing.T) {
 		t.Fatal("a forced send mints a new token after revocation")
 	}
 }
+
+// EVIDENCE_BASE_URL is the gallery's base (https://{API_PUBLIC_DOMAIN}/evidence, main spec §16.1); an origin alone gets
+// the /evidence path, so either spelling links the gallery route.
+func TestEvidenceLink(t *testing.T) {
+	for base, want := range map[string]string{
+		"https://logi-api.showkhun.co/evidence":   "https://logi-api.showkhun.co/evidence/tok",
+		"https://logi-api.showkhun.co/evidence/ ": "https://logi-api.showkhun.co/evidence/tok",
+		"https://logi-api.showkhun.co":            "https://logi-api.showkhun.co/evidence/tok",
+		"http://api.localhost/evidence":           "http://api.localhost/evidence/tok",
+	} {
+		if got := EvidenceLink(base, "tok"); got != want {
+			t.Errorf("EvidenceLink(%q) = %q, want %q", base, got, want)
+		}
+	}
+}

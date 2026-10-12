@@ -345,7 +345,9 @@ func TestSchemaCatalog(t *testing.T) {
 			{"standby_records", "billing_unpriced_reason", []string{"no_customer", "no_rate", "no_ended_at"}},                        // R62
 			{"jobs", "status", []string{"queued", "running", "succeeded", "failed"}},                                                 // R64
 			{"notification_deliveries", "kind", []string{"task_assigned", "task_unassigned", "task_cancelled", "tasks_changed",
-				"maintenance_scheduled", "chat", "broadcast", "leave_decided", "session_revoked"}}, // R84
+				"maintenance_scheduled", "chat", "broadcast", "leave_decided", "session_revoked", // R84
+				"line_checkin", "line_delivered", "line_standby"}}, // 0023, T49
+			{"notification_deliveries", "status", []string{"queued", "sent", "failed", "token_invalid", "deduplicated", "skipped"}}, // 0023, T49
 		} {
 			sameSet(t, v.table+"."+v.column+" CHECK", checkValues(t, c, v.table, v.column), v.values)
 		}

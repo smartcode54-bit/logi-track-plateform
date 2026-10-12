@@ -217,6 +217,23 @@ export default {
     "standbyRecords.detail.lineSkipAlready": "ส่งแจ้งเตือนไปแล้วก่อนหน้านี้",
     "standbyRecords.detail.lineSkipGeneric": "ข้ามการส่ง LINE",
 
+    // The customer LINE card over Go (T49): resend from the trip editor and the standby detail, photo link revocation
+    "lineNotify.send": "ส่งแจ้งเตือน LINE",
+    "lineNotify.sendHint": "ส่ง/ส่งซ้ำแจ้งเตือนเข้ากลุ่ม LINE ของลูกค้า",
+    "lineNotify.sending": "กำลังส่งแจ้งเตือน LINE…",
+    "lineNotify.sent": "ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว",
+    "lineNotify.failed": "ส่งแจ้งเตือน LINE ไม่สำเร็จ",
+    "lineNotify.skipAlready": "ส่งแจ้งเตือนไปแล้วก่อนหน้านี้",
+    "lineNotify.skipNoGroup": "ลูกค้า/พาร์ทเนอร์นี้ยังไม่ได้ตั้งค่า LINE Group ID",
+    "lineNotify.skipDisabled": "ปิดการส่ง LINE ที่เซิร์ฟเวอร์อยู่ (LINE_NOTIFY_ENABLED)",
+    "lineNotify.skipGeneric": "ข้ามการส่ง LINE",
+    "lineNotify.revoke": "เพิกถอนลิงก์รูป",
+    "lineNotify.revokeHint": "ลิงก์รูปในข้อความ LINE ที่ส่งไปแล้วจะเปิดไม่ได้อีก การส่ง LINE ครั้งถัดไปจะได้ลิงก์ใหม่",
+    "lineNotify.revokeConfirm": "เพิกถอนลิงก์รูปหรือไม่? ลูกค้าที่เปิดลิงก์จาก LINE จะเห็นว่าไม่พบลิงก์ จนกว่าจะส่งแจ้งเตือน LINE อีกครั้ง",
+    "lineNotify.revoked": "เพิกถอนลิงก์รูปแล้ว ส่งแจ้งเตือน LINE อีกครั้งเพื่อแชร์ลิงก์ใหม่",
+    "lineNotify.revokedLegacyOpen": "เพิกถอนลิงก์รูปในระบบนี้แล้ว แต่ข้อความ LINE ที่ส่งจากระบบเดิมอาจยังเปิดลิงก์ได้ จนกว่าหน้ารูปของระบบเดิมจะส่งต่อมาที่ระบบนี้",
+    "lineNotify.revokeLegacyRefused": "ลิงก์รูปนี้ส่งจากระบบเดิมซึ่งยังเปิดลิงก์อยู่ จึงยังเพิกถอนที่นี่ไม่ได้ จนกว่าการส่ง LINE จะย้ายมาที่ระบบใหม่",
+
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "บันทึก Standby ย้อนหลัง",
     "standbyRecords.create.title": "บันทึก Standby ย้อนหลัง",

@@ -6,7 +6,9 @@
  * `['standby',{from,to}]` (`GET /v1/standby`, keyset 100 per page, "load more", no cap of 300): the range is the
  * server's filter, each row carries its driver's name and its photos signed; the detail reads the task's check-in
  * photo with `['tasks','detail',id]` while it is open. The backfill dialog (`operations:create_standby`) is mounted
- * on open only. SSE `standby.completed` / `standby.priced` refresh the list in every tab.
+ * on open only. SSE `standby.completed` / `standby.priced` refresh the list in every tab. The detail resends the
+ * customer's LINE card and revokes its photo link (T49, `operations:edit_trip_details`; the legacy page's button),
+ * shown only once the `comms` web flag is `go` (P5, `LineNotifyActions`).
  */
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -28,6 +30,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+import { LineNotifyActions } from "@/features/line/components/go/LineNotifyActions";
 import { pageItems, taskDetailQuery } from "@/features/tasks/api/tasks.go";
 import { CapabilityGate, LoadMoreFooter } from "@/features/tasks/components/go/opsShared";
 import { standbyQuery, type StandbyDTO } from "../../api/standby.go";
@@ -247,6 +250,7 @@ function StandbyDetail({ record, onClose }: { record: StandbyDTO; onClose: () =>
                         ) : null}
                     </div>
                     {items.length > 0 ? <ImagePreviewGallery compact items={items} /> : null}
+                    <LineNotifyActions kind="standby" id={record.id} />
                 </div>
             </DialogContent>
         </Dialog>

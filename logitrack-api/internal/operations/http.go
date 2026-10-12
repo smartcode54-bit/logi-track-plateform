@@ -74,6 +74,11 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 			r.Patch("/:id", requireAuth, need(authz.OperationsManageTasks, authz.PlatformCrossTenantWrite), h.writeID(h.s.PatchTaskAPI))
 			r.Post("/:id/cancel", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.CancelTaskAPI))
 			r.Post("/:id/stops", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.AddTaskStopAPI))
+			for _, m := range more {
+				for _, mount := range m.Tasks {
+					mount(r)
+				}
+			}
 		}},
 		{Prefix: TripsPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome, authz.DispatchViewOperations),
@@ -109,8 +114,10 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 	}
 }
 
-// Mounts are routes another package serves below the trips and standby prefixes (fleet.Groups' truckRoutes pattern).
+// Mounts are routes another package serves below the tasks, trips and standby prefixes (fleet.Groups' truckRoutes
+// pattern).
 type Mounts struct {
+	Tasks   []func(r fiber.Router)
 	Trips   []func(r fiber.Router)
 	Standby []func(r fiber.Router)
 }

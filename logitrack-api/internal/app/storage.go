@@ -257,7 +257,8 @@ func StorageCaller(c fiber.Ctx) (storage.Caller, bool) {
 }
 
 // StorageGroups are POST /v1/uploads/presign, GET /v1/files and the local backend's upload and /media routes (T11)
-// behind auth.RequireAuth where a principal is needed; presign spends the presign_user budget (120/min per user).
+// behind auth.RequireAuth where a principal is needed, and the evidence gallery GET /evidence[/{token}] (T49, public);
+// presign spends the presign_user budget (120/min per user), the gallery the evidence_ip one (RATE_LIMIT_EVIDENCE).
 func StorageGroups(d APIDeps) []ingress.Group {
 	o := storage.HTTPOptions{Auth: d.Auth.RequireAuth(), Caller: StorageCaller}
 	if d.Limiter != nil {
@@ -268,6 +269,14 @@ func StorageGroups(d APIDeps) []ingress.Group {
 				}
 				return ""
 			}})
+	}
+	if d.Limiter != nil {
+		ip := d.EvidenceLimit
+		if !ip.Valid() {
+			ip = ratelimit.EvidenceIP.Default
+		}
+		o.EvidenceLimit = d.Limiter.Middleware(d.RateLimitEnabled, ratelimit.Rule{Bucket: ratelimit.EvidenceIP, Limit: ip,
+			By: ratelimit.ByIP})
 	}
 	return d.Storage.Groups(o)
 }

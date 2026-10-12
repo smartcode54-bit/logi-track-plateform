@@ -36,6 +36,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/linenotify"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
@@ -63,7 +64,9 @@ func main() {
 // /v1/jobs/bangchak.snapshot (T37, deps.Billing), the compute-on-delivery routes of T38 (deps.Billing: the trip and
 // standby billing routes below /v1/trips and /v1/standby, mounted by operations.Groups, POST
 // /v1/jobs/billing.{backfill-trips,backfill-standby,impact-report} and the shim target below /v1/mobile), the R13 task
-// reassignment (T28, deps.Operations) and the payroll runs,
+// reassignment (T28, deps.Operations), the LINE force and evidence revoke routes below /v1/tasks, /v1/trips and
+// /v1/standby (T49, deps.LineNotify; the gallery comes with the storage groups, the shim targets with /v1/mobile) and
+// the payroll runs,
 // penalties, compensation config versions and POST /v1/jobs/payroll.run (T44, deps.HR) and the staff chat console
 // /v1/chats* (T47, deps.Chats; the driver's own /v1/mobile/chat* joins the /v1/mobile group) and the staff broadcasts
 // /v1/broadcasts* (T48, deps.Broadcasts; the driver's /v1/mobile/broadcasts* joins the /v1/mobile group) sit behind
@@ -93,8 +96,11 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 	groups = append(groups, billing.Groups(deps.Billing, deps.Auth.RequireAuth())...)
 	groups = append(groups, billing.JobGroups(deps.Billing, deps.Auth.RequireAuth())...)
 	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth(), operations.Mounts{
-		Trips:   []func(fiber.Router){billing.TripRoutes(deps.Billing, deps.Auth.RequireAuth())},
-		Standby: []func(fiber.Router){billing.StandbyRoutes(deps.Billing, deps.Auth.RequireAuth())},
+		Tasks: []func(fiber.Router){linenotify.TaskRoutes(deps.LineNotify, deps.Auth.RequireAuth())},
+		Trips: []func(fiber.Router){billing.TripRoutes(deps.Billing, deps.Auth.RequireAuth()),
+			linenotify.TripRoutes(deps.LineNotify, deps.Auth.RequireAuth())},
+		Standby: []func(fiber.Router){billing.StandbyRoutes(deps.Billing, deps.Auth.RequireAuth()),
+			linenotify.StandbyRoutes(deps.LineNotify, deps.Auth.RequireAuth())},
 	})...)
 	groups = append(groups, hr.Groups(deps.HR, deps.Auth.RequireAuth())...)
 	groups = append(groups, chats.Groups(deps.Chats, deps.Auth.RequireAuth())...)

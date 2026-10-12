@@ -6,6 +6,8 @@
 # /v1/mobile/*, /v1/auth/*, /public/v1/*, /evidence/*, /media/* and /healthz qualify (main spec
 # §2.6), and USE only at or below the first five.
 GET /.well-known/jwks.json internal
+GET /evidence internal,public
+GET /evidence/:token internal,public
 GET /healthz internal,public
 GET /media/* internal,public
 PUT /media/* internal,public
@@ -157,8 +159,11 @@ GET /v1/mobile/events internal,public
 POST /v1/mobile/heartbeat internal,public
 GET /v1/mobile/me internal,public
 GET /v1/mobile/settings internal,public
+POST /v1/mobile/standby/:id/line-notify internal,public
+POST /v1/mobile/tasks/:id/line-notify internal,public
 POST /v1/mobile/tasks/:id/stops internal,public
 POST /v1/mobile/trips/:id/billing/compute internal,public
+POST /v1/mobile/trips/:id/line-notify internal,public
 POST /v1/partner-interest internal
 GET /v1/payroll internal
 GET /v1/payroll/:id internal
@@ -178,6 +183,8 @@ GET /v1/security/status internal
 GET /v1/standby internal
 POST /v1/standby/:id/billing/compute internal
 PATCH /v1/standby/:id/customer internal
+POST /v1/standby/:id/evidence/revoke internal
+POST /v1/standby/:id/notify-line internal
 POST /v1/standby/backfill internal
 GET /v1/stats/users-by-role internal
 GET /v1/subcontractors internal
@@ -189,6 +196,7 @@ POST /v1/tasks internal
 GET /v1/tasks/:id internal
 PATCH /v1/tasks/:id internal
 POST /v1/tasks/:id/cancel internal
+POST /v1/tasks/:id/notify-line internal
 POST /v1/tasks/:id/stops internal
 GET /v1/tasks/:id/trip internal
 GET /v1/tasks/by-number/:taskNo internal
@@ -209,7 +217,9 @@ POST /v1/trips/:id/billing/compute internal
 PUT /v1/trips/:id/billing/manual internal
 POST /v1/trips/:id/cancel internal
 POST /v1/trips/:id/deliver internal
+POST /v1/trips/:id/evidence/revoke internal
 POST /v1/trips/:id/job-category internal
+POST /v1/trips/:id/notify-line internal
 GET /v1/trips/:id/photos internal
 POST /v1/trips/:id/rename internal
 POST /v1/trips/bulk-cancel internal
