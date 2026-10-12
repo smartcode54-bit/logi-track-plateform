@@ -170,6 +170,10 @@ type Deps struct {
 	Renamer TripRenamer
 	// Files commits the evidence photos a write references (storage.Service); nil refuses a photo key (not_found).
 	Commits FileCommitter
+	// Owners resolves the task a driver-app shim target names, of any tenant, to tell another driver's task (403
+	// not_task_owner) from a missing one (404) (iam.TaskOwners: a read-only system transaction, T32); nil answers the
+	// shim targets with a 500 (the route is listed but not wired).
+	Owners TaskOwners
 }
 
 // Service serves the principal reads of the operations tables and opens the request transactions of their writes.
@@ -184,6 +188,7 @@ type Service struct {
 	wb      *WriteBack
 	renamer TripRenamer
 	commits FileCommitter
+	owners  TaskOwners
 }
 
 // New builds the service.
@@ -196,7 +201,7 @@ func New(d Deps) (*Service, error) {
 		now = time.Now
 	}
 	return &Service{pool: d.Pool, log: d.Log, now: now, mover: d.Reassigner, files: d.Files, hubs: d.Hubs,
-		pgOwned: d.PGOwned, wb: d.WriteBack, renamer: d.Renamer, commits: d.Commits}, nil
+		pgOwned: d.PGOwned, wb: d.WriteBack, renamer: d.Renamer, commits: d.Commits, owners: d.Owners}, nil
 }
 
 // Now is the service clock.

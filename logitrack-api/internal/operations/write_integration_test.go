@@ -93,9 +93,13 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
+	owners, err := iam.NewTaskOwners(w.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.svc, err = operations.New(operations.Deps{Pool: w.pool, Log: zerolog.Nop(), Now: func() time.Time { return now },
 		Files: fakeFiles{}, Hubs: writeHubs{w, &sync.Mutex{}}, Reassigner: mover, Renamer: renamer, Commits: fakeCommits{w},
-		PGOwned: opt.pgOwned, WriteBack: opt.writeBack})
+		PGOwned: opt.pgOwned, WriteBack: opt.writeBack, Owners: owners})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,12 +129,19 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 		"platformO": {UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnTenant: &w.O,
 			TenantKind: "own_fleet", Steward: true, SubtenantIDs: []uuid.UUID{w.A}, Caps: caps(admin, platform)},
 		"apikey": {UserID: uuid.New(), AMR: authz.AMRAPIKey, TenantID: &w.O, Caps: admin},
+		// Drivers acting as themselves (the shim targets below /v1/mobile, T32): driverO1 as the APK 4.x calls (a Go
+		// token), driverO1shim as auth.RequireShim builds it (the same user, attributed to a cf_shim key).
+		"driverO1":     clone(w.driverO1, authz.TenantDefaults(authz.Driver)),
+		"driverO1shim": viaShim(clone(w.driverO1, authz.TenantDefaults(authz.Driver))),
+		"driverO2":     clone(w.driverO2, authz.TenantDefaults(authz.Driver)),
 	}
 	// Every principal is a login (created_by, renamed_by and the audit rows reference users).
+	users := map[uuid.UUID]bool{w.userO: true, w.userA: true}
 	for name, p := range r.ps {
-		if p.UserID == w.userO || p.UserID == w.userA {
+		if users[p.UserID] {
 			continue
 		}
+		users[p.UserID] = true
 		w.exec(`INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)`, p.UserID, name+"@example.test", name)
 	}
 	r.app = fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.New(testWriter{t}))})
@@ -141,7 +152,15 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 	for _, g := range operations.Groups(r.svc, auth) {
 		g.Mount(r.app.Group(g.Prefix))
 	}
+	operations.MobileRoutes(r.svc, auth)(r.app.Group("/v1/mobile"))
 	return r
+}
+
+// viaShim is p as auth.RequireShim leaves it: the end user's principal with a cf_shim key as attribution.
+func viaShim(p *authz.Principal) *authz.Principal {
+	key := uuid.New()
+	p.APIKeyID, p.APIKeyScope = &key, authz.KeyCFShim
+	return p
 }
 
 // testWriter logs the error handler's lines (a 500's cause) into the test log.
