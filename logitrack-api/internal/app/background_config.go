@@ -113,6 +113,8 @@ type WorkerConfig struct {
 	FCMEnabled            bool   `env:"FCM_ENABLED"`
 	FCMProjectID          string `env:"FCM_PROJECT_ID"`
 	FCMServiceAccountJSON string `env:"FCM_SERVICE_ACCOUNT_JSON"`
+	// NotifyAdminOnDriverMessage also pushes a driver's chat message to the assigned admin's devices (T47).
+	NotifyAdminOnDriverMessage bool `env:"NOTIFY_ADMIN_ON_DRIVER_MESSAGE"`
 
 	// notify.email (main spec §7.6)
 	PublicWebBaseURL string        `env:"PUBLIC_WEB_BASE_URL"`

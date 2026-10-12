@@ -87,6 +87,83 @@ func (q *Queries) DriverDevices(ctx context.Context, arg DriverDevicesParams) ([
 	return items, nil
 }
 
+const getChatForPush = `-- name: GetChatForPush :one
+SELECT c.id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+       coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
+         AS driver_name
+FROM chats c
+LEFT JOIN drivers d ON d.id = c.driver_id
+WHERE c.id = $1
+`
+
+type GetChatForPushRow struct {
+	ID                  uuid.UUID
+	ChatRef             string
+	DriverID            *uuid.UUID
+	AssignedAdminUserID *uuid.UUID
+	DriverName          string
+}
+
+// The chat of a write-back message (its row exists once the mirror applied it): the driver and the driver's name.
+func (q *Queries) GetChatForPush(ctx context.Context, id uuid.UUID) (GetChatForPushRow, error) {
+	row := q.db.QueryRow(ctx, getChatForPush, id)
+	var i GetChatForPushRow
+	err := row.Scan(
+		&i.ID,
+		&i.ChatRef,
+		&i.DriverID,
+		&i.AssignedAdminUserID,
+		&i.DriverName,
+	)
+	return i, err
+}
+
+const getChatMessageForPush = `-- name: GetChatMessageForPush :one
+SELECT m.id, m.sender_role, coalesce(m.text, '')::text AS text, (m.image_file_id IS NOT NULL)::boolean AS has_image,
+       coalesce(m.legacy_doc_id, m.id::text)::text AS message_ref,
+       c.id AS chat_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+       coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
+         AS driver_name
+FROM chat_messages m
+JOIN chats c ON c.id = m.chat_id
+LEFT JOIN drivers d ON d.id = c.driver_id
+WHERE m.id = $1
+`
+
+type GetChatMessageForPushRow struct {
+	ID                  uuid.UUID
+	SenderRole          string
+	Text                string
+	HasImage            bool
+	MessageRef          string
+	ChatID              uuid.UUID
+	ChatRef             string
+	DriverID            *uuid.UUID
+	AssignedAdminUserID *uuid.UUID
+	DriverName          string
+}
+
+// chat.message_created (T47): the message, its chat and the chat's driver, read server-side (the legacy callable took
+// the chat and message ids from the browser, unauthenticated, fn:chat.ts:77). chat_ref and message_ref are the ids the
+// app knows (legacy_doc_id, else the uuid; main.dart:71-82 opens the room by chatId).
+func (q *Queries) GetChatMessageForPush(ctx context.Context, id uuid.UUID) (GetChatMessageForPushRow, error) {
+	row := q.db.QueryRow(ctx, getChatMessageForPush, id)
+	var i GetChatMessageForPushRow
+	err := row.Scan(
+		&i.ID,
+		&i.SenderRole,
+		&i.Text,
+		&i.HasImage,
+		&i.MessageRef,
+		&i.ChatID,
+		&i.ChatRef,
+		&i.DriverID,
+		&i.AssignedAdminUserID,
+		&i.DriverName,
+	)
+	return i, err
+}
+
 const getMaintenanceForPush = `-- name: GetMaintenanceForPush :one
 SELECT m.id, coalesce(m.legacy_doc_id, m.id::text)::text AS maintenance_ref, m.status, m.truck_id,
        coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
@@ -290,6 +367,46 @@ func (q *Queries) TruckDrivers(ctx context.Context, truckID uuid.UUID) ([]uuid.U
 			return nil, err
 		}
 		items = append(items, driver_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const userDevices = `-- name: UserDevices :many
+SELECT install_id, token
+FROM device_tokens
+WHERE user_id = $1
+ORDER BY last_seen_at DESC, install_id
+LIMIT $2::bigint
+`
+
+type UserDevicesParams struct {
+	UserID  uuid.UUID
+	PerUser int64
+}
+
+type UserDevicesRow struct {
+	InstallID string
+	Token     string
+}
+
+// The devices of one user (the assigned admin's web or phone; NOTIFY_ADMIN_ON_DRIVER_MESSAGE): at most @per_user, the
+// most recently seen.
+func (q *Queries) UserDevices(ctx context.Context, arg UserDevicesParams) ([]UserDevicesRow, error) {
+	rows, err := q.db.Query(ctx, userDevices, arg.UserID, arg.PerUser)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserDevicesRow{}
+	for rows.Next() {
+		var i UserDevicesRow
+		if err := rows.Scan(&i.InstallID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

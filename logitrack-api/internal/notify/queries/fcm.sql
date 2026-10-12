@@ -73,3 +73,35 @@ FROM (SELECT a.driver_id FROM truck_assignments a WHERE a.truck_id = @truck_id A
       UNION ALL
       SELECT d.id FROM drivers d WHERE d.active_truck_id = @truck_id) reach
 ORDER BY driver_id;
+
+-- name: GetChatMessageForPush :one
+-- chat.message_created (T47): the message, its chat and the chat's driver, read server-side (the legacy callable took
+-- the chat and message ids from the browser, unauthenticated, fn:chat.ts:77). chat_ref and message_ref are the ids the
+-- app knows (legacy_doc_id, else the uuid; main.dart:71-82 opens the room by chatId).
+SELECT m.id, m.sender_role, coalesce(m.text, '')::text AS text, (m.image_file_id IS NOT NULL)::boolean AS has_image,
+       coalesce(m.legacy_doc_id, m.id::text)::text AS message_ref,
+       c.id AS chat_id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+       coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
+         AS driver_name
+FROM chat_messages m
+JOIN chats c ON c.id = m.chat_id
+LEFT JOIN drivers d ON d.id = c.driver_id
+WHERE m.id = @id;
+
+-- name: GetChatForPush :one
+-- The chat of a write-back message (its row exists once the mirror applied it): the driver and the driver's name.
+SELECT c.id, coalesce(c.legacy_doc_id, c.id::text)::text AS chat_ref, c.driver_id, c.assigned_admin_user_id,
+       coalesce(nullif(btrim(d.full_name_th), ''), nullif(btrim(d.first_name || ' ' || d.last_name), ''), '')::text
+         AS driver_name
+FROM chats c
+LEFT JOIN drivers d ON d.id = c.driver_id
+WHERE c.id = @id;
+
+-- name: UserDevices :many
+-- The devices of one user (the assigned admin's web or phone; NOTIFY_ADMIN_ON_DRIVER_MESSAGE): at most @per_user, the
+-- most recently seen.
+SELECT install_id, token
+FROM device_tokens
+WHERE user_id = @user_id
+ORDER BY last_seen_at DESC, install_id
+LIMIT @per_user::bigint;

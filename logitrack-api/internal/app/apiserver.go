@@ -17,6 +17,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
@@ -86,6 +87,8 @@ type APIDeps struct {
 	Dashboard *dashboard.Service
 	// Forms are the anonymous landing forms of T53 and the waitlist: /v1/waitlist*, POST /v1/partner-interest.
 	Forms *forms.Service
+	// Chats are the admin-driver chat of T47: /v1/chats* (staff) and /v1/mobile/chat* (the driver's own chat).
+	Chats *chats.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
@@ -357,10 +360,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	chatSvc, err := buildChats(cfg, pool, st, log)
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
 		Storage: st,
-		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Limiter: limiter,
+		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP)})
 	if err != nil {
 		closeAll()

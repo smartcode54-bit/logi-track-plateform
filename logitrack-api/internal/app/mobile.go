@@ -15,8 +15,8 @@ const MobilePrefix = "/v1/mobile"
 
 // MobileGroups is the one /v1/mobile group (ingress allows one group per prefix): GET /v1/mobile/events of T12
 // (internal/sse MountMobile, SSE ticket) and, of T52, the anonymous version gate GET /v1/mobile/settings and POST
-// /v1/mobile/heartbeat (a driver token, heartbeat_install 1/30 s per driver and install). The driver-app API of T55
-// joins this group.
+// /v1/mobile/heartbeat (a driver token, heartbeat_install 1/30 s per driver and install), and the driver's own chat
+// /v1/mobile/chat* of T47 (a driver token, mobile:chat). The driver-app API of T55 joins this group.
 //
 // The gate's public_ip limit (60/min per client address) applies on both listeners. On the internal listener the
 // address is the browser's, as for login_ip: nginx sets X-Forwarded-For and the BFF forwards it from an address of
@@ -32,6 +32,7 @@ func MobileGroups(d APIDeps) []ingress.Group {
 	return []ingress.Group{{Prefix: MobilePrefix, Public: true, Mount: func(r fiber.Router) {
 		d.Events.MountMobile(r)
 		d.Mobile.MountMobile(r, o)
+		d.Chats.MountMobile(r, d.Auth.RequireAuth())
 	}}}
 }
 

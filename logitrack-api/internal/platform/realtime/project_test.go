@@ -298,3 +298,42 @@ func snake(s string) string {
 	}
 	return b.String()
 }
+
+// Chat events (T47): the whole message only on chat:{id}; the tenant's chat list gets the thin list keys and the
+// driver's user topic the envelope of its own chat, never a message text; no dispatch topic carries them.
+func TestProjectChatEvents(t *testing.T) {
+	msg := json.RawMessage(`{"entity":"chat_message","id":"m1","chatId":"c1","tenantId":"` + tid + `","at":"2026-10-11T03:00:00Z",
+		"senderUserId":"u1","senderRole":"admin","senderName":"Ops","text":"secret text","imageFileId":null,"messageType":"normal",
+		"clientMessageId":"x","createdAt":"2026-10-11T03:00:00Z","assignedAdminUserId":"u1"}`)
+	full, ok := Project(ChatTopic(tid), "chat.message_created", msg)
+	if !ok || string(full) != string(msg) {
+		t.Fatalf("chat topic: %s %v", full, ok)
+	}
+	thin, ok := Project(TenantTopic(tid, FamilyChats), "chat.message_created", msg)
+	got := decode(t, thin)
+	if !ok || got["text"] != nil || got["senderName"] != nil || got["clientMessageId"] != nil || got["id"] != "m1" ||
+		got["chatId"] != "c1" || got["senderRole"] != "admin" || got["tenantId"] != tid {
+		t.Fatalf("tenant chats: %s %v", thin, ok)
+	}
+	user, ok := Project(UserTopic(tid), "chat.message_created", msg)
+	got = decode(t, user)
+	if !ok || got["text"] != nil || got["assignedAdminUserId"] != nil || got["chatId"] != "c1" || got["senderRole"] != "admin" {
+		t.Fatalf("user topic: %s %v", user, ok)
+	}
+	updated := json.RawMessage(`{"entity":"chat","id":"c1","tenantId":"` + tid + `","at":"2026-10-11T03:00:00Z","status":"in_progress",
+		"priority":"urgent","assignedAdminUserId":"u1","driverId":"d1","changed":["status","assignedAdminUserId"],"extra":{"a":1}}`)
+	out, ok := Project(TenantTopic(tid, FamilyChats), "chat.updated", updated)
+	got = decode(t, out)
+	if !ok || got["status"] != "in_progress" || got["assignedAdminUserId"] != "u1" || got["extra"] != nil ||
+		len(got["changed"].([]any)) != 2 {
+		t.Fatalf("chat.updated: %s %v", out, ok)
+	}
+	if out, ok := Project(TenantTopic(tid, FamilyChats), "chat.updated", json.RawMessage(`{"changed":"status"}`)); ok {
+		t.Fatalf("an unreadable changed[] of a chat event was sent: %s", out)
+	}
+	for _, typ := range []string{"chat.message_created", "chat.updated", "chat.read"} {
+		if out, ok := Project(dispatchTasks, typ, msg); ok {
+			t.Fatalf("%s reached a dispatch topic: %s", typ, out)
+		}
+	}
+}

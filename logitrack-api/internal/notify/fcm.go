@@ -52,9 +52,8 @@ const (
 // fail as transient and dead-letter after the last retry, to be replayed once the planner exists
 // (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost.
 var pendingRoutes = map[string]string{
-	RouteChatMessageCreated: "T47",
-	RouteBroadcastCreated:   "T48",
-	RouteLeaveDecided:       "T45",
+	RouteBroadcastCreated: "T48",
+	RouteLeaveDecided:     "T45",
 }
 
 // FromMirror reports whether a delivery is a domain event the FS->PG mirror appended (header origin=etl.sync). While
@@ -112,7 +111,10 @@ const reasonClaimsChanged = "claims_changed"
 //     appointment; the legacy page pushed on no creation): maintenance_scheduled to the drivers of the record's
 //     truck (T40);
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
-//     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
+//     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none;
+//   - chat.message_created (T47): "chat" to the devices of the chat's driver for a staff message (one per device:
+//     exactly one push per message and device, fn:chat.ts:170-179), and, with NotifyAdminOnDriverMessage, "chat" to
+//     the devices of the admin assigned to the chat for a driver message (the legacy code never pushed to admins).
 //
 // Idempotency (at most once per token): a push is claimed in Redis (idem:fcm:{messageId}:{tokenId},
 // 24 h) before it is sent and the claim keeps its outcome, so a redelivered or retried message never
@@ -130,8 +132,11 @@ type FCM struct {
 	Redis   redis.UniversalClient
 	Keys    cache.Keyspace
 	Enabled bool // FCM_ENABLED: false acks every message without sending (local default)
-	Log     zerolog.Logger
-	Now     func() time.Time // nil: time.Now
+	// NotifyAdminOnDriverMessage (NOTIFY_ADMIN_ON_DRIVER_MESSAGE) also pushes a driver's chat message to the assigned
+	// admin's devices (T47); off by default, as the legacy code never pushed to admins.
+	NotifyAdminOnDriverMessage bool
+	Log                        zerolog.Logger
+	Now                        func() time.Time // nil: time.Now
 }
 
 // Registration binds the consumer to its queue.
@@ -183,6 +188,8 @@ func (f *FCM) planner(key string) (planner, bool) {
 		return planSessionsRevoked, true
 	case RouteMaintenanceCreated, RouteMaintenanceReminder:
 		return planMaintenance, true
+	case RouteChatMessageCreated:
+		return f.planChat, true
 	}
 	return nil, false
 }
@@ -847,4 +854,91 @@ func planMaintenance(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) (
 		}})
 	}
 	return driverTargets(ctx, q, pushes)
+}
+
+// chatEvent is the part of a chat.message_created payload notify.fcm reads (internal/chats). The PostgreSQL path names
+// the message (id) and everything else is re-read from chat_messages and chats. A write-back handler's event
+// (writeBack, header origin=writeback) is sent before the mirror has the message: it carries the message as the
+// handler wrote it in Firestore (the ids the app knows, the sender's role and the text) and the chat's PostgreSQL id,
+// from which the driver is read when the mirror holds the chat (else the handler's server-side driver id).
+type chatEvent struct {
+	ID                  uuid.UUID  `json:"id"`
+	ChatID              uuid.UUID  `json:"chatId"`
+	WriteBack           bool       `json:"writeBack"`
+	ChatRef             string     `json:"chatRef"`
+	MessageRef          string     `json:"messageRef"`
+	SenderRole          string     `json:"senderRole"`
+	Text                *string    `json:"text"`
+	DriverID            *uuid.UUID `json:"driverId"`
+	AssignedAdminUserID *uuid.UUID `json:"assignedAdminUserId"`
+}
+
+// chatImagePreview is the body of a push for an image without text (the chat lists' "[Image]").
+const chatImagePreview = "[Image]"
+
+// planChat plans chat.message_created: "chat" to the driver's devices for a staff message; with
+// NotifyAdminOnDriverMessage, "chat" to the assigned admin's devices for a driver message (nobody when the chat is in
+// the queue: the console's SSE shows it).
+func (f *FCM) planChat(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
+	var ev chatEvent
+	if err := d.Decode(&ev); err != nil {
+		return nil, err
+	}
+	var role, text, chatRef, msgRef, driverName string
+	var driver, admin *uuid.UUID
+	if ev.WriteBack {
+		if ev.ChatRef == "" || ev.MessageRef == "" || ev.SenderRole == "" {
+			return nil, mq.Permanent(errors.New("notify.fcm: a write-back chat.message_created without chatRef, messageRef or senderRole"))
+		}
+		role, chatRef, msgRef, driver, admin = ev.SenderRole, ev.ChatRef, ev.MessageRef, ev.DriverID, ev.AssignedAdminUserID
+		if ev.Text != nil {
+			text = *ev.Text
+		}
+		if ev.ChatID != uuid.Nil {
+			c, err := q.GetChatForPush(ctx, ev.ChatID)
+			switch {
+			case err == nil:
+				driver, driverName = c.DriverID, c.DriverName
+				if admin == nil {
+					admin = c.AssignedAdminUserID
+				}
+			case !errors.Is(err, pgx.ErrNoRows):
+				return nil, err
+			}
+		}
+	} else {
+		if ev.ID == uuid.Nil {
+			return nil, mq.Permanent(errors.New("notify.fcm: chat.message_created without id"))
+		}
+		m, err := q.GetChatMessageForPush(ctx, ev.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, mq.Permanent(fmt.Errorf("notify.fcm: chat message %s not found", ev.ID))
+		}
+		if err != nil {
+			return nil, err
+		}
+		role, text, chatRef, msgRef, driver, admin, driverName = m.SenderRole, m.Text, m.ChatRef, m.MessageRef, m.DriverID,
+			m.AssignedAdminUserID, m.DriverName
+		if text == "" && m.HasImage {
+			text = chatImagePreview
+		}
+	}
+	switch {
+	case role == "admin" && driver != nil:
+		return driverTargets(ctx, q, []driverPush{{driverID: *driver, build: func(string) Push {
+			return ChatMessage(chatRef, msgRef, text)
+		}}})
+	case role == "driver" && f.NotifyAdminOnDriverMessage && admin != nil:
+		rows, err := q.UserDevices(ctx, notifydb.UserDevicesParams{UserID: *admin, PerUser: MaxDevicesPerDriver})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]target, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, target{userID: *admin, installID: r.InstallID, token: r.Token,
+				push: ChatFromDriver(chatRef, msgRef, driverName, text)})
+		}
+		return out, nil
+	}
+	return nil, nil
 }
