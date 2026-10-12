@@ -33,7 +33,10 @@ export type UploadPurpose =
     // T42: the expense photos and the maintenance files (variants image, receipt, invoice).
     | "expense_receipt"
     | "expense_odometer"
-    | "maintenance_file";
+    | "maintenance_file"
+    // T34: a trip's evidence photo (variant = its photo type) and a backfilled standby record's two photos.
+    | "trip_photo"
+    | "standby_photo";
 
 export interface UploadOptions {
     purpose: UploadPurpose;
@@ -75,6 +78,8 @@ export const UPLOAD_CONTENT_TYPES: Partial<Record<UploadPurpose, readonly string
     expense_receipt: IMAGE_TYPES,
     expense_odometer: IMAGE_TYPES,
     maintenance_file: DOCUMENT_TYPES,
+    trip_photo: IMAGE_TYPES,
+    standby_photo: IMAGE_TYPES,
 };
 
 /** `UPLOAD_MAX_BYTES`' default (developer-spec.md §16.1); a server with a lower cap still refuses at presign. */
