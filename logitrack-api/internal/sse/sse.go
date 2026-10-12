@@ -12,7 +12,8 @@
 // (at most SSE_MAX_CONN_PER_USER per user, else 429), replays what it missed after Last-Event-ID from
 // the rtlog: streams (or sends resync), then relays the live events of its replica's realtime.Hub.
 // It sends ": ping" every SSE_PING_INTERVAL and ends with event: reconnect 30 s before the access
-// token expires, on shutdown and when it falls behind; session.revoked for its own session (or with
+// token expires, on shutdown and when it falls behind; it ends at once when the client closes the
+// connection (watchClient), so the lease is free for the client's next stream; session.revoked for its own session (or with
 // reason claims_changed) and roles.changed on its tenant end it so the client reopens with fresh claims,
 // including when they were published while the stream was connecting (serve).
 //
@@ -556,7 +557,14 @@ type envelope struct {
 func (st *stream) run(w *bufio.Writer) {
 	start := time.Now()
 	reason := endClientGone
+	stop := make(chan struct{})
+	gone := watchClient(st.conn, stop)
 	defer func() {
+		close(stop)
+		if st.conn != nil {
+			// Wakes the watcher's blocked read; fasthttp reads nothing more (Connection: close).
+			_ = st.conn.SetReadDeadline(time.Now())
+		}
 		st.sub.Close()
 		st.s.release(st.userID, st.streamID)
 		st.s.open.WithLabelValues(st.kind).Dec()
@@ -617,6 +625,8 @@ func (st *stream) run(w *bufio.Writer) {
 			reason = st.sub.Reason()
 			_ = st.write(w, reconnectFrame(reason))
 			return
+		case <-gone:
+			return // client_gone: the deferred release frees the lease now, not after a failed write
 		case <-ping.C:
 			if st.write(w, []byte(": ping\n\n")) != nil {
 				return
@@ -637,6 +647,46 @@ func (st *stream) run(w *bufio.Writer) {
 			return
 		}
 	}
+}
+
+// watchClient reports on the returned channel when the client closes its side of the connection (EOF
+// or a read error). fasthttp gives a streaming handler no disconnect signal, and a write to a closed
+// connection only fails after the stream-writer pipe and the socket buffer took one or two more frames:
+// without the watch a stream whose client went away kept its rl:sse_conns lease for 2-3 heartbeats
+// (about a minute at SSE_PING_INTERVAL 25 s), so a client that recreates its stream (the web console
+// opening a chat room adds chat:{id}, T50) ran into SSE_MAX_CONN_PER_USER. The request was read whole
+// before the handler ran and the response closes the connection, so fasthttp reads nothing more from it:
+// a stray byte (a pipelined request that is never served) is discarded, and fasthttp's ReadTimeout
+// deadline, still set from the request, is cleared (the stream outlives it). Like net/http's background
+// read, a client that half-closes its side ends the stream. Closing stop, then setting a read deadline,
+// ends the watch when the stream ends on its own; the connection's close ends it in any case.
+func watchClient(conn net.Conn, stop <-chan struct{}) <-chan struct{} {
+	gone := make(chan struct{})
+	if conn == nil {
+		return gone
+	}
+	go func() {
+		var buf [512]byte
+		for {
+			_, err := conn.Read(buf[:])
+			if err == nil {
+				continue
+			}
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = conn.SetReadDeadline(time.Time{})
+				continue
+			}
+			close(gone)
+			return
+		}
+	}()
+	return gone
 }
 
 // open writes the opening frames: retry, then resync, or the replay and the id-only frame with the

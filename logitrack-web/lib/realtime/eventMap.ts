@@ -51,7 +51,8 @@
  *   `chat:{id}` of the open room (lib/realtime/topics.ts) `message.created` writes the whole message into
  *   `['chat', id, 'messages']` (deduped by id and `clientMessageId`, features/chat/api/chatCache.ts; an
  *   image message also refetches, the event carries no signed URL) and `read.updated` the reader's state
- *   into `['chat', id]`. When the open connection does not carry that `chat:{id}` (not joined yet, or Go
+ *   into `['chat', id]`, both applied again on a fetch of the key that was running meanwhile
+ *   (`reapplyAfterFetch`). When the open connection does not carry that `chat:{id}` (not joined yet, or Go
  *   refused it), the tenant topic's thin `chat.message_created` makes the room's messages and chat stale
  *   instead (`EffectsContext.hasTopic`), so the room never misses a message.
  * Still to come: `security.event` on `platform:security` (the security pages poll).
@@ -98,6 +99,12 @@ export interface CacheWrite {
      * also made stale (one flush per `LIST_WINDOW_MS` window), so the refetch adds what the write cannot.
      */
     refetchWhen?: (cached: unknown) => boolean;
+    /**
+     * Apply the update again on the result of a fetch of the key that was running when the event arrived
+     * (its server read may predate the event; lib/queryWrite.ts). Only for an idempotent, forward-only
+     * update: a never-stale key the stream keeps fresh (T50: a chat's messages and read state).
+     */
+    reapplyAfterFetch?: boolean;
 }
 
 export interface CacheEffects {
@@ -364,6 +371,7 @@ function messageCreatedEffects(data: unknown): CacheEffects {
                 queryKey: queryKeys.chat.messages(msg.chatId),
                 update: (cached) => upsertMessage(cached, msg),
                 refetchWhen: (cached) => needsImageRefetch(cached, msg),
+                reapplyAfterFetch: true,
             },
         ],
     };
@@ -373,7 +381,10 @@ function messageCreatedEffects(data: unknown): CacheEffects {
 function readUpdatedEffects(data: unknown): CacheEffects {
     const read = readFromEvent(data);
     if (!read) return NONE;
-    return { invalidate: [], write: [{ queryKey: queryKeys.chat.detail(read.chatId), update: (cached) => applyReadState(cached, read) }] };
+    return {
+        invalidate: [],
+        write: [{ queryKey: queryKeys.chat.detail(read.chatId), update: (cached) => applyReadState(cached, read), reapplyAfterFetch: true }],
+    };
 }
 
 // --- HR (T46, M4) ---------------------------------------------------------------------------------

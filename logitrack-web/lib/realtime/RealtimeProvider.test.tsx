@@ -283,4 +283,35 @@ describe("RealtimeProvider", () => {
         expect(messageFetches).toBe(1);
         view.unmount(); // the room's unmount drops its registration
     });
+
+    it("console -> room A -> room B -> console -> room C: one new stream per new room, none for leaving one (T50)", async () => {
+        // Each new stream costs a SSE_MAX_CONN_PER_USER lease (Go frees the old one when its client closes);
+        // a room left keeps its topic on the stream until it reopens for another reason.
+        resetRealtimeTopicsForTests();
+        const client = newClient();
+        function Room({ id }: { id: string }) {
+            useRealtimeTopic(chatTopic(id));
+            return <p>{id}</p>;
+        }
+        const tab = (room: string | null) => (
+            <QueryClientProvider client={client}>
+                <RealtimeProvider createEventSource={createEventSource}>{room ? <Room key={room} id={room} /> : <p>console</p>}</RealtimeProvider>
+            </QueryClientProvider>
+        );
+        const view = render(tab(null));
+        await advance(0);
+        sources[0].open();
+        act(() => sources[0].emit("hubs.changed", { ids: [] }, "40"));
+        for (const step of ["a", "b", null, "c"]) {
+            view.rerender(tab(step));
+            await advance(600);
+            const last = sources.at(-1)!;
+            if (last.readyState !== OPEN) last.open();
+        }
+        const topics = sources.map((s) => new URL(s.url, "http://web.test").searchParams.get("topics"));
+        expect(topics).toEqual([null, "chat:a", "chat:a,chat:b", "chat:a,chat:b,chat:c"]);
+        expect(sources.slice(0, -1).every((s) => s.closed)).toBe(true);
+        expect(sources.slice(1).every((s) => s.url.endsWith("&lastEventId=40"))).toBe(true);
+        view.unmount();
+    });
 });

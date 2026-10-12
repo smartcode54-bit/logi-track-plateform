@@ -4,7 +4,9 @@
  *
  * - writes (`setQueryData`) apply at once; a partial one (`keepUpdatedAt`) keeps the query's
  *   `dataUpdatedAt`, and one whose payload names what the cache lacks (`refetchWhen`) also makes its
- *   key stale through the window below;
+ *   key stale through the window below; one marked `reapplyAfterFetch` (a chat message, a read state,
+ *   T50) is applied again on the result of a fetch of its key that was running when it arrived, whose
+ *   server read may predate it (lib/queryWrite.ts), so landing that fetch never drops it;
  * - invalidations are coalesced per key: the first event for a quiet key opens a window
  *   (`windowMs`: 500 ms, 2 s for the monitor and income keys) and every event inside it joins the one
  *   flush at its end, so a burst costs one refetch per window (a trailing debounce would never fire
@@ -28,6 +30,7 @@
  *   room's chat, without its messages `['chat', id, 'messages']`, T50).
  */
 import { focusManager, hashKey, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { writeThroughFetch } from "../queryWrite";
 import { effectsOf, LIST_WINDOW_MS } from "./eventMap";
 import type { RealtimeFrame } from "./realtimeStream";
 
@@ -85,7 +88,19 @@ export class RealtimeInvalidator {
         const effects = effectsOf(frame, { hasTopic: this.hasTopic });
         for (const w of effects.write) {
             const state = this.client.getQueryState(w.queryKey);
-            if (w.refetchWhen?.(state?.data)) this.schedule({ queryKey: w.queryKey, exact: false }, LIST_WINDOW_MS);
+            const refetch = { queryKey: w.queryKey, exact: false };
+            if (w.refetchWhen?.(state?.data)) this.schedule(refetch, LIST_WINDOW_MS);
+            if (w.reapplyAfterFetch) {
+                // Applied again on a running fetch's result (the cached value then lacks what the payload
+                // names again, e.g. an image's URL, when that fetch predates the message).
+                writeThroughFetch(this.client, w.queryKey, w.update, {
+                    keepUpdatedAt: w.keepUpdatedAt,
+                    beforeReapply: (fetched) => {
+                        if (!this.disposed && w.refetchWhen?.(fetched)) this.schedule(refetch, LIST_WINDOW_MS);
+                    },
+                });
+                continue;
+            }
             // A partial write keeps the time of the server's last answer (a `pollFromLastAnswer` key).
             const kept = w.keepUpdatedAt && state && state.dataUpdatedAt > 0 ? { updatedAt: state.dataUpdatedAt } : undefined;
             this.client.setQueryData(w.queryKey, w.update, kept);

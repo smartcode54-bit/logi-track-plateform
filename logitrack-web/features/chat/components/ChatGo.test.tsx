@@ -8,6 +8,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, screen, waitFor, within } from "@testing-library/react";
+import type { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@/firebase/client", () => {
@@ -21,14 +22,15 @@ vi.mock("firebase/functions", () => {
 });
 
 const nav = vi.hoisted(() => ({ params: new URLSearchParams(), pathname: "/app/chat", replace: vi.fn(), push: vi.fn() }));
-vi.mock("next/navigation", () => ({
-    useRouter: () => ({ replace: nav.replace, push: nav.push, prefetch: vi.fn(), back: vi.fn(), refresh: vi.fn() }),
-    usePathname: () => nav.pathname,
-    useSearchParams: () => nav.params,
-}));
+vi.mock("next/navigation", () => {
+    // One router object, as Next's is (an effect that depends on it does not restart on every render).
+    const router = { replace: (href: string) => nav.replace(href), push: (href: string) => nav.push(href), prefetch: () => undefined, back: () => undefined, refresh: () => undefined };
+    return { useRouter: () => router, usePathname: () => nav.pathname, useSearchParams: () => nav.params };
+});
 
 import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { resetQueryClientForTests } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { RealtimeProvider } from "@/lib/realtime/RealtimeProvider";
 import { CLOSED, CONNECTING, OPEN, type EventSourceLike } from "@/lib/realtime/realtimeStream";
 import { setRealtimeStatus } from "@/lib/realtime/status";
@@ -41,7 +43,7 @@ import { CHAT_PAGE_SIZE, chatWithDriverHref, type ChatDTO, type ChatDetailDTO, t
 import { BroadcastComposerGo } from "./BroadcastComposerGo";
 import { ChatLayoutGo } from "./ChatLayoutGo";
 import { ChatRoomGo } from "./ChatRoomGo";
-import { ChatWithDriverGo } from "./ChatWithDriverGo";
+import { ChatWithDriverGo, OPEN_ATTEMPTS, OPEN_RETRY_MS } from "./ChatWithDriverGo";
 import { ConversationsPanelGo } from "./ConversationsPanelGo";
 
 beforeAll(() => {
@@ -388,7 +390,43 @@ describe("open a chat with a driver over Go", () => {
         expect(web.calls.filter((c) => c.method === "POST" && path(c) === "/api/go/v1/chats").map((c) => c.body)).toContainEqual({ driverId: DRIVER_ID });
     });
 
-    it("asks again while a written-back chat has no PostgreSQL row yet (202)", async () => {
+    it("asks again while Go answers 202 for a new written-back chat (its minted uuidv7 is no row yet); the room opens on Go's chat", async () => {
+        const { web } = setup();
+        const MINTED = "0199c0de-1234-7abc-8def-0123456789ab";
+        let calls = 0;
+        let postsWhenOpened = 0;
+        nav.replace.mockImplementation(() => {
+            postsWhenOpened = calls;
+        });
+        web.on("POST", "/api/go/v1/chats", () => {
+            calls++;
+            // Go's wbOpen: a new Firestore document named by a uuidv7 the mirror will give its row, 202 until then.
+            return calls === 1
+                ? json(202, { data: { pending: true, id: MINTED, collection: "chats", docId: MINTED, updateTime: "x", document: {} } })
+                : json(200, { data: chat({ id: MINTED }) });
+        });
+        nav.params = new URLSearchParams({ driverId: DRIVER_ID });
+        renderWithProviders(<ChatWithDriverGo />);
+        await waitFor(() => expect(nav.replace).toHaveBeenCalledWith(`/app/chat/room?chatId=${MINTED}`), { timeout: 4000 });
+        expect(nav.replace).toHaveBeenCalledTimes(1);
+        expect(postsWhenOpened).toBe(2); // never on the pending answer: GET /v1/chats/{id} would 404 and bounce
+    });
+
+    it("gives up with a notice after OPEN_ATTEMPTS pending answers, opening no room", async () => {
+        const { web } = setup();
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        web.on("POST", "/api/go/v1/chats", () =>
+            json(202, { data: { pending: true, id: "0199c0de-1234-7abc-8def-0123456789ab", collection: "chats", docId: "0199c0de-1234-7abc-8def-0123456789ab", updateTime: "x", document: {} } })
+        );
+        nav.params = new URLSearchParams({ driverId: DRIVER_ID });
+        renderWithProviders(<ChatWithDriverGo />);
+        for (let i = 0; i < OPEN_ATTEMPTS; i++) await act(() => vi.advanceTimersByTimeAsync(OPEN_RETRY_MS));
+        expect(screen.getByTestId("chat-open-error")).toHaveTextContent(/still being created/i);
+        expect(web.count("POST", "/api/go/v1/chats")).toBe(OPEN_ATTEMPTS);
+        expect(nav.replace).not.toHaveBeenCalled();
+    });
+
+    it("asks again while an existing written-back chat (a Firestore auto id: the nil id) has no PostgreSQL row yet (202)", async () => {
         const { web } = setup();
         let calls = 0;
         web.on("POST", "/api/go/v1/chats", () => {
@@ -541,5 +579,122 @@ describe("broadcasts over Go", () => {
         await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Withdraw" }));
         await waitFor(() => expect(web.count("DELETE", "/api/go/v1/broadcasts/b2")).toBe(1));
         await waitFor(() => expect(screen.queryByText("Notice 2")).toBeNull());
+    });
+});
+
+describe("chat room over Go: refetches and sends in flight (T50 review)", () => {
+    const MSGS = `/api/go/v1/chats/${CHAT_ID}/messages`;
+    const messagesIdle = (client: QueryClient) =>
+        waitFor(() => expect(client.getQueryState(queryKeys.chat.messages(CHAT_ID))?.fetchStatus).toBe("idle"));
+
+    it("a failed send keeps its text, Retry and Discard when the messages refetch (the fallback poll, a resync)", async () => {
+        const { web } = setup();
+        let fail = true;
+        web.handlers.unshift((call) => (call.method === "POST" && path(call) === MSGS && fail ? goErr(503, "unavailable") : undefined));
+        nav.params = new URLSearchParams({ chatId: CHAT_ID });
+        const user = userEvent.setup();
+        const { client } = renderWithProviders(<ChatRoomGo />);
+        await screen.findByText("newest from driver");
+        await user.type(screen.getByLabelText("Type a message..."), "keep me{Enter}");
+        expect(await screen.findByTestId("chat-send-failed")).toBeInTheDocument();
+        const before = web.count("GET", MSGS);
+        await act(() => client.invalidateQueries({ queryKey: queryKeys.chat.messages(CHAT_ID) }));
+        await messagesIdle(client);
+        expect(web.count("GET", MSGS)).toBeGreaterThan(before);
+        expect(screen.getByTestId("chat-send-failed")).toBeInTheDocument();
+        expect(screen.getByText("keep me")).toBeInTheDocument();
+        fail = false;
+        await user.click(screen.getByRole("button", { name: "Retry" }));
+        await waitFor(() => expect(screen.queryByTestId("chat-send-failed")).toBeNull());
+        const sends = web.calls.filter((c) => c.method === "POST" && path(c) === MSGS).map((c) => (c.body as { clientMessageId: string }).clientMessageId);
+        expect(sends).toHaveLength(2);
+        expect(sends[1]).toBe(sends[0]);
+        expect(screen.getAllByText("keep me")).toHaveLength(1);
+    });
+
+    it("a written-back send (202) stays syncing through the refetch 3 s later while the mirror has not caught up", async () => {
+        const { web } = setup();
+        web.handlers.unshift((call) =>
+            call.method === "POST" && path(call) === MSGS
+                ? json(202, { data: { pending: true, id: "00000000-0000-0000-0000-000000000000", collection: `chats/fs1/messages`, docId: "fsm1", updateTime: "x", document: {} } })
+                : undefined
+        );
+        nav.params = new URLSearchParams({ chatId: CHAT_ID });
+        const user = userEvent.setup();
+        const { client } = renderWithProviders(<ChatRoomGo />);
+        await screen.findByText("newest from driver");
+        const before = web.count("GET", MSGS);
+        await user.type(screen.getByLabelText("Type a message..."), "via the old app{Enter}");
+        expect(await screen.findByText(/Syncing with the driver app/)).toBeInTheDocument();
+        await waitFor(() => expect(web.count("GET", MSGS)).toBeGreaterThan(before), { timeout: 5000 });
+        await messagesIdle(client);
+        expect(screen.getByText("via the old app")).toBeInTheDocument();
+        expect(screen.getByText(/Syncing with the driver app/)).toBeInTheDocument();
+    });
+
+    it("a send while the first page is loading cancels nothing: the page and the message both show", async () => {
+        const { web } = setup();
+        let release!: () => void;
+        const held = new Promise<void>((r) => (release = r));
+        let first = true;
+        web.handlers.unshift(async (call) => {
+            if (call.method === "GET" && path(call) === MSGS && first) {
+                first = false;
+                await held; // a slow link: then the default page
+            }
+            return undefined;
+        });
+        nav.params = new URLSearchParams({ chatId: CHAT_ID });
+        const user = userEvent.setup();
+        renderWithProviders(<ChatRoomGo />);
+        await user.type(await screen.findByLabelText("Type a message..."), "early bird{Enter}");
+        await waitFor(() => expect(web.count("POST", MSGS)).toBe(1));
+        release();
+        expect(await screen.findByText("newest from driver")).toBeInTheDocument();
+        expect(await screen.findByText("early bird")).toBeInTheDocument();
+        await waitFor(() => expect(screen.queryByText(/Sending/)).toBeNull());
+        expect(web.count("GET", MSGS)).toBe(1);
+    });
+
+    it("a send during the image refetch a photo caused cancels nothing: the photo gets its link and the message shows", async () => {
+        const { web } = setup();
+        const photo = message(53, { text: null, imageFileId: "f53" });
+        let committed = false;
+        let release!: () => void;
+        const held = new Promise<void>((r) => (release = r));
+        web.handlers.unshift(async (call) => {
+            if (call.method !== "GET" || path(call) !== MSGS || !committed || q(call).get("before")) return undefined;
+            await held; // the image refetch is slow
+            const data = [{ ...photo, imageUrl: "https://files.test/f53" }, ...Array.from({ length: CHAT_PAGE_SIZE - 1 }, (_, i) => message(52 - i))];
+            return json(200, { data, nextCursor: "older" });
+        });
+        nav.params = new URLSearchParams({ chatId: CHAT_ID });
+        const sources: FakeEventSource[] = [];
+        const user = userEvent.setup();
+        renderWithProviders(
+            <RealtimeProvider
+                createEventSource={(url) => {
+                    const s = new FakeEventSource(url);
+                    sources.push(s);
+                    return s;
+                }}
+            >
+                <ChatRoomGo />
+            </RealtimeProvider>
+        );
+        await screen.findByText("newest from driver");
+        await waitFor(() => expect(sources.some((s) => s.url.includes("topics="))).toBe(true));
+        const stream = sources.at(-1)!;
+        act(() => stream.open());
+        const before = web.count("GET", MSGS);
+        committed = true;
+        act(() => stream.emit("message.created", `chat:${CHAT_ID}`, { ...photo, entity: "chat_message", tenantId: "t-own", at: photo.createdAt }, "100"));
+        // The event carries no signed URL: the key refetches once its 500 ms window closes.
+        await waitFor(() => expect(web.count("GET", MSGS)).toBe(before + 1), { timeout: 3000 });
+        await user.type(screen.getByLabelText("Type a message..."), "got it{Enter}");
+        await waitFor(() => expect(web.count("POST", MSGS)).toBe(1));
+        release();
+        expect(await screen.findByRole("link", { name: "View image" })).toHaveAttribute("href", "https://files.test/f53");
+        expect(await screen.findByText("got it")).toBeInTheDocument();
     });
 });

@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -212,5 +214,46 @@ func TestControlFrames(t *testing.T) {
 	}
 	if got := string(resyncFrame(0, "trimmed")); got != "id: 0\nevent: resync\ndata: {\"reason\":\"trimmed\"}\n\n" {
 		t.Fatalf("%q", got)
+	}
+}
+
+// watchClient ends the stream when the client closes its side of the connection, and only then: a byte
+// from the client and the read deadline fasthttp left from the request are not a close; closing stop and
+// setting a deadline ends the watch without reporting one.
+func TestWatchClientReportsTheClientClosing(t *testing.T) {
+	server, client := net.Pipe()
+	defer func() { _ = server.Close() }()
+	_ = server.SetReadDeadline(time.Now().Add(20 * time.Millisecond)) // fasthttp's ReadTimeout, still set
+	stop := make(chan struct{})
+	gone := watchClient(server, stop)
+	if _, err := client.Write([]byte("x")); err != nil { // a stray byte is read and discarded
+		t.Fatal(err)
+	}
+	select {
+	case <-gone:
+		t.Fatal("a byte from the client or the request's read deadline ended the stream")
+	case <-time.After(100 * time.Millisecond):
+	}
+	_ = client.Close()
+	select {
+	case <-gone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client closed the connection; the watch did not say so")
+	}
+
+	// The stream ended on its own: the watch stops without reporting the client gone.
+	server2, client2 := net.Pipe()
+	defer func() { _ = client2.Close(); _ = server2.Close() }()
+	stop2 := make(chan struct{})
+	gone2 := watchClient(server2, stop2)
+	close(stop2)
+	_ = server2.SetReadDeadline(time.Now())
+	select {
+	case <-gone2:
+		t.Fatal("stopping the watch reported the client gone")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if watchClient(nil, stop) == nil {
+		t.Fatal("no channel without a connection")
 	}
 }

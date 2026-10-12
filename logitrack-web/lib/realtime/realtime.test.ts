@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../apiError";
-import { CLOSED, CONNECTING, REOPEN_MAX_MS, RealtimeStream, type EventSourceLike } from "./realtimeStream";
+import { CLOSED, CONNECTING, MAX_EXPLICIT_TOPICS, REOPEN_MAX_MS, RealtimeStream, type EventSourceLike } from "./realtimeStream";
 import { handleSessionRevoked } from "./sessionRevoked";
 import { createSessionStream, EVENTS_URL, EVENT_SESSION_REVOKED } from "./sessionStream";
 
@@ -398,7 +398,7 @@ describe("RealtimeStream: explicit topics (T50)", () => {
     const make = (h: ReturnType<typeof harness>) =>
         new RealtimeStream({ url: "/s", refresh: async () => true, onSessionLost: vi.fn(), onResync: vi.fn(), onEvent: vi.fn(), ...h });
 
-    it("opens with ?topics= and recreates the stream from the last id when the set changes (Go replays the new topic, R52)", () => {
+    it("opens with ?topics= and recreates the stream from the last id only when a topic is added (Go replays the new topic, R52)", async () => {
         const h = harness();
         const s = make(h);
         s.listen(["hubs.changed"]);
@@ -412,12 +412,84 @@ describe("RealtimeStream: explicit topics (T50)", () => {
         h.sources[0].emit("hubs.changed", { type: "hubs.changed", topic: "global", eventId: "e", data: {} }, "77");
         s.setTopics(["chat:a", "chat:b"]); // same set: nothing
         expect(h.sources).toHaveLength(1);
+        // A new topic: one new connection, the topics no longer wanted carried along.
         s.setTopics(["chat:c"]);
         expect(h.sources[0].closed).toBe(true);
-        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:c")}&lastEventId=77`);
-        expect(s.hasTopic("chat:a")).toBe(false);
+        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:a,chat:b,chat:c")}&lastEventId=77`);
+        h.sources[1].open();
+        expect(s.topics).toEqual(["chat:c"]);
+        expect(s.hasTopic("chat:a")).toBe(true);
+        // Leaving the room, or coming back to one the connection carries: no new connection (no new lease).
         s.setTopics([]);
-        expect(h.sources[2].url).toBe("/s?lastEventId=77");
+        s.setTopics(["chat:a"]);
+        expect(h.sources).toHaveLength(2);
+        s.setTopics(["chat:d"]);
+        expect(h.sources[2].url).toBe(`/s?topics=${encodeURIComponent("chat:a,chat:b,chat:c,chat:d")}&lastEventId=77`);
+        h.sources[2].open();
+        h.sources[2].emit("hubs.changed", { type: "hubs.changed", topic: "global", eventId: "e", data: {} }, "80");
+        // A reopen for another reason asks for the wanted topics only.
+        h.sources[2].fail();
+        await h.runTimers();
+        expect(h.sources[3].url).toBe(`/s?topics=${encodeURIComponent("chat:d")}&lastEventId=80`);
+    });
+
+    it("carries at most MAX_EXPLICIT_TOPICS, the least recently wanted dropped first", () => {
+        const h = harness();
+        const s = make(h);
+        s.open();
+        h.sources[0].open();
+        h.sources[0].emit("hubs.changed", {}, "5");
+        const room = (i: number) => `chat:${String(i).padStart(2, "0")}`;
+        for (let i = 0; i < MAX_EXPLICIT_TOPICS; i++) s.setTopics([room(i)]);
+        s.setTopics([room(0)]); // wanted again: now the most recent
+        expect(h.sources).toHaveLength(MAX_EXPLICIT_TOPICS + 1);
+        s.setTopics([room(MAX_EXPLICIT_TOPICS)]);
+        const topics = new URL(h.sources.at(-1)!.url, "http://x").searchParams.get("topics")!.split(",");
+        expect(topics).toHaveLength(MAX_EXPLICIT_TOPICS);
+        expect(topics).toContain(room(0));
+        expect(topics).toContain(room(MAX_EXPLICIT_TOPICS));
+        expect(topics).not.toContain(room(1));
+    });
+
+    it("a stream recreated for a topic before any event (no position) resyncs once open: Go cannot replay the gap", () => {
+        const h = harness();
+        const onResync = vi.fn();
+        const s = new RealtimeStream({ url: "/s", refresh: async () => true, onSessionLost: vi.fn(), onResync, onEvent: vi.fn(), ...h });
+        s.open();
+        h.sources[0].open(); // Go's id-only frame moved the browser's Last-Event-ID, but dispatched nothing
+        s.setTopics(["chat:x"]);
+        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:x")}`);
+        expect(onResync).not.toHaveBeenCalled();
+        h.sources[1].open();
+        expect(onResync).toHaveBeenCalledTimes(1);
+    });
+
+    it("a stream recreated for a topic after an event resumes from it, with no resync", () => {
+        const h = harness();
+        const onResync = vi.fn();
+        const s = new RealtimeStream({ url: "/s", refresh: async () => true, onSessionLost: vi.fn(), onResync, onEvent: vi.fn(), ...h });
+        s.listen(["hubs.changed"]);
+        s.open();
+        h.sources[0].open();
+        h.sources[0].emit("hubs.changed", {}, "77");
+        s.setTopics(["chat:x"]);
+        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:x")}&lastEventId=77`);
+        h.sources[1].open();
+        expect(onResync).not.toHaveBeenCalled();
+    });
+
+    it("a topic set during the backoff of a stream that never opened waits for the attempt, which resyncs once open", async () => {
+        const h = harness();
+        const onResync = vi.fn();
+        const s = new RealtimeStream({ url: "/s", refresh: async () => true, onSessionLost: vi.fn(), onResync, onEvent: vi.fn(), ...h });
+        s.open();
+        h.sources[0].fail(); // e.g. a 429 past SSE_MAX_CONN_PER_USER: wait out the backoff
+        s.setTopics(["chat:x"]);
+        expect(h.sources).toHaveLength(1);
+        await h.runTimers();
+        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:x")}`);
+        h.sources[1].open();
+        expect(onResync).toHaveBeenCalledTimes(1);
     });
 
     it("drops the explicit topics after two opens that failed with them (Go's 403), keeping the implicit stream", async () => {
@@ -473,7 +545,7 @@ describe("RealtimeStream: explicit topics (T50)", () => {
 
 describe("explicit topic registry (T50)", () => {
     it("counts registrations per topic and notifies only when the set changes", async () => {
-        const { addRealtimeTopic, realtimeTopics, resetRealtimeTopicsForTests, subscribeRealtimeTopics, MAX_EXPLICIT_TOPICS } = await import("./topics");
+        const { addRealtimeTopic, realtimeTopics, resetRealtimeTopicsForTests, subscribeRealtimeTopics } = await import("./topics");
         resetRealtimeTopicsForTests();
         const changes = vi.fn();
         const off = subscribeRealtimeTopics(changes);

@@ -5,7 +5,10 @@
  * {driverId}` answers the driver's chat that is not closed or a new one (one open chat per driver, R14), then
  * the room, instead of three sequential Firestore reads and a browser `addDoc`. The link names the driver by
  * its PostgreSQL id (`?driverId=`; the drivers list and the conversations search pass it). While Go writes
- * chats back to Firestore a new chat may answer `202` before the mirror has its row: the page asks again.
+ * chats back to Firestore it may answer `202` before the mirror has the chat's row: the page asks again
+ * (the same Firestore document each time, under Go's per-driver lock, so never a second chat) and opens the
+ * room only on Go's chat (200/201). The `id` of a 202 is no row yet: the uuidv7 Go minted for a new
+ * document (the row the mirror will give it) or the nil id of an existing one with an auto id.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -20,7 +23,7 @@ import { Button } from "@/components/ui/button";
 
 import { isGoId, isWriteBackPending, openChatWithDriver } from "../api/chats.go";
 
-/** Attempts while a written-back chat is not mirrored yet, and the pause between them. */
+/** Attempts while Go answers 202 (the written-back chat is not mirrored yet), and the pause between them. */
 export const OPEN_ATTEMPTS = 5;
 export const OPEN_RETRY_MS = 1_500;
 
@@ -49,11 +52,11 @@ export function ChatWithDriverGo() {
             try {
                 for (let attempt = 1; attempt <= OPEN_ATTEMPTS && !cancelled; attempt++) {
                     const res = await openChatWithDriver(driverId);
-                    const id = res.id;
-                    // A written-back chat the mirror has not loaded yet has no PostgreSQL id: ask again.
-                    if (!isWriteBackPending(res) || isGoId(id)) {
+                    // A written-back chat the mirror has not loaded yet (202, with the minted id or the nil
+                    // id): no row answers GET /v1/chats/{id} yet, so the room would 404. Ask again.
+                    if (!isWriteBackPending(res)) {
                         void client.invalidateQueries({ queryKey: queryKeys.chats.all() });
-                        if (!cancelled) router.replace(`/app/chat/room?chatId=${encodeURIComponent(id)}`);
+                        if (!cancelled) router.replace(`/app/chat/room?chatId=${encodeURIComponent(res.id)}`);
                         return;
                     }
                     if (attempt < OPEN_ATTEMPTS) await sleep(OPEN_RETRY_MS);

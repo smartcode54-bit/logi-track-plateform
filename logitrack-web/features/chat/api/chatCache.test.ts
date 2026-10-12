@@ -11,6 +11,7 @@ import {
     readFromEvent,
     removeLocalMessage,
     upsertMessage,
+    withLocalMessages,
     type ChatDetailDTO,
     type ChatMessageDTO,
     type MessagesCache,
@@ -78,6 +79,22 @@ describe("chat cache updaters", () => {
         expect(needsImageRefetch(undefined, msg(1, { imageFileId: "f1" }))).toBe(false);
         expect(needsImageRefetch(cache([msg(2)]), msg(1, { imageFileId: "f1" }))).toBe(true);
         expect(needsImageRefetch(cache([msg(2)]), msg(1))).toBe(false);
+        // The cache already holds the image with its URL (the refetch it caused landed): nothing to fetch.
+        expect(needsImageRefetch(cache([msg(1, { imageFileId: "f1", imageUrl: "https://files.test/f1" })]), msg(1, { imageFileId: "f1" }))).toBe(false);
+    });
+
+    it("a refetched page 0 keeps the sends only this tab knows until the server holds them (by clientMessageId)", () => {
+        const failed = msg(7, { id: "local:cm7", senderRole: "admin", local: "failed" });
+        const syncing = msg(8, { id: "local:cm8", senderRole: "admin", local: "syncing" });
+        const cached = cache([syncing, failed, msg(4)], [msg(3)]);
+        const page = { data: [msg(5), msg(4)], nextCursor: "p1" };
+        expect(withLocalMessages(page, cached)).toEqual({ data: [syncing, failed, msg(5), msg(4)], nextCursor: "p1" });
+        // The mirror has the syncing send now: the server's copy, once.
+        const mirrored = { data: [msg(8, { senderRole: "admin" }), msg(5)] };
+        expect(withLocalMessages(mirrored, cached)).toEqual({ data: [failed, msg(8, { senderRole: "admin" }), msg(5)] });
+        // No cache, or no local copy: the server's page as it is.
+        expect(withLocalMessages(page, undefined)).toBe(page);
+        expect(withLocalMessages(page, cache([msg(4)]))).toBe(page);
     });
 
     it("shows every page oldest first, each message once (pages overlap after a prepend and a refetch)", () => {

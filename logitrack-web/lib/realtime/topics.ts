@@ -1,17 +1,19 @@
 /**
  * Explicit realtime topics (developer-spec.md §10.8; Appendix B §B.4.1, §B.4.2; Appendix E §E.5.1): a page
  * that needs a topic outside the implicit set the token gives (today only `chat:{id}`, the open chat room,
- * T50) registers it with `useRealtimeTopic`. The RealtimeProvider follows the registry and recreates the
- * tab's one stream with `?topics=` at most once per `TOPICS_RECREATE_MS`, resuming from the last id it saw,
- * so Go replays what the new topic missed (one global sequence, R52).
+ * T50) registers it with `useRealtimeTopic`. The RealtimeProvider follows the registry at most once per
+ * `TOPICS_RECREATE_MS` (`RealtimeStream.setTopics`): a topic the tab's one stream lacks recreates it with
+ * `?topics=`, resuming from the last id it saw, so Go replays what the new topic missed (one global
+ * sequence, R52); a topic only removed stays on the stream until it reopens for another reason.
  *
  * Registrations are counted per topic, so two observers of one room keep it until both unmount; at most
  * `MAX_EXPLICIT_TOPICS` go on the stream (Go refuses more, `422 topics too_many`).
  */
 import { useEffect } from "react";
+import { MAX_EXPLICIT_TOPICS } from "./realtimeStream";
 
 /** Go's cap on `?topics=` (internal/sse `MaxExplicitTopics`). */
-export const MAX_EXPLICIT_TOPICS = 20;
+export { MAX_EXPLICIT_TOPICS };
 /** The provider recreates the stream at most this often when the registry changes (§10.8). */
 export const TOPICS_RECREATE_MS = 500;
 

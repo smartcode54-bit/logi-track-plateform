@@ -49,7 +49,7 @@ func TestSixthConnectionOfAUserIsRefused(t *testing.T) {
 	if other == nil {
 		t.Fatalf("another user: %d %s", r.status, r.raw)
 	}
-	// Closing one stream frees its slot once the server notices (next heartbeat).
+	// Closing one stream frees its slot (at once: the server watches the connection).
 	open[0].close()
 	deadline := time.Now().Add(wait)
 	for {
@@ -62,6 +62,45 @@ func TestSixthConnectionOfAUserIsRefused(t *testing.T) {
 			t.Fatalf("after a close: %d %s", r.status, r.raw)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A stream whose client went away frees its lease at once, not at the next failed heartbeat write (with
+// fasthttp's stream pipe that took 2-3 pings, about a minute at SSE_PING_INTERVAL 25 s): a client that
+// recreates its stream again and again (the web console adds chat:{id} for each room it opens, T50) never
+// runs into SSE_MAX_CONN_PER_USER. The heartbeat here is a minute, so only the connection watch can free
+// the slots in time.
+func TestClosedStreamFreesItsLeaseAtOnce(t *testing.T) {
+	w := newWorld(t)
+	a := w.replica(sse.Config{PingInterval: time.Minute, MaxConnPerUser: 2})
+	w.member("ta@example.test", w.own, "tenant_admin")
+	bearer := "Bearer " + w.login(a.internal, "ta@example.test", "web").access
+	other := w.mustOpen(a.internal+"/v1/events", "Authorization", bearer) // another tab
+	other.start()
+	cur := w.mustOpen(a.internal+"/v1/events", "Authorization", bearer)
+	cur.start()
+	_, r := w.open(a.internal+"/v1/events", "Authorization", bearer)
+	expect(t, r, http.StatusTooManyRequests, httpx.CodeResourceExhaust)
+	for i := range 6 {
+		cur.close() // the tab recreates its stream: the old one closes, the new one opens
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			c, r := w.open(a.internal+"/v1/events", "Authorization", bearer)
+			if c != nil {
+				c.start()
+				cur = c
+				break
+			}
+			if r.status != http.StatusTooManyRequests || time.Now().After(deadline) {
+				t.Fatalf("recreate %d: %d %s (the closed stream still held its lease)", i+1, r.status, r.raw)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	// The other tab's stream was never touched and still delivers.
+	w.publish("hubs.changed", `{}`, realtime.TopicGlobal)
+	if f := other.event(); f.Event != "hubs.changed" {
+		t.Fatalf("%+v", f)
 	}
 }
 

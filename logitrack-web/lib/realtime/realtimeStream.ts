@@ -25,13 +25,19 @@
  * - Every other named event goes to `onEvent`; the names to listen to are registered with `listen`
  *   (EventSource delivers a named event only to listeners of that name).
  * - Explicit topics (`setTopics`, `?topics=`: the open chat room's `chat:{id}`, T50) recreate the stream
- *   when their set changes, resuming from the last id seen, so the replay spans the new topic too (one
- *   global sequence, R52). Go authorises them at connect and refuses the whole stream when one is not
- *   allowed (403, which EventSource hides): after `TOPIC_FAILURES_BEFORE_DROP` consecutive failed opens
- *   with explicit topics the stream reopens without them, so one unreadable chat never costs the tab its
- *   implicit topics; `hasTopic` says which explicit topics the open connection carries (the event map
- *   falls back to the tenant topic's thin events for the others). A stream without them that fails too
- *   was an outage, not a refusal: the next attempt carries them again. A new set is tried afresh.
+ *   only when a wanted topic is not on the connection, resuming from the last id seen, so the replay spans
+ *   the new topic too (one global sequence, R52); a stream recreated without a position (no named event
+ *   seen yet) asks the owner to resync once it is open, as a reopen after an error does, since Go cannot
+ *   replay the gap. A topic no longer wanted stays on the connection (its events find no cache, or keep a
+ *   closed room's cache current) until the stream reopens for another reason, so leaving a room, or coming
+ *   back to one, costs no new connection and no new `SSE_MAX_CONN_PER_USER` lease; at most
+ *   `MAX_EXPLICIT_TOPICS` ride along, the least recently wanted dropped first. Go authorises them at
+ *   connect and refuses the whole stream when one is not allowed (403, which EventSource hides): after
+ *   `TOPIC_FAILURES_BEFORE_DROP` consecutive failed opens with explicit topics the stream reopens without
+ *   them, so one unreadable chat never costs the tab its implicit topics; `hasTopic` says which explicit
+ *   topics the open connection carries (the event map falls back to the tenant topic's thin events for the
+ *   others). A stream without them that fails too was an outage, not a refusal: the next attempt carries
+ *   them again. A new set is tried afresh.
  * - `onStatus` follows the stream's state (lib/realtime/status.ts): queries whose disposition is SSE
  *   poll while it is not `open` (Appendix E §E.5.1 "Backpressure").
  */
@@ -96,6 +102,8 @@ export const REOPEN_MAX_MS = 60_000;
 
 /** Consecutive failed opens with explicit topics after which the stream reopens without them. */
 export const TOPIC_FAILURES_BEFORE_DROP = 2;
+/** Go's cap on `?topics=` (internal/sse `MaxExplicitTopics`; more is `422 topics too_many`). */
+export const MAX_EXPLICIT_TOPICS = 20;
 
 export const EVENT_RECONNECT = "reconnect";
 export const EVENT_RESYNC = "resync";
@@ -132,6 +140,13 @@ export class RealtimeStream {
     private current: RealtimeStatus = "idle";
     /** The explicit topics wanted (sorted, unique). */
     private explicit: readonly string[] = [];
+    /**
+     * The explicit topics the current connection asks for: the wanted ones and those no longer wanted that
+     * it still carries, least recently wanted first.
+     */
+    private carried: readonly string[] = [];
+    /** The explicit topics in the current connection's URL (none once they were dropped). */
+    private requested: readonly string[] = [];
     /** The explicit topics are left out of the next connections (they kept the stream from opening). */
     private topicsDropped = false;
     /** Consecutive opens with explicit topics that failed before the stream opened. */
@@ -176,9 +191,12 @@ export class RealtimeStream {
     }
 
     /**
-     * Sets the explicit topics (`?topics=`). A changed set recreates a running stream now, from the last id
-     * seen, so Go replays the new topics' events after it (R52); the caller throttles the calls (§10.8: at
-     * most once per 500 ms). A new set is tried afresh, even after an earlier set was dropped.
+     * Sets the explicit topics (`?topics=`). A wanted topic the connection lacks recreates a running stream
+     * now, from the last id seen, so Go replays the new topics' events after it (R52), carrying along the
+     * topics no longer wanted (up to `MAX_EXPLICIT_TOPICS`); a set the connection already carries (a room
+     * left, or opened again) changes nothing. The caller throttles the calls (§10.8: at most once per
+     * 500 ms). While the stream waits out a backoff or refreshes, the next attempt takes the new set. A new
+     * set is tried afresh, even after an earlier set was dropped.
      */
     setTopics(topics: Iterable<string>): void {
         const next = [...new Set(topics)].sort();
@@ -186,7 +204,16 @@ export class RealtimeStream {
         this.explicit = next;
         this.topicsDropped = false;
         this.topicFailures = 0;
-        this.reopen();
+        if (this.stopped || this.source === null) return;
+        const onConnection = new Set(this.requested);
+        // Most recently wanted last: past Go's cap the least recently wanted is dropped first.
+        const merged = [...this.carried.filter((t) => onConnection.has(t) && !next.includes(t)), ...next];
+        this.carried = merged.slice(Math.max(0, merged.length - Math.max(MAX_EXPLICIT_TOPICS, next.length)));
+        if (next.every((t) => onConnection.has(t))) return;
+        this.cancelTimer();
+        this.detach();
+        // No position to resume from (no named event seen yet): Go cannot replay the gap, so resync once open.
+        this.connect(this.lastEventId === "", true);
     }
 
     /** Opens the stream (no-op while running). */
@@ -263,9 +290,14 @@ export class RealtimeStream {
         }
     }
 
-    /** `catchUp`: a reopen without a position, so the owner resyncs once the new stream is open. */
-    private connect(catchUp: boolean): void {
-        const topics = this.topicsDropped ? [] : this.explicit;
+    /**
+     * `catchUp`: a reopen without a position, so the owner resyncs once the new stream is open. `keep`: the
+     * topics a recreate carries along (setTopics); any other (re)open asks for the wanted ones only.
+     */
+    private connect(catchUp: boolean, keep = false): void {
+        if (!keep) this.carried = this.explicit;
+        const topics = this.topicsDropped ? [] : [...this.carried].sort();
+        this.requested = topics;
         const source = this.deps.createEventSource(this.url(topics));
         this.source = source;
         this.openTopics = new Set();

@@ -17,7 +17,8 @@
  * The stream is recreated when the user or the active tenant changes and after every forced refresh
  * (`onClaimsRefreshed`): its implicit topics come from the access token. It closes on sign-out and on
  * a session end. Explicit topics (`useRealtimeTopic`, lib/realtime/topics.ts: the open chat room's
- * `chat:{id}`, T50) recreate it with `?topics=` at most once per 500 ms, from the last id seen.
+ * `chat:{id}`, T50) are applied at most once per 500 ms: one the stream lacks recreates it with
+ * `?topics=`, from the last id seen; one only removed stays on it (`RealtimeStream.setTopics`).
  */
 import { useEffect } from "react";
 import { focusManager, useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -60,7 +61,7 @@ export function useRealtimeInvalidation(client: QueryClient, userId: string | un
         current = stream;
         stream.setTopics(realtimeTopics());
         stream.open();
-        // A changed set of explicit topics recreates the stream at most once per TOPICS_RECREATE_MS.
+        // A changed set of explicit topics reaches the stream at most once per TOPICS_RECREATE_MS.
         let topicsTimer: ReturnType<typeof setTimeout> | null = null;
         const offTopics = subscribeRealtimeTopics(() => {
             if (topicsTimer !== null) return;

@@ -11,7 +11,10 @@
  *   stream is down);
  * - `['chat', id]`: `GET /v1/chats/{id}`, the chat with its read state (`read.updated` on `chat:{id}`);
  * - `['chat', id, 'messages']`: `GET /v1/chats/{id}/messages?before&limit=50`, newest first, never stale:
- *   the explicit `chat:{id}` topic (`useRealtimeTopic`) writes each new message into page 0;
+ *   the explicit `chat:{id}` topic (`useRealtimeTopic`) writes each new message into page 0. A write made
+ *   while the key is fetching is applied again when that fetch lands (lib/queryWrite.ts), and a refetch of
+ *   page 0 keeps the sends only this tab knows (`withLocalMessages`), so neither a pushed message nor a
+ *   failed or syncing send is dropped by a refetch;
  * - writes: `POST /v1/chats` (open the driver's chat), `POST /v1/chats/{id}/messages` (optimistic, with a
  *   `clientMessageId`: a retry stores nothing twice, R63), `/read`, `/assign`, `/close`, `/reopen`.
  *
@@ -24,7 +27,8 @@ import { infiniteQueryOptions, queryOptions, useMutation, useQueryClient, type Q
 import { goFetch, goFetchEnvelope, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { removeLocalMessage, upsertMessage, type ChatDTO, type ChatDetailDTO, type ChatMessageDTO, type MessagesCache } from "./chatCache";
+import { writeThroughFetch } from "@/lib/queryWrite";
+import { removeLocalMessage, upsertMessage, withLocalMessages, type ChatDTO, type ChatDetailDTO, type ChatMessageDTO } from "./chatCache";
 
 export * from "./chatCache";
 
@@ -107,13 +111,19 @@ export function chatQuery(id: string) {
 /**
  * `['chat', id, 'messages']`: keyset pages of 50, newest first (`?before=` the previous page's cursor). Never
  * stale (Appendix E §E.6): the `chat:{id}` stream writes new messages in; the tenant topic's fallback and a
- * resync refetch it.
+ * resync refetch it. A refetch of page 0 keeps the cached sends the server does not hold yet (`sending`,
+ * `syncing`, `failed`: `withLocalMessages`).
  */
 export function chatMessagesQuery(id: string) {
     return infiniteQueryOptions({
         queryKey: queryKeys.chat.messages(id),
-        queryFn: ({ signal, pageParam }) =>
-            goFetchEnvelope<ChatMessageDTO[]>(goPath`/v1/chats/${id}/messages`, { signal, query: { limit: CHAT_PAGE_SIZE, before: pageParam } }),
+        queryFn: async ({ signal, pageParam, client, queryKey }) => {
+            const page = await goFetchEnvelope<ChatMessageDTO[]>(goPath`/v1/chats/${id}/messages`, {
+                signal,
+                query: { limit: CHAT_PAGE_SIZE, before: pageParam },
+            });
+            return pageParam === undefined ? withLocalMessages(page, client.getQueryData(queryKey)) : page;
+        },
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
         staleTime: Infinity,
@@ -198,9 +208,12 @@ function localMessage(v: SendMessageInput, local: ChatMessageDTO["local"]): Chat
     };
 }
 
-/** Writes `msg` into the room's cache (no cache: nothing). */
+/**
+ * Writes `msg` into the room's cache (no cache: nothing), and again on the result of a fetch that was
+ * running meanwhile (a first load included), whose server read may predate it.
+ */
 function writeMessage(client: QueryClient, chatId: string, msg: ChatMessageDTO) {
-    client.setQueryData<MessagesCache>(queryKeys.chat.messages(chatId), (cached) => upsertMessage(cached, msg) as MessagesCache | undefined);
+    writeThroughFetch(client, queryKeys.chat.messages(chatId), (cached) => upsertMessage(cached, msg));
 }
 
 /** After a staff write the lists, the badges and the chat (exact, never its message pages) are stale. */
@@ -216,14 +229,15 @@ export function invalidateChat(client: QueryClient, chatId: string) {
  * Sends a message with its local copy shown at once (`sending`): the answer replaces it (so does the
  * stream's `message.created`, whichever comes first, by `clientMessageId`); a write-back (202) keeps it as
  * `syncing` and refetches the messages once the mirror had time; a failure marks it `failed` (retry with
- * the same `clientMessageId`, or discard).
+ * the same `clientMessageId`, or discard). No fetch of the messages is cancelled (a cancelled first load
+ * or image refetch was never retried): each write is applied again when a fetch running meanwhile lands,
+ * and a refetch keeps the local copy until the server holds the message.
  */
 export function useSendChatMessage() {
     const client = useQueryClient();
     return useMutation({
         mutationFn: sendChatMessage,
-        onMutate: async (v) => {
-            await client.cancelQueries({ queryKey: queryKeys.chat.messages(v.chatId) });
+        onMutate: (v) => {
             writeMessage(client, v.chatId, localMessage(v, "sending"));
         },
         onSuccess: (data, v) => {
@@ -241,9 +255,9 @@ export function useSendChatMessage() {
     });
 }
 
-/** Drops the local copy of a failed send. */
+/** Drops the local copy of a failed send (again on a fetch that was running meanwhile). */
 export function discardLocalMessage(client: QueryClient, chatId: string, clientMessageId: string) {
-    client.setQueryData<MessagesCache>(queryKeys.chat.messages(chatId), (cached) => removeLocalMessage(cached, clientMessageId) as MessagesCache | undefined);
+    writeThroughFetch(client, queryKeys.chat.messages(chatId), (cached) => removeLocalMessage(cached, clientMessageId));
 }
 
 /** `POST /v1/chats/{id}/read {lastReadAt}`: the caller's read state, forward only (204). */

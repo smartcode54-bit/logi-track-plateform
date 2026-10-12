@@ -148,9 +148,32 @@ export function removeLocalMessage(cached: unknown, clientMessageId: string): un
     };
 }
 
+/**
+ * Page 0 of a messages refetch with the sends only this tab knows (`sending`, `syncing`, `failed`) that the
+ * server's page does not hold yet (by `clientMessageId`), taken from the cache the refetch replaces: a
+ * refetch rebuilds the pages from the server, and without this a failed send's Retry/Discard, or a send
+ * written back and not mirrored yet, would vanish on any refetch (the fallback poll, a resync, an image
+ * message). The server's copy wins once it has the message.
+ */
+export function withLocalMessages(page: GoPage<ChatMessageDTO>, cached: unknown): GoPage<ChatMessageDTO> {
+    if (!isMessagesCache(cached)) return page;
+    const onServer = new Set((page.data ?? []).map((m) => m.clientMessageId).filter((c): c is string => c !== null));
+    const local: ChatMessageDTO[] = [];
+    const seen = new Set<string>();
+    for (const p of cached.pages) {
+        for (const m of p.data) {
+            if (m.local === undefined || m.clientMessageId === null || onServer.has(m.clientMessageId) || seen.has(m.clientMessageId)) continue;
+            seen.add(m.clientMessageId);
+            local.push(m);
+        }
+    }
+    return local.length === 0 ? page : { ...page, data: [...local, ...(page.data ?? [])] };
+}
+
 /** Whether a cached message list lacks the image URL of `msg` (a stream event carries none). */
 export function needsImageRefetch(cached: unknown, msg: ChatMessageDTO): boolean {
-    return msg.imageFileId !== null && isMessagesCache(cached);
+    if (msg.imageFileId === null || !isMessagesCache(cached)) return false;
+    return !cached.pages.some((p) => p.data.some((m) => m.id === msg.id && m.imageUrl !== null && m.imageUrl !== undefined));
 }
 
 /**
