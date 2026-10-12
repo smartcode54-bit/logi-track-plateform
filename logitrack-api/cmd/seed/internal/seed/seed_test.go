@@ -248,6 +248,8 @@ func checkNativeKeys(t *testing.T, p *Plan, want int) {
 		variant := ""
 		if i := strings.Index(base, "-"+ms+"."); i > 0 {
 			variant = base[:i]
+		} else if rest, ok := strings.CutPrefix(base, ms+"_"); ok { // {ms}_{index}: leave evidence (T46)
+			variant, _, _ = strings.Cut(rest, ".")
 		}
 		got, err := purpose.Key(storage.KeyInput{EntityID: uuid.MustParse(r.Str("owner_id")), Variant: variant,
 			ContentType: r.Str("content_type"), Now: created})

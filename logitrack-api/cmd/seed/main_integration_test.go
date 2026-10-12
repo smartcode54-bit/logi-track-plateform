@@ -192,7 +192,7 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if n := len(passLine.FindAllString(v1.stdout, -1)); n != 12 {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v1.stdout)
 	}
-	if !strings.Contains(v1.stdout, "counts: 59 tables match the smoke manifest") {
+	if !strings.Contains(v1.stdout, "counts: 60 tables match the smoke manifest") {
 		t.Errorf("count diff missing or failing:\n%s", v1.stdout)
 	}
 	// nwr.admin, and the TTP drivers: the broker D6 (its NWR history is the one cross-tenant read allowed, R24)
@@ -218,7 +218,7 @@ func TestDemoLoadVerify(t *testing.T) {
 	}
 	load := s.mustSeed(t, "--profile", "demo")
 	t.Logf("demo load: %s (%s)", load.took, strings.TrimSpace(load.stdout))
-	if !raceEnabled && load.took >= 2*time.Minute { // Appendix D §D.1.2 budget, its 3,674 objects included (T35)
+	if !raceEnabled && load.took >= 2*time.Minute { // Appendix D §D.1.2 budget, its 3,676 objects included (T35, T46)
 		t.Errorf("seed --profile demo took %s, want < 2 min", load.took)
 	}
 	v := s.mustSeed(t, "--verify", "--profile", "demo")
@@ -325,6 +325,26 @@ func TestDemoLoadVerify(t *testing.T) {
 		t.Errorf("demo operations: %d drivers with a task under way (want 7), %d whose active task or truck is not its task "+
 			"under way, %d delivered trips without a snapshot, %d task numbers past their counter", active, badActive, unsnapped, behind)
 	}
+	// HR as the API reads it (T46, issue #66; invariant 6 passed above): runs in every status (the generated ones through
+	// the compensation engine, each approved or paid one with its payout row), leave in every status with the evidence
+	// photos stored, and the holidays of the anchor's year.
+	var runs, leave string
+	var payouts, attachments, evidence, holidays int
+	if err := conn.QueryRow(ctx, `SELECT
+		(SELECT string_agg(status || ':' || n, ',' ORDER BY status) FROM (SELECT status, count(*) AS n FROM payroll_runs GROUP BY status) x),
+		(SELECT string_agg(status || ':' || n, ',' ORDER BY status) FROM (SELECT status, count(*) AS n FROM leave_requests GROUP BY status) y),
+		(SELECT count(*) FROM transactions WHERE tx_type = 'driver_payout'),
+		(SELECT count(*) FROM leave_request_attachments),
+		(SELECT count(*) FROM leave_request_attachments a JOIN file_objects f ON f.id = a.file_id
+		  WHERE f.purpose = 'leave_evidence' AND f.status = 'committed' AND f.owner_id = a.leave_request_id),
+		(SELECT count(*) FROM holidays)`).Scan(&runs, &leave, &payouts, &attachments, &evidence, &holidays); err != nil {
+		t.Fatal(err)
+	}
+	if runs != "approved:4,draft:3,paid:13,pending_approval:1" || leave != "approved:2,cancelled:1,pending:3,rejected:2" ||
+		payouts != 17 || attachments != 2 || evidence != 2 || holidays != 17 {
+		t.Errorf("demo HR: runs %s, leave %s, %d payout rows (want 17), %d leave attachments (%d committed evidence, want 2), %d holidays (want 17)",
+			runs, leave, payouts, attachments, evidence, holidays)
+	}
 }
 
 // A database seeded with a smaller profile takes the demo rows with --mode upsert, as the staging VM seeded with an
@@ -338,7 +358,7 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 		t.Errorf("the top-up inserted the must-change-password user again:\n%s", r.stdout)
 	}
 	topped := s.mustSeed(t, "--verify", "--profile", "demo")
-	if n := len(passLine.FindAllString(topped.stdout, -1)); n != 12 || !strings.Contains(topped.stdout, "counts: 59 tables match the demo manifest") {
+	if n := len(passLine.FindAllString(topped.stdout, -1)); n != 12 || !strings.Contains(topped.stdout, "counts: 60 tables match the demo manifest") {
 		t.Fatalf("after the top-up:\n%s", topped.stdout)
 	}
 	if again := s.mustSeed(t, "--profile", "demo", "--mode", "upsert"); !strings.Contains(again.stdout, ": 0 rows") {

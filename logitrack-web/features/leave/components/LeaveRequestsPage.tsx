@@ -34,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import {
     LEAVE_STATUSES,
+    evidenceHref,
     isWriteBackPending,
     leaveActions,
     leaveRows,
@@ -341,9 +342,9 @@ function DecisionDialogBody({
                             <Label className="text-xs uppercase text-muted-foreground">{t("leaveRequests.dialog.attachments")}</Label>
                             <div className="flex flex-wrap gap-2">
                                 {request.attachments.map((a, i) =>
-                                    a.url ? (
+                                    evidenceHref(a.url) ? (
                                         <Button key={i} variant="outline" size="sm" className="h-8 gap-2" asChild>
-                                            <a href={a.url} target="_blank" rel="noopener noreferrer">
+                                            <a href={evidenceHref(a.url) ?? undefined} target="_blank" rel="noopener noreferrer">
                                                 <Paperclip className="h-3 w-3" />
                                                 {t("leaveRequests.dialog.document")} {i + 1}
                                             </a>

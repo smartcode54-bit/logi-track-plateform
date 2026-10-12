@@ -216,12 +216,18 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 		if err := addDemoOps(p, o); err != nil {
 			return nil, err
 		}
+		if err := addDemoHR(p, o); err != nil {
+			return nil, err
+		}
 	case ProfileLoad:
 		addDemo(p, o)
 		if err := addDemoMaster(p, o); err != nil {
 			return nil, err
 		}
 		if err := addDemoOps(p, o); err != nil {
+			return nil, err
+		}
+		if err := addDemoHR(p, o); err != nil {
 			return nil, err
 		}
 		addLoad(p, o)

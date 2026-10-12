@@ -22,9 +22,9 @@ import (
 )
 
 // generatedTables are the tables whose demo and load counts the generators make exact: the identities of T16 and the
-// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) are exact in demo; load carries
-// the demo rows of them until T35V, the load-scale operations generator (developer-spec §18.3), lands (its column stays
-// a target). T43 adds its tables when its generator lands.
+// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) and the HR tables of T46
+// (hrTables, issue #66) are exact in demo; load carries the demo rows of them until T35V, the load-scale operations
+// generator (developer-spec §18.3), lands (its column stays a target). T43 adds its tables when its generator lands.
 var generatedTables = []string{"tenants", "billing_parties", "customers", "companies", "users", "memberships",
 	"auth_identities", "user_platform_roles", "user_scopes", "role_capability_overrides", "hubs", "hub_name_aliases",
 	"hub_soc_distances", "drivers", "trucks", "truck_assignments"}
@@ -71,7 +71,7 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 		p := plan(t, prof)
 		tables := generatedTables
 		if prof == ProfileDemo {
-			tables = append(slices.Clone(generatedTables), opsTables...)
+			tables = append(append(slices.Clone(generatedTables), opsTables...), hrTables...)
 		}
 		if prof == ProfileSmoke {
 			tables = nil
@@ -96,9 +96,9 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 		}
 	}
 	demo, load := plan(t, ProfileDemo), plan(t, ProfileLoad)
-	for _, table := range opsTables {
+	for _, table := range append(slices.Clone(opsTables), hrTables...) {
 		if demo.Expected[table] != load.Expected[table] {
-			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations rows only", table, load.Expected[table], demo.Expected[table])
+			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations and HR rows only", table, load.Expected[table], demo.Expected[table])
 		}
 	}
 }
@@ -110,10 +110,11 @@ func TestProfilesOnlyAppend(t *testing.T) {
 	smoke, demo, load := plan(t, ProfileSmoke), plan(t, ProfileDemo), plan(t, ProfileLoad)
 	for _, table := range LoadOrder {
 		s, d, l := smoke.Tables[table], demo.Tables[table], load.Tables[table]
-		if len(d) < len(s) || !reflect.DeepEqual(d[:len(s)], s) {
+		// A table without smoke rows (leave_request_attachments) has no prefix to keep.
+		if len(d) < len(s) || (len(s) > 0 && !reflect.DeepEqual(d[:len(s)], s)) {
 			t.Errorf("demo changes the smoke rows of %s", table)
 		}
-		if len(l) < len(d) || !reflect.DeepEqual(l[:len(d)], d) {
+		if len(l) < len(d) || (len(d) > 0 && !reflect.DeepEqual(l[:len(d)], d)) {
 			t.Errorf("load changes the demo rows of %s", table)
 		}
 	}

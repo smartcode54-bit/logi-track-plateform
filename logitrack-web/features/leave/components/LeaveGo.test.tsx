@@ -207,3 +207,12 @@ describe("leave requests over Go", () => {
         expect(web.calls.filter((c) => c.method === "POST")).toHaveLength(0);
     });
 });
+
+describe("evidence links", () => {
+    it("are Go's presigned http(s) URLs or same-origin media paths, never another scheme", async () => {
+        const { evidenceHref } = await import("../api/leave.go");
+        expect(evidenceHref("https://media.test/leave/a.jpg?X-Amz-Signature=x")).toBe("https://media.test/leave/a.jpg?X-Amz-Signature=x");
+        expect(evidenceHref("/media/leave/a.jpg?sig=1")).toBe("/media/leave/a.jpg?sig=1");
+        for (const bad of ["javascript:alert(1)", "data:text/html,x", "//evil.test/x", "", null, undefined]) expect(evidenceHref(bad)).toBeNull();
+    });
+});
