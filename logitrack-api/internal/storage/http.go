@@ -29,11 +29,13 @@ const (
 )
 
 // HTTPOptions wire the routes to authentication: Auth answers 401 itself and stores the principal for Caller;
-// PresignLimit is the presign_user rate-limit middleware (nil = none).
+// PresignLimit is the presign_user rate-limit middleware and EvidenceLimit the evidence_ip one of the gallery
+// (RATE_LIMIT_EVIDENCE, 60/min per client address); nil = none.
 type HTTPOptions struct {
-	Auth         fiber.Handler
-	Caller       func(c fiber.Ctx) (Caller, bool)
-	PresignLimit fiber.Handler
+	Auth          fiber.Handler
+	Caller        func(c fiber.Ctx) (Caller, bool)
+	PresignLimit  fiber.Handler
+	EvidenceLimit fiber.Handler
 }
 
 // Groups returns the route groups of the storage service. A signed upload gets its own body limit, the signed
@@ -65,6 +67,16 @@ func (s *Service) Groups(o HTTPOptions) []ingress.Group {
 		{Prefix: MediaPrefix, Public: true, Uploads: mediaUpload, Mount: func(r fiber.Router) {
 			r.Get("/*", h.media)
 			r.Put("/*", h.uploadMedia)
+		}},
+		// The evidence gallery (T49): public, and on the internal listener too; the token is the access control.
+		{Prefix: EvidencePath, Public: true, Mount: func(r fiber.Router) {
+			gallery := []any{}
+			if o.EvidenceLimit != nil {
+				gallery = append(gallery, o.EvidenceLimit)
+			}
+			gallery = append(gallery, h.evidence)
+			r.Get("", gallery[0], gallery[1:]...)
+			r.Get("/:token", gallery[0], gallery[1:]...)
 		}},
 	}
 }

@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/line/v2/bot/message/push",
+    "headers": { "Authorization": { "matches": "^Bearer .+" }, "Content-Type": { "contains": "application/json" } }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json", "X-Line-Request-Id": "mock-line-request-0001" },
+    "jsonBody": { "sentMessages": [ { "id": "000000000000000001", "quoteToken": "mock-quote-token" } ] }
+  }
+}

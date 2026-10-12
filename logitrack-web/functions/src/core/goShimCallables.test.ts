@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { HttpsError } from "firebase-functions/v2/https";
-import { type ShimAnswer, type ShimLogger, callShim, markReadShimUrl } from "./goShim";
+import { type ShimAnswer, type ShimLogger, callShim, lineNotifyShimUrl, markReadShimUrl } from "./goShim";
 import {
     ADD_STOP_MESSAGES,
     BROADCAST_NOT_FOUND_REASON,
+    LINE_NOTIFY_MESSAGES,
     MARK_READ_MESSAGES,
     TASK_NOT_FOUND_REASON,
     type ClaimsStore,
     addStopForwards,
     addStopShimBody,
     driverIdFromMe,
+    lineNotifyForwards,
+    lineNotifyRecordId,
     mapAddStopAnswer,
+    mapLineNotifyAnswer,
     mapMarkReadAnswer,
     markReadForwards,
     setDriverClaimsViaGo,
@@ -241,5 +245,74 @@ describe("markBroadcastRead shim (mv-go T48 -> POST /v1/mobile/broadcasts/{id}/r
         const answer = await callShim("markBroadcastRead", "POST", markReadShimUrl("https://api.test", "bc"), "k", "Bearer t", {}, log);
         await httpsError(() => mapMarkReadAnswer(answer, log));
         expect(log.errs).toEqual([]);
+    });
+});
+
+describe("sendCustomerLineNotification shim (mv-go T49 -> POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify)", () => {
+    it("forwards a driver's unforced call only; admins, forced resends and claim-less users keep the legacy path", () => {
+        expect(lineNotifyForwards("https://api.test", { role: "driver", driverId: "drvDoc1" }, false)).toBe(true);
+        expect(lineNotifyForwards("https://api.test", { driverId: "drvDoc1" }, false)).toBe(true);
+        expect(lineNotifyForwards("https://api.test", { role: "driver", driverId: "drvDoc1" }, true)).toBe(false);
+        expect(lineNotifyForwards("https://api.test", { role: "admin", admin: true }, false)).toBe(false);
+        expect(lineNotifyForwards("https://api.test", {}, false)).toBe(false);
+        expect(lineNotifyForwards("", { role: "driver", driverId: "drvDoc1" }, false)).toBe(false); // the shim is off
+    });
+
+    it("targets the record of the event, its Firestore doc id path-escaped", () => {
+        expect(lineNotifyShimUrl("https://api.test", "checkin", "task/1")).toBe("https://api.test/v1/mobile/tasks/task%2F1/line-notify");
+        expect(lineNotifyShimUrl("https://api.test", "delivered", "SPXTH01")).toBe("https://api.test/v1/mobile/trips/SPXTH01/line-notify");
+        expect(lineNotifyShimUrl("https://api.test", "standby", "sb1")).toBe("https://api.test/v1/mobile/standby/sb1/line-notify");
+        expect(lineNotifyRecordId("checkin", { taskId: " t1 ", tripId: "x" })).toBe("t1");
+        expect(lineNotifyRecordId("delivered", { tripId: "trip1" })).toBe("trip1");
+        expect(lineNotifyRecordId("standby", { standbyId: "sb1" })).toBe("sb1");
+    });
+
+    it("refuses a call without its record id with the legacy invalid-argument texts", async () => {
+        for (const [event, message] of [["checkin", LINE_NOTIFY_MESSAGES.checkinId], ["delivered", LINE_NOTIFY_MESSAGES.deliveredId],
+            ["standby", LINE_NOTIFY_MESSAGES.standbyId]] as const) {
+            const e = await httpsError(() => lineNotifyRecordId(event, { taskId: event === "checkin" ? " " : "t" }));
+            expect([e.code, e.message]).toEqual(["invalid-argument", message]);
+        }
+    });
+
+    it("rebuilds {ok, skipped?, reason?} byte for byte", () => {
+        expect(JSON.stringify(mapLineNotifyAnswer(ok({ ok: true }, 202), quiet))).toBe('{"ok":true}');
+        expect(JSON.stringify(mapLineNotifyAnswer(ok({ ok: true, skipped: true, reason: "already notified" }), quiet)))
+            .toBe('{"ok":true,"skipped":true,"reason":"already notified"}');
+        expect(JSON.stringify(mapLineNotifyAnswer(ok({ ok: true, skipped: true, reason: "already queued" }), quiet)))
+            .toBe('{"ok":true,"skipped":true,"reason":"already queued"}');
+    });
+
+    it("answers every failure with the legacy internal 'LINE push failed', logged once", async () => {
+        const cases: ShimAnswer[] = [
+            fail(403, "permission_denied", { missingCapability: ["mobile:checkin"] }),
+            fail(422, "invalid_argument", { fields: [{ field: "force", reason: "not_allowed" }] }),
+            fail(429, "resource_exhausted", { bucket: "shim_user" }),
+        ];
+        for (const answer of cases) {
+            const log = errors();
+            const e = await httpsError(() => mapLineNotifyAnswer(answer, log));
+            expect([e.code, e.message, log.errs.length]).toEqual(["internal", LINE_NOTIFY_MESSAGES.failed, 1]);
+        }
+        // callShim logged these already (unreachable, refused credentials, a server error): not twice.
+        for (const answer of [{ status: 0, body: null, ms: 1 }, fail(401, "invalid_token", { reason: "revoked" }), fail(503, "unavailable")]) {
+            const log = errors();
+            const e = await httpsError(() => mapLineNotifyAnswer(answer, log));
+            expect([e.code, log.errs.length]).toEqual(["internal", 0]);
+        }
+    });
+
+    it("sends the cf_shim key and the caller's own ID token, an empty body, and reads Go's answer", async () => {
+        const seen: { url: string; headers: Record<string, string>; body: string }[] = [];
+        vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+            seen.push({ url, headers: init.headers as Record<string, string>, body: String(init.body) });
+            return new Response(JSON.stringify({ data: { ok: true } }), { status: 202 });
+        });
+        const answer = await callShim("sendCustomerLineNotification", "POST", lineNotifyShimUrl("https://api.test", "delivered", "fsTrip1"),
+            "ltk_key", "Bearer fb-id-token", {}, quiet);
+        expect(JSON.stringify(mapLineNotifyAnswer(answer, quiet))).toBe('{"ok":true}');
+        expect(seen).toEqual([{ url: "https://api.test/v1/mobile/trips/fsTrip1/line-notify",
+            headers: { "X-Api-Key": "ltk_key", Authorization: "Bearer fb-id-token", "Content-Type": "application/json" }, body: "{}" }]);
+        vi.unstubAllGlobals();
     });
 });

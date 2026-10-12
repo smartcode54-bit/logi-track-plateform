@@ -295,6 +295,9 @@ type APIConfig struct {
 	// OperationsOwned is whether PG_OWNED_DOMAINS holds operations (the operations writes go to PostgreSQL), parsed by
 	// Validate.
 	OperationsOwned bool `env:"-"`
+	// CommsOwned is whether PG_OWNED_DOMAINS holds comms (P5: Go sends the LINE cards and the FS->PG mirror leaves the
+	// evidence tokens alone), parsed by Validate; the evidence revocations read it (T49, linenotify.Coexistence).
+	CommsOwned bool `env:"-"`
 }
 
 // writeBackNeeded reports whether the api writes something back to Firestore: the operations writes while operations is
@@ -385,6 +388,7 @@ func (c *APIConfig) Validate() error {
 	c.WebFlags = flags
 	if owned, err := webcfg.ParseOwned(c.PGOwnedDomains); err == nil {
 		c.OperationsOwned = slices.Contains(owned, "operations")
+		c.CommsOwned = slices.Contains(owned, "comms")
 	}
 	// A write-back is in use while operations is not PostgreSQL-owned (T31) or any domain is not (the chat writes, T47,
 	// and the leave decisions, T45): all go through the one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID

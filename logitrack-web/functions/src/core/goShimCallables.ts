@@ -1,14 +1,23 @@
 /**
- * The legacy answers of the T32 callable shims (mv-go, developer-spec.md §11.10, Appendix B §B.2.22, Appendix C §C.6.5;
- * R45): setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops, and of T48:
- * markBroadcastRead -> POST /v1/mobile/broadcasts/{id}/read. The installed
+ * The legacy answers of the callable shims (mv-go, developer-spec.md §11.10, Appendix B §B.2.22, Appendix C §C.6.5;
+ * R45): setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32),
+ * markBroadcastRead -> POST /v1/mobile/broadcasts/{id}/read (T48) and sendCustomerLineNotification -> POST
+ * /v1/mobile/{tasks|trips|standby}/{id}/line-notify (T49). The installed
  * 3.x APKs keep calling the callables by name; these functions turn the Go answer back into the callable contract,
  * byte for byte (the same keys in the same order, the same messages, the same HttpsError codes), so nothing changes
  * for the device. Pure apart from the claims store, so they are tested without Firebase (goShimCallables.test.ts).
  */
 
 import { HttpsError } from "firebase-functions/v2/https";
-import { type ShimAnswer, type ShimLogger, isMobileShimCall, shimData, shimError, shimFailureLogged } from "./goShim";
+import {
+    type LineNotifyEvent,
+    type ShimAnswer,
+    type ShimLogger,
+    isMobileShimCall,
+    shimData,
+    shimError,
+    shimFailureLogged,
+} from "./goShim";
 
 // --- setDriverClaims -> GET /v1/mobile/me -------------------------------------------------------------------------
 
@@ -216,4 +225,70 @@ export function mapMarkReadAnswer(answer: ShimAnswer, log: ShimLogger): MarkBroa
         log.error("[markBroadcastRead] shim: unexpected answer from the Go API", { status, code: e.code, reason: e.reason });
     }
     throw new HttpsError("internal", MARK_READ_MESSAGES.failed);
+}
+
+// --- sendCustomerLineNotification -> POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify ------------------------
+
+/** The answer of sendCustomerLineNotification (fn lineNotify.ts:72-76), keys in their legacy order. */
+export interface LineNotifyShimResponse {
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+}
+
+/** The legacy HttpsError texts of sendCustomerLineNotification the shim keeps (fn lineNotify.ts:276-470). */
+export const LINE_NOTIFY_MESSAGES = {
+    checkinId: "taskId is required for checkin",
+    deliveredId: "tripId is required for delivered",
+    standbyId: "standbyId is required for standby",
+    failed: "LINE push failed",
+} as const;
+
+/**
+ * Whether sendCustomerLineNotification forwards a call to Go: the shim is on (base, shimTarget), the call is not forced
+ * and the caller holds the driver claims setDriverClaims gives (isMobileShimCall). The 3.x APK never forces; the legacy
+ * web pages (an admin, usually forcing a resend) keep the legacy path until their own web flag moves them to the staff
+ * routes POST /v1/{tasks|trips|standby}/{id}/notify-line, which drivers cannot call (Appendix B §B.2.22).
+ */
+export function lineNotifyForwards(base: string, token: Record<string, unknown> | undefined, force: boolean): boolean {
+    return base !== "" && !force && isMobileShimCall(token, false);
+}
+
+/**
+ * The record a call names (taskId for checkin, tripId for delivered, standbyId for standby), trimmed as the legacy
+ * str(); a missing one is the legacy invalid-argument HttpsError.
+ */
+export function lineNotifyRecordId(event: LineNotifyEvent, data: Record<string, unknown> | undefined): string {
+    const field = event === "checkin" ? "taskId" : event === "delivered" ? "tripId" : "standbyId";
+    const raw = data?.[field];
+    const id = typeof raw === "string" ? raw.trim() : "";
+    if (!id) {
+        const message = event === "checkin" ? LINE_NOTIFY_MESSAGES.checkinId : event === "delivered" ? LINE_NOTIFY_MESSAGES.deliveredId
+            : LINE_NOTIFY_MESSAGES.standbyId;
+        throw new HttpsError("invalid-argument", message);
+    }
+    return id;
+}
+
+/**
+ * Maps the answer of a line-notify shim target onto the callable: 200/202 `{data: {ok, skipped?, reason?}}` becomes
+ * `{ok, skipped?, reason?}` (Go queues the card for its notify.line worker: `{ok: true}`, or `{ok, skipped, reason}`
+ * when the card was sent already or a request for it is queued). Anything else (refused credentials, Go unreachable or
+ * failing, a rate limit, a non-driver) is the legacy `internal` "LINE push failed", logged as an error once (here,
+ * unless callShim already did). The APK treats the call as best-effort.
+ */
+export function mapLineNotifyAnswer(answer: ShimAnswer, log: ShimLogger): LineNotifyShimResponse {
+    const { status, body } = answer;
+    if (status === 200 || status === 202) {
+        const d = shimData(body);
+        const out: LineNotifyShimResponse = { ok: d.ok === true };
+        if (d.skipped === true) out.skipped = true;
+        if (typeof d.reason === "string" && d.reason !== "") out.reason = d.reason;
+        return out;
+    }
+    if (!shimFailureLogged(answer)) {
+        const e = shimError(body);
+        log.error("[sendCustomerLineNotification] shim: unexpected answer from the Go API", { status, code: e.code, reason: e.reason });
+    }
+    throw new HttpsError("internal", LINE_NOTIFY_MESSAGES.failed);
 }
