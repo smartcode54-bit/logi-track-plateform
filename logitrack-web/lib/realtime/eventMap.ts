@@ -26,8 +26,8 @@
  *   the badges), the priced events on `tenant:{tid}:trips` (`trip.priced`, `trip.repriced`,
  *   `standby.priced`: `['income']` with the 2 s window, `standby.priced` also the standby diagnostics;
  *   never `['billing','rows' | 'missingDate']`, R89) and the success keys of the billing, document and
- *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery); until it merges they never
- *   arrive and the pages refetch after their own writes.
+ *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery: billing.compute and the billing
+ *   endpoints append them on the trips topic of the tenant that ran the record and of its billing carrier).
  * - the dashboard and waitlist slice of M6 (T54R): `vehicle_locations.updated` on
  *   `tenant:{tid}:vehicle_locations` (the Cartrack batch, data written into `['vehicleLocations']`, no
  *   refetch), `waitlist.created` on `platform:security` (`['waitlist']`, `['badges']`; tenant stewards

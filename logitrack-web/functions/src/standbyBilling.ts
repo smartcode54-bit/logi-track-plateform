@@ -16,6 +16,7 @@ import * as admin from "firebase-admin";
 import { logger } from "firebase-functions";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { goPricesBilling } from "./core/goShim";
 import {
     computeStandbyBilling,
     timestampLikeToMillis,
@@ -275,6 +276,10 @@ export const autoComputeStandbyBilling = onSchedule(
         timeoutSeconds: 300,
     },
     async () => {
+        if (goPricesBilling()) {
+            logger.info("[autoStandbyBilling] skipped: the Go API prices standby records (billing.compute, mv-go P3)");
+            return;
+        }
         const db = admin.firestore();
         const windowMs = 30 * 60 * 1000;
         const since = admin.firestore.Timestamp.fromMillis(Date.now() - windowMs);

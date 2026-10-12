@@ -250,6 +250,31 @@ func TestWorkerConfigCoexistence(t *testing.T) {
 	}
 }
 
+// The pricing gate of billing.compute (T38, main spec §6.13): a billing replica of a deployment that runs the mirror
+// leaves the records it writes to Firestore's pricer until billing is PostgreSQL-owned (P3); without the mirror (the
+// staging VM) Go prices everything.
+func TestFirestorePricing(t *testing.T) {
+	for _, c := range []struct {
+		env  []string
+		want bool
+	}{
+		{nil, false}, // the staging VM: PostgreSQL only
+		{[]string{"PG_OWNED_DOMAINS=auth,masterdata"}, false},
+		{[]string{"ETL_SYNC_ENABLED=true", "PG_OWNED_DOMAINS=auth,masterdata"}, true},          // P1-P2
+		{[]string{"ETL_SYNC_ENABLED=true", "PG_OWNED_DOMAINS=auth,masterdata,billing"}, false}, // P3
+		{[]string{"ETL_SYNC_ENABLED=true", "PG_OWNED_DOMAINS=all"}, false},
+	} {
+		env := append([]string{"WORKER_CONSUMERS=billing,notify,documents,integrations,hr,platform"}, c.env...)
+		cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv(env...))
+		if err != nil {
+			t.Fatalf("%v: %v", c.env, err)
+		}
+		if got := app.FirestorePricing(cfg.ETLSyncEnabled, cfg.Coexist.Owned); got != c.want {
+			t.Errorf("%v: FirestorePricing %v, want %v", c.env, got, c.want)
+		}
+	}
+}
+
 // The scheduler schedules etl.sync every ETL_SYNC_INTERVAL: whole minutes that divide an hour.
 func TestSchedulerETLSyncInterval(t *testing.T) {
 	cfg, err := config.LoadFrom[app.SchedulerConfig](schedulerEnv("ETL_SYNC_ENABLED=true"))

@@ -7,7 +7,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
 
-// AllowAPIKeys refuses at registration what no route may admit: cf_shim keys (the shim targets, M2) and
+// AllowAPIKeys refuses at registration what no route may admit: cf_shim keys (RequireShim serves them) and
 // scopes outside the CHECK list.
 func TestAllowAPIKeysPanics(t *testing.T) {
 	for _, s := range []authz.APIKeyScope{authz.KeyCFShim, "admin", ""} {
@@ -29,11 +29,12 @@ func TestAllowAPIKeysPanics(t *testing.T) {
 }
 
 // The scope routing of R82 (Appendix C §C.4.11): a key passes only on the internal listener, on a route that
-// admits its scope; cf_shim never passes here.
+// admits its scope; cf_shim passes only on a shim target of the public listener (RequireShim).
 func TestKeyScopeRefusal(t *testing.T) {
 	var none, machine, publisher authPolicy
 	AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)(&machine)
 	AllowAPIKeys(authz.KeyReleasePublisher)(&publisher)
+	shim := authPolicy{shim: true} // RequireShim: cf_shim on the public listener only
 	cases := []struct {
 		scope    authz.APIKeyScope
 		listener string
@@ -51,6 +52,10 @@ func TestKeyScopeRefusal(t *testing.T) {
 		{authz.KeyCFShim, ingress.Public, machine, false},
 		{authz.KeyCFShim, ingress.Internal, publisher, false},
 		{authz.KeyIntegration, "", machine, false}, // no listener recorded: refused
+		{authz.KeyCFShim, ingress.Public, shim, true},
+		{authz.KeyCFShim, ingress.Internal, shim, false},
+		{authz.KeyIntegration, ingress.Public, shim, false},
+		{authz.KeyReleasePublisher, ingress.Internal, shim, false},
 	}
 	for _, tc := range cases {
 		msg := keyScopeRefusal(tc.scope, tc.listener, tc.pol)

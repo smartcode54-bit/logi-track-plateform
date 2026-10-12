@@ -13,7 +13,7 @@ import (
 )
 
 const driverStandby = `-- name: DriverStandby :many
-SELECT id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, task_id, trip_id, customer_party_id, customer_resolved, customer_resolved_from, job_category, start_location_raw, end_location_raw, started_at, ended_at, billing_axis_date, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, backfilled_by_admin, migrated_from_trip_no, billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_effective_from_date, billing_unpriced_reason, billing_computed_at, line_notified_at, evidence_token, evidence_token_revoked_at, client_op_id, created_at, updated_at, billing_tenant_id FROM standby_records s
+SELECT id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, task_id, trip_id, customer_party_id, customer_resolved, customer_resolved_from, job_category, start_location_raw, end_location_raw, started_at, ended_at, billing_axis_date, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, backfilled_by_admin, migrated_from_trip_no, billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_effective_from_date, billing_unpriced_reason, billing_computed_at, line_notified_at, evidence_token, evidence_token_revoked_at, client_op_id, created_at, updated_at, billing_tenant_id, billing_last_event_id FROM standby_records s
 WHERE s.driver_id = $1::uuid
   AND ($2::timestamptz IS NULL
        OR (s.created_at, s.id) < ($2::timestamptz, $3::uuid))
@@ -86,6 +86,7 @@ func (q *Queries) DriverStandby(ctx context.Context, arg DriverStandbyParams) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.BillingTenantID,
+			&i.BillingLastEventID,
 		); err != nil {
 			return nil, err
 		}
@@ -98,7 +99,7 @@ func (q *Queries) DriverStandby(ctx context.Context, arg DriverStandbyParams) ([
 }
 
 const getStandby = `-- name: GetStandby :one
-SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id,
+SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id, s.billing_last_event_id,
        coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
                 '00000000-0000-0000-0000-000000000000')::uuid AS entry_tenant_id
 FROM standby_records s
@@ -169,6 +170,7 @@ func (q *Queries) GetStandby(ctx context.Context, arg GetStandbyParams) (GetStan
 		&i.StandbyRecord.CreatedAt,
 		&i.StandbyRecord.UpdatedAt,
 		&i.StandbyRecord.BillingTenantID,
+		&i.StandbyRecord.BillingLastEventID,
 		&i.EntryTenantID,
 	)
 	return i, err
@@ -189,7 +191,7 @@ VALUES ($1, $2, $3, $4,
         $21, $22, $23,
         $24, $25)
 ON CONFLICT (driver_id, client_op_id) WHERE client_op_id IS NOT NULL DO NOTHING
-RETURNING id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, task_id, trip_id, customer_party_id, customer_resolved, customer_resolved_from, job_category, start_location_raw, end_location_raw, started_at, ended_at, billing_axis_date, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, backfilled_by_admin, migrated_from_trip_no, billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_effective_from_date, billing_unpriced_reason, billing_computed_at, line_notified_at, evidence_token, evidence_token_revoked_at, client_op_id, created_at, updated_at, billing_tenant_id
+RETURNING id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, task_id, trip_id, customer_party_id, customer_resolved, customer_resolved_from, job_category, start_location_raw, end_location_raw, started_at, ended_at, billing_axis_date, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, backfilled_by_admin, migrated_from_trip_no, billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_effective_from_date, billing_unpriced_reason, billing_computed_at, line_notified_at, evidence_token, evidence_token_revoked_at, client_op_id, created_at, updated_at, billing_tenant_id, billing_last_event_id
 `
 
 type InsertStandbyParams struct {
@@ -308,12 +310,13 @@ func (q *Queries) InsertStandby(ctx context.Context, arg InsertStandbyParams) (S
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.BillingTenantID,
+		&i.BillingLastEventID,
 	)
 	return i, err
 }
 
 const listStandbyByCreated = `-- name: ListStandbyByCreated :many
-SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id,
+SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id, s.billing_last_event_id,
        coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
                 '00000000-0000-0000-0000-000000000000')::uuid AS entry_tenant_id
 FROM standby_records s
@@ -410,6 +413,7 @@ func (q *Queries) ListStandbyByCreated(ctx context.Context, arg ListStandbyByCre
 			&i.StandbyRecord.CreatedAt,
 			&i.StandbyRecord.UpdatedAt,
 			&i.StandbyRecord.BillingTenantID,
+			&i.StandbyRecord.BillingLastEventID,
 			&i.EntryTenantID,
 		); err != nil {
 			return nil, err
@@ -423,7 +427,7 @@ func (q *Queries) ListStandbyByCreated(ctx context.Context, arg ListStandbyByCre
 }
 
 const listStandbyByEnded = `-- name: ListStandbyByEnded :many
-SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id,
+SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id, s.billing_last_event_id,
        coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
                 '00000000-0000-0000-0000-000000000000')::uuid AS entry_tenant_id
 FROM standby_records s
@@ -521,6 +525,7 @@ func (q *Queries) ListStandbyByEnded(ctx context.Context, arg ListStandbyByEnded
 			&i.StandbyRecord.CreatedAt,
 			&i.StandbyRecord.UpdatedAt,
 			&i.StandbyRecord.BillingTenantID,
+			&i.StandbyRecord.BillingLastEventID,
 			&i.EntryTenantID,
 		); err != nil {
 			return nil, err
@@ -534,7 +539,7 @@ func (q *Queries) ListStandbyByEnded(ctx context.Context, arg ListStandbyByEnded
 }
 
 const standbyByClientOp = `-- name: StandbyByClientOp :one
-SELECT id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, task_id, trip_id, customer_party_id, customer_resolved, customer_resolved_from, job_category, start_location_raw, end_location_raw, started_at, ended_at, billing_axis_date, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, backfilled_by_admin, migrated_from_trip_no, billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_effective_from_date, billing_unpriced_reason, billing_computed_at, line_notified_at, evidence_token, evidence_token_revoked_at, client_op_id, created_at, updated_at, billing_tenant_id FROM standby_records WHERE driver_id = $1::uuid AND client_op_id = $2::uuid
+SELECT id, legacy_doc_id, tenant_id, tenant_source, driver_id, legacy_driver_ref, driver_ref_match, task_id, trip_id, customer_party_id, customer_resolved, customer_resolved_from, job_category, start_location_raw, end_location_raw, started_at, ended_at, billing_axis_date, duration_minutes, note, status, lat, lng, truck_id, truck_license_plate_snapshot, backfilled_by_admin, migrated_from_trip_no, billing_estimate_thb, billing_party_id, billing_rate_source, billing_rate_entry_id, billing_effective_from_date, billing_unpriced_reason, billing_computed_at, line_notified_at, evidence_token, evidence_token_revoked_at, client_op_id, created_at, updated_at, billing_tenant_id, billing_last_event_id FROM standby_records WHERE driver_id = $1::uuid AND client_op_id = $2::uuid
 `
 
 type StandbyByClientOpParams struct {
@@ -588,12 +593,13 @@ func (q *Queries) StandbyByClientOp(ctx context.Context, arg StandbyByClientOpPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.BillingTenantID,
+		&i.BillingLastEventID,
 	)
 	return i, err
 }
 
 const standbyByLegacyDocID = `-- name: StandbyByLegacyDocID :one
-SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id,
+SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id, s.billing_last_event_id,
        coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
                 '00000000-0000-0000-0000-000000000000')::uuid AS entry_tenant_id
 FROM standby_records s
@@ -665,13 +671,14 @@ func (q *Queries) StandbyByLegacyDocID(ctx context.Context, arg StandbyByLegacyD
 		&i.StandbyRecord.CreatedAt,
 		&i.StandbyRecord.UpdatedAt,
 		&i.StandbyRecord.BillingTenantID,
+		&i.StandbyRecord.BillingLastEventID,
 		&i.EntryTenantID,
 	)
 	return i, err
 }
 
 const standbyOfTasks = `-- name: StandbyOfTasks :many
-SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id,
+SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id, s.billing_last_event_id,
        coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
                 '00000000-0000-0000-0000-000000000000')::uuid AS entry_tenant_id
 FROM standby_records s
@@ -750,6 +757,7 @@ func (q *Queries) StandbyOfTasks(ctx context.Context, arg StandbyOfTasksParams) 
 			&i.StandbyRecord.CreatedAt,
 			&i.StandbyRecord.UpdatedAt,
 			&i.StandbyRecord.BillingTenantID,
+			&i.StandbyRecord.BillingLastEventID,
 			&i.EntryTenantID,
 		); err != nil {
 			return nil, err
@@ -763,7 +771,7 @@ func (q *Queries) StandbyOfTasks(ctx context.Context, arg StandbyOfTasksParams) 
 }
 
 const standbyOfTrip = `-- name: StandbyOfTrip :many
-SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id,
+SELECT s.id, s.legacy_doc_id, s.tenant_id, s.tenant_source, s.driver_id, s.legacy_driver_ref, s.driver_ref_match, s.task_id, s.trip_id, s.customer_party_id, s.customer_resolved, s.customer_resolved_from, s.job_category, s.start_location_raw, s.end_location_raw, s.started_at, s.ended_at, s.billing_axis_date, s.duration_minutes, s.note, s.status, s.lat, s.lng, s.truck_id, s.truck_license_plate_snapshot, s.backfilled_by_admin, s.migrated_from_trip_no, s.billing_estimate_thb, s.billing_party_id, s.billing_rate_source, s.billing_rate_entry_id, s.billing_effective_from_date, s.billing_unpriced_reason, s.billing_computed_at, s.line_notified_at, s.evidence_token, s.evidence_token_revoked_at, s.client_op_id, s.created_at, s.updated_at, s.billing_tenant_id, s.billing_last_event_id,
        coalesce((SELECT e.tenant_id FROM standby_rate_entries e WHERE e.id = s.billing_rate_entry_id),
                 '00000000-0000-0000-0000-000000000000')::uuid AS entry_tenant_id
 FROM standby_records s
@@ -842,6 +850,7 @@ func (q *Queries) StandbyOfTrip(ctx context.Context, arg StandbyOfTripParams) ([
 			&i.StandbyRecord.CreatedAt,
 			&i.StandbyRecord.UpdatedAt,
 			&i.StandbyRecord.BillingTenantID,
+			&i.StandbyRecord.BillingLastEventID,
 			&i.EntryTenantID,
 		); err != nil {
 			return nil, err
