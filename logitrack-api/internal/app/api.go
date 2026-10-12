@@ -277,20 +277,38 @@ func (a *API) logPanic(c fiber.Ctx, e any) {
 
 // Listen binds the three addresses. Bind errors are returned before anything
 // is served, so a port clash fails the process at startup.
-func (a *API) Listen() error {
-	var err error
-	if a.internalLn, err = net.Listen("tcp", a.cfg.InternalAddr); err != nil {
-		return fmt.Errorf("listen API_INTERNAL_ADDR: %w", err)
+func (a *API) Listen() error { return a.ListenOn(Listeners{}) }
+
+// Listeners are sockets bound before the process starts. A process serves each one that is set instead of
+// binding the matching address (API_INTERNAL_ADDR, API_PUBLIC_ADDR, METRICS_ADDR), and owns it from then on.
+// The commands pass none. Tests pass the ones whose address they need before the process starts (the local
+// storage backend's PublicBaseURL): a port picked, released and bound again later can be taken in between
+// by another process, such as docker-proxy or a parallel test binary.
+type Listeners struct {
+	Internal, Public, Metrics net.Listener
+}
+
+// ListenOn is Listen with the given listeners in place of their addresses. A failed ListenOn closes them.
+func (a *API) ListenOn(ls Listeners) error {
+	lns := [...]net.Listener{ls.Internal, ls.Public, ls.Metrics}
+	for i, v := range [...]struct{ env, addr string }{
+		{"API_INTERNAL_ADDR", a.cfg.InternalAddr}, {"API_PUBLIC_ADDR", a.cfg.PublicAddr}, {"METRICS_ADDR", a.cfg.MetricsAddr},
+	} {
+		if lns[i] != nil {
+			continue
+		}
+		var err error
+		if lns[i], err = net.Listen("tcp", v.addr); err != nil {
+			for _, ln := range lns {
+				if ln != nil {
+					_ = ln.Close()
+				}
+			}
+			return fmt.Errorf("listen %s: %w", v.env, err)
+		}
 	}
-	if a.publicLn, err = net.Listen("tcp", a.cfg.PublicAddr); err != nil {
-		_ = a.internalLn.Close()
-		return fmt.Errorf("listen API_PUBLIC_ADDR: %w", err)
-	}
-	if a.metricsSrv, err = telemetry.ListenMetrics(a.cfg.MetricsAddr, a.metrics.Registry, a.log, nil); err != nil {
-		_ = a.internalLn.Close()
-		_ = a.publicLn.Close()
-		return fmt.Errorf("listen METRICS_ADDR: %w", err)
-	}
+	a.internalLn, a.publicLn = lns[0], lns[1]
+	a.metricsSrv = telemetry.ServeMetrics(lns[2], a.metrics.Registry, a.log, nil)
 	return nil
 }
 
