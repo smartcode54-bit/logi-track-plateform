@@ -354,7 +354,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		log.Info().Msg("leave decisions: PostgreSQL (PG_OWNED_DOMAINS holds every domain)")
 	} else {
 		log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
-			"and the api has no Firestore writer (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
+			"and the api builds no leave write-back yet (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
 	}
 	hrSvc, err := hr.New(hr.Deps{Pool: pool, Jobs: jobSvc, Files: st, LeavePGOwned: leavePG, Log: log})
 	if err != nil {

@@ -36,10 +36,9 @@ const (
 	ReasonNotInFirestore = "not_in_firestore"
 )
 
-// originWriteBack is the producer header (outbox.HeaderOrigin) of the event a write-back handler appends after it wrote
-// a Firestore-owned document (the value T31 names for its operations writes). Unlike the operations write-backs, a leave
-// event keeps its realtime topics: the mirror appends no event for leave_requests, so this is the only one.
-const originWriteBack = "writeback"
+// The write-back's event carries the producer header outbox.OriginWriteBack (outbox.HeaderOrigin), as T31's operations
+// write-backs do. Unlike theirs, a leave event keeps its realtime topics: the mirror appends no event for
+// leave_requests, so this is the only one.
 
 // LeaveDecision is the body of a decision: reason is the rejection's (required by reject, refused elsewhere).
 type LeaveDecision struct {
@@ -212,7 +211,7 @@ func (s *Service) decideWriteBack(ctx context.Context, p *authz.Principal, rid s
 	// the request would now meet transition_not_allowed. Its from is the document's status the decision was checked
 	// against, not the row's: leave_requests has no listener, so the row may still hold a status the document left.
 	if err := s.rtx(ctx, p, func(tx pgx.Tx, _ *hrdb.Queries) error {
-		return emitLeave(ctx, tx, row, status, move[1], reason, rid, originWriteBack)
+		return emitLeave(ctx, tx, row, status, move[1], reason, rid, outbox.OriginWriteBack)
 	}); err != nil {
 		s.log.Error().Err(err).Str("leave_request_id", id.String()).Msg("leave write-back: the decision is in Firestore but its event was not appended")
 	}
@@ -255,7 +254,7 @@ func echoFields(fields map[string]any) map[string]any {
 // (leave.changed); notify.fcm pushes leave_decided. from is the status the decision was checked against and status the
 // new one. The outbox row keeps a rejection's reason for notify.fcm (the write-back's row does not hold it until the
 // mirror applied the document); realtime.Project keeps it off every stream (Appendix B §B.4.1). origin is the producer
-// header ("writeback" for the write-back path, "" for the PostgreSQL one).
+// header (outbox.OriginWriteBack for the write-back path, "" for the PostgreSQL one).
 func emitLeave(ctx context.Context, tx pgx.Tx, row hrdb.LeaveRequest, from, status string, reason *string, rid, origin string) error {
 	topics := []string{realtime.TenantTopic(row.TenantID.String(), realtime.FamilyHR)}
 	payload := map[string]any{"entity": "leave_request", "id": row.ID.String(), "tenantId": row.TenantID.String(), "status": status,
