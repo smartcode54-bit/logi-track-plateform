@@ -3,7 +3,8 @@
 // The holidays projection (T45, issue #65) and the leave write-back's round trip through the FS->PG mirror, on
 // postgres:18-alpine against the in-process Firestore stand-in: the loaded fixture holidays project unchanged, holidays
 // written in PostgreSQL reach Firestore in the legacy shape (and load back into the same rows), a carrier's own holiday
-// stays out, deleted holidays lose their documents, a create racing a delete leaves no document, the projection runs
+// stays out, deleted holidays lose their documents (by event, or by the catch-up when the event was not projected, which
+// the reconciliation reports until then), a create racing a delete leaves no document, the projection runs
 // only once hr is PostgreSQL-owned, and a staff decision written back by internal/hr is what the mirror loads.
 package etl
 
@@ -154,6 +155,75 @@ func TestProjectionOfHolidays(t *testing.T) {
 	if v := h.scalar(`SELECT holiday_date::text || ' ' || holiday_type || ' ' || status || ' ' || name || ' ' || description_th
 		FROM holidays WHERE id = $1`, again); v != "2026-12-10 public draft วันรัฐธรรมนูญ หยุดราชการ" {
 		t.Errorf("loaded back %v", v)
+	}
+}
+
+// A delete whose event was never projected (COMPAT_PROJECTION_ENABLED off, a worker whose plan did not project
+// holidays yet, a dead-lettered message): the reconciliation reports the documents left behind as a difference, the
+// catch-up (`etl project`, ProjectAll) deletes them, and the legacy orphan (ho_dup, rejected at load) and the live
+// rows' documents stay.
+func TestProjectionOfHolidaysCatchUpDeletes(t *testing.T) {
+	h := newSyncHarness(t)
+	p4 := owned("auth", "masterdata", "billing", "hr")
+	proj := h.projector(p4)
+	h.projectHolidays(proj, ShadowTarget{All: true})
+	pub := h.id(`INSERT INTO holidays (holiday_date, holiday_type, status, name) VALUES ('2026-12-05', 'public', 'published',
+		'วันพ่อแห่งชาติ') RETURNING id`)
+	if st := h.projectHolidays(proj, ShadowTarget{IDs: []uuid.UUID{pub}}); st.Written != 1 {
+		t.Fatalf("new holiday %+v", st)
+	}
+	keep := h.id(`INSERT INTO holidays (holiday_date, holiday_type, status, name) VALUES ('2026-12-10', 'public', 'published',
+		'วันรัฐธรรมนูญ') RETURNING id`)
+	h.projectHolidays(proj, ShadowTarget{IDs: []uuid.UUID{keep}})
+	// Deleted with no projection: a holiday born in PostgreSQL (its minted uuid) and a loaded legacy one (ho_2).
+	h.exec(`DELETE FROM holidays WHERE id = $1 OR legacy_doc_id = 'ho_2'`, pub)
+	stale := []string{"holidays/" + pub.String(), "holidays/ho_2"}
+
+	checks := h.reconcileHolidays(p4)
+	var deleted, only *Check
+	for i, c := range checks {
+		switch c.Name {
+		case "projection_deleted":
+			deleted = &checks[i]
+		case "firestore_only":
+			only = &checks[i]
+		default:
+			if !c.OK {
+				t.Errorf("reconciliation %+v", c)
+			}
+		}
+	}
+	if deleted == nil || deleted.OK || deleted.Source != "2" || deleted.Note == "" ||
+		!strings.Contains(deleted.Note, stale[0]) || !strings.Contains(deleted.Note, stale[1]) {
+		t.Fatalf("the documents of deleted rows are not reported: %+v", deleted)
+	}
+	if only == nil || !only.OK || only.Source != "1" || !strings.Contains(only.Note, "holidays/ho_dup") {
+		t.Errorf("legacy orphans %+v", only)
+	}
+
+	// The catch-up deletes them (and only them).
+	holidaysOnly := *proj
+	holidaysOnly.Collections = []string{"holidays"}
+	stats, err := holidaysOnly.ProjectAll(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := stats["holidays"]; st.Deleted != 2 || st.Written != 0 {
+		t.Fatalf("catch-up %+v", st)
+	}
+	for path, want := range map[string]bool{stale[0]: false, stale[1]: false, "holidays/ho_1": true, "holidays/ho_dup": true,
+		"holidays/" + keep.String(): true} {
+		if _, ok := h.fs.Doc(path); ok != want {
+			t.Errorf("%s exists %v", path, ok)
+		}
+	}
+	for _, c := range h.reconcileHolidays(p4) {
+		if !c.OK || c.Name == "projection_deleted" {
+			t.Errorf("after the catch-up %+v", c)
+		}
+	}
+	if st := h.projectHolidays(proj, ShadowTarget{All: true}); st.Deleted != 0 || st.Written != 0 {
+		t.Errorf("a second catch-up %+v", st)
 	}
 }
 

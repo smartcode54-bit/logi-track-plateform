@@ -70,7 +70,9 @@ var leaveMoves = map[string][2]string{
 const maxRejectionReasonChars = 2000
 
 // LeaveAttachment is one evidence file of a request: its object key and a presigned GET (main spec §9.5: leave_evidence
-// needs hr:view_leave and lives at most 15 minutes); both null when the file is missing at source or not committed.
+// needs hr:view_leave and lives at most 15 minutes). url is null when the file is missing at source or not committed
+// (or signing failed), while key stays set (main spec §10 as built T25, item 9); both are null only without a storage
+// service.
 type LeaveAttachment struct {
 	Key *string `json:"key"`
 	URL *string `json:"url"`

@@ -21,7 +21,10 @@ import (
 // other holidays are projected (loadHoliday reads COMPANY / OTHER as the own fleet's), a carrier's own holidays are not
 // (Skip). A holiday deleted in PostgreSQL deletes its document (deleteHoliday deleted it, holidays.ts:124): the event
 // carries the document ids of the deleted rows (ShadowTarget.DeletedDocIDs), and a row that vanished while it was
-// being projected has its minted document deleted again, so a create racing a delete leaves no document behind.
+// being projected has its minted document deleted again, so a create racing a delete leaves no document behind. A
+// delete whose event was never projected (COMPAT_PROJECTION_ENABLED off, a worker whose plan did not project holidays
+// yet, a dead-lettered message) is caught up by the All pass (`etl project`, deleteLeftBehind), and the reconciliation
+// reports its document until then (projection_deleted, deletedDocs).
 
 // deletable are the projected collections whose rows PostgreSQL deletes.
 var deletable = map[string]bool{"holidays": true}
@@ -148,4 +151,59 @@ func (p *Projector) vanished(ctx context.Context, coll string, ids []uuid.UUID) 
 		}
 	}
 	return out, nil
+}
+
+// deleteLeftBehind is the delete pass of the All projection of a deletable collection (the catch-up, ProjectAll): the
+// collection is listed after the rows were projected and the documents rows deleted in PostgreSQL left behind
+// (deletedDocs) are deleted, as the events of those deletes would have. deleteDocs checks again, right before, that no
+// row holds an id, and a row born in PostgreSQL commits before its document is written, so a row created meanwhile is
+// always seen.
+func (p *Projector) deleteLeftBehind(ctx context.Context, coll string) (int, error) {
+	docs, err := p.FS.Documents(ctx, coll, false)
+	if err != nil {
+		return 0, fmt.Errorf("etl: project %s: list: %w", coll, err)
+	}
+	ids := make([]string, 0, len(docs))
+	for _, d := range docs {
+		ids = append(ids, d.ID)
+	}
+	var gone []string
+	if err := p.Tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		gone, err = deletedDocs(ctx, tx, coll, ids)
+		return err
+	}); err != nil {
+		return 0, fmt.Errorf("etl: project %s: deleted rows: %w", coll, err)
+	}
+	return p.deleteDocs(ctx, coll, gone)
+}
+
+// deletedDocs are the ids of docIDs (documents of the deletable collection coll) that rows deleted in PostgreSQL left
+// behind: no row holds the id (legacy_doc_id or id::text), and the id is either one PostgreSQL minted (a row's
+// id::text, a canonical uuid; legacy documents carry Firestore auto-ids) or a legacy document the load put into a row
+// since deleted (etl.source_docs loaded, its target row gone). The other documents no row projects to (a duplicate, a
+// rejected or quarantined document the load did not put into a row, a document Firestore got after the cut-over) are
+// not PostgreSQL's to delete: they stay, reported. It reads etl.source_docs, so it runs on the ETL login (`etl
+// project`, the reconciliation), where the All pass runs.
+func deletedDocs(ctx context.Context, tx pgx.Tx, coll string, docIDs []string) ([]string, error) {
+	if len(docIDs) == 0 {
+		return nil, nil
+	}
+	minted := []string{}
+	for _, id := range docIDs {
+		if u, err := uuid.Parse(id); err == nil && u.String() == id {
+			minted = append(minted, id)
+		}
+	}
+	table, idCol := projectedTable(coll)
+	t := pgx.Identifier{table}.Sanitize()
+	rows, err := tx.Query(ctx, `SELECT d FROM unnest($1::text[]) AS d
+		WHERE NOT EXISTS (SELECT 1 FROM `+t+` r WHERE r.legacy_doc_id = d OR r.`+idCol+`::text = d)
+		  AND (d = ANY($4::text[]) OR EXISTS (SELECT 1 FROM etl.source_docs sd WHERE sd.collection = $2 AND sd.doc_path = $2 || '/' || d
+		    AND sd.status = 'loaded' AND sd.target_table = $3 AND NOT EXISTS (SELECT 1 FROM `+t+` r WHERE r.`+idCol+`::text = sd.target_id)))
+		ORDER BY 1`, docIDs, coll, table, minted)
+	if err != nil {
+		return nil, fmt.Errorf("etl: %s: documents of deleted rows: %w", coll, err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }

@@ -30,6 +30,9 @@ import (
 //     its boards refetch and drop the row, and its dispatchers read none of the row's new values, which RLS no longer
 //     lets them read (Appendix B §B.4.2). A leftPartyIds the relay cannot read gives every dispatch topic of the event
 //     that copy (fail closed).
+//   - The leave events (leave.*, T45) keep on every topic the leave keys only (leaveKeyList), each a JSON scalar; a
+//     driver:{driverId} copy leaves out driverId. The rejection's free-text reason stays in the outbox row for
+//     notify.fcm: tenant:{tid}:hr also opens on hr:view_payroll, which does not read leave requests.
 //   - Every other event keeps its payload on every topic but dispatch:{partyId}:*, which carries operational events only.
 
 // thinKeyList are the payload keys an operations event keeps on its realtime topics: the thin envelope of Appendix B
@@ -41,6 +44,10 @@ var thinKeyList = []string{
 	"taskType", "planDate", "status", "tripNo", "previousTripNo", "taskId", "tripId", "driverId", "previousDriverId",
 	"billingDateMoved",
 }
+
+// leaveKeyList are the payload keys a leave event keeps on its realtime topics (Appendix B §B.4.1, §B.4.3 as built
+// T45): the envelope, the new status and the one before, and the request's driver.
+var leaveKeyList = []string{"entity", "id", "tenantId", "at", "version", "status", "from", "driverId"}
 
 // dispatchTypes are the event types dispatch:{partyId}:* carries, with the family of their topic (Appendix B §B.4.2,
 // §B.4.3): the operational events, never a price.
@@ -93,6 +100,7 @@ const partySuffix = "PartyId"
 
 var (
 	thinKeys        = setOf(thinKeyList)
+	leaveKeys       = setOf(leaveKeyList)
 	dispatchChanged = map[string]map[string]bool{}
 	// driverHidden are left out of driver:{driverId} copies: a driver's stream names no other driver.
 	driverHidden = setOf([]string{"driverId", "previousDriverId"})
@@ -108,6 +116,12 @@ func init() {
 
 // ThinKeys are the keys an operations event keeps on its realtime topics (a copy).
 func ThinKeys() []string { return append([]string(nil), thinKeyList...) }
+
+// LeaveKeys are the keys a leave event keeps on its realtime topics (a copy).
+func LeaveKeys() []string { return append([]string(nil), leaveKeyList...) }
+
+// leaveEvent reports an event type of the leave requests (leave.created, leave.decided).
+func leaveEvent(eventType string) bool { return strings.HasPrefix(eventType, "leave.") }
 
 // DispatchFamily is the family of the dispatch topic an event type travels on; ok is false for a type no dispatch
 // topic carries.
@@ -162,12 +176,15 @@ func Project(topic, eventType string, data json.RawMessage) (json.RawMessage, bo
 			return nil, false
 		}
 	}
-	if entity == "" {
+	if entity == "" && !leaveEvent(eventType) {
 		return data, true
 	}
 	var in map[string]json.RawMessage
 	if err := json.Unmarshal(data, &in); err != nil || in == nil {
 		return nil, false
+	}
+	if entity == "" {
+		return leaveCopy(topic, in)
 	}
 	if dispatch {
 		if left, ok := leftParty(topic, in); left || !ok {
@@ -201,6 +218,23 @@ func Project(topic, eventType string, data json.RawMessage) (json.RawMessage, bo
 			}
 			out[k] = b
 		case scalar(v):
+			out[k] = v
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+// leaveCopy is the copy of a leave event a topic carries: the leave keys' scalar values, without driverId on a
+// driver's own topic.
+func leaveCopy(topic string, in map[string]json.RawMessage) (json.RawMessage, bool) {
+	driver := strings.HasPrefix(topic, "driver:")
+	out := make(map[string]json.RawMessage, len(leaveKeyList))
+	for k, v := range in {
+		if leaveKeys[k] && scalar(v) && (!driver || !driverHidden[k]) {
 			out[k] = v
 		}
 	}

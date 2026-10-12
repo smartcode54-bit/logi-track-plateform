@@ -25,7 +25,9 @@ import (
 //   - projection: every row a projected collection writes has its document, and the document's PostgreSQL-owned
 //     fields are equivalent to the row (ExportDoc.Diff over the encoder's mask; ids are computed, never minted), and
 //     no document is held (ExportDoc.Hold); documents no row projects to are reported (informational: legacy
-//     duplicates such as a losing hub document), except in the one-document collections (metadata, settings);
+//     duplicates such as a losing hub document), except in the one-document collections (metadata, settings), and in
+//     a collection whose rows PostgreSQL deletes (holidays, T45) the documents of deleted rows are a difference
+//     (projection_deleted: their delete was not projected, `etl project` deletes them);
 //   - operations (T29, syncreconcile_ops.go): per document of tasks, trip_records, standby_records and incidentReport,
 //     the columns the boards, the monitor and billing read equal what the load transforms read from the document, and
 //     the rows whose document Firestore no longer has are listed;
@@ -411,6 +413,27 @@ func reconcileProjection(ctx context.Context, tx pgx.Tx, coll string, docs []dum
 	for _, d := range docs {
 		if !projected[d.Path] {
 			orphans = append(orphans, d.Path)
+		}
+	}
+	if deletable[coll] && len(orphans) > 0 {
+		// The documents of rows deleted in PostgreSQL whose delete was never projected (T45) are a difference, not a
+		// legacy orphan: `etl project` deletes them.
+		ids := make([]string, 0, len(orphans))
+		for _, p := range orphans {
+			ids = append(ids, strings.TrimPrefix(p, coll+"/"))
+		}
+		gone, err := deletedDocs(ctx, tx, coll, ids)
+		if err != nil {
+			return err
+		}
+		if len(gone) > 0 {
+			stale := make([]string, 0, len(gone))
+			for _, id := range gone {
+				stale = append(stale, coll+"/"+id)
+			}
+			orphans = slices.DeleteFunc(orphans, func(p string) bool { return slices.Contains(stale, p) })
+			rec.add("projection_deleted", coll, len(stale), 0, false, "documents of rows deleted in PostgreSQL (their delete was "+
+				"not projected; `etl project --collections="+coll+"` deletes them): "+listed(stale))
 		}
 	}
 	if len(orphans) > 0 {

@@ -85,10 +85,12 @@ const (
 )
 
 // Files is the storage service as this package uses it (internal/storage implements it): Commit runs in the request
-// transaction; SignedFiles signs the leave evidence after it (on its own connection).
+// transaction; SignedFiles signs the leave evidence after it and FileKeys names the evidence it cannot sign (each on
+// its own connection).
 type Files interface {
 	Commit(ctx context.Context, tx pgx.Tx, in storage.CommitInput) (storage.Committed, error)
 	SignedFiles(ctx context.Context, ids []uuid.UUID, ttl time.Duration) (map[uuid.UUID]storage.Signed, error)
+	FileKeys(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // Submitter submits a job under its lock (internal/jobs.Service).

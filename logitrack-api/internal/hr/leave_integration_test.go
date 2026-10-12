@@ -9,14 +9,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/rs/zerolog"
+
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 )
 
 // leave inserts a leave request of drv in tenant created at the given instant; legacy is its Firestore document id
@@ -35,9 +41,16 @@ func (w *world) leave(tenant, drv, status, start, end, legacy string, created ti
 // evidence links a committed leave_evidence file to a request.
 func (w *world) evidence(tenant, leave, key string, pos int) {
 	w.t.Helper()
+	w.evidenceAs(tenant, leave, key, pos, "committed")
+}
+
+// evidenceAs links a leave_evidence file of the given status (committed, or missing_at_source as the ETL's media-copy
+// leaves a file it did not find) to a request.
+func (w *world) evidenceAs(tenant, leave, key string, pos int, status string) {
+	w.t.Helper()
 	f := w.id(`INSERT INTO file_objects (bucket, object_key, tenant_id, purpose, owner_kind, owner_id, content_type, size_bytes,
 		status, committed_at, storage_backend) VALUES ('logitrack', $1, $2, 'leave_evidence', 'leave', $3, 'image/jpeg', 10,
-		'committed', now(), 'local') RETURNING id::text`, key, tenant, leave)
+		$4, CASE WHEN $4 = 'committed' THEN now() END, 'local') RETURNING id::text`, key, tenant, leave, status)
 	w.exec(`INSERT INTO leave_request_attachments (leave_request_id, file_id, position) VALUES ($1, $2, $3)`, leave, f, pos)
 }
 
@@ -60,6 +73,7 @@ func TestLeaveList(t *testing.T) {
 	c1 := w.leave(w.C, w.dC, "pending", "2026-10-05", "2026-10-05", "", base.Add(3*time.Hour))
 	w.evidence(w.O, o1, "leave/"+w.dO+"/1_0.jpg", 0)
 	w.evidence(w.O, o1, "leave/"+w.dO+"/1_1.jpg", 1)
+	w.evidenceAs(w.O, o1, "leave/"+w.dO+"/1_2.jpg", 2, "missing_at_source")
 	// A quarantined request (unresolved at load) is never listed.
 	w.exec(`INSERT INTO leave_requests (tenant_id, tenant_source, leave_type, status, start_date, end_date)
 		VALUES (app_quarantine_tenant_id(), 'quarantine', 'sick', 'pending', '2026-10-01', '2026-10-01')`)
@@ -81,14 +95,18 @@ func TestLeaveList(t *testing.T) {
 		t.Errorf("request %v", first)
 	}
 	atts := first["attachments"].([]any)
-	if len(atts) != 2 {
+	if len(atts) != 3 {
 		t.Fatalf("attachments %v", atts)
 	}
-	for i, a := range atts {
+	for i, a := range atts[:2] {
 		m := a.(map[string]any)
 		if !strings.HasSuffix(str(m["key"]), "/1_"+string(rune('0'+i))+".jpg") || !strings.Contains(str(m["url"]), "/media/") {
 			t.Errorf("attachment %d %v", i, m)
 		}
+	}
+	// A file missing at source keeps its key, with a null url (main spec §10 as built T25, item 9).
+	if m := atts[2].(map[string]any); m["key"] != "leave/"+w.dO+"/1_2.jpg" || m["url"] != nil {
+		t.Errorf("missing at source %v", m)
 	}
 	// Filters: status (legacy upper case, a comma list), the driver; the counts keep the driver filter only.
 	if r := w.get("/v1/leave-requests?status=PENDING", ta); strings.Join(ids(r.list()), ",") != a1+","+o1 {
@@ -315,7 +333,8 @@ func TestLeaveWriteBack(t *testing.T) {
 		t.Errorf("updatedAt %T", f["updatedAt"])
 	}
 	ev := w.leaveEvents(acked)
-	if len(ev) != 1 || ev[0]["_origin"] != "writeback" || ev[0]["status"] != "approved" || !strings.Contains(str(ev[0]["_topics"]), "driver:"+w.dO) {
+	if len(ev) != 1 || ev[0]["_origin"] != "writeback" || ev[0]["status"] != "approved" || ev[0]["from"] != "pending" ||
+		!strings.Contains(str(ev[0]["_topics"]), "driver:"+w.dO) {
 		t.Errorf("write-back event %v", ev)
 	}
 
@@ -345,6 +364,21 @@ func TestLeaveWriteBack(t *testing.T) {
 	}
 	if len(w.leaveEvents(pending)) != before {
 		t.Error("a refused decision appended an event")
+	}
+
+	// Two decisions before the mirror caught up: approved in Firestore (202, the row still says pending), then
+	// cancelled (the document's APPROVED allows it). The cancel's event names the status it was checked against
+	// (approved), not the lagging row's.
+	lag := w.leave(w.O, w.dO, "pending", "2026-10-17", "2026-10-17", "lv_lag", now)
+	docs.Put("lv_lag", app)
+	expect(t, w.post("/v1/leave-requests/"+lag+"/approve", ta, nil), http.StatusAccepted, "")
+	expect(t, w.post("/v1/leave-requests/"+lag+"/cancel", ta, nil), http.StatusAccepted, "")
+	if f, _ := docs.Doc("lv_lag"); f["status"] != "CANCELLED" {
+		t.Errorf("lagging document %v", f)
+	}
+	if ev := w.leaveEvents(lag); len(ev) != 2 || ev[0]["status"] != "approved" || ev[0]["from"] != "pending" ||
+		ev[1]["status"] != "cancelled" || ev[1]["from"] != "approved" {
+		t.Errorf("lagging mirror events %v", ev)
 	}
 
 	// A row born in PostgreSQL has no document; a document deleted in Firestore; Firestore down.
@@ -445,5 +479,67 @@ func TestLeaveWriteBackRedisAck(t *testing.T) {
 	// A cancel writes the status alone (and updatedAt), as the legacy page did.
 	if f, _ := docs.Doc("lv_ack"); len(f) != 2 || f["status"] != "CANCELLED" {
 		t.Errorf("cancel document %v", f)
+	}
+}
+
+// capturedAMQP plays RabbitMQ for the relay: the bodies it published, by routing key.
+type capturedAMQP struct{ bodies map[string][][]byte }
+
+func (c *capturedAMQP) Publish(_ context.Context, _, key string, msg amqp.Publishing) error {
+	c.bodies[key] = append(c.bodies[key], msg.Body)
+	return nil
+}
+
+// A rejection's free-text reason travels in the outbox row, which the relay publishes whole to RabbitMQ (notify.fcm
+// reads it there: on the write-back path the row holds no reason until the mirror applied the document), and never on
+// a stream (realtime.Project): tenant:{tid}:hr also opens on hr:view_payroll, which does not read leave requests, and
+// the driver's copy names no driver.
+func TestLeaveDecidedStreamsCarryNoReason(t *testing.T) {
+	w := newWorld(t, pgOwned)
+	ctx := context.Background()
+	id := w.leave(w.O, w.dO, "pending", "2026-10-12", "2026-10-13", "", time.Now())
+	const reason = "ใบรับรองแพทย์ไม่ตรงกับอาการที่แจ้ง"
+	expect(t, w.post("/v1/leave-requests/"+id+"/reject", w.login("ta.o"), map[string]any{"reason": reason}), http.StatusOK, "")
+	if ev := w.leaveEvents(id); len(ev) != 1 || ev[0]["reason"] != reason {
+		t.Fatalf("outbox row %v", ev)
+	}
+	broker := &capturedAMQP{bodies: map[string][][]byte{}}
+	relay := outbox.NewRelay(w.pool, func() (outbox.Publisher, error) { return broker, nil }, realtime.NewWriter(w.rdb, w.ks, 100, time.Hour),
+		outbox.RelayOptions{Log: zerolog.Nop()})
+	if _, err := relay.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bodies := broker.bodies["leave.decided"]
+	if len(bodies) != 1 {
+		t.Fatalf("published %d leave.decided", len(bodies))
+	}
+	var body map[string]any
+	if err := json.Unmarshal(bodies[0], &body); err != nil || body["reason"] != reason {
+		t.Errorf("the AMQP body lost the reason: %s %v", bodies[0], err)
+	}
+	want := map[string]any{"entity": "leave_request", "id": id, "tenantId": w.O, "status": "rejected", "from": "pending", "driverId": w.dO}
+	for _, topic := range []string{realtime.TenantTopic(w.O, realtime.FamilyHR), realtime.DriverTopic(w.dO)} {
+		entries, err := w.rdb.XRange(ctx, w.ks.RealtimeLog(topic), "-", "+").Result()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []map[string]any
+		for _, e := range entries {
+			if e.Values["type"] != "leave.decided" {
+				continue
+			}
+			m := map[string]any{}
+			if err := json.Unmarshal([]byte(str(e.Values["data"])), &m); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, m)
+		}
+		exp := maps.Clone(want)
+		if strings.HasPrefix(topic, "driver:") {
+			delete(exp, "driverId")
+		}
+		if len(got) != 1 || !maps.Equal(got[0], exp) {
+			t.Errorf("%s replay log %v, want %v", topic, got, exp)
+		}
 	}
 }

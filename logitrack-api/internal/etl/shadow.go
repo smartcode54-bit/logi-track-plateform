@@ -308,19 +308,24 @@ func (p *Projector) Project(ctx context.Context, t ShadowTarget) (ProjectStats, 
 		}); err != nil {
 			return st, fmt.Errorf("etl: project %s: %w", t.Collection, err)
 		}
-		if len(batch) == 0 {
-			return st, nil
+		if len(batch) > 0 {
+			s, err := p.project(ctx, t.Collection, enc, selectIDs(batch))
+			st.add(s)
+			if err != nil {
+				return st, err
+			}
+			after = batch[len(batch)-1]
 		}
-		s, err := p.project(ctx, t.Collection, enc, selectIDs(batch))
-		st.add(s)
-		if err != nil {
-			return st, err
-		}
-		after = batch[len(batch)-1]
 		if len(batch) < batchSize {
-			return st, nil
+			break
 		}
 	}
+	if deletable[t.Collection] {
+		n, err := p.deleteLeftBehind(ctx, t.Collection)
+		st.Deleted += n
+		return st, err
+	}
+	return st, nil
 }
 
 // projectDeletable projects the rows of a deletable collection (holidays) the target names, then deletes the documents
@@ -360,7 +365,8 @@ func projectedTable(coll string) (string, string) {
 }
 
 // ProjectAll projects every row of the planned collections (`etl project`; the catch-up before the consumer is turned
-// on, or after the kill switch was off).
+// on, or after the kill switch was off), and deletes the documents of a deletable collection's rows deleted meanwhile
+// (deleteLeftBehind).
 func (p *Projector) ProjectAll(ctx context.Context) (map[string]ProjectStats, error) {
 	out := map[string]ProjectStats{}
 	for _, c := range ProjectedCollections {

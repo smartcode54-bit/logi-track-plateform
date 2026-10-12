@@ -17,6 +17,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Reasons of the refusals of a decision (details.reason).
@@ -126,7 +127,7 @@ func (s *Service) decidePG(ctx context.Context, p *authz.Principal, rid string, 
 		if err != nil {
 			return err
 		}
-		if err := emitLeave(ctx, tx, row, move[1], reason, rid, ""); err != nil {
+		if err := emitLeave(ctx, tx, row, row.Status, move[1], reason, rid, ""); err != nil {
 			return err
 		}
 		r, err := q.GetLeaveRequest(ctx, hrdb.GetLeaveRequestParams{ID: id, AllTenants: all, TenantIds: tenants})
@@ -179,7 +180,7 @@ func (s *Service) decideWriteBack(ctx context.Context, p *authz.Principal, rid s
 	wb := s.leaveWB
 	cur, updated, exists, err := wb.Docs.Get(ctx, docID)
 	if err != nil {
-		return LeaveResult{}, writeBackUnavailable(err)
+		return LeaveResult{}, writeback.ErrUnavailable(err)
 	}
 	if !exists {
 		return LeaveResult{}, errState(ReasonDocumentChanged, row.Status, nil)
@@ -195,7 +196,7 @@ func (s *Service) decideWriteBack(ctx context.Context, p *authz.Principal, rid s
 		return LeaveResult{}, errState(ReasonDocumentChanged, status, nil)
 	}
 	if err != nil {
-		return LeaveResult{}, writeBackUnavailable(err)
+		return LeaveResult{}, writeback.ErrUnavailable(err)
 	}
 	acked := false
 	if wb.Acks != nil {
@@ -208,9 +209,10 @@ func (s *Service) decideWriteBack(ctx context.Context, p *authz.Principal, rid s
 	}
 	// The event follows the write (and the acknowledgement, so a page that refetches on it reads the decision when the
 	// mirror was quick). A failure to append it is logged, never an error: the decision is in Firestore and a retry of
-	// the request would now meet transition_not_allowed.
+	// the request would now meet transition_not_allowed. Its from is the document's status the decision was checked
+	// against, not the row's: leave_requests has no listener, so the row may still hold a status the document left.
 	if err := s.rtx(ctx, p, func(tx pgx.Tx, _ *hrdb.Queries) error {
-		return emitLeave(ctx, tx, row, move[1], reason, rid, originWriteBack)
+		return emitLeave(ctx, tx, row, status, move[1], reason, rid, originWriteBack)
 	}); err != nil {
 		s.log.Error().Err(err).Str("leave_request_id", id.String()).Msg("leave write-back: the decision is in Firestore but its event was not appended")
 	}
@@ -236,13 +238,6 @@ func (s *Service) decideWriteBack(ctx context.Context, p *authz.Principal, rid s
 		Collection: LeaveCollection, DocID: docID, UpdateTime: at.UTC(), Document: echoFields(fields)}}, nil
 }
 
-// writeBackUnavailable is the 503 of a failed Firestore read or write: nothing of the request was kept (Appendix B
-// §B.1.5 unavailable, details.reason write_back).
-func writeBackUnavailable(cause error) error {
-	return httpx.NewError(http.StatusServiceUnavailable, httpx.CodeUnavailable, "the Firestore write-back failed").
-		WithDetails(map[string]any{"reason": "write_back"}).Wrap(cause)
-}
-
 // echoFields renders the written fields for JSON: timestamps as RFC 3339, deleted fields as null.
 func echoFields(fields map[string]any) map[string]any {
 	out := make(map[string]any, len(fields))
@@ -257,12 +252,14 @@ func echoFields(fields map[string]any) map[string]any {
 }
 
 // emitLeave appends leave.decided in tx: tenant:{tid}:hr (hr:view_leave, hr:view_payroll) and the driver's own topic
-// (leave.changed); notify.fcm pushes leave_decided. origin is the producer header (outbox.OriginWriteBack for the
-// write-back path, "" for the PostgreSQL one).
-func emitLeave(ctx context.Context, tx pgx.Tx, row hrdb.LeaveRequest, status string, reason *string, rid, origin string) error {
+// (leave.changed); notify.fcm pushes leave_decided. from is the status the decision was checked against and status the
+// new one. The outbox row keeps a rejection's reason for notify.fcm (the write-back's row does not hold it until the
+// mirror applied the document); realtime.Project keeps it off every stream (Appendix B §B.4.1). origin is the producer
+// header ("writeback" for the write-back path, "" for the PostgreSQL one).
+func emitLeave(ctx context.Context, tx pgx.Tx, row hrdb.LeaveRequest, from, status string, reason *string, rid, origin string) error {
 	topics := []string{realtime.TenantTopic(row.TenantID.String(), realtime.FamilyHR)}
 	payload := map[string]any{"entity": "leave_request", "id": row.ID.String(), "tenantId": row.TenantID.String(), "status": status,
-		"from": row.Status}
+		"from": from}
 	if row.DriverID != nil {
 		topics = append(topics, realtime.DriverTopic(row.DriverID.String()))
 		payload["driverId"] = row.DriverID.String()
@@ -284,8 +281,9 @@ func emitLeave(ctx context.Context, tx pgx.Tx, row hrdb.LeaveRequest, status str
 }
 
 // attach fills the attachments of out (in the order of atts) with the evidence keys and presigned GETs, signed after the
-// request transaction (storage.Service.SignedFiles runs on its own connection). A storage failure leaves the URLs empty
-// and is logged.
+// request transaction (storage.Service.SignedFiles runs on its own connection). A file it cannot sign (missing at
+// source after the ETL, not committed, or every file when signing fails) keeps its key with a null url (main spec §10
+// as built T25, item 9); a storage failure is logged.
 func (s *Service) attach(ctx context.Context, out []LeaveRequest, atts []hrdb.LeaveRequestAttachment) {
 	if len(atts) == 0 {
 		return
@@ -295,11 +293,24 @@ func (s *Service) attach(ctx context.Context, out []LeaveRequest, atts []hrdb.Le
 		ids = append(ids, a.FileID)
 	}
 	var signed map[uuid.UUID]storage.Signed
+	keys := map[uuid.UUID]string{}
 	if s.files != nil {
 		var err error
 		if signed, err = s.files.SignedFiles(ctx, ids, storage.DocumentTTL); err != nil {
 			s.log.Warn().Err(err).Msg("cannot sign the leave evidence URLs")
 			signed = nil
+		}
+		var unsigned []uuid.UUID
+		for _, id := range ids {
+			if sg, ok := signed[id]; !ok || sg.URL == "" {
+				unsigned = append(unsigned, id)
+			}
+		}
+		if len(unsigned) > 0 {
+			if keys, err = s.files.FileKeys(ctx, unsigned); err != nil {
+				s.log.Warn().Err(err).Msg("cannot read the keys of the unsigned leave evidence")
+				keys = map[uuid.UUID]string{}
+			}
 		}
 	}
 	index := make(map[uuid.UUID]int, len(out))
@@ -312,9 +323,11 @@ func (s *Service) attach(ctx context.Context, out []LeaveRequest, atts []hrdb.Le
 			continue
 		}
 		var at LeaveAttachment
-		if sg, ok := signed[a.FileID]; ok {
+		if sg, ok := signed[a.FileID]; ok && sg.URL != "" {
 			key, url := sg.Key, sg.URL
 			at = LeaveAttachment{Key: &key, URL: &url}
+		} else if key, ok := keys[a.FileID]; ok && key != "" {
+			at = LeaveAttachment{Key: &key}
 		}
 		out[i].Attachments = append(out[i].Attachments, at)
 	}

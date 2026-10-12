@@ -7,7 +7,7 @@ import "testing"
 func TestLeavePGOwned(t *testing.T) {
 	for v, want := range map[string]bool{
 		"all": true,
-		"auth,masterdata,operations,billing,hr,comms,security,mobile_release,dashboard": true,
+		"auth,masterdata,operations,billing,hr,comms,security,mobile_release,dashboard":  true,
 		"dashboard, mobile_release,security,comms,hr,billing,operations,masterdata,auth": true,
 		"auth,masterdata,billing,hr": false,
 		"hr":                         false,
