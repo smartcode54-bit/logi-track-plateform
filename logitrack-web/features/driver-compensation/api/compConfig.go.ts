@@ -14,6 +14,7 @@ import { queryOptions, useMutation } from "@tanstack/react-query";
 
 import { goFetch } from "@/lib/goFetch";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
+import { DEFAULT_COMPENSATION_CONFIG } from "@/validate/compensationConfigSchema";
 
 export const COMP_CONFIG_PATH = "/v1/payroll/config";
 
@@ -68,17 +69,23 @@ export type CompConfigInput = Omit<CompConfigDTO, "id" | "tenantId" | "effective
     effectiveFrom: string;
 };
 
-/** The defaults of `validate/compensationConfigSchema.ts` (Go's `hr.Default*`), for a tenant without a version. */
+/**
+ * The legacy page's PRD defaults (`DEFAULT_COMPENSATION_CONFIG` of `validate/compensationConfigSchema.ts`:
+ * the PRD fuel tiers 10-14 km/L, the 50/60/70-trip volume tiers and the `LATE_SLA` penalty type), for a
+ * tenant without a version: the legacy page seeded its form from the same constant, so saving the untouched
+ * form stores the same version on either page. (Go's POST leaves absent tiers and penalty types empty; the
+ * form always sends every field, so that never applies here.)
+ */
 export const DEFAULT_COMP_CONFIG: Omit<CompConfigInput, "effectiveFrom"> = {
-    weekdayRateThb: 300,
-    holidayRateThb: 350,
-    payStandby: false,
-    helperDayRateThb: 400,
-    fuelIncentiveTiers: [],
-    fuelMinRefuelsPerMonth: 5,
-    tripVolumeTiers: [],
-    sso: { ratePercent: 5, baseExistingThb: 15000, baseNewThb: 12000, existingHiredBeforeYear: 2026, maxAgeInclusive: 55, probationMonths: 3 },
-    penaltyTypes: [],
+    weekdayRateThb: DEFAULT_COMPENSATION_CONFIG.weekdayRateThb,
+    holidayRateThb: DEFAULT_COMPENSATION_CONFIG.holidayRateThb,
+    payStandby: DEFAULT_COMPENSATION_CONFIG.payStandby,
+    helperDayRateThb: DEFAULT_COMPENSATION_CONFIG.helperDayRateThb,
+    fuelIncentiveTiers: DEFAULT_COMPENSATION_CONFIG.fuelIncentiveTiers.map((t) => ({ ...t })),
+    fuelMinRefuelsPerMonth: DEFAULT_COMPENSATION_CONFIG.fuelMinRefuelsPerMonth,
+    tripVolumeTiers: DEFAULT_COMPENSATION_CONFIG.tripVolumeTiers.map((t) => ({ ...t })),
+    sso: { ...DEFAULT_COMPENSATION_CONFIG.sso },
+    penaltyTypes: DEFAULT_COMPENSATION_CONFIG.penaltyTypes.map((p) => ({ ...p })),
 };
 
 /** `['compConfig','active']`: the version in effect now, or `null`. */

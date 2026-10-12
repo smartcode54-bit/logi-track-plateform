@@ -14,7 +14,7 @@ import (
 )
 
 // The HR generator of the demo profile (T46, issue #66; Appendix D §D.1.2, §D.2 #9, #10 and #14, the holidays row;
-// developer-spec.md §14): the public holidays of the anchor's year, the own fleet's payroll runs of the operations
+// developer-spec.md §14): the public holidays of every calendar year the operations window touches, the own fleet's payroll runs of the operations
 // window with their line items, penalty applications and payout ledger rows, two penalties, and leave requests in
 // every status. The smoke rows are never touched; the generator only appends.
 //
@@ -32,8 +32,10 @@ import (
 // their fixture runs. Values come from the window position and the plan, never from SEED_RANDOM_SEED, so the counts of
 // Appendix D §D.1.2 hold under every seed.
 
-// demoPublicHolidays are the fixed-date Thai public holidays (Appendix D §D.1.4: lunar dates are UNVERIFIED and never
-// generated); the anchor's year gets each one the plan does not hold yet, and the next year its New Year's Day.
+// demoPublicHolidays are the fifteen fixed-date Thai public holidays (Appendix D §D.1.4: lunar dates are UNVERIFIED and
+// never generated). Every calendar year the operations window touches gets each one the plan does not hold yet (smoke
+// HO1 to HO3 hold three of 2026), and the year after the anchor's its New Year's Day: a window that crosses New Year
+// prices the previous year's holidays too, under any SEED_ANCHOR_DATE.
 var demoPublicHolidays = []struct{ md, en, th string }{
 	{"01-01", "New Year's Day", "วันขึ้นปีใหม่"},
 	{"04-06", "Chakri Memorial Day", "วันจักรี"},
@@ -43,6 +45,9 @@ var demoPublicHolidays = []struct{ md, en, th string }{
 	{"05-01", "National Labour Day", "วันแรงงานแห่งชาติ"},
 	{"05-04", "Coronation Day", "วันฉัตรมงคล"},
 	{"06-03", "Queen Suthida's Birthday", "วันเฉลิมพระชนมพรรษาสมเด็จพระราชินี"},
+	{"07-28", "King's Birthday", "วันเฉลิมพระชนมพรรษา"},
+	{"08-12", "Mother's Day", "วันแม่แห่งชาติ"},
+	{"10-13", "King Bhumibol Memorial Day", "วันนวมินทรมหาราช"},
 	{"10-23", "King Chulalongkorn Memorial Day", "วันปิยมหาราช"},
 	{"12-05", "Father's Day", "วันพ่อแห่งชาติ"},
 	{"12-10", "Constitution Day", "วันรัฐธรรมนูญ"},
@@ -145,20 +150,29 @@ func (g *hrGen) holidays() {
 	for _, r := range g.p.Tables["holidays"] {
 		held[r.Str("tenant_id")+"|"+r.Str("holiday_date")+"|"+r.Str("holiday_type")] = true
 	}
-	created := ts(time.Date(g.anchor.Year(), 1, 5, 9, 0, 0, 0, clock.Bangkok))
 	by := g.user("U_WRT_ADMIN")
-	add := func(day, en, th string) {
+	// A year's list is published on its 5 January (as smoke's), never after the window's first day.
+	created := func(year int) string {
+		at := time.Date(year, 1, 5, 9, 0, 0, 0, clock.Bangkok)
+		if at.After(g.window) {
+			at = g.window
+		}
+		return ts(at)
+	}
+	add := func(day, en, th, at string) {
 		if held["|"+day+"|public"] {
 			return
 		}
 		held["|"+day+"|public"] = true
 		g.add("holidays", Row{"id": g.id("holidays", "public:"+day+":public"), "holiday_date": day, "holiday_type": "public",
-			"status": "published", "name": th, "name_en": en, "name_th": th, "is_recurring": true, "created_by": by, "created_at": created})
+			"status": "published", "name": th, "name_en": en, "name_th": th, "is_recurring": true, "created_by": by, "created_at": at})
 	}
-	for _, h := range demoPublicHolidays {
-		add(fmt.Sprintf("%04d-%s", g.anchor.Year(), h.md), h.en, h.th)
+	for y := g.window.Year(); y <= g.anchor.Year(); y++ {
+		for _, h := range demoPublicHolidays {
+			add(fmt.Sprintf("%04d-%s", y, h.md), h.en, h.th, created(y))
+		}
 	}
-	add(fmt.Sprintf("%04d-01-01", g.anchor.Year()+1), demoPublicHolidays[0].en, demoPublicHolidays[0].th)
+	add(fmt.Sprintf("%04d-01-01", g.anchor.Year()+1), demoPublicHolidays[0].en, demoPublicHolidays[0].th, created(g.anchor.Year()))
 }
 
 // --- payroll ---------------------------------------------------------------------------------------------------

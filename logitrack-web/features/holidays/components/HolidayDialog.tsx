@@ -6,7 +6,8 @@
  * same row. Public holidays (`tenantId` null, the calendar every tenant prices against) are a steward's only
  * (R60): others get company and other types, and a row's type moves only between company and other (Go
  * refuses a change of scope). The display name and description keep the legacy `EN (TH)` form the
- * Firestore projection hands the 3.x app.
+ * Firestore projection hands the 3.x app; Go caps that combined text like each part (300 and 2000
+ * characters), so the form blocks a pair whose combined text is too long and names the pair, not Go's field.
  */
 import { useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
@@ -23,8 +24,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 
 import {
+    HOLIDAY_DESCRIPTION_MAX_CHARS,
+    HOLIDAY_NAME_MAX_CHARS,
     HOLIDAY_STATUSES,
     combinedName,
+    holidayTextChars,
     usePatchHoliday,
     useSaveHoliday,
     type HolidayDTO,
@@ -76,6 +80,16 @@ export function holidayFields(f: FormState): HolidayFields {
     };
 }
 
+/** The combined `EN (TH)` texts longer than Go accepts, with their length in characters (Go counts runes). */
+export function holidayTooLong(f: Pick<FormState, "nameEn" | "nameTh" | "descriptionEn" | "descriptionTh">): { name?: number; description?: number } {
+    const out: { name?: number; description?: number } = {};
+    const name = holidayTextChars(combinedName(f.nameEn, f.nameTh));
+    const description = holidayTextChars(combinedName(f.descriptionEn, f.descriptionTh));
+    if (name > HOLIDAY_NAME_MAX_CHARS) out.name = name;
+    if (description > HOLIDAY_DESCRIPTION_MAX_CHARS) out.description = description;
+    return out;
+}
+
 export function changedFields(row: HolidayDTO, next: HolidayFields): Partial<HolidayFields> {
     const out: Partial<HolidayFields> = {};
     const cur: Record<string, unknown> = { ...row };
@@ -121,6 +135,19 @@ function HolidayForm({
     const [error, setError] = useState<unknown>(null);
     const busy = save.isPending || patch.isPending;
     const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+    const tooLong = holidayTooLong(form);
+    const nameTooLong = tooLong.name !== undefined ? t("hr.holidays.nameTooLong", { count: tooLong.name, max: HOLIDAY_NAME_MAX_CHARS }) : null;
+    const descriptionTooLong =
+        tooLong.description !== undefined ? t("hr.holidays.descriptionTooLong", { count: tooLong.description, max: HOLIDAY_DESCRIPTION_MAX_CHARS }) : null;
+    // Go's field names as the dialog shows them: `name` and `description` are the EN and TH pair combined.
+    const fieldLabels = {
+        name: t("hr.holidays.nameCombinedField"),
+        description: t("hr.holidays.descriptionCombinedField"),
+        nameEn: t("holidays.dialog.nameEnLabel"),
+        nameTh: t("holidays.dialog.nameThLabel"),
+        descriptionEn: t("hr.holidays.descriptionEn"),
+        descriptionTh: t("hr.holidays.descriptionTh"),
+    };
 
     // A public row stays public; a tenant's row moves between company and other only.
     const types: HolidayType[] = edit ? (edit.type === "public" ? ["public"] : ["company", "other"]) : steward ? ["public", "company", "other"] : ["company", "other"];
@@ -137,9 +164,16 @@ function HolidayForm({
             return;
         }
         const fields = holidayFields(form);
+        const diff = edit ? changedFields(edit, fields) : fields;
+        // Go stores and caps the combined `EN (TH)` text: a pair that fits alone can still be too long together. Only
+        // a text this write sends counts (an edit sends the fields that changed).
+        const blocked = ("name" in diff ? nameTooLong : null) ?? ("description" in diff ? descriptionTooLong : null);
+        if (blocked) {
+            toast.error(blocked);
+            return;
+        }
         try {
             if (edit) {
-                const diff = changedFields(edit, fields);
                 if (Object.keys(diff).length > 0) await patch.mutateAsync({ id: edit.id, fields: diff });
                 toast.success(t("holidays.toast.updated"));
             } else {
@@ -167,7 +201,9 @@ function HolidayForm({
                                 id="holiday-name-en"
                                 placeholder={t("holidays.dialog.nameEnPlaceholder")}
                                 value={form.nameEn}
-                                maxLength={300}
+                                maxLength={HOLIDAY_NAME_MAX_CHARS}
+                                aria-invalid={nameTooLong ? true : undefined}
+                                aria-describedby={nameTooLong ? "holiday-name-too-long" : undefined}
                                 onChange={(e) => set("nameEn", e.target.value)}
                             />
                         </div>
@@ -177,12 +213,19 @@ function HolidayForm({
                                 id="holiday-name-th"
                                 placeholder={t("holidays.dialog.nameThPlaceholder")}
                                 value={form.nameTh}
-                                maxLength={300}
+                                maxLength={HOLIDAY_NAME_MAX_CHARS}
+                                aria-invalid={nameTooLong ? true : undefined}
+                                aria-describedby={nameTooLong ? "holiday-name-too-long" : undefined}
                                 onChange={(e) => set("nameTh", e.target.value)}
                             />
                         </div>
                     </div>
                     <p className="text-[11px] italic text-muted-foreground">{t("hr.holidays.nameHint")}</p>
+                    {nameTooLong ? (
+                        <p id="holiday-name-too-long" className="text-xs text-destructive" data-testid="holiday-name-too-long">
+                            {nameTooLong}
+                        </p>
+                    ) : null}
                     <div className="space-y-2">
                         <Label htmlFor="holiday-date">{t("holidays.dialog.dateLabel")} *</Label>
                         <Input id="holiday-date" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} required />
@@ -231,7 +274,9 @@ function HolidayForm({
                             <Textarea
                                 id="holiday-desc-en"
                                 value={form.descriptionEn}
-                                maxLength={2000}
+                                maxLength={HOLIDAY_DESCRIPTION_MAX_CHARS}
+                                aria-invalid={descriptionTooLong ? true : undefined}
+                                aria-describedby={descriptionTooLong ? "holiday-description-too-long" : undefined}
                                 onChange={(e) => set("descriptionEn", e.target.value)}
                                 className="h-20 text-xs"
                             />
@@ -241,13 +286,20 @@ function HolidayForm({
                             <Textarea
                                 id="holiday-desc-th"
                                 value={form.descriptionTh}
-                                maxLength={2000}
+                                maxLength={HOLIDAY_DESCRIPTION_MAX_CHARS}
+                                aria-invalid={descriptionTooLong ? true : undefined}
+                                aria-describedby={descriptionTooLong ? "holiday-description-too-long" : undefined}
                                 onChange={(e) => set("descriptionTh", e.target.value)}
                                 className="h-20 text-xs"
                             />
                         </div>
                     </div>
-                    <HrErrorAlert error={error} />
+                    {descriptionTooLong ? (
+                        <p id="holiday-description-too-long" className="text-xs text-destructive" data-testid="holiday-description-too-long">
+                            {descriptionTooLong}
+                        </p>
+                    ) : null}
+                    <HrErrorAlert error={error} fieldLabels={fieldLabels} />
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                             {t("holidays.dialog.cancel")}

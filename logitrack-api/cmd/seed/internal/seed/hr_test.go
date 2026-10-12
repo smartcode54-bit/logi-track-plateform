@@ -191,7 +191,8 @@ func TestDemoHRRows(t *testing.T) {
 		t.Errorf("generated penalties %v", pens)
 	}
 
-	// Holidays: thirteen fixed-date public holidays, one per day and type and scope.
+	// Holidays: the twelve fixed-date public holidays of 2026 smoke does not hold (HO1 to HO3 are the other three) and
+	// 2027's New Year's Day, one per day and type and scope.
 	seen := map[string]bool{}
 	for _, r := range demo.Tables["holidays"] {
 		k := r.Str("tenant_id") + "|" + r.Str("holiday_date") + "|" + r.Str("holiday_type")
@@ -251,18 +252,21 @@ func TestDemoHRRows(t *testing.T) {
 }
 
 // The generator builds under any SEED_ANCHOR_DATE (the staging VM's October days, a month's first day, January, which
-// prices the previous year's rounds with the earliest version): invariant 6 and the windows hold each time, the newest
-// past round is approved and the running one a draft preview.
+// prices the previous year's rounds with the earliest version, a later year's September): invariant 6 and the windows
+// hold each time, every fixed-date public holiday of the window is in the calendar the engine priced against, the
+// newest past round is approved and the running one a draft preview.
 func TestDemoHRUnderAnchors(t *testing.T) {
 	for _, anchor := range []time.Time{
 		time.Date(2026, 10, 11, 0, 0, 0, 0, clock.Bangkok), time.Date(2026, 10, 1, 0, 0, 0, 0, clock.Bangkok),
 		time.Date(2026, 9, 16, 0, 0, 0, 0, clock.Bangkok), time.Date(2027, 1, 20, 0, 0, 0, 0, clock.Bangkok),
+		time.Date(2027, 1, 3, 0, 0, 0, 0, clock.Bangkok), time.Date(2027, 9, 29, 0, 0, 0, 0, clock.Bangkok),
 	} {
 		t.Run(clock.DateString(anchor), func(t *testing.T) {
 			t.Parallel()
 			p := planAt(t, 0, anchor)
 			checkInvariant6(t, p)
 			checkPayrollWindows(t, p)
+			checkWindowHolidays(t, p, anchor)
 			asOf := anchor.AddDate(0, 0, 1)
 			var running, approved int
 			for _, r := range p.Tables["payroll_runs"] {
@@ -293,6 +297,43 @@ func TestDemoHRUnderAnchors(t *testing.T) {
 	}
 }
 
+// checkWindowHolidays: each of the fifteen fixed-date public holidays that falls in the operations window (the window's
+// first day to the anchor day, the payroll rounds' months included) is a published public row of the plan, so the
+// generated runs price those trips at the holiday rate and /app/holidays shows them; none was published after the
+// anchor day.
+func checkWindowHolidays(t *testing.T, p *Plan, anchor time.Time) {
+	t.Helper()
+	window := anchor.AddDate(0, 0, -(opsDays - 1))
+	asOf := anchor.AddDate(0, 0, 1)
+	public := map[string]bool{}
+	for _, r := range p.Tables["holidays"] {
+		if r["tenant_id"] != nil || r.Str("holiday_type") != "public" {
+			continue // smoke's company draft HO4 keeps its fixture day
+		}
+		public[r.Str("holiday_date")] = true
+		if created, err := time.Parse(time.RFC3339, r.Str("created_at")); err != nil || created.After(asOf) {
+			t.Errorf("holiday %s created %q, after the anchor day", r.Str("holiday_date"), r.Str("created_at"))
+		}
+	}
+	if len(demoPublicHolidays) != 15 {
+		t.Errorf("%d fixed-date public holidays, want the 15 of the Thai calendar", len(demoPublicHolidays))
+	}
+	for y := window.Year(); y <= anchor.Year(); y++ {
+		for _, h := range demoPublicHolidays {
+			day, err := time.ParseInLocation(time.DateOnly, fmt.Sprintf("%04d-%s", y, h.md), clock.Bangkok)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !day.Before(window) && day.Before(asOf) && !public[clock.DateString(day)] {
+				t.Errorf("anchor %s: the public holiday %s (%s) of the window is missing", clock.DateString(anchor), clock.DateString(day), h.en)
+			}
+		}
+	}
+	if next := fmt.Sprintf("%04d-01-01", anchor.Year()+1); !public[next] {
+		t.Errorf("anchor %s: the next New Year's Day %s is missing", clock.DateString(anchor), next)
+	}
+}
+
 // The line meta the engine writes is JSON the jsonb column takes (the loader marshals it).
 func TestDemoPayrollLinesMarshal(t *testing.T) {
 	smoke, demo := plan(t, ProfileSmoke), plan(t, ProfileDemo)
@@ -310,5 +351,93 @@ func TestDemoPayrollLinesMarshal(t *testing.T) {
 		return l.Str("category") == compute.CategoryTripVolumeIncentive
 	}) {
 		t.Error("no generated run reaches a trip-volume tier")
+	}
+}
+
+// An upsert that finds a run key of the plan held by an application run skips that driver's whole HR chain, and never a
+// row that points at a skipped run or penalty; the other drivers' chains and the transactions of no run stay (T46
+// review: a held key made the seed's payout row and penalty applications point at a run it never wrote).
+func TestHeldHRChainsSkipWholeDriverChains(t *testing.T) {
+	demo := plan(t, ProfileDemo)
+	// d8's paid R2 run that deducts a penalty installment: the chain with every kind of child.
+	var target Row
+	applied := map[string]bool{}
+	for _, a := range demo.Tables["payroll_penalty_applications"] {
+		applied[a.Str("payroll_run_id")] = true
+	}
+	for _, r := range demo.Tables["payroll_runs"] {
+		if r.Str("status") == "paid" && r.Str("pay_round") == "R2" && applied[r.Str("id")] && r.Str("legacy_doc_id") == "" {
+			target = r
+		}
+	}
+	if target == nil {
+		t.Fatal("no paid R2 run with penalty applications in the demo plan")
+	}
+	driver := target.Str("driver_id")
+	held := []HeldRun{{DriverID: driver, Period: target.Str("pay_period"), Round: target.Str("pay_round"), ExistingID: "app-run", PlanID: target.Str("id")}}
+	c := heldHRChains(demo.Tables, held)
+	if len(c.drivers) != 1 || len(c.runs) < 2 || len(c.penalties) == 0 {
+		t.Fatalf("chain of %s: %d drivers, %d runs, %d penalties", driver, len(c.drivers), len(c.runs), len(c.penalties))
+	}
+	kept := map[string][]Row{}
+	for _, table := range LoadOrder {
+		kept[table] = c.keep(table, demo.Tables[table])
+	}
+	runs := map[string]bool{}
+	for _, r := range kept["payroll_runs"] {
+		if r.Str("driver_id") == driver {
+			t.Errorf("run %s of the held driver kept", r.Str("id"))
+		}
+		runs[r.Str("id")] = true
+	}
+	pens := map[string]bool{}
+	for _, r := range kept["driver_penalties"] {
+		if r.Str("driver_id") == driver {
+			t.Errorf("penalty %s of the held driver kept", r.Str("id"))
+		}
+		pens[r.Str("id")] = true
+	}
+	for _, table := range []string{"payroll_line_items", "payroll_penalty_applications", "transactions", "driver_advances"} {
+		for _, r := range kept[table] {
+			if id := r.Str("payroll_run_id"); id != "" && !runs[id] {
+				t.Errorf("%s row %s points at the skipped run %s", table, describe(r), id)
+			}
+			if id := r.Str("penalty_id"); id != "" && !pens[id] {
+				t.Errorf("%s row %s points at the skipped penalty %s", table, describe(r), id)
+			}
+		}
+	}
+	noRun := func(rows []Row) (n int) {
+		for _, r := range rows {
+			if r.Str("payroll_run_id") == "" {
+				n++
+			}
+		}
+		return n
+	}
+	if a, b := noRun(kept["transactions"]), noRun(demo.Tables["transactions"]); a != b {
+		t.Errorf("%d of %d transactions of no run kept", a, b)
+	}
+	if got, want := len(kept["payroll_runs"]), len(demo.Tables["payroll_runs"])-len(c.runs); got != want || got == 0 {
+		t.Errorf("%d runs kept, want %d (the other drivers' chains)", got, want)
+	}
+	if got := c.keep("holidays", demo.Tables["holidays"]); len(got) != len(demo.Tables["holidays"]) {
+		t.Errorf("a table outside the HR chain lost rows")
+	}
+	if none := heldHRChains(demo.Tables, nil); len(none.keep("payroll_runs", demo.Tables["payroll_runs"])) != len(demo.Tables["payroll_runs"]) {
+		t.Error("no held key skipped runs")
+	}
+
+	// keepWritable: the children of a run are written only under a run this load inserted; a row of no run passes.
+	inserted := map[string]map[string]bool{"payroll_runs": {target.Str("id"): true}}
+	for _, table := range []string{"payroll_line_items", "payroll_penalty_applications", "transactions", "driver_advances"} {
+		for _, r := range keepWritable(table, demo.Tables[table], inserted) {
+			if id := r.Str("payroll_run_id"); id != "" && id != target.Str("id") {
+				t.Errorf("%s row %s under a run this load did not insert", table, describe(r))
+			}
+		}
+	}
+	if got := noRun(keepWritable("transactions", demo.Tables["transactions"], inserted)); got != noRun(demo.Tables["transactions"]) {
+		t.Errorf("keepWritable dropped transactions of no run: %d kept", got)
 	}
 }

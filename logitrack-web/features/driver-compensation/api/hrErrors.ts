@@ -11,7 +11,11 @@ import { apiErrorText, isApiError } from "@/lib/apiError";
 
 type Translate = (key: string, fallbackOrParams?: string | Record<string, string | number>) => string;
 
-export function hrErrorText(error: unknown, t: Translate): string {
+/**
+ * `fieldLabels` names a refused field the way the form shows it (a holiday's `description` is the EN and TH
+ * descriptions combined, a field the dialog has no input for); a field without a label keeps Go's name.
+ */
+export function hrErrorText(error: unknown, t: Translate, fieldLabels?: Readonly<Record<string, string>>): string {
     const base = (k: string, f?: string) => t(k, f);
     if (isApiError(error)) {
         const reason = typeof error.details.reason === "string" ? error.details.reason : "";
@@ -21,7 +25,7 @@ export function hrErrorText(error: unknown, t: Translate): string {
         }
         const violations = fieldViolations(error);
         if (violations.length > 0) {
-            return `${apiErrorText(error, base)} (${violations.map((v) => v.field).join(", ")})`;
+            return `${apiErrorText(error, base)} (${violations.map((v) => fieldLabels?.[v.field] ?? v.field).join(", ")})`;
         }
     }
     return apiErrorText(error, base);

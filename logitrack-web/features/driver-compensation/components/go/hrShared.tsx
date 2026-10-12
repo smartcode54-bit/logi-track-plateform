@@ -16,14 +16,14 @@ import { Button } from "@/components/ui/button";
 
 import { hrErrorText } from "../../api/hrErrors";
 
-export function HrErrorAlert({ error, title }: { error: unknown; title?: string }) {
+export function HrErrorAlert({ error, title, fieldLabels }: { error: unknown; title?: string; fieldLabels?: Readonly<Record<string, string>> }) {
     const { t } = useLanguage();
     if (!error) return null;
     return (
         <Alert variant="destructive" role="alert">
             <AlertDescription>
                 {title ? <span className="font-medium">{title}: </span> : null}
-                {hrErrorText(error, t)}
+                {hrErrorText(error, t, fieldLabels)}
             </AlertDescription>
         </Alert>
     );

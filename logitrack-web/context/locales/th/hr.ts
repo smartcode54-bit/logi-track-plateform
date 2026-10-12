@@ -95,5 +95,9 @@ export default {
     "hr.holidays.nameHint": "กรอกชื่อภาษาอังกฤษ ชื่อภาษาไทย หรือทั้งสองภาษา",
     "hr.holidays.descriptionEn": "รายละเอียด (อังกฤษ)",
     "hr.holidays.descriptionTh": "รายละเอียด (ไทย)",
+    "hr.holidays.nameTooLong": "ชื่อภาษาอังกฤษและภาษาไทยรวมกันในรูป EN (TH) ยาว {count} ตัวอักษร เกินขีดจำกัด {max} ตัวอักษร กรุณาย่อชื่อใดชื่อหนึ่ง",
+    "hr.holidays.descriptionTooLong": "รายละเอียดภาษาอังกฤษและภาษาไทยรวมกันในรูป EN (TH) ยาว {count} ตัวอักษร เกินขีดจำกัด {max} ตัวอักษร กรุณาย่อรายละเอียดใดรายละเอียดหนึ่ง",
+    "hr.holidays.nameCombinedField": "ชื่อ (ภาษาอังกฤษและภาษาไทยรวมกัน)",
+    "hr.holidays.descriptionCombinedField": "รายละเอียด (ภาษาอังกฤษและภาษาไทยรวมกัน)",
     "hr.holidays.generated": "บันทึกวันหยุดแล้ว: เขียน {saved} ลบ {deleted} ข้ามที่ซ้ำ {duplicates}",
 };

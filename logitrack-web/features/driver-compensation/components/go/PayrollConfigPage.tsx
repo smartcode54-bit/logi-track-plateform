@@ -3,7 +3,8 @@
 /**
  * Compensation config over Go (T46, issue #66; Appendix E §E.2.2), rendered while the `hr` web flag is on.
  * The form starts from the version in effect now (`['compConfig','active']`, `GET /v1/payroll/config?at=`),
- * or the schema defaults for a tenant without one; "Save new version" appends a version
+ * or the legacy page's PRD defaults (`DEFAULT_COMPENSATION_CONFIG`: fuel and trip-volume tiers, `LATE_SLA`)
+ * for a tenant without one; "Save new version" appends a version
  * (`POST /v1/payroll/config`, append-only: a run uses the version in effect on the month's last Bangkok
  * day). The history is `['compConfig','all']`. Both reads run in parallel; Go validates every field
  * (whole baht, unique penalty codes) and the page lists the fields it refused.

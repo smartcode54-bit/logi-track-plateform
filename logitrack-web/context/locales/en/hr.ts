@@ -95,5 +95,9 @@ export default {
     "hr.holidays.nameHint": "Enter the English name, the Thai name, or both.",
     "hr.holidays.descriptionEn": "Description (English)",
     "hr.holidays.descriptionTh": "Description (Thai)",
+    "hr.holidays.nameTooLong": "The English and Thai names together, as EN (TH), are {count} characters; the limit is {max}. Shorten either name.",
+    "hr.holidays.descriptionTooLong": "The English and Thai descriptions together, as EN (TH), are {count} characters; the limit is {max}. Shorten either description.",
+    "hr.holidays.nameCombinedField": "Name (English and Thai combined)",
+    "hr.holidays.descriptionCombinedField": "Description (English and Thai combined)",
     "hr.holidays.generated": "Holidays saved: {saved} written, {deleted} removed, {duplicates} duplicates skipped",
 };

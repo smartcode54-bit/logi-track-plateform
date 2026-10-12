@@ -35,7 +35,7 @@ vi.mock("./HolidayCalendar", () => ({
 
 import { useLanguage } from "@/context/language";
 import { configureFirebaseBridge } from "@/lib/firebaseBridge";
-import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
 import type { HolidayDTO } from "../api/holidays.go";
@@ -180,6 +180,77 @@ describe("holidays over Go", () => {
             isRecurring: false,
         });
         await waitFor(() => expect(yearReads(web)).toBe(2)); // the write makes ['holidays'] stale
+    });
+
+    it("blocks EN and TH descriptions whose combined EN (TH) text is over Go's 2000 characters, and sends nothing", async () => {
+        const web = setup();
+        const user = userEvent.setup();
+        renderWithProviders(<HolidaysPage />);
+        await screen.findByTestId("calendar");
+        await user.click(screen.getByRole("button", { name: "Add Holiday" }));
+        const dialog = await screen.findByRole("dialog");
+        await user.type(within(dialog).getByLabelText("Holiday Name (English)"), "Long day");
+        await user.type(within(dialog).getByLabelText(/^Date/), `${Y}-12-31`);
+        const en = within(dialog).getByLabelText("Description (English)");
+        const th = within(dialog).getByLabelText("Description (Thai)");
+        await user.click(en);
+        await user.paste("a".repeat(1200)); // each fits its own 2000 limit
+        await user.click(th);
+        await user.paste("ก".repeat(900)); // "EN (TH)" = 1200 + 2 + 900 + 1 = 2103 characters
+        expect(within(dialog).getByTestId("holiday-description-too-long")).toHaveTextContent("2103 characters; the limit is 2000");
+        expect(en).toHaveAttribute("aria-invalid", "true");
+        expect(th).toHaveAttribute("aria-invalid", "true");
+
+        await user.click(within(dialog).getByRole("button", { name: "Save Holiday" }));
+        expect(web.count("POST", "/api/go/v1/holidays")).toBe(0);
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+        // Shortened to fit (1200 + 2 + 797 + 1 = 2000): the save goes through.
+        await user.clear(th);
+        await user.click(th);
+        await user.paste("ก".repeat(797));
+        expect(within(dialog).queryByTestId("holiday-description-too-long")).toBeNull();
+        expect(en).not.toHaveAttribute("aria-invalid");
+        await user.click(within(dialog).getByRole("button", { name: "Save Holiday" }));
+        await waitFor(() => expect(web.count("POST", "/api/go/v1/holidays")).toBe(1));
+        expect([...((web.calls.find((c) => c.method === "POST")!.body as { description: string }).description)]).toHaveLength(2000);
+    });
+
+    it("blocks EN and TH names whose combined text is over Go's 300 characters", async () => {
+        const web = setup();
+        const user = userEvent.setup();
+        renderWithProviders(<HolidaysPage />);
+        await screen.findByTestId("calendar");
+        await user.click(screen.getByRole("button", { name: "Add Holiday" }));
+        const dialog = await screen.findByRole("dialog");
+        await user.click(within(dialog).getByLabelText("Holiday Name (English)"));
+        await user.paste("n".repeat(200));
+        await user.click(within(dialog).getByLabelText("Holiday Name (Thai)"));
+        await user.paste("ว".repeat(150));
+        await user.type(within(dialog).getByLabelText(/^Date/), `${Y}-12-31`);
+        expect(within(dialog).getByTestId("holiday-name-too-long")).toHaveTextContent("353 characters; the limit is 300");
+        await user.click(within(dialog).getByRole("button", { name: "Save Holiday" }));
+        expect(web.count("POST", "/api/go/v1/holidays")).toBe(0);
+    });
+
+    it("names Go's refused combined field the way the dialog shows it (422 on description)", async () => {
+        const web = setup();
+        // Ahead of setup()'s POST handler (the first handler that answers wins).
+        web.handlers.unshift((call) =>
+            call.method === "POST" && call.url === "/api/go/v1/holidays"
+                ? goErr(422, "invalid_argument", { fields: [{ field: "description", reason: "too_long", params: { max: 2000 } }] })
+                : undefined
+        );
+        const user = userEvent.setup();
+        renderWithProviders(<HolidaysPage />);
+        await screen.findByTestId("calendar");
+        await user.click(screen.getByRole("button", { name: "Add Holiday" }));
+        const dialog = await screen.findByRole("dialog");
+        await user.type(within(dialog).getByLabelText("Holiday Name (English)"), "Refused day");
+        await user.type(within(dialog).getByLabelText(/^Date/), `${Y}-12-31`);
+        await user.click(within(dialog).getByRole("button", { name: "Save Holiday" }));
+        const alert = await within(dialog).findByRole("alert");
+        expect(alert).toHaveTextContent("(Description (English and Thai combined))");
     });
 
     it("edits a holiday with PATCH of the fields that changed, and deletes one after a confirmation", async () => {

@@ -371,6 +371,141 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 	}
 }
 
+// A demo top-up of a shared database where the application already generated payroll (POST /v1/jobs/payroll.run,
+// uuidv7 ids) for a driver, period and round the plan also holds keeps the application's runs and skips those drivers'
+// seeded payroll chains, instead of rolling the whole load back on the payout row's or the penalty applications'
+// foreign key (T46 review): the staging VM's rollout --reseed after someone clicked "Generate payroll". Both kinds of
+// held key: a paid R2 run that deducts a penalty installment, and an approved R1 run of another driver.
+func TestDemoUpsertKeepsApplicationPayrollRuns(t *testing.T) {
+	s := newStack(t, "s3") // MinIO: the fast backend for the demo's objects (TestDemoUpsertOverSmaller)
+	s.mustSeed(t, "--profile", "demo")
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	fx := seed.FixtureFS{FS: fixtures, Registry: "testdata/registry.json", Smoke: "testdata/smoke"}
+	smoke, err := seed.Build(ctx, fx, seed.Options{Profile: seed.ProfileSmoke, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idsOf := func(rows []seed.Row) []string {
+		out := make([]string, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, r.Str("id"))
+		}
+		return out
+	}
+	smokeRuns, smokePens := idsOf(smoke.Tables["payroll_runs"]), idsOf(smoke.Tables["driver_penalties"])
+
+	type key struct {
+		tenant, driver, period, round string
+		start, end                    time.Time
+	}
+	var r2, r1 key
+	if err := conn.QueryRow(ctx, `SELECT tenant_id::text, driver_id::text, pay_period, pay_round, period_start, period_end
+		FROM payroll_runs r WHERE status = 'paid' AND pay_round = 'R2' AND id <> ALL($1::uuid[])
+		  AND EXISTS (SELECT 1 FROM payroll_penalty_applications a WHERE a.payroll_run_id = r.id)
+		ORDER BY pay_period DESC, id LIMIT 1`, smokeRuns).Scan(&r2.tenant, &r2.driver, &r2.period, &r2.round, &r2.start, &r2.end); err != nil {
+		t.Fatalf("a generated paid R2 run with penalty applications: %v", err)
+	}
+	if err := conn.QueryRow(ctx, `SELECT tenant_id::text, driver_id::text, pay_period, pay_round, period_start, period_end
+		FROM payroll_runs WHERE status = 'approved' AND pay_round = 'R1' AND id <> ALL($1::uuid[]) AND driver_id <> $2::uuid
+		ORDER BY pay_period DESC, id LIMIT 1`, smokeRuns, r2.driver).Scan(&r1.tenant, &r1.driver, &r1.period, &r1.round, &r1.start, &r1.end); err != nil {
+		t.Fatalf("a generated approved R1 run of another driver: %v", err)
+	}
+
+	// The staging database before T46 (no generated payroll, penalty or payout row; replica mode lets the frozen-lines
+	// trigger and the foreign keys pass), then "Generate payroll" of the two keys: drafts under the application's ids.
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, st := range []struct {
+		sql  string
+		args []any
+	}{
+		{`SET LOCAL session_replication_role = replica`, nil},
+		{`DELETE FROM payroll_penalty_applications WHERE payroll_run_id <> ALL($1::uuid[])`, []any{smokeRuns}},
+		{`DELETE FROM payroll_line_items WHERE payroll_run_id <> ALL($1::uuid[])`, []any{smokeRuns}},
+		{`DELETE FROM transactions WHERE payroll_run_id IS NOT NULL AND payroll_run_id <> ALL($1::uuid[])`, []any{smokeRuns}},
+		{`DELETE FROM payroll_runs WHERE id <> ALL($1::uuid[])`, []any{smokeRuns}},
+		{`DELETE FROM driver_penalties WHERE id <> ALL($1::uuid[])`, []any{smokePens}},
+	} {
+		if _, err := tx.Exec(ctx, st.sql, st.args...); err != nil {
+			t.Fatalf("%s: %v", st.sql, err)
+		}
+	}
+	appRuns := map[string]bool{}
+	for _, k := range []key{r2, r1} {
+		var id string
+		if err := tx.QueryRow(ctx, `INSERT INTO payroll_runs (tenant_id, driver_id, pay_period, pay_round, period_start, period_end)
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text`, k.tenant, k.driver, k.period, k.round, k.start, k.end).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		appRuns[id] = true
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	r := s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
+	if !strings.Contains(r.stdout, "seed: kept 2 payroll run(s) written by the application") {
+		t.Errorf("the top-up does not say it kept the application's runs:\n%s", r.stdout)
+	}
+	// The two drivers keep only the application's drafts (no seeded run, penalty or payout row of theirs); the third paid
+	// driver's chain is in.
+	var held, heldPens, heldPayouts, others int
+	if err := conn.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM payroll_runs WHERE driver_id = ANY($1::uuid[])),
+		(SELECT count(*) FROM driver_penalties WHERE driver_id = ANY($1::uuid[]) AND id <> ALL($3::uuid[])),
+		(SELECT count(*) FROM transactions WHERE driver_id = ANY($1::uuid[]) AND payroll_run_id IS NOT NULL),
+		(SELECT count(*) FROM payroll_runs WHERE driver_id <> ALL($1::uuid[]) AND id <> ALL($2::uuid[]))`,
+		[]string{r2.driver, r1.driver}, smokeRuns, smokePens).Scan(&held, &heldPens, &heldPayouts, &others); err != nil {
+		t.Fatal(err)
+	}
+	if held != 2 || heldPens != 0 || heldPayouts != 0 || others != 6 {
+		t.Errorf("after the top-up: %d runs of the two drivers (want the 2 drafts), %d seeded penalties and %d payout rows of theirs "+
+			"(want 0), %d seeded runs of the third driver (want 6)", held, heldPens, heldPayouts, others)
+	}
+	rows, err := conn.Query(ctx, `SELECT id::text FROM payroll_runs WHERE driver_id = ANY($1::uuid[])`, []string{r2.driver, r1.driver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if !appRuns[id] {
+			t.Errorf("run %s of a held driver is not the application's", id)
+		}
+	}
+	rows.Close()
+	// The database now differs from the demo manifest by the application's rows: the counts, and invariant 12, which
+	// names exactly the application's two uuidv7 runs. Every other invariant holds, run totals, ledger and penalty
+	// balances (6) included.
+	v := s.seed(t, "--verify", "--profile", "demo")
+	if n := len(passLine.FindAllString(v.stdout, -1)); n != 11 || !strings.Contains(v.stdout, " 6 PASS payroll totals, net and ledger; penalty balances") {
+		t.Fatalf("%d of the 11 invariants a shared database can pass hold after the top-up:\n%s\n%s", n, v.stdout, v.stderr)
+	}
+	notV5 := regexp.MustCompile(`(?m)^ +- (\S+) ([0-9a-f-]{36}): not a uuid v5$`).FindAllStringSubmatch(v.stdout, -1)
+	if len(notV5) != 2 {
+		t.Fatalf("invariant 12 names %d rows, want the application's 2 runs:\n%s", len(notV5), v.stdout)
+	}
+	for _, m := range notV5 {
+		if m[1] != "payroll_runs" || !appRuns[m[2]] {
+			t.Errorf("invariant 12 names %s %s, not an application run", m[1], m[2])
+		}
+	}
+	if again := s.mustSeed(t, "--profile", "demo", "--mode", "upsert"); !strings.Contains(again.stdout, ": 0 rows") ||
+		!strings.Contains(again.stdout, "seed: kept 2 payroll run(s)") {
+		t.Errorf("a second top-up wrote rows, or no longer says what it kept:\n%s", again.stdout)
+	}
+}
+
 // --verify fails (exit 1) when a carrier principal can read another tenant's rows: a permissive policy on
 // tasks opens every task to logitrack_app (R87).
 func TestVerifyFailsOnCarrierLeak(t *testing.T) {

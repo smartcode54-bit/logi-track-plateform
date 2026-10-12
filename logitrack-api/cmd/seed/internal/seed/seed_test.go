@@ -12,6 +12,7 @@ import (
 	"path"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -579,5 +580,35 @@ func TestAppendixCopyMatchesFixture(t *testing.T) {
 		if m[1] != e.Symbol || strings.ReplaceAll(m[2], `\|`, "|") != e.Key || m[3] != e.UUID {
 			t.Errorf("registry row %d: Appendix D %s %s %s, registry.json %s %s %s", i+1, m[1], m[2], m[3], e.Symbol, e.Key, e.UUID)
 		}
+	}
+}
+
+// The load order Appendix D §D.1.5 states is LoadOrder (T46 added leave_request_attachments to both): the order line,
+// parentheticals dropped, split on → and on the commas of a group, then the derived table it names.
+func TestAppendixLoadOrderMatches(t *testing.T) {
+	doc, err := os.ReadFile(appendixD)
+	if err != nil {
+		t.Fatalf("Appendix D: %v", err)
+	}
+	m := regexp.MustCompile("(?ms)^### D\\.1\\.5 Load order.*?\nOrder \\(.*?:\n(tenants .*?)\n").FindStringSubmatch(string(doc))
+	if m == nil {
+		t.Fatal("Appendix D §D.1.5 has no order line starting with tenants")
+	}
+	line, derived, ok := strings.Cut(m[1], "; finally `")
+	if !ok {
+		t.Fatalf("§D.1.5 order line names no derived table: %q", m[1])
+	}
+	line = regexp.MustCompile(`\s*\([^()]*\)`).ReplaceAllString(line, "")
+	var got []string
+	for _, step := range strings.Split(line, "→") {
+		for _, table := range strings.Split(step, ",") {
+			got = append(got, strings.TrimSpace(table))
+		}
+	}
+	if !slices.Equal(got, LoadOrder) {
+		t.Errorf("Appendix D §D.1.5 order\n %v\ndiffers from LoadOrder\n %v", got, LoadOrder)
+	}
+	if name, _, _ := strings.Cut(derived, "`"); name != DerivedTable {
+		t.Errorf("§D.1.5 derives %q, the loader %q", name, DerivedTable)
 	}
 }

@@ -22,7 +22,10 @@ import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
+import { setRealtimeStatus } from "@/lib/realtime/status";
+import { JOB_POLL_MS } from "@/features/jobs/api/jobs";
 import { PAYROLL_PAGE_SIZE, type PayrollRunDTO, type PayrollRunDetailDTO } from "../../api/payroll.go";
+import { DEFAULT_COMPENSATION_CONFIG } from "@/validate/compensationConfigSchema";
 import type { CompConfigDTO } from "../../api/compConfig.go";
 import type { PenaltyDTO } from "../../api/penalties.go";
 import { PayrollPage } from "./PayrollPage";
@@ -186,6 +189,38 @@ describe("payroll over Go", () => {
         await waitFor(() => expect(web.count("GET", "/api/go/v1/jobs/j9")).toBeGreaterThan(0));
     });
 
+    it("keeps polling a joined job while the stream is open (its job.updated goes to the other manager) and refreshes the runs", async () => {
+        setRealtimeStatus("open");
+        try {
+            const { web } = payrollWeb();
+            web.on("POST", "/api/go/v1/jobs/payroll.run", () => goErr(409, "already_exists", { jobId: "j9" }));
+            let gets = 0;
+            web.on("GET", "/api/go/v1/jobs/j9", () => {
+                gets += 1;
+                return gets === 1
+                    ? json(200, { data: { id: "j9", type: "payroll.run", status: "running" } })
+                    : json(200, { data: { id: "j9", type: "payroll.run", status: "succeeded", result: { period: "2026-09", round: "R2", written: 3, skippedApproved: 1, drivers: 4 } } });
+            });
+            const user = userEvent.setup();
+            renderWithProviders(<PayrollPage />);
+            await screen.findByText("Driver 1");
+            const listCalls = () => web.calls.filter((c) => c.method === "GET" && c.url.startsWith("/api/go/v1/payroll?")).length;
+            const before = listCalls();
+            await user.click(screen.getByRole("button", { name: "Generate Payroll" }));
+            expect(await screen.findByText(/already being generated/)).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "Generate Payroll" })).toBeDisabled();
+
+            // No job.updated reaches this tab: the 5 s poll (JOB_POLL_MS) sees the job finish.
+            expect(await screen.findByTestId("payroll-job-result", {}, { timeout: JOB_POLL_MS + 3_000 })).toHaveTextContent("3 written, 1 approved skipped");
+            expect(gets).toBeGreaterThanOrEqual(2);
+            expect(screen.queryByText(/already being generated/)).toBeNull();
+            expect(screen.getByRole("button", { name: "Generate Payroll" })).toBeEnabled();
+            await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+        } finally {
+            setRealtimeStatus("idle");
+        }
+    }, 20_000);
+
     it("names the missing compensation config (409 no_compensation_config)", async () => {
         const { web } = payrollWeb();
         web.on("POST", "/api/go/v1/jobs/payroll.run", () => goErr(409, "failed_precondition", { reason: "no_compensation_config" }));
@@ -321,12 +356,34 @@ describe("compensation config over Go", () => {
         expect(body).not.toHaveProperty("createdAt");
     });
 
-    it("a tenant without a version starts from the defaults", async () => {
+    it("a tenant without a version starts from the legacy page's PRD defaults and saves them", async () => {
         const web = base();
         web.on("GET", "/api/go/v1/payroll/config", (call) => (q(call).get("at") ? json(200, { data: null }) : json(200, { data: [] })));
+        web.on("POST", "/api/go/v1/payroll/config", (call) => json(201, { data: version({ id: "cc9", ...(call.body as object), effectiveFromDate: "2026-10-12" }) }));
+        const user = userEvent.setup();
         renderWithProviders(<PayrollConfigPage />);
         expect(await screen.findByText(/No compensation config yet/)).toBeInTheDocument();
         expect(screen.getByLabelText("Weekday rate (THB/trip)")).toHaveValue(300);
+        // The PRD fuel tiers (10-14 km/L), trip-volume tiers (50/60/70) and LATE_SLA, as LegacyPayrollConfigPage seeded.
+        expect(screen.getByLabelText("Min km/L 1")).toHaveValue(10);
+        expect(screen.getAllByLabelText("Amount (THB) 1").map((el) => (el as HTMLInputElement).valueAsNumber)).toEqual([1000, 1000]);
+        expect(screen.getByLabelText("Min km/L 5")).toHaveValue(14);
+        expect(screen.getByLabelText("Min trips 1")).toHaveValue(50);
+        expect(screen.getByLabelText("Min trips 3")).toHaveValue(70);
+        expect(screen.getByLabelText("Code 1")).toHaveValue("LATE_SLA");
+
+        await user.click(screen.getByRole("button", { name: "Save new version" }));
+        await waitFor(() => expect(web.count("POST", "/api/go/v1/payroll/config")).toBe(1));
+        const body = web.calls.find((c) => c.method === "POST")!.body as CompConfigDTO;
+        expect(body.fuelIncentiveTiers).toEqual(DEFAULT_COMPENSATION_CONFIG.fuelIncentiveTiers);
+        expect(body.fuelIncentiveTiers).toHaveLength(5);
+        expect(body.sso).toEqual(DEFAULT_COMPENSATION_CONFIG.sso);
+        expect(body.tripVolumeTiers).toEqual([
+            { minTrips: 50, amountThb: 1000 },
+            { minTrips: 60, amountThb: 1500 },
+            { minTrips: 70, amountThb: 2000 },
+        ]);
+        expect(body.penaltyTypes.map((p) => p.code)).toEqual(["LATE_SLA"]);
     });
 
     it("lists the fields Go refused (422)", async () => {

@@ -80,6 +80,20 @@ export interface HolidayFields {
     isRecurring: boolean;
 }
 
+/**
+ * Go's limits on a holiday's texts, in characters (runes, after trimming): `name`, `nameEn` and `nameTh` at
+ * most 300, `description`, `descriptionEn` and `descriptionTh` at most 2000 (`internal/hr/holidays.go`
+ * `maxHolidayNameChars`, `maxHolidayDescriptionChars`). The combined `EN (TH)` form counts against the same
+ * limit as each part, so two parts that fit alone can still be refused together.
+ */
+export const HOLIDAY_NAME_MAX_CHARS = 300;
+export const HOLIDAY_DESCRIPTION_MAX_CHARS = 2000;
+
+/** The characters Go counts (code points, as `utf8.RuneCountInString`), not UTF-16 units. */
+export function holidayTextChars(s: string): number {
+    return [...s].length;
+}
+
 /** The legacy display name of the two names (`EN (TH)`), which the Firestore projection keeps for the 3.x app. */
 export function combinedName(en: string | null | undefined, th: string | null | undefined): string {
     const e = en?.trim() ?? "";

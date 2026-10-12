@@ -219,8 +219,11 @@ export async function startPayrollRun(input: { period: string; round: PayrollRou
 
 /**
  * A payroll generation as a Go job (developer-spec.md §7.5): start, then follow `['jobs',id]` (SSE
- * `job.updated`, a 5 s poll while the stream is down). When the job succeeds the runs are stale: the event
- * map does it for an open stream (`JOB_SUCCESS_KEYS`), this hook does it once more for a polled job.
+ * `job.updated`, a 5 s poll while the stream is down). A joined job (409 `already_exists`: another HR
+ * manager's generation of the same round) belongs to another user, and Go sends `job.updated` only on the
+ * owner's `user:{id}` topic: it polls every 5 s until it finishes even while the stream is open. When the job
+ * succeeds the runs are stale: the event map does it for an open stream (`JOB_SUCCESS_KEYS`), this hook does
+ * it once more for a polled or joined job.
  */
 export function usePayrollRunJob() {
     const client = useQueryClient();
@@ -228,7 +231,7 @@ export function usePayrollRunJob() {
     const [joined, setJoined] = useState(false);
     const [starting, setStarting] = useState(false);
     const [startError, setStartError] = useState<unknown>(null);
-    const job = useJob<PayrollRunResult>(jobId);
+    const job = useJob<PayrollRunResult>(jobId, { pollWhileStreamOpen: joined });
     const data = job.data as JobDTO<PayrollRunResult> | undefined;
     const finished = isJobFinished(data);
     const settled = useRef<string | null>(null);
