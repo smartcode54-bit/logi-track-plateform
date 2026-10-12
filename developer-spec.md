@@ -1973,6 +1973,8 @@ Ids (§13.8): class B rows created in PG use `id::text` as doc id (stored in `le
 | `sendCustomerLineNotification` | by event: `POST /v1/mobile/{tasks\|trips\|standby}/{id}/line-notify` (P5; idempotent via `line_*_notified_at`) | `{ok, skipped?, reason?}` |
 | `markBroadcastRead` | `POST /v1/mobile/broadcasts/{id}/read` (P5) | `{ok, alreadyRead}` |
 
+As built (T32): `setDriverClaims` and `addDeliveryStop` forward from `functions/src/core/goShim.ts` / `goShimCallables.ts` once `LOGITRACK_SHIM_CALLABLES` lists them; `computeTripBillingSnapshot` since T38. `addDeliveryStop`'s legacy `deliveryStops` echo is not rebuilt (the APK reads only `ok` and `message`, `mob:features/loading_phase/presentation/pages/loading_phase_page.dart:1394-1403`), and `setDriverClaims` answers from PostgreSQL (`GET /v1/mobile/me`), not from the Firestore `drivers` collection. Details: Appendix B §B.2.22 "As built (T32)".
+
 ### 11.11 API versioning for installed APKs
 
 The MANDATORY API-versioning rule of `.vibe-rules.md` (as of commit 4f552099) carries over: `/v1` is additive only (§11.3); a breaking change gets a new path and the old one keeps `Deprecation`/`Sunset` headers; evidence is `http_requests_total{route, app_version}` for Go and invocation metrics plus the shim counter for callables (R26); delete only after >= 2 release cycles at zero traffic; the floor is the only forcing tool; §11.10 callable contracts are frozen until P8.

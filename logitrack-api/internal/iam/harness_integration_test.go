@@ -91,10 +91,13 @@ func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	return newWorldOpts(t, worldOpts{firebase: fb})
 }
 
-// worldOpts vary the world: the Firebase bridge (T19 mirror tests) and the request rate limits (T32K).
+// worldOpts vary the world: the Firebase bridge (T19 mirror tests), the request rate limits (T32K), and the route
+// groups of cmd/api a test mounts in place of the key-test routes (T32: the /v1/mobile group of app.MobileGroups,
+// which the key-test /v1/mobile group would collide with).
 type worldOpts struct {
 	firebase  auth.Firebase
 	rateLimit bool
+	groups    func(w *world, svc *auth.Service) []ingress.Group
 }
 
 // testPepper is the API_KEY_PEPPER of the world: a placeholder, built at run time.
@@ -173,7 +176,11 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	groups = append(groups, iam.AdminGroups(admin, svc.RequireAuth())...)
 	groups = append(groups, iam.APIKeyGroups(keys, svc.RequireAuth())...)
 	groups = append(groups, ingress.Group{Prefix: "/v1/rbactest", Mount: w.testRoutes(svc.RequireAuth())})
-	groups = append(groups, w.keyTestGroups(svc)...)
+	if o.groups != nil {
+		groups = append(groups, o.groups(w, svc)...)
+	} else {
+		groups = append(groups, w.keyTestGroups(svc)...)
+	}
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},
 		Runtime:      app.Runtime{MetricsAddr: "127.0.0.1:0", ShutdownTimeout: 3 * time.Second},

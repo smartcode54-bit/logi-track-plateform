@@ -93,9 +93,13 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
+	owners, err := iam.NewTaskOwners(w.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.svc, err = operations.New(operations.Deps{Pool: w.pool, Log: zerolog.Nop(), Now: func() time.Time { return now },
 		Files: fakeFiles{}, Hubs: writeHubs{w, &sync.Mutex{}}, Reassigner: mover, Renamer: renamer, Commits: fakeCommits{w},
-		PGOwned: opt.pgOwned, WriteBack: opt.writeBack})
+		PGOwned: opt.pgOwned, WriteBack: opt.writeBack, Owners: owners})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +129,9 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 		"platformO": {UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnTenant: &w.O,
 			TenantKind: "own_fleet", Steward: true, SubtenantIDs: []uuid.UUID{w.A}, Caps: caps(admin, platform)},
 		"apikey": {UserID: uuid.New(), AMR: authz.AMRAPIKey, TenantID: &w.O, Caps: admin},
+		// Drivers acting as themselves (the shim targets below /v1/mobile, T32).
+		"driverO1": clone(w.driverO1, authz.TenantDefaults(authz.Driver)),
+		"driverO2": clone(w.driverO2, authz.TenantDefaults(authz.Driver)),
 	}
 	// Every principal is a login (created_by, renamed_by and the audit rows reference users).
 	for name, p := range r.ps {
@@ -141,6 +148,7 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 	for _, g := range operations.Groups(r.svc, auth) {
 		g.Mount(r.app.Group(g.Prefix))
 	}
+	operations.MobileRoutes(r.svc, auth)(r.app.Group("/v1/mobile"))
 	return r
 }
 

@@ -22,9 +22,15 @@
  * (deploy.yml) ignores param defaults and aborts the whole hosting+functions+firestore deploy without them; an
  * interactive one prompts and creates the secret. Turning a shim on is then only a change of those values.
  *
- * First shim (T38): computeTripBillingSnapshot -> POST /v1/mobile/trips/{id}/billing/compute. T32 adds the others.
+ * Shims: setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32, P2;
+ * goShimCallables.ts rebuilds their legacy answers), computeTripBillingSnapshot -> POST
+ * /v1/mobile/trips/{id}/billing/compute (T38, P3); markBroadcastRead (T48) and sendCustomerLineNotification (T49) join
+ * with their targets. Every call goes through callShim, which logs one line per call (callable, HTTP status, duration:
+ * the latency evidence of the shims, AC < 300 ms p95 added) and an error line when the API refuses the shim's
+ * credentials (401: a revoked, expired or unknown LOGITRACK_API_KEY, or a token Go rejects), never the key itself.
  */
 
+import { logger } from "firebase-functions";
 import { defineSecret, defineString } from "firebase-functions/params";
 
 export const logitrackApiBaseUrl = defineString("LOGITRACK_API_BASE_URL", {
@@ -50,6 +56,26 @@ export function shimListed(list: string, callable: string): boolean {
 /** The callable's name in LOGITRACK_SHIM_CALLABLES (T38: forwarded to POST /v1/mobile/trips/{id}/billing/compute). */
 export const COMPUTE_TRIP_SHIM = "computeTripBillingSnapshot";
 
+/** The callable's name in LOGITRACK_SHIM_CALLABLES (T32: forwarded to GET /v1/mobile/me). */
+export const SET_DRIVER_CLAIMS_SHIM = "setDriverClaims";
+
+/** The callable's name in LOGITRACK_SHIM_CALLABLES (T32: forwarded to POST /v1/mobile/tasks/{id}/stops). */
+export const ADD_DELIVERY_STOP_SHIM = "addDeliveryStop";
+
+/**
+ * The API origin a callable forwards to, or "" while it keeps its legacy path: the origin must be set and the callable
+ * listed in LOGITRACK_SHIM_CALLABLES (each shim goes live in its own phase from one code base).
+ */
+export function shimOrigin(callable: string, rawBase: string, list: string): string {
+    const base = shimBaseUrl(rawBase);
+    return base !== "" && shimListed(list, callable) ? base : "";
+}
+
+/** shimOrigin with the deployed params. */
+export function shimTarget(callable: string): string {
+    return shimOrigin(callable, logitrackApiBaseUrl.value(), logitrackShimCallables.value());
+}
+
 /**
  * Whether billing is priced by the Go API (P3): the compute shim is listed and the API origin set. The legacy 15-minute
  * sweeps (autoComputeBillingOnDelivery, autoComputeStandbyBilling) then stand down: billing.compute and its safety net
@@ -72,6 +98,103 @@ export function shimBaseUrl(raw: string): string {
 /** The shim target of a trip compute: `{base}/v1/mobile/trips/{id}/billing/compute`, the id path-escaped. */
 export function computeTripShimUrl(base: string, tripId: string): string {
     return `${base}/v1/mobile/trips/${encodeURIComponent(tripId)}/billing/compute`;
+}
+
+/** The shim target of setDriverClaims: `{base}/v1/mobile/me`. */
+export function mobileMeShimUrl(base: string): string {
+    return `${base}/v1/mobile/me`;
+}
+
+/** The shim target of addDeliveryStop: `{base}/v1/mobile/tasks/{id}/stops`, the id (a Firestore doc id) path-escaped. */
+export function addStopShimUrl(base: string, taskId: string): string {
+    return `${base}/v1/mobile/tasks/${encodeURIComponent(taskId)}/stops`;
+}
+
+/** The Go error envelope's code and details.reason (R48: `{error: {code, message, details}}`), "" when absent. */
+export function shimError(body: unknown): { code: string; reason: string; field: string } {
+    const obj = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+    const e = (obj.error && typeof obj.error === "object" ? obj.error : {}) as Record<string, unknown>;
+    const d = (e.details && typeof e.details === "object" ? e.details : {}) as Record<string, unknown>;
+    const fields = Array.isArray(d.fields) ? (d.fields as Array<Record<string, unknown>>) : [];
+    const first = fields.length > 0 && fields[0] && typeof fields[0] === "object" ? fields[0] : {};
+    return {
+        code: typeof e.code === "string" ? e.code : "",
+        reason: typeof d.reason === "string" ? d.reason : "",
+        field: typeof d.field === "string" ? d.field : typeof first.field === "string" ? first.field : "",
+    };
+}
+
+/** The `data` object of a Go success envelope (`{data: {...}}`), {} when absent. */
+export function shimData(body: unknown): Record<string, unknown> {
+    const obj = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+    return (obj.data && typeof obj.data === "object" ? obj.data : {}) as Record<string, unknown>;
+}
+
+/** The logger callShim writes to (firebase-functions' logger in production; a stub in tests). */
+export interface ShimLogger {
+    info(msg: string, data?: Record<string, unknown>): void;
+    error(msg: string, data?: Record<string, unknown>): void;
+}
+
+/** One shim call as the API answered it: status 0 when the API was unreachable or the call timed out. */
+export interface ShimAnswer {
+    status: number;
+    body: unknown;
+    ms: number;
+}
+
+/**
+ * Sends one shim call: `X-Api-Key` (the cf_shim key) and the caller's own `Authorization: Bearer <Firebase ID token>`,
+ * a JSON body for POST, bounded by SHIM_TIMEOUT_MS. Logs `[shim] call` with the callable, the HTTP status and the
+ * duration, and an error when the API refuses the shim credentials (401) or cannot be reached; the key and the token
+ * are never logged.
+ */
+export async function callShim(
+    callable: string,
+    method: "GET" | "POST",
+    url: string,
+    apiKey: string,
+    bearer: string,
+    body?: unknown,
+    log: ShimLogger = logger,
+): Promise<ShimAnswer> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SHIM_TIMEOUT_MS);
+    const start = Date.now();
+    const headers: Record<string, string> = { "X-Api-Key": apiKey, Authorization: bearer };
+    if (method === "POST") headers["Content-Type"] = "application/json";
+    try {
+        const res = await fetch(url, {
+            method,
+            headers,
+            body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+            signal: controller.signal,
+        });
+        let parsed: unknown = null;
+        try {
+            parsed = await res.json();
+        } catch {
+            parsed = null;
+        }
+        const ms = Date.now() - start;
+        log.info("[shim] call", { callable, status: res.status, ms });
+        if (res.status === 401) {
+            const e = shimError(parsed);
+            log.error("[shim] the Go API refused the shim credentials (LOGITRACK_API_KEY revoked, expired or unknown, or the caller's ID token)", {
+                callable,
+                status: res.status,
+                code: e.code,
+                reason: e.reason,
+            });
+        }
+        return { status: res.status, body: parsed, ms };
+    } catch {
+        const ms = Date.now() - start;
+        log.error("[shim] the Go API is unreachable", { callable, ms });
+        return { status: 0, body: null, ms };
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 /** The legacy callable's answer (fn tripBillingOnDelivered ComputeBillingResponse) the shim maps to. */
@@ -110,27 +233,15 @@ export function isMobileShimCall(token: Record<string, unknown> | undefined, for
     return token.role === "driver" || (typeof token.driverId === "string" && token.driverId !== "");
 }
 
-/** Posts one shim call; network failures and timeouts answer `{ok: false, error: "go_unavailable"}`. */
-export async function postShim(url: string, apiKey: string, bearer: string, body: unknown): Promise<ShimComputeResponse> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SHIM_TIMEOUT_MS);
-    try {
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Api-Key": apiKey, Authorization: bearer },
-            body: JSON.stringify(body ?? {}),
-            signal: controller.signal,
-        });
-        let parsed: unknown = null;
-        try {
-            parsed = await res.json();
-        } catch {
-            parsed = null;
-        }
-        return mapComputeShimAnswer(res.status, parsed);
-    } catch {
-        return { ok: false, error: "go_unavailable" };
-    } finally {
-        clearTimeout(timer);
-    }
+/** Posts one compute shim call; network failures and timeouts answer `{ok: false, error: "go_unavailable"}`. */
+export async function postShim(
+    url: string,
+    apiKey: string,
+    bearer: string,
+    body: unknown,
+    log: ShimLogger = logger,
+): Promise<ShimComputeResponse> {
+    const a = await callShim(COMPUTE_TRIP_SHIM, "POST", url, apiKey, bearer, body ?? {}, log);
+    if (a.status === 0) return { ok: false, error: "go_unavailable" };
+    return mapComputeShimAnswer(a.status, a.body);
 }

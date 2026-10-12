@@ -4,6 +4,8 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
+import { ADD_DELIVERY_STOP_SHIM, addStopShimUrl, callShim, logitrackApiKey, shimTarget } from "./core/goShim";
+import { addStopShimBody, mapAddStopAnswer } from "./core/goShimCallables";
 
 const COL_TRIP_RECORDS = "trip_records";
 const COL_TASKS = "tasks";
@@ -337,9 +339,14 @@ export const submitDeliveryStopProgress = onCall(
  *
  * Upserts task.deliveryStops; upgrades a single-stop task to isMultiDelivery when the
  * driver adds the first extra stop (seeds the primary destination as stop 1).
+ *
+ * mv-go shim (T32, R45): while LOGITRACK_SHIM_CALLABLES lists addDeliveryStop, the stop is added by the Go API
+ * (POST /v1/mobile/tasks/{taskId}/stops with the cf_shim key and the caller's own Firebase ID token: the task's driver
+ * or helper only, Firestore written first while operations is Firestore-owned); the answer keeps its legacy
+ * `{ok, message}` and HttpsError codes (goShimCallables.ts).
  */
 export const addDeliveryStop = onCall(
-    { enforceAppCheck: false }, // Disable App Check to allow local/dev testing
+    { enforceAppCheck: false, secrets: [logitrackApiKey] }, // Disable App Check to allow local/dev testing
     async (request): Promise<AddDeliveryStopResponse> => {
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -354,6 +361,14 @@ export const addDeliveryStop = onCall(
         }
         if (!data.destination) {
             throw new HttpsError("invalid-argument", "destination is required");
+        }
+
+        const base = shimTarget(ADD_DELIVERY_STOP_SHIM);
+        if (base !== "") {
+            const bearer = String(request.rawRequest?.headers?.authorization ?? "");
+            const answer = await callShim(ADD_DELIVERY_STOP_SHIM, "POST", addStopShimUrl(base, String(data.taskId)),
+                logitrackApiKey.value(), bearer, addStopShimBody(data as unknown as Record<string, unknown>));
+            return mapAddStopAnswer(answer);
         }
 
         const db = admin.firestore();

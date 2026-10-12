@@ -488,8 +488,9 @@ func (s *Service) cancelTaskWriteBack(ctx context.Context, p *authz.Principal, r
 
 // addStopWriteBack is POST /v1/tasks/{id}/stops while operations is Firestore-owned: the stop is appended to the
 // document's own deliveryStops (read from Firestore, so the progress the 3.x app wrote on the other stops is kept),
-// under the update time it read; a concurrent change of the document retries the read (three times, then 409).
-func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid string, d directory, id uuid.UUID, in stopInput) (WriteResult, error) {
+// under the update time it read; a concurrent change of the document retries the read (three times, then 409). wasMulti
+// is the document's isMultiDelivery as read (multiDeliveryTrips.ts:432).
+func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid string, d directory, id uuid.UUID, in stopInput) (stopAdded, error) {
 	var cur Task
 	var st NewStop
 	var party *operationsdb.WritePartyRow
@@ -507,25 +508,26 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 		return nil
 	})
 	if err != nil {
-		return WriteResult{}, err
+		return stopAdded{}, err
 	}
 	dest := normalizeDestination(st.Destination)
 	if dest == "" {
-		return WriteResult{}, invalid("destination", "required")
+		return stopAdded{}, invalid("destination", "required")
 	}
 	for attempt := 0; ; attempt++ {
 		fields, updated, ok, err := s.wb.Writer.Get(ctx, CollTasks, *cur.LegacyDocID)
 		if err != nil {
-			return WriteResult{}, writeback.ErrUnavailable(err)
+			return stopAdded{}, writeback.ErrUnavailable(err)
 		}
 		if !ok {
-			return WriteResult{}, notFound(pgx.ErrNoRows)
+			return stopAdded{}, notFound(pgx.ErrNoRows)
 		}
+		wasMulti, _ := fields["isMultiDelivery"].(bool)
 		stops, _ := fields["deliveryStops"].([]any)
 		if len(stops) == 0 {
 			primary := normalizeDestination(stringOf(fields["destination"]))
 			if primary == "" {
-				return WriteResult{}, errPrecondition("no_primary_destination", "the task has no destination to keep as stop 1")
+				return stopAdded{}, errPrecondition(ReasonNoPrimaryDestination, "the task has no destination to keep as stop 1")
 			}
 			first := map[string]any{"index": int64(1), "destination": primary, "sequence": int64(0), "status": "pending"}
 			for _, k := range []string{"destinationLinkedCustomerId", "destinationLinkedCustomerName",
@@ -540,7 +542,7 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 		for _, raw := range stops {
 			m, _ := raw.(map[string]any)
 			if normalizeDestination(stringOf(m["destination"])) == dest {
-				return WriteResult{}, ErrDuplicateDestination(dest)
+				return stopAdded{}, ErrDuplicateDestination(dest)
 			}
 			if i, ok := m["index"].(int64); ok && i > next {
 				next = i
@@ -560,7 +562,7 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 				stop["destinationLinkedCustomerId"], stop["destinationLinkedCustomerName"] = pid, name
 				stop["destinationLinkedCustomerCode"], stop["destinationCustomerLinkKind"] = code, kind
 			} else {
-				return WriteResult{}, notProjected("destinationLinkedPartyId")
+				return stopAdded{}, notProjected("destinationLinkedPartyId")
 			}
 		}
 		w := wbDoc{collection: CollTasks, docID: *cur.LegacyDocID, updateTime: updated, fields: map[string]any{
@@ -570,11 +572,12 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 			continue
 		}
 		if err != nil {
-			return WriteResult{}, err
+			return stopAdded{}, err
 		}
 		s.notifyWriteBack(ctx, p, rid, at, onDoc(*cur.LegacyDocID, taskEvent(RouteTaskUpdated, cur, []string{"deliveryStops"}))...)
+		pending := echo(id, w, at)
 		if !acked {
-			return echo(id, w, at), nil
+			return stopAdded{taskID: id, echo: &pending, wasMulti: wasMulti}, nil
 		}
 		var rows []TaskStop
 		if err := s.read(ctx, p, func(q *operationsdb.Queries) error {
@@ -582,13 +585,13 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 			rows, err = q.TaskStops(ctx, id)
 			return err
 		}); err != nil {
-			return echo(id, w, at), nil //nolint:nilerr // written and acknowledged; a failed read answers the echo
+			return stopAdded{taskID: id, echo: &pending, wasMulti: wasMulti}, nil //nolint:nilerr // written and acknowledged; a failed read answers the echo
 		}
-		out := make([]TaskStopRow, 0, len(rows))
+		out := stopAdded{taskID: id, stops: make([]TaskStopRow, 0, len(rows)), wasMulti: wasMulti}
 		for _, r := range rows {
-			out = append(out, d.taskStop(r, !scoped(p)))
+			out.stops = append(out.stops, d.taskStop(r, stopRowsVisible(p)))
 		}
-		return WriteResult{Status: http.StatusOK, Data: map[string]any{"taskId": id, "stops": out}}, nil
+		return out, nil
 	}
 }
 

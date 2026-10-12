@@ -1,5 +1,14 @@
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import {
+    SET_DRIVER_CLAIMS_SHIM,
+    callShim,
+    logitrackApiKey,
+    mobileMeShimUrl,
+    shimTarget,
+} from "./core/goShim";
+import { type ClaimsStore, setDriverClaimsViaGo } from "./core/goShimCallables";
 
 // Admin emails - hardcoded for now
 const ADMIN_EMAILS = [
@@ -68,11 +77,24 @@ export const setAdminClaims = onCall(async (request) => {
     }
 });
 
+/** The Firebase side of the setDriverClaims shim: Admin SDK claims (merged) and the users/{uid} mirror document. */
+const adminClaimsStore: ClaimsStore = {
+    getClaims: async (uid) => (await admin.auth().getUser(uid)).customClaims ?? {},
+    setClaims: (uid, claims) => admin.auth().setCustomUserClaims(uid, claims),
+    markDriver: async (uid) => {
+        await admin.firestore().collection("users").doc(uid).set({ role: "driver" }, { merge: true });
+    },
+};
+
 /**
  * Cloud Function to set driver claims for users who login from mobile app.
  * If the user exists in the drivers collection, set role=driver and sync to users.
+ *
+ * mv-go shim (T32, R45): while LOGITRACK_SHIM_CALLABLES lists setDriverClaims, who the caller is comes from the Go API
+ * (GET /v1/mobile/me with the cf_shim key and the caller's own Firebase ID token) instead of the Firestore drivers
+ * collection; the claims are merged as before and the answer keeps its legacy shape (goShimCallables.ts).
  */
-export const setDriverClaims = onCall(async (request) => {
+export const setDriverClaims = onCall({ secrets: [logitrackApiKey] }, async (request) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "User must be authenticated");
     }
@@ -81,6 +103,13 @@ export const setDriverClaims = onCall(async (request) => {
     const email = request.auth.token.email;
 
     console.log(`[setDriverClaims] Processing request for user: ${email} (${uid})`);
+
+    const base = shimTarget(SET_DRIVER_CLAIMS_SHIM);
+    if (base !== "") {
+        const bearer = String(request.rawRequest?.headers?.authorization ?? "");
+        const answer = await callShim(SET_DRIVER_CLAIMS_SHIM, "GET", mobileMeShimUrl(base), logitrackApiKey.value(), bearer);
+        return setDriverClaimsViaGo(uid, answer, adminClaimsStore, logger);
+    }
 
     try {
         const user = await admin.auth().getUser(uid);

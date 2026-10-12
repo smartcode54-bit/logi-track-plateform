@@ -192,7 +192,7 @@ func AddTaskStop(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, st NewStop, a
 	if len(stops) == 0 {
 		primary := normalizeDestination(task.DestinationRaw)
 		if primary == "" {
-			return nil, errPrecondition("no_primary_destination", "the task has no destination to keep as stop 1")
+			return nil, errPrecondition(ReasonNoPrimaryDestination, "the task has no destination to keep as stop 1")
 		}
 		first, err := q.InsertTaskStop(ctx, operationsdb.InsertTaskStopParams{
 			TaskID: taskID, StopIndex: 1, DestinationRaw: primary, DestinationHubID: task.DestinationHubID,

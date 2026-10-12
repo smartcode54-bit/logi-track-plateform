@@ -24,10 +24,16 @@ import (
 //   - 403 no_account / account_disabled / driver_profile_required, 404 (no verifier configured), 503 (signing keys
 //     unreachable): the outcomes of VerifyFirebaseIDToken.
 //
-// The first shim target is POST /v1/mobile/trips/{id}/billing/compute (T38); T32 mounts the others with it. RequireShim
-// never reads s while building the handler (cmd/api `routes` passes a nil *Service).
+// The shim targets are GET /v1/mobile/me (setDriverClaims) and POST /v1/mobile/tasks/{id}/stops (addDeliveryStop) of
+// T32 and POST /v1/mobile/trips/{id}/billing/compute (computeTripBillingSnapshot) of T38; markBroadcastRead (T48) and
+// sendCustomerLineNotification (T49) join with their targets. While building the handler RequireShim reads s only to
+// create the callable's series at zero, so a shim that is never called still reports 0 (R26); cmd/api `routes`
+// passes a nil *Service.
 func (s *Service) RequireShim(callable string) fiber.Handler {
 	pol := authPolicy{shim: true}
+	if s != nil && s.shimRequests != nil {
+		s.shimRequests.WithLabelValues(callable)
+	}
 	return func(c fiber.Ctx) error {
 		keys := c.Request().Header.PeekAll(HeaderAPIKey)
 		raw, present := bearer(c)
