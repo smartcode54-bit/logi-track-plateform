@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/bangchak"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cartrack"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
@@ -51,6 +52,38 @@ func (b Bangchak) BangchakClient() (bangchak.Client, error) {
 		return nil, &config.Error{Invalid: []string{"BANGCHAK_API_BASE_URL: " + err.Error()}}
 	}
 	return c, nil
+}
+
+// Cartrack is the Cartrack Fleet API of the worker's cartrack.sync consumer (P6, R70; main spec §16.1: the credentials
+// are the worker's alone, rotated before use, §16.5). The client is built only when the base URL and both credentials
+// are set; otherwise the sync is off and every cartrack.sync run (a cron fire, a probe) ends failed naming the
+// variables, so no request leaves the process. The local .env.example points the base URL at WireMock and leaves the
+// credentials blank, so the local worker starts with the sync off.
+type Cartrack struct {
+	CartrackBaseURL  string `env:"CARTRACK_API_BASE_URL"`
+	CartrackUsername string `env:"CARTRACK_API_USERNAME"`
+	CartrackPassword string `env:"CARTRACK_API_PASSWORD"`
+}
+
+func (c Cartrack) validate(errs *[]string) {
+	if strings.TrimSpace(c.CartrackBaseURL) == "" {
+		return
+	}
+	if err := cartrack.ValidateBaseURL(c.CartrackBaseURL); err != nil {
+		*errs = append(*errs, config.Invalidf("CARTRACK_API_BASE_URL", "%v", err))
+	}
+}
+
+// CartrackClient is the status client, nil while the base URL or a credential is unset. It does no I/O.
+func (c Cartrack) CartrackClient() (cartrack.Client, error) {
+	if strings.TrimSpace(c.CartrackBaseURL) == "" || strings.TrimSpace(c.CartrackUsername) == "" || c.CartrackPassword == "" {
+		return nil, nil
+	}
+	cl, err := cartrack.New(cartrack.Config{BaseURL: c.CartrackBaseURL, Username: c.CartrackUsername, Password: c.CartrackPassword})
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{"CARTRACK_API_BASE_URL: " + err.Error()}}
+	}
+	return cl, nil
 }
 
 // WorkerGroups are the consumer groups of Appendix B §B.5.3 that WORKER_CONSUMERS selects from.
@@ -100,6 +133,8 @@ type WorkerConfig struct {
 
 	// bangchak.snapshot (T37): the daily and monthly fuel price snapshots (off without BANGCHAK_API_BASE_URL).
 	Bangchak
+	// cartrack.sync (T53): the vehicle positions (off without CARTRACK_API_BASE_URL and both credentials).
+	Cartrack
 
 	// The coexistence consumers of group sync (T24, developer-spec.md §13.7-§13.8): which collections are mirrored or
 	// projected follows from PG_OWNED_DOMAINS; the pins narrow it. The mirror (ETL_SYNC_ENABLED) is the ETL load path
@@ -141,6 +176,7 @@ func (c *WorkerConfig) Validate() error {
 	c.AMQPEnv.validate(&errs)
 	c.Storage.validate(&errs)
 	c.Bangchak.validate(&errs)
+	c.Cartrack.validate(&errs)
 	if d := strings.TrimSpace(c.PDFFontDir); d != "" && !strings.HasPrefix(d, "/") {
 		errs = append(errs, config.Invalidf("PDF_FONT_DIR", "must be an absolute directory (or empty for the built-in Sarabun)"))
 	}
@@ -237,6 +273,9 @@ type SchedulerConfig struct {
 	// FuelMonthlySnapshotEnabled schedules bangchak.snapshot at 05:00 Asia/Bangkok (T37, R70; main spec §7.4); off,
 	// the snapshots run only from POST /v1/jobs/bangchak.snapshot.
 	FuelMonthlySnapshotEnabled bool `env:"FUEL_MONTHLY_SNAPSHOT_ENABLED"`
+	// CartrackSyncEnabled schedules cartrack.sync every three minutes (T53, R70; main spec §7.4); off, positions move
+	// only through GET /v1/admin/cartrack/probe's probe runs, which write nothing.
+	CartrackSyncEnabled bool `env:"CARTRACK_SYNC_ENABLED"`
 	// JWTAccessTTL is the life of the revoked-session markers the relay re-applies from
 	// user.sessions_revoked (+ 30 s leeway, Appendix C §C.4.7): the same value the api signs with.
 	JWTAccessTTL time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`

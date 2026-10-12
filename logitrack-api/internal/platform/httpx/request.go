@@ -3,6 +3,7 @@ package httpx
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/gofiber/fiber/v3"
@@ -40,7 +41,9 @@ func DecodeJSON(c fiber.Ctx, v any) error {
 	if err := dec.Decode(v); err != nil {
 		return ErrBadRequest("malformed JSON body")
 	}
-	if dec.More() {
+	// Nothing may follow the object. dec.More() alone reports false before a stray "}" or "]", so the next token must be
+	// the end of the input: the body is then exactly what json.Unmarshal accepts.
+	if _, err := dec.Token(); err != io.EOF {
 		return ErrBadRequest("malformed JSON body")
 	}
 	return nil

@@ -77,6 +77,15 @@ func TestTableAndPending(t *testing.T) {
 			t.Fatalf("etl.reconcile: %+v", rec)
 		}
 	}
+	// CARTRACK_SYNC_ENABLED adds cartrack.sync every three minutes as a command cron (T53, R70).
+	on = Table(nil, nil, Gates{CartrackSync: true})
+	last = on[len(on)-1]
+	if len(on) != len(table)+1 || last.Name != "cartrack.sync" || last.Spec != "*/3 * * * *" || last.Kind != Command {
+		t.Fatalf("cartrack.sync: %+v", last)
+	}
+	if slices.ContainsFunc(Pending, func(p struct{ Name, Spec, Issue, Gate string }) bool { return p.Name == "cartrack.sync" }) {
+		t.Fatal("cartrack.sync's consumer has landed (T53): it is gated, not pending")
+	}
 	if _, err := NewCron(nil, nil, []Job{{Name: "x.y", Spec: "every day", Kind: Command}}, zerolog.Nop(), nil); err == nil {
 		t.Fatal("a bad spec was accepted")
 	}

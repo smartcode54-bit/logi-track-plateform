@@ -22,6 +22,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/render"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/coexist"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
@@ -305,6 +306,19 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 	}
 	available[hr.QueuePayroll] = payroll.Registration()
 
+	// cartrack.sync (T53, R70): the Cartrack client only when CARTRACK_API_BASE_URL and both credentials are set (no I/O
+	// here); off, every run ends failed naming the variables.
+	positions, err := cfg.CartrackClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Info().Bool("cartrack_enabled", positions != nil).Msg("cartrack.sync")
+	carSync, err := locations.NewSyncJob(locations.SyncDeps{Pool: pool, Cartrack: positions, Locks: jobs.NewRedisLocker(rdb, ks), Log: log})
+	if err != nil {
+		return nil, nil, err
+	}
+	available[locations.QueueCartrack] = carSync.Registration()
+
 	// security.audit (T28): the consumer-written security_events rows (login_failed, login_lockout,
 	// password_reset_requested, tenant_orphans_detected, ...); tenancy.orphan-scan (T28): the daily quarantine
 	// counts and broker-drift report, tenant_orphan_rows_total on this process's /metrics.
@@ -494,7 +508,7 @@ func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
 			locks := jobs.NewRedisLocker(rdb, ks)
 			rt := realtime.NewWriter(rdb, ks, cfg.RTLogMaxLen, cfg.RTLogTTL)
 			table := scheduler.Table(pool, rt, scheduler.Gates{FuelMonthlySnapshot: cfg.FuelMonthlySnapshotEnabled,
-				ETLSync: cfg.ETLSyncEnabled, ETLSyncSpec: ETLSyncSpec(cfg.ETLSyncInterval)})
+				ETLSync: cfg.ETLSyncEnabled, ETLSyncSpec: ETLSyncSpec(cfg.ETLSyncInterval), CartrackSync: cfg.CartrackSyncEnabled})
 			log.Info().Bool("etl_sync_enabled", cfg.ETLSyncEnabled).Dur("etl_sync_interval", cfg.ETLSyncInterval).Msg("etl.sync cron")
 			cron, err := scheduler.NewCron(pool, locks, table, log, m.Registry)
 			if err != nil {
