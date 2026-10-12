@@ -1,14 +1,10 @@
 /**
  * A fake web origin for the React tests of T18: `fetch` answers the BFF paths (`/api/auth/*`,
- * `/api/go/v1/*`) from a small programmable Go state, and the Firebase SDK of the bridge is a fake
- * that counts mints and sign-ins. No network, no Firebase.
+ * `/api/go/v1/*`) from a small programmable Go state. No network; since TW7 no Firebase at all.
  */
 import { vi } from "vitest";
-import type { Auth, IdTokenResult, User, UserCredential } from "firebase/auth";
 
 import type { MeDTO } from "@/features/auth/api/me";
-import { firebaseCustomToken } from "@/lib/authClient";
-import { configureFirebaseBridge, type BridgeDeps } from "@/lib/firebaseBridge";
 
 export interface FakeCall {
     method: string;
@@ -43,7 +39,6 @@ export function makeMe(over: Partial<MeDTO> = {}): MeDTO {
         customerScopes: [],
         capabilities: ["users:view", "users:manage", "users:assign_role", "users:revoke_sessions"],
         mustChangePassword: false,
-        legacyAuthUid: "fb-u-1",
         ...over,
     };
 }
@@ -91,38 +86,4 @@ export function fakeWeb() {
             return calls.filter((c) => c.method === method && c.url.split("?")[0] === path).length;
         },
     };
-}
-
-/**
- * A fake Firebase SDK for the bridge; the custom token names the uid ("uid|role"). The mint is the real
- * `POST /api/auth/firebase-token` call (answered by `fakeWeb`) unless replaced.
- */
-export function fakeFirebase(mint: () => Promise<{ customToken: string }> = firebaseCustomToken) {
-    // `extraClaims`: more claims of the ID token (the legacy ids `customerScopeId`, `partnerScopeId`, ...).
-    const state = { current: null as { uid: string; role: string } | null, signIns: 0, signOuts: 0, extraClaims: {} as Record<string, unknown> };
-    const toUser = (uid: string) => ({ uid, emailVerified: true, metadata: {} }) as unknown as User;
-    const deps: BridgeDeps = {
-        auth: {
-            authStateReady: async () => undefined,
-            get currentUser() {
-                return state.current ? toUser(state.current.uid) : null;
-            },
-        } as unknown as Auth,
-        signInWithCustomToken: async (_a, token) => {
-            const [uid, role] = token.split("|");
-            state.current = { uid, role };
-            state.signIns += 1;
-            return { user: toUser(uid) } as unknown as UserCredential;
-        },
-        signOut: async () => {
-            state.current = null;
-            state.signOuts += 1;
-        },
-        getIdTokenResult: async () =>
-            ({ claims: state.current ? { role: state.current.role, admin: state.current.role === "admin", ...state.extraClaims } : {} }) as unknown as IdTokenResult,
-        mint,
-        sleep: async () => undefined,
-    };
-    configureFirebaseBridge(async () => deps);
-    return state;
 }

@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { User, Mail, Calendar, Shield } from "lucide-react";
+import { User, Mail, Shield } from "lucide-react";
 
 export default function MyAccountPage() {
   const authContext = useAuth();
@@ -110,25 +110,6 @@ export default function MyAccountPage() {
                     <p className="text-sm font-medium">Email</p>
                     <p className="text-sm text-muted-foreground">
                       {currentUser.email}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {currentUser.emailVerified ? (
-                        <span className="text-green-600">✓ Verified</span>
-                      ) : (
-                        <span className="text-yellow-600">⚠ Not verified</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  <Calendar className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Account Created</p>
-                    <p className="text-sm text-muted-foreground">
-                      {currentUser.metadata.creationTime
-                        ? new Date(currentUser.metadata.creationTime).toLocaleDateString()
-                        : "N/A"}
                     </p>
                   </div>
                 </div>

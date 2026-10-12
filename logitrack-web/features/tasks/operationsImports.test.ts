@@ -1,9 +1,9 @@
-// T34 (issue #54): the Go operations pages read and write through /api/go only. With the `operations` flag on, the
+// T34 (issue #54), TW7: the Go operations pages read and write through /api/go only. The
 // six routes render their Go page, whose import graph (static and lazy) holds no Firebase module: no direct
 // Firestore read or write of tasks, trip_records, standby_records or incidentReport (AC 1). The monitor's graph
 // holds no rate-card reader and no pricing callable (AC 2: `useDriverMonitor.ts:799`, `:810-840`). xlsx and jszip
-// load only behind an `import()` (AC 4: the export loads xlsx lazily). The Firestore pages keep theirs (moved to
-// `features/*/legacy`, deleted at P2 exit).
+// load only behind an `import()` (AC 4: the export loads xlsx lazily). TW7 removed the Firestore pages
+// (`features/*/legacy`) and the `operations` flag switch.
 import { existsSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
@@ -73,11 +73,11 @@ function bareImports(entry: string, rx: RegExp): { chain: string; lazy: boolean 
 }
 
 describe("the Go operations pages' import graph (T34)", () => {
-    it("has a Go page and a Firestore page per route, switched on the operations flag", () => {
+    it("renders only its Go page per route (TW7: no Firestore page, no operations flag switch)", () => {
         for (const r of ROUTES) {
             const src = readFileSync(r, "utf8");
-            expect(src, path.relative(root, r)).toContain('<DomainPage domain="operations"');
-            expect(src, path.relative(root, r)).toMatch(/const FirestorePage = dynamic\(\(\) => import\("@\/features\/(tasks|drivers|standby|incident-reports)\/legacy\//);
+            expect(src, path.relative(root, r)).toMatch(/const GoPage = dynamic\(/);
+            expect(src, path.relative(root, r)).not.toMatch(/DomainPage|FirestorePage|useDomainPageSource|\/legacy\//);
         }
     });
 
@@ -97,13 +97,6 @@ describe("the Go operations pages' import graph (T34)", () => {
         for (const f of files) {
             const src = code(f);
             expect(src, path.relative(root, f)).not.toMatch(/computeTripBillingSnapshot|setTripJobCategory"|httpsCallable|rate-entries|fuel-adjustments/);
-        }
-    });
-
-    it("sees Firebase where it is: the Firestore pages", () => {
-        for (const legacy of ["features/drivers/legacy/LegacyDriverMonitorPage.tsx", "features/tasks/legacy/LegacyFirstMilePage.tsx",
-            "features/standby/legacy/LegacyStandbyRecordsPage.tsx", "features/incident-reports/legacy/LegacyIncidentReportsPage.tsx"]) {
-            expect(bareImports(path.join(root, legacy), FIREBASE_RX).length, legacy).toBeGreaterThan(0);
         }
     });
 });

@@ -8,7 +8,22 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { goFetch, goPath, isApiError } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import type { FuelRetailItem, FuelRetailPrices } from "./fuelRetail";
+
+/** One Bangchak retail price (`GET /v1/fuel/retail` and the snapshots' `items`). */
+export interface FuelRetailItem {
+    nameTh: string;
+    nameEn: string;
+    price: number;
+    unit: string;
+}
+
+/** The body of `GET /v1/fuel/retail?locale=` (T37). */
+export interface FuelRetailPrices {
+    locale: "th" | "en";
+    fetchedAt: string;
+    source: string;
+    items: FuelRetailItem[];
+}
 
 export const FUEL_DAILY_PATH = "/v1/fuel/daily";
 export const FUEL_MONTHLY_PATH = "/v1/fuel/monthly";
@@ -138,9 +153,9 @@ export function fuelHistoryTable(days: FuelSnapshotDTO[], filter: FuelTypeFilter
 }
 
 /**
- * `['fuel','bangchak',locale]` read from Go only (`GET /v1/fuel/retail?locale=`): the key of
- * `fuelRetailQueryOptions` (`./fuelRetail.ts`, which picks the source per fetch and imports the callable
- * for the Firestore side), without that module, so the Go fuel page loads no Firebase module.
+ * `['fuel','bangchak',locale]`: Bangchak retail prices in one language (`GET /v1/fuel/retail?locale=`), so a
+ * language toggle reads the other language once and a toggle back reads nothing (60 min stale, 2 h gc). TW7
+ * removed `./fuelRetail.ts`, the per-fetch switch to the `getBangchakRetailOilPrices` callable.
  */
 export function fuelRetailGoQuery(locale: "th" | "en") {
     return queryOptions({

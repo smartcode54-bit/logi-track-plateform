@@ -1,12 +1,11 @@
 // T25 acceptance (issue #45): "With web flag `masterdata` on, these pages import nothing from
-// `firebase/*`". The master-data pages reach Firestore only through the `*.firestore.ts` adapters,
-// which their API modules load with `import()` inside the Firestore branch of `domainQueryFn` /
-// `domainMutationFn`; with the flag on that branch never runs, so no Firebase module loads.
+// `firebase/*`". Since TW7 there is no flag and no Firestore branch: the `*.firestore.ts` adapters and
+// `domainQueryFn` / `domainMutationFn` are gone, and the API modules call Go only.
 //
 // This walks each page's module graph the way the bundler loads it at render time (static imports
 // and `next/dynamic` component imports; an `await import()` inside a function loads only when that
 // function runs) and fails when it reaches the Firebase SDK, `@/firebase/client` or an adapter. A
-// second check keeps every adapter behind `import()` everywhere in the web.
+// second check keeps the adapters from coming back.
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
@@ -137,21 +136,12 @@ describe("master-data pages without Firebase (T25)", () => {
         expect(offenders).toEqual([]);
     });
 
-    it("every Firestore adapter is loaded with import() only, never statically", () => {
-        const offenders: string[] = [];
-        for (const file of ["app", "components", "context", "features", "hooks", "lib"].flatMap((d) => walk(path.join(root, d)))) {
-            if (isAdapter(file)) continue;
-            const src = code(file);
-            for (const m of src.matchAll(STATIC_IMPORT_RX)) {
-                if (/^\s*(?:import|export)\s+type\s/.test(m[0].replace(/^\n/, ""))) continue;
-                const resolved = resolveImport(file, m[1]);
-                if (resolved && isAdapter(resolved)) offenders.push(`${path.relative(root, file)} -> ${m[1]}`);
-            }
-        }
-        expect(offenders).toEqual([]);
-    });
-
-    it("the master-data API modules reach their adapters through import()", () => {
+    it("no Firestore adapter is left, and no API module loads one (TW7)", () => {
+        const adapters = ["app", "components", "context", "features", "hooks", "lib"]
+            .flatMap((d) => walk(path.join(root, d)))
+            .filter(isAdapter)
+            .map((f) => path.relative(root, f));
+        expect(adapters).toEqual([]);
         const apis = [
             "features/customers/api/customers.ts",
             "features/subcontractors/api/subcontractors.ts",
@@ -163,7 +153,8 @@ describe("master-data pages without Firebase (T25)", () => {
         ];
         for (const api of apis) {
             const lazy = [...code(path.join(root, api)).matchAll(ANY_IMPORT_CALL_RX)].map((m) => m[1]);
-            expect(lazy.some((spec) => spec.endsWith(".firestore")), api).toBe(true);
+            expect(lazy.filter((spec) => spec.endsWith(".firestore")), api).toEqual([]);
+            expect(code(path.join(root, api)), api).not.toMatch(/domainQueryFn|domainMutationFn/);
         }
     });
 });

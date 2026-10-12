@@ -10,33 +10,21 @@
  * - `['customers','options']`: every customer as `{id, billingPartyId, code, name}`
  *   (`GET /v1/customers?fields=minimal`, all pages) for the master-data pickers (hub dialog, hub
  *   import, sources filter).
- * - `['customers']` (exact): the legacy `CustomerData[]` of `getCustomers()`, whose callers outside
- *   the master-data pages (billing, income, rate card, task dialogs, trip editor) match Firestore ids
- *   on Firestore trips, tasks and rate tables; it stays on Firestore until those pages move (P2, P3).
  *
- * Source per fetch and per write: flag `masterdata` (`domainQueryFn`, `domainMutationFn`). The
- * Firestore side is `./customers.firestore.ts`, loaded with `import()` only on that path, so with the
- * flag on the customer pages load no Firebase module (T25 acceptance; `masterdata.firebase.test.ts`).
+ * Go is the only source (TW7 removed the Firestore adapter, the legacy `['customers']` list of
+ * `getCustomers()` that the Firestore pages read, and the `masterdata` flag switch of T25).
  */
 import { infiniteQueryOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
-import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
+import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { uploadToGo } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { domainMutationFn, domainQueryFn } from "@/features/platform/api/webFlags";
 import type { Customer } from "@/validate/customerSchema";
-
-const firestore = () => import("./customers.firestore");
 
 export const CUSTOMERS_PATH = "/v1/customers";
 export const CUSTOMERS_PAGE_SIZE = 50;
-
-/** Legacy Firestore shape of the `['customers']` list (callers outside the master-data pages). */
-export interface CustomerData extends Customer {
-    id: string;
-}
 
 export type CustomerBranchType = "hq" | "branch";
 export type BillingDateBasis = "delivered" | "plan";
@@ -180,15 +168,12 @@ export function customersListKey(filter: CustomerListFilter) {
 
 type CustomersListKey = ReturnType<typeof customersListKey>;
 
-/** `['customers', {q}]`: the customers page, keyset by code, server search (Go) or the whole list (Firestore). */
+/** `['customers', {q}]`: the customers page, keyset by code, server search. */
 export function customersListQuery(filter: CustomerListFilter) {
     return infiniteQueryOptions({
         queryKey: customersListKey(filter),
-        queryFn: domainQueryFn<GoPage<CustomerDTO>, CustomersListKey, string | undefined>("masterdata", {
-            firestore: async ({ queryKey: [, p] }) => ({ data: await (await firestore()).listCustomerDTOs(p?.q ?? "") }),
-            go: goInfiniteQueryFn<CustomerDTO, CustomersListKey>(CUSTOMERS_PATH, {
-                query: ([, p]) => ({ q: p?.q || undefined, limit: CUSTOMERS_PAGE_SIZE }),
-            }),
+        queryFn: goInfiniteQueryFn<CustomerDTO, CustomersListKey>(CUSTOMERS_PATH, {
+            query: ([, p]) => ({ q: p?.q || undefined, limit: CUSTOMERS_PAGE_SIZE }),
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
@@ -201,10 +186,7 @@ export function customersListQuery(filter: CustomerListFilter) {
 export function customerQuery(id: string) {
     return queryOptions({
         queryKey: queryKeys.customers.detail(id),
-        queryFn: domainQueryFn<CustomerDTO | null>("masterdata", {
-            firestore: async () => (await firestore()).getCustomerDTO(id),
-            go: ({ signal }) => goFetch<CustomerDTO>(goPath`/v1/customers/${id}`, { signal }),
-        }),
+        queryFn: ({ signal }) => goFetch<CustomerDTO>(goPath`/v1/customers/${id}`, { signal }),
         ...QUERY_POLICY.entity,
         enabled: id !== "",
     });
@@ -213,29 +195,10 @@ export function customerQuery(id: string) {
 /** `['customers','options']`: every customer for a master-data picker. */
 export const customerOptionsQuery = queryOptions({
     queryKey: queryKeys.customers.options(),
-    queryFn: domainQueryFn<CustomerMinimalDTO[]>("masterdata", {
-        firestore: async () => (await firestore()).listCustomerOptions(),
-        go: ({ signal }) => fetchAllPages<CustomerMinimalDTO>(CUSTOMERS_PATH, { fields: "minimal" }, { signal, maxPages: 100 }),
-    }),
+    queryFn: ({ signal }) => fetchAllPages<CustomerMinimalDTO>(CUSTOMERS_PATH, { fields: "minimal" }, { signal, maxPages: 100 }),
     ...QUERY_POLICY.masterData,
     refetchOnWindowFocus: true,
 });
-
-/**
- * `['customers']` (exact): the legacy list of `getCustomers()` (15 callers outside the master-data
- * pages, Appendix E §E.4). Firestore only, see the module comment.
- */
-export const customersQueryOptions = queryOptions({
-    queryKey: queryKeys.customers.all(),
-    queryFn: async (): Promise<CustomerData[]> => (await firestore()).fetchCustomersFromFirestore(),
-    ...QUERY_POLICY.masterData,
-    refetchOnWindowFocus: true,
-});
-
-/** Every customer by code, from the tab's `['customers']` cache. Shared: never mutate it in place. */
-export function getCustomers(): Promise<CustomerData[]> {
-    return getQueryClient().fetchQuery(customersQueryOptions);
-}
 
 /** The picker list from the tab's cache (async callers such as the hub import). */
 export function fetchCustomerOptions(client: QueryClient = getQueryClient()): Promise<CustomerMinimalDTO[]> {
@@ -267,13 +230,7 @@ async function updateOnGo(id: string, save: CustomerSave): Promise<void> {
 }
 
 /** Creates a customer (and its billing party, on Go); returns its id. */
-export const createCustomer = domainMutationFn<string, CustomerSave>("masterdata", {
-    firestore: async (save) => (await firestore()).createCustomerFirestore(save),
-    go: createOnGo,
-});
+export const createCustomer = (save: CustomerSave): Promise<string> => createOnGo(save);
 
 /** Updates a customer. */
-export const updateCustomer = domainMutationFn<void, { id: string } & CustomerSave>("masterdata", {
-    firestore: async ({ id, ...save }) => (await firestore()).updateCustomerFirestore(id, save),
-    go: ({ id, ...save }) => updateOnGo(id, save),
-});
+export const updateCustomer = ({ id, ...save }: { id: string } & CustomerSave): Promise<void> => updateOnGo(id, save);

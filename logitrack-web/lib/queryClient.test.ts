@@ -248,9 +248,9 @@ describe("a change of principal empties the cache (no data of one user reaches t
         const client = createQueryClient();
         const off = bindQueryClientToSession(client);
         // The first principal of the tab (loading -> signed in) clears nothing.
-        client.setQueryData(["webFlags"], { domains: {} });
+        client.setQueryData(["badges"], { waitlist: 0 });
         client.setQueryData(["me"], principal("ann", "t1"));
-        expect(client.getQueryData(["webFlags"])).toEqual({ domains: {} });
+        expect(client.getQueryData(["badges"])).toEqual({ waitlist: 0 });
 
         let hubsFetches = 0;
         const hubs = new QueryObserver(client, { queryKey: ["hubs"], queryFn: async () => `hubs-${++hubsFetches}`, staleTime: Infinity });

@@ -174,6 +174,15 @@ describe("scripts/check-standalone.mjs", () => {
     expect(check({ env, webDir: fixture({}) }).problems).toEqual([]);
   });
 
+  it("refuses the retired Firebase and App Check public config in app code (TW7)", () => {
+    const problems: string[] = checkSources({
+      webDir: fixture({ source: "export const a = process.env.NEXT_PUBLIC_FIREBASE_API_KEY; export const b = process.env.NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN;\n" }),
+    });
+    expect(problems).toHaveLength(2);
+    expect(problems.join("\n")).toMatch(/NEXT_PUBLIC_FIREBASE_API_KEY/);
+    expect(problems.join("\n")).toMatch(/NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN/);
+  });
+
   it("fails without server.js, with a traced .env file, a leaked server value or an unknown NEXT_PUBLIC_ name", () => {
     const problems: string[] = check({
       env,
@@ -245,7 +254,8 @@ describe("scripts/check-standalone.mjs", () => {
   });
 
   it("allow-lists exactly the §16.1 web-public names and covers every web-server value", () => {
-    expect(NEXT_PUBLIC_ALLOW.size).toBe(11);
+    // TW7: the Firebase and App Check public config left with the Firebase SDK.
+    expect([...NEXT_PUBLIC_ALLOW]).toEqual(["NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID"]);
     expect(SERVER_ONLY).toContain("GO_API_INTERNAL_URL");
     expect(SERVER_ONLY).not.toContain("NODE_ENV");
   });

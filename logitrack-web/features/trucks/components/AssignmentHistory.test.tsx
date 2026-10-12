@@ -9,12 +9,6 @@ import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("firebase/client loaded with the masterdata flag on");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("firebase/firestore loaded with the masterdata flag on");
-});
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
     usePathname: () => "/app",
@@ -69,7 +63,6 @@ function assignment(i: number, driverName = `Driver ${i}`): TruckAssignmentDTO {
  */
 function historyServer(rows: TruckAssignmentDTO[], latency: number, fail: (p: URLSearchParams) => Response | undefined = () => undefined) {
     const web = fakeWeb();
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { masterdata: "go" } } }));
     web.on("GET", PATH, async (call: FakeCall) => {
         await sleep(latency);
         const p = new URL(call.url, "http://web.test").searchParams;

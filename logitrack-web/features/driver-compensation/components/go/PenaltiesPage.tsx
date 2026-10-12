@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Driver penalties over Go (T46, issue #66; Appendix E §E.2.2, §E.10 row 11), rendered while the `hr` web
- * flag is on. Three independent reads in parallel, none waiting on another (the legacy page's waterfall was
+ * Driver penalties over Go (T46, issue #66; Appendix E §E.2.2, §E.10 row 11), the only source since TW7.
+ * Three independent reads in parallel, none waiting on another (the legacy page's waterfall was
  * every driver, then the config, then the newest 200 penalties): the driver picker searched on the server
  * (`['drivers',{fields:'minimal',q}]`, opened on demand), the active version's penalty types
  * (`['compConfig','active']`) and the list (`['penalties',{driverId,status}]`, keyset pages of 50, no cap).

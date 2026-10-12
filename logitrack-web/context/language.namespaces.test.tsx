@@ -39,12 +39,8 @@ vi.mock("./locales/load", async (importOriginal) => {
     };
 });
 
-// The truck preview hook (one of the eight sites) with its data source counted: since T25 it reads
-// `['trucks','detail',id]` through the Firestore adapter while the `masterdata` flag is off.
-const getTruckFirestore = vi.hoisted(() => vi.fn(async () => null));
-vi.mock("@/features/trucks/api/trucks.firestore", () => ({ getTruckFirestore }));
-vi.mock("@/features/trucks/api/truckAssignments.firestore", () => ({ listAssignmentsOfFirestore: vi.fn(async () => []) }));
-vi.mock("@/features/subcontractors/api/subcontractors.firestore", () => ({ listSubcontractorOptionsFirestore: vi.fn(async () => []) }));
+// The truck preview hook (one of the eight sites) with its data source counted: since TW7 it reads
+// `['trucks','detail',id]` from `GET /v1/trucks/{id}` only (the Firestore adapter and the flag are gone).
 vi.mock("next/navigation", () => ({ useSearchParams: () => ({ get: () => "truck-1" }) }));
 const setCustomLastItem = vi.fn();
 vi.mock("@/context/breadcrumb", () => ({ useBreadcrumb: () => ({ setCustomLastItem }) }));
@@ -63,7 +59,6 @@ beforeEach(() => {
     failingChunks.clear();
     loadDictionary.mockClear();
     loadNamespace.mockClear();
-    getTruckFirestore.mockClear();
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => stored);
     vi.spyOn(Storage.prototype, "setItem").mockImplementation((_k, v) => {
         stored = String(v);
@@ -235,9 +230,18 @@ describe("a language toggle refetches nothing at the eight sites (Appendix E §E
     it("useTruckPreview loads the truck once across toggles", async () => {
         const user = userEvent.setup();
         resetQueryClientForTests();
+        const truckReads: string[] = [];
+        const ok = (data: unknown) => new Response(JSON.stringify({ data }), { status: 200, headers: { "Content-Type": "application/json" } });
         vi.stubGlobal(
             "fetch",
-            vi.fn(async () => new Response(JSON.stringify({ data: { domains: {} } }), { status: 200 }))
+            vi.fn(async (input: RequestInfo | URL) => {
+                const url = String(input);
+                if (url === "/api/go/v1/trucks/truck-1") {
+                    truckReads.push(url);
+                    return ok({ id: "truck-1", tenantId: "t-own", ownershipType: "own", licensePlate: "กข-1", files: {}, statusHistory: [], currentAssignments: [] });
+                }
+                return ok([]);
+            })
         );
         function Harness() {
             useTruckPreview();
@@ -251,26 +255,24 @@ describe("a language toggle refetches nothing at the eight sites (Appendix E §E
             </QueryClientProvider>
         );
         await screen.findByText("toggle");
-        await waitFor(() => expect(getTruckFirestore).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(truckReads).toHaveLength(1));
         await user.click(screen.getByText("toggle"));
         await user.click(screen.getByText("toggle"));
         await act(async () => undefined);
-        expect(getTruckFirestore).toHaveBeenCalledTimes(1);
+        expect(truckReads).toHaveLength(1);
         vi.unstubAllGlobals();
     });
 
-    // The effect scanner that found the sites: no effect at these files lists `t` any more.
+    // The effect scanner that found the sites: no effect at these files lists `t` any more. TW7 removed three
+    // of the eight (the legacy holidays page, the Firestore active-users list and the legacy billing editor).
     const SITES = [
-        "features/holidays/legacy/LegacyHolidaysPage.tsx",
         // T46: the Go holidays page (`['holidays', year]` holds no language).
         "features/holidays/components/HolidaysPage.tsx",
-        "features/security-center/components/SessionManagementActiveUsers.tsx",
         "features/drivers/components/EditDriverForm.tsx",
         "features/drivers/components/DriverPreview.tsx",
         "features/trucks/components/form/EditTruckForm.tsx",
         "features/trucks/hooks/useTruckPreview.ts",
         "features/customers/components/EditCustomerForm.tsx",
-        "features/accounting/components/EditBillingDialog.tsx",
     ];
 
     function effectDependencyLists(src: string): string[] {

@@ -2,23 +2,12 @@
 // penalty pages over Go. Runs are keyset pages with the filters and the status counts on the server, a
 // generation is the payroll.run job (no generateDriverPayoutRun callable), approval and the status moves are
 // Go routes (no approveDriverPayout callable, no browser write), the penalty page's three reads run in
-// parallel, and the config page appends versions. No Firebase module is imported (the mocks throw).
+// parallel, and the config page appends versions. The web has no Firebase SDK since TW7.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go HR pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go HR pages must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go HR pages must not call a Cloud Function");
-});
-
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
@@ -39,14 +28,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/payroll");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the HR pages");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const MANAGE = ["hr:view_payroll", "hr:manage_payroll"];
@@ -84,7 +69,6 @@ const COUNTS = { draft: 1, pending_approval: 2, approved: 0, paid: 5, cancelled:
 function base(capabilities = MANAGE) {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities }) }));
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { auth: "go", hr: "go" } } }));
     return web;
 }
 

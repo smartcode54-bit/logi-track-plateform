@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The chat console over Go (T50, issue #70), rendered while the `comms` web flag is on: the shell with the
+ * The chat console over Go (T50, issue #70; the only console since TW7): the shell with the
  * Go conversations panel and driver panel. The room's driver comes from `['chat', id]`, the cache entry the
  * room reads too (one request, instead of the layout's own read of the chat document, `chat/layout.tsx:69`).
  */

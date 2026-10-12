@@ -3,6 +3,7 @@ import {
     buildReport,
     entrypointChain,
     gateViolations,
+    isBannedPackage,
     isForbiddenPackage,
     localeFileOfModulePath,
     localeOfModulePath,
@@ -147,5 +148,35 @@ describe("split locale namespaces (TW4, developer-spec.md §10.11 step 2)", () =
         expect(gateViolations(report, undefined)).toEqual([
             "static/chunks/locale-th.js: the th base dictionary chunk holds accounting (load per route group)",
         ]);
+    });
+});
+
+describe("banned packages (TW7: no Firebase chunk)", () => {
+    const FIREBASE_APP = "./node_modules/.pnpm/@firebase+app@0.14.9/node_modules/@firebase/app/dist/esm/index.esm.js";
+    const FIREBASE = "./node_modules/.pnpm/firebase@12.10.0/node_modules/firebase/app/dist/esm/index.esm.js";
+
+    it("matches the firebase package and the @firebase scope, not look-alikes", () => {
+        expect(isBannedPackage("firebase")).toBe(true);
+        expect(isBannedPackage("@firebase/firestore")).toBe(true);
+        expect(isBannedPackage("firebase-admin")).toBe(false);
+        expect(isBannedPackage("react")).toBe(false);
+    });
+
+    it("flags a Firebase module in any client chunk, a lazy one included", () => {
+        const client = [
+            chunk("static/chunks/main-app.js", 100, ["main-app"], [mod("./node_modules/.pnpm/react@19/node_modules/react/index.js", 100)]),
+            chunk("static/chunks/app/app/x/page.js", 10, ["app/app/x/page"], [mod("./app/app/x/page.tsx", 10)]),
+            // Loaded later through import(): initial for no entrypoint.
+            chunk("static/chunks/1234.abcdef0123456789.js", 70, [], [mod(FIREBASE_APP, 50), mod(FIREBASE, 20)]),
+        ];
+        const report = buildReport(client);
+        expect(report.bannedChunks).toEqual({ "static/chunks/1234.js": { "@firebase/app": 50, firebase: 20 } });
+        expect(gateViolations(report, undefined)).toEqual(["static/chunks/1234.js: @firebase/app, firebase in a client chunk (the web holds no Firebase SDK, TW7)"]);
+    });
+
+    it("passes a bundle without Firebase", () => {
+        const report = buildReport([chunk("static/chunks/main-app.js", 100, ["main-app"], [mod("./node_modules/.pnpm/react@19/node_modules/react/index.js", 100)])]);
+        expect(report.bannedChunks).toEqual({});
+        expect(gateViolations(report, undefined)).toEqual([]);
     });
 });

@@ -157,17 +157,7 @@ describe("HubFilterCombobox (over the old 50-hub cap)", () => {
 });
 
 describe("task boards", () => {
-    // The three Firestore boards (moved to features/tasks/legacy by T34) render the shared combobox over the full
-    // ['hubs'] rows; no slice survives.
-    it.each([
-        "features/tasks/legacy/LegacyFirstMilePage.tsx",
-        "features/tasks/legacy/LegacyLineHaulPage.tsx",
-        "features/tasks/legacy/LegacyJobAssignPage.tsx",
-    ])("%s", (file) => {
-        const src = readFileSync(path.join(process.cwd(), file), "utf8");
-        expect(src).not.toMatch(/hubs\.slice\(/);
-        expect(src).toMatch(/<HubFilterCombobox\s+hubs=\{hubRows \?\? NO_HUB_ROWS\}/);
-    });
+    // TW7 removed the three Firestore boards (features/tasks/legacy); the Go board below is the only one.
 
     // The Go board (T34) renders the shared combobox over every hub of the Go master (`['hubs',{view:'go'}]`) and
     // filters on the server (`sourceHub`), not over the loaded rows; no picker slices the hub lists.

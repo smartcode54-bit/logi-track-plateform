@@ -1,5 +1,5 @@
 // TW8 (issue #88, M1 slice; Appendix E §E.10 rows 2, 3; developer-spec.md §10.10, §10.14 item 9): with
-// the `masterdata` flag on Go and data above every old cap, the M1 lists reach their last row through
+// the lists on Go (the only source since TW7) and data above every old cap, the M1 lists reach their last row through
 // the keyset cursor. Over-cap fixtures, rendered as the pages render them:
 // - drivers: 150 drivers (old cap 100), stat cards from the server's counts, "load more" to the end;
 // - trucks: 150 trucks (old cap 100), "load more" to the end, the last truck on the last table page;
@@ -12,18 +12,6 @@ import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("firebase/client loaded with the masterdata flag on");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("firebase/firestore loaded with the masterdata flag on");
-});
-vi.mock("firebase/storage", () => {
-    throw new Error("firebase/storage loaded with the masterdata flag on");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("firebase/functions loaded with the masterdata flag on");
-});
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
@@ -64,10 +52,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** The fake origin with the `masterdata` domain on Go. */
+/** The fake origin: Go answers every master-data list. */
 function goWeb() {
     const web = fakeWeb();
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { masterdata: "go" } } }));
     return web;
 }
 

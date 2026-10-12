@@ -13,8 +13,8 @@
  *   still open there, §19 Q10); before that cut-over it is `409 failed_precondition` (`details.reason`
  *   `legacy_evidence_link`) and nothing changes.
  *
- * Both are P5 routes (`comms`): `LineNotifyActions` shows them only once the `comms` web flag is `go`; until then the
- * legacy callable sends the cards and the legacy gallery serves their links.
+ * Both are P5 routes (`comms`), shown by `LineNotifyActions` to `operations:edit_trip_details`. Until TW7 they also
+ * waited for the `comms` web flag, while the legacy callable sent the cards; the web has no callable any more.
  */
 import { useState } from "react";
 

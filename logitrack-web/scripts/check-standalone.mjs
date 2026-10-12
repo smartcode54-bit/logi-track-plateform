@@ -36,22 +36,11 @@ export const SERVER_ONLY = [
   "REFRESH_TOKEN_TTL_WEB",
 ];
 
-// developer-spec.md §16.1, consumer web-public. Firebase and App Check leave with TW7 (P6).
-export const NEXT_PUBLIC_ALLOW = new Set([
-  "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID",
-  "NEXT_PUBLIC_FIREBASE_API_KEY",
-  "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
-  "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
-  "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
-  "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
-  "NEXT_PUBLIC_FIREBASE_APP_ID",
-  "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",
-  "NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY",
-  "NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE",
-  "NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN",
-]);
+// developer-spec.md §16.1, consumer web-public. TW7 (P6) removed the Firebase SDK, so the seven
+// NEXT_PUBLIC_FIREBASE_* and three NEXT_PUBLIC_APP_CHECK_* names are refused like any other.
+export const NEXT_PUBLIC_ALLOW = new Set(["NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID"]);
 
-const SOURCE_DIRS = ["app", "components", "context", "features", "firebase", "hooks", "lib", "types", "validate"];
+const SOURCE_DIRS = ["app", "components", "context", "features", "hooks", "lib", "types", "validate"];
 const SOURCE_EXT = /\.(c|m)?(j|t)sx?$/;
 // Tests are never bundled; they may name forbidden variables on purpose.
 const TEST_FILE = /(\.test\.|\.spec\.|[\\/]__tests__[\\/])/;

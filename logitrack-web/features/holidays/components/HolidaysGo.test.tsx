@@ -1,22 +1,13 @@
 // T46 (issue #66; Appendix E §E.2.2, §E.3.5, §E.5 row 6): holidays over Go. One Bangkok year is a plain fetch
 // (`['holidays', year]`, no listener, no poll) and a language toggle re-renders the names without a request
 // (AC: no holiday refetch on a toggle, `holidays/page.tsx:144`). Writes are Go routes, never the saveHoliday,
-// deleteHoliday or saveGeneratedHolidays callables; public holidays are a steward's. No Firebase module is
-// imported (the mocks throw). FullCalendar is replaced by a probe that lists the events it is handed.
+// deleteHoliday or saveGeneratedHolidays callables; public holidays are a steward's. The web has no Firebase
+// SDK since TW7. FullCalendar is replaced by a probe that lists the events it is handed.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React, { useEffect } from "react";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go holidays page must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go holidays page must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go holidays page must not call a Cloud Function");
-});
 vi.mock("./HolidayCalendar", () => ({
     default: function CalendarProbe({ events, datesSet }: { events: { id: string; title: string }[]; datesSet?: (arg: unknown) => void }) {
         useEffect(() => {
@@ -34,7 +25,6 @@ vi.mock("./HolidayCalendar", () => ({
 }));
 
 import { useLanguage } from "@/context/language";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
@@ -53,14 +43,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/holidays");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the holidays page");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const Y = new Date().getFullYear();
@@ -94,7 +80,6 @@ function setup({ steward = true } = {}) {
         holiday("h2", { tenantId: "t-own", type: "company", status: "draft", date: `${Y}-12-30`, name: "Company day", nameEn: "Company day", nameTh: "วันหยุดบริษัท", isRecurring: false }),
     ];
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ steward, capabilities: ["hr:manage_holidays"] }) }));
-    web.on("GET", "/api/go/v1/config/web-flags", () => json(200, { data: { domains: { auth: "go", hr: "go" } } }));
     web.on("GET", "/api/go/v1/holidays", (call) => json(200, { data: rows.filter((r) => r.date.startsWith(q(call).get("year") ?? "")) }));
     web.on("POST", "/api/go/v1/holidays", (call) => {
         const b = call.body as Partial<HolidayDTO>;

@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
-import { DriverNotSyncedError, driverFormValues, isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
+import { driverFormValues, isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
 import { useCreateDriverLogin, useDriver, useDriverWrites } from "@/features/drivers/api/useDrivers";
 import { useCustomerOptions } from "@/features/customers/api/useCustomers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
@@ -176,8 +176,7 @@ export default function EditDriverForm() {
             setShowCreateAccount(false);
             toast.success(t("drivers.toast.accountCreated"));
         } catch (error) {
-            if (error instanceof DriverNotSyncedError) toast.error(t("masterData.drivers.login.notSynced"));
-            else if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
+            if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
             else toastSaveError(error, t, "drivers.toast.accountCreateError");
         }
     };

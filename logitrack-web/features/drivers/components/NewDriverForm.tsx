@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
-import { DriverNotSyncedError, isDriverLoginOutOfReach } from "@/features/drivers/api/drivers";
+import { isDriverLoginOutOfReach } from "@/features/drivers/api/drivers";
 import { useCreateDriverLogin, useDriverWrites } from "@/features/drivers/api/useDrivers";
 import { useCustomerOptions } from "@/features/customers/api/useCustomers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
@@ -71,7 +71,6 @@ export default function NewDriverForm() {
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [idCardFile, setIdCardFile] = useState<File | null>(null);
     const [truckLicenseFile, setTruckLicenseFile] = useState<File | null>(null);
-
 
     const form = useForm<Driver>({
         resolver: zodResolver(driverSchema) as any,
@@ -149,8 +148,7 @@ export default function NewDriverForm() {
             });
             setCreated({ driverId, login });
         } catch (error) {
-            if (error instanceof DriverNotSyncedError) toast.error(t("masterData.drivers.login.notSynced"));
-            else if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
+            if (isDriverLoginOutOfReach(error)) toast.error(t("masterData.drivers.login.outOfReach"));
             else toastSaveError(error, t, "drivers.toast.accountCreateError");
             setCreated({ driverId, login: null });
         }

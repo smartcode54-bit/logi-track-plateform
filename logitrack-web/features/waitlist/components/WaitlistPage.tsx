@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The waitlist over Go (T54R, issue #74; Appendix E §E.2.4, §E.5 row 18), rendered while the
- * `dashboard` web flag is on: `GET /v1/waitlist` in keyset pages of 50 (`['waitlist']`, 60 s poll while
+ * The waitlist over Go (T54R, issue #74; Appendix E §E.2.4, §E.5 row 18; the only source since TW7):
+ * `GET /v1/waitlist` in keyset pages of 50 (`['waitlist']`, 60 s poll while
  * one page is loaded, `meta.total` for the count) instead of a listener on the whole collection, and
  * `DELETE /v1/waitlist/{id}` behind a confirmation, which makes the list and the sidebar's count stale.
  * The route needs `waitlist:view` (a steward key, R60); `proxy.ts` refuses the page to anyone else.

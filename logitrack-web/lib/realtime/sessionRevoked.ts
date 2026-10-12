@@ -5,7 +5,7 @@
  *
  * - `reason = claims_changed` (role, membership, scope, driver link, platform role): the user stays
  *   signed in. A forced shared refresh picks up the new claims, and its `onClaimsRefreshed`
- *   listeners refetch `['me']` and the active queries, mint the bridge token again and reopen the
+ *   listeners refetch `['me']` and the active queries and reopen the
  *   stream (Go ends the stream to recompute its topics). A refused refresh ends the session.
  * - any other reason (`disabled`, `password_changed`, `password_reset`, `admin_revoke`,
  *   `refresh_reuse`, `logout`, `logout_all`, `device_relogin`): the event names sessions of this

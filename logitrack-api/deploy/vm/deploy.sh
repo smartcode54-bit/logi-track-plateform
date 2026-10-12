@@ -96,8 +96,9 @@ release_paths="logitrack-api logitrack-web shared-docs package.json pnpm-lock.ya
 # The tree the release is built from: the checkout under --allow-dirty and for the kit, else export_head.
 src_root=$repo_root
 id_rx='^[0-9a-f]{7,40}(-dirty-[0-9]{14})?$'
-# The six values firebase/client.ts refuses to build without (until TW7 removes the Firebase SDK).
-required_web="NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_PROJECT_ID NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID"
+# The Firebase public config TW7 removed with the Firebase SDK (developer-spec.md §16.1 DROP rows). A build env
+# file written before TW7 still sets them: they are skipped with a notice (names only), never passed to docker.
+retired_web="NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_PROJECT_ID NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY NEXT_PUBLIC_APP_CHECK_USE_ENTERPRISE NEXT_PUBLIC_APP_CHECK_DEBUG_TOKEN"
 
 say() { printf 'deploy: %s\n' "$*"; }
 would() { printf 'deploy: [dry-run] would %s\n' "$*"; }
@@ -150,6 +151,8 @@ copy_kit() {
 
 # web_env_names: the NEXT_PUBLIC_* build arguments logitrack-web/Dockerfile declares.
 web_env_names() { sed -n 's/^ARG \(NEXT_PUBLIC_[A-Z0-9_]*\)=.*/\1/p' "$dockerfile"; }
+# retired_web_name NAME: whether NAME is one of the build arguments TW7 retired.
+retired_web_name() { case " $retired_web " in *" $1 "*) return 0 ;; esac; return 1; }
 
 # check_web_env: validates FILE by name and reports the names it sets; never prints a value.
 check_web_env() {
@@ -158,7 +161,7 @@ check_web_env() {
   if git -C "$repo_root" ls-files --error-unmatch -- "$web_env" >/dev/null 2>&1; then
     die "$web_env is tracked by git; keep build values in a gitignored file (e.g. deploy/vm/.env.web-build)"
   fi
-  local allowed set="" line name value n=0 missing=""
+  local allowed set="" line name value n=0 retired=""
   allowed=" $(web_env_names | tr '\n' ' ') "
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
@@ -167,17 +170,18 @@ check_web_env() {
     case $line in *=*) ;; *) die "$web_env:$n: expected NAME=VALUE" ;; esac
     name=${line%%=*}
     value=${line#*=}
+    if retired_web_name "$name"; then
+      retired="$retired $name"
+      continue
+    fi
     case $allowed in
       *" $name "*) ;;
       *) die "$web_env:$n: $name is not a NEXT_PUBLIC_* build argument of logitrack-web/Dockerfile (server values never go into the bundle)" ;;
     esac
     [ -n "$value" ] && set="$set $name"
   done <"$web_env"
-  for name in $required_web; do
-    case "$set " in *" $name "*) ;; *) missing="$missing $name" ;; esac
-  done
-  [ -z "$missing" ] || die "$web_env does not set:$missing (next build fails without them)"
-  say "web build arguments set in $web_env:$set"
+  [ -z "$retired" ] || say "ignoring build arguments retired by TW7 (the web has no Firebase SDK; remove them from $web_env):$retired"
+  say "web build arguments set in $web_env:${set:- none}"
 }
 
 # build_web dir: the standalone server for linux/amd64, extracted from the Dockerfile's standalone stage.
@@ -192,6 +196,7 @@ build_web() {
       line=${line#export }
       name=${line%%=*}
       value=${line#*=}
+      retired_web_name "$name" && continue
       case $value in
         \"*\")
           value=${value#\"}

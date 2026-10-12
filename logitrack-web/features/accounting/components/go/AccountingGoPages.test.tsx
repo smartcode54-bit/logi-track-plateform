@@ -1,6 +1,6 @@
 // T42 (issue #62): the Go accounting pages rendered under the app's providers, every request through the
-// BFF (/api/go/v1/...). The Firebase modules throw if a page imports one statically
-// (firebaseImports.test.ts walks the lazy edges). Pinned here: the audit's status switch is a new server
+// BFF (/api/go/v1/...). The web has no Firebase SDK since TW7 (lib/noFirebase.test.ts; firebaseImports.test.ts
+// walks the pages' import graph). Pinned here: the audit's status switch is a new server
 // request for that status (AC 3); income asks Go for the chosen range (AC 2); a rate-card void refetches
 // only the entries (AC 1); a statement's documents are the stored ones, with the WHT rate of the
 // statement (AC 5); Billing Document creates the statement from the server's invoice set.
@@ -17,18 +17,7 @@ vi.mock("xlsx", () => ({
     writeFile: xlsx.writeFile,
 }));
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go accounting pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go accounting pages must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go accounting pages must not call Cloud Functions");
-});
-
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
 import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
@@ -53,9 +42,6 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/accounting/income");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the Go accounting pages");
-    });
     restoreLayout = stubVirtualLayout({ viewport: 600, row: 40 });
 });
 afterEach(() => {
@@ -63,7 +49,6 @@ afterEach(() => {
     resetQueryClientForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const CAPS = [
@@ -86,8 +71,7 @@ const CUSTOMERS = [
 
 function setup(capabilities: string[] = CAPS) {
     const web = fakeWeb();
-    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ legacyAuthUid: undefined, capabilities }) }));
-    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
+    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities }) }));
     web.on("GET", "/api/go/v1/customers", () => json(200, { data: CUSTOMERS }));
     web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [{ id: "h1", sourceId: "SPX-A", sourceNameTh: "บางนา", sourceNameEn: "Bang Na", stationType: "HUB" }] }));
     return web;

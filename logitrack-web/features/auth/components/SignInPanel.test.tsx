@@ -1,5 +1,5 @@
 // T18 (R79; Appendix C §C.4.8): the sign-in panel with the must-change-password step. The BFF and Go
-// are a fake fetch; the Firebase bridge is a fake SDK.
+// are a fake fetch; since TW7 there is no Firebase bridge to fake.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor } from "@testing-library/react";
@@ -9,8 +9,7 @@ vi.mock("@/lib/loginGeo", () => ({ resolveLoginGeoForClient: async () => null })
 
 import { SignInPanel } from "./SignInPanel";
 import { tokenFromHash } from "./ResetPasswordForm";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
-import { fakeFirebase, fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 
 beforeEach(() => {
@@ -19,15 +18,13 @@ beforeEach(() => {
 });
 afterEach(() => {
     vi.unstubAllGlobals();
-    configureFirebaseBridge(undefined);
 });
 
 function signedOutWeb() {
     const web = fakeWeb();
     let signedIn = false;
-    web.on("GET", "/api/go/v1/me", () => (signedIn ? json(200, { data: makeMe({ legacyAuthUid: undefined }) }) : goErr(401, "unauthenticated")));
+    web.on("GET", "/api/go/v1/me", () => (signedIn ? json(200, { data: makeMe({}) }) : goErr(401, "unauthenticated")));
     web.on("POST", "/api/auth/refresh", () => goErr(401, "unauthenticated"));
-    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
     web.on("PATCH", "/api/go/v1/me", () => json(200, { data: makeMe() }));
     return {
         web,
@@ -44,7 +41,6 @@ describe("SignInPanel", () => {
             signIn();
             return json(200, { data: { tenants: [], defaultTenantId: null, expiresIn: 900 } });
         });
-        fakeFirebase();
         const onSignedIn = vi.fn();
         renderWithProviders(<SignInPanel onSignedIn={onSignedIn} />);
         const user = userEvent.setup();
@@ -58,7 +54,6 @@ describe("SignInPanel", () => {
     it("shows the catalogue text of a wrong password", async () => {
         const { web } = signedOutWeb();
         web.on("POST", "/api/auth/login", () => goErr(401, "invalid_credentials"));
-        fakeFirebase();
         renderWithProviders(<SignInPanel />);
         const user = userEvent.setup();
         await user.type(await screen.findByLabelText("Email"), "a@b.test");
@@ -83,7 +78,6 @@ describe("SignInPanel", () => {
             if (body.newPassword.length < 10) return goErr(422, "invalid_argument", { fields: [{ field: "newPassword", reason: "too_short", params: { min: 10, max: 128 } }] });
             return body.passwordChangeTicket === "tkt-9" ? new Response(null, { status: 204 }) : goErr(422, "invalid_argument", { fields: [{ field: "passwordChangeTicket", reason: "invalid_or_expired" }] });
         });
-        fakeFirebase();
         const onSignedIn = vi.fn();
         renderWithProviders(<SignInPanel onSignedIn={onSignedIn} />);
         const user = userEvent.setup();
@@ -118,7 +112,6 @@ describe("SignInPanel", () => {
         const { web } = signedOutWeb();
         web.on("POST", "/api/auth/login", () => goErr(403, "password_change_required", { passwordChangeTicket: "old" }));
         web.on("POST", "/api/go/v1/auth/password/change", () => goErr(422, "invalid_argument", { fields: [{ field: "passwordChangeTicket", reason: "invalid_or_expired" }] }));
-        fakeFirebase();
         renderWithProviders(<SignInPanel />);
         const user = userEvent.setup();
         await user.type(await screen.findByLabelText("Email"), "d@own.test");

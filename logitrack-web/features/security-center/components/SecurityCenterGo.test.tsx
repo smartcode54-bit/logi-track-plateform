@@ -1,7 +1,5 @@
-// T54S (issue #74, security-center slice): the Security Center pages over Go. These page modules import
-// no Firebase module (the module mocks below throw if one is imported statically); the bridge's SDK
-// loader is replaced in beforeEach, so the bridge's own lazy import of the SDK, which stays on every
-// /app route until TW7, is not covered here (firebaseImports.test.ts walks the pages' import graph).
+// T54S (issue #74, security-center slice): the Security Center pages over Go. Since TW7 the web has no
+// Firebase SDK and no bridge (lib/noFirebase.test.ts; firebaseImports.test.ts walks the pages' import graph).
 // Every request goes to the BFF (/api/go/v1/...), a tenant principal reads its own reach and a
 // platform principal every tenant with X-Act-On-Tenant: *, whose own audit rows the pages hide behind
 // a counted toggle.
@@ -11,18 +9,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go Security Center pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go Security Center pages must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go Security Center pages must not call Cloud Functions");
-});
-
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
-import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
 import { SecurityOverviewPage } from "./SecurityOverviewPage";
@@ -46,14 +33,10 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/security-center");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the Security Center");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
 });
 
 const ALL_SECURITY = [
@@ -72,9 +55,8 @@ const ALL_SECURITY = [
 
 function setup(meOver: Partial<MeDTO> = {}) {
     const web = fakeWeb();
-    const me = makeMe({ id: "u-self", legacyAuthUid: undefined, capabilities: ALL_SECURITY, ...meOver });
+    const me = makeMe({ id: "u-self", capabilities: ALL_SECURITY, ...meOver });
     web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
-    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
     return { web, me };
 }
 

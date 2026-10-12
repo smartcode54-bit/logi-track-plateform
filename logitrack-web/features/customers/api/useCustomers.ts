@@ -1,33 +1,18 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
 import {
     createCustomer,
     customerOptionsQuery,
     customerQuery,
     customersListQuery,
-    customersQueryOptions,
     updateCustomer,
-    type CustomerData,
     type CustomerListFilter,
     type CustomerMinimalDTO,
 } from "./customers";
 
-const NO_CUSTOMERS: CustomerData[] = [];
 const NO_OPTIONS: CustomerMinimalDTO[] = [];
-
-/** `['customers']`: the legacy Firestore list (task dialogs and other pages outside the master-data group). */
-export function useCustomers(): UseQueryResult<CustomerData[]>;
-export function useCustomers<T>(select: (customers: CustomerData[]) => T): UseQueryResult<T>;
-export function useCustomers<T>(select?: (customers: CustomerData[]) => T): UseQueryResult<T | CustomerData[]> {
-    return useQuery({ ...customersQueryOptions, select });
-}
-
-/** The legacy list itself, empty until loaded. */
-export function useCustomerList(): CustomerData[] {
-    return useCustomers().data ?? NO_CUSTOMERS;
-}
 
 /** `['customers', {q}]` (infinite): the customers page. */
 export function useCustomerPages(filter: CustomerListFilter) {

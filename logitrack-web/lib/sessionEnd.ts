@@ -2,7 +2,7 @@
  * Ends the web session in this tab when the refresh cannot save it (developer-spec.md §10.4 step 4,
  * Appendix E §E.8.3; R37, R50): a 401 `session_revoked` or `invalid_token`, a failed refresh, or a
  * 401 after the single refresh-and-retry. Every owner of session state registers a listener (TW4:
- * clear the TanStack cache; TW5: close the event stream; T18: sign out of the Firebase bridge);
+ * clear the TanStack cache; TW5: close the event stream; T18's Firebase bridge sign-out went with TW7);
  * then the BFF is asked to expire both cookies and, on a protected page (`/app`, the `proxy.ts`
  * matcher), the tab goes to `/login?next=<current path>`. A public page (`/`, `/login`, `/about`,
  * ...) is not left: the visitor stays there, signed out, so the login page can never reload itself.

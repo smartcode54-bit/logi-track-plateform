@@ -1,6 +1,6 @@
 /**
  * The chat console over Go (T50, issue #70; T47 routes, Appendix B §B.2.16; developer-spec.md §10.7, §10.8;
- * Appendix E §E.2.1 `/app/chat*`, §E.5 rows 1-4, §E.6). Rendered while the `comms` web flag is on; replaces
+ * Appendix E §E.2.1 `/app/chat*`, §E.5 rows 1-4, §E.6). The only source since TW7; replaces
  * the two listeners of the conversations panel (`ConversationsPanel.tsx:127-189`, closed chats downloaded and
  * dropped in the browser), the room's chat and full-history listeners (`room/page.tsx:74,90`), the read
  * state written inside a snapshot callback (`:108-113`), the three sequential reads of with-driver and the

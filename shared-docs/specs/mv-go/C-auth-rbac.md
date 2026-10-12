@@ -1697,7 +1697,7 @@ As built (T32R review): the one `cf_shim` key is shared by every driver, so `Req
 
 | Direction off | Criteria |
 |---|---|
-| `web` | TW7 done: no `firebase` import in the web bundle, `/v1/bridge/firebase-token` at zero traffic for 7 days |
+| `web` | TW7 done: no `firebase` import in the web bundle, `/v1/bridge/firebase-token` at zero traffic for 7 days. As built (TW7, issue #87): the web has no Firebase SDK and no `/api/auth/firebase-token` route, so no browser can reach the bridge; switching the mode to `mobile` (or `off`) on a deployment is the operator's step, after the 7-day window where the web bridge was ever on |
 | `mobile` and the mirror | P7b gate passed (≥ 95 % of heartbeats on ≥ 4.0.0, `minAllowedVersion` raised to 4.0.0, ADR 0007), all five shims and every callable at zero traffic for ≥ 2 release cycles, Cloud Functions deleted (P8) |
 
 ---

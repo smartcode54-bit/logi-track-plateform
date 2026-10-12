@@ -63,7 +63,8 @@ describe("parseMe", () => {
         expect(parsed.customerScopes).toEqual([{ billingPartyId: "bp1", name: "CJ" }]);
         expect(parsed.dispatcher).toBe(true);
         expect(parsed.mustChangePassword).toBe(false);
-        expect(parsed.legacyAuthUid).toBe("fb-uid");
+        // TW7: the Firebase uid of the retired web bridge is not part of the web's principal any more.
+        expect(parsed).not.toHaveProperty("legacyAuthUid");
         expect(parsed.photoUrl).toBeNull();
     });
 
@@ -182,16 +183,13 @@ describe("legacy role and claims (Appendix C §C.6.3)", () => {
         expect(can({ role: "manager" }, CAPABILITIES.fleet_view_trucks)).toBe(true);
     });
 
-    it("takes only the legacy Firestore ids from the bridge token, never the role", () => {
-        const claims = claimsFromMe(me({ tenant: null, customerScopes: [{ billingPartyId: "bp", name: "CJ" }] }), {
-            role: "admin",
-            admin: true,
-            customerScopeId: "cust-doc-1",
-            partnerScopeId: " ",
-        });
-        expect(claims).toMatchObject({ role: "customer", admin: false, customerScopeId: "cust-doc-1" });
+    it("synthesises the claims from ['me'] alone: no legacy Firestore ids since TW7", () => {
+        const claims = claimsFromMe(me({ tenant: null, customerScopes: [{ billingPartyId: "bp", name: "CJ" }] }));
+        expect(claims).toEqual({ role: "customer", admin: false, capabilities: expect.any(Array), dispatcher: false });
+        expect(claims).not.toHaveProperty("customerScopeId");
         expect(claims).not.toHaveProperty("partnerScopeId");
-        expect(claimsFromMe(null, { admin: true })).toBeNull();
+        expect(claims).not.toHaveProperty("driverId");
+        expect(claimsFromMe(null)).toBeNull();
     });
 
     it("isCustomerPrincipal: a customer scope without a membership", () => {

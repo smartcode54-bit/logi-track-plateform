@@ -910,19 +910,22 @@ func TestDeploy(t *testing.T) {
 	script := filepath.Join(kitDir(t), "deploy.sh")
 	webEnv := filepath.Join(t.TempDir(), "web-build.env")
 	values := map[string]string{
+		"NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID": `"sentinel-client-7f3a"`,
+	}
+	// A build env file written before TW7 still sets the retired Firebase public config: accepted with a
+	// notice naming them, never passed to docker.
+	retired := map[string]string{
 		"NEXT_PUBLIC_FIREBASE_API_KEY":             "sentinel-api-key-7f3a",
-		"NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN":         "sentinel-auth-domain-7f3a",
-		"NEXT_PUBLIC_FIREBASE_PROJECT_ID":          "sentinel-project-7f3a",
-		"NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET":      "sentinel-bucket-7f3a",
-		"NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "sentinel-sender-7f3a",
-		"NEXT_PUBLIC_FIREBASE_APP_ID":              `"sentinel-app-id-7f3a"`,
-		"NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID":        "sentinel-client-7f3a",
+		"NEXT_PUBLIC_FIREBASE_APP_ID":              "sentinel-app-id-7f3a",
+		"NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY": "sentinel-site-key-7f3a",
 	}
 	var b strings.Builder
 	var sentinels []string
-	for k, v := range values {
-		b.WriteString(k + "=" + v + "\n")
-		sentinels = append(sentinels, strings.Trim(v, `"`))
+	for _, m := range []map[string]string{values, retired} {
+		for k, v := range m {
+			b.WriteString(k + "=" + v + "\n")
+			sentinels = append(sentinels, strings.Trim(v, `"`))
+		}
 	}
 	writeFile(t, webEnv, b.String(), 0o600)
 
@@ -934,8 +937,11 @@ func TestDeploy(t *testing.T) {
 		t.Errorf("dry run called: %s", calls)
 	}
 	assertNoSecret(t, "deploy --dry-run output", out, sentinels)
-	if !strings.Contains(out, "NEXT_PUBLIC_FIREBASE_API_KEY") || !strings.Contains(out, "[dry-run] would") {
+	if !strings.Contains(out, "set in "+webEnv+": NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID") || !strings.Contains(out, "[dry-run] would") {
 		t.Errorf("dry run prints no plan:\n%s", out)
+	}
+	if !strings.Contains(out, "ignoring build arguments retired by TW7") || !strings.Contains(out, "NEXT_PUBLIC_FIREBASE_API_KEY") {
+		t.Errorf("dry run does not name the retired build arguments:\n%s", out)
 	}
 	if strings.Contains(out, "activate --pending --reseed") {
 		t.Errorf("a deploy without --reseed tops up the seed:\n%s", out)
@@ -960,13 +966,21 @@ func TestDeploy(t *testing.T) {
 		t.Errorf("the release is not activated pending and confirmed after the public checks:\n%s", calls)
 	}
 	if !strings.Contains(calls, "docker buildx build --platform linux/amd64") || !strings.Contains(calls, "--target standalone") ||
-		!strings.Contains(calls, "--build-arg NEXT_PUBLIC_FIREBASE_API_KEY ") {
+		!strings.Contains(calls, "--build-arg NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID ") {
 		t.Errorf("docker buildx not called as expected:\n%s", calls)
+	}
+	if strings.Contains(calls, "NEXT_PUBLIC_FIREBASE_") || strings.Contains(calls, "NEXT_PUBLIC_APP_CHECK_") {
+		t.Errorf("a retired build argument reached docker:\n%s", calls)
 	}
 	built := s.read(t, "docker-build.env")
 	for k, v := range values {
 		if !strings.Contains(built, k+"="+strings.Trim(v, `"`)+"\n") {
 			t.Errorf("docker did not receive %s through its environment", k)
+		}
+	}
+	for k := range retired {
+		if strings.Contains(built, k+"=") {
+			t.Errorf("docker received the retired %s through its environment", k)
 		}
 	}
 	if goEnv := s.read(t, "go.env"); !strings.Contains(goEnv, "GOOS=linux") || !strings.Contains(goEnv, "GOARCH=amd64") || !strings.Contains(goEnv, "CGO_ENABLED=0") {
@@ -1022,20 +1036,21 @@ func tarNames(t *testing.T, path string) []string {
 	return out
 }
 
-// TestDeployRefusesBadWebEnv: a tracked file, a server-only name or a missing Firebase value stops the
-// deploy before anything is built, and the message names variables only.
+// TestDeployRefusesBadWebEnv: a tracked file, a server-only name or a name the Dockerfile does not declare
+// stops the deploy before anything is built, and the message names variables only. Since TW7 no build
+// argument is required (the Firebase values that firebase/client.ts needed are retired).
 func TestDeployRefusesBadWebEnv(t *testing.T) {
 	s := newSandbox(t)
 	script := filepath.Join(kitDir(t), "deploy.sh")
 	dir := t.TempDir()
 	serverName := filepath.Join(dir, "server.env")
-	writeFile(t, serverName, "NEXT_PUBLIC_FIREBASE_API_KEY=x\nGO_API_INTERNAL_URL=sentinel-server-value-9c1\n", 0o600)
-	missing := filepath.Join(dir, "missing.env")
-	writeFile(t, missing, "NEXT_PUBLIC_FIREBASE_API_KEY=sentinel-only-one-9c1\n", 0o600)
+	writeFile(t, serverName, "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=x\nGO_API_INTERNAL_URL=sentinel-server-value-9c1\n", 0o600)
+	unknown := filepath.Join(dir, "unknown.env")
+	writeFile(t, unknown, "NEXT_PUBLIC_API_URL=sentinel-only-one-9c1\n", 0o600)
 	for name, c := range map[string]struct{ file, want string }{
-		"tracked":     {filepath.Join(kitDir(t), "..", "..", ".env.example"), "tracked by git"},
-		"server name": {serverName, "GO_API_INTERNAL_URL is not a NEXT_PUBLIC_* build argument"},
-		"missing":     {missing, "does not set: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"},
+		"tracked":      {filepath.Join(kitDir(t), "..", "..", ".env.example"), "tracked by git"},
+		"server name":  {serverName, "GO_API_INTERNAL_URL is not a NEXT_PUBLIC_* build argument"},
+		"unknown name": {unknown, "NEXT_PUBLIC_API_URL is not a NEXT_PUBLIC_* build argument"},
 	} {
 		out, code := s.run(t, script, "--web-build-env", c.file, "--allow-dirty")
 		if code == 0 || !strings.Contains(out, c.want) {
@@ -1255,11 +1270,7 @@ func TestDeployBuildsTheCommit(t *testing.T) {
 	repo, sha := scratchRepo(t)
 	script := filepath.Join(repo, "logitrack-api", "deploy", "vm", "deploy.sh")
 	webEnv := filepath.Join(t.TempDir(), "web-build.env")
-	var b strings.Builder
-	for _, n := range []string{"API_KEY", "AUTH_DOMAIN", "PROJECT_ID", "STORAGE_BUCKET", "MESSAGING_SENDER_ID", "APP_ID"} {
-		b.WriteString("NEXT_PUBLIC_FIREBASE_" + n + "=x\n")
-	}
-	writeFile(t, webEnv, b.String(), 0o600)
+	writeFile(t, webEnv, "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=x\n", 0o600)
 	deploy := func(args ...string) (string, int) {
 		return s.run(t, script, append([]string{"--web-build-env", webEnv}, args...)...)
 	}

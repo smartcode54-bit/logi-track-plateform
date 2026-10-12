@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Payroll over Go (T46, issue #66; Appendix E §E.2.2, §E.5 row 12, §E.10 row 10), rendered while the `hr`
- * web flag is on. The runs are `['payroll', {period, round, status, driverId}]` keyset pages of 50 with every
+ * Payroll over Go (T46, issue #66; Appendix E §E.2.2, §E.5 row 12, §E.10 row 10), the only source since
+ * TW7. The runs are `['payroll', {period, round, status, driverId}]` keyset pages of 50 with every
  * filter on the server (no 100-row window), polled every 60 s while visible; the summary cards read the
  * first page's `meta.statusCounts`. "Generate payroll" is the `payroll.run` job (`POST /v1/jobs/payroll.run`,
  * followed through `['jobs',id]`), approval and the status moves are Go routes: no callable and no browser

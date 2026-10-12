@@ -1,19 +1,12 @@
 // T54R (issue #74; R44, R77): the landing waitlist forms and the join-network form post only to the
-// anonymous BFF forms (/api/forms/*), with no cookie, and import no Firebase module (the mocks below throw
-// on a static import; firebaseImports.test.ts walks the import graph for the lazy ones).
+// anonymous BFF forms (/api/forms/*), with no cookie, and import no Firebase module (the web has none since TW7;
+// features/dashboard/firebaseImports.test.ts walks the import graph).
 import React from "react";
 import { readFileSync } from "fs";
 import path from "path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
-
-vi.mock("@/firebase/client", () => {
-    throw new Error("the anonymous forms must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the anonymous forms must not write Firestore");
-});
 
 import { render, screen, waitFor } from "@/components/__tests__/test-utils";
 import { ApiError } from "@/lib/apiError";

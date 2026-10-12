@@ -92,10 +92,11 @@ root-only file handed to migrate and seed per run) is listed for the owner on th
 - On the operator's machine: git, Go 1.27, Docker with buildx (linux/amd64 builds; on Apple silicon through the
   Docker Desktop or OrbStack emulation), curl. Run the scripts from a checkout of `mv-go`.
 - The web's public build values in a gitignored file, e.g. `logitrack-api/deploy/vm/.env.web-build`
-  (`.env.*` is gitignored there): the `NEXT_PUBLIC_*` names of `logitrack-web/Dockerfile`, with the six
-  `NEXT_PUBLIC_FIREBASE_*` values of the dev Firebase project's web app (`next build` needs them until TW7) and
-  optionally `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`. These end up in the browser bundle, so only public values
-  belong there; deploy.sh refuses any other name and never prints a value.
+  (`.env.*` is gitignored there): the `NEXT_PUBLIC_*` names of `logitrack-web/Dockerfile`, today only the
+  optional `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`. These end up in the browser bundle, so only public values
+  belong there; deploy.sh refuses any other name and never prints a value. TW7 removed the Firebase SDK from
+  the web: a file written earlier may still hold the `NEXT_PUBLIC_FIREBASE_*` / `NEXT_PUBLIC_APP_CHECK_*`
+  lines, which deploy.sh skips with a notice naming them (never passed to docker); delete them from the file.
 
 ## 1. Provision (once; safe to repeat)
 
@@ -137,17 +138,21 @@ deploy's `migrate up` fails otherwise.
 
 ## 2. Firebase and FCM files (optional)
 
-Until they exist the api runs with `AUTH_FIREBASE_BRIDGE_MODE=off` and the worker with `FCM_ENABLED=false`. The
-project ids (`logi-track-wrt-dev`) are already in the `.env`. As root on the VM:
+The web uses no Firebase at all since TW7 (no SDK, no custom-token bridge, no App Check). What remains is the
+driver app's side: the account mirror into Firebase Auth and the 3.x APK's Firebase ID tokens at
+`POST /v1/auth/exchange` (bridge mode `mobile`, P7a to P8), and the FCM pushes. Until the files exist the api
+runs with `AUTH_FIREBASE_BRIDGE_MODE=off` and the worker with `FCM_ENABLED=false`. The project ids
+(`logi-track-wrt-dev`) are already in the `.env`. As root on the VM:
 
 ```sh
-# the bridge (custom tokens and the account mirror of the dev project)
+# the bridge (the account mirror of the dev project and the APK's Firebase ID tokens)
 install -o root -g logitrack -m 0440 firebase-sa.json /opt/logitrack/shared/secrets/firebase-sa.json
 # push notifications (messaging-only service account)
 install -o root -g logitrack -m 0440 fcm-sa.json /opt/logitrack/shared/secrets/fcm-sa.json
 ```
 
-Then edit `/opt/logitrack/shared/.env`: `AUTH_FIREBASE_BRIDGE_MODE=web` (the paths in
+Then edit `/opt/logitrack/shared/.env`: `AUTH_FIREBASE_BRIDGE_MODE=mobile` (never `web` or `both`: no web page
+signs in to Firebase any more, so `POST /v1/bridge/firebase-token` stays 404; the paths in
 `GOOGLE_APPLICATION_CREDENTIALS` and `FCM_SERVICE_ACCOUNT_JSON` are already set) and `FCM_ENABLED=true`, and reload
 the apps that read them (they read the `.env` again when they start; the api serves the bridge, the worker sends
 the pushes):
@@ -159,8 +164,8 @@ bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 reload logitrack-api logitr
 pm2's own `reload` takes one name or `all` and silently drops a second name; `rollout.sh pm2 reload` with several
 names reloads each of them in turn (`pm2 ls` then shows a fresh uptime for both).
 
-The service account must belong to `FIREBASE_PROJECT_ID`. If the dev project enforces App Check with the reCAPTCHA
-key, add `logi.showkhun.co` to that key's domains.
+The service account must belong to `FIREBASE_PROJECT_ID`. No Firebase console step concerns `logi.showkhun.co`
+any more (TW7: no authorised domain, no App Check reCAPTCHA domain).
 
 ## 3. First deploy
 
@@ -223,7 +228,7 @@ paid); the July `no_rate` rows stay, reported by invariant 2a (Appendix D §D.1.
 already wrote for a driver, pay period and round the seed also generates (someone clicked "Generate payroll") is kept,
 and that driver's seeded payroll, penalties and payout rows are skipped (a warning per run and a `kept N payroll
 run(s)` line; Appendix D §D.1.7): deploy a release whose seed adds payroll rows (T46) with `--reseed` before anyone
-generates payroll on staging, and before the `hr` web flag is turned on. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
+generates payroll on staging (since TW7 the payroll pages read Go only). Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
 would add a second set of anchor-relative rows next to the first. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
 current release, the kept ones and the last activations, and says so when the current release was never
@@ -352,9 +357,9 @@ already answers "Already published" without uploading again. Installed 3.x APKs 
 from Firestore `settings/mobile_app`, which the `firestore.shadow` consumer projects from this gate (T52R) only
 where `COMPAT_PROJECTION_ENABLED` is on and `PG_OWNED_DOMAINS` holds `mobile_release`; this VM runs PostgreSQL
 only (both off), so here a publish or a floor reaches `GET /v1/mobile/settings` only, and
-`WEB_FLAG_OVERRIDES=mobile_release=go` alone is safe because its Firestore project is empty. A deployment whose
-Firestore project serves a fleet switches the flag, the domain and the projection together after freezing the
-gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alone.
+the mobile-release page reads that gate from Go (since TW7 it has no Firestore source to switch to). A
+deployment whose Firestore project serves a fleet moves the domain and the projection together after freezing
+the gate's writers (developer-spec.md §12.2, the T52R rollout).
 
 ## Operations
 
@@ -368,31 +373,28 @@ gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alon
   errors keep their full request line. (Password-reset tokens travel in the URL fragment and never reach nginx.)
 - Settings: edit `/opt/logitrack/shared/.env` as root, then `rollout.sh pm2 reload <app>`. Raising
   `UPLOAD_MAX_BYTES` needs the same `client_max_body_size` in both vhosts (`nginx/`).
-- Web domain flags: P0 state, `WEB_FLAG_OVERRIDES=auth=go` with `PG_OWNED_DOMAINS` empty (every other domain on
-  the dev Firebase project); change them in the `.env` and reload `logitrack-api` (no web rebuild).
+- Web domain flags: none since TW7. Every page reads and writes through Go (`/api/go`), whatever
+  `WEB_FLAG_OVERRIDES` says; `GET /v1/config/web-flags` still answers but the web no longer reads it. This VM runs
+  PostgreSQL only, so set `PG_OWNED_DOMAINS=all`: every Go write then lands in PostgreSQL, where the pages read it
+  (with a domain left out the operations, chat and leave writes answer `503 write_back_unconfigured`, below).
 - Operations writes (T31): the task, trip, standby-backfill and incident write routes write PostgreSQL only while
   `operations` is in `PG_OWNED_DOMAINS` (this VM has no Firestore). With it absent they would write Firestore first
   (the class C write-back), and since `WRITEBACK_FIRESTORE_PROJECT_ID` stays empty here they answer `503
-  write_back_unconfigured` instead: add `operations` to `PG_OWNED_DOMAINS` (e.g. `PG_OWNED_DOMAINS=auth,operations`,
-  keeping `WEB_FLAG_OVERRIDES` for the web pages' own switch, `operations=firebase` while the operations pages are
-  not on Go yet) and reload `logitrack-api`. Never set `WRITEBACK_FIRESTORE_PROJECT_ID` on this VM: it would point
+  write_back_unconfigured` instead: set `PG_OWNED_DOMAINS=all` (or at least add `operations`) and reload
+  `logitrack-api`. Never set `WRITEBACK_FIRESTORE_PROJECT_ID` on this VM: it would point
   the api's writes at a real Firestore project.
 - Chats (T47): chats are class C (the 3.x APKs write them in Firestore until P7b), so the chat write routes
   (`/v1/chats*`, `/v1/mobile/chat*`) write PostgreSQL only when `PG_OWNED_DOMAINS` holds every domain (`all`), like
   the leave decisions below; `comms` alone is not enough (it moves only the broadcasts, T48). With any domain left
   out they answer `503 write_back_unconfigured` (this VM has no Firestore to write back to). To serve them here set
-  `PG_OWNED_DOMAINS=all` and keep the web pages' own switch in `WEB_FLAG_OVERRIDES`, then reload `logitrack-api`.
-  The chat console and broadcast pages are on Go since T50: `comms=go` in `WEB_FLAG_OVERRIDES` renders them over
-  `/api/go` (no Firestore listener; the open room joins SSE `chat:{id}`), `comms=firebase` keeps the Firestore
-  console. A driver's chat pushes to the assigned admin only with `NOTIFY_ADMIN_ON_DRIVER_MESSAGE=true` (worker,
+  `PG_OWNED_DOMAINS=all`, then reload `logitrack-api`. The chat console and broadcast pages read Go only (T50, and
+  since TW7 there is no Firestore console to fall back to; the open room joins SSE `chat:{id}`). A driver's chat pushes to the assigned admin only with `NOTIFY_ADMIN_ON_DRIVER_MESSAGE=true` (worker,
   off by default).
 - Leave decisions (T45): leave requests are written by the 3.x APKs in Firestore until P7b, so
   `POST /v1/leave-requests/{id}/approve|reject|cancel` write PostgreSQL only when `PG_OWNED_DOMAINS` holds every
   domain (`all`, the P7b state, which fits this PostgreSQL-only VM). With any domain left out they are Firestore
   write-backs through the api's one Firestore client, which needs `WRITEBACK_FIRESTORE_PROJECT_ID`; this VM never
-  sets it (see above), so they answer `503 write_back_unconfigured` unless `PG_OWNED_DOMAINS=all`. `all` also
-  turns every web flag to `go`: pin the domains whose pages are not on Go yet back with `WEB_FLAG_OVERRIDES` (e.g.
-  `operations=firebase,hr=firebase,comms=firebase,dashboard=firebase`) until their web tasks land. Holidays need
+  sets it (see above), so they answer `503 write_back_unconfigured` unless `PG_OWNED_DOMAINS=all`. Holidays need
   nothing: they are written in PostgreSQL and their Firestore projection stays off with `COMPAT_PROJECTION_ENABLED`.
 - Coexistence consumers (T24S): the VM runs PostgreSQL only, so `ETL_SYNC_ENABLED` and `COMPAT_PROJECTION_ENABLED`
   stay `false`: the worker then opens no ETL pool and no Firestore client, and its `etl.sync` and `firestore.shadow`

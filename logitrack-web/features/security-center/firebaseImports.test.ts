@@ -3,12 +3,9 @@
 // This walks the import graph of the module each route's `GoPage` loads (the component tests mock
 // Firebase to throw, which catches a static import but not a lazy one that a try/catch swallows).
 //
-// It covers the page code only. The auth layer that the providers mount on every /app route still
-// loads the Firebase client lazily until TW7: the bridge (`lib/firebaseBridge.ts` -> `./firebaseBridgeSdk`,
-// the custom-token sign-in that `useAuth().loading` waits for) and the legacy last-login write
-// (`context/auth.tsx` -> `@/lib/updateUserLastLogin`). So at runtime a Go page still loads the SDK
-// through the bridge (developer-spec.md §10.4, §10.13 as built); the last test pins that, so the
-// difference stays visible.
+// TW7 removed what the auth layer still loaded lazily on every /app route (the Firebase bridge and the
+// legacy last-login write) and the Firestore pages; the last test pins that the auth layer and the
+// providers reach no Firebase module either (developer-spec.md §10.4, §10.13 as built).
 import path from "path";
 import { describe, expect, it } from "vitest";
 
@@ -37,10 +34,9 @@ describe("the Go Security Center pages' import graph", () => {
         expect(firebaseImports(goPageModule(route))).toEqual([]);
     });
 
-    it("sees Firebase where it is: the legacy pages, and the auth layer's lazy imports (until TW7)", () => {
-        expect(firebaseImports(path.join(root, "features/security-center/legacy/LegacyAuditPage.tsx")).length).toBeGreaterThan(0);
-        const authLayer = firebaseImports(path.join(root, "context/auth.tsx"));
-        expect(authLayer).toContain("context/auth.tsx -> lib/firebaseBridge.ts -> import(lib/firebaseBridgeSdk.ts) -> @/firebase/client");
-        expect(authLayer).toContain("context/auth.tsx -> import(lib/updateUserLastLogin.ts) -> @/firebase/client");
+    it("the auth layer, the providers and the /app shell reach no Firebase module (TW7)", () => {
+        for (const entry of ["context/auth.tsx", "app/providers.tsx", "app/app/layout.tsx", "app/layout.tsx"]) {
+            expect(firebaseImports(path.join(root, entry)), entry).toEqual([]);
+        }
     });
 });

@@ -26,18 +26,8 @@ vi.mock("xlsx", () => ({
     },
     writeFile: vi.fn(),
 }));
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go operations pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go operations pages must not import Firestore");
-});
-vi.mock("firebase/functions", () => {
-    throw new Error("the Go operations pages must not call Cloud Functions");
-});
 
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
@@ -65,15 +55,11 @@ beforeAll(() => {
 });
 afterAll(() => restoreLayout());
 beforeEach(() => {
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK on the Go operations pages");
-    });
 });
 afterEach(() => {
     resetQueryClientForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    configureFirebaseBridge(undefined);
     sheet.rows = [];
 });
 
@@ -87,8 +73,7 @@ const ALL_CAPS = [
 
 function setup(caps = ALL_CAPS) {
     const web = fakeWeb();
-    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ legacyAuthUid: undefined, capabilities: caps }) }));
-    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
+    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities: caps }) }));
     web.on("GET", "/api/go/v1/hubs", () =>
         json(200, { data: [
             { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1" },

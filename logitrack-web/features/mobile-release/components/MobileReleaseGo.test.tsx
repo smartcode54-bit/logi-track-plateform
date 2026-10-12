@@ -1,22 +1,12 @@
-// T54S (issue #74, security-center slice): mobile-clients and mobile-release over Go (T52S routes). These
-// page modules import no Firebase module (the mocks below throw on a static import;
-// features/security-center/firebaseImports.test.ts walks the graph; the auth bridge still loads the SDK
-// on every /app route until TW7). The ADR 0007 guards are kept (no floor without a download link, none
+// T54S (issue #74, security-center slice): mobile-clients and mobile-release over Go (T52S routes). The web
+// has no Firebase SDK since TW7 (features/security-center/firebaseImports.test.ts walks the graph). The ADR 0007 guards are kept (no floor without a download link, none
 // above the latest release, a typed confirmation with the impact before a floor that blocks more drivers).
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-vi.mock("@/firebase/client", () => {
-    throw new Error("the Go mobile pages must not load the Firebase client");
-});
-vi.mock("firebase/firestore", () => {
-    throw new Error("the Go mobile pages must not import Firestore");
-});
-
-import { configureFirebaseBridge } from "@/lib/firebaseBridge";
-import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+import { fakeWeb, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
 import { MobileClientsPage } from "./MobileClientsPage";
@@ -35,25 +25,19 @@ beforeAll(() => {
 });
 beforeEach(() => {
     window.history.replaceState(null, "", "/app/security-center/mobile-release");
-    configureFirebaseBridge(async () => {
-        throw new Error("no Firebase SDK here");
-    });
 });
 afterEach(() => {
     vi.unstubAllGlobals();
-    configureFirebaseBridge(undefined);
 });
 
 function setup(meOver: Partial<MeDTO> = {}) {
     const web = fakeWeb();
     const me = makeMe({
         id: "u-self",
-        legacyAuthUid: undefined,
         capabilities: ["security:view_mobile_clients", "security:manage_mobile_release"],
         ...meOver,
     });
     web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
-    web.on("POST", "/api/auth/firebase-token", () => goErr(403, "permission_denied"));
     return web;
 }
 
