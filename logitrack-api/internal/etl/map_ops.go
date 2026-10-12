@@ -174,7 +174,9 @@ func loadTask(c *docCtx) error {
 		set("driver_id", drv.idPtr()).set("legacy_driver_ref", drv.rawPtr()).set("driver_ref_match", drv.match).
 		set("helper_driver_id", helper).set("run_order", runOrder).
 		set("is_multi_delivery", c.isTrue("isMultiDelivery")).
-		set("line_checkin_notified_at", c.ts("lineCheckinNotifiedAt"))
+		set("line_checkin_notified_at", c.ts("lineCheckinNotifiedAt")).
+		set("plan_time", c.planTime("time")).set("actual_pickup_at", c.ts("actualPickupAt")).
+		set("cancelled_at", c.ts("cancelledAt")).set("cancel_reason", c.text("cancelReason"))
 	c.times(r)
 	id, err := c.rowID("tasks")
 	if err != nil {
@@ -191,6 +193,24 @@ func loadTask(c *docCtx) error {
 		return err
 	}
 	c.done("tasks", id)
+	return nil
+}
+
+// planTime is a task's time "HH:MM" (tasks.plan_time CHECK); "" and any other form are NULL (the legacy forms wrote
+// "" for no time and the 3.x app writes "HH:MM"; a value the CHECK would refuse is reported, never loaded).
+func (c *docCtx) planTime(field string) *string {
+	s := strings.TrimSpace(c.str(field))
+	if s == "" {
+		return nil
+	}
+	if t, err := time.Parse("15:04", s); err == nil && t.Format("15:04") == s {
+		return &s
+	}
+	if t, err := time.Parse("15:04", "0"+s); err == nil && len(s) == 4 { // "9:30" as the sheet import may give it
+		v := t.Format("15:04")
+		return &v
+	}
+	c.find(field, ReasonBadTimestamp, "not an HH:MM time; plan_time left empty", c.get(field))
 	return nil
 }
 

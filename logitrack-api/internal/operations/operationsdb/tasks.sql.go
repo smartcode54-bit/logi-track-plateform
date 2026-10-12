@@ -1454,8 +1454,9 @@ SET job_category = $1, status = $2, plan_at = $3,
     legacy_truck_type = $16, license_plate_snapshot = $17,
     driver_id = $18, legacy_driver_ref = $19,
     driver_ref_match = $20, helper_driver_id = $21,
-    run_order = $22, is_multi_delivery = $23
-WHERE id = $24
+    run_order = $22, is_multi_delivery = $23,
+    cancelled_at = $24, cancel_reason = $25
+WHERE id = $26
 RETURNING id, legacy_doc_id, tenant_id, tenant_source, task_no, task_type, job_category, status, plan_at, plan_date, plan_time, legacy_date_str, actual_pickup_at, source_hub_raw, source_hub_id, source_linked_party_id, destination_raw, destination_hub_id, destination_soc_key, destination_linked_party_id, billing_party_id, truck_id, truck_type, legacy_truck_type, license_plate_snapshot, driver_id, legacy_driver_ref, driver_ref_match, helper_driver_id, run_order, check_in_at, check_in_photo_file_id, check_in_app_screenshot_file_id, check_in_lat, check_in_lng, is_multi_delivery, line_checkin_notified_at, cancelled_at, cancel_reason, client_op_id, created_by, created_at, updated_at
 `
 
@@ -1483,11 +1484,14 @@ type UpdateTaskParams struct {
 	HelperDriverID           *uuid.UUID
 	RunOrder                 *int32
 	IsMultiDelivery          bool
+	CancelledAt              *time.Time
+	CancelReason             *string
 	ID                       uuid.UUID
 }
 
 // PATCH writes the merged row (Go merges the request into the locked row; an absent field keeps its value, and status
-// and run_order change only when the caller sets them, fixing tasks.ts:120-137). Never tenant_id (frozen,
+// and run_order change only when the caller sets them, fixing tasks.ts:120-137; a cancelled task reopened by a new
+// driver clears its cancellation, the legacy edit's Cancelled -> Assigned). Never tenant_id (frozen,
 // t_freeze_tenant_id; the R13 reassignment is the tenant-move path of T28, iam.TaskMover + tenancy.MoveTask), task_no,
 // task_type or the check-in columns.
 func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, error) {
@@ -1515,6 +1519,8 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, e
 		arg.HelperDriverID,
 		arg.RunOrder,
 		arg.IsMultiDelivery,
+		arg.CancelledAt,
+		arg.CancelReason,
 		arg.ID,
 	)
 	var i Task

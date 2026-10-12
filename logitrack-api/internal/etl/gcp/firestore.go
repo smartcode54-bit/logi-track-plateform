@@ -48,6 +48,12 @@ var ErrNotFound = errors.New("gcp: not found")
 // ErrPrecondition: a write's precondition failed (the document changed since it was read).
 var ErrPrecondition = errors.New("gcp: precondition failed")
 
+// errNoDocument marks a 404 whose message is Firestore's "No document to update" (or delete): a write with
+// currentDocument.exists=true named a document that does not exist. Real Firestore answers that precondition with
+// NOT_FOUND, not FAILED_PRECONDITION; Commit reports it as ErrPrecondition. Any other 404 (a missing database or
+// project) stays ErrNotFound.
+var errNoDocument = errors.New("gcp: no such document")
+
 // APIError is an error answer of a Google API; Code is Google's status ("PERMISSION_DENIED"), never body text.
 type APIError struct {
 	Op     string
@@ -304,6 +310,72 @@ func (f *Firestore) Patch(ctx context.Context, path string, fields map[string]an
 	return f.decodeDoc(out)
 }
 
+// Write is one write of a Commit: Delete removes the document at Path; otherwise Fields are written under Mask (a
+// field in Mask but not in Fields is deleted, fields outside Mask are kept; an empty Mask replaces the document).
+// Pre guards the write.
+type Write struct {
+	Path   string
+	Fields map[string]any
+	Mask   []string
+	Delete bool
+	Pre    Precondition
+}
+
+// Commit applies writes atomically (documents:commit: all of them or none) and returns the commit time, which is the
+// update time of every document it wrote. A failed precondition is ErrPrecondition and nothing is written.
+func (f *Firestore) Commit(ctx context.Context, writes []Write) (time.Time, error) {
+	if len(writes) == 0 {
+		return time.Time{}, errors.New("gcp: commit without writes")
+	}
+	body := make([]map[string]any, 0, len(writes))
+	for _, w := range writes {
+		name := f.root + "/" + w.Path
+		var out map[string]any
+		if w.Delete {
+			out = map[string]any{"delete": name}
+		} else {
+			enc := map[string]any{}
+			for k, v := range w.Fields {
+				ev, err := EncodeValue(f.root, v)
+				if err != nil {
+					return time.Time{}, fmt.Errorf("gcp: %s.%s: %w", w.Path, k, err)
+				}
+				enc[k] = ev
+			}
+			out = map[string]any{"update": map[string]any{"name": name, "fields": enc}}
+			if len(w.Mask) > 0 {
+				paths := make([]string, len(w.Mask))
+				for i, m := range w.Mask {
+					paths[i] = quoteFieldPath(m)
+				}
+				out["updateMask"] = map[string]any{"fieldPaths": paths}
+			}
+		}
+		switch {
+		case w.Pre.Exists != nil:
+			out["currentDocument"] = map[string]any{"exists": *w.Pre.Exists}
+		case !w.Pre.UpdateTime.IsZero():
+			out["currentDocument"] = map[string]any{"updateTime": w.Pre.UpdateTime.UTC().Format(time.RFC3339Nano)}
+		}
+		body = append(body, out)
+	}
+	var res struct {
+		CommitTime time.Time `json:"commitTime"`
+	}
+	if err := do(ctx, f.client, f.tokens, "commit", http.MethodPost, f.base+":commit", map[string]any{"writes": body}, &res); err != nil {
+		if errors.Is(err, errNoDocument) && slices.ContainsFunc(writes, func(w Write) bool {
+			return (w.Pre.Exists != nil && *w.Pre.Exists) || !w.Pre.UpdateTime.IsZero()
+		}) {
+			return time.Time{}, fmt.Errorf("%w: commit: a document a write names does not exist", ErrPrecondition)
+		}
+		return time.Time{}, err
+	}
+	if res.CommitTime.IsZero() {
+		return time.Time{}, errors.New("gcp: commit: the answer has no commit time")
+	}
+	return res.CommitTime, nil
+}
+
 type restDoc struct {
 	Name       string                     `json:"name"`
 	Fields     map[string]json.RawMessage `json:"fields"`
@@ -553,6 +625,8 @@ func do(ctx context.Context, client *http.Client, tokens oauth2.TokenSource, op,
 	if res.StatusCode/100 != 2 {
 		code := statusCode(raw)
 		switch {
+		case res.StatusCode == http.StatusNotFound && strings.HasPrefix(errorMessage(raw), "No document to "):
+			return fmt.Errorf("%w: %w: %s", ErrNotFound, errNoDocument, op)
 		case res.StatusCode == http.StatusNotFound:
 			return fmt.Errorf("%w: %s", ErrNotFound, op)
 		case res.StatusCode == http.StatusPreconditionFailed || code == "FAILED_PRECONDITION" || code == "ALREADY_EXISTS":
@@ -566,6 +640,20 @@ func do(ctx context.Context, client *http.Client, tokens oauth2.TokenSource, op,
 		}
 	}
 	return nil
+}
+
+// errorMessage is the message of Google's {"error":{"message":"..."}}, only tested for a prefix: an error never carries
+// it (it names the document path).
+func errorMessage(raw []byte) string {
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) != nil {
+		return ""
+	}
+	return e.Error.Message
 }
 
 // statusCode keeps only Google's upper-case status of {"error":{"status":"..."}}.

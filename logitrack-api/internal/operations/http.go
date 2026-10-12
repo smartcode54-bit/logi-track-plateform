@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"slices"
@@ -25,22 +26,31 @@ const (
 
 // Groups are the operations routes on the internal listener behind requireAuth (auth.Service.RequireAuth, which
 // resolves the principal through iam.RBAC.Authorize; an X-Api-Key is refused, R82). s may be nil while the route table
-// is only listed. The write-back (T31) joins these groups. Static paths are registered before /{id}.
+// is only listed. Static paths are registered before /{id}. The writes (T31, write*.go) go to PostgreSQL while the
+// operations domain is PostgreSQL-owned, else to Firestore first (the write-back).
 //
 //	GET   /v1/tasks                       operations:view_first_mile | operations:view_line_haul | dispatch:view_operations
 //	GET   /v1/tasks/by-number/{taskNo}    operations:view_first_mile | operations:view_line_haul
 //	GET   /v1/tasks/{id}                  operations:view_first_mile | operations:view_line_haul | driver:self (R33)
 //	GET   /v1/tasks/{id}/trip             operations:view_first_mile | operations:view_line_haul
-//	PATCH /v1/tasks/{id}                  operations:manage_tasks | platform:cross_tenant_write; T28 slice: {tenantId,
-//	                                      driverId?}, the R13 move by a dispatcher (a call-out of its organisation) or a
-//	                                      platform admin
+//	POST  /v1/tasks                       operations:manage_tasks (T31)
+//	POST  /v1/tasks/import                operations:manage_tasks (T31)
+//	PATCH /v1/tasks/{id}                  operations:manage_tasks | platform:cross_tenant_write: a tenantId other than the
+//	                                      task's is the R13 move of T28 (a dispatcher's call-out or a platform admin),
+//	                                      every other body the ordinary update under the caller's RLS (T31)
+//	POST  /v1/tasks/{id}/cancel           operations:manage_tasks (T31)
+//	POST  /v1/tasks/{id}/stops            operations:manage_tasks (T31)
 //	GET   /v1/trips                       operations:view_driver_monitor | accounting:view_income | dispatch:view_operations
 //	GET   /v1/trips/monitor               operations:view_driver_monitor | dispatch:view_operations (W8, pages of 200)
 //	GET   /v1/trips/by-no/{tripNo}        operations:view_driver_monitor | accounting:view_income
 //	GET   /v1/trips/{id}                  operations:view_driver_monitor | accounting:view_income
 //	GET   /v1/trips/{id}/photos           operations:view_driver_monitor
+//	PATCH /v1/trips/{id}, POST /v1/trips/{id}/deliver|cancel|rename, POST /v1/trips/bulk-cancel
+//	                                      operations:edit_trip_details (rename: as tenant_admin) (T31)
 //	GET   /v1/standby                     operations:view_driver_monitor | dispatch:view_operations
+//	POST  /v1/standby/backfill            operations:create_standby (T31)
 //	GET   /v1/incidents                   operations:view_incidents | dispatch:view_operations
+//	POST  /v1/incidents                   operations:edit_trip_details (T31)
 //
 // The task type of a task is checked too: operations:view_first_mile reads first-mile tasks, operations:view_line_haul
 // line-haul ones (dispatch:view_operations both). A dispatcher or a customer-scope principal is served from the scope_*
@@ -52,26 +62,78 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 		{Prefix: TasksPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul, authz.DispatchViewOperations),
 				h.listTasks)
+			r.Post("", requireAuth, need(authz.OperationsManageTasks), h.write(h.s.CreateTaskAPI))
+			r.Post("/import", requireAuth, need(authz.OperationsManageTasks), h.write(h.s.ImportTasksAPI))
 			r.Get("/by-number/:taskNo", requireAuth, need(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul),
 				h.tasksByNumber)
 			r.Get("/:id", requireAuth, staffOrDriver(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul), h.getTask)
 			r.Get("/:id/trip", requireAuth, need(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul), h.taskTrip)
-			r.Patch("/:id", requireAuth, need(authz.OperationsManageTasks, authz.PlatformCrossTenantWrite), h.patch)
+			r.Patch("/:id", requireAuth, need(authz.OperationsManageTasks, authz.PlatformCrossTenantWrite), h.writeID(h.s.PatchTaskAPI))
+			r.Post("/:id/cancel", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.CancelTaskAPI))
+			r.Post("/:id/stops", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.AddTaskStopAPI))
 		}},
 		{Prefix: TripsPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome, authz.DispatchViewOperations),
 				h.listTrips)
 			r.Get("/monitor", requireAuth, need(authz.OperationsViewDriverMon, authz.DispatchViewOperations), h.monitor)
+			r.Post("/bulk-cancel", requireAuth, need(authz.OperationsEditTripDetails), h.write(h.s.BulkCancelTripsAPI))
 			r.Get("/by-no/:tripNo", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome), h.tripByNo)
 			r.Get("/:id", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome), h.getTrip)
+			r.Patch("/:id", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.PatchTripAPI))
 			r.Get("/:id/photos", requireAuth, need(authz.OperationsViewDriverMon), h.tripPhotos)
+			r.Post("/:id/deliver", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.DeliverTripAPI))
+			r.Post("/:id/cancel", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.CancelTripAPI))
+			r.Post("/:id/rename", requireAuth, need(authz.OperationsEditTripDetails), h.writeID(h.s.RenameTripAPI))
 		}},
 		{Prefix: StandbyPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.DispatchViewOperations), h.listStandby)
+			r.Post("/backfill", requireAuth, need(authz.OperationsCreateStandby), h.write(h.s.StandbyBackfillAPI))
 		}},
 		{Prefix: IncidentsPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.OperationsViewIncidents, authz.DispatchViewOperations), h.listIncidents)
+			r.Post("", requireAuth, need(authz.OperationsEditTripDetails), h.write(h.s.CreateIncidentAPI))
 		}},
+	}
+}
+
+// write is the handler of a write route without a path id: no query parameter, the JSON body to the service, the
+// answer's status and data in the success envelope.
+func (h handlers) write(fn func(context.Context, *authz.Principal, string, []byte) (WriteResult, error)) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		p, err := principal(c)
+		if err != nil {
+			return err
+		}
+		if len(c.Queries()) > 0 {
+			return httpx.ErrBadRequest("this route takes no query parameter")
+		}
+		res, err := fn(c.Context(), p, httpx.RequestIDFrom(c), c.Body())
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(c, res.Status, res.Data)
+	}
+}
+
+// writeID is write for a route of one row (/:id: a uuid, anything else 404).
+func (h handlers) writeID(fn func(context.Context, *authz.Principal, string, uuid.UUID, []byte) (WriteResult, error)) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		p, err := principal(c)
+		if err != nil {
+			return err
+		}
+		id, err := pathID(c)
+		if err != nil {
+			return err
+		}
+		if len(c.Queries()) > 0 {
+			return httpx.ErrBadRequest("this route takes no query parameter")
+		}
+		res, err := fn(c.Context(), p, httpx.RequestIDFrom(c), id, c.Body())
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(c, res.Status, res.Data)
 	}
 }
 
@@ -225,30 +287,6 @@ func (h handlers) taskTrip(c fiber.Ctx) error {
 		return err
 	}
 	out, err := h.s.TaskTripView(c.Context(), p, id)
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, out)
-}
-
-// patch is PATCH /v1/tasks/{id}: 200 with the reassignment (Reassigned).
-func (h handlers) patch(c fiber.Ctx) error {
-	p, err := principal(c)
-	if err != nil {
-		return err
-	}
-	id, err := pathID(c)
-	if err != nil {
-		return err
-	}
-	if len(c.Queries()) > 0 {
-		return httpx.ErrBadRequest("this route takes no query parameter")
-	}
-	in, err := ParseReassign(c.Body())
-	if err != nil {
-		return err
-	}
-	out, err := h.s.ReassignTask(c.Context(), p, httpx.RequestIDFrom(c), id, in)
 	if err != nil {
 		return err
 	}

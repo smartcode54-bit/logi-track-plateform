@@ -213,17 +213,38 @@ func (c *docCtx) partyBasis(id *uuid.UUID) (string, error) {
 	return b, nil
 }
 
-// user resolves a Firebase uid to users.id; NULL + user_unresolved.
+// user resolves a user-valued field to users.id (userID); NULL + user_unresolved.
 func (c *docCtx) user(field, uid string) (*uuid.UUID, error) {
 	uid = strings.TrimSpace(uid)
 	if uid == "" {
 		return nil, nil
 	}
+	id, err := c.userID(uid)
+	if err != nil {
+		return nil, err
+	}
+	if id == nil {
+		c.find(field, ReasonUserUnresolved, "matches no users.legacy_auth_uid nor users.id", uid)
+	}
+	return id, nil
+}
+
+// userID resolves the value of a user-valued legacy field (reportedByUid, renamedBy, changedBy, ...): the Firebase uid
+// (users.legacy_auth_uid), else, for a login born in Go without one, its canonical users.id (the operations write-back
+// writes it when the caller has no Firebase uid, T31). A Firebase uid is never a canonical uuid held as another
+// user's id (the adoption rule of Appendix C §C.6.4), so the fallback cannot pick the wrong row. nil = no such user.
+func (c *docCtx) userID(uid string) (*uuid.UUID, error) {
 	var id uuid.UUID
 	err := c.tx.QueryRow(c.ctx, `SELECT id FROM users WHERE legacy_auth_uid = $1`, uid).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		c.find(field, ReasonUserUnresolved, "matches no users.legacy_auth_uid", uid)
-		return nil, nil
+		u, perr := uuid.Parse(uid)
+		if perr != nil || u.String() != uid {
+			return nil, nil
+		}
+		err = c.tx.QueryRow(c.ctx, `SELECT id FROM users WHERE id = $1`, u).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("etl: %s: user lookup: %w", c.doc.Path, err)

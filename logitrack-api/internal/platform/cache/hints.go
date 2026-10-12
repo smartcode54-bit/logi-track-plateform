@@ -124,11 +124,21 @@ func (c *Cache) MirrorAck(ctx context.Context, collection, docID string) (time.T
 	if IsMoneyPath(ctx) {
 		return time.Time{}, false, ErrMoneyPath
 	}
-	var v string
+	var at time.Time
+	var ok bool
 	err := c.call(ctx, func(ctx context.Context) (err error) {
-		v, err = c.rdb.Get(ctx, c.ks.MirrorAck(collection, docID)).Result()
+		at, ok, err = ReadMirrorAck(ctx, c.rdb, c.ks, collection, docID)
 		return err
 	})
+	return at, ok, err
+}
+
+// ReadMirrorAck reads cache:mirror_ack:{collection}:{docID} on a plain client: the last UpdateTime the
+// mirror applied to the document, false when none is recorded (expired after MirrorAckTTL, never
+// mirrored, or unreadable). The notify.fcm consumer reads it to hold the push of a Go write-back until
+// the mirror applied that write to PostgreSQL (T31).
+func ReadMirrorAck(ctx context.Context, rdb redis.UniversalClient, ks Keyspace, collection, docID string) (time.Time, bool, error) {
+	v, err := rdb.Get(ctx, ks.MirrorAck(collection, docID)).Result()
 	if errors.Is(err, redis.Nil) {
 		return time.Time{}, false, nil
 	}
@@ -141,6 +151,48 @@ func (c *Cache) MirrorAck(ctx context.Context, collection, docID string) (time.T
 	}
 	return time.UnixMicro(us).UTC(), true, nil
 }
+
+// RunOrderHoldTTL is how long a queue position the operations write-back handed out stays held: longer than
+// MirrorAckTTL, by when the mirror has loaded the task and PostgreSQL's max(run_order) of the driver holds it.
+const RunOrderHoldTTL = 15 * time.Minute
+
+// ReserveRunOrder hands out the next queue position of a driver while the operations domain is Firestore-owned
+// (T31): one more than the larger of floor (PostgreSQL's max(run_order) of the driver, which the caller reads
+// under the driver's queue lock) and the position held here, and holds it for RunOrderHoldTTL. A write-back's
+// task reaches PostgreSQL only when the mirror loads it, so two assignments of one driver within the mirror's
+// lag would otherwise both take max + 1.
+func (c *Cache) ReserveRunOrder(ctx context.Context, driverID string, floor int32) (int32, error) {
+	if IsMoneyPath(ctx) {
+		return 0, ErrMoneyPath
+	}
+	var n int64
+	err := c.call(ctx, func(ctx context.Context) (err error) {
+		n, err = nextScript.Run(ctx, c.rdb, []string{c.ks.RunOrderHold(driverID)}, floor,
+			RunOrderHoldTTL.Milliseconds()).Int64()
+		return err
+	})
+	return int32(n), err
+}
+
+// HoldRunOrder raises the position held for a driver to at least pos (a write-back that sets a position
+// itself), for RunOrderHoldTTL.
+func (c *Cache) HoldRunOrder(ctx context.Context, driverID string, pos int32) error {
+	if IsMoneyPath(ctx) {
+		return ErrMoneyPath
+	}
+	return c.call(ctx, func(ctx context.Context) error {
+		return raiseScript.Run(ctx, c.rdb, []string{c.ks.RunOrderHold(driverID)}, pos, RunOrderHoldTTL.Milliseconds()).Err()
+	})
+}
+
+// nextScript sets KEYS[1] to max(KEYS[1], ARGV[1]) + 1 with the TTL ARGV[2] ms and returns it.
+var nextScript = redis.NewScript(`
+local cur = tonumber(redis.call('GET', KEYS[1])) or 0
+local floor = tonumber(ARGV[1])
+if floor > cur then cur = floor end
+cur = cur + 1
+redis.call('SET', KEYS[1], cur, 'PX', ARGV[2])
+return cur`)
 
 // MirrorAckPoll is how often WaitMirrorAck reads the ack.
 var MirrorAckPoll = 50 * time.Millisecond
