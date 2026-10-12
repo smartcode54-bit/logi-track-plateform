@@ -261,7 +261,9 @@ describe("a language toggle refetches nothing at the eight sites (Appendix E §E
 
     // The effect scanner that found the sites: no effect at these files lists `t` any more.
     const SITES = [
-        "app/app/holidays/page.tsx",
+        "features/holidays/legacy/LegacyHolidaysPage.tsx",
+        // T46: the Go holidays page (`['holidays', year]` holds no language).
+        "features/holidays/components/HolidaysPage.tsx",
         "features/security-center/components/SessionManagementActiveUsers.tsx",
         "features/drivers/components/EditDriverForm.tsx",
         "features/drivers/components/DriverPreview.tsx",

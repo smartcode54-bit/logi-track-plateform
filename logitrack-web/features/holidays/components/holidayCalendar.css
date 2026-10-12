@@ -1,0 +1,156 @@
+/* The holidays calendar (FullCalendar) theme: loaded with the calendar chunk (HolidayCalendar.tsx, next/dynamic),
+   shared by the Go and the Firestore holidays pages (T46). */
+.fc {
+    --fc-border-color: var(--border);
+    --fc-daygrid-dot-event-hover-bg-color: var(--accent);
+    --fc-page-bg-color: transparent;
+    --fc-neutral-bg-color: transparent;
+    --fc-list-event-hover-bg-color: var(--accent);
+    --fc-today-bg-color: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--foreground);
+}
+
+/* Today Styling */
+.fc .fc-day-today {
+    background-color: #e0f2fe !important; /* sky-100 */
+    position: relative;
+}
+.fc .fc-day-today::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 2px solid #38bdf8; /* sky-400 */
+    pointer-events: none;
+    z-index: 3;
+}
+.fc .fc-day-today .fc-daygrid-day-number {
+    background-color: #38bdf8; /* sky-400 */
+    color: white !important;
+    border-radius: 4px;
+    padding: 0 4px;
+    margin: 2px;
+    z-index: 4;
+    position: relative;
+}
+
+/* Hide "+n more" link */
+.fc-daygrid-more-link {
+    display: none !important;
+}
+
+/* Weekend Styling */
+.fc .weekend-sun {
+    background-color: rgba(239, 68, 68, 0.04) !important;
+}
+.fc .weekend-sat {
+    background-color: rgba(59, 130, 246, 0.04) !important;
+}
+.fc .fc-col-header-cell.fc-day-sun {
+    color: #ef4444;
+}
+.fc .fc-col-header-cell.fc-day-sat {
+    color: #3b82f6;
+}
+
+/* Holiday Cell Background */
+.holiday-cell {
+    background-color: rgba(239, 68, 68, 0.08) !important;
+}
+
+/* Year View Holiday Styling */
+.fc-multimonth-year-view .holiday-cell {
+    background-color: #ef4444 !important; /* red-500 fill */
+    position: relative;
+}
+.fc-multimonth-year-view .holiday-cell .fc-daygrid-day-number {
+    color: white !important;
+    font-weight: bold;
+    position: relative;
+    z-index: 2;
+}
+/* Hide event content in Year view to avoid clutter, using cell background instead */
+.fc-multimonth-year-view .fc-daygrid-event {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0; /* Hidden but interactive for hover */
+    z-index: 1;
+}
+
+/* Hover State: Only for Year view */
+.fc-multimonth-year-view .fc-daygrid-day:hover {
+    filter: brightness(1.1);
+    z-index: 5;
+    cursor: pointer;
+}
+
+.fc .fc-toolbar-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+.fc .fc-button-primary {
+    background-color: var(--secondary);
+    border-color: var(--border);
+    color: var(--secondary-foreground);
+}
+.fc .fc-button-primary:hover {
+    background-color: var(--accent);
+    border-color: var(--border);
+    color: var(--accent-foreground);
+}
+.fc .fc-button-primary:disabled {
+    opacity: 0.5;
+}
+.fc .fc-button-active {
+    background-color: var(--primary) !important;
+    border-color: var(--primary) !important;
+    color: var(--primary-foreground) !important;
+}
+.fc-theme-standard td, .fc-theme-standard th {
+    border-color: var(--border);
+}
+.fc .fc-multimonth-month {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    background: var(--card);
+}
+.fc-multimonth-title {
+    background: var(--muted);
+    padding: 0.5rem !important;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-foreground);
+    font-weight: 700;
+}
+.fc-day-other {
+    opacity: 0.3;
+    background-color: transparent !important;
+}
+.fc-event-title {
+    white-space: normal !important;
+    word-wrap: break-word;
+    padding: 2px 4px;
+}
+.fc-daygrid-event {
+    border-radius: 4px;
+    margin-bottom: 2px;
+    border-top: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+}
+
+/* Highlight day cell if it has a holiday in month view */
+.fc-daygrid-month-view .holiday-cell {
+    background-color: rgba(239, 68, 68, 0.08) !important;
+}
+
+/* Hide time element if any */
+.fc-event-time {
+    display: none !important;
+}

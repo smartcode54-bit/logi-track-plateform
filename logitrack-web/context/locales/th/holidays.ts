@@ -65,4 +65,5 @@ export default {
     "holidays.type.other": "อื่นๆ",
     "holidays.status.draft": "ฉบับร่าง",
     "holidays.status.published": "เผยแพร่",
+    "holidays.status.archived": "เก็บถาวร",
 };

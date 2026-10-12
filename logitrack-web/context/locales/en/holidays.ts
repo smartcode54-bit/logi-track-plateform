@@ -65,4 +65,5 @@ export default {
     "holidays.type.other": "OTHER",
     "holidays.status.draft": "DRAFT",
     "holidays.status.published": "PUBLISHED",
+    "holidays.status.archived": "ARCHIVED",
 };
