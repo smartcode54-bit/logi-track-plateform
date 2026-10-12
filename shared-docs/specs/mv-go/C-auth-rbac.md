@@ -175,11 +175,11 @@ Holder abbreviations: TA tenant_admin, MG manager, OS operation_staff, OP operat
 | 20 | `broadcasts:view` | tenant | Broadcast history and read counts | TA MG OS OP | row `broadcasts_view` (:170) |
 | 21 | `operations:view_first_mile` | tenant | First Mile board, job-assign read | TA MG OS OP CU DS | `operations_view_first_mile` (:29) |
 | 22 | `operations:view_line_haul` | tenant | Line Haul board | TA MG OS OP CU DS | `operations_view_line_haul` (:30) |
-| 23 | `operations:manage_tasks` | tenant | Create / edit / cancel / import / assign tasks, delivery stops | TA MG OS OP | — (boards write tasks directly today) |
+| 23 | `operations:manage_tasks` | tenant | Create / edit / cancel / import / assign tasks, delivery stops; also the task mirror of a trip edit (`PATCH /v1/trips/{id}` route or `stops[]` that change the trip's task: its route, billing link, type, planned stops; T34) | TA MG OS OP | — (boards write tasks directly today) |
 | 24 | `operations:manage_sources` | global | Hubs / SOC master and name aliases | TA MG OS OP | `operations_manage_sources` (:31) |
 | 25 | `operations:calculate_distances` | global | Run the Distance Matrix job (`hub_soc_distances`) | TA | `operations_calculate_distances` (:32) |
 | 26 | `operations:view_driver_monitor` | tenant | Driver monitor, standby records list | TA MG OS OP CU DS | `operations_view_driver_monitor` (:33) |
-| 27 | `operations:edit_trip_details` | tenant | Edit trip details, rename trip, revoke an evidence link (`POST /v1/trips/{id}/evidence/revoke`, `POST /v1/standby/{id}/evidence/revoke`; the next forced LINE send mints a new token, R47) | TA MG OS OP | `operations_edit_trip_details` (:34) |
+| 27 | `operations:edit_trip_details` | tenant | Edit trip details, rename trip, revoke an evidence link (`POST /v1/trips/{id}/evidence/revoke`, `POST /v1/standby/{id}/evidence/revoke`; the next forced LINE send mints a new token, R47); a trip edit whose route or stops change the trip's task needs row 23 too (T34) | TA MG OS OP | `operations_edit_trip_details` (:34) |
 | 28 | `operations:view_incidents` | tenant | Incident list and detail | TA MG OS OP CU DS | `operations_view_incidents` (:35) |
 | 29 | `operations:create_standby` | tenant | Admin standby backfill | TA MG OS | `operations_create_standby` (:36) |
 | 30 | `accounting:view_fuel` | tenant | Fuel expenses, Bangchak retail prices | TA MG OS | `accounting_view_fuel` (:49); row (:175) |

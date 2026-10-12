@@ -46,13 +46,13 @@ type writeHubs struct {
 func (h writeHubs) Hubs(ctx context.Context, _ *authz.Principal) ([]operations.Hub, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	rows, err := h.w.etl.Query(ctx, `SELECT id, source_id::text, name_th, name_en, linked_party_id FROM hubs ORDER BY source_id`)
+	rows, err := h.w.etl.Query(ctx, `SELECT id, source_id::text, name_th, name_en, linked_party_id, station_type FROM hubs ORDER BY source_id`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (operations.Hub, error) {
 		var x operations.Hub
-		err := r.Scan(&x.ID, &x.Code, &x.NameTh, &x.NameEn, &x.LinkedPartyID)
+		err := r.Scan(&x.ID, &x.Code, &x.NameTh, &x.NameEn, &x.LinkedPartyID, &x.StationType)
 		return x, err
 	})
 }

@@ -71,6 +71,24 @@ func (q *Queries) DeleteTripPhoto(ctx context.Context, arg DeleteTripPhotoParams
 	return result.RowsAffected(), nil
 }
 
+const deleteTripStopsFrom = `-- name: DeleteTripStopsFrom :execrows
+DELETE FROM trip_delivery_stops WHERE trip_id = $1 AND stop_index > $2::int
+`
+
+type DeleteTripStopsFromParams struct {
+	TripID    uuid.UUID
+	LastIndex int32
+}
+
+// The stops an admin removed: every index past the new length (their photos keep the trip, stop_id becomes NULL).
+func (q *Queries) DeleteTripStopsFrom(ctx context.Context, arg DeleteTripStopsFromParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTripStopsFrom, arg.TripID, arg.LastIndex)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deliverTrip = `-- name: DeliverTrip :one
 UPDATE trip_records
 SET status = 'delivered', delivered_at = $1::timestamptz, delivered_lat = $2,
@@ -1200,6 +1218,65 @@ func (q *Queries) PendingInTransitTrip(ctx context.Context, driverID uuid.UUID) 
 	return i, err
 }
 
+const putTripStop = `-- name: PutTripStop :one
+INSERT INTO trip_delivery_stops (trip_id, stop_index, destination_raw, destination_hub_id, status, delivered_at,
+                                 delivered_lat, delivered_lng, completed_seq)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7, $8,
+        $9)
+ON CONFLICT (trip_id, stop_index) DO UPDATE
+SET destination_raw = EXCLUDED.destination_raw, destination_hub_id = EXCLUDED.destination_hub_id,
+    source_id = CASE WHEN trip_delivery_stops.destination_raw = EXCLUDED.destination_raw
+                     THEN trip_delivery_stops.source_id END,
+    status = EXCLUDED.status, delivered_at = EXCLUDED.delivered_at, delivered_lat = EXCLUDED.delivered_lat,
+    delivered_lng = EXCLUDED.delivered_lng, completed_seq = EXCLUDED.completed_seq
+RETURNING id, trip_id, stop_index, destination_raw, destination_hub_id, source_id, status, delivered_at, delivered_lat, delivered_lng, completed_seq
+`
+
+type PutTripStopParams struct {
+	TripID           uuid.UUID
+	StopIndex        int32
+	DestinationRaw   string
+	DestinationHubID *uuid.UUID
+	Status           string
+	DeliveredAt      *time.Time
+	DeliveredLat     *float64
+	DeliveredLng     *float64
+	CompletedSeq     *int32
+}
+
+// PATCH /v1/trips/{id} stops (the admin correction of the stop progress, T34): the stop at stop_index re-pointed and its
+// progress set, inserted when the trip has no such index yet. An existing row keeps its id, so the trip_photos.stop_id
+// links of its photos survive; its source_id stays only while the destination does.
+func (q *Queries) PutTripStop(ctx context.Context, arg PutTripStopParams) (TripDeliveryStop, error) {
+	row := q.db.QueryRow(ctx, putTripStop,
+		arg.TripID,
+		arg.StopIndex,
+		arg.DestinationRaw,
+		arg.DestinationHubID,
+		arg.Status,
+		arg.DeliveredAt,
+		arg.DeliveredLat,
+		arg.DeliveredLng,
+		arg.CompletedSeq,
+	)
+	var i TripDeliveryStop
+	err := row.Scan(
+		&i.ID,
+		&i.TripID,
+		&i.StopIndex,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.SourceID,
+		&i.Status,
+		&i.DeliveredAt,
+		&i.DeliveredLat,
+		&i.DeliveredLng,
+		&i.CompletedSeq,
+	)
+	return i, err
+}
+
 const renameTripNo = `-- name: RenameTripNo :one
 UPDATE trip_records SET trip_no = $1 WHERE id = $2 RETURNING id, legacy_doc_id, tenant_id, tenant_source, trip_no, status, job_type, job_category, task_id, legacy_task_ref, task_ref_match, driver_id, legacy_driver_ref, driver_ref_match, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, ocr_data, truck_id, truck_license_plate_snapshot, truck_type_raw, vehicle_class, distance_km, parcel_count, seal_time, total_weight_kg, loading_lat, loading_lng, std, sta, ata, duration_minutes, delivered_at, delivered_lat, delivered_lng, delivered_via, is_multi_delivery, billing_party_id, billing_date, billing_axis_date, needs_admin_review, review_status, review_reason, resubmitted_at, line_delivered_notified_at, evidence_token, evidence_token_revoked_at, created_at, updated_at
 `
@@ -1213,6 +1290,80 @@ type RenameTripNoParams struct {
 // nothing is re-pointed, unlike renameTripRecord.ts:51); the history row is written in the same transaction.
 func (q *Queries) RenameTripNo(ctx context.Context, arg RenameTripNoParams) (TripRecord, error) {
 	row := q.db.QueryRow(ctx, renameTripNo, arg.NewTripNo, arg.ID)
+	var i TripRecord
+	err := row.Scan(
+		&i.ID,
+		&i.LegacyDocID,
+		&i.TenantID,
+		&i.TenantSource,
+		&i.TripNo,
+		&i.Status,
+		&i.JobType,
+		&i.JobCategory,
+		&i.TaskID,
+		&i.LegacyTaskRef,
+		&i.TaskRefMatch,
+		&i.DriverID,
+		&i.LegacyDriverRef,
+		&i.DriverRefMatch,
+		&i.OriginRaw,
+		&i.OriginHubID,
+		&i.DestinationRaw,
+		&i.DestinationHubID,
+		&i.DestinationSocKey,
+		&i.SealCode,
+		&i.PartnerCode,
+		&i.OcrData,
+		&i.TruckID,
+		&i.TruckLicensePlateSnapshot,
+		&i.TruckTypeRaw,
+		&i.VehicleClass,
+		&i.DistanceKm,
+		&i.ParcelCount,
+		&i.SealTime,
+		&i.TotalWeightKg,
+		&i.LoadingLat,
+		&i.LoadingLng,
+		&i.Std,
+		&i.Sta,
+		&i.Ata,
+		&i.DurationMinutes,
+		&i.DeliveredAt,
+		&i.DeliveredLat,
+		&i.DeliveredLng,
+		&i.DeliveredVia,
+		&i.IsMultiDelivery,
+		&i.BillingPartyID,
+		&i.BillingDate,
+		&i.BillingAxisDate,
+		&i.NeedsAdminReview,
+		&i.ReviewStatus,
+		&i.ReviewReason,
+		&i.ResubmittedAt,
+		&i.LineDeliveredNotifiedAt,
+		&i.EvidenceToken,
+		&i.EvidenceTokenRevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setTripShape = `-- name: SetTripShape :one
+UPDATE trip_records SET is_multi_delivery = $1, job_type = $2
+WHERE id = $3
+RETURNING id, legacy_doc_id, tenant_id, tenant_source, trip_no, status, job_type, job_category, task_id, legacy_task_ref, task_ref_match, driver_id, legacy_driver_ref, driver_ref_match, origin_raw, origin_hub_id, destination_raw, destination_hub_id, destination_soc_key, seal_code, partner_code, ocr_data, truck_id, truck_license_plate_snapshot, truck_type_raw, vehicle_class, distance_km, parcel_count, seal_time, total_weight_kg, loading_lat, loading_lng, std, sta, ata, duration_minutes, delivered_at, delivered_lat, delivered_lng, delivered_via, is_multi_delivery, billing_party_id, billing_date, billing_axis_date, needs_admin_review, review_status, review_reason, resubmitted_at, line_delivered_notified_at, evidence_token, evidence_token_revoked_at, created_at, updated_at
+`
+
+type SetTripShapeParams struct {
+	IsMultiDelivery bool
+	JobType         string
+	ID              uuid.UUID
+}
+
+// The multi-drop flag of an edited stop list and the job type derived from an edited origin (T34).
+func (q *Queries) SetTripShape(ctx context.Context, arg SetTripShapeParams) (TripRecord, error) {
+	row := q.db.QueryRow(ctx, setTripShape, arg.IsMultiDelivery, arg.JobType, arg.ID)
 	var i TripRecord
 	err := row.Scan(
 		&i.ID,
