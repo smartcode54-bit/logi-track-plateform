@@ -264,7 +264,10 @@ async function pushLineMessage(token: string, to: string, message: LineFlexMessa
  * write) is forwarded to the Go API (POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify with the cf_shim key and the
  * caller's own Firebase ID token), whose notify.line worker sends the card once with its own LINE channel token; the
  * answer keeps `{ok, skipped?, reason?}` (goShimCallables.ts). Any other caller (the legacy web pages, an admin, a
- * forced resend) keeps the legacy path below until its web flag moves it to the Go staff routes.
+ * forced resend) keeps the legacy path below until the `comms` web flag is `go` (P5): the Go pages show their resend
+ * and revoke buttons only then, whatever the `operations` flag says. Cards sent on this path link the legacy gallery
+ * (tripEvidence?k=); a Go revocation closes such a link only from P5 (Firestore evidenceToken removed through the api's
+ * write-back) or through the §19 Q10 redirect of that gallery to the Go one.
  */
 export const sendCustomerLineNotification = onCall<
     SendCustomerLineNotificationRequest,

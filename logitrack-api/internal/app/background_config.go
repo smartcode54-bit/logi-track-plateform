@@ -91,7 +91,8 @@ func (c Cartrack) CartrackClient() (cartrack.Client, error) {
 // token is the worker's alone). Off (LINE_NOTIFY_ENABLED false, the default and the staging VM until the owner sets the
 // token) every LINE event is acked without a card and every notify.line.force job ends skipped; no request leaves the
 // process. On, the token and EVIDENCE_BASE_URL are required; LINE_API_BASE_URL defaults to https://api.line.me (the
-// local stack points it at WireMock).
+// local stack points it at WireMock). WorkerConfig.Validate also refuses it on while the FS->PG mirror runs and comms
+// is not in PG_OWNED_DOMAINS.
 type Line struct {
 	LineNotifyEnabled      bool   `env:"LINE_NOTIFY_ENABLED"`
 	LineAPIBaseURL         string `env:"LINE_API_BASE_URL"`
@@ -269,6 +270,14 @@ func (c *WorkerConfig) Validate() error {
 	plan, perrs := coexist.ParsePlan(c.PGOwnedDomains, c.ETLMirrorCollections, c.CompatProjectionCollections)
 	errs = append(errs, perrs...)
 	c.Coexist = plan
+	// T49: while the FS->PG mirror runs (ETL_SYNC_ENABLED, set on every worker replica of the deployment) and comms is
+	// not PostgreSQL-owned (before P5), the mirror writes the LINE flags and evidence_token from Firestore over what
+	// notify.line stores (a sent card's flag back to NULL, a revoked token back over the one a forced send minted), and
+	// the legacy callable still sends the cards: Go must not send them too.
+	if c.LineNotifyEnabled && c.ETLSyncEnabled && !plan.Owned["comms"] {
+		errs = append(errs, config.Invalidf("LINE_NOTIFY_ENABLED", "must stay false while the FS->PG mirror runs (ETL_SYNC_ENABLED) "+
+			"and comms is not in PG_OWNED_DOMAINS (P5): the mirror would overwrite the LINE flags and evidence tokens notify.line writes"))
+	}
 	// R66 (T24S): the BYPASSRLS logitrack_etl login is held only by the replica that runs the mirror, and that replica
 	// runs group sync alone, so no other consumer of the worker ever holds it.
 	mirror := c.ETLSyncEnabled && slices.Contains(c.Groups, "sync")

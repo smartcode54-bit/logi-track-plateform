@@ -231,6 +231,8 @@ export default {
     "lineNotify.revokeHint": "ลิงก์รูปในข้อความ LINE ที่ส่งไปแล้วจะเปิดไม่ได้อีก การส่ง LINE ครั้งถัดไปจะได้ลิงก์ใหม่",
     "lineNotify.revokeConfirm": "เพิกถอนลิงก์รูปหรือไม่? ลูกค้าที่เปิดลิงก์จาก LINE จะเห็นว่าไม่พบลิงก์ จนกว่าจะส่งแจ้งเตือน LINE อีกครั้ง",
     "lineNotify.revoked": "เพิกถอนลิงก์รูปแล้ว ส่งแจ้งเตือน LINE อีกครั้งเพื่อแชร์ลิงก์ใหม่",
+    "lineNotify.revokedLegacyOpen": "เพิกถอนลิงก์รูปในระบบนี้แล้ว แต่ข้อความ LINE ที่ส่งจากระบบเดิมอาจยังเปิดลิงก์ได้ จนกว่าหน้ารูปของระบบเดิมจะส่งต่อมาที่ระบบนี้",
+    "lineNotify.revokeLegacyRefused": "ลิงก์รูปนี้ส่งจากระบบเดิมซึ่งยังเปิดลิงก์อยู่ จึงยังเพิกถอนที่นี่ไม่ได้ จนกว่าการส่ง LINE จะย้ายมาที่ระบบใหม่",
 
     // Standby Backfill Dialog (admin retroactive create)
     "standbyRecords.create.button": "บันทึก Standby ย้อนหลัง",

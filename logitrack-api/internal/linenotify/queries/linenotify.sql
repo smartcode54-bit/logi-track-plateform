@@ -33,3 +33,10 @@ SELECT id, tenant_id, line_notified_at AS notified_at FROM standby_records WHERE
 
 -- name: StandbyForLineByLegacy :one
 SELECT id, tenant_id, line_notified_at AS notified_at FROM standby_records WHERE legacy_doc_id = @ref::text;
+
+-- name: LockTripEvidence :one
+-- A revocation (POST /v1/trips/{id}/evidence/revoke): the record in the caller's write reach, locked, with its token.
+SELECT id, evidence_token FROM trip_records WHERE id = @id FOR UPDATE;
+
+-- name: LockStandbyEvidence :one
+SELECT id, evidence_token FROM standby_records WHERE id = @id FOR UPDATE;

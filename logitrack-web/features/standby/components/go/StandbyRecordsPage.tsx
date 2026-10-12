@@ -7,7 +7,8 @@
  * server's filter, each row carries its driver's name and its photos signed; the detail reads the task's check-in
  * photo with `['tasks','detail',id]` while it is open. The backfill dialog (`operations:create_standby`) is mounted
  * on open only. SSE `standby.completed` / `standby.priced` refresh the list in every tab. The detail resends the
- * customer's LINE card and revokes its photo link (T49, `operations:edit_trip_details`; the legacy page's button).
+ * customer's LINE card and revokes its photo link (T49, `operations:edit_trip_details`; the legacy page's button),
+ * shown only once the `comms` web flag is `go` (P5, `LineNotifyActions`).
  */
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";

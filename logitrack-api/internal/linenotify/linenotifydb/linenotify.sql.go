@@ -12,6 +12,22 @@ import (
 	"github.com/google/uuid"
 )
 
+const lockStandbyEvidence = `-- name: LockStandbyEvidence :one
+SELECT id, evidence_token FROM standby_records WHERE id = $1 FOR UPDATE
+`
+
+type LockStandbyEvidenceRow struct {
+	ID            uuid.UUID
+	EvidenceToken *string
+}
+
+func (q *Queries) LockStandbyEvidence(ctx context.Context, id uuid.UUID) (LockStandbyEvidenceRow, error) {
+	row := q.db.QueryRow(ctx, lockStandbyEvidence, id)
+	var i LockStandbyEvidenceRow
+	err := row.Scan(&i.ID, &i.EvidenceToken)
+	return i, err
+}
+
 const lockStandbyForLine = `-- name: LockStandbyForLine :one
 SELECT id, tenant_id, line_notified_at AS notified_at FROM standby_records WHERE id = $1 FOR UPDATE
 `
@@ -49,6 +65,23 @@ func (q *Queries) LockTaskForLine(ctx context.Context, id uuid.UUID) (LockTaskFo
 	row := q.db.QueryRow(ctx, lockTaskForLine, id)
 	var i LockTaskForLineRow
 	err := row.Scan(&i.ID, &i.TenantID, &i.NotifiedAt)
+	return i, err
+}
+
+const lockTripEvidence = `-- name: LockTripEvidence :one
+SELECT id, evidence_token FROM trip_records WHERE id = $1 FOR UPDATE
+`
+
+type LockTripEvidenceRow struct {
+	ID            uuid.UUID
+	EvidenceToken *string
+}
+
+// A revocation (POST /v1/trips/{id}/evidence/revoke): the record in the caller's write reach, locked, with its token.
+func (q *Queries) LockTripEvidence(ctx context.Context, id uuid.UUID) (LockTripEvidenceRow, error) {
+	row := q.db.QueryRow(ctx, lockTripEvidence, id)
+	var i LockTripEvidenceRow
+	err := row.Scan(&i.ID, &i.EvidenceToken)
 	return i, err
 }
 

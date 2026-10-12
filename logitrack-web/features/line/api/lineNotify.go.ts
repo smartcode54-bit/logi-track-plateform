@@ -6,8 +6,15 @@
  *   replaces a revoked evidence link (R47). A request while one waits for the same card is `409 already_exists` with
  *   `details.jobId`: that job is followed instead. It replaces the legacy page's `sendCustomerLineNotification` call
  *   (`EditTripDetailsDialog.tsx:857-880`, `LegacyStandbyRecordsPage.tsx:146`), which answered synchronously.
- * - `POST /v1/{trips|standby}/{id}/evidence/revoke` (`204`): the gallery link the cards carry answers 404 from then on,
- *   until the next forced send mints a new one (new; the legacy links were irrevocable).
+ * - `POST /v1/{trips|standby}/{id}/evidence/revoke`: `204` when every link the cards carry answers 404 from then on,
+ *   until the next forced send mints a new one (new; the legacy links were irrevocable). A link the legacy system sent
+ *   (`cloudfunctions.net/tripEvidence?k=`, a Firestore lookup) is closed too once `comms` is PostgreSQL-owned and the
+ *   api has a Firestore writer; without one the answer is `200 {revoked, legacyLinkOpen: true}` (closed here, maybe
+ *   still open there, §19 Q10); before that cut-over it is `409 failed_precondition` (`details.reason`
+ *   `legacy_evidence_link`) and nothing changes.
+ *
+ * Both are P5 routes (`comms`): `LineNotifyActions` shows them only once the `comms` web flag is `go`; until then the
+ * legacy callable sends the cards and the legacy gallery serves their links.
  */
 import { useState } from "react";
 
@@ -52,10 +59,24 @@ export async function startLineNotify(kind: LineRecordKind, id: string, force: b
     }
 }
 
-/** Revokes the evidence link of a trip or a standby record (`204`). */
-export async function revokeEvidence(kind: Exclude<LineRecordKind, "tasks">, id: string): Promise<void> {
+/** How a revocation went: `legacyLinkOpen` = closed here, but a link the legacy system sent may still open. */
+export interface RevokeResult {
+    legacyLinkOpen: boolean;
+}
+
+/** The `details.reason` of a revocation refused because the legacy system still serves the record's link. */
+export const REASON_LEGACY_EVIDENCE_LINK = "legacy_evidence_link";
+
+/** Revokes the evidence link of a trip or a standby record (`204`, or `200 {legacyLinkOpen}`). */
+export async function revokeEvidence(kind: Exclude<LineRecordKind, "tasks">, id: string): Promise<RevokeResult> {
     const path = kind === "trips" ? goPath`/v1/trips/${id}/evidence/revoke` : goPath`/v1/standby/${id}/evidence/revoke`;
-    await goFetch<void>(path, { method: "POST", body: {} });
+    const out = await goFetch<Partial<RevokeResult> | undefined>(path, { method: "POST", body: {} });
+    return { legacyLinkOpen: out?.legacyLinkOpen === true };
+}
+
+/** A revocation refused because the record's link is still the legacy gallery's (`409 failed_precondition`). */
+export function isLegacyLinkRefusal(error: unknown): boolean {
+    return isApiError(error) && error.code === "failed_precondition" && error.details.reason === REASON_LEGACY_EVIDENCE_LINK;
 }
 
 /** How a finished job settled the card, for the page's toast. */

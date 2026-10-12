@@ -418,9 +418,12 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// T49: the LINE request routes; a revocation of a token the legacy system sent needs comms owned and, to close the
+	// legacy gallery's link too, the write-back's Firestore writer (linenotify.Coexistence).
+	lineNotify := linenotify.New(pool, jobSvc, linenotify.Coexistence{CommsOwned: cfg.CommsOwned, Firestore: wbs.Firestore})
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
-		Storage: st, LineNotify: linenotify.New(pool, jobSvc),
+		Storage: st, LineNotify: lineNotify,
 		Events: events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc,
 		Broadcasts: broadcastSvc, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP),
@@ -476,6 +479,9 @@ type writeBacks struct {
 	ClassCPG bool
 	Chats    *chats.WriteBack
 	Leave    *hr.LeaveWriteBack
+	// Firestore is the one writer under them, nil when none is built: the evidence revocations (T49) remove a legacy
+	// token from Firestore with it once comms is owned, so the legacy gallery stops opening it.
+	Firestore writeback.Writer
 }
 
 // buildWriteBacks builds the write-backs over one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID (database
@@ -519,6 +525,7 @@ func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (wri
 		return out, &config.Error{Invalid: []string{err.Error()}}
 	}
 	w := writeback.Firestore{FS: fs}
+	out.Firestore = w
 	if !cfg.OperationsOwned {
 		log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
 		out.Operations = &operations.WriteBack{Writer: w, Acks: acks, Wait: operations.DefaultMirrorWait, RunOrders: acks}

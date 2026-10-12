@@ -3,7 +3,11 @@
 /**
  * The LINE actions of a trip or a standby record over Go (T49): "send the LINE card" (`force`: resends a card already
  * sent, and replaces a revoked evidence link) and "revoke the evidence link" (R47). Shown to `operations:edit_trip_details`
- * only; the result of the card is the worker's job, reported as the legacy page reported the callable's answer.
+ * only, and only once the `comms` web flag is `go` (P5): the pages that mount them switch with `operations` (P2), and
+ * until the LINE cut-over the legacy callable sends the cards and the legacy gallery serves their links, which neither
+ * Go route reaches (T34 left the buttons out of the Go pages for that reason). The result of the card is the worker's
+ * job, reported as the legacy page reported the callable's answer; a revocation that could not close a link the legacy
+ * system sent says so.
  */
 import { useEffect, useRef, useState } from "react";
 import { Ban, Loader2, Send } from "lucide-react";
@@ -11,14 +15,23 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
+import { useDomainSource } from "@/features/platform/api/useWebFlags";
 import { apiErrorText } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 
-import { lineReasonKey, revokeEvidence, useLineNotify, type LineOutcome, type LineRecordKind } from "../../api/lineNotify.go";
+import {
+    isLegacyLinkRefusal,
+    lineReasonKey,
+    revokeEvidence,
+    useLineNotify,
+    type LineOutcome,
+    type LineRecordKind,
+} from "../../api/lineNotify.go";
 
 export function LineNotifyActions({ kind, id, evidence = true }: { kind: LineRecordKind; id: string; evidence?: boolean }) {
     const { t } = useLanguage();
     const allowed = useCan("operations:edit_trip_details").allowed;
+    const comms = useDomainSource("comms");
     const line = useLineNotify(kind, id);
     const [revoking, setRevoking] = useState(false);
     const reported = useRef<string | null>(null);
@@ -33,16 +46,17 @@ export function LineNotifyActions({ kind, id, evidence = true }: { kind: LineRec
         if (line.error) toast.error(`${t("lineNotify.failed")}: ${apiErrorText(line.error, t)}`);
     }, [line.error, t]);
 
-    if (!allowed) return null;
+    if (!allowed || comms !== "go") return null;
 
     const revoke = async () => {
         if (kind === "tasks" || !window.confirm(t("lineNotify.revokeConfirm"))) return;
         setRevoking(true);
         try {
-            await revokeEvidence(kind, id);
-            toast.success(t("lineNotify.revoked"));
+            const out = await revokeEvidence(kind, id);
+            if (out.legacyLinkOpen) toast.warning(t("lineNotify.revokedLegacyOpen"));
+            else toast.success(t("lineNotify.revoked"));
         } catch (e) {
-            toast.error(apiErrorText(e, t));
+            toast.error(isLegacyLinkRefusal(e) ? t("lineNotify.revokeLegacyRefused") : apiErrorText(e, t));
         } finally {
             setRevoking(false);
         }

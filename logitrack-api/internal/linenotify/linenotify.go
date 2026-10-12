@@ -5,6 +5,10 @@
 // public one. A request never sends anything itself: it reads the record under the caller's RLS (db.WithPrincipal) and
 // submits a notify.line.force job (jobs.Service.Submit, lock scope card:record), which the worker's notify.line
 // consumer sends once (internal/notify). The gallery itself, GET /evidence/{token}, is internal/storage's.
+//
+// A revocation closes the links customers hold, or says it could not (Coexistence): a token Go minted is linked only
+// from Go's gallery; a legacy one (16 characters) also from the legacy gallery (cloudfunctions.net/tripEvidence?k=),
+// which looks the token up in Firestore and never reads PostgreSQL.
 package linenotify
 
 import (
@@ -13,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -26,6 +31,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // Submitter submits a job (jobs.Service).
@@ -38,15 +44,35 @@ type Service struct {
 	pool db.Beginner
 	jobs Submitter
 	now  func() time.Time
+	co   atomic.Pointer[Coexistence]
+}
+
+// Coexistence is what a revocation knows of the legacy LINE path (main spec §9.6, §13.7, §19 Q10). Until comms is in
+// PG_OWNED_DOMAINS (P5) the legacy callable sendCustomerLineNotification sends the cards and the FS->PG mirror owns
+// evidence_token; every card it sent (before P5 and after) links the legacy gallery tripEvidence?k=, which looks the
+// token up in Firestore trip_records, then standby_records, and has no revocation. Go mints only v1 tokens (34
+// characters), so a legacy token (16 characters) is the sign of such a link.
+type Coexistence struct {
+	// CommsOwned is whether comms is in PG_OWNED_DOMAINS: the mirror then leaves evidence_token as PostgreSQL holds it.
+	CommsOwned bool
+	// Firestore is the api's write-back writer (WRITEBACK_FIRESTORE_PROJECT_ID; nil without one): once comms is owned a
+	// revocation of a legacy token removes evidenceToken from the Firestore documents that hold it, so the legacy
+	// gallery answers its own 404 too.
+	Firestore writeback.Writer
 }
 
 // New builds the service.
-func New(pool db.Beginner, j Submitter) *Service {
-	return &Service{pool: pool, jobs: j, now: time.Now}
+func New(pool db.Beginner, j Submitter, co Coexistence) *Service {
+	s := &Service{pool: pool, jobs: j, now: time.Now}
+	s.co.Store(&co)
+	return s
 }
 
 // SetClock replaces the clock (tests).
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+// SetCoexistence replaces the coexistence state (tests; safe while the routes serve).
+func (s *Service) SetCoexistence(co Coexistence) { s.co.Store(&co) }
 
 // ForceInput is the body of a staff request: force resends a card the record's flag says was sent (and replaces a
 // revoked evidence token, R47); without it the card is sent only if it was not.
@@ -240,27 +266,121 @@ func (s *Service) Shim(ctx context.Context, p *authz.Principal, card, ref string
 	return ShimResult{OK: true}, http.StatusAccepted, nil
 }
 
+// Revocation is the answer of a revocation that closed the gallery of this system but maybe not a link the legacy
+// system sent: 200 {revoked: true, legacyLinkOpen: true}. A revocation that closed every link answers 204.
+type Revocation struct {
+	Revoked        bool `json:"revoked"`
+	LegacyLinkOpen bool `json:"legacyLinkOpen"`
+}
+
+// ReasonLegacyEvidenceLink is details.reason of the 409 failed_precondition of a revocation that could not close the
+// link customers hold: the record's token was sent by the legacy system while comms is not PostgreSQL-owned (P5).
+const ReasonLegacyEvidenceLink = "legacy_evidence_link"
+
+// Firestore collections the legacy gallery looks a token up in, in its order (fn:tripEvidence.ts:131-148).
+var legacyGalleryCollections = []string{"trip_records", "standby_records"}
+
 // Revoke is POST /v1/{trips|standby}/{id}/evidence/revoke (operations:edit_trip_details, R47): the record's evidence
 // token stops opening the gallery (404) until the next forced LINE send mints a new one. The record is locked and
 // revoked in one request transaction; a record outside the caller's write reach is 404; one without a live token is
-// 204 as well (revoking twice keeps the first instant).
-func (s *Service) Revoke(ctx context.Context, p *authz.Principal, kind storage.EvidenceKind, id uuid.UUID) error {
+// 204 as well (revoking twice keeps the first instant). A legacy token (Coexistence) is the legacy gallery's as well:
+//   - while comms is not PostgreSQL-owned the revocation is refused, 409 failed_precondition
+//     (details.reason legacy_evidence_link), and nothing changes: the legacy callable still sends the cards and the
+//     mirror owns the token, so neither a PostgreSQL revocation nor a Firestore write here would close the link;
+//   - once it is, with a Firestore writer, evidenceToken is removed from every Firestore document that holds it (each
+//     write conditional on the version read; a failure is 503 unavailable, details.reason write_back, and nothing is
+//     revoked), then the row is revoked: 204;
+//   - without a writer the row is revoked (Go's gallery, and a §19 Q10 redirect of the legacy links to it, answer 404)
+//     and the answer says the legacy link may still open: 200 {revoked: true, legacyLinkOpen: true}.
+func (s *Service) Revoke(ctx context.Context, p *authz.Principal, kind storage.EvidenceKind, id uuid.UUID) (Revocation, error) {
 	if err := staffOnly(p); err != nil {
-		return err
+		return Revocation{}, err
 	}
-	card := notify.LineDelivered
-	if kind == storage.EvidenceStandby {
-		card = notify.LineStandby
-	}
-	return db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
-		if _, found, err := lock(ctx, tx, card, id); err != nil {
+	co := *s.co.Load()
+	var out Revocation
+	err := db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
+		token, found, err := lockEvidence(ctx, tx, kind, id)
+		if err != nil {
 			return err
-		} else if !found {
+		}
+		if !found {
 			return httpx.ErrNotFound()
 		}
-		_, err := storage.RevokeEvidence(ctx, tx, kind, id, s.now())
+		out = Revocation{}
+		if _, minted := storage.EvidenceIssuedAt(token); token != "" && !minted {
+			switch {
+			case !co.CommsOwned:
+				return httpx.NewError(http.StatusConflict, "failed_precondition",
+					"this record's photo link was sent by the legacy system while comms is not in PG_OWNED_DOMAINS: it opens "+
+						"the legacy gallery, which this revocation cannot close").
+					WithDetails(map[string]any{"reason": ReasonLegacyEvidenceLink})
+			case co.Firestore != nil:
+				if err := clearLegacyToken(ctx, co.Firestore, token); err != nil {
+					return writeback.ErrUnavailable(err)
+				}
+			default:
+				out.LegacyLinkOpen = true
+			}
+		}
+		out.Revoked = true
+		_, err = storage.RevokeEvidence(ctx, tx, kind, id, s.now())
 		return err
 	})
+	if err != nil {
+		return Revocation{}, err
+	}
+	return out, nil
+}
+
+// lockEvidence reads a revocation's record FOR UPDATE in tx (the caller's write reach, as lock) and its token ("" for
+// none).
+func lockEvidence(ctx context.Context, tx pgx.Tx, kind storage.EvidenceKind, id uuid.UUID) (string, bool, error) {
+	q := linenotifydb.New(tx)
+	var token *string
+	var err error
+	if kind == storage.EvidenceStandby {
+		var row linenotifydb.LockStandbyEvidenceRow
+		row, err = q.LockStandbyEvidence(ctx, id)
+		token = row.EvidenceToken
+	} else {
+		var row linenotifydb.LockTripEvidenceRow
+		row, err = q.LockTripEvidence(ctx, id)
+		token = row.EvidenceToken
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil || token == nil {
+		return "", err == nil, err
+	}
+	return *token, true, nil
+}
+
+// clearLegacyToken removes evidenceToken from the Firestore documents the legacy gallery would find token in, in one
+// commit whose writes each hold only while the document keeps the version read (a document a legacy forced send
+// changed meanwhile is read again; three attempts).
+func clearLegacyToken(ctx context.Context, w writeback.Writer, token string) error {
+	for attempt := 1; ; attempt++ {
+		var writes []writeback.DocWrite
+		for _, coll := range legacyGalleryCollections {
+			docs, err := w.Find(ctx, coll, "evidenceToken", token)
+			if err != nil {
+				return err
+			}
+			for _, d := range docs {
+				writes = append(writes, writeback.DocWrite{Collection: coll, DocID: d.ID,
+					Fields: map[string]any{"evidenceToken": nil}, MustExist: true, UpdateTime: d.UpdateTime})
+			}
+		}
+		if len(writes) == 0 {
+			return nil
+		}
+		_, err := w.Commit(ctx, writes...)
+		if errors.Is(err, writeback.ErrConflict) && attempt < 3 {
+			continue
+		}
+		return err
+	}
 }
 
 // --- routes ---------------------------------------------------------------------------------------------------------
@@ -404,8 +524,12 @@ func revoke(s *Service, kind storage.EvidenceKind) fiber.Handler {
 				return err
 			}
 		}
-		if err := s.Revoke(c.Context(), p, kind, id); err != nil {
+		out, err := s.Revoke(c.Context(), p, kind, id)
+		if err != nil {
 			return err
+		}
+		if out.LegacyLinkOpen {
+			return httpx.JSON(c, http.StatusOK, out)
 		}
 		return c.SendStatus(http.StatusNoContent)
 	}

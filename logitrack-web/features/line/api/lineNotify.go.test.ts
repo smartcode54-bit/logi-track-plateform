@@ -1,13 +1,14 @@
 // T49 (issue #69): the LINE card and evidence link requests of the Go pages. A card is a Go job (202 {jobId}); a request
-// for a card already waiting is 409 already_exists and that job is followed; a revocation is 204; the finished job is
-// reported in the legacy page's words.
+// for a card already waiting is 409 already_exists and that job is followed; a revocation is 204, 200 {legacyLinkOpen}
+// when a link the legacy system sent may still open, or 409 legacy_evidence_link before the LINE cut-over; the finished
+// job is reported in the legacy page's words.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getQueryClient } from "@/lib/queryClient";
 import { fakeWeb, goErr, json } from "@/test-utils/fakeWeb";
 
 import { outcomeText } from "../components/go/LineNotifyActions";
-import { lineOutcome, lineReasonKey, revokeEvidence, startLineNotify } from "./lineNotify.go";
+import { isLegacyLinkRefusal, lineOutcome, lineReasonKey, revokeEvidence, startLineNotify } from "./lineNotify.go";
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -36,12 +37,24 @@ describe("LINE card requests over Go", () => {
         await expect(startLineNotify("trips", "t2", true)).rejects.toMatchObject({ code: "not_found" });
     });
 
-    it("revokes a trip's or a standby record's photo link (204)", async () => {
+    it("revokes a trip's or a standby record's photo link and says what stayed open", async () => {
         const web = fakeWeb();
-        web.on("POST", /\/evidence\/revoke$/, () => new Response(null, { status: 204 }));
-        await revokeEvidence("trips", "t1");
-        await revokeEvidence("standby", "s1");
-        expect(web.calls.map((c) => c.url.split("?")[0])).toEqual(["/api/go/v1/trips/t1/evidence/revoke", "/api/go/v1/standby/s1/evidence/revoke"]);
+        web.on("POST", /\/trips\/[^/]+\/evidence\/revoke$/, () => new Response(null, { status: 204 }));
+        web.on("POST", "/api/go/v1/standby/s1/evidence/revoke", () => json(200, { data: { revoked: true, legacyLinkOpen: true } }));
+        web.on("POST", "/api/go/v1/standby/s2/evidence/revoke", () => goErr(409, "failed_precondition", { reason: "legacy_evidence_link" }));
+        web.on("POST", "/api/go/v1/standby/s3/evidence/revoke", () => goErr(409, "failed_precondition", { reason: "other" }));
+        expect(await revokeEvidence("trips", "t1")).toEqual({ legacyLinkOpen: false });
+        // Closed here, but a link the legacy system sent may still open (no Firestore writer).
+        expect(await revokeEvidence("standby", "s1")).toEqual({ legacyLinkOpen: true });
+        // Refused while the legacy system still serves the record's link.
+        expect(isLegacyLinkRefusal(await revokeEvidence("standby", "s2").catch((e: unknown) => e))).toBe(true);
+        expect(isLegacyLinkRefusal(await revokeEvidence("standby", "s3").catch((e: unknown) => e))).toBe(false);
+        expect(web.calls.map((c) => c.url.split("?")[0])).toEqual([
+            "/api/go/v1/trips/t1/evidence/revoke",
+            "/api/go/v1/standby/s1/evidence/revoke",
+            "/api/go/v1/standby/s2/evidence/revoke",
+            "/api/go/v1/standby/s3/evidence/revoke",
+        ]);
     });
 
     it("reports a finished job as the legacy page reported the callable", () => {

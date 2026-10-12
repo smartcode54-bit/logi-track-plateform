@@ -5,6 +5,7 @@ package iam_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/line/linetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // lineWorld is the world of the LINE request routes of T49 (Appendix B §B.2.11-§B.2.13, §B.2.21-§B.2.22) as cmd/api
@@ -41,6 +43,7 @@ type lineWorld struct {
 	reg      *prometheus.Registry
 	line     *linetest.Server
 	consumer *notify.LINE
+	routes   *linenotify.Service // the request routes; comms not owned, no Firestore writer unless a test says so
 
 	party                      string // SPX's billing party (LINE group Cline0001)
 	driver, driver2            string
@@ -56,7 +59,8 @@ func newLineWorld(t *testing.T) *lineWorld {
 			if err := svc.Register(lw.reg); err != nil {
 				t.Fatal(err)
 			}
-			ln := linenotify.New(w.pool, jobs.NewService(w.pool, jobs.NewRedisLocker(w.rdb, w.ks)))
+			ln := linenotify.New(w.pool, jobs.NewService(w.pool, jobs.NewRedisLocker(w.rdb, w.ks)), linenotify.Coexistence{})
+			lw.routes = ln
 			local, err := storage.NewLocal(storage.LocalConfig{Dir: t.TempDir(), PublicBaseURL: "http://media.test/media",
 				SigningKey: bytes.Repeat([]byte("k"), storage.MinSigningKeyBytes)})
 			if err != nil {
@@ -259,6 +263,95 @@ func TestLineForceAndRevokeRoutes(t *testing.T) {
 	}
 	if n := len(lw.line.Sent()); n != 4 || !strings.Contains(string(lw.line.Sent()[3].Body), "เช็คอินต้นทางแล้ว") {
 		t.Fatalf("%d cards, the last %s", n, lw.line.Sent()[n-1].Body)
+	}
+}
+
+// A revocation never reports a link closed that stays open: a legacy token (16 characters, sent by the legacy callable)
+// is linked from the legacy gallery cloudfunctions.net/tripEvidence?k=, which looks it up in Firestore. While comms is
+// not PostgreSQL-owned the revocation is refused (409 failed_precondition, legacy_evidence_link) and nothing changes,
+// Firestore included; once it is, the Firestore documents holding the token lose evidenceToken before the row is
+// revoked (204), a Firestore failure revokes nothing (503); without a writer the row is revoked and the answer says
+// the legacy link may still open (200 legacyLinkOpen). A token Go minted keeps 204 whatever comms says
+// (TestLineForceAndRevokeRoutes).
+func TestLineRevokeLegacyLinks(t *testing.T) {
+	lw := newLineWorld(t)
+	op := lw.login("op.o@example.test")
+	const tripTok, standbyTok, otherTok = "AbCdEfGhIjKlMnOp", "QrStUvWxYz0123_-", "ZzZzZzZzZzZzZzZz"
+	lw.exec(`UPDATE trip_records SET evidence_token = $2 WHERE id = $1`, lw.trip, tripTok)
+	lw.exec(`UPDATE standby_records SET evidence_token = $2 WHERE id = $1`, lw.standby, standbyTok)
+	revokedAt := func(table, id string) bool {
+		t.Helper()
+		return lw.count(`SELECT count(*)::int FROM `+table+` WHERE id = $1 AND evidence_token_revoked_at IS NOT NULL`, id) == 1
+	}
+	if lw.gallery(tripTok) != http.StatusOK || lw.gallery(standbyTok) != http.StatusOK {
+		t.Fatal("the legacy tokens the mirror loaded open in Go's gallery")
+	}
+	fs := writeback.NewMemory()
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	fs.Put("trip_records", "fsLineTrip1", map[string]any{"evidenceToken": tripTok, "tripId": "SPXTH-LINE-1"}, t0)
+	fs.Put("standby_records", "fsLineStandby1", map[string]any{"evidenceToken": standbyTok, "driverId": "d1"}, t0)
+	fs.Put("trip_records", "fsOtherTrip", map[string]any{"evidenceToken": otherTok}, t0)
+	trip, standby := "/v1/trips/"+lw.trip+"/evidence/revoke", "/v1/standby/"+lw.standby+"/evidence/revoke"
+	legacyRefused := func(path string) {
+		t.Helper()
+		r := lw.send(http.MethodPost, path, op, nil)
+		expect(t, r, http.StatusConflict, "failed_precondition")
+		if !strings.Contains(string(r.raw), `"reason":"`+linenotify.ReasonLegacyEvidenceLink+`"`) {
+			t.Fatalf("details.reason: %s", r.raw)
+		}
+	}
+
+	// Before P5 (comms not owned), with or without a Firestore writer: refused, nothing written anywhere.
+	for _, co := range []linenotify.Coexistence{{}, {Firestore: fs}} {
+		lw.routes.SetCoexistence(co)
+		legacyRefused(trip)
+		legacyRefused(standby)
+	}
+	if revokedAt("trip_records", lw.trip) || revokedAt("standby_records", lw.standby) || len(fs.Writes()) != 0 ||
+		lw.gallery(tripTok) != http.StatusOK {
+		t.Fatalf("a refused revocation changed something: %d Firestore writes", len(fs.Writes()))
+	}
+
+	// Comms owned, Firestore down: 503 write_back, the row stays live.
+	lw.routes.SetCoexistence(linenotify.Coexistence{CommsOwned: true, Firestore: fs})
+	fs.Fail(errors.New("firestore unreachable"))
+	r := lw.send(http.MethodPost, trip, op, nil)
+	expect(t, r, http.StatusServiceUnavailable, "unavailable")
+	if !strings.Contains(string(r.raw), `"reason":"write_back"`) || revokedAt("trip_records", lw.trip) {
+		t.Fatalf("a failed Firestore write revoked the row: %s", r.raw)
+	}
+	fs.Fail(nil)
+
+	// Comms owned with the writer: the documents holding the token lose evidenceToken (and keep every other field;
+	// another token's document is untouched), then the row is revoked: 204, both galleries closed. Again: 204, no write.
+	expect(t, lw.send(http.MethodPost, trip, op, nil), http.StatusNoContent, "")
+	doc, _ := fs.Doc("trip_records", "fsLineTrip1")
+	if _, still := doc["evidenceToken"]; still || doc["tripId"] != "SPXTH-LINE-1" {
+		t.Fatalf("the legacy gallery's document: %v", doc)
+	}
+	if other, _ := fs.Doc("trip_records", "fsOtherTrip"); other["evidenceToken"] != otherTok {
+		t.Fatalf("another token's document: %v", other)
+	}
+	if !revokedAt("trip_records", lw.trip) || lw.gallery(tripTok) != http.StatusNotFound || len(fs.Writes()) != 1 {
+		t.Fatalf("revoked: %v, %d Firestore writes", revokedAt("trip_records", lw.trip), len(fs.Writes()))
+	}
+	expect(t, lw.send(http.MethodPost, trip, op, nil), http.StatusNoContent, "")
+	if len(fs.Writes()) != 1 {
+		t.Fatalf("a second revocation wrote Firestore again: %d writes", len(fs.Writes()))
+	}
+
+	// Comms owned without a writer (every domain owned): revoked here, and the answer says the legacy link may stay open.
+	lw.routes.SetCoexistence(linenotify.Coexistence{CommsOwned: true})
+	r = lw.send(http.MethodPost, standby, op, nil)
+	expect(t, r, http.StatusOK, "")
+	if d, _ := r.data().(map[string]any); d["revoked"] != true || d["legacyLinkOpen"] != true {
+		t.Fatalf("partial revocation: %s", r.raw)
+	}
+	if !revokedAt("standby_records", lw.standby) || lw.gallery(standbyTok) != http.StatusNotFound {
+		t.Fatal("the standby row is revoked in Go's gallery")
+	}
+	if doc, _ := fs.Doc("standby_records", "fsLineStandby1"); doc["evidenceToken"] != standbyTok {
+		t.Fatalf("no writer, yet Firestore changed: %v", doc)
 	}
 }
 

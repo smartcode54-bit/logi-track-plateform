@@ -377,6 +377,24 @@ func TestWorkerConfigLine(t *testing.T) {
 			t.Errorf("%s: %v, want %q", env, err, want)
 		}
 	}
+	// While the FS->PG mirror runs, LINE stays off until comms is PostgreSQL-owned (P5): the mirror would write the
+	// Firestore LINE flags and evidence tokens over notify.line's. Without the mirror (the staging VM) it may be on.
+	notifyReplica := append([]string{"WORKER_CONSUMERS=notify", "ETL_SYNC_ENABLED=true"}, on...)
+	_, err = config.LoadFrom[app.WorkerConfig](workerEnv(append(notifyReplica, "PG_OWNED_DOMAINS=auth,masterdata,operations")...))
+	if err == nil || !strings.Contains(err.Error(), "LINE_NOTIFY_ENABLED") || strings.Contains(err.Error(), "LINE_CHANNEL_ACCESS_TOKEN") ||
+		strings.Contains(err.Error(), "placeholder-line-token") {
+		t.Errorf("LINE on with the mirror before P5: %v", err)
+	}
+	for _, owned := range []string{"auth,masterdata,operations,billing,hr,comms", "all"} {
+		if cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv(append(notifyReplica, "PG_OWNED_DOMAINS="+owned)...)); err != nil ||
+			!cfg.LineNotifyEnabled || !cfg.Coexist.Owned["comms"] {
+			t.Errorf("LINE on with the mirror once comms is owned (%s): %v", owned, err)
+		}
+	}
+	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv(append(on, "WORKER_CONSUMERS=notify", "ETL_SYNC_ENABLED=false",
+		"PG_OWNED_DOMAINS=")...)); err != nil {
+		t.Errorf("LINE on without the mirror: %v", err)
+	}
 	// A bad LINE_API_BASE_URL is refused even while LINE is off (a typo is found before the switch is turned on).
 	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv("LINE_API_BASE_URL=not a url")); err == nil ||
 		!strings.Contains(err.Error(), "LINE_API_BASE_URL") {
