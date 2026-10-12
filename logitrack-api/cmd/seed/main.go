@@ -477,6 +477,18 @@ func load(ctx context.Context, cfg *app.SeedConfig, fx seed.FixtureFS, profile s
 	}
 	_, _ = fmt.Fprintf(stdout, "seed: profile %s loaded in %s (%s mode%s): %d rows in %d tables, %d objects%s, %d task counters\n",
 		profile, time.Since(start).Round(time.Millisecond), mode, resetNote(reset), rows, len(res.Inserted), put, keptNote, res.Counters)
+	// A run the application wrote holds a (driver, period, round) of the plan: the top-up keeps it and skips that
+	// driver's seeded payroll, penalties and payouts (seed.HeldRun, Appendix D §D.1.7).
+	for _, h := range res.HeldRuns {
+		log.Warn().Str("driver_id", h.DriverID).Str("pay_period", h.Period).Str("pay_round", h.Round).
+			Str("existing_run_id", h.ExistingID).Str("seed_run_id", h.PlanID).
+			Msg("the database holds a payroll run the application wrote for this driver, period and round: it is kept, " +
+				"and this driver's seeded payroll runs, penalties and payout rows are not written")
+	}
+	if len(res.HeldRuns) > 0 {
+		_, _ = fmt.Fprintf(stdout, "seed: kept %d payroll run(s) written by the application for a driver, period and round the plan also "+
+			"holds; the seeded payroll of %d driver(s) was skipped (%d rows)\n", len(res.HeldRuns), res.SkippedHRDrivers, res.SkippedHRRows)
+	}
 	// The must-change-password fixture user's temporary password (crypto/rand) is never printed: stdout and
 	// stderr reach CI logs (owner addition to T19). A local tester who needs it passes --temporary-password-file;
 	// the load that inserts the user writes it there with mode 0600. SEED_DEFAULT_PASSWORD is never printed either.

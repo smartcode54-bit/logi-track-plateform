@@ -236,6 +236,9 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 		if err := addDemoOps(p, o); err != nil {
 			return nil, err
 		}
+		if err := addDemoHR(p, o); err != nil {
+			return nil, err
+		}
 		if !o.skipFinance {
 			if err := addDemoFinance(p, o); err != nil {
 				return nil, err
@@ -247,6 +250,9 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 			return nil, err
 		}
 		if err := addDemoOps(p, o); err != nil {
+			return nil, err
+		}
+		if err := addDemoHR(p, o); err != nil {
 			return nil, err
 		}
 		if !o.skipFinance {

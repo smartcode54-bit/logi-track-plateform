@@ -156,7 +156,7 @@ func checkObjects(ctx context.Context, tx pgx.Tx, be Backends) ([]string, int, e
 	return problems, len(list), err
 }
 
-// checkParallelism bounds the concurrent object reads of invariant 9: the demo's 3,674 objects one after another
+// checkParallelism bounds the concurrent object reads of invariant 9: the demo's 3,676 objects one after another
 // took most of a --verify (T35).
 const checkParallelism = 8
 

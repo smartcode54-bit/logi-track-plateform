@@ -219,7 +219,11 @@ trip billing backfill (`POST /v1/jobs/billing.backfill-trips` or the Income page
 first day after the party's last sent or paid period, never over a sent or paid one: a first price is not
 period-locked, so it would land after that statement's `sent_at` (invariant 5) in an invoice that does not carry it.
 With the default anchor that is `2026-08-01` for SPX and CJSF (after the smoke SPX-202607-001 sent and CJSF-202607-001
-paid); the July `no_rate` rows stay, reported by invariant 2a (Appendix D §D.1.7). Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
+paid); the July `no_rate` rows stay, reported by invariant 2a (Appendix D §D.1.7). A payroll run the application
+already wrote for a driver, pay period and round the seed also generates (someone clicked "Generate payroll") is kept,
+and that driver's seeded payroll, penalties and payout rows are skipped (a warning per run and a `kept N payroll
+run(s)` line; Appendix D §D.1.7): deploy a release whose seed adds payroll rows (T46) with `--reseed` before anyone
+generates payroll on staging, and before the `hr` web flag is turned on. Keep `SEED_ANCHOR_DATE` as it was at the first seed: the master data is anchored to it, and another anchor
 would add a second set of anchor-relative rows next to the first. Redeploying the commit that is already live is
 refused; to apply an edited `.env`, reload instead (`rollout.sh pm2 reload <app>`). `deploy.sh --status` shows the
 current release, the kept ones and the last activations, and says so when the current release was never

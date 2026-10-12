@@ -40,8 +40,13 @@
  *   (`dispatch:{partyId}:trips`) make the monitor stale (2 s), the trip's detail and the boards' trip column
  *   (500 ms), the standby and incident lists (500 ms); the priced events also make the monitor stale (its
  *   stored price), besides `['income']`.
- * Still to come: HR and holidays (M4), the chat lists and the explicit `chat:{id}` topic (M5),
- * `security.event` on `platform:security` (the security pages poll).
+ * - the HR slice of M4 (T46, the payroll, penalty, leave and holiday pages): `tenant:{tid}:hr` (`leave.created`,
+ *   `leave.decided` -> `['leave']`; `payroll.status_changed` -> `['payroll']`; `payroll.approved` -> `['payroll']`
+ *   and `['penalties']`, whose installments the approval commits), `holidays.changed` (`global` for public rows,
+ *   `tenant:{tid}:config` for a tenant's) -> `['holidays']`, and the `payroll.run` job's success -> `['payroll']`.
+ *   The leave and payroll lists also poll every 60 s (Appendix E §E.5 rows 10, 12); holidays are a plain fetch.
+ * Still to come: the chat lists and the explicit `chat:{id}` topic (M5), `security.event` on
+ * `platform:security` (the security pages poll).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
@@ -117,6 +122,8 @@ export const JOB_SUCCESS_KEYS: ReadonlyMap<string, readonly QueryKey[]> = new Ma
     ["billing.backfill-standby", [["income"], ["billing"]]],
     ["documents.regenerate", [queryKeys.statements.all()]],
     ["documents.shopee-report", [["billing", "shopee"]]],
+    // T46 (M4): a generation rewrites the draft runs of its period and round.
+    ["payroll.run", [queryKeys.payroll.all()]],
 ]);
 
 /**
@@ -289,6 +296,13 @@ export const WAITLIST_KEYS: readonly QueryKey[] = [queryKeys.waitlist(), queryKe
 export const CHAT_EVENTS = ["chat.created", "chat.updated", "chat.message_created"] as const;
 export const CHAT_BADGE_KEYS: readonly QueryKey[] = [queryKeys.badges()];
 
+// --- HR (T46, M4) ---------------------------------------------------------------------------------
+
+/** `leave.*` (tenant:{tid}:hr): a request created in the driver app, or decided by staff. */
+export const LEAVE_EVENTS = ["leave.created", "leave.decided"] as const;
+/** `payroll.approved` commits the run's penalty installments in the same transaction: both lists are stale. */
+export const PAYROLL_APPROVED_KEYS: readonly QueryKey[] = [queryKeys.payroll.all(), queryKeys.penalties()];
+
 // --- the map ---------------------------------------------------------------------------------------
 
 const RULES = new Map<string, EventRule>([
@@ -327,6 +341,11 @@ const RULES = new Map<string, EventRule>([
     ["vehicle_locations.updated", { effects: vehicleLocationEffects }],
     ["waitlist.created", { invalidate: WAITLIST_KEYS }],
     ...CHAT_EVENTS.map((name) => [name, { invalidate: CHAT_BADGE_KEYS }] as [string, EventRule]),
+    // tenant:{tid}:hr, tenant:{tid}:config and global (T46)
+    ...LEAVE_EVENTS.map((name) => [name, { invalidate: [queryKeys.leave()] }] as [string, EventRule]),
+    ["payroll.status_changed", { invalidate: [queryKeys.payroll.all()] }],
+    ["payroll.approved", { invalidate: PAYROLL_APPROVED_KEYS }],
+    ["holidays.changed", { invalidate: [queryKeys.holidays.all()] }],
 ]);
 
 /** Every event name the provider listens to (besides `session.revoked` and the control events). */
