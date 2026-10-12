@@ -29,7 +29,9 @@ type Check struct {
 	// counts | targets | trip_money | trip_unpriced | standby_money | expense_money | findings | quarantine_rows; with
 	// --finance (T41): finance_inputs | rate_tables | standby_rate_review | service_fees_d5 | service_fees_d5_winner | statements |
 	// statement_totals | counters | counters_next | fuel_snapshots | parity_trip | parity_standby | parity_load |
-	// parity_summary | divergence_1 | divergence_9 | spk_collisions | parity_window
+	// parity_summary | divergence_1 | divergence_9 | spk_collisions | parity_window; with --hr (T46): hr_inputs | hr_config |
+	// payroll_earnings | payroll_deductions | payroll_net | payroll_ledger | penalty_total | penalty_remaining |
+	// penalty_installments
 	Name   string `json:"name"`
 	Key    string `json:"key"`    // collection, table or "party period"
 	Source string `json:"source"` // the dump side
@@ -65,6 +67,9 @@ type ReconcileOptions struct {
 	Finance bool
 	Months  int
 	Through string
+	// HR adds the hr cut-over checks of T46 (hr_reconcile.go): the compensation config versions, the payroll totals
+	// per period, round and status with their payout ledger links, and the penalty balances, against the same dump.
+	HR bool
 }
 
 // Mismatches lists the failed checks.
@@ -132,6 +137,11 @@ func (e *Engine) Reconcile(ctx context.Context, d *dump.Dump, o ReconcileOptions
 		}
 		if rec.Finance != nil {
 			if err := e.reconcileFinance(ctx, tx, docs, status, rec.Finance.Window, rec); err != nil {
+				return err
+			}
+		}
+		if o.HR {
+			if err := reconcileHR(ctx, tx, docs, status, period, rec); err != nil {
 				return err
 			}
 		}

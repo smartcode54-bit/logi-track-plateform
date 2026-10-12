@@ -11,10 +11,12 @@ import {
     FLEET_EVENTS,
     FLEET_KEYS,
     JOB_SUCCESS_KEYS,
+    LEAVE_EVENTS,
     LIST_WINDOW_MS,
     MOBILE_SETTINGS_KEYS,
     MONITOR_KEY,
     MONITOR_WINDOW_MS,
+    PAYROLL_APPROVED_KEYS,
     REALTIME_EVENTS,
     ROLES_CHANGED_KEYS,
     STATEMENT_EVENTS,
@@ -53,6 +55,8 @@ const CATALOGUE = {
     chats: ["chat.created", "chat.updated", "chat.message_created"],
     vehicleLocations: ["vehicle_locations.updated"],
     platformSecurity: ["security.event", "waitlist.created"],
+    // M4 (T46): tenant:{tid}:hr.
+    hr: ["leave.created", "leave.decided", "payroll.approved", "payroll.status_changed"],
 };
 
 describe("event map (M1 slice)", () => {
@@ -303,5 +307,27 @@ describe("dashboard and waitlist (M6, T54R)", () => {
                 write: [],
             });
         }
+    });
+
+    it("HR (T46, M4): leave and payroll events on tenant:{tid}:hr, holidays.changed, the payroll.run job", () => {
+        for (const name of LEAVE_EVENTS) {
+            expect(keysOf(name, { entity: "leave_request", id: "l1", status: "approved" })).toEqual([queryKeys.leave()]);
+            expect(reaches(keysOf(name), queryKeys.leave({ status: "pending" }))).toBe(true);
+            expect(reaches(keysOf(name), queryKeys.payroll.all())).toBe(false);
+        }
+        expect(keysOf("payroll.status_changed", { entity: "payroll", id: "r1" })).toEqual([queryKeys.payroll.all()]);
+        expect(reaches(keysOf("payroll.status_changed"), queryKeys.payroll.detail("r1"))).toBe(true);
+        expect(reaches(keysOf("payroll.status_changed"), queryKeys.penalties())).toBe(false);
+        // An approval commits the penalty installments in the same transaction.
+        expect(keysOf("payroll.approved", { entity: "payroll", id: "r1" })).toEqual(PAYROLL_APPROVED_KEYS);
+        expect(reaches(keysOf("payroll.approved"), queryKeys.penalties({ status: "open" }))).toBe(true);
+        expect(reaches(keysOf("payroll.approved"), queryKeys.payroll.list({ period: "2026-08" }))).toBe(true);
+        // Public rows on global and a tenant's on tenant:{tid}:config: either way every year's key.
+        expect(keysOf("holidays.changed", { entity: "holiday", year: 2026, ids: ["h1"], deletedDocIds: [] })).toEqual([queryKeys.holidays.all()]);
+        expect(reaches(keysOf("holidays.changed"), queryKeys.holidays.year(2026))).toBe(true);
+        // A succeeded generation makes the runs stale; a running one does not.
+        expect(JOB_SUCCESS_KEYS.get("payroll.run")).toEqual([queryKeys.payroll.all()]);
+        expect(keysOf("job.updated", { id: "j1", type: "payroll.run", status: "succeeded" })).toEqual([queryKeys.payroll.all()]);
+        expect(keysOf("job.updated", { id: "j1", type: "payroll.run", status: "running" })).toEqual([]);
     });
 });

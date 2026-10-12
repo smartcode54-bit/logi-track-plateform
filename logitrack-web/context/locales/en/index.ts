@@ -26,6 +26,7 @@ import tenants from "./tenants";
 import masterData from "./masterData";
 import apiErrors from "./apiErrors";
 import imagePreview from "./imagePreview";
+import hr from "./hr";
 
 const dictionary: Dictionary = {
     ...common,
@@ -51,6 +52,7 @@ const dictionary: Dictionary = {
     ...masterData,
     ...apiErrors,
     ...imagePreview,
+    ...hr,
 };
 
 export default dictionary;
