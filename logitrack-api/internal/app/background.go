@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
@@ -56,11 +57,14 @@ type background struct {
 	checks []health.Checker
 }
 
-// runBackground loads T, starts logging, tracing and /metrics on METRICS_ADDR, runs what build
-// returns until ctx ends, and drains within SHUTDOWN_TIMEOUT.
-func runBackground[T any](ctx context.Context, process string, stdout, stderr io.Writer,
+// runBackground loads T, starts logging, tracing and /metrics on METRICS_ADDR (on metricsLn instead when it
+// is set, see Listeners), runs what build returns until ctx ends, and drains within SHUTDOWN_TIMEOUT.
+func runBackground[T any](ctx context.Context, process string, metricsLn net.Listener, stdout, stderr io.Writer,
 	common func(*T) (Common, Runtime),
 	build func(ctx context.Context, cfg *T, log zerolog.Logger, m *telemetry.Metrics) (background, error)) int {
+	if metricsLn != nil {
+		defer func() { _ = metricsLn.Close() }() // for the early returns: the metrics server's Shutdown closes it otherwise
+	}
 	cfg, err := config.Load[T]()
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "%s: %v\n", process, err)
@@ -98,8 +102,10 @@ func runBackground[T any](ctx context.Context, process string, stdout, stderr io
 	}
 	defer bg.close()
 	state.Register(bg.checks...)
-	srv, err := telemetry.ListenMetrics(rt.MetricsAddr, metrics.Registry, log, state.Ready)
-	if err != nil {
+	var srv *telemetry.MetricsServer
+	if metricsLn != nil {
+		srv = telemetry.ServeMetrics(metricsLn, metrics.Registry, log, state.Ready)
+	} else if srv, err = telemetry.ListenMetrics(rt.MetricsAddr, metrics.Registry, log, state.Ready); err != nil {
 		log.Error().Err(err).Msg("listen METRICS_ADDR")
 		return ExitRuntimeError
 	}
@@ -134,7 +140,12 @@ func runBackground[T any](ctx context.Context, process string, stdout, stderr io
 // Appendix B §B.5.4, until SIGTERM. Readiness needs PostgreSQL, Redis (notify.fcm's idem: keys) and the
 // broker session.
 func RunWorker(ctx context.Context, stdout, stderr io.Writer) int {
-	return runBackground(ctx, "worker", stdout, stderr,
+	return RunWorkerOn(ctx, nil, stdout, stderr)
+}
+
+// RunWorkerOn is RunWorker serving /metrics on metrics, a listener bound already (Listeners), when it is not nil.
+func RunWorkerOn(ctx context.Context, metrics net.Listener, stdout, stderr io.Writer) int {
+	return runBackground(ctx, "worker", metrics, stdout, stderr,
 		func(c *WorkerConfig) (Common, Runtime) { return c.Common, c.Runtime },
 		func(ctx context.Context, cfg *WorkerConfig, log zerolog.Logger, m *telemetry.Metrics) (background, error) {
 			pool, err := db.NewPool(ctx, cfg.DatabaseURL, "logitrack-worker", db.Options{MaxConns: cfg.MaxConns, MinConns: cfg.MinConns})
@@ -486,7 +497,13 @@ func runConsumers(ctx context.Context, conn *amqp.Connection, regs []mq.Registra
 // Appendix B §B.6.1) and the queue replays. Readiness needs PostgreSQL and Redis on every replica and
 // the broker connection on the leader only.
 func RunScheduler(ctx context.Context, stdout, stderr io.Writer) int {
-	return runBackground(ctx, "scheduler", stdout, stderr,
+	return RunSchedulerOn(ctx, nil, stdout, stderr)
+}
+
+// RunSchedulerOn is RunScheduler serving /metrics on metrics, a listener bound already (Listeners), when it is
+// not nil.
+func RunSchedulerOn(ctx context.Context, metrics net.Listener, stdout, stderr io.Writer) int {
+	return runBackground(ctx, "scheduler", metrics, stdout, stderr,
 		func(c *SchedulerConfig) (Common, Runtime) { return c.Common, c.Runtime },
 		func(ctx context.Context, cfg *SchedulerConfig, log zerolog.Logger, m *telemetry.Metrics) (background, error) {
 			pool, err := db.NewPool(ctx, cfg.DatabaseURL, "logitrack-scheduler", db.Options{MaxConns: cfg.MaxConns, MinConns: cfg.MinConns})

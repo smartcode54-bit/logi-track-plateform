@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -44,6 +43,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/listentest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/migrate/migratetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/migrations"
@@ -148,7 +148,9 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	}
 	// STORAGE_BACKEND=local (the staging VM's backend); LOCAL_MEDIA_PUBLIC_BASE_URL reaches /media on the public
 	// listener, so the APK link and cmd/release's URL check go through the api like on the VM.
-	publicAddr := freeAddr(t)
+	// Bound up front and served as it is (FLAKE3), so no other process can take the port in between.
+	publicLn := listentest.Loopback(t)
+	publicAddr := publicLn.Addr().String()
 	local, err := storage.NewLocal(storage.LocalConfig{Dir: w.mediaDir, PublicBaseURL: "http://" + publicAddr + "/media",
 		SigningKey: bytes.Repeat([]byte("e"), 40), APIUploadPath: storage.LocalUploadPath})
 	if err != nil {
@@ -200,7 +202,7 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	if err := a.CheckRoutes(); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Listen(); err != nil {
+	if err := a.ListenOn(app.Listeners{Public: publicLn}); err != nil {
 		t.Fatal(err)
 	}
 	sctx, cancel := context.WithCancel(context.Background())
@@ -210,17 +212,6 @@ func newWorldOpts(t *testing.T, o worldOpts) *world {
 	in, pub, _ := a.Addrs()
 	w.internal, w.public = "http://"+in, "http://"+pub
 	return w
-}
-
-func freeAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
 }
 
 // --- fixture (logitrack_etl, BYPASSRLS) ----------------------------------------------------------------------------

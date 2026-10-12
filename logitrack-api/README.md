@@ -67,6 +67,7 @@ internal/platform/bangchak   Bangchak retail oil price client (T37): GET {BANGCH
 internal/platform/gmaps      Google Maps Platform client (T21): the Distance Matrix API with GOOGLE_MAPS_SERVER_API_KEY behind the gmaps.DistanceMatrix interface (tests use a fake)
 internal/platform/push       FCM HTTP v1 client (service-account JWT grant, 16 in flight) + pushtest stand-in (T13)
 internal/platform/asynctest  test-only RabbitMQ, Redis and Mailpit containers with the compose images (T10)
+internal/platform/listentest test-only loopback listener a test binds before its server starts and hands to it (app.Listeners, RunWorkerOn / RunSchedulerOn): no harness picks a port, releases it and binds it again (FLAKE3)
 internal/jobs                jobs table, lock:job / lock:cron, GET /v1/jobs*, queue replay (T10)
 internal/scheduler           advisory-lock leader, Bangkok cron table, housekeeping jobs (T10)
 internal/notify              notify.email: reset and invite links in th + en (T10); notify.fcm: legacy push payloads, tasks_changed, session_revoked (T13)
