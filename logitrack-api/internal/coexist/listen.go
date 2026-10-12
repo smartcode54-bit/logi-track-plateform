@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -243,6 +244,10 @@ func (l *Listener) Poll(ctx context.Context, eng *etl.Engine, cursors map[string
 	rep, next, err := eng.MirrorChanges(ctx, l.c.Source, l.c.Plan, cursors)
 	if err != nil {
 		return nil, err
+	}
+	if len(rep.Skipped) > 0 {
+		l.throttled(errors.New(strings.Join(rep.Skipped, "; ")),
+			"mirror listener: a collection could not be polled and is left to the sweep (a collection-group index missing?)")
 	}
 	afterApply(ctx, rep, l.c.Metrics, l.c.Acks, l.c.Now(), PathListener, l.c.Log)
 	return next, nil

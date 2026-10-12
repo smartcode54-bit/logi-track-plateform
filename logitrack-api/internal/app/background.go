@@ -248,7 +248,8 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 		available[storage.QueueGC] = st.GCRegistration()
 	}
 
-	fcm := &notify.FCM{Pool: pool, Redis: rdb, Keys: ks, Enabled: cfg.FCMEnabled, Log: log}
+	fcm := &notify.FCM{Pool: pool, Redis: rdb, Keys: ks, Enabled: cfg.FCMEnabled,
+		NotifyAdminOnDriverMessage: cfg.NotifyAdminOnDriverMessage, Log: log}
 	if cfg.FCMEnabled && slices.Contains(cfg.Groups, "notify") {
 		// No I/O beyond reading the key file: the access token is fetched on the first send, so the worker
 		// starts while Google is unreachable. An unreadable or malformed file names the variable only.

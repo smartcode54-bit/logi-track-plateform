@@ -18,6 +18,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
@@ -90,6 +91,8 @@ type APIDeps struct {
 	Dashboard *dashboard.Service
 	// Forms are the anonymous landing forms of T53 and the waitlist: /v1/waitlist*, POST /v1/partner-interest.
 	Forms *forms.Service
+	// Chats are the admin-driver chat of T47: /v1/chats* (staff) and /v1/mobile/chat* (the driver's own chat).
+	Chats *chats.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
@@ -332,7 +335,8 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	// write PostgreSQL under the caller's RLS. Otherwise they write the Firestore documents first (the class C
 	// write-back, main spec §13.8) and wait up to 3 s for the mirror's cache:mirror_ack; without a Firestore project
 	// they answer 503 write_back_unconfigured. A trip rename and its audit row run in iam's system transaction. The
-	// operations writes and the leave decisions (T45) share one Firestore writer (buildWriteBacks).
+	// operations writes, the chat writes (T47) and the leave decisions (T45) share one Firestore writer
+	// (buildWriteBacks).
 	tripRenamer, err := iam.NewTripRenamer(iam.TripRenamerDeps{Pool: pool, Log: log})
 	if err != nil {
 		closeAll()
@@ -391,10 +395,15 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	chatSvc, err := buildChats(cfg, pool, st, wbs.Chats, rbac, log)
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
 		Storage: st,
-		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Limiter: limiter,
+		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP)})
 	if err != nil {
 		closeAll()
@@ -436,10 +445,12 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 }
 
 // writeBacks are the class C write-backs of the api (main spec §13.8): the operations writes (T31) while operations is
-// not PostgreSQL-owned, and the leave decisions (T45) until every domain is.
+// not PostgreSQL-owned, the chat writes (T47) while comms is not, and the leave decisions (T45) until every domain is.
 type writeBacks struct {
 	// Operations is the operations write-back; nil while operations is PostgreSQL-owned or without a Firestore project.
 	Operations *operations.WriteBack
+	// Chats is the chat write-back; nil while comms is PostgreSQL-owned or without a Firestore project.
+	Chats *chats.WriteBack
 	// LeavePG is whether the leave decisions write PostgreSQL (every domain owned, leavePGOwned); otherwise Leave is
 	// their write-back, nil without a Firestore project (the decisions then answer 503 write_back_unconfigured).
 	LeavePG bool
@@ -448,7 +459,7 @@ type writeBacks struct {
 
 // buildWriteBacks builds the write-backs over one Firestore client of WRITEBACK_FIRESTORE_PROJECT_ID (database
 // FIRESTORE_DATABASE_ID, the GOOGLE_APPLICATION_CREDENTIALS service account), built only when a write-back is in use
-// (operations not owned, or not every domain owned) and the project is set. No I/O beyond reading the key file: the
+// (operations or comms not owned, or not every domain owned) and the project is set. No I/O beyond reading the key file: the
 // access token is fetched on the first write, so the api starts while Google is unreachable. A write-back in use
 // without a project stays nil and its routes answer 503 write_back_unconfigured: PostgreSQL is never written in
 // Firestore's place.
@@ -468,6 +479,10 @@ func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (wri
 			log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
 				"(the write routes answer 503 write_back_unconfigured)")
 		}
+		if !cfg.CommsOwned {
+			log.Info().Msg("chat writes off: comms is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
+				"(the chat write routes answer 503 write_back_unconfigured)")
+		}
 		log.Info().Msg("leave decisions off: the 3.x APKs write leave requests in Firestore until every domain is PostgreSQL-owned " +
 			"and WRITEBACK_FIRESTORE_PROJECT_ID is unset (POST /v1/leave-requests/{id}/* answer 503 write_back_unconfigured)")
 		return out, nil
@@ -486,6 +501,10 @@ func buildWriteBacks(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (wri
 	if !cfg.OperationsOwned {
 		log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
 		out.Operations = &operations.WriteBack{Writer: w, Acks: acks, Wait: operations.DefaultMirrorWait, RunOrders: acks}
+	}
+	if !cfg.CommsOwned {
+		log.Info().Msg("chat writes: Firestore write-back (comms is not in PG_OWNED_DOMAINS)")
+		out.Chats = &chats.WriteBack{Writer: w, Acks: acks, Wait: chats.DefaultMirrorWait}
 	}
 	if !out.LeavePG {
 		log.Info().Msg("leave decisions: Firestore write-back (the 3.x APKs write leave requests until every domain is PostgreSQL-owned)")
