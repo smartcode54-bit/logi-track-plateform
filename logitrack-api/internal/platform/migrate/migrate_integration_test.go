@@ -356,8 +356,8 @@ func TestChainObjectsBelongToTheMigrator(t *testing.T) {
 	if want := []string{"app_recent_work_in_scope(uuid,uuid)", "app_task_in_scope(uuid)", "app_task_stops_in_scope(uuid)",
 		"app_trip_in_scope(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamp with time zone)",
 		"bump_task_seq(text,date,integer)", "driver_active_assignment(uuid)", "driver_directory()",
-		"next_invoice_seq(uuid,uuid,integer,integer,text)", "next_task_seq(text,date)", "trg_driver_link_membership()",
-		"trip_seal_taken(text,uuid)"}; strings.Join(definer, " ") != strings.Join(want, " ") {
+		"next_invoice_seq(uuid,uuid,integer,integer,text)", "next_task_seq(text,date)", "task_helper_payroll_locks(uuid[],text,text)",
+		"trg_driver_link_membership()", "trip_seal_taken(text,uuid)"}; strings.Join(definer, " ") != strings.Join(want, " ") {
 		t.Fatalf("functions of logitrack_rls_definer = %v, want %v", definer, want)
 	}
 	var notMine int

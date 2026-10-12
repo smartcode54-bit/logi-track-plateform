@@ -356,6 +356,13 @@ gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alon
   `UPLOAD_MAX_BYTES` needs the same `client_max_body_size` in both vhosts (`nginx/`).
 - Web domain flags: P0 state, `WEB_FLAG_OVERRIDES=auth=go` with `PG_OWNED_DOMAINS` empty (every other domain on
   the dev Firebase project); change them in the `.env` and reload `logitrack-api` (no web rebuild).
+- Operations writes (T31): the task, trip, standby-backfill and incident write routes write PostgreSQL only while
+  `operations` is in `PG_OWNED_DOMAINS` (this VM has no Firestore). With it absent they would write Firestore first
+  (the class C write-back), and since `WRITEBACK_FIRESTORE_PROJECT_ID` stays empty here they answer `503
+  write_back_unconfigured` instead: add `operations` to `PG_OWNED_DOMAINS` (e.g. `PG_OWNED_DOMAINS=auth,operations`,
+  keeping `WEB_FLAG_OVERRIDES` for the web pages' own switch, `operations=firebase` while the operations pages are
+  not on Go yet) and reload `logitrack-api`. Never set `WRITEBACK_FIRESTORE_PROJECT_ID` on this VM: it would point
+  the api's writes at a real Firestore project.
 - Chats (T47): the chat write routes (`/v1/chats*`, `/v1/mobile/chat*`) write PostgreSQL only while `comms` is in
   `PG_OWNED_DOMAINS`; with it absent they answer `503 write_back_unconfigured` (this VM has no Firestore to write
   back to). To serve them here append `comms` to `PG_OWNED_DOMAINS` (keeping the domains already listed) and keep

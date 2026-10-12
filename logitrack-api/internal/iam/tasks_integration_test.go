@@ -69,7 +69,7 @@ func newTMWorld(t *testing.T) *tmWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.svc, err = operations.New(operations.Deps{Pool: w.pool, Log: zerolog.Nop(), Reassigner: mover}); err != nil {
+	if w.svc, err = operations.New(operations.Deps{Pool: w.pool, Log: zerolog.Nop(), Reassigner: mover, PGOwned: true}); err != nil {
 		t.Fatal(err)
 	}
 	carrier := func(code string, contractor *uuid.UUID, status string) uuid.UUID {
@@ -566,21 +566,30 @@ func TestReassignHTTP(t *testing.T) {
 		"no capability":     {"none", path, `{"tenantId":"` + w.B.String() + `"}`, 403, "permission_denied"},
 		"not a dispatcher":  {"staffA", path, `{"tenantId":"` + w.B.String() + `"}`, 403, operations.ReasonDispatcherOrPlatform},
 		"another field":     {"disp", path, `{"tenantId":"` + w.B.String() + `","jobCategory":"PRIMARY"}`, 422, "jobCategory not_supported"},
-		"no tenantId":       {"disp", path, `{"driverId":null}`, 422, "tenantId required"},
 		"a bad tenantId":    {"disp", path, `{"tenantId":"B"}`, 422, "tenantId invalid"},
 		"a bad driverId":    {"disp", path, `{"tenantId":"` + w.B.String() + `","driverId":7}`, 422, "driverId invalid"},
 		"not a JSON object": {"disp", path, `[1]`, 400, "bad_request"},
 		"a path id":         {"disp", "/v1/tasks/FM-11102026-001", `{"tenantId":"` + w.B.String() + `"}`, 404, "not_found"},
 		"a query parameter": {"disp", path + "?force=1", `{"tenantId":"` + w.B.String() + `"}`, 400, "bad_request"},
-		"a carrier's task": {"disp", "/v1/tasks/" + carrierA.String(), `{"tenantId":"` + w.A.String() + `","driverId":null}`, 403,
+		// T31: a body whose tenantId is the task's own is the ordinary update under the caller's RLS, where another
+		// carrier's task changes 0 rows (404, Appendix C §C.9.2 #12); a move of it stays 403 task_not_in_reach.
+		"a carrier's task": {"disp", "/v1/tasks/" + carrierA.String(), `{"tenantId":"` + w.A.String() + `","driverId":null}`, 404,
+			"not_found"},
+		"a carrier's task moved": {"disp", "/v1/tasks/" + carrierA.String(), `{"tenantId":"` + w.D.String() + `"}`, 403,
 			iam.ReasonTaskNotInReach},
-		"a driver change without a move": {"disp", path, `{"tenantId":"` + w.D.String() + `","driverId":"` + w.dD1.String() + `"}`, 422,
-			"tenantId same_tenant"},
 	} {
 		status, m := call(c.who, c.path, c.body)
 		if status != c.status || reason(m) != c.reason {
 			t.Errorf("%s: %d %s, want %d %s", name, status, reason(m), c.status, c.reason)
 		}
+	}
+	// T31: no tenantId, or the task's own, is the ordinary update (here the dispatcher assigns its call-out's driver).
+	if status, m := call("disp", path, `{"driverId":null}`); status != 200 {
+		t.Fatalf("an ordinary update that changes nothing: %d %v", status, m)
+	}
+	if status, m := call("disp", path, `{"tenantId":"`+w.D.String()+`","driverId":"`+w.dD1.String()+`"}`); status != 200 ||
+		m["data"].(map[string]any)["driverId"] != w.dD1.String() || m["data"].(map[string]any)["status"] != "assigned" {
+		t.Fatalf("a driver change without a move: %d %v", status, m)
 	}
 	status, m := call("disp", path, `{"tenantId":"`+w.B.String()+`","driverId":"`+w.dB1.String()+`"}`)
 	data, _ := m["data"].(map[string]any)

@@ -277,6 +277,11 @@ func afterTruckAssignments(r *runState, _ string) error {
 
 var taskNoPattern = regexp.MustCompile(`^(FM|LH)-([0-9]{2})([0-9]{2})([0-9]{4})-([0-9]+)$`)
 
+// maxCounterSeq is operations.MaxBumpSeq: a legacy number past it is loaded verbatim but seeds no counter, so a planted
+// FM-...-2147483647 cannot push task_number_counters to the int ceiling, where next_task_seq() fails every later
+// creation of that day for every tenant (T31 review).
+const maxCounterSeq = 99999
+
 // afterTasks seeds task_number_counters with the highest legacy suffix per (type, day encoded in the number), so the
 // first Go-minted number continues after it (§A.3.5, R10; numbering is global across tenants), and sets
 // drivers.active_task_id from activeTruck.taskId (tasks doc id, else a unique task number) for the drivers or tasks
@@ -298,7 +303,7 @@ func afterTasks(r *runState, _ string) error {
 		yy, _ := strconv.Atoi(m[4])
 		day := time.Date(yy, time.Month(mm), dd, 0, 0, 0, 0, time.UTC)
 		seq, err := strconv.ParseInt(m[5], 10, 32)
-		if err != nil || day.Day() != dd || int(day.Month()) != mm {
+		if err != nil || day.Day() != dd || int(day.Month()) != mm || seq > maxCounterSeq {
 			continue
 		}
 		k := key{map[string]string{"FM": "first_mile", "LH": "line_haul"}[m[1]], day}
