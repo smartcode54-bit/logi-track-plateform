@@ -29,6 +29,8 @@ import {
     type LineStandbyContext,
     type LineFlexMessage,
 } from "./core/lineMessage";
+import { SEND_LINE_NOTIFICATION_SHIM, callShim, lineNotifyShimUrl, logitrackApiKey, shimTarget } from "./core/goShim";
+import { lineNotifyForwards, lineNotifyRecordId, mapLineNotifyAnswer } from "./core/goShimCallables";
 
 const COL_TASKS = "tasks";
 const COL_TRIP_RECORDS = "trip_records";
@@ -256,6 +258,14 @@ async function pushLineMessage(token: string, to: string, message: LineFlexMessa
     }
 }
 
+/**
+ * mv-go shim (T49, R45; Appendix B §B.2.22): while LOGITRACK_SHIM_CALLABLES lists sendCustomerLineNotification, a
+ * driver's call (the claims setDriverClaims gives, never forced: the 3.x APK after its check-in, delivery or standby
+ * write) is forwarded to the Go API (POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify with the cf_shim key and the
+ * caller's own Firebase ID token), whose notify.line worker sends the card once with its own LINE channel token; the
+ * answer keeps `{ok, skipped?, reason?}` (goShimCallables.ts). Any other caller (the legacy web pages, an admin, a
+ * forced resend) keeps the legacy path below until its web flag moves it to the Go staff routes.
+ */
 export const sendCustomerLineNotification = onCall<
     SendCustomerLineNotificationRequest,
     Promise<SendCustomerLineNotificationResponse>
@@ -263,7 +273,7 @@ export const sendCustomerLineNotification = onCall<
     {
         region: "asia-southeast1",
         enforceAppCheck: false, // Auth-checked below; web/admin re-triggers may lack an App Check token.
-        secrets: [lineChannelAccessToken],
+        secrets: [lineChannelAccessToken, logitrackApiKey],
     },
     async (request): Promise<SendCustomerLineNotificationResponse> => {
         if (!request.auth) {
@@ -275,6 +285,15 @@ export const sendCustomerLineNotification = onCall<
             throw new HttpsError("invalid-argument", "event must be 'checkin', 'delivered' or 'standby'");
         }
         const force = request.data?.force === true;
+
+        const base = shimTarget(SEND_LINE_NOTIFICATION_SHIM);
+        if (lineNotifyForwards(base, request.auth.token as Record<string, unknown>, force)) {
+            const id = lineNotifyRecordId(event, request.data as unknown as Record<string, unknown>);
+            const bearer = String(request.rawRequest?.headers?.authorization ?? "");
+            const answer = await callShim(SEND_LINE_NOTIFICATION_SHIM, "POST", lineNotifyShimUrl(base, event, id),
+                logitrackApiKey.value(), bearer, {});
+            return mapLineNotifyAnswer(answer, logger);
+        }
 
         const token = lineChannelAccessToken.value();
         if (!token) {

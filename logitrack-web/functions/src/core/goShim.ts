@@ -26,8 +26,8 @@
  *
  * Shims: setDriverClaims -> GET /v1/mobile/me and addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops (T32, P2;
  * goShimCallables.ts rebuilds their legacy answers), computeTripBillingSnapshot -> POST
- * /v1/mobile/trips/{id}/billing/compute (T38, P3); markBroadcastRead (T48) and sendCustomerLineNotification (T49) join
- * with their targets. Every call goes through callShim, which never follows a redirect (the key would go on to another
+ * /v1/mobile/trips/{id}/billing/compute (T38, P3), sendCustomerLineNotification -> POST
+ * /v1/mobile/{tasks|trips|standby}/{id}/line-notify (T49, P5); markBroadcastRead (T48) joins with its target. Every call goes through callShim, which never follows a redirect (the key would go on to another
  * origin) and logs one line per call (callable, HTTP status, duration: the latency evidence of the shims, AC < 300 ms
  * p95 added) and an error line when the API refuses the shim's credentials (401: a revoked, expired or unknown
  * LOGITRACK_API_KEY, or a token Go rejects), fails (5xx), answers something that is not a Go envelope, redirects or
@@ -65,6 +65,12 @@ export const SET_DRIVER_CLAIMS_SHIM = "setDriverClaims";
 
 /** The callable's name in LOGITRACK_SHIM_CALLABLES (T32: forwarded to POST /v1/mobile/tasks/{id}/stops). */
 export const ADD_DELIVERY_STOP_SHIM = "addDeliveryStop";
+
+/**
+ * The callable's name in LOGITRACK_SHIM_CALLABLES (T49: forwarded to POST /v1/mobile/{tasks|trips|standby}/{id}/
+ * line-notify, P5).
+ */
+export const SEND_LINE_NOTIFICATION_SHIM = "sendCustomerLineNotification";
 
 /**
  * The API origin a callable forwards to, or "" while it keeps its legacy path: the origin must be set and the callable
@@ -127,6 +133,19 @@ export function mobileMeShimUrl(base: string): string {
 /** The shim target of addDeliveryStop: `{base}/v1/mobile/tasks/{id}/stops`, the id (a Firestore doc id) path-escaped. */
 export function addStopShimUrl(base: string, taskId: string): string {
     return `${base}/v1/mobile/tasks/${encodeURIComponent(taskId)}/stops`;
+}
+
+/** The LINE card of a sendCustomerLineNotification event (the legacy callable's `event`). */
+export type LineNotifyEvent = "checkin" | "delivered" | "standby";
+
+/**
+ * The shim target of sendCustomerLineNotification: `{base}/v1/mobile/tasks/{id}/line-notify` (checkin, the task),
+ * `.../trips/{id}/line-notify` (delivered, the trip) or `.../standby/{id}/line-notify` (standby), the id (a Firestore doc
+ * id) path-escaped.
+ */
+export function lineNotifyShimUrl(base: string, event: LineNotifyEvent, id: string): string {
+    const kind = event === "checkin" ? "tasks" : event === "delivered" ? "trips" : "standby";
+    return `${base}/v1/mobile/${kind}/${encodeURIComponent(id)}/line-notify`;
 }
 
 /** The Go error envelope's code and details.reason (R48: `{error: {code, message, details}}`), "" when absent. */

@@ -11,6 +11,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/bangchak"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cartrack"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/line"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/mq"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/push"
 )
@@ -86,6 +87,48 @@ func (c Cartrack) CartrackClient() (cartrack.Client, error) {
 	return cl, nil
 }
 
+// Line is the LINE Messaging API of the worker's notify.line consumer (P5, T49; main spec §7.6, §16.1: the channel
+// token is the worker's alone). Off (LINE_NOTIFY_ENABLED false, the default and the staging VM until the owner sets the
+// token) every LINE event is acked without a card and every notify.line.force job ends skipped; no request leaves the
+// process. On, the token and EVIDENCE_BASE_URL are required; LINE_API_BASE_URL defaults to https://api.line.me (the
+// local stack points it at WireMock).
+type Line struct {
+	LineNotifyEnabled      bool   `env:"LINE_NOTIFY_ENABLED"`
+	LineAPIBaseURL         string `env:"LINE_API_BASE_URL"`
+	LineChannelAccessToken string `env:"LINE_CHANNEL_ACCESS_TOKEN"`
+	EvidenceBaseURL        string `env:"EVIDENCE_BASE_URL"`
+}
+
+func (l Line) validate(errs *[]string) {
+	if strings.TrimSpace(l.LineAPIBaseURL) != "" {
+		if err := line.ValidateBaseURL(l.LineAPIBaseURL); err != nil {
+			*errs = append(*errs, config.Invalidf("LINE_API_BASE_URL", "%v", err))
+		}
+	}
+	if !l.LineNotifyEnabled {
+		return
+	}
+	if strings.TrimSpace(l.LineChannelAccessToken) == "" {
+		*errs = append(*errs, config.Invalidf("LINE_CHANNEL_ACCESS_TOKEN", "is required when LINE_NOTIFY_ENABLED is true"))
+	}
+	if u, err := url.Parse(strings.TrimSpace(l.EvidenceBaseURL)); err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
+		u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		*errs = append(*errs, config.Invalidf("EVIDENCE_BASE_URL", "must be an absolute http(s) URL without credentials, query or fragment when LINE_NOTIFY_ENABLED is true"))
+	}
+}
+
+// LineClient is the push client, nil while LINE_NOTIFY_ENABLED is false. It does no I/O.
+func (l Line) LineClient() (line.Pusher, error) {
+	if !l.LineNotifyEnabled {
+		return nil, nil
+	}
+	c, err := line.New(line.Config{BaseURL: l.LineAPIBaseURL, Token: l.LineChannelAccessToken})
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{"LINE_API_BASE_URL, LINE_CHANNEL_ACCESS_TOKEN: " + err.Error()}}
+	}
+	return c, nil
+}
+
 // WorkerGroups are the consumer groups of Appendix B §B.5.3 that WORKER_CONSUMERS selects from.
 var WorkerGroups = func() []string {
 	var out []string
@@ -115,6 +158,8 @@ type WorkerConfig struct {
 	FCMServiceAccountJSON string `env:"FCM_SERVICE_ACCOUNT_JSON"`
 	// NotifyAdminOnDriverMessage also pushes a driver's chat message to the assigned admin's devices (T47).
 	NotifyAdminOnDriverMessage bool `env:"NOTIFY_ADMIN_ON_DRIVER_MESSAGE"`
+	// notify.line (T49): the LINE cards of check-in, delivery and standby. Off by default.
+	Line
 
 	// notify.email (main spec §7.6)
 	PublicWebBaseURL string        `env:"PUBLIC_WEB_BASE_URL"`
@@ -179,6 +224,7 @@ func (c *WorkerConfig) Validate() error {
 	c.Storage.validate(&errs)
 	c.Bangchak.validate(&errs)
 	c.Cartrack.validate(&errs)
+	c.Line.validate(&errs)
 	if d := strings.TrimSpace(c.PDFFontDir); d != "" && !strings.HasPrefix(d, "/") {
 		errs = append(errs, config.Invalidf("PDF_FONT_DIR", "must be an absolute directory (or empty for the built-in Sarabun)"))
 	}

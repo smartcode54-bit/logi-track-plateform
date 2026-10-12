@@ -79,11 +79,16 @@ const (
 	TypeBillingSafetyNet       = "billing.safety-net"
 )
 
+// TypeNotifyLineForce is a LINE card a person asked for (T49): a staff force or resend (POST /v1/{tasks|trips|standby}/
+// {id}/notify-line) or a driver's shim request (POST /v1/mobile/{tasks|trips|standby}/{id}/line-notify); the notify.line
+// consumer sends it. Its lock scope is the card and the record, so a second request while one waits is 409.
+const TypeNotifyLineForce = "notify.line.force"
+
 // TypeCapabilities maps each job type a per-type POST /v1/jobs/{type} route submits to the capability
 // that route checks (Appendix B §B.2.20, developer-spec.md §7.5): staff of the job's tenant
 // (EffectiveTenant() = jobs.tenant_id) holding it read the job besides its owner and the platform. T21
 // registers distances.compute, T37 bangchak.snapshot, T39 the two documents.render jobs, T44 payroll.run, T38 the
-// billing backfills and the impact report. Types without a row (queue.replay, billing.safety-net) stay owner +
+// billing backfills and the impact report, T49 notify.line.force. Types without a row (queue.replay, billing.safety-net) stay owner +
 // platform; a cron fire of a listed type has no owner and no tenant, so only the platform reads it.
 var TypeCapabilities = map[string]authz.Cap{
 	TypeDistancesCompute:       authz.OperationsCalcDistances,
@@ -94,6 +99,7 @@ var TypeCapabilities = map[string]authz.Cap{
 	TypeBillingBackfillTrips:   authz.AccountingEditRateCard,
 	TypeBillingBackfillStandby: authz.AccountingEditRateCard,
 	TypeBillingImpactReport:    authz.SecurityViewOverview,
+	TypeNotifyLineForce:        authz.OperationsEditTripDetails,
 }
 
 var typeRx = regexp.MustCompile(`^[a-z]+(\.[a-z0-9-]+)+$`) // the CHECK of jobs.type

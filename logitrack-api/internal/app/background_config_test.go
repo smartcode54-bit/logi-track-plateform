@@ -343,3 +343,52 @@ func TestCartrackConfig(t *testing.T) {
 		t.Fatalf("scheduler gate: %v", err)
 	}
 }
+
+// notify.line (T49): LINE is off by default (no client, nothing leaves the process); on it needs the channel token and
+// an absolute EVIDENCE_BASE_URL, LINE_API_BASE_URL defaults to the Messaging API and is checked when set, and the
+// errors name the variable, never the token.
+func TestWorkerConfigLine(t *testing.T) {
+	cfg, err := config.LoadFrom[app.WorkerConfig](workerEnv())
+	if err != nil || cfg.LineNotifyEnabled {
+		t.Fatalf("default: %v %v", cfg.LineNotifyEnabled, err)
+	}
+	if c, err := cfg.LineClient(); c != nil || err != nil {
+		t.Fatalf("a client while LINE is off: %v %v", c, err)
+	}
+	on := []string{"LINE_NOTIFY_ENABLED=true", "LINE_CHANNEL_ACCESS_TOKEN=placeholder-line-token",
+		"EVIDENCE_BASE_URL=https://logi-api.example.test/evidence"}
+	cfg, err = config.LoadFrom[app.WorkerConfig](workerEnv(on...))
+	if err != nil || !cfg.LineNotifyEnabled {
+		t.Fatalf("on: %v", err)
+	}
+	if c, err := cfg.LineClient(); c == nil || err != nil {
+		t.Fatalf("no client while LINE is on: %v", err)
+	}
+	for env, want := range map[string]string{
+		"LINE_CHANNEL_ACCESS_TOKEN=":                    "LINE_CHANNEL_ACCESS_TOKEN",
+		"EVIDENCE_BASE_URL=":                            "EVIDENCE_BASE_URL",
+		"EVIDENCE_BASE_URL=/evidence":                   "EVIDENCE_BASE_URL",
+		"EVIDENCE_BASE_URL=https://u:p@x.test/evidence": "EVIDENCE_BASE_URL",
+		"LINE_API_BASE_URL=ftp://api.line.me":           "LINE_API_BASE_URL",
+		"LINE_API_BASE_URL=https://api.line.me?x=1":     "LINE_API_BASE_URL",
+	} {
+		_, err := config.LoadFrom[app.WorkerConfig](workerEnv(append(on, env)...))
+		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "placeholder-line-token") {
+			t.Errorf("%s: %v, want %q", env, err, want)
+		}
+	}
+	// A bad LINE_API_BASE_URL is refused even while LINE is off (a typo is found before the switch is turned on).
+	if _, err := config.LoadFrom[app.WorkerConfig](workerEnv("LINE_API_BASE_URL=not a url")); err == nil ||
+		!strings.Contains(err.Error(), "LINE_API_BASE_URL") {
+		t.Errorf("off with a bad base URL: %v", err)
+	}
+	w := config.Describe[app.WorkerConfig]()
+	for _, n := range []string{"LINE_NOTIFY_ENABLED", "LINE_API_BASE_URL", "LINE_CHANNEL_ACCESS_TOKEN", "EVIDENCE_BASE_URL"} {
+		if _, ok := w[n]; !ok {
+			t.Errorf("worker does not read %s", n)
+		}
+	}
+	if _, ok := config.Describe[app.APIConfig]()["LINE_CHANNEL_ACCESS_TOKEN"]; ok {
+		t.Error("the api reads LINE_CHANNEL_ACCESS_TOKEN: the channel token is the worker's alone")
+	}
+}

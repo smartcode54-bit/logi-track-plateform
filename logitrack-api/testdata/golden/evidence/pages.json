@@ -1,0 +1,97 @@
+{
+  "source": "logitrack-web/functions/src/tripEvidence.ts",
+  "note": "The legacy gallery's pages: the 400 / 404 / 500 pages, three galleries (photos as collectPhotos and collectIncidentPhotos list them, subtitle parts as the handler reads them: null = absent) and the photo labels. Regenerate with export.mjs; never edit by hand.",
+  "status": {
+    "400": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>ลิงก์ไม่ถูกต้อง</title>\n<style>\n:root{color-scheme:light dark}\nbody{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Noto Sans Thai\",sans-serif;background:#f2f2f2;color:#111}\n@media(prefers-color-scheme:dark){body{background:#111;color:#eee}.card{background:#1c1c1c;border-color:#333}.sub{color:#aaa}.cap{color:#aaa}}\n.wrap{max-width:720px;margin:0 auto;padding:16px}\n.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin-bottom:14px}\nh1{font-size:18px;margin:0 0 4px}\n.sub{color:#666;font-size:13px;margin:0}\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}\n.ph{display:block;border-radius:8px;overflow:hidden;background:#ddd;border:1px solid #e0e0e0;text-decoration:none}\n.ph img{width:100%;height:150px;object-fit:cover;display:block}\n.cap{font-size:11px;color:#666;padding:5px 8px}\n.empty{color:#888;font-size:14px;padding:24px;text-align:center}\n</style></head><body><div class=\"wrap\"><div class=\"card\"><div class=\"empty\">ลิงก์ไม่ถูกต้อง</div></div></div></body></html>",
+    "404": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>ไม่พบข้อมูล</title>\n<style>\n:root{color-scheme:light dark}\nbody{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Noto Sans Thai\",sans-serif;background:#f2f2f2;color:#111}\n@media(prefers-color-scheme:dark){body{background:#111;color:#eee}.card{background:#1c1c1c;border-color:#333}.sub{color:#aaa}.cap{color:#aaa}}\n.wrap{max-width:720px;margin:0 auto;padding:16px}\n.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin-bottom:14px}\nh1{font-size:18px;margin:0 0 4px}\n.sub{color:#666;font-size:13px;margin:0}\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}\n.ph{display:block;border-radius:8px;overflow:hidden;background:#ddd;border:1px solid #e0e0e0;text-decoration:none}\n.ph img{width:100%;height:150px;object-fit:cover;display:block}\n.cap{font-size:11px;color:#666;padding:5px 8px}\n.empty{color:#888;font-size:14px;padding:24px;text-align:center}\n</style></head><body><div class=\"wrap\"><div class=\"card\"><div class=\"empty\">ไม่พบรูปสำหรับลิงก์นี้ (อาจถูกเพิกถอนแล้ว)</div></div></div></body></html>",
+    "500": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>เกิดข้อผิดพลาด</title>\n<style>\n:root{color-scheme:light dark}\nbody{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Noto Sans Thai\",sans-serif;background:#f2f2f2;color:#111}\n@media(prefers-color-scheme:dark){body{background:#111;color:#eee}.card{background:#1c1c1c;border-color:#333}.sub{color:#aaa}.cap{color:#aaa}}\n.wrap{max-width:720px;margin:0 auto;padding:16px}\n.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin-bottom:14px}\nh1{font-size:18px;margin:0 0 4px}\n.sub{color:#666;font-size:13px;margin:0}\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}\n.ph{display:block;border-radius:8px;overflow:hidden;background:#ddd;border:1px solid #e0e0e0;text-decoration:none}\n.ph img{width:100%;height:150px;object-fit:cover;display:block}\n.cap{font-size:11px;color:#666;padding:5px 8px}\n.empty{color:#888;font-size:14px;padding:24px;text-align:center}\n</style></head><body><div class=\"wrap\"><div class=\"card\"><div class=\"empty\">เกิดข้อผิดพลาด กรุณาลองใหม่</div></div></div></body></html>"
+  },
+  "cases": [
+    {
+      "name": "trip",
+      "title": "รูปหลักฐานการจัดส่ง",
+      "subtitle": {
+        "origin": "ALANG-A <x>",
+        "destination": null,
+        "tripNo": "SPX\"1'&"
+      },
+      "photos": [
+        {
+          "url": "https://media.example.test/a.jpg?X-Sig=1&x=2",
+          "label": "ก่อนปิดตู้"
+        },
+        {
+          "url": "https://media.example.test/b.jpg",
+          "label": "stop_2_arrived"
+        },
+        {
+          "url": "https://media.example.test/c.jpg",
+          "label": "รูป"
+        },
+        {
+          "url": "https://media.example.test/d.jpg",
+          "label": "ถึงปลายทาง"
+        },
+        {
+          "url": "https://media.example.test/m.jpg",
+          "label": "เหตุล่าช้า — แผนที่/พิกัด"
+        },
+        {
+          "url": "https://media.example.test/s1.jpg",
+          "label": "เหตุล่าช้า — สถานการณ์"
+        }
+      ],
+      "html": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>รูปหลักฐานการจัดส่ง</title>\n<style>\n:root{color-scheme:light dark}\nbody{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Noto Sans Thai\",sans-serif;background:#f2f2f2;color:#111}\n@media(prefers-color-scheme:dark){body{background:#111;color:#eee}.card{background:#1c1c1c;border-color:#333}.sub{color:#aaa}.cap{color:#aaa}}\n.wrap{max-width:720px;margin:0 auto;padding:16px}\n.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin-bottom:14px}\nh1{font-size:18px;margin:0 0 4px}\n.sub{color:#666;font-size:13px;margin:0}\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}\n.ph{display:block;border-radius:8px;overflow:hidden;background:#ddd;border:1px solid #e0e0e0;text-decoration:none}\n.ph img{width:100%;height:150px;object-fit:cover;display:block}\n.cap{font-size:11px;color:#666;padding:5px 8px}\n.empty{color:#888;font-size:14px;padding:24px;text-align:center}\n</style></head><body><div class=\"wrap\"><div class=\"card\"><h1>รูปหลักฐานการจัดส่ง</h1><p class=\"sub\">ALANG-A &lt;x&gt; → - · เลขทริป SPX&quot;1&#39;&amp;</p></div><div class=\"card\"><div class=\"grid\"><a class=\"ph\" href=\"https://media.example.test/a.jpg?X-Sig=1&amp;x=2\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/a.jpg?X-Sig=1&amp;x=2\" loading=\"lazy\" alt=\"ก่อนปิดตู้\"><div class=\"cap\">ก่อนปิดตู้</div></a><a class=\"ph\" href=\"https://media.example.test/b.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/b.jpg\" loading=\"lazy\" alt=\"stop_2_arrived\"><div class=\"cap\">stop_2_arrived</div></a><a class=\"ph\" href=\"https://media.example.test/c.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/c.jpg\" loading=\"lazy\" alt=\"รูป\"><div class=\"cap\">รูป</div></a><a class=\"ph\" href=\"https://media.example.test/d.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/d.jpg\" loading=\"lazy\" alt=\"ถึงปลายทาง\"><div class=\"cap\">ถึงปลายทาง</div></a><a class=\"ph\" href=\"https://media.example.test/m.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/m.jpg\" loading=\"lazy\" alt=\"เหตุล่าช้า — แผนที่/พิกัด\"><div class=\"cap\">เหตุล่าช้า — แผนที่/พิกัด</div></a><a class=\"ph\" href=\"https://media.example.test/s1.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/s1.jpg\" loading=\"lazy\" alt=\"เหตุล่าช้า — สถานการณ์\"><div class=\"cap\">เหตุล่าช้า — สถานการณ์</div></a></div></div></div></body></html>"
+    },
+    {
+      "name": "trip-empty",
+      "title": "รูปหลักฐานการจัดส่ง",
+      "subtitle": {
+        "origin": "",
+        "destination": "SOCE",
+        "tripNo": "T-2"
+      },
+      "photos": [],
+      "html": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>รูปหลักฐานการจัดส่ง</title>\n<style>\n:root{color-scheme:light dark}\nbody{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Noto Sans Thai\",sans-serif;background:#f2f2f2;color:#111}\n@media(prefers-color-scheme:dark){body{background:#111;color:#eee}.card{background:#1c1c1c;border-color:#333}.sub{color:#aaa}.cap{color:#aaa}}\n.wrap{max-width:720px;margin:0 auto;padding:16px}\n.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin-bottom:14px}\nh1{font-size:18px;margin:0 0 4px}\n.sub{color:#666;font-size:13px;margin:0}\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}\n.ph{display:block;border-radius:8px;overflow:hidden;background:#ddd;border:1px solid #e0e0e0;text-decoration:none}\n.ph img{width:100%;height:150px;object-fit:cover;display:block}\n.cap{font-size:11px;color:#666;padding:5px 8px}\n.empty{color:#888;font-size:14px;padding:24px;text-align:center}\n</style></head><body><div class=\"wrap\"><div class=\"card\"><h1>รูปหลักฐานการจัดส่ง</h1><p class=\"sub\"> → SOCE · เลขทริป T-2</p></div><div class=\"card\"><div class=\"empty\">ยังไม่มีรูป</div></div></div></body></html>"
+    },
+    {
+      "name": "standby",
+      "title": "รูปหลักฐาน Standby",
+      "subtitle": {
+        "start": "ลาดพร้าว08",
+        "end": null
+      },
+      "photos": [
+        {
+          "url": "https://media.example.test/w.jpg",
+          "label": "ใบงานลูกค้า"
+        },
+        {
+          "url": "https://media.example.test/s.jpg",
+          "label": "รูปหน้างาน"
+        }
+      ],
+      "html": "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>รูปหลักฐาน Standby</title>\n<style>\n:root{color-scheme:light dark}\nbody{margin:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Noto Sans Thai\",sans-serif;background:#f2f2f2;color:#111}\n@media(prefers-color-scheme:dark){body{background:#111;color:#eee}.card{background:#1c1c1c;border-color:#333}.sub{color:#aaa}.cap{color:#aaa}}\n.wrap{max-width:720px;margin:0 auto;padding:16px}\n.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin-bottom:14px}\nh1{font-size:18px;margin:0 0 4px}\n.sub{color:#666;font-size:13px;margin:0}\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}\n.ph{display:block;border-radius:8px;overflow:hidden;background:#ddd;border:1px solid #e0e0e0;text-decoration:none}\n.ph img{width:100%;height:150px;object-fit:cover;display:block}\n.cap{font-size:11px;color:#666;padding:5px 8px}\n.empty{color:#888;font-size:14px;padding:24px;text-align:center}\n</style></head><body><div class=\"wrap\"><div class=\"card\"><h1>รูปหลักฐาน Standby</h1><p class=\"sub\">ลาดพร้าว08 → - · งานหมด / Standby</p></div><div class=\"card\"><div class=\"grid\"><a class=\"ph\" href=\"https://media.example.test/w.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/w.jpg\" loading=\"lazy\" alt=\"ใบงานลูกค้า\"><div class=\"cap\">ใบงานลูกค้า</div></a><a class=\"ph\" href=\"https://media.example.test/s.jpg\" target=\"_blank\" rel=\"noopener\"><img src=\"https://media.example.test/s.jpg\" loading=\"lazy\" alt=\"รูปหน้างาน\"><div class=\"cap\">รูปหน้างาน</div></a></div></div></div></body></html>"
+    }
+  ],
+  "labels": {
+    "pre_close": "ก่อนปิดตู้",
+    "closing": "ปิดตู้",
+    "seal": "ซีล",
+    "runsheet": "ใบคุมรถ",
+    "runsheet_extra_1": "ใบคุมรถ (เพิ่ม)",
+    "runsheet_extra_2": "ใบคุมรถ (เพิ่ม)",
+    "runsheet_extra_3": "ใบคุมรถ (เพิ่ม)",
+    "truck_release": "ปล่อยรถ",
+    "checkin_app": "เช็คอิน (แอปลูกค้า)",
+    "pre_open": "ก่อนเปิดตู้",
+    "opening": "เปิดตู้",
+    "empty_container": "ตู้เปล่า",
+    "runsheet_received": "ใบคุมรถ (รับ)",
+    "arrived": "ถึงปลายทาง",
+    "customer_worksheet": "ใบงานลูกค้า",
+    "site_photo": "รูปหน้างาน",
+    "stop_1_arrived": "stop_1_arrived",
+    "": "รูป"
+  }
+}

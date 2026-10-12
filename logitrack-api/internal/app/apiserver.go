@@ -30,6 +30,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/linenotify"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
@@ -93,11 +94,16 @@ type APIDeps struct {
 	Forms *forms.Service
 	// Chats are the admin-driver chat of T47: /v1/chats* (staff) and /v1/mobile/chat* (the driver's own chat).
 	Chats *chats.Service
+	// LineNotify are the LINE request routes of T49: POST /v1/{tasks|trips|standby}/{id}/notify-line, POST
+	// /v1/{trips|standby}/{id}/evidence/revoke and the sendCustomerLineNotification shim targets below /v1/mobile.
+	LineNotify *linenotify.Service
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
 	// PublicFormsLimit is RATE_LIMIT_PUBLIC_FORMS (the public_form_ip bucket of the forms, T53); zero = the default.
 	PublicFormsLimit ratelimit.Limit
+	// EvidenceLimit is RATE_LIMIT_EVIDENCE (the evidence_ip bucket of the gallery, T49); zero = the default.
+	EvidenceLimit ratelimit.Limit
 }
 
 // EventGroups is GET /v1/events (internal, behind auth.RequireAuth) of T12 (main spec §8, Appendix B §B.2.20). GET
@@ -402,9 +408,10 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
-		Storage: st,
-		Events:  events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc, Limiter: limiter,
-		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP)})
+		Storage: st, LineNotify: linenotify.New(pool, jobSvc),
+		Events: events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc, Limiter: limiter,
+		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP),
+		EvidenceLimit: cfg.RateLimit.Limit(ratelimit.EvidenceIP)})
 	if err != nil {
 		closeAll()
 		return nil, nil, err

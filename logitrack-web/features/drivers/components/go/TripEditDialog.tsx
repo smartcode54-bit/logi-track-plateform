@@ -15,7 +15,10 @@
  *   dialog's call; a priced trip stays as it is without force);
  * - `POST /v1/trips/{id}/deliver | cancel`, `POST /v1/trips/bulk-cancel`: resolving a stuck job (delivered at the
  *   editor's delivery time when one is set, as the legacy `handleResolve`; else Go's trip-own-then-now);
- * - `POST /v1/trips/{id}/rename` (tenant_admin), `POST /v1/incidents` (an admin report).
+ * - `POST /v1/trips/{id}/rename` (tenant_admin), `POST /v1/incidents` (an admin report);
+ * - `POST /v1/trips/{id}/notify-line {force: true}` and `POST /v1/trips/{id}/evidence/revoke` (T49) on a delivered
+ *   trip: resend the customer's LINE card (the legacy "ส่งแจ้งเตือน LINE" button) and revoke its photo link. Closing a
+ *   trip here sends no card from the browser: Go's `trip.delivered` reaches the worker's `notify.line` itself.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -37,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
+import { LineNotifyActions } from "@/features/line/components/go/LineNotifyActions";
 import { patchTask, taskDetailQuery } from "@/features/tasks/api/tasks.go";
 import { fromLocalInput, HubCombobox, isSocStation, toLocalInput, useGoHubs, WriteErrorAlert } from "@/features/tasks/components/go/opsShared";
 import {
@@ -234,6 +238,8 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                             </Button>
                         ) : null}
                     </div>
+
+                    {delivered ? <LineNotifyActions kind="trips" id={trip.id} /> : null}
 
                     <div className="grid gap-3 sm:grid-cols-3">
                         <Field label={t("driverMonitor.detail.sealCode")} htmlFor="trip-seal">

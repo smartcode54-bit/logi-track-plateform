@@ -177,6 +177,9 @@ func loadTask(c *docCtx) error {
 		set("line_checkin_notified_at", c.ts("lineCheckinNotifiedAt")).
 		set("plan_time", c.planTime("time")).set("actual_pickup_at", c.ts("actualPickupAt")).
 		set("cancelled_at", c.ts("cancelledAt")).set("cancel_reason", c.text("cancelReason"))
+	if c.lineOwned() {
+		r.unset("line_checkin_notified_at")
+	}
 	c.times(r)
 	id, err := c.rowID("tasks")
 	if err != nil {
@@ -463,6 +466,9 @@ func loadTrip(c *docCtx) error {
 		set("review_reason", c.text("reviewReason")).set("resubmitted_at", c.ts("resubmittedAt")).
 		set("line_delivered_notified_at", c.ts("lineDeliveredNotifiedAt")).set("evidence_token", c.text("evidenceToken")).
 		set("created_at", createdAt).setPresent("updated_at", c.ts("updatedAt"))
+	if c.lineOwned() {
+		r.unset("line_delivered_notified_at", "evidence_token")
+	}
 	if c.billingOwned() {
 		r.unset("billing_party_id", "billing_date")
 		// The resolved หลัก/เสริม is the pricer's from its first write on (trip_billing projects it): a version of the
@@ -839,6 +845,14 @@ func (c *docCtx) tripStops(id, tenant uuid.UUID) error {
 // (seeded at loading) and the mirror applies it. A load (P1) and a sweep before P3 still apply them all.
 func (c *docCtx) billingOwned() bool { return c.run != nil && c.run.owned["billing"] }
 
+// lineOwned reports a mirror sweep once comms is PostgreSQL-owned (P5, T49): the LINE cards are then notify.line's (the
+// sendCustomerLineNotification shim forwards the 3.x app's requests to it), which writes the records' flags
+// (lineCheckinNotifiedAt, lineDeliveredNotifiedAt, lineNotifiedAt) and evidence tokens in PostgreSQL only, so the
+// mirror leaves them as PostgreSQL holds them: a Firestore version without them would otherwise clear a flag (a second
+// card on the next request) or the token a card already links (its gallery would answer 404). A load (P1) and a sweep
+// before P5 still apply them, so the tokens the legacy callable minted keep opening.
+func (c *docCtx) lineOwned() bool { return c.run != nil && c.run.owned["comms"] }
+
 // pricedInPG runs an EXISTS query on the document id: whether the pricer has written the record's billing state.
 func (c *docCtx) pricedInPG(query string) (bool, error) {
 	var ok bool
@@ -1078,6 +1092,9 @@ func loadStandby(c *docCtx) error {
 		set("billing_effective_from_date", c.date("billingEffectiveFromDateStr")).set("billing_unpriced_reason", unpriced).
 		set("billing_computed_at", c.ts("billingComputedAt")).set("line_notified_at", c.ts("lineNotifiedAt")).
 		set("evidence_token", c.text("evidenceToken"))
+	if c.lineOwned() {
+		r.unset("line_notified_at", "evidence_token")
+	}
 	tr, err := c.truck("truckId")
 	if err != nil {
 		return err

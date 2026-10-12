@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -177,6 +178,20 @@ func SetEvidenceToken(ctx context.Context, tx pgx.Tx, kind EvidenceKind, id uuid
 		return pgx.ErrNoRows
 	}
 	return err
+}
+
+// EvidencePath is the gallery's route prefix on the public listener (GET /evidence/{token}, GET /evidence?k=).
+const EvidencePath = "/evidence"
+
+// EvidenceLink is the gallery URL a LINE card carries for token. EVIDENCE_BASE_URL is the gallery's base
+// (https://{API_PUBLIC_DOMAIN}/evidence, main spec §16.1), so the token follows it; a base that is only the API origin
+// gets /evidence added, so either spelling of the setting links the gallery.
+func EvidenceLink(base, token string) string {
+	b := strings.TrimRight(strings.TrimSpace(base), "/")
+	if !strings.HasSuffix(b, EvidencePath) {
+		b += EvidencePath
+	}
+	return b + "/" + token
 }
 
 // EvidenceImageURL is a gallery image: a committed file signed for EVIDENCE_PRESIGN_TTL (15 min) on its own backend.

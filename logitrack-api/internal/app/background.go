@@ -269,6 +269,17 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 	log.Info().Bool("fcm_enabled", cfg.FCMEnabled).Msg("notify.fcm")
 	available[notify.QueueFCM] = fcm.Registration()
 
+	// notify.line (T49): the LINE client only when LINE_NOTIFY_ENABLED is on (no I/O here); off, events are acked and
+	// notify.line.force jobs end skipped.
+	lineClient, err := cfg.LineClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	lineNotify := &notify.LINE{Pool: pool, Client: lineClient, Redis: rdb, Keys: ks, Locks: jobs.NewRedisLocker(rdb, ks),
+		Enabled: cfg.LineNotifyEnabled, EvidenceBaseURL: cfg.EvidenceBaseURL, Log: log}
+	log.Info().Bool("line_notify_enabled", cfg.LineNotifyEnabled).Msg("notify.line")
+	available[notify.QueueLine] = lineNotify.Registration()
+
 	// distances.compute (T21): the Distance Matrix client only when DISTANCE_MATRIX_ENABLED is on (no I/O here).
 	var matrix gmaps.DistanceMatrix
 	if cfg.DistanceMatrixEnabled {
