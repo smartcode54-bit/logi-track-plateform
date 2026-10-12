@@ -96,16 +96,43 @@ type apiKeyUsage struct {
 //     public listener (RequireShim), any other key on the public listener, and a key whose scope the route does
 //     not admit (AllowAPIKeys).
 //
-// The secret never reaches a log line: rejections name the key's id and prefix only.
+// The secret never reaches a log line: rejections name the key's id and prefix only. RequireShim runs the same
+// steps in another order (lookupAPIKey, admit, then the Firebase ID token, then the buckets), so a caller Go refuses
+// never spends the budget a cf_shim key shares between every driver.
 func (s *Service) authenticateAPIKey(c fiber.Ctx, vals [][]byte, withAuthorization bool, pol authPolicy) (*authz.Principal, error) {
+	k, err := s.lookupAPIKey(c, vals, withAuthorization)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.limitAPIKey(c, k.row.ID, k.row.RatePerMin); err != nil {
+		return nil, err
+	}
+	if err := k.admit(c, pol); err != nil {
+		return nil, err
+	}
+	return s.useAPIKey(k), nil
+}
+
+// genuineKey is an X-Api-Key whose secret matched a key that may be used (lookupAPIKey): not revoked, not expired,
+// of an active tenant (or a platform key), and the request's only credential unless it is a cf_shim key. Nothing has
+// been charged to its bucket yet.
+type genuineKey struct {
+	row authdb.GetAPIKeyByPrefixRow
+	log zerolog.Logger // carries the key's id, prefix and scope, never the secret
+}
+
+// lookupAPIKey is the 401 part of authenticateAPIKey: the secret checked against its stored hash, then the key's
+// state (revoked, expired, tenant not active) and the one-credential rule (an Authorization header with any key but
+// a cf_shim key). It spends no rate-limit budget.
+func (s *Service) lookupAPIKey(c fiber.Ctx, vals [][]byte, withAuthorization bool) (genuineKey, error) {
 	ctx := c.Context()
 	if len(vals) != 1 || !s.cfg.APIKeyPepper.Set() {
-		return nil, errInvalidToken()
+		return genuineKey{}, errInvalidToken()
 	}
 	secret := strings.TrimSpace(string(vals[0]))
 	prefix, ok := apikey.Prefix(secret)
 	if !ok {
-		return nil, errInvalidToken()
+		return genuineKey{}, errInvalidToken()
 	}
 	var row authdb.GetAPIKeyByPrefixRow
 	err := s.system(ctx, func(q *authdb.Queries) (err error) {
@@ -113,56 +140,64 @@ func (s *Service) authenticateAPIKey(c fiber.Ctx, vals [][]byte, withAuthorizati
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errInvalidToken()
+		return genuineKey{}, errInvalidToken()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("auth: api key lookup: %w", err)
+		return genuineKey{}, fmt.Errorf("auth: api key lookup: %w", err)
 	}
 	if !s.cfg.APIKeyPepper.Matches(secret, row.KeyHash) {
-		return nil, errInvalidToken()
+		return genuineKey{}, errInvalidToken()
 	}
 	// The caller holds a genuine key from here on.
-	now := s.clock()
-	scope := authz.APIKeyScope(row.Scope)
 	base := zerolog.Ctx(ctx)
 	if base.GetLevel() == zerolog.Disabled {
 		base = &s.log
 	}
-	log := base.With().Str("api_key_id", row.ID.String()).Str("api_key_prefix", prefix).
-		Str("api_key_scope", row.Scope).Logger()
+	k := genuineKey{row: row, log: base.With().Str("api_key_id", row.ID.String()).Str("api_key_prefix", prefix).
+		Str("api_key_scope", row.Scope).Logger()}
 	refuse := func(reason string) error {
-		log.Warn().Str("reason", reason).Msg("auth: api key refused")
+		k.log.Warn().Str("reason", reason).Msg("auth: api key refused")
 		return errInvalidToken().WithDetails(map[string]any{"reason": reason})
 	}
-	switch {
+	switch now := s.clock(); {
 	case row.RevokedAt != nil:
-		return nil, refuse(ReasonKeyRevoked)
+		return genuineKey{}, refuse(ReasonKeyRevoked)
 	case row.ExpiresAt != nil && !now.Before(*row.ExpiresAt):
-		return nil, refuse(ReasonKeyExpired)
+		return genuineKey{}, refuse(ReasonKeyExpired)
 	case row.TenantID != nil && (row.TenantStatus == nil || *row.TenantStatus != "active"):
-		return nil, refuse(ReasonKeyTenantInactive)
-	case withAuthorization && scope != authz.KeyCFShim:
-		return nil, refuse(ReasonMultipleCreds)
+		return genuineKey{}, refuse(ReasonKeyTenantInactive)
+	case withAuthorization && k.scope() != authz.KeyCFShim:
+		return genuineKey{}, refuse(ReasonMultipleCreds)
 	}
-	if err := s.limitAPIKey(c, row.ID, row.RatePerMin); err != nil {
-		return nil, err
+	return k, nil
+}
+
+func (k genuineKey) scope() authz.APIKeyScope { return authz.APIKeyScope(k.row.Scope) }
+
+// admit is the 403 part of authenticateAPIKey: whether the key's scope may use this route on this listener (R82).
+func (k genuineKey) admit(c fiber.Ctx, pol authPolicy) error {
+	if msg := keyScopeRefusal(k.scope(), httpx.ListenerFrom(c), pol); msg != "" {
+		k.log.Warn().Str("reason", ReasonKeyScope).Str("path", c.Path()).Msg("auth: api key used outside its scope")
+		return authz.ErrPermissionDenied(msg).WithDetails(map[string]any{"reason": ReasonKeyScope, "scope": k.row.Scope})
 	}
-	if msg := keyScopeRefusal(scope, httpx.ListenerFrom(c), pol); msg != "" {
-		log.Warn().Str("reason", ReasonKeyScope).Str("path", c.Path()).Msg("auth: api key used outside its scope")
-		return nil, authz.ErrPermissionDenied(msg).WithDetails(map[string]any{"reason": ReasonKeyScope, "scope": row.Scope})
-	}
+	return nil
+}
+
+// useAPIKey is the machine principal of an admitted key; it records the use (last_used_at, in the background).
+func (s *Service) useAPIKey(k genuineKey) *authz.Principal {
+	row := k.row
 	id := row.ID
-	p := &authz.Principal{UserID: id, AMR: authz.AMRAPIKey, APIKeyID: &id, APIKeyScope: scope,
+	p := &authz.Principal{UserID: id, AMR: authz.AMRAPIKey, APIKeyID: &id, APIKeyScope: k.scope(),
 		APIKeyCaps: make([]authz.Cap, 0, len(row.Capabilities))}
 	if row.TenantID != nil {
 		tid := *row.TenantID
 		p.TenantID = &tid
 	}
-	for _, k := range row.Capabilities {
-		p.APIKeyCaps = append(p.APIKeyCaps, authz.Cap(k))
+	for _, c := range row.Capabilities {
+		p.APIKeyCaps = append(p.APIKeyCaps, authz.Cap(c))
 	}
-	s.touchAPIKey(id, row.LastUsedAt, now)
-	return p, nil
+	s.touchAPIKey(id, row.LastUsedAt, s.clock())
+	return p
 }
 
 // keyScopeRefusal is why a key of scope may not use this route ("" = it may): R82, Appendix C §C.4.11.
@@ -188,19 +223,35 @@ func keyScopeRefusal(scope authz.APIKeyScope, listener string, pol authPolicy) s
 // (Appendix B §B.6.3). Like the other request buckets it fails open on a Redis error and is switched by
 // RATE_LIMIT_ENABLED; over budget is 429 resource_exhausted with Retry-After.
 func (s *Service) limitAPIKey(c fiber.Ctx, id uuid.UUID, perMin int32) error {
-	if !s.cfg.RateLimitEnabled || perMin < 1 {
+	if perMin < 1 {
 		return nil
 	}
-	d, err := s.limiter.Allow(c.Context(), ratelimit.APIKey.Name, id.String(), ratelimit.Limit{Count: int(perMin), Window: time.Minute})
+	return s.limitRequest(c, ratelimit.APIKey, id.String(), ratelimit.Limit{Count: int(perMin), Window: time.Minute})
+}
+
+// limitShimUser counts a callable shim request against the end user's own bucket rl:shim_user:{key id}:{user id}
+// (Appendix B §B.6.3, Appendix C §C.6.5): one user's calls through a cf_shim key cannot spend the budget the key
+// shares between every driver (rl:apikey:{id}, then only an overall ceiling).
+func (s *Service) limitShimUser(c fiber.Ctx, keyID, userID uuid.UUID) error {
+	return s.limitRequest(c, ratelimit.ShimUser, keyID.String()+":"+userID.String(), ratelimit.ShimUser.Default)
+}
+
+// limitRequest counts one request of subject against bucket b at l, as limitAPIKey describes; over budget sets
+// Retry-After on the response.
+func (s *Service) limitRequest(c fiber.Ctx, b ratelimit.Bucket, subject string, l ratelimit.Limit) error {
+	if !s.cfg.RateLimitEnabled {
+		return nil
+	}
+	d, err := s.limiter.Allow(c.Context(), b.Name, subject, l)
 	if errors.Is(err, ratelimit.ErrInvalidLimit) {
 		return err
 	}
 	if err != nil {
-		s.log.Warn().Err(err).Str("bucket", ratelimit.APIKey.Name).Msg("auth: rate limit unavailable, request allowed")
+		s.log.Warn().Err(err).Str("bucket", b.Name).Msg("auth: rate limit unavailable, request allowed")
 		return nil
 	}
 	if !d.Allowed {
-		e := errRateLimited(ratelimit.APIKey.Name, d)
+		e := errRateLimited(b.Name, d)
 		if v, ok := retryAfterHeader(e); ok {
 			c.Set(fiber.HeaderRetryAfter, v)
 		}

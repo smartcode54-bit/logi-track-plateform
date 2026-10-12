@@ -44,6 +44,8 @@ const (
 	ReasonTaskClosed       = "task_closed"
 	ReasonDriverInactive   = "driver_inactive"
 	ReasonStatusNeedDriver = "status_needs_driver"
+	// ReasonNoPrimaryDestination: a stop is added to a task without a destination to keep as stop 1.
+	ReasonNoPrimaryDestination = "no_primary_destination"
 )
 
 // taskFields are the parsed fields of a task write: set names those the body carries (a PATCH changes only them).
@@ -1179,34 +1181,96 @@ func (s *Service) AddTaskStopAPI(ctx context.Context, p *authz.Principal, rid st
 	if err := requireCap(p, authz.OperationsManageTasks); err != nil {
 		return WriteResult{}, err
 	}
-	mode, err := s.mode()
+	if _, err := s.mode(); err != nil {
+		return WriteResult{}, err
+	}
+	in, err := parseStop(body, stopFields)
 	if err != nil {
 		return WriteResult{}, err
 	}
+	out, err := s.addTaskStop(ctx, p, rid, id, in, waitForMirror)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	return out.staffResult(), nil
+}
+
+// parseStop reads the body of a stops route, refusing every field outside allowed (422 not_supported).
+func parseStop(body []byte, allowed []string) (stopInput, error) {
 	var ck checker
 	f, err := parseFields(body, &ck)
 	if err != nil {
-		return WriteResult{}, err
+		return stopInput{}, err
 	}
-	f.only(stopFields...)
+	f.only(allowed...)
 	in := stopInput{destination: f.required("destination"), destinationHubID: f.id("destinationHubId"),
 		destinationLinkedPartyID: f.id("destinationLinkedPartyId"), sourceID: f.optText("sourceId")}
 	if b := f.boolean("isCustom"); b != nil {
 		in.isCustom = *b
 	}
-	if err := ck.err(); err != nil {
-		return WriteResult{}, err
+	return in, ck.err()
+}
+
+// stopAdded is the outcome of one added stop: the task's stops after it (rows of the caller's view), or, for a
+// write-back the mirror has not acknowledged yet, its 202 echo; wasMulti is whether the task was multi-drop before the
+// stop (the isMultiDelivery flag addDeliveryStop answered by, multiDeliveryTrips.ts:432).
+type stopAdded struct {
+	taskID   uuid.UUID
+	stops    []TaskStopRow
+	echo     *WriteResult
+	wasMulti bool
+}
+
+// staffResult is the answer of POST /v1/tasks/{id}/stops: 200 {taskId, stops}, or the 202 echo of the write-back.
+func (o stopAdded) staffResult() WriteResult {
+	if o.echo != nil {
+		return *o.echo
+	}
+	return WriteResult{Status: http.StatusOK, Data: map[string]any{"taskId": o.taskID, "stops": o.stops}}
+}
+
+// stopRowsVisible reports whether a stop row carries its linked billing party: staff only, never a scope principal
+// nor a driver (drivers never see billing, Appendix C §C.3.7).
+func stopRowsVisible(p *authz.Principal) bool { return !scoped(p) && !driverPrincipal(p) }
+
+// mirrorWait is whether a write-back waits for the mirror's acknowledgement before it answers (main spec §11.10,
+// §13.7: up to WriteBack.Wait, then 202 with the document echoed).
+type mirrorWait bool
+
+const (
+	// waitForMirror reads the written rows back once the mirror applied them (read-your-writes): the staff routes and
+	// the APK 4.x routes.
+	waitForMirror mirrorWait = true
+	// answerOnCommit answers 202 right after the Firestore commit: the callable shim targets (T32R), whose callers
+	// read the Firestore document, never the PostgreSQL rows, so the wait would only add the mirror's lag (seconds)
+	// to every legacy call.
+	answerOnCommit mirrorWait = false
+)
+
+// addTaskStop adds one stop to task id as p, in PostgreSQL under p's RLS (the task locked FOR UPDATE: staff reach, or
+// the task's driver or helper through tasks.p_driver_update) or, while operations is Firestore-owned, to the task
+// document first (addStopWriteBack, waiting for the mirror or not as wait says).
+func (s *Service) addTaskStop(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in stopInput, wait mirrorWait) (stopAdded, error) {
+	mode, err := s.mode()
+	if err != nil {
+		return stopAdded{}, err
 	}
 	d, err := s.directory(ctx, p)
 	if err != nil {
-		return WriteResult{}, err
+		return stopAdded{}, err
 	}
 	if mode == modeWriteBack {
-		return s.addStopWriteBack(ctx, p, rid, d, id, in)
+		return s.addStopWriteBack(ctx, p, rid, d, id, in, wait)
 	}
 	var stops []TaskStop
+	var wasMulti bool
 	err = s.Tx(ctx, p, func(tx pgx.Tx) error {
 		q := operationsdb.New(tx)
+		before, err := q.LockTask(ctx, id)
+		if err != nil {
+			return MapError(notFound(err))
+		}
+		wasMulti = before.IsMultiDelivery
 		st, err := s.stopOf(ctx, q, d, in)
 		if err != nil {
 			return err
@@ -1225,13 +1289,13 @@ func (s *Service) AddTaskStopAPI(ctx context.Context, p *authz.Principal, rid st
 		return appendEvents(ctx, tx, rid, "", withTopics(taskEvent(RouteTaskUpdated, task, []string{"deliveryStops"}), topics))
 	})
 	if err != nil {
-		return WriteResult{}, err
+		return stopAdded{}, err
 	}
-	out := make([]TaskStopRow, 0, len(stops))
+	out := stopAdded{taskID: id, stops: make([]TaskStopRow, 0, len(stops)), wasMulti: wasMulti}
 	for _, st := range stops {
-		out = append(out, d.taskStop(st, !scoped(p)))
+		out.stops = append(out.stops, d.taskStop(st, stopRowsVisible(p)))
 	}
-	return WriteResult{Status: http.StatusOK, Data: map[string]any{"taskId": id, "stops": out}}, nil
+	return out, nil
 }
 
 // stopOf resolves one stop of the stops route: the hub id given (422 not_found) or the hub of the text, the hub's
