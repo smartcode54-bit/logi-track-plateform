@@ -33,7 +33,26 @@ type LoadResult struct {
 	// TemporaryUserInserted reports that this load inserted the must-change-password fixture user, so the
 	// temporary password of the plan is the one stored (an upsert that finds the user keeps its password).
 	TemporaryUserInserted bool
-	Duration              time.Duration
+	// Notes are worth a warning: the generated statements an upsert left out (statementTables), the truck rows it kept
+	// although the rows it added imply another state (keptTrucks).
+	Notes []string
+	// HeldRuns are the plan's payroll run keys an upsert found held by a run the application wrote; the HR rows of
+	// their drivers were skipped (SkippedHRDrivers drivers, SkippedHRRows rows: heldHRChains).
+	HeldRuns         []HeldRun
+	SkippedHRDrivers int
+	SkippedHRRows    int
+	Duration         time.Duration
+}
+
+// HeldRun is a payroll run key of the plan, (driver, pay period, round), that the database holds under another id:
+// a run the application wrote (POST /v1/jobs/payroll.run gives a uuidv7), for example a "Generate payroll" on the
+// shared database before its demo top-up. The unique key payroll_runs_driver_period keeps one run per key, so the
+// seed's run is never written and its children (lines, penalty applications, the payout ledger row, a deducted
+// advance) would point at nothing: an upsert keeps the application's run and skips the plan's whole HR chain of that
+// driver (heldHRChains), whose penalty balances assume the seed's approvals.
+type HeldRun struct {
+	DriverID, Period, Round string
+	ExistingID, PlanID      string
 }
 
 // column is what the loader needs to know about one column.
@@ -244,6 +263,14 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 		}
 		var later []backfill
 		inserted := map[string]map[string]bool{} // table -> keys (rowKey) written by this load
+		var chains hrChains
+		if mode == ModeUpsert {
+			if res.HeldRuns, err = heldRuns(ctx, tx, p.Tables["payroll_runs"]); err != nil {
+				return fmt.Errorf("seed: payroll runs of the database: %w", err)
+			}
+			chains = heldHRChains(p.Tables, res.HeldRuns)
+			res.SkippedHRDrivers = len(chains.drivers)
+		}
 		tables, repriced := p.Tables, false
 		for _, table := range LoadOrder {
 			if mode == ModeUpsert && !repriced && pricedTables[table] && p.ops != nil {
@@ -259,9 +286,20 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 				}
 				repriced = true
 			}
+			if table == "billing_statements" && p.fin != nil {
+				// Every priced row is in: the generated statements are what the database's invoice sets give (an
+				// insert checks them against the plan's, an upsert writes them).
+				var notes []string
+				if tables, notes, err = statementTables(ctx, tx, p, tables, mode); err != nil {
+					return err
+				}
+				res.Notes = append(res.Notes, notes...)
+			}
 			rows := tables[table]
 			if mode == ModeUpsert {
-				rows = keepWritable(table, rows, inserted)
+				kept := chains.keep(table, rows)
+				res.SkippedHRRows += len(rows) - len(kept)
+				rows = keepWritable(table, kept, inserted)
 			}
 			if len(rows) == 0 {
 				continue
@@ -309,6 +347,15 @@ func Load(ctx context.Context, etl db.Beginner, p *Plan, mode Mode) (LoadResult,
 				return err
 			}
 		}
+		if mode == ModeUpsert {
+			note, err := keptTrucks(ctx, tx, p, inserted["trucks"])
+			if err != nil {
+				return err
+			}
+			if note != "" {
+				res.Notes = append(res.Notes, note)
+			}
+		}
 		if res.Counters, err = deriveCounters(ctx, tx, ids(tables["tasks"])); err != nil {
 			return err
 		}
@@ -350,10 +397,18 @@ var (
 		"customer_fuel_rate_adjustments", "customer_service_fees", "standby_rate_entries"}
 )
 
-// upsertParents are children whose insert trigger refuses a parent that is no longer a draft: the lines of
-// a payroll run are writable only while the run is draft (BEFORE INSERT fires before ON CONFLICT is
-// decided), so an upsert writes them only under a run it inserted itself; an existing run keeps its lines.
-var upsertParents = map[string][2]string{"payroll_line_items": {"payroll_runs", "payroll_run_id"}}
+// upsertParents are the rows an upsert writes only under a payroll run it inserted itself. The lines of a run are
+// writable only while the run is draft (their insert trigger fires before ON CONFLICT is decided); the penalty
+// applications (immediate FK), the payout ledger rows (deferred FK transactions_payroll_fk) and the deducted
+// advances point at their run. A run the database already holds under the same id (an earlier top-up) keeps its own
+// children; one this load did not write (its key held by an application run, heldHRChains) would leave them pointing
+// at nothing. A row whose parent column is empty (a transaction or advance of no run) is not a child here.
+var upsertParents = map[string][2]string{
+	"payroll_line_items":           {"payroll_runs", "payroll_run_id"},
+	"payroll_penalty_applications": {"payroll_runs", "payroll_run_id"},
+	"transactions":                 {"payroll_runs", "payroll_run_id"},
+	"driver_advances":              {"payroll_runs", "payroll_run_id"},
+}
 
 // keepWritable drops the rows an upsert must not attempt (upsertParents).
 func keepWritable(table string, rows []Row, inserted map[string]map[string]bool) []Row {
@@ -363,7 +418,102 @@ func keepWritable(table string, rows []Row, inserted map[string]map[string]bool)
 	}
 	out := make([]Row, 0, len(rows))
 	for _, r := range rows {
-		if inserted[parent[0]][r.Str(parent[1])] {
+		if ref := r.Str(parent[1]); ref == "" || inserted[parent[0]][ref] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// heldRuns are the plan's payroll run keys the database holds under another id (HeldRun), in plan order.
+func heldRuns(ctx context.Context, tx pgx.Tx, runs []Row) ([]HeldRun, error) {
+	var drivers []string
+	seen := map[string]bool{}
+	for _, r := range runs {
+		if d := r.Str("driver_id"); d != "" && !seen[d] {
+			seen[d] = true
+			drivers = append(drivers, d)
+		}
+	}
+	if len(drivers) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text, driver_id::text, pay_period, pay_round FROM payroll_runs
+		WHERE driver_id = ANY($1::uuid[])`, drivers)
+	if err != nil {
+		return nil, err
+	}
+	have := map[string]string{} // driver|period|round -> id
+	if err := scanAll(rows, func(r pgx.Rows) error {
+		var id, driver, period, round string
+		if err := r.Scan(&id, &driver, &period, &round); err != nil {
+			return err
+		}
+		have[driver+"|"+period+"|"+round] = id
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	var out []HeldRun
+	for _, r := range runs {
+		k := r.Str("driver_id") + "|" + r.Str("pay_period") + "|" + r.Str("pay_round")
+		if id, ok := have[k]; ok && id != r.Str("id") {
+			out = append(out, HeldRun{DriverID: r.Str("driver_id"), Period: r.Str("pay_period"), Round: r.Str("pay_round"),
+				ExistingID: id, PlanID: r.Str("id")})
+		}
+	}
+	return out, nil
+}
+
+// hrChains are the plan's HR rows an upsert skips: every payroll run and penalty of a driver with a held run key, and
+// the rows that point at those runs or penalties. A driver's rounds are one chain (an R2 run deducts the installments
+// the earlier approvals left, and the penalty balances assume every approval of the plan), so a top-up never writes
+// part of it next to a run the application owns; the database keeps that driver's payroll as the application wrote it.
+type hrChains struct {
+	drivers, runs, penalties map[string]bool
+}
+
+// heldHRChains are the chains of the drivers of held (none when held is empty).
+func heldHRChains(tables map[string][]Row, held []HeldRun) hrChains {
+	c := hrChains{drivers: map[string]bool{}, runs: map[string]bool{}, penalties: map[string]bool{}}
+	for _, h := range held {
+		c.drivers[h.DriverID] = true
+	}
+	if len(c.drivers) == 0 {
+		return c
+	}
+	for _, r := range tables["payroll_runs"] {
+		if c.drivers[r.Str("driver_id")] {
+			c.runs[r.Str("id")] = true
+		}
+	}
+	for _, r := range tables["driver_penalties"] {
+		if c.drivers[r.Str("driver_id")] {
+			c.penalties[r.Str("id")] = true
+		}
+	}
+	return c
+}
+
+// keep drops the rows of table that belong to a skipped chain.
+func (c hrChains) keep(table string, rows []Row) []Row {
+	if len(c.drivers) == 0 {
+		return rows
+	}
+	var skip func(Row) bool
+	switch table {
+	case "payroll_runs", "driver_penalties":
+		skip = func(r Row) bool { return c.drivers[r.Str("driver_id")] }
+	case "payroll_line_items", "transactions", "driver_advances":
+		skip = func(r Row) bool { return c.runs[r.Str("payroll_run_id")] }
+	case "payroll_penalty_applications":
+		skip = func(r Row) bool { return c.runs[r.Str("payroll_run_id")] || c.penalties[r.Str("penalty_id")] }
+	default:
+		return rows
+	}
+	out := make([]Row, 0, len(rows))
+	for _, r := range rows {
+		if !skip(r) {
 			out = append(out, r)
 		}
 	}
@@ -521,4 +671,68 @@ func engineStandby(tables map[string][]Row, only map[string]bool) []uuid.UUID {
 		}
 	}
 	return out
+}
+
+// keptTrucks names the trucks an upsert found in the database whose row differs, in a column the generators changed
+// (Plan.truckChanges: the maintenance state the seeded fuel logs and records imply), from the plan's: an upsert never
+// updates an existing row, so such a truck keeps its status, mileage, next service, alert mark, active maintenance or
+// service date beside the records the top-up inserted (the staging VM's demo trucks, seeded before T43). "" when none.
+func keptTrucks(ctx context.Context, tx pgx.Tx, p *Plan, inserted map[string]bool) (string, error) {
+	var ids []string
+	for id := range p.truckChanges {
+		if !inserted[id] {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	plan := map[string]Row{}
+	for _, t := range p.Tables["trucks"] {
+		plan[t.Str("id")] = t
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text, license_plate, coalesce(status, ''), coalesce(current_mileage::text, ''),
+		coalesce(next_service_mileage::text, ''), coalesce(last_alert_mileage::text, ''), coalesce(active_maintenance_id::text, ''),
+		coalesce(last_service_date::text, '') FROM trucks WHERE id = ANY($1::uuid[]) ORDER BY license_plate`, ids)
+	if err != nil {
+		return "", err
+	}
+	var kept []string
+	if err := scanAll(rows, func(r pgx.Rows) error {
+		var id, plate string
+		stored := make([]string, len(fleetColumns))
+		dest := []any{&id, &plate}
+		for i := range stored {
+			dest = append(dest, &stored[i])
+		}
+		if err := r.Scan(dest...); err != nil {
+			return err
+		}
+		for i, c := range fleetColumns {
+			if !slices.Contains(p.truckChanges[id], c) {
+				continue
+			}
+			want := ""
+			if v := plan[id][c]; v != nil {
+				want = fmt.Sprint(v)
+			}
+			if stored[i] != want {
+				kept = append(kept, plate)
+				return nil
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	if len(kept) == 0 {
+		return "", nil
+	}
+	n, more := len(kept), ""
+	if n > 10 {
+		more, kept = fmt.Sprintf(" and %d more", n-10), kept[:10]
+	}
+	return fmt.Sprintf("%d truck row(s) kept as the database holds them although the top-up's fuel logs and maintenance "+
+		"records imply another status, mileage, next service, alert mark, active maintenance or service date (an upsert "+
+		"never updates an existing row): %s%s", n, strings.Join(kept, ", "), more), nil
 }

@@ -7,6 +7,8 @@ import multiMonthPlugin from "@fullcalendar/multimonth";
 import interactionPlugin from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 
+import "./holidayCalendar.css";
+
 const PLUGINS = [dayGridPlugin, multiMonthPlugin, interactionPlugin, listPlugin];
 
 export type HolidayCalendarProps = Omit<ComponentProps<typeof FullCalendar>, "plugins"> & {
@@ -17,7 +19,8 @@ export type HolidayCalendarProps = Omit<ComponentProps<typeof FullCalendar>, "pl
 /**
  * FullCalendar with the plugins of the holidays page. The page loads this module with
  * `next/dynamic(..., { ssr: false })`, so the five `@fullcalendar/*` packages stay out of its
- * initial JS (developer-spec.md §10.11, Appendix E §E.7 row 7).
+ * initial JS (developer-spec.md §10.11, Appendix E §E.7 row 7). Its theme (`holidayCalendar.css`) comes
+ * with it, for the Go page and the Firestore page alike (T46).
  */
 export default function HolidayCalendar({ calendarRef, ...options }: HolidayCalendarProps) {
     return <FullCalendar ref={calendarRef} plugins={PLUGINS} {...options} />;

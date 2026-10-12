@@ -201,7 +201,16 @@ export const queryKeys = {
         detail: (id: string) => ["statements", "detail", id] as const,
     },
     maintenance: <P extends Params>(params?: P) => listKey("maintenance", params),
-    payroll: <P extends Params>(params?: P) => listKey("payroll", params),
+    /**
+     * Payroll runs (T46): `['payroll', {period, round, status, driverId}]` the keyset list,
+     * `['payroll','detail',id]` one run with its lines; `['payroll']` is the prefix every run event,
+     * write and `payroll.run` job success makes stale.
+     */
+    payroll: {
+        all: () => ["payroll"] as const,
+        list: <P extends Params>(params: P) => ["payroll", params] as const,
+        detail: (id: string) => ["payroll", "detail", id] as const,
+    },
     penalties: <P extends Params>(params?: P) => listKey("penalties", params),
     leave: <P extends Params>(params?: P) => listKey("leave", params),
 

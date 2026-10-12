@@ -27,7 +27,7 @@ func (f failingStat) Stat(ctx context.Context, o storage.Object) (storage.Info, 
 	return f.Local.Stat(ctx, o)
 }
 
-// Invariant 9 checks the objects on parallel workers (T35: the demo's 3,674 objects one after another took most of a
+// Invariant 9 checks the objects on parallel workers (T35: the demo's 3,676 objects one after another took most of a
 // --verify): every kind of problem is still reported, in the order of the rows, among more good objects than workers;
 // a store that cannot answer stops the check with its error instead of a report.
 func TestCheckObjectRows(t *testing.T) {

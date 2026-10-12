@@ -56,7 +56,7 @@ var LoadOrder = []string{
 	"billing_counters", "statement_documents",
 	"vehicle_expenses", "driver_compensation_configs", "penalty_types", "driver_penalties",
 	"payroll_runs", "payroll_line_items", "payroll_penalty_applications", "transactions", "driver_advances",
-	"chats", "chat_messages", "broadcasts", "broadcast_reads", "leave_requests", "holidays",
+	"chats", "chat_messages", "broadcasts", "broadcast_reads", "leave_requests", "leave_request_attachments", "holidays",
 	"mobile_app_releases", "mobile_installations", "device_tokens", "settings", "jobs", "security_events",
 }
 

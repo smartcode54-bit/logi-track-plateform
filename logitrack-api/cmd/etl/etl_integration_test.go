@@ -557,9 +557,10 @@ func TestDumpThenLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// all reads every collection Firestore lists and every one `reconcile --finance` requires (empty: count 0).
+	// all reads every collection Firestore lists and every one `reconcile --finance` and `reconcile --hr` require
+	// (empty: count 0).
 	want := slices.Clone(etl.FinanceCollections)
-	for _, n := range []string{"drivers", "subcontractors", "trucks"} {
+	for _, n := range append([]string{"drivers", "subcontractors", "trucks"}, etl.HRCollections...) {
 		if !slices.Contains(want, n) {
 			want = append(want, n)
 		}
@@ -570,6 +571,9 @@ func TestDumpThenLoad(t *testing.T) {
 	}
 	if c, ok := d.Collection("billing_statements"); !ok || c.Count != 0 {
 		t.Errorf("a finance collection empty at source keeps its manifest entry: %+v %v", c, ok)
+	}
+	if c, ok := d.Collection("payroll"); !ok || c.Count != 0 {
+		t.Errorf("an hr collection empty at source keeps its manifest entry: %+v %v", c, ok)
 	}
 	h.mustRun("load", "--dump", out)
 	if v := h.scalar(`SELECT count(*) FROM drivers`); v != int64(4) { // drv_nomobile is rejected (missing_required)

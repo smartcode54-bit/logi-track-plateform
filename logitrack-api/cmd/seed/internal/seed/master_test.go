@@ -22,9 +22,12 @@ import (
 )
 
 // generatedTables are the tables whose demo and load counts the generators make exact: the identities of T16 and the
-// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55) are exact in demo; load carries
-// the demo rows of them until T35V, the load-scale operations generator (developer-spec §18.3), lands (its column stays
-// a target). T43 adds its tables when its generator lands.
+// master data of T26 (issue #46). The operations tables of T35 (opsTables, issue #55), the HR tables of T46 (hrTables,
+// issue #66) and the billing and finance tables of T43 (finExactTables, issue #63) are exact in demo. In load the
+// billing and finance tables have T43's load-scale generator (finance_load.go) and are exact too, but the statement
+// tables (finStatementTables); load carries the demo rows of those, of the operations tables and of the HR tables until
+// T35V, the load-scale operations generator (developer-spec §18.3), lands (their column stays a target), and its
+// file_objects are the demo's plus the load expense receipts.
 var generatedTables = []string{"tenants", "billing_parties", "customers", "companies", "users", "memberships",
 	"auth_identities", "user_platform_roles", "user_scopes", "role_capability_overrides", "hubs", "hub_name_aliases",
 	"hub_soc_distances", "drivers", "trucks", "truck_assignments"}
@@ -70,8 +73,16 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 	for col, prof := range []Profile{ProfileSmoke, ProfileDemo, ProfileLoad} {
 		p := plan(t, prof)
 		tables := generatedTables
-		if prof == ProfileDemo {
-			tables = append(slices.Clone(generatedTables), opsTables...)
+		switch prof {
+		case ProfileDemo:
+			tables = append(append(append(slices.Clone(generatedTables), opsTables...), hrTables...), finExactTables...)
+		case ProfileLoad:
+			tables = slices.Clone(generatedTables)
+			for _, table := range finExactTables {
+				if !slices.Contains(finStatementTables, table) {
+					tables = append(tables, table)
+				}
+			}
 		}
 		if prof == ProfileSmoke {
 			tables = nil
@@ -96,10 +107,24 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 		}
 	}
 	demo, load := plan(t, ProfileDemo), plan(t, ProfileLoad)
-	for _, table := range opsTables {
-		if demo.Expected[table] != load.Expected[table] {
-			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations rows only", table, load.Expected[table], demo.Expected[table])
+	for _, table := range append(append(slices.Clone(opsTables), hrTables...), finStatementTables...) {
+		if table == "file_objects" {
+			continue
 		}
+		if demo.Expected[table] != load.Expected[table] {
+			t.Errorf("load %s: %d rows, demo %d: load carries the demo operations and HR rows and statements only", table,
+				load.Expected[table], demo.Expected[table])
+		}
+	}
+	receipts := 0
+	for _, f := range load.Tables["file_objects"][len(demo.Tables["file_objects"]):] {
+		if f.Str("purpose") == "expense_receipt" {
+			receipts++
+		}
+	}
+	if load.Expected["file_objects"] != demo.Expected["file_objects"]+receipts || receipts == 0 {
+		t.Errorf("load file_objects: %d rows, demo %d and %d load expense receipts", load.Expected["file_objects"],
+			demo.Expected["file_objects"], receipts)
 	}
 }
 
@@ -110,10 +135,11 @@ func TestProfilesOnlyAppend(t *testing.T) {
 	smoke, demo, load := plan(t, ProfileSmoke), plan(t, ProfileDemo), plan(t, ProfileLoad)
 	for _, table := range LoadOrder {
 		s, d, l := smoke.Tables[table], demo.Tables[table], load.Tables[table]
-		if len(d) < len(s) || !reflect.DeepEqual(d[:len(s)], s) {
+		// A table without smoke rows (leave_request_attachments) has no prefix to keep.
+		if len(d) < len(s) || (len(s) > 0 && !reflect.DeepEqual(d[:len(s)], s)) {
 			t.Errorf("demo changes the smoke rows of %s", table)
 		}
-		if len(l) < len(d) || !reflect.DeepEqual(l[:len(d)], d) {
+		if len(l) < len(d) || (len(d) > 0 && !reflect.DeepEqual(l[:len(d)], d)) {
 			t.Errorf("load changes the demo rows of %s", table)
 		}
 	}
