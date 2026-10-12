@@ -21,6 +21,8 @@ import { queryKeys } from "@/lib/queryKeys";
 import { configureSessionEnd, resetSessionEndForTests } from "@/lib/sessionEnd";
 import { LAST_FORCED_REFRESH_KEY, LAST_REFRESH_KEY, sharedRefresh } from "@/lib/sharedRefresh";
 import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+import { fakeIndexedDB, type FakeIndexedDB } from "@/test-utils/fakeIndexedDB";
+import { LEGACY_FIREBASE_CLEARED_KEY } from "@/lib/legacyFirebaseCleanup";
 
 const ME_KEY = queryKeys.me();
 
@@ -544,3 +546,75 @@ describe("source guards", () => {
     });
 });
 
+// TW7 transition (Appendix C §C.6.3 as built): until TW7 the provider signed the bridge's Firebase session
+// out on logout, on a session end and for a signed-out visitor. The SDK is gone, so the session a pre-TW7
+// build persisted in this browser (IndexedDB `firebaseLocalStorageDb`, `firebase:*` keys) is deleted
+// instead, on the same three occasions.
+describe("the Firebase session a pre-TW7 build left in this browser", () => {
+    const AUTH_USER_KEY = "firebase:authUser:sentinel-api-key:[DEFAULT]";
+    let idb: FakeIndexedDB;
+    const firebaseState = () => ({
+        authDb: idb.deleted.filter((n) => n === "firebaseLocalStorageDb").length,
+        key: window.localStorage.getItem(AUTH_USER_KEY),
+    });
+
+    beforeEach(() => {
+        idb = fakeIndexedDB();
+        vi.stubGlobal("indexedDB", idb);
+        window.localStorage.removeItem(LEGACY_FIREBASE_CLEARED_KEY);
+        window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ uid: "legacy-uid", stsTokenManager: { refreshToken: "x" } }));
+    });
+
+    it("a signed-out visitor's load deletes it, once per browser", async () => {
+        window.sessionStorage.setItem("firebase:redirectEvent:sentinel-api-key:[DEFAULT]", "{}");
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => goErr(401, "unauthenticated"));
+        web.on("POST", "/api/auth/refresh", () => goErr(401, "unauthenticated"));
+        const first = renderApp();
+        await waitFor(() => expect(state()).toBe("out"));
+        expect(firebaseState()).toEqual({ authDb: 1, key: null });
+        expect(window.sessionStorage.getItem("firebase:redirectEvent:sentinel-api-key:[DEFAULT]")).toBeNull();
+        first.view.unmount();
+
+        // The next page load finds this browser cleaned: no second pass on every page.
+        renderApp();
+        await waitFor(() => expect(state()).toBe("out"));
+        expect(firebaseState().authDb).toBe(1);
+    });
+
+    it("logout deletes it, even in a browser cleaned on an earlier load", async () => {
+        window.localStorage.setItem(LEGACY_FIREBASE_CLEARED_KEY, "1");
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe() }));
+        web.on("POST", "/api/auth/logout", () => new Response(null, { status: 204 }));
+        renderApp();
+        await waitFor(() => expect(state()).toBe("in"));
+        expect(firebaseState()).toEqual({ authDb: 0, key: expect.any(String) });
+
+        await act(async () => {
+            await authApi!.logout();
+        });
+        expect(web.count("POST", "/api/auth/logout")).toBe(1);
+        expect(firebaseState()).toEqual({ authDb: 1, key: null });
+    });
+
+    it("a session end (admin revoke) deletes it, even in a browser cleaned on an earlier load", async () => {
+        window.localStorage.setItem(LEGACY_FIREBASE_CLEARED_KEY, "1");
+        window.history.replaceState(null, "", "/app/dashboard");
+        const web = fakeWeb();
+        let revoked = false;
+        web.on("GET", "/api/go/v1/me", () => (revoked ? goErr(401, "session_revoked") : json(200, { data: makeMe() })));
+        web.on("POST", "/api/auth/logout", () => new Response(null, { status: 204 }));
+        renderApp();
+        await waitFor(() => expect(state()).toBe("in"));
+        await waitFor(() => expect(FakeEventSource.all).toHaveLength(1));
+        expect(firebaseState().authDb).toBe(0);
+
+        revoked = true;
+        act(() => {
+            FakeEventSource.all[0].emit("session.revoked", { type: "session.revoked", topic: "user:u-1", eventId: "e", data: { userId: "u-1", sessionIds: ["s-1"], reason: "admin_revoke" } });
+        });
+        await waitFor(() => expect(navigated).toEqual(["/login?next=%2Fapp%2Fdashboard&reason=revoked"]));
+        expect(firebaseState()).toEqual({ authDb: 1, key: null });
+    });
+});

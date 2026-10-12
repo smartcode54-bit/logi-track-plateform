@@ -167,6 +167,15 @@ names reloads each of them in turn (`pm2 ls` then shows a fresh uptime for both)
 The service account must belong to `FIREBASE_PROJECT_ID`. No Firebase console step concerns `logi.showkhun.co`
 any more (TW7: no authorised domain, no App Check reCAPTCHA domain).
 
+A VM that ran `AUTH_FIREBASE_BRIDGE_MODE=web` before TW7 (this one did, from 2026-10-11) moves to `mobile` (or
+`off`) with the first post-TW7 release. Browsers used on the pre-TW7 web may still hold that bridge's Firebase
+session (legacy claims, a refresh token that does not expire on its own); the post-TW7 web deletes it on logout,
+on a session end and once on load, but a refresh token copied out of a browser stays valid until Firebase Auth's
+`validSince` moves. Either revoke every session of each user who used the web (Security Center, or
+`DELETE /v1/users/{id}/sessions`: that sets `validSince` through the account mirror, which runs in `web` and
+`mobile` but not in `off`, so revoke before a switch to `off`; Appendix C §C.6.4 and §C.6.6), or accept the risk
+explicitly where the Firebase project holds no real data, as staging's does.
+
 ## 3. First deploy
 
 ```sh
@@ -359,7 +368,9 @@ where `COMPAT_PROJECTION_ENABLED` is on and `PG_OWNED_DOMAINS` holds `mobile_rel
 only (both off), so here a publish or a floor reaches `GET /v1/mobile/settings` only, and
 the mobile-release page reads that gate from Go (since TW7 it has no Firestore source to switch to). A
 deployment whose Firestore project serves a fleet moves the domain and the projection together after freezing
-the gate's writers (developer-spec.md §12.2, the T52R rollout).
+the gate's writers (developer-spec.md §12.2, the T52R rollout), and serves this web only after that switch: until
+then it keeps a pre-TW7 web image, whose flag still hides the Go page (developer-spec.md §10.13, the TW7
+precondition).
 
 ## Operations
 

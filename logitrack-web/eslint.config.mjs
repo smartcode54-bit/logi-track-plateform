@@ -24,6 +24,9 @@ const LAZY_MODULES = [
   "features/trucks/components/TruckImportDialog.tsx",
   "features/holidays/components/HolidayCalendar.tsx",
   "lib/billingDocumentRender.ts",
+  // No page imports it since TW7: it stays as the source of the Go renderer's Shopee reference
+  // (logitrack-api/internal/billing/render/testdata/shopee_ts.mjs; Appendix E §E.7 row 15).
+  "lib/shopeeExpressReport.ts",
   "components/map/LocationPicker.tsx",
   "components/map/SourcesMap.tsx",
   // T54R: the Go dashboard's map client (leaflet), loaded by FleetMap through next/dynamic.

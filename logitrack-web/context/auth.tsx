@@ -26,6 +26,11 @@
  * `users/{uid}.forceLogoutAt` listener, replaced by SSE `session.revoked`
  * (lib/realtime/RealtimeProvider.tsx). Removed by TW7: the Firebase bridge and its forced re-mints, and
  * the legacy `users/{uid}` last-login write (Go records `users.last_login_*` through `PATCH /v1/me`).
+ *
+ * The Firebase session a pre-TW7 build persisted in this browser (IndexedDB outlives the Go session) is
+ * still removed where the bridge used to sign it out: on logout, on every session end, and once per
+ * browser on load, for a signed-in or a signed-out visitor alike (lib/legacyFirebaseCleanup.ts;
+ * Appendix C §C.6.3 as built).
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -40,10 +45,11 @@ import {
 } from "@/features/auth/api/me";
 import { ApiError, isApiError } from "@/lib/apiError";
 import { recordLoginGeo, signInWithGoogle, signInWithPassword, signOutSession, switchTenant as switchSessionTenant } from "@/lib/authClient";
+import { clearLegacyFirebaseSession } from "@/lib/legacyFirebaseCleanup";
 import { resolveLoginGeoForClient } from "@/lib/loginGeo";
 import { clearCacheExceptMe, resetSessionCache } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
-import { endSession } from "@/lib/sessionEnd";
+import { endSession, onSessionEnd } from "@/lib/sessionEnd";
 import { onClaimsRefreshed, sharedRefresh } from "@/lib/sharedRefresh";
 
 /** The signed-in user as the pages read it (the fields of the former Firebase `User` they use). */
@@ -134,6 +140,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     useEffect(() => onClaimsRefreshed(() => void applyNewClaims()), [applyNewClaims]);
 
+    // TW7 transition: no page reads a Firebase session, so one a pre-TW7 build left in this browser is
+    // deleted once on load and again whenever the Go session ends (lib/legacyFirebaseCleanup.ts).
+    useEffect(() => {
+        clearLegacyFirebaseSession({ once: true });
+        return onSessionEnd(() => clearLegacyFirebaseSession());
+    }, []);
+
     const login = useCallback(
         async (email: string, password: string) => {
             await signInWithPassword(email, password);
@@ -155,6 +168,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const logout = useCallback(async () => {
         // The Go session first: the BFF revokes it and expires both cookies whatever Go answers.
         await signOutSession();
+        // A Firebase session a pre-TW7 build persisted here must not outlive the user's logout.
+        clearLegacyFirebaseSession();
         // No data of this user survives in the tab; `['me']` reads as signed out without a request.
         resetSessionCache(client);
     }, [client]);
