@@ -33,7 +33,9 @@ const LAZY_MODULES = [
   "components/map/LocationPicker.tsx",
   "components/map/SourcesMap.tsx",
   "features/security-center/components/SessionLoginLocationMap.tsx",
-  "features/dashboard/components/DashboardVehicleMapClient.tsx",
+  "features/dashboard/legacy/DashboardVehicleMapClient.tsx",
+  // T54R: the Go dashboard's map client (leaflet), loaded by FleetMap through next/dynamic.
+  "features/dashboard/components/FleetMapClient.tsx",
   "features/incident-reports/components/IncidentLocationMapClient.tsx",
   // TW8: the virtualised list of a long FilterCombobox (@tanstack/react-virtual) loads on demand.
   "components/filter-combobox-virtual-options.tsx",
