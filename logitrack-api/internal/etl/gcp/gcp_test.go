@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
@@ -230,5 +234,44 @@ func TestDelete(t *testing.T) {
 	}
 	if _, ok, err := fs.Lookup(ctx, "holidays/h1", d.UpdateTime); err != nil || !ok {
 		t.Fatalf("read before the delete: %v %v", ok, err)
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// T31 review: real Firestore answers a commit whose currentDocument.exists=true names a missing document with 404
+// NOT_FOUND ("No document to update", "No document to delete"), and a create of an existing one with 409
+// ALREADY_EXISTS; Commit reports both as ErrPrecondition (the write-back's 409 document_changed). Any other 404 (a
+// database or project that does not exist) stays ErrNotFound (a 503 of the write-back).
+func TestCommitPreconditionsAsFirestoreAnswersThem(t *testing.T) {
+	b := gcptest.New(t, "logitrack-test")
+	b.Put(dump.Doc{ID: "t1", Path: "tasks/t1", CreateTime: at(1), UpdateTime: at(2), Fields: map[string]any{"a": "x"}})
+	f := b.Firestore()
+	ctx := context.Background()
+	yes, no := true, false
+	for name, w := range map[string]gcp.Write{
+		"update of a missing document": {Path: "tasks/gone", Fields: map[string]any{"a": "b"}, Mask: []string{"a"}, Pre: gcp.Precondition{Exists: &yes}},
+		"delete of a missing document": {Path: "tasks/gone", Delete: true, Pre: gcp.Precondition{Exists: &yes}},
+		"create of an existing one":    {Path: "tasks/t1", Fields: map[string]any{"a": "b"}, Pre: gcp.Precondition{Exists: &no}},
+		"a stale update time":          {Path: "tasks/t1", Fields: map[string]any{"a": "b"}, Mask: []string{"a"}, Pre: gcp.Precondition{UpdateTime: at(1)}},
+	} {
+		if _, err := f.Commit(ctx, []gcp.Write{w}); !errors.Is(err, gcp.ErrPrecondition) || errors.Is(err, gcp.ErrNotFound) {
+			t.Errorf("%s: %v, want ErrPrecondition", name, err)
+		}
+	}
+	missingDB := roundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{"Content-Type": {"application/json"}}, Request: r,
+			Body: io.NopCloser(strings.NewReader(`{"error":{"code":404,"status":"NOT_FOUND",` +
+				`"message":"The database (default) does not exist for project logitrack-test"}}`))}, nil
+	})
+	f2, err := gcp.NewFirestore("logitrack-test", "", &http.Client{Transport: missingDB}, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f2.Commit(ctx, []gcp.Write{{Path: "tasks/t1", Fields: map[string]any{"a": "b"}, Mask: []string{"a"}, Pre: gcp.Precondition{Exists: &yes}}})
+	if !errors.Is(err, gcp.ErrNotFound) || errors.Is(err, gcp.ErrPrecondition) || strings.Contains(err.Error(), "does not exist for project") {
+		t.Fatalf("a missing database: %v, want ErrNotFound without the message", err)
 	}
 }

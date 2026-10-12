@@ -73,12 +73,12 @@ func CreateTask(ctx context.Context, tx pgx.Tx, in NewTask) (task Task, replayed
 		day := PlanDate(p.PlanAt)
 		seq, err := q.NextTaskSeq(ctx, operationsdb.NextTaskSeqParams{TaskType: p.TaskType, PlanDate: day})
 		if err != nil {
-			return Task{}, false, MapError(err)
+			return Task{}, false, seqError(err)
 		}
 		p.TaskNo = ptr(FormatTaskNo(p.TaskType, day, int(seq)))
-	} else if typ, day, seq, padded, ok := ParseTaskNo(*p.TaskNo); ok && padded {
+	} else if typ, day, seq, padded, ok := ParseTaskNo(*p.TaskNo); ok && padded && seq <= MaxBumpSeq {
 		if _, err := q.BumpTaskSeq(ctx, operationsdb.BumpTaskSeqParams{TaskType: typ, PlanDate: day, Seq: int32(seq)}); err != nil {
-			return Task{}, false, MapError(err)
+			return Task{}, false, seqError(err)
 		}
 	}
 	if p.DriverID != nil && p.RunOrder == nil {

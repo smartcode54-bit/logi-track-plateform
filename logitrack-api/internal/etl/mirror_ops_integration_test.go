@@ -255,6 +255,39 @@ func payloadStrings(v any) []string {
 	return out
 }
 
+// T31 review: the operations write-back writes the caller's Firebase uid in reportedByUid and renamedBy, else (a login
+// born in Go) its users.id; the mirror resolves both to the reporter and the renamer. An id that is no user still
+// raises user_unresolved.
+func TestMirrorResolvesAGoUserID(t *testing.T) {
+	h := newSyncHarness(t)
+	p := h.plan(owned("auth", "masterdata"))
+	h.sweep(p)
+	goUser := h.id(`INSERT INTO users (email, display_name) VALUES ('go-admin@example.test', 'Go admin') RETURNING id`)
+	fbUser := h.id(`INSERT INTO users (email, display_name, legacy_auth_uid) VALUES ('fb-admin@example.test', 'FB admin', 'uid_fbadmin') RETURNING id`)
+	created := ts(time.Date(2026, 9, 1, 5, 0, 0, 0, time.UTC))
+	h.fs.Set("incidentReport/inc_go", map[string]any{"tripId": "TRIP001", "driverId": "uid_own", "description": "x",
+		"reportedBy": "admin", "reportedByUid": goUser.String(), "createdAt": created})
+	h.fs.Set("incidentReport/inc_fb", map[string]any{"tripId": "TRIP001", "driverId": "uid_own", "description": "x",
+		"reportedBy": "admin", "reportedByUid": "uid_fbadmin", "createdAt": created})
+	stranger := uuid.Must(uuid.NewV7()).String()
+	h.fs.Set("incidentReport/inc_none", map[string]any{"tripId": "TRIP001", "driverId": "uid_own", "description": "x",
+		"reportedBy": "admin", "reportedByUid": stranger, "createdAt": created})
+	h.sweep(p)
+	if v := h.scalar(`SELECT reported_by_user_id::text FROM incident_reports WHERE legacy_doc_id = 'inc_go'`); v != goUser.String() {
+		t.Fatalf("a Go user's id: %v", v)
+	}
+	if v := h.scalar(`SELECT reported_by_user_id::text FROM incident_reports WHERE legacy_doc_id = 'inc_fb'`); v != fbUser.String() {
+		t.Fatalf("a Firebase uid: %v", v)
+	}
+	if v := h.scalar(`SELECT reported_by_user_id IS NULL FROM incident_reports WHERE legacy_doc_id = 'inc_none'`); v != true {
+		t.Fatalf("an unknown id: %v", v)
+	}
+	if n := h.scalar(`SELECT count(*) FROM etl.quarantine WHERE reason_code = 'user_unresolved' AND resolved_at IS NULL
+		AND doc_path IN ('incidentReport/inc_go', 'incidentReport/inc_none')`); n != int64(1) {
+		t.Fatalf("user_unresolved findings %v, want the unknown id's only", n)
+	}
+}
+
 // AC: a rename fixture yields one trip row with the new trip_no and one history row. renameTripRecord's batch (copy,
 // re-point the incident reports, delete) becomes an UPDATE of the trip's row: same id, children and links, one
 // trip_no_history row, the old document settled, one trip.updated; a copy whose original still exists is its own row.

@@ -297,7 +297,8 @@ func assignDriver(ctx context.Context, ops *operationsdb.Queries, task operation
 		DestinationLinkedPartyID: task.DestinationLinkedPartyID, BillingPartyID: task.BillingPartyID,
 		TruckID: task.TruckID, TruckType: task.TruckType, LegacyTruckType: task.LegacyTruckType,
 		LicensePlateSnapshot: task.LicensePlateSnapshot, DriverID: driver, HelperDriverID: task.HelperDriverID,
-		RunOrder: runOrder, IsMultiDelivery: task.IsMultiDelivery, ID: task.ID,
+		RunOrder: runOrder, IsMultiDelivery: task.IsMultiDelivery, CancelledAt: task.CancelledAt,
+		CancelReason: task.CancelReason, ID: task.ID,
 	})
 }
 
