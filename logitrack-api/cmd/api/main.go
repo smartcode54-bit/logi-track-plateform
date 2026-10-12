@@ -28,6 +28,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
@@ -62,7 +63,8 @@ func main() {
 // standby billing routes below /v1/trips and /v1/standby, mounted by operations.Groups, POST
 // /v1/jobs/billing.{backfill-trips,backfill-standby,impact-report} and the shim target below /v1/mobile), the R13 task
 // reassignment (T28, deps.Operations) and the payroll runs,
-// penalties, compensation config versions and POST /v1/jobs/payroll.run (T44, deps.HR) sit behind
+// penalties, compensation config versions and POST /v1/jobs/payroll.run (T44, deps.HR) and the staff chat console
+// /v1/chats* (T47, deps.Chats; the driver's own /v1/mobile/chat* joins the /v1/mobile group) sit behind
 // deps.Auth.RequireAuth, the web flags (T17) come from the configuration and the storage groups (T11)
 // from deps.Storage; the /v1/mobile group (T12's mobile stream and T52's version gate and heartbeat) and the
 // installations and release routes of T52 come from deps.Mobile (the publish routes also admit release_publisher
@@ -93,6 +95,7 @@ func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...i
 		Standby: []func(fiber.Router){billing.StandbyRoutes(deps.Billing, deps.Auth.RequireAuth())},
 	})...)
 	groups = append(groups, hr.Groups(deps.HR, deps.Auth.RequireAuth())...)
+	groups = append(groups, chats.Groups(deps.Chats, deps.Auth.RequireAuth())...)
 	groups = append(groups, webcfg.Group(cfg.WebFlags))
 	groups = append(groups, app.StorageGroups(deps)...)
 	groups = append(groups, app.EventGroups(deps)...)

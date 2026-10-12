@@ -261,6 +261,13 @@ func (k Keyspace) IdemFCMLog(messageID string) string {
 	return k.Key(NSIdem, "fcm", messageID, "log")
 }
 
+// IdemChatPush holds the outbox message that first pushes one chat message (T47): a write-back replay appends the
+// chat.message_created of its message again, and only the event holding this key sends, so a message reaches each
+// device once within ChatPushTTL.
+func (k Keyspace) IdemChatPush(chatRef, messageRef string) string {
+	return k.Key(NSIdem, "push", "chat", chatRef, messageRef)
+}
+
 // IdemTasksChangedPush dedupes the silent tasks_changed push of a driver for 30 s (R21).
 func (k Keyspace) IdemTasksChangedPush(driverID string) string {
 	return k.Key(NSIdem, "push", "tasks_changed", driverID)

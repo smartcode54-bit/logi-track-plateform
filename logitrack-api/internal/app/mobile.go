@@ -19,10 +19,10 @@ const ShimComputeTripBilling = "computeTripBillingSnapshot"
 
 // MobileGroups is the one /v1/mobile group (ingress allows one group per prefix): GET /v1/mobile/events of T12
 // (internal/sse MountMobile, SSE ticket) and, of T52, the anonymous version gate GET /v1/mobile/settings and POST
-// /v1/mobile/heartbeat (a driver token, heartbeat_install 1/30 s per driver and install), and the first callable shim
+// /v1/mobile/heartbeat (a driver token, heartbeat_install 1/30 s per driver and install), the first callable shim
 // target, POST /v1/mobile/trips/{id}/billing/compute of T38 (computeTripBillingSnapshot: a cf_shim API key with the
-// driver's Firebase ID token, auth.RequireShim, R45). The driver-app API of T55 and the other shim targets of T32 join
-// this group.
+// driver's Firebase ID token, auth.RequireShim, R45), and the driver's own chat /v1/mobile/chat* of T47 (a driver
+// token, mobile:chat). The driver-app API of T55 and the other shim targets of T32 join this group.
 //
 // The gate's public_ip limit (60/min per client address) applies on both listeners. On the internal listener the
 // address is the browser's, as for login_ip: nginx sets X-Forwarded-For and the BFF forwards it from an address of
@@ -39,6 +39,7 @@ func MobileGroups(d APIDeps) []ingress.Group {
 		d.Events.MountMobile(r)
 		d.Mobile.MountMobile(r, o)
 		billing.MobileRoutes(d.Billing, d.Auth.RequireShim(ShimComputeTripBilling))(r)
+		d.Chats.MountMobile(r, d.Auth.RequireAuth())
 	}}}
 }
 

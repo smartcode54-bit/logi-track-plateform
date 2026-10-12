@@ -28,11 +28,20 @@ import (
 // standby_repository.dart, incident_report_repository.dart). Which collections keep it reliably, and how far the
 // writers' clocks drift from Firestore's, is measured on the first production dump (§13.7 UNVERIFIED, hitl): a write
 // without it waits for the sweep.
+//
+// T47 adds the chats and their messages, so a chat write-back is acknowledged within the listener's interval: every
+// writer of a chat document sets updatedAt (room/page.tsx, with-driver/page.tsx, chat_repository.dart,
+// fn:chat.ts:107-112, the Go write-back), and every writer of a message sets createdAt once with the server's clock
+// (serverTimestamp, the Go write-back its own clock); a message is never updated. messages is a collection group
+// (chats/*/messages): its poll needs a GroupChangeSource and the collection-group index on createdAt (hitl: an index
+// exemption of the Firestore project), else the sweep alone applies it.
 var ListenFields = map[string]string{
 	"tasks":           "updatedAt",
 	"trip_records":    "updatedAt",
 	"standby_records": "updatedAt",
 	"incidentReport":  "updatedAt",
+	"chats":           "updatedAt",
+	"messages":        "createdAt",
 }
 
 // ListenOverlap is how far before its cursor a listener reads again. updatedAt is the writer's clock, not the commit
@@ -54,10 +63,17 @@ type ChangeSource interface {
 	Lookup(ctx context.Context, path string, at time.Time) (dump.Doc, bool, error)
 }
 
-// ListenCollections are the collections of plan a listener polls: the operations collections mirrored whole.
+// GroupChangeSource is a ChangeSource that also reads a collection group (gcp.Firestore.ChangedGroup): the listener of
+// a group collection (messages) needs it, and without it leaves the collection to the sweep.
+type GroupChangeSource interface {
+	ChangedGroup(ctx context.Context, collection, field string, since, at time.Time) ([]dump.Doc, time.Time, error)
+}
+
+// ListenCollections are the collections of plan a listener polls: the operations collections and the chats with their
+// messages (T47), mirrored whole.
 func ListenCollections(plan MirrorPlan) []string {
 	var out []string
-	for _, c := range OpsCollections {
+	for _, c := range append(slices.Clone(OpsCollections), CommsCollections...) {
 		if plan.Mode(c) == MirrorFull {
 			out = append(out, c)
 		}
@@ -98,13 +114,30 @@ func (e *Engine) MirrorChanges(ctx context.Context, src ChangeSource, plan Mirro
 	docs := make(map[string][]dump.Doc, len(colls))
 	var at time.Time
 	total := 0
+	var skipped []string
 	for _, coll := range colls {
 		since, ok := cursors[coll]
 		if !ok || since.IsZero() {
 			return nil, nil, fmt.Errorf("%w: %s", ErrNoCursor, coll)
 		}
 		field := ListenFields[coll]
-		ds, read, err := src.Changed(ctx, coll, field, since.Add(-ListenOverlap), at)
+		changed := src.Changed
+		if groupCollections[coll] {
+			g, ok := src.(GroupChangeSource)
+			if !ok {
+				next[coll] = since // no group reads here: the sweep applies the collection
+				continue
+			}
+			changed = g.ChangedGroup
+		}
+		ds, read, err := changed(ctx, coll, field, since.Add(-ListenOverlap), at)
+		if err != nil && groupCollections[coll] && ctx.Err() == nil {
+			// A collection group needs a collection-group index on its field, which the project may lack: the other
+			// collections are still polled, and the sweep applies this one (the listener logs it).
+			skipped = append(skipped, fmt.Sprintf("%s: %v", coll, err))
+			next[coll] = since
+			continue
+		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("etl: listen: read %s: %w", coll, err)
 		}
@@ -121,7 +154,7 @@ func (e *Engine) MirrorChanges(ctx context.Context, src ChangeSource, plan Mirro
 		next[coll], docs[coll] = high, ds
 		total += len(ds)
 	}
-	rep := &Report{ExportedAt: at, ReadAt: at}
+	rep := &Report{ExportedAt: at, ReadAt: at, Skipped: skipped}
 	if total == 0 {
 		return rep, next, nil
 	}
