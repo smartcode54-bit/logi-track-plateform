@@ -137,7 +137,6 @@ func echoFields(f map[string]any) map[string]any {
 type wbState struct {
 	chat       chatsdb.Chat
 	docID      string
-	driverRef  string
 	driverUser *uuid.UUID
 	refs       map[uuid.UUID]string
 	adminReads map[string]time.Time

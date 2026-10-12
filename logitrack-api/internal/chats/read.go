@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -259,6 +258,3 @@ func (s *Service) MyUnread(ctx context.Context, p *authz.Principal) (UnreadCount
 	})
 	return out, err
 }
-
-// timePtr returns a pointer to a copy of t.
-func timePtr(t time.Time) *time.Time { return &t }
