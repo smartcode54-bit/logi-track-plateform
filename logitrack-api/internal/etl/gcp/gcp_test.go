@@ -205,6 +205,38 @@ func TestChangedDocumentsAtAndLookup(t *testing.T) {
 	}
 }
 
+// Delete (T45, the holidays projection): a document goes, a missing one is no error without a precondition, a stale
+// update-time precondition is ErrPrecondition and keeps the document; a read at an earlier time still sees it.
+func TestDelete(t *testing.T) {
+	ctx := context.Background()
+	b := gcptest.New(t, "logitrack-test")
+	fs := b.Firestore()
+	d := b.Set("holidays/h1", map[string]any{"name": "a"})
+	b.Set("holidays/h2", map[string]any{"name": "b"})
+	if err := fs.Delete(ctx, "holidays/h2", gcp.Precondition{UpdateTime: d.UpdateTime}); !errors.Is(err, gcp.ErrPrecondition) {
+		t.Fatalf("stale precondition: %v", err)
+	}
+	if _, ok := b.Doc("holidays/h2"); !ok {
+		t.Fatal("a refused delete removed the document")
+	}
+	if err := fs.Delete(ctx, "holidays/h1", gcp.Precondition{UpdateTime: d.UpdateTime}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.Doc("holidays/h1"); ok {
+		t.Fatal("not deleted")
+	}
+	if err := fs.Delete(ctx, "holidays/h1", gcp.Precondition{}); err != nil {
+		t.Fatalf("a missing document: %v", err)
+	}
+	no := false
+	if err := fs.Delete(ctx, "holidays/h2", gcp.Precondition{Exists: &no}); !errors.Is(err, gcp.ErrPrecondition) {
+		t.Fatalf("exists=false on a live document: %v", err)
+	}
+	if _, ok, err := fs.Lookup(ctx, "holidays/h1", d.UpdateTime); err != nil || !ok {
+		t.Fatalf("read before the delete: %v %v", ok, err)
+	}
+}
+
 type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

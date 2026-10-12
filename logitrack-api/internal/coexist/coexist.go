@@ -121,7 +121,7 @@ const (
 // held, deferred and removed), mirror_lag_seconds{collection,path} (commit of the apply minus the document's Firestore
 // update time, per path: listener or sweep), mirror_events_total{collection} (domain events the mirror appended), mirror_reconcile_mismatches (the last
 // daily reconcile-sync), projection_writes_total{collection,result} (written, unchanged, skipped, not_projected,
-// disabled) and projection_lag_seconds{collection} (event time to projected).
+// deleted: a holiday's document, T45; disabled) and projection_lag_seconds{collection} (event time to projected).
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		mirrorApply: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -463,7 +463,8 @@ func (s *Shadow) Handle(ctx context.Context, d *mq.Delivery) error {
 		s.c.Metrics.projection(t.Collection, "unchanged", st.Unchanged)
 		s.c.Metrics.projection(t.Collection, "skipped", st.Skipped)
 		s.c.Metrics.projection(t.Collection, "not_projected", st.NotProjected)
-		if s.c.Metrics != nil && st.Written+st.Unchanged > 0 && !d.OccurredAt.IsZero() {
+		s.c.Metrics.projection(t.Collection, "deleted", st.Deleted)
+		if s.c.Metrics != nil && st.Written+st.Unchanged+st.Deleted > 0 && !d.OccurredAt.IsZero() {
 			s.c.Metrics.projLag.WithLabelValues(t.Collection).Observe(s.c.Now().Sub(d.OccurredAt).Seconds())
 		}
 	}

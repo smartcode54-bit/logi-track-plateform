@@ -54,6 +54,9 @@ type ShadowTarget struct {
 	Customers  []uuid.UUID // hubs linked to these customers; drivers holding codes of them
 	Tenants    []uuid.UUID // hubs linked to these carriers
 	All        bool
+	// DeletedDocIDs are the Firestore document ids of rows deleted in PostgreSQL (a deletable collection: holidays);
+	// their documents are deleted.
+	DeletedDocIDs []string
 }
 
 // selection is what an encoder reads.
@@ -102,9 +105,10 @@ var singleDocument = map[string]bool{"metadata": true, "settings": true}
 
 // ShadowTargets maps one firestore.shadow event onto its projections. Payloads are thin (main spec §7.1): the
 // projection re-reads the rows. trip.priced and trip.repriced project the trip's billing fields, standby.priced the
-// standby record's (T38, shadow_billing.go). holidays.changed, broadcast.created and settings.changed of a key other
-// than the distance matrix and the version gate belong to later phases (T45, T48) and project nothing yet. A body that
-// does not decode or an unknown routing key is an error the consumer acks as permanent.
+// standby record's (T38, shadow_billing.go), holidays.changed the holidays (T45, shadow_holidays.go). broadcast.created
+// and settings.changed of a key other than the distance matrix and the version gate belong to a later phase (T48) and
+// project nothing yet. A body that does not decode or an unknown routing key is an error the consumer acks as
+// permanent.
 func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 	var p struct {
 		IDs      []string `json:"ids"`
@@ -113,6 +117,8 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 		DriverID string   `json:"driverId"`
 		TenantID string   `json:"tenantId"`
 		Key      string   `json:"key"`
+		// DeletedDocIDs: holidays.changed (T45), the document ids of the deleted holidays.
+		DeletedDocIDs []string `json:"deletedDocIds"`
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &p); err != nil {
@@ -198,11 +204,18 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 			return []ShadowTarget{{Collection: "settings", All: true}}, nil
 		}
 		return nil, nil
+	case "holidays.changed":
+		// The holidays written (re-read and projected) and the documents of the deleted ones (T45).
+		list, err := ids(p.IDs...)
+		if err != nil {
+			return nil, err
+		}
+		return []ShadowTarget{{Collection: "holidays", IDs: list, DeletedDocIDs: p.DeletedDocIDs}}, nil
 	case "trip.priced", "trip.repriced":
 		return one(ProjectionTripBilling, p.ID)
 	case "standby.priced":
 		return one(ProjectionStandbyBilling, p.ID)
-	case "holidays.changed", "broadcast.created":
+	case "broadcast.created":
 		return nil, nil
 	}
 	return nil, fmt.Errorf("etl: firestore.shadow does not project %s", routingKey)
@@ -217,7 +230,8 @@ var projectors = map[string]encoder{
 	"subcontractors": encodeCarriers, "customers": encodeCustomerDocs, "companies": encodeCompanies,
 	"hubs": encodeHubs, "hub_soc_distances": encodeDistances("hub_to_soc"), "soc_hub_distances": encodeDistances("soc_to_hub"),
 	"metadata": encodeMetadata, "trucks": encodeTrucks, "drivers": encodeDrivers, "truckAssignment": encodeAssignments,
-	"settings": encodeMobileAppSettings, ProjectionTripBilling: encodeTripBilling, ProjectionStandbyBilling: encodeStandbyBilling,
+	"settings": encodeMobileAppSettings, "holidays": encodeHolidays, ProjectionTripBilling: encodeTripBilling,
+	ProjectionStandbyBilling: encodeStandbyBilling,
 }
 
 // ProjectStats count one projection.
@@ -229,6 +243,8 @@ type ProjectStats struct {
 	Skipped int `json:"skipped"`
 	// NotProjected is a target outside the projection plan (its domain is Firestore-owned, or the pin excludes it).
 	NotProjected int `json:"notProjected"`
+	// Deleted are the documents of rows deleted in PostgreSQL (a deletable collection, holidays) that were deleted.
+	Deleted int `json:"deleted,omitempty"`
 }
 
 func (s *ProjectStats) add(o ProjectStats) {
@@ -236,6 +252,7 @@ func (s *ProjectStats) add(o ProjectStats) {
 	s.Unchanged += o.Unchanged
 	s.Skipped += o.Skipped
 	s.NotProjected += o.NotProjected
+	s.Deleted += o.Deleted
 }
 
 // Projector writes projections. Tx is a system transaction on a pool that may write the projected tables (the worker:
@@ -273,6 +290,9 @@ func (p *Projector) Project(ctx context.Context, t ShadowTarget) (ProjectStats, 
 		st.NotProjected++
 		return st, nil
 	}
+	if deletable[t.Collection] && !t.All {
+		return p.projectDeletable(ctx, t, enc)
+	}
 	if !t.All || singleDocument[t.Collection] {
 		sel := t.selection()
 		if sel.empty() {
@@ -295,19 +315,47 @@ func (p *Projector) Project(ctx context.Context, t ShadowTarget) (ProjectStats, 
 		}); err != nil {
 			return st, fmt.Errorf("etl: project %s: %w", t.Collection, err)
 		}
-		if len(batch) == 0 {
-			return st, nil
+		if len(batch) > 0 {
+			s, err := p.project(ctx, t.Collection, enc, selectIDs(batch))
+			st.add(s)
+			if err != nil {
+				return st, err
+			}
+			after = batch[len(batch)-1]
 		}
-		s, err := p.project(ctx, t.Collection, enc, selectIDs(batch))
+		if len(batch) < batchSize {
+			break
+		}
+	}
+	if deletable[t.Collection] {
+		n, err := p.deleteLeftBehind(ctx, t.Collection)
+		st.Deleted += n
+		return st, err
+	}
+	return st, nil
+}
+
+// projectDeletable projects the rows of a deletable collection (holidays) the target names, then deletes the documents
+// of the rows deleted in PostgreSQL (t.DeletedDocIDs) and of the named rows that vanished meanwhile (a create racing a
+// delete: whichever of the two projections runs last finds the row gone and deletes its minted document).
+func (p *Projector) projectDeletable(ctx context.Context, t ShadowTarget, enc encoder) (ProjectStats, error) {
+	var st ProjectStats
+	docIDs := slices.Clone(t.DeletedDocIDs)
+	if sel := t.selection(); !sel.empty() {
+		s, err := p.project(ctx, t.Collection, enc, sel)
 		st.add(s)
 		if err != nil {
 			return st, err
 		}
-		after = batch[len(batch)-1]
-		if len(batch) < batchSize {
-			return st, nil
+		gone, err := p.vanished(ctx, t.Collection, sel.ids)
+		if err != nil {
+			return st, err
 		}
+		docIDs = append(docIDs, gone...)
 	}
+	n, err := p.deleteDocs(ctx, t.Collection, docIDs)
+	st.Deleted += n
+	return st, err
 }
 
 // projectedTable is the table (and id column) whose ids an All projection pages through.
@@ -328,7 +376,8 @@ func projectedTable(coll string) (string, string) {
 }
 
 // ProjectAll projects every row of the planned collections (`etl project`; the catch-up before the consumer is turned
-// on, or after the kill switch was off).
+// on, or after the kill switch was off), and deletes the documents of a deletable collection's rows deleted meanwhile
+// (deleteLeftBehind).
 func (p *Projector) ProjectAll(ctx context.Context) (map[string]ProjectStats, error) {
 	out := map[string]ProjectStats{}
 	for _, c := range ProjectedCollections {

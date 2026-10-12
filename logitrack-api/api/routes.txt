@@ -95,6 +95,11 @@ GET /v1/fuel/daily internal
 GET /v1/fuel/daily/:dayKey internal
 GET /v1/fuel/monthly internal
 GET /v1/fuel/retail internal
+GET /v1/holidays internal
+POST /v1/holidays internal
+DELETE /v1/holidays/:id internal
+PATCH /v1/holidays/:id internal
+PUT /v1/holidays/generate internal
 GET /v1/hubs internal
 POST /v1/hubs internal
 PATCH /v1/hubs/:id internal
@@ -110,6 +115,10 @@ POST /v1/jobs/billing.backfill-trips internal
 POST /v1/jobs/billing.impact-report internal
 POST /v1/jobs/distances.compute internal
 POST /v1/jobs/payroll.run internal
+GET /v1/leave-requests internal
+POST /v1/leave-requests/:id/approve internal
+POST /v1/leave-requests/:id/cancel internal
+POST /v1/leave-requests/:id/reject internal
 GET /v1/maintenance internal
 POST /v1/maintenance internal
 PATCH /v1/maintenance/:id internal

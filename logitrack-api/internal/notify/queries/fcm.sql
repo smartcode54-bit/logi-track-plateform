@@ -73,3 +73,11 @@ FROM (SELECT a.driver_id FROM truck_assignments a WHERE a.truck_id = @truck_id A
       UNION ALL
       SELECT d.id FROM drivers d WHERE d.active_truck_id = @truck_id) reach
 ORDER BY driver_id;
+
+-- name: GetLeaveForPush :one
+-- leave.decided (T45): leave_ref is the id the app knows (legacy_doc_id, else the uuid, R25); the type and days build
+-- the body.
+SELECT id, coalesce(legacy_doc_id, id::text)::text AS leave_ref, driver_id, leave_type,
+       to_char(start_date, 'YYYY-MM-DD')::text AS start_date, to_char(end_date, 'YYYY-MM-DD')::text AS end_date
+FROM leave_requests
+WHERE id = @id;
