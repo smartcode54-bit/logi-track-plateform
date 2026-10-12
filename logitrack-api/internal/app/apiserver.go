@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -19,6 +20,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/dashboard"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/gcp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
@@ -40,6 +42,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/sse"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 // APIDeps are the services BuildAPI wires and cmd/api's newAPI turns into route groups. `api routes`
@@ -324,8 +327,23 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
+	// T31: the operations writes. PostgreSQL-owned (PG_OWNED_DOMAINS holds operations, the staging VM): the routes
+	// write PostgreSQL under the caller's RLS. Otherwise they write the Firestore documents first (the class C
+	// write-back, main spec §13.8) and wait up to 3 s for the mirror's cache:mirror_ack; without a Firestore project
+	// they answer 503 write_back_unconfigured. A trip rename and its audit row run in iam's system transaction.
+	tripRenamer, err := iam.NewTripRenamer(iam.TripRenamerDeps{Pool: pool, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
+	wb, err := operationsWriteBack(cfg, caches, log)
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover, Files: st,
-		Hubs: OperationsHubs{Service: hubSvc}})
+		Hubs: OperationsHubs{Service: hubSvc}, PGOwned: cfg.OperationsOwned, WriteBack: wb, Renamer: tripRenamer,
+		Commits: st})
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -403,6 +421,34 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	)
 	bootstrapS3(ctx, s3, log)
 	return a, closeAll, nil
+}
+
+// operationsWriteBack builds the Firestore writer of the operations writes while operations is not PostgreSQL-owned
+// (T31). No I/O: the access token is fetched on the first write, so the api starts while Google is unreachable. nil
+// when operations is PostgreSQL-owned, or when no Firestore project is configured (the writes then answer 503).
+func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (*operations.WriteBack, error) {
+	if cfg.OperationsOwned {
+		log.Info().Msg("operations writes: PostgreSQL (operations is in PG_OWNED_DOMAINS)")
+		return nil, nil
+	}
+	if cfg.WriteBack.FirestoreProjectID == "" {
+		log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
+			"(the write routes answer 503 write_back_unconfigured)")
+		return nil, nil
+	}
+	sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
+	if err != nil { // names the variable, never the content
+		return nil, &config.Error{Invalid: []string{err.Error()}}
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	fs, err := gcp.NewFirestore(cfg.WriteBack.FirestoreProjectID, cfg.WriteBack.FirestoreDatabaseID, client,
+		sa.TokenSource(client, gcp.FirestoreScope))
+	if err != nil {
+		return nil, &config.Error{Invalid: []string{err.Error()}}
+	}
+	log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
+	return &operations.WriteBack{Writer: writeback.Firestore{FS: fs}, Acks: acks, Wait: operations.DefaultMirrorWait,
+		RunOrders: acks}, nil
 }
 
 // buildFirebase builds the bridge's collaborators (Appendix C §C.6) without I/O beyond reading the key

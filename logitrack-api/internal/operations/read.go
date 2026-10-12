@@ -44,6 +44,9 @@ type Hub struct {
 	NameTh             string
 	NameEn             *string
 	LinkedCustomerName *string // as p may see it (hubs.Service masks it)
+	// LinkedPartyID is the billing party the hub is linked to (the hub-derived customer link a task write copies,
+	// sourceHubLinkedCustomerId / destinationLinkedCustomerId of the legacy forms, T31).
+	LinkedPartyID *uuid.UUID
 }
 
 // Hubs lists the hub master for p (hubs.Service.List through an adapter of internal/app: the shared cache, global read).

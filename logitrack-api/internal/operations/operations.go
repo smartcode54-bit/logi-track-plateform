@@ -157,18 +157,33 @@ type Deps struct {
 	// Files signs the photo URLs of the read payloads (storage.Service, T30); nil leaves every URL absent.
 	Files Files
 	// Hubs is the hub master the place keys and labels read (hubs.Service through internal/app, T30); nil leaves every
-	// stored hub as hub:<uuid> and labels the raw text.
+	// stored hub as hub:<uuid> and labels the raw text. The writes (T31) resolve a raw place to its hub through it.
 	Hubs Hubs
+	// PGOwned is whether PG_OWNED_DOMAINS holds operations: the writes (T31) then go to PostgreSQL. Otherwise they go
+	// to Firestore first through WriteBack (main spec §12.1, §13.8).
+	PGOwned bool
+	// WriteBack is the Firestore-first path of the writes while the domain is Firestore-owned; nil (or without a
+	// Writer) refuses those writes with 503 write_back_unconfigured.
+	WriteBack *WriteBack
+	// Renamer performs a trip rename and its in-transaction audit row (iam.TripRenamer: security_events is written in
+	// a system transaction, Appendix C §C.4.13); nil answers POST /v1/trips/{id}/rename with a 500.
+	Renamer TripRenamer
+	// Files commits the evidence photos a write references (storage.Service); nil refuses a photo key (not_found).
+	Commits FileCommitter
 }
 
 // Service serves the principal reads of the operations tables and opens the request transactions of their writes.
 type Service struct {
-	pool  db.Beginner
-	log   zerolog.Logger
-	now   func() time.Time
-	mover Reassigner
-	files Files
-	hubs  Hubs
+	pool    db.Beginner
+	log     zerolog.Logger
+	now     func() time.Time
+	mover   Reassigner
+	files   Files
+	hubs    Hubs
+	pgOwned bool
+	wb      *WriteBack
+	renamer TripRenamer
+	commits FileCommitter
 }
 
 // New builds the service.
@@ -180,7 +195,8 @@ func New(d Deps) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{pool: d.Pool, log: d.Log, now: now, mover: d.Reassigner, files: d.Files, hubs: d.Hubs}, nil
+	return &Service{pool: d.Pool, log: d.Log, now: now, mover: d.Reassigner, files: d.Files, hubs: d.Hubs,
+		pgOwned: d.PGOwned, wb: d.WriteBack, renamer: d.Renamer, commits: d.Commits}, nil
 }
 
 // Now is the service clock.

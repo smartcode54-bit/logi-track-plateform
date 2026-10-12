@@ -44,9 +44,15 @@ type Event struct {
 // HeaderOrigin is the producer header that names where an event comes from; OriginMirror marks the domain events the
 // FS->PG mirror appends while Firestore writes the operations collections (T29): they feed SSE and billing.compute,
 // and the notify consumers ack them without a push (the Firestore-side writer notified already).
+//
+// OriginWriteBack marks the event a Go write-back handler appends after it wrote a Firestore-owned document (T31): it
+// is the writer's notification (notify.fcm, notify.line send for it), while the mirror's own event of the same change
+// (OriginMirror) feeds SSE and billing.compute. A write-back event therefore carries no realtime topic, and every other
+// consumer (billing.compute) acks it without effect, so one change is priced once and pushed once.
 const (
-	HeaderOrigin = "origin"
-	OriginMirror = "etl.sync"
+	HeaderOrigin    = "origin"
+	OriginMirror    = "etl.sync"
+	OriginWriteBack = "writeback"
 )
 
 // Appended identifies the inserted row.

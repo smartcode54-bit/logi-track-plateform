@@ -151,21 +151,13 @@ func lowerVocab(v any, allowed ...string) (string, bool) {
 	return x, false
 }
 
-// userByUID resolves a Firebase uid to users.id without recording anything.
+// userByUID resolves a Firebase uid (else a Go users.id, userID) to users.id without recording anything.
 func (c *docCtx) userByUID(uid string) (*uuid.UUID, error) {
 	uid = strings.TrimSpace(uid)
 	if uid == "" {
 		return nil, nil
 	}
-	var id uuid.UUID
-	err := c.tx.QueryRow(c.ctx, `SELECT id FROM users WHERE legacy_auth_uid = $1`, uid).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("etl: %s: user lookup: %w", c.doc.Path, err)
-	}
-	return &id, nil
+	return c.userID(uid)
 }
 
 // stampedRowWhere is the tenant an existing row (found by a key other than legacy_doc_id) carries.

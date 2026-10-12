@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 )
@@ -63,6 +66,32 @@ func ParseTaskNo(no string) (taskType string, planDate time.Time, seq int, padde
 		taskType = LineHaul
 	}
 	return taskType, d, n, len(m[5]) >= 3, true
+}
+
+// MaxBumpSeq bounds the sequence a kept number of record moves its day's counter to (CreateTask, bump_task_seq()): a
+// canonical number past it is kept verbatim and moves nothing. task_number_counters is global across tenants (R10,
+// R66), so a number such as FM-20102026-2147483647 would otherwise set last_seq to the int ceiling, and next_task_seq()
+// would then fail every later creation of that day for every tenant (T31 review). The ETL's counter seed (etl
+// afterTasks) keeps the same bound.
+const MaxBumpSeq = 99999
+
+// MaxSheetTaskSeq is the largest sequence of a canonical number an import sheet may carry (the three-digit width the
+// allocator pads to): a larger one is 422 taskNo out_of_range, and one of another type or day than its row 422 taskNo
+// mismatch (POST /v1/tasks/import).
+const MaxSheetTaskSeq = 999
+
+// ReasonTaskCounterExhausted is details.reason of the 409 of a creation whose day's task counter is at the int ceiling
+// (SQLSTATE 22003 from next_task_seq()): a counter row to repair, never a 500.
+const ReasonTaskCounterExhausted = "task_counter_exhausted"
+
+// seqError maps an error of the task-number allocator: an exhausted counter is 409 failed_precondition
+// task_counter_exhausted; anything else goes through MapError.
+func seqError(err error) error {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "22003" {
+		return errPrecondition(ReasonTaskCounterExhausted, "the task numbers of this type and day are exhausted").Wrap(err)
+	}
+	return MapError(err)
 }
 
 // --- trip photo order (ADR 0018) ---------------------------------------------------------------------------------

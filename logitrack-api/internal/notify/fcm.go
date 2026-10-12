@@ -65,6 +65,14 @@ func FromMirror(d *mq.Delivery) bool {
 	return ok && v == outbox.OriginMirror
 }
 
+// FromWriteBack reports whether a delivery is the notify event of a Go write-back handler (header origin=writeback,
+// T31): the writer's own push of a Firestore-owned change, sent while the mirror's event of the same change pushes
+// nothing.
+func FromWriteBack(d *mq.Delivery) bool {
+	v, ok := d.Headers[outbox.HeaderOrigin].(string)
+	return ok && v == outbox.OriginWriteBack
+}
+
 // Delivery statuses (notification_deliveries.status). queued is never written: a row is inserted once
 // its outcome is known.
 const (
@@ -113,6 +121,10 @@ const reasonClaimsChanged = "claims_changed"
 //     truck (T40);
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
 //     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
+//
+// While Firestore owns the operations collections, the task events of the mirror (origin=etl.sync) push nothing and
+// those of a Go write-back handler (origin=writeback) are the push; such an event waits (transient failures) until
+// the mirror applied the write it tells of (awaitMirror), so its plan never reads the row as it was before the write.
 //
 // Idempotency (at most once per token): a push is claimed in Redis (idem:fcm:{messageId}:{tokenId},
 // 24 h) before it is sent and the claim keeps its outcome, so a redelivered or retried message never
@@ -212,6 +224,12 @@ func (f *FCM) Handle(ctx context.Context, d *mq.Delivery) error {
 	}
 	if d.MessageID == "" {
 		return mq.Permanent(errors.New("notify.fcm: the message has no message id"))
+	}
+	if isTaskRoute(d.RoutingKey) && FromWriteBack(d) {
+		// Before the plan reads tasks: a Go write-back's push waits until the mirror applied that write.
+		if err := f.awaitMirror(ctx, d); err != nil {
+			return err
+		}
 	}
 	var targets []target
 	recorded := false
@@ -441,6 +459,59 @@ func TokenID(token string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// --- the write-back's push (T31) ---------------------------------------------------------------------
+
+// legacyTasks is the Firestore collection of the task documents (cache:mirror_ack:tasks:{docId}).
+const legacyTasks = "tasks"
+
+func isTaskRoute(key string) bool {
+	switch key {
+	case RouteTaskAssigned, RouteTaskReassigned, RouteTaskCancelled, RouteTaskUpdated, RouteTaskCheckedIn,
+		RouteTaskPlanDateChanged:
+		return true
+	}
+	return false
+}
+
+// writeBackRef is the part of a write-back's task event that names the Firestore write it tells of: the task
+// document (legacyDocId) and the update time of that commit (writeUpdateTime), set by the operations write-back
+// handlers (T31). An event without them (an earlier producer) is planned from the row as it is.
+type writeBackRef struct {
+	DocID string     `json:"legacyDocId"`
+	At    *time.Time `json:"writeUpdateTime"`
+}
+
+// awaitMirror holds the push of a Go write-back until the FS->PG mirror applied that write to PostgreSQL. The writer's
+// event is appended as soon as Firestore committed (the handler answers 202 when the mirror's acknowledgement does not
+// come within 3 s), and the planner re-reads the task row: read before the mirror applied the change, the row still
+// shows the previous driver or status, the plan has no target and the push would be lost, since the mirror's own event
+// of the same change (origin=etl.sync) pushes nothing. So while cache:mirror_ack:tasks:{legacyDocId} is older than
+// the write's update time (or absent) the delivery fails transiently and the retry ladder (10 s, 1 m, 5 m, 30 m, 2 h)
+// re-plans after the mirror applied it; at or past that time the plan reads the row as usual, and a later change that
+// superseded this one is handled by the planner's still-assigned rules. An acknowledgement lives cache.MirrorAckTTL
+// (10 minutes): a write older than that whose acknowledgement is gone (expired, or lost to a Redis failure of the
+// mirror) is taken as applied and planned from the row.
+func (f *FCM) awaitMirror(ctx context.Context, d *mq.Delivery) error {
+	var ref writeBackRef
+	if err := d.Decode(&ref); err != nil {
+		return err
+	}
+	if ref.DocID == "" || ref.At == nil || f.now().Sub(*ref.At) >= cache.MirrorAckTTL {
+		return nil
+	}
+	rctx, cancel := context.WithTimeout(ctx, redisOpTimeout)
+	defer cancel()
+	got, ok, err := cache.ReadMirrorAck(rctx, f.Redis, f.Keys, legacyTasks, ref.DocID)
+	if err != nil {
+		return fmt.Errorf("notify.fcm: read the mirror acknowledgement: %w", err)
+	}
+	if ok && !got.Before(ref.At.Truncate(time.Microsecond)) {
+		return nil
+	}
+	return fmt.Errorf("notify.fcm: the task document %s written at %s is not mirrored yet", ref.DocID,
+		ref.At.UTC().Format(time.RFC3339Nano))
+}
+
 // --- planners ---------------------------------------------------------------------------------------
 
 // taskEvent is the part of a task.* payload notify.fcm reads: the task id (id, as in the thin SSE
@@ -501,6 +572,12 @@ func planTask(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]targe
 	}
 	t, err := q.GetTaskForPush(ctx, ev.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if FromWriteBack(d) {
+			// The Go write-back created the Firestore document and queued its push; the FS->PG mirror has not loaded the
+			// row (an event without the write's update time, or an acknowledgement taken as applied). The retry ladder
+			// waits for the mirror (T31).
+			return nil, fmt.Errorf("notify.fcm: task %s of a write-back is not mirrored yet", ev.ID)
+		}
 		return nil, mq.Permanent(fmt.Errorf("notify.fcm: task %s not found", ev.ID))
 	}
 	if err != nil {

@@ -15,23 +15,38 @@ import (
 const cancelInTransitTrips = `-- name: CancelInTransitTrips :many
 UPDATE trip_records SET status = 'cancelled'
 WHERE id = ANY ($1::uuid[]) AND status = 'in_transit'
-RETURNING id
+RETURNING id, tenant_id, task_id, driver_id, trip_no
 `
 
-// POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[].
-func (q *Queries) CancelInTransitTrips(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+type CancelInTransitTripsRow struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	TaskID   *uuid.UUID
+	DriverID *uuid.UUID
+	TripNo   string
+}
+
+// POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[]. The
+// task of each cancelled trip is cancelled with it in the same transaction (EditTripDetailsDialog.tsx:782-797).
+func (q *Queries) CancelInTransitTrips(ctx context.Context, ids []uuid.UUID) ([]CancelInTransitTripsRow, error) {
 	rows, err := q.db.Query(ctx, cancelInTransitTrips, ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []uuid.UUID{}
+	items := []CancelInTransitTripsRow{}
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var i CancelInTransitTripsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.TaskID,
+			&i.DriverID,
+			&i.TripNo,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

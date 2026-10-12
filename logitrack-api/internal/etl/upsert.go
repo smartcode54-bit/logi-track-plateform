@@ -107,12 +107,34 @@ func (c *docCtx) rowID(table string) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := c.tx.QueryRow(c.ctx, `SELECT id FROM `+pgx.Identifier{table}.Sanitize()+` WHERE legacy_doc_id = $1`, c.doc.ID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
+		// A document the Go write-back created carries a minted uuidv7 as its id (R25, main spec §13.8, T31): the row
+		// takes it as its id too, so the id the write-back answered (and queued its notify event with) is the row's.
+		if minted, ok := mintedID(c.doc.ID); ok {
+			var taken bool
+			if err := c.tx.QueryRow(c.ctx, `SELECT EXISTS (SELECT 1 FROM `+pgx.Identifier{table}.Sanitize()+` WHERE id = $1)`,
+				minted).Scan(&taken); err != nil {
+				return uuid.Nil, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+			}
+			if !taken {
+				return minted, nil
+			}
+		}
 		return uuid.NewV7()
 	}
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
 	}
 	return id, nil
+}
+
+// mintedID reads a document id the write-back minted: a canonical lower-case uuidv7 (Firestore auto ids are 20
+// alphanumerics and trip ids are trip numbers, so neither reads as one).
+func mintedID(docID string) (uuid.UUID, bool) {
+	id, err := uuid.Parse(docID)
+	if err != nil || id.Version() != 7 || id.String() != docID {
+		return uuid.Nil, false
+	}
+	return id, true
 }
 
 // upsertLegacy upserts by legacy_doc_id; id (from rowID) is kept on update.

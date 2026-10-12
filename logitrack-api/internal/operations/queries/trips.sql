@@ -89,10 +89,11 @@ RETURNING *;
 UPDATE trip_records SET status = sqlc.arg(status) WHERE id = sqlc.arg(id) RETURNING *;
 
 -- name: CancelInTransitTrips :many
--- POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[].
+-- POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[]. The
+-- task of each cancelled trip is cancelled with it in the same transaction (EditTripDetailsDialog.tsx:782-797).
 UPDATE trip_records SET status = 'cancelled'
 WHERE id = ANY (sqlc.arg(ids)::uuid[]) AND status = 'in_transit'
-RETURNING id;
+RETURNING id, tenant_id, task_id, driver_id, trip_no;
 
 -- name: MarkTripResubmitted :one
 -- POST /v1/mobile/trips/{id}/resubmit-photos: back into the admin review queue.

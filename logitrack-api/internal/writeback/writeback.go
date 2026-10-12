@@ -7,10 +7,11 @@
 // second writer of those rows.
 //
 // Writer is the port; Firestore adapts the Firestore REST client of internal/etl/gcp (service-account token, update
-// masks); Memory is the in-memory stand-in of tests. No service calls it yet: T31 builds the write-back flow and the
-// mirror acknowledgement on it, and switching it on in an environment is an operator decision recorded with the
-// coexistence runbook. Until then staff writes go to PostgreSQL only, which is what a PostgreSQL-owned domain and a
-// deployment without the mirror (the staging VM) need.
+// masks, atomic commits); Memory is the in-memory stand-in of tests. The operations staff writes of T31
+// (internal/operations) call it while the operations domain is Firestore-owned; the expenses and maintenance services
+// (T40) still write PostgreSQL only (#60's open question). Switching it on in an environment is an operator decision
+// recorded with the coexistence runbook: on a PostgreSQL-owned domain and on a deployment without the mirror (the
+// staging VM) nothing calls it.
 package writeback
 
 import (
@@ -32,9 +33,32 @@ import (
 type Writer interface {
 	// Merge writes the given fields of collection/docID and keeps every other field (an update mask); the document is
 	// created when it does not exist. A nil value removes the field (the legacy code's deleteField()). Values are
-	// string, bool, int, int32, int64, float64, time.Time (a Firestore timestamp) and nil.
+	// string, bool, int, int32, int64, float64, time.Time (a Firestore timestamp), []any and map[string]any of those
+	// (arrays and maps, e.g. deliveryStops) and nil.
 	Merge(ctx context.Context, collection, docID string, fields map[string]any) error
+	// Commit applies the writes of one request atomically (all or none, one documents:commit) and returns the commit
+	// time: the update time of every document written, which the mirror acknowledges (cache:mirror_ack) once it
+	// applied them. A failed precondition is ErrConflict and nothing is written.
+	Commit(ctx context.Context, writes ...DocWrite) (time.Time, error)
+	// Get reads one document's fields and update time; ok is false when it does not exist.
+	Get(ctx context.Context, collection, docID string) (fields map[string]any, updateTime time.Time, ok bool, err error)
 }
+
+// DocWrite is one write of a Commit. Delete removes the document; otherwise Fields are merged as Merge merges them
+// (Replace writes Fields as the whole document instead, the copy of a renamed trip). MustNotExist creates only,
+// MustExist updates only; UpdateTime, when set, writes only while the document still carries that update time.
+type DocWrite struct {
+	Collection, DocID string
+	Fields            map[string]any
+	Replace           bool
+	Delete            bool
+	MustNotExist      bool
+	MustExist         bool
+	UpdateTime        time.Time
+}
+
+// ErrConflict is a commit refused by a precondition: the document exists (MustNotExist) or changed since it was read.
+var ErrConflict = errors.New("writeback: a precondition of the commit failed")
 
 // ErrUnavailable is the API answer to a failed write-back: nothing of the request is kept and the client may retry
 // (Appendix B §B.1.5 503 unavailable, details.reason write_back).
@@ -71,6 +95,75 @@ func (f Firestore) Merge(ctx context.Context, collection, docID string, fields m
 	return err
 }
 
+// Commit implements Writer with one documents:commit.
+func (f Firestore) Commit(ctx context.Context, writes ...DocWrite) (time.Time, error) {
+	if f.FS == nil {
+		return time.Time{}, errors.New("writeback: no Firestore client")
+	}
+	out, err := gcpWrites(writes)
+	if err != nil {
+		return time.Time{}, err
+	}
+	at, err := f.FS.Commit(ctx, out)
+	if errors.Is(err, gcp.ErrPrecondition) {
+		return time.Time{}, fmt.Errorf("%w: %w", ErrConflict, err)
+	}
+	return at, err
+}
+
+// Get implements Writer.
+func (f Firestore) Get(ctx context.Context, collection, docID string) (map[string]any, time.Time, bool, error) {
+	if f.FS == nil {
+		return nil, time.Time{}, false, errors.New("writeback: no Firestore client")
+	}
+	d, ok, err := f.FS.Lookup(ctx, collection+"/"+docID, time.Time{})
+	if err != nil || !ok {
+		return nil, time.Time{}, false, err
+	}
+	return d.Fields, d.UpdateTime, true, nil
+}
+
+// gcpWrites maps the writes of a commit onto the client's (each Merge-like write masks exactly its fields).
+func gcpWrites(writes []DocWrite) ([]gcp.Write, error) {
+	if len(writes) == 0 {
+		return nil, errors.New("writeback: a commit needs a write")
+	}
+	out := make([]gcp.Write, 0, len(writes))
+	for _, w := range writes {
+		if w.Collection == "" || w.DocID == "" {
+			return nil, errors.New("writeback: a document path needs a collection and an id")
+		}
+		g := gcp.Write{Path: w.Collection + "/" + w.DocID, Delete: w.Delete}
+		switch {
+		case w.MustNotExist:
+			no := false
+			g.Pre.Exists = &no
+		case !w.UpdateTime.IsZero():
+			g.Pre.UpdateTime = w.UpdateTime
+		case w.MustExist:
+			yes := true
+			g.Pre.Exists = &yes
+		}
+		if !w.Delete {
+			g.Fields = map[string]any{}
+			for _, k := range slices.Sorted(maps.Keys(w.Fields)) {
+				if !w.Replace {
+					g.Mask = append(g.Mask, k)
+				}
+				v, err := dumpValue(w.Fields[k])
+				if err != nil {
+					return nil, fmt.Errorf("writeback: %s/%s.%s: %w", w.Collection, w.DocID, k, err)
+				}
+				if v != nil {
+					g.Fields[k] = v
+				}
+			}
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
 // dumpValue maps a field value onto the value types of the Firestore client (nil = delete the field).
 func dumpValue(v any) (any, error) {
 	switch x := v.(type) {
@@ -84,27 +177,134 @@ func dumpValue(v any) (any, error) {
 		return int64(x), nil
 	case time.Time:
 		return dump.Timestamp{Time: x.UTC()}, nil
+	case dump.Timestamp, dump.Bytes, dump.Ref, dump.GeoPoint:
+		return x, nil // a value read from Firestore (Get) written back as it was: the copy of a renamed trip
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			ev, err := dumpValue(e)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = ev
+		}
+		return out, nil
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			ev, err := dumpValue(e)
+			if err != nil {
+				return nil, err
+			}
+			if ev != nil {
+				out[k] = ev
+			}
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("unsupported value type %T", v)
 }
 
-// Write is one Merge Memory accepted.
+// Write is one Merge (or one write of a Commit) Memory accepted; Delete marks a commit's delete.
 type Write struct {
 	Collection, DocID string
 	Fields            map[string]any
+	Delete            bool
 }
 
 // Memory is the in-memory Writer of tests: Docs holds the merged documents by "collection/docID", Writes every
-// accepted Merge in order. Fail, when set, is returned by every Merge (nothing is written).
+// accepted Merge (and every write of an accepted Commit) in order. Fail, when set, is returned by every Merge and
+// Commit (nothing is written). A Commit's time is one microsecond after the previous one, from a fixed epoch; OnCommit,
+// when set, is called after each accepted commit (outside the lock) with its writes and time, so a test can play the
+// mirror.
 type Memory struct {
-	mu     sync.Mutex
-	docs   map[string]map[string]any
-	writes []Write
-	fail   error
+	mu       sync.Mutex
+	docs     map[string]map[string]any
+	times    map[string]time.Time
+	writes   []Write
+	fail     error
+	clock    time.Time
+	OnCommit func(writes []DocWrite, at time.Time)
 }
 
 // NewMemory returns an empty Memory.
-func NewMemory() *Memory { return &Memory{docs: map[string]map[string]any{}} }
+func NewMemory() *Memory {
+	return &Memory{docs: map[string]map[string]any{}, times: map[string]time.Time{},
+		clock: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
+}
+
+// Commit implements Writer: every precondition is checked first, then all writes take one time.
+func (m *Memory) Commit(_ context.Context, writes ...DocWrite) (time.Time, error) {
+	m.mu.Lock()
+	if m.fail != nil {
+		m.mu.Unlock()
+		return time.Time{}, m.fail
+	}
+	if _, err := gcpWrites(writes); err != nil {
+		m.mu.Unlock()
+		return time.Time{}, err
+	}
+	for _, w := range writes {
+		path := w.Collection + "/" + w.DocID
+		_, exists := m.docs[path]
+		if (w.MustNotExist && exists) || (w.MustExist && !exists) ||
+			(!w.UpdateTime.IsZero() && (!exists || !m.times[path].Equal(w.UpdateTime))) {
+			m.mu.Unlock()
+			return time.Time{}, ErrConflict
+		}
+	}
+	m.clock = m.clock.Add(time.Microsecond)
+	at := m.clock
+	for _, w := range writes {
+		path := w.Collection + "/" + w.DocID
+		if w.Delete {
+			delete(m.docs, path)
+			delete(m.times, path)
+			m.writes = append(m.writes, Write{Collection: w.Collection, DocID: w.DocID, Delete: true})
+			continue
+		}
+		doc := m.docs[path]
+		if doc == nil || w.Replace {
+			doc = map[string]any{}
+			m.docs[path] = doc
+		}
+		for k, v := range w.Fields {
+			if v == nil {
+				delete(doc, k)
+				continue
+			}
+			doc[k] = v
+		}
+		m.times[path] = at
+		m.writes = append(m.writes, Write{Collection: w.Collection, DocID: w.DocID, Fields: maps.Clone(w.Fields)})
+	}
+	hook := m.OnCommit
+	m.mu.Unlock()
+	if hook != nil {
+		hook(slices.Clone(writes), at)
+	}
+	return at, nil
+}
+
+// Get implements Writer.
+func (m *Memory) Get(_ context.Context, collection, docID string) (map[string]any, time.Time, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail != nil {
+		return nil, time.Time{}, false, m.fail
+	}
+	path := collection + "/" + docID
+	d, ok := m.docs[path]
+	return maps.Clone(d), m.times[path], ok, nil
+}
+
+// Put stores a document as it stands in Firestore (a fixture), with its update time.
+func (m *Memory) Put(collection, docID string, fields map[string]any, updateTime time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.docs[collection+"/"+docID] = maps.Clone(fields)
+	m.times[collection+"/"+docID] = updateTime
+}
 
 // Merge implements Writer.
 func (m *Memory) Merge(_ context.Context, collection, docID string, fields map[string]any) error {
