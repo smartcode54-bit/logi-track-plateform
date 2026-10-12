@@ -2,7 +2,9 @@
  * Applies the realtime event map to the tab's query cache (developer-spec.md §10.8; Appendix E
  * §E.5.1 "Event -> cache" and "Backpressure"):
  *
- * - writes (`setQueryData`) apply at once;
+ * - writes (`setQueryData`) apply at once; a partial one (`keepUpdatedAt`) keeps the query's
+ *   `dataUpdatedAt`, and one whose payload names what the cache lacks (`refetchWhen`) also makes its
+ *   key stale through the window below;
  * - invalidations are coalesced per key: the first event for a quiet key opens a window
  *   (`windowMs`: 500 ms, 2 s for the monitor and income keys) and every event inside it joins the one
  *   flush at its end, so a burst costs one refetch per window (a trailing debounce would never fire
@@ -24,7 +26,7 @@
  *   every query (the root key), on the same terms.
  */
 import { focusManager, hashKey, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
-import { effectsOf } from "./eventMap";
+import { effectsOf, LIST_WINDOW_MS } from "./eventMap";
 import type { RealtimeFrame } from "./realtimeStream";
 
 /** The prefix of every query: what `resync` flushes. */
@@ -64,7 +66,13 @@ export class RealtimeInvalidator {
     apply(frame: Pick<RealtimeFrame, "event" | "data">): void {
         if (this.disposed) return;
         const effects = effectsOf(frame);
-        for (const w of effects.write) this.client.setQueryData(w.queryKey, w.update);
+        for (const w of effects.write) {
+            const state = this.client.getQueryState(w.queryKey);
+            if (w.refetchWhen?.(state?.data)) this.schedule(w.queryKey, LIST_WINDOW_MS);
+            // A partial write keeps the time of the server's last answer (a `pollFromLastAnswer` key).
+            const kept = w.keepUpdatedAt && state && state.dataUpdatedAt > 0 ? { updatedAt: state.dataUpdatedAt } : undefined;
+            this.client.setQueryData(w.queryKey, w.update, kept);
+        }
         for (const i of effects.invalidate) this.schedule(i.queryKey, i.windowMs);
     }
 

@@ -363,6 +363,14 @@ gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alon
   keeping `WEB_FLAG_OVERRIDES` for the web pages' own switch, `operations=firebase` while the operations pages are
   not on Go yet) and reload `logitrack-api`. Never set `WRITEBACK_FIRESTORE_PROJECT_ID` on this VM: it would point
   the api's writes at a real Firestore project.
+- Leave decisions (T45): leave requests are written by the 3.x APKs in Firestore until P7b, so
+  `POST /v1/leave-requests/{id}/approve|reject|cancel` write PostgreSQL only when `PG_OWNED_DOMAINS` holds every
+  domain (`all`, the P7b state, which fits this PostgreSQL-only VM). With any domain left out they are Firestore
+  write-backs through the api's one Firestore client, which needs `WRITEBACK_FIRESTORE_PROJECT_ID`; this VM never
+  sets it (see above), so they answer `503 write_back_unconfigured` unless `PG_OWNED_DOMAINS=all`. `all` also
+  turns every web flag to `go`: pin the domains whose pages are not on Go yet back with `WEB_FLAG_OVERRIDES` (e.g.
+  `operations=firebase,hr=firebase,comms=firebase,dashboard=firebase`) until their web tasks land. Holidays need
+  nothing: they are written in PostgreSQL and their Firestore projection stays off with `COMPAT_PROJECTION_ENABLED`.
 - Coexistence consumers (T24S): the VM runs PostgreSQL only, so `ETL_SYNC_ENABLED` and `COMPAT_PROJECTION_ENABLED`
   stay `false`: the worker then opens no ETL pool and no Firestore client, and its `etl.sync` and `firestore.shadow`
   queues drain without effect (a sweep command fails its job naming the switch, an event is answered unprojected).

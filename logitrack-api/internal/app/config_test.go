@@ -382,3 +382,34 @@ func TestAPIConfigBridgeValidation(t *testing.T) {
 		})
 	}
 }
+
+// WRITEBACK_FIRESTORE_PROJECT_ID needs GOOGLE_APPLICATION_CREDENTIALS whenever a write-back is in use: operations not
+// PostgreSQL-owned (T31), or any domain not owned (the leave decisions, T45, which share the client). Only every domain
+// owned leaves the project unused.
+func TestAPIConfigWriteBackNeedsCredentials(t *testing.T) {
+	project := "WRITEBACK_FIRESTORE_PROJECT_ID=logitrack-writeback-test"
+	for owned, needed := range map[string]bool{
+		"":                                      true,
+		"auth,masterdata":                       true,
+		"auth,masterdata,operations,billing,hr": true, // operations owned, the leave decisions still written back
+		"all":                                   false,
+		"auth,masterdata,operations,billing,hr,comms,security,mobile_release,dashboard": false,
+	} {
+		_, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{project, "PG_OWNED_DOMAINS=" + owned}))
+		if needed && (err == nil || !strings.Contains(err.Error(), "GOOGLE_APPLICATION_CREDENTIALS") ||
+			strings.Contains(err.Error(), "logitrack-writeback-test")) {
+			t.Errorf("%q: want an error naming GOOGLE_APPLICATION_CREDENTIALS without the project, got %v", owned, err)
+		}
+		if !needed && err != nil {
+			t.Errorf("%q: %v", owned, err)
+		}
+		// With the key file named, every state loads; without a project nothing is needed.
+		if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{project, "PG_OWNED_DOMAINS=" + owned,
+			"GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/sa.json"})); err != nil {
+			t.Errorf("%q with the key file: %v", owned, err)
+		}
+		if _, err := config.LoadFrom[app.APIConfig](override(baseEnv(), []string{"PG_OWNED_DOMAINS=" + owned})); err != nil {
+			t.Errorf("%q without a project: %v", owned, err)
+		}
+	}
+}

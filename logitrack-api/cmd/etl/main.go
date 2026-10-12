@@ -83,7 +83,8 @@ Database (ETL_DATABASE_URL, logged in as logitrack_etl):
         when a billable document cannot be applied (R19)
   project --owned=none|all|DOMAINS [--collections=a,b]
         one full firestore.shadow pass (main spec §13.8): every row of the projected collections, only the fields that
-        differ, document ids minted (R25); run it before COMPAT_PROJECTION_ENABLED is turned on, or back on
+        differ, document ids minted (R25), and the documents of holidays deleted in PostgreSQL meanwhile deleted; run it
+        before COMPAT_PROJECTION_ENABLED is turned on, or back on
   reconcile-sync --owned=none|all|DOMAINS [--dump=DIR|s3:etl/dumps/{ts}] [--out=DIR] [--accept-findings=NAME]
         the daily coexistence reconciliation (live Firestore, or a dump of it): the mirror caught up, the projected
         documents equivalent to their rows, open findings against the baseline; exit 2 on a mismatch
@@ -986,7 +987,7 @@ func cmdProject(e *env, args []string) int {
 	defer closeDB()
 	stats, err := eng.Projector(f, plan, owned).ProjectAll(e.ctx)
 	tw := tabwriter.NewWriter(e.stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "collection\twritten\tunchanged\tskipped")
+	_, _ = fmt.Fprintln(tw, "collection\twritten\tunchanged\tskipped\tdeleted")
 	var total etl.ProjectStats
 	for _, c := range plan {
 		st, ok := stats[c]
@@ -994,13 +995,14 @@ func cmdProject(e *env, args []string) int {
 			continue
 		}
 		total.Written += st.Written
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\n", c, st.Written, st.Unchanged, st.Skipped)
+		total.Deleted += st.Deleted
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\n", c, st.Written, st.Unchanged, st.Skipped, st.Deleted)
 	}
 	_ = tw.Flush()
 	if err != nil {
 		return e.fail(app.ExitRuntimeError, err, "project failed")
 	}
-	_, _ = fmt.Fprintf(e.stdout, "project: %d document(s) written\n", total.Written)
+	_, _ = fmt.Fprintf(e.stdout, "project: %d document(s) written, %d deleted (the documents of rows deleted in PostgreSQL)\n", total.Written, total.Deleted)
 	return app.ExitOK
 }
 

@@ -621,6 +621,7 @@ func TestEncodersRoundTripTheFixtures(t *testing.T) {
 		"companies/co_alpha maxDrivers", // maxDrivers 0 is a bad number: NULL, the field goes
 		"companies/co_alpha updatedAt",  // a document without updatedAt gets the row's
 		"companies/co_owner updatedAt",
+		"holidays/ho_1 updatedAt", "holidays/ho_2 updatedAt", // T45: documents without updatedAt get the row's
 		"hubs/hub_a1 linkedCustomerName", // the denormalised label follows the customer's name
 		"hubs/hub_a1 updatedAt",
 		"hubs/hub_b latitude", "hubs/hub_b longitude", // legacy lat/lng: the current field names are added

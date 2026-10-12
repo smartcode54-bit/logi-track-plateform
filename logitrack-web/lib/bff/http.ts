@@ -81,6 +81,31 @@ export function originRefused(requestId: string): Response {
     return errorResponse(403, "permission_denied", "cross-origin request refused", requestId, { reason: "origin" });
 }
 
+/** The body as text, read no further than `max` bytes; `undefined` when it is longer. */
+export async function readBoundedText(req: Request, max: number): Promise<string | undefined> {
+    if (!req.body) return "";
+    const reader = req.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > max) {
+            await reader.cancel().catch(() => undefined);
+            return undefined;
+        }
+        chunks.push(value);
+    }
+    const all = new Uint8Array(size);
+    let at = 0;
+    for (const c of chunks) {
+        all.set(c, at);
+        at += c.byteLength;
+    }
+    return new TextDecoder().decode(all);
+}
+
 // An X-Forwarded-For chain as Caddy sets it: addresses separated by commas (IPv4, IPv6, optional ports).
 const XFF_RX = /^[0-9A-Fa-f.:[\], ]{1,512}$/;
 
