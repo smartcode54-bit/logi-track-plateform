@@ -189,8 +189,15 @@ func loadChatMessage(c *docCtx) error {
 	if text == nil && img == nil {
 		return c.reject("text", ReasonMissingRequired, "a message needs text or an image", nil)
 	}
+	// clientMessageId: written by the Go write-back (T47, R63; the 3.x app writes none), so a later replay of the same
+	// send is answered from this row. Anything but a uuid is left empty (no writer produces one).
+	var client *uuid.UUID
+	if v, err := uuid.Parse(strings.TrimSpace(c.str("clientMessageId"))); err == nil && v != uuid.Nil {
+		client = &v
+	}
 	r := newRow("chat_messages").set("id", id).set("legacy_doc_id", c.doc.ID).set("chat_id", chat.id).set("sender_user_id", sender).
-		set("sender_role", role).set("text", text).set("image_file_id", img).set("message_type", typ).setPresent("created_at", c.ts("createdAt"))
+		set("sender_role", role).set("text", text).set("image_file_id", img).set("message_type", typ).set("client_message_id", client).
+		setPresent("created_at", c.ts("createdAt"))
 	if _, err := upsert(c.ctx, c.tx, r, "(chat_id, legacy_doc_id) WHERE legacy_doc_id IS NOT NULL", "chat_id", "legacy_doc_id", "id"); err != nil {
 		return fmt.Errorf("%s: %w", c.doc.Path, err)
 	}
