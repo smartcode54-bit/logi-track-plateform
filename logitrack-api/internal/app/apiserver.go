@@ -335,11 +335,12 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	wb, err := operationsWriteBack(cfg, caches, log)
+	wbFS, err := writeBackFirestore(cfg)
 	if err != nil {
 		closeAll()
 		return nil, nil, err
 	}
+	wb := operationsWriteBack(cfg, wbFS, caches, log)
 	opsSvc, err := operations.New(operations.Deps{Pool: pool, Log: log, Reassigner: taskMover, Files: st,
 		Hubs: OperationsHubs{Service: hubSvc}, PGOwned: cfg.OperationsOwned, WriteBack: wb, Renamer: tripRenamer,
 		Commits: st})
@@ -378,7 +379,7 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 		closeAll()
 		return nil, nil, err
 	}
-	chatSvc, err := buildChats(cfg, pool, st, log)
+	chatSvc, err := buildChats(cfg, pool, st, wbFS, caches, log)
 	if err != nil {
 		closeAll()
 		return nil, nil, err
@@ -427,17 +428,12 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	return a, closeAll, nil
 }
 
-// operationsWriteBack builds the Firestore writer of the operations writes while operations is not PostgreSQL-owned
-// (T31). No I/O: the access token is fetched on the first write, so the api starts while Google is unreachable. nil
-// when operations is PostgreSQL-owned, or when no Firestore project is configured (the writes then answer 503).
-func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) (*operations.WriteBack, error) {
-	if cfg.OperationsOwned {
-		log.Info().Msg("operations writes: PostgreSQL (operations is in PG_OWNED_DOMAINS)")
-		return nil, nil
-	}
-	if cfg.WriteBack.FirestoreProjectID == "" {
-		log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
-			"(the write routes answer 503 write_back_unconfigured)")
+// writeBackFirestore is the Firestore client of the class C write-back (T31, T47) while operations or comms is not
+// PostgreSQL-owned; nil without WRITEBACK_FIRESTORE_PROJECT_ID (those writes then answer 503 write_back_unconfigured)
+// or when both domains are PostgreSQL-owned. No I/O: the access token is fetched on the first write, so the api starts
+// while Google is unreachable. An unreadable key file is a *config.Error naming the variable only.
+func writeBackFirestore(cfg *APIConfig) (*gcp.Firestore, error) {
+	if !cfg.writeBackNeeded() || cfg.WriteBack.FirestoreProjectID == "" {
 		return nil, nil
 	}
 	sa, err := firebase.LoadServiceAccount(cfg.GoogleCredentials)
@@ -450,9 +446,25 @@ func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) 
 	if err != nil {
 		return nil, &config.Error{Invalid: []string{err.Error()}}
 	}
+	return fs, nil
+}
+
+// operationsWriteBack builds the Firestore writer of the operations writes while operations is not PostgreSQL-owned
+// (T31): nil when operations is PostgreSQL-owned, or when no Firestore project is configured (fs nil: the writes then
+// answer 503).
+func operationsWriteBack(cfg *APIConfig, fs *gcp.Firestore, acks *cache.Cache, log zerolog.Logger) *operations.WriteBack {
+	if cfg.OperationsOwned {
+		log.Info().Msg("operations writes: PostgreSQL (operations is in PG_OWNED_DOMAINS)")
+		return nil
+	}
+	if fs == nil {
+		log.Info().Msg("operations writes off: operations is Firestore-owned and WRITEBACK_FIRESTORE_PROJECT_ID is unset " +
+			"(the write routes answer 503 write_back_unconfigured)")
+		return nil
+	}
 	log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
 	return &operations.WriteBack{Writer: writeback.Firestore{FS: fs}, Acks: acks, Wait: operations.DefaultMirrorWait,
-		RunOrders: acks}, nil
+		RunOrders: acks}
 }
 
 // buildFirebase builds the bridge's collaborators (Appendix C §C.6) without I/O beyond reading the key

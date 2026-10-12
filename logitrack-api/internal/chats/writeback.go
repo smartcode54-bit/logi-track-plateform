@@ -47,10 +47,6 @@ import (
 // DefaultMirrorWait is how long a write-back handler waits for the mirror's acknowledgement (main spec §13.7, R53).
 const DefaultMirrorWait = 3 * time.Second
 
-// OriginWriteBack is the outbox header origin of the push event a write-back handler appends (the mirror's own event
-// carries origin=etl.sync and pushes nothing).
-const OriginWriteBack = "writeback"
-
 // MirrorAcks waits for the mirror's acknowledgement (cache.Cache.WaitMirrorAck): true once the mirror applied the
 // document at or after want, false when the timeout passed first.
 type MirrorAcks interface {
@@ -329,7 +325,7 @@ func (s *Service) wbSend(ctx context.Context, p *authz.Principal, chatID uuid.UU
 		}
 		_, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteMessageCreated, AggregateType: AggregateChat,
 			AggregateID: c.ID.String(), TenantID: &c.TenantID, Payload: payload,
-			Headers: map[string]string{outbox.HeaderOrigin: OriginWriteBack}})
+			Headers: map[string]string{outbox.HeaderOrigin: outbox.OriginWriteBack}})
 		return err
 	})
 	if err != nil {
