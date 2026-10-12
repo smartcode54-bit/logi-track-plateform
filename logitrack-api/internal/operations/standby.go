@@ -133,7 +133,7 @@ func Project(p *authz.Principal, rec Standby, entryTenant uuid.UUID) StandbyView
 	}
 	rec.BillingEstimateThb, rec.BillingPartyID, rec.BillingRateSource, rec.BillingRateEntryID = nil, nil, nil, nil
 	rec.BillingEffectiveFromDate, rec.BillingUnpricedReason, rec.BillingComputedAt = nil, nil, nil
-	rec.BillingTenantID = nil
+	rec.BillingTenantID, rec.BillingLastEventID = nil, nil
 	return StandbyView{Standby: rec}
 }
 

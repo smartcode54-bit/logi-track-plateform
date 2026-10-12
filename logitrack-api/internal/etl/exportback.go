@@ -53,6 +53,10 @@ type ExportDoc struct {
 	// Retired marks the document of a row whose document id moved (a distance pair minted again after its hub's code
 	// changed): it is written only when it exists, never created, and the reconciliation does not count it as a row.
 	Retired bool
+	// NoCreate marks a document the projection only updates (the billing fields of a Firestore-written trip or standby
+	// record, T38): a document that does not exist is not created (its record has no legacy reader), and the
+	// reconciliation counts it missing like any other.
+	NoCreate bool
 	// Hold, given the whole stored document, names why the projection must leave it alone ("" to write it): the
 	// version gate of another flavor's fleet (settings/mobile_app). A held document is not written (counted skipped,
 	// logged) and the reconciliation reports it as differing.

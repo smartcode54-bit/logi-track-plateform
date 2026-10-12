@@ -18,7 +18,9 @@ func TestParsePlan(t *testing.T) {
 		t.Fatalf("P1 plan %+v %v", p, errs)
 	}
 	p, errs = ParsePlan("all", "", "")
-	if len(errs) != 0 || len(p.Projection) != 12 || p.Projection[10] != "settings" || p.Projection[11] != "holidays" {
+	// Every projection, the holidays (T45) and then the billing fields of trips and standby records (T38) last.
+	if len(errs) != 0 || len(p.Projection) != 14 || p.Projection[10] != "settings" || p.Projection[11] != "holidays" ||
+		p.Projection[12] != "trip_billing" || p.Projection[13] != "standby_billing" {
 		t.Fatalf("all: %+v %v", p, errs)
 	}
 	_, errs = ParsePlan("masterdata,bogus_zz", "tasks,users_zz", "projected_zz")

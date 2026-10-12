@@ -104,9 +104,11 @@ const (
 var singleDocument = map[string]bool{"metadata": true, "settings": true}
 
 // ShadowTargets maps one firestore.shadow event onto its projections. Payloads are thin (main spec §7.1): the
-// projection re-reads the rows. broadcast.created, settings.changed of a key other than the distance matrix and the
-// version gate, trip.priced and standby.priced belong to later phases (T48, T38) and project nothing yet. A body that
-// does not decode or an unknown routing key is an error the consumer acks as permanent.
+// projection re-reads the rows. trip.priced and trip.repriced project the trip's billing fields, standby.priced the
+// standby record's (T38, shadow_billing.go), holidays.changed the holidays (T45, shadow_holidays.go). broadcast.created
+// and settings.changed of a key other than the distance matrix and the version gate belong to a later phase (T48) and
+// project nothing yet. A body that does not decode or an unknown routing key is an error the consumer acks as
+// permanent.
 func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 	var p struct {
 		IDs      []string `json:"ids"`
@@ -209,7 +211,11 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 			return nil, err
 		}
 		return []ShadowTarget{{Collection: "holidays", IDs: list, DeletedDocIDs: p.DeletedDocIDs}}, nil
-	case "broadcast.created", "trip.priced", "standby.priced":
+	case "trip.priced", "trip.repriced":
+		return one(ProjectionTripBilling, p.ID)
+	case "standby.priced":
+		return one(ProjectionStandbyBilling, p.ID)
+	case "broadcast.created":
 		return nil, nil
 	}
 	return nil, fmt.Errorf("etl: firestore.shadow does not project %s", routingKey)
@@ -224,7 +230,8 @@ var projectors = map[string]encoder{
 	"subcontractors": encodeCarriers, "customers": encodeCustomerDocs, "companies": encodeCompanies,
 	"hubs": encodeHubs, "hub_soc_distances": encodeDistances("hub_to_soc"), "soc_hub_distances": encodeDistances("soc_to_hub"),
 	"metadata": encodeMetadata, "trucks": encodeTrucks, "drivers": encodeDrivers, "truckAssignment": encodeAssignments,
-	"settings": encodeMobileAppSettings, "holidays": encodeHolidays,
+	"settings": encodeMobileAppSettings, "holidays": encodeHolidays, ProjectionTripBilling: encodeTripBilling,
+	ProjectionStandbyBilling: encodeStandbyBilling,
 }
 
 // ProjectStats count one projection.
@@ -360,6 +367,10 @@ func projectedTable(coll string) (string, string) {
 		return "hub_soc_distances", "id"
 	case "truckAssignment":
 		return "truck_assignments", "id"
+	case ProjectionTripBilling:
+		return "trip_billing_snapshots", "trip_id"
+	case ProjectionStandbyBilling:
+		return "standby_records", "id"
 	}
 	return coll, "id"
 }
@@ -489,7 +500,7 @@ func writeDoc(ctx context.Context, fs FirestoreWriter, d ExportDoc, foreign []st
 	var pre gcp.Precondition
 	var curFields map[string]any
 	switch {
-	case errors.Is(err, gcp.ErrNotFound) && d.Retired:
+	case errors.Is(err, gcp.ErrNotFound) && (d.Retired || d.NoCreate):
 		return false, "", nil
 	case errors.Is(err, gcp.ErrNotFound):
 		no := false

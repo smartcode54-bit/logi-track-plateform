@@ -28,8 +28,14 @@ func TestEveryMappedCollectionHasADomain(t *testing.T) {
 		}
 	}
 	for n := range collectionDomains {
-		if _, ok := specOf(n); !ok && !separateCollections[n] {
+		_, fields := fieldProjections[n] // the billing fields of trips and standby records (T38): no collection of their own
+		if _, ok := specOf(n); !ok && !separateCollections[n] && !fields {
 			t.Errorf("%s is not a mapped collection", n)
+		}
+	}
+	for p, c := range fieldProjections {
+		if _, ok := specOf(c); !ok || !classC[c] || !slices.Contains(ProjectedCollections, p) {
+			t.Errorf("field projection %s writes %s, which must be a mapped class C collection", p, c)
 		}
 	}
 	for _, c := range ProjectedCollections {
@@ -117,14 +123,23 @@ func TestPlanProjection(t *testing.T) {
 	if c, _ := PlanProjection(set("auth"), nil); len(c) != 0 {
 		t.Errorf("a Firestore-owned masterdata is projected: %v", c)
 	}
-	// P1: the master data; the version gate settings/mobile_app and the holidays stay Firestore's (mobile_release and hr
-	// are not owned).
+	// P1: the master data; the version gate settings/mobile_app, the holidays and the billing fields of trips and standby
+	// records stay Firestore's (mobile_release, hr and billing are not owned).
 	without := func(names ...string) []string {
 		return slices.DeleteFunc(slices.Clone(ProjectedCollections), func(s string) bool { return slices.Contains(names, s) })
 	}
+	billing := []string{ProjectionTripBilling, ProjectionStandbyBilling}
 	c, _ := PlanProjection(set("auth", "masterdata"), nil)
-	if !slices.Equal(c, without("settings", "holidays")) {
+	if !slices.Equal(c, without(append([]string{"settings", "holidays"}, billing...)...)) {
 		t.Errorf("P1 projection %v", c)
+	}
+	// P3 (billing owned): the price fields join (T38), while trips and standby records stay mirrored whole (class C).
+	c, _ = PlanProjection(set("auth", "masterdata", "billing"), nil)
+	if !slices.Equal(c, without("settings", "holidays")) {
+		t.Errorf("P3 projection %v", c)
+	}
+	if p, _ := PlanMirror(set("auth", "masterdata", "billing"), nil); p.Mode("trip_records") != MirrorFull || p.Mode("standby_records") != MirrorFull {
+		t.Errorf("P3 mirror of trips %q, standby %q", p.Mode("trip_records"), p.Mode("standby_records"))
 	}
 	// P4 (hr owned, T45): the holidays join, alone when hr is the only owned domain.
 	if c, _ := PlanProjection(set("auth", "masterdata", "billing", "hr"), nil); !slices.Equal(c, without("settings")) {
@@ -138,11 +153,11 @@ func TestPlanProjection(t *testing.T) {
 		t.Errorf("hr owned: holidays %q, leave_requests %q", p.Mode("holidays"), p.Mode("leave_requests"))
 	}
 	// P6 (mobile_release owned): the version gate joins; alone, it is the only projected collection.
-	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c, without("holidays")) {
+	if c, _ := PlanProjection(set("auth", "masterdata", "mobile_release"), nil); !slices.Equal(c, without(append([]string{"holidays"}, billing...)...)) {
 		t.Errorf("P6 projection %v", c)
 	}
-	if c, _ := PlanProjection(set("auth", "masterdata", "hr", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
-		t.Errorf("P6 projection with hr %v", c)
+	if c, _ := PlanProjection(set("auth", "masterdata", "billing", "hr", "mobile_release"), nil); !slices.Equal(c, ProjectedCollections) {
+		t.Errorf("P6 projection with billing and hr %v", c)
 	}
 	if c, _ := PlanProjection(set("mobile_release"), nil); strings.Join(c, ",") != "settings" {
 		t.Errorf("mobile_release projection %v", c)
@@ -192,7 +207,9 @@ func TestShadowTargets(t *testing.T) {
 			[]ShadowTarget{{Collection: "holidays", IDs: []uuid.UUID{a}, DeletedDocIDs: []string{"hol_legacy", b.String()}}}},
 		{"holidays.changed", `{}`, []ShadowTarget{{Collection: "holidays", IDs: []uuid.UUID{}}}},
 		{"broadcast.created", `{}`, nil},
-		{"trip.priced", `{"id":"x"}`, nil},
+		{"trip.priced", `{"id":"` + a.String() + `","priced":true}`, []ShadowTarget{{Collection: ProjectionTripBilling, IDs: []uuid.UUID{a}}}},
+		{"trip.repriced", `{"id":"` + b.String() + `","billingDateMoved":true}`, []ShadowTarget{{Collection: ProjectionTripBilling, IDs: []uuid.UUID{b}}}},
+		{"standby.priced", `{"id":"` + c.String() + `"}`, []ShadowTarget{{Collection: ProjectionStandbyBilling, IDs: []uuid.UUID{c}}}},
 	}
 	for _, tc := range cases {
 		got, err := ShadowTargets(tc.key, []byte(tc.body))
@@ -214,7 +231,7 @@ func TestShadowTargets(t *testing.T) {
 		}
 	}
 	for _, bad := range []struct{ key, body string }{{"truck.created", `{"id":"not-a-uuid"}`}, {"customers.changed", `[`},
-		{"user.created", `{}`}} {
+		{"user.created", `{}`}, {"trip.priced", `{"id":"x"}`}} {
 		if _, err := ShadowTargets(bad.key, []byte(bad.body)); err == nil {
 			t.Errorf("%s %s accepted", bad.key, bad.body)
 		}

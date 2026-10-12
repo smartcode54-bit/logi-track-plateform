@@ -45,6 +45,8 @@ type AuthOption func(*authPolicy)
 // authPolicy is what a route admits besides a Go access token.
 type authPolicy struct {
 	keys []authz.APIKeyScope // machine principals of these scopes; none by default
+	// shim is a callable shim target (RequireShim): a cf_shim key on the public listener, with a Firebase ID token.
+	shim bool
 }
 
 // AllowAPIKeys admits machine principals (X-Api-Key) of the given scopes on the route, on the internal
@@ -52,14 +54,15 @@ type authPolicy struct {
 // allow, release_publisher only on the two APK publish routes (T52). A route admits no API key unless its
 // registration says so (Appendix B §B.1.4: "or an API key where stated"), because most routes write rows
 // that name a users row (created_by, actor_user_id) a key does not have. cf_shim keys never pass here:
-// they authenticate an end user together with a Firebase ID token on the public shim targets, which ship
-// with the shims (T32, M2); naming the scope panics at registration, as does an unknown scope.
+// they authenticate an end user together with a Firebase ID token on the public shim targets (RequireShim,
+// first used by T38; T32 mounts the other targets); naming the scope panics at registration, as does an
+// unknown scope.
 func AllowAPIKeys(scopes ...authz.APIKeyScope) AuthOption {
 	for _, s := range scopes {
 		switch s {
 		case authz.KeyIntegration, authz.KeyScript, authz.KeyReleasePublisher:
 		case authz.KeyCFShim:
-			panic("auth: cf_shim keys are served by the shim targets (T32, M2), not by AllowAPIKeys")
+			panic("auth: cf_shim keys are served by the shim targets (RequireShim), not by AllowAPIKeys")
 		default:
 			panic("auth: AllowAPIKeys with an unknown scope " + string(s))
 		}
@@ -89,8 +92,9 @@ type apiKeyUsage struct {
 //     genuine key also when it is revoked, expired or its tenant is not active (details.reason), or when an
 //     Authorization header came with it (exactly one credential per request, C.4.3);
 //   - 429 resource_exhausted: the key's own bucket rl:apikey:{id} at api_keys.rate_per_min (B.6.3);
-//   - 403 permission_denied (details.reason api_key_scope): a cf_shim key until its shim targets ship (M2),
-//     any key on the public listener, and a key whose scope the route does not admit (AllowAPIKeys).
+//   - 403 permission_denied (details.reason api_key_scope): a cf_shim key anywhere but a shim target of the
+//     public listener (RequireShim), any other key on the public listener, and a key whose scope the route does
+//     not admit (AllowAPIKeys).
 //
 // The secret never reaches a log line: rejections name the key's id and prefix only.
 func (s *Service) authenticateAPIKey(c fiber.Ctx, vals [][]byte, withAuthorization bool, pol authPolicy) (*authz.Principal, error) {
@@ -164,6 +168,12 @@ func (s *Service) authenticateAPIKey(c fiber.Ctx, vals [][]byte, withAuthorizati
 // keyScopeRefusal is why a key of scope may not use this route ("" = it may): R82, Appendix C §C.4.11.
 func keyScopeRefusal(scope authz.APIKeyScope, listener string, pol authPolicy) string {
 	switch {
+	case pol.shim && scope == authz.KeyCFShim && listener == ingress.Public:
+		return ""
+	case pol.shim && scope == authz.KeyCFShim:
+		return "cf_shim keys are accepted on the public listener only"
+	case pol.shim:
+		return "the callable shim targets accept cf_shim keys only"
 	case scope == authz.KeyCFShim:
 		return "cf_shim keys serve only the callable shim targets, together with a Firebase ID token"
 	case listener != ingress.Internal:

@@ -22,6 +22,15 @@ import {
     type BillingPeriodLocks,
     type LockedPeriod,
 } from "./core/billingPeriodLock";
+import {
+    computeTripShimUrl,
+    goPricesBilling,
+    isMobileShimCall,
+    logitrackApiBaseUrl,
+    logitrackApiKey,
+    postShim,
+    shimBaseUrl,
+} from "./core/goShim";
 
 const COL_TASKS = "tasks";
 const COL_RATE_ENTRIES = "customer_rate_entries";
@@ -625,6 +634,7 @@ export const computeTripBillingSnapshot = onCall<ComputeBillingRequest, Promise<
     {
         region: "asia-southeast1",
         enforceAppCheck: false, // Web admin calls without App Check token; auth protected by request.auth check below
+        secrets: [logitrackApiKey],
     },
     async (request): Promise<ComputeBillingResponse> => {
         if (!request.auth) {
@@ -639,6 +649,18 @@ export const computeTripBillingSnapshot = onCall<ComputeBillingRequest, Promise<
         const forceRecompute = request.data?.forceRecompute === true;
         if (forceRecompute && request.auth.token.admin !== true) {
             throw new HttpsError("permission-denied", "Admin only: forceRecompute");
+        }
+
+        // mv-go shim (T38, R45): a driver's call goes to the Go API with the caller's own Firebase ID token and the
+        // cf_shim key; the answer keeps {ok, skipped?, error?} (never an amount: the APK ignores it, Go prices on the
+        // mirrored trip.delivered and its safety net anyway). Admin calls stay on this legacy path until the billing web
+        // flag moves the pages to Go.
+        if (goPricesBilling() && isMobileShimCall(request.auth.token as Record<string, unknown>, forceRecompute)) {
+            const base = shimBaseUrl(logitrackApiBaseUrl.value());
+            const bearer = String(request.rawRequest?.headers?.authorization ?? "");
+            const out = await postShim(computeTripShimUrl(base, tripId), logitrackApiKey.value(), bearer, {});
+            logger.info("[shim] computeTripBillingSnapshot", { tripId, ok: out.ok, skipped: out.skipped, error: out.error });
+            return out;
         }
 
         const db = admin.firestore();
@@ -1232,6 +1254,10 @@ export const autoComputeBillingOnDelivery = onSchedule(
         timeoutSeconds: 540,
     },
     async () => {
+        if (goPricesBilling()) {
+            logger.info("[autoComputeBilling] skipped: the Go API prices delivered trips (billing.compute, mv-go P3)");
+            return;
+        }
         const db = admin.firestore();
         const windowMs = 30 * 60 * 1000; // 30-minute look-back window
         const since = admin.firestore.Timestamp.fromMillis(Date.now() - windowMs);
