@@ -163,6 +163,39 @@ func TestParseImportRow(t *testing.T) {
 	}
 }
 
+// T31 review: a sheet's canonical padded number moves the global counter of the type and day it names, so it must be
+// of the import's type and the row's Bangkok plan day, with a sequence of at most MaxSheetTaskSeq; any other text (a
+// shipment id, an unpadded legacy number) is kept as it is.
+func TestParseImportRowTaskNo(t *testing.T) {
+	party := uuid.NewString()
+	for no, want := range map[string]string{
+		"FM-12102026-005":        "",
+		"FM-12102026-999":        "",
+		"FM-12102026-1000":       "taskNo out_of_range",
+		"FM-12102026-2147483647": "taskNo out_of_range",
+		"FM-13102026-005":        "taskNo mismatch",
+		"LH-12102026-005":        "taskNo mismatch",
+		"FM-12102026-5":          "",
+		"SHP-778899":             "",
+	} {
+		r := parseImportRow(1, FirstMile, []byte(`{"date":"2026-10-12","sourceHub":"A","destination":"B","billingPartyId":"`+party+
+			`","taskNo":"`+no+`"}`))
+		got := ""
+		for _, e := range r.errs {
+			got = e.Field + " " + e.Reason
+		}
+		if got != want || r.in.taskNo == nil || *r.in.taskNo != no {
+			t.Errorf("%s: %q %v, want %q", no, got, r.errs, want)
+		}
+	}
+	// An instant plan day is the Bangkok day: 2026-10-11T18:00Z is 12 Oct in Bangkok.
+	r := parseImportRow(1, FirstMile, []byte(`{"date":"2026-10-11T18:00:00Z","sourceHub":"A","destination":"B","billingPartyId":"`+
+		party+`","taskNo":"FM-12102026-005"}`))
+	if len(r.errs) != 0 {
+		t.Fatalf("the Bangkok day of an instant: %v", r.errs)
+	}
+}
+
 // The legacy encoding of main spec §13.8: status and type literals, dateStr in Bangkok, the drivers' Firestore ids,
 // the helper's uid, the party links by their customers document; a PATCH writes only the changed keys.
 func TestEncodeTask(t *testing.T) {
@@ -255,8 +288,14 @@ func TestResolvePlace(t *testing.T) {
 }
 
 func TestPlateKeyAndTaskTypes(t *testing.T) {
-	if plateKey(" 70-12 34\t") != "701234" {
-		t.Fatal(plateKey(" 70-12 34\t"))
+	// JavaScript's \s (normalizePlate): NBSP, ideographic space, vertical tab, BOM, narrow NBSP, inside or around.
+	for _, in := range []string{" 70-12 34\t", "70\u00a012-34", "70\u300012\v34", "\ufeff70 12\u202f34", "70\u00a01234"} {
+		if got := plateKey(in); got != "701234" {
+			t.Errorf("plateKey(%q) = %q", in, got)
+		}
+	}
+	if got := plateKey("1กข\u00a01234"); got != "1กข1234" {
+		t.Errorf("a Thai plate with NBSP: %q", got)
 	}
 	for v, want := range map[string]string{"FIRST_MILE": FirstMile, "line_haul": LineHaul, "LH": ""} {
 		if got, _ := taskTypeOf(v); got != want {

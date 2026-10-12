@@ -7,9 +7,23 @@ package operationsdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const callerAuthUID = `-- name: CallerAuthUID :one
+SELECT legacy_auth_uid FROM users WHERE id = $1
+`
+
+// The Firebase uid of the writer's login (users.legacy_auth_uid; a caller reads its own users row, p_self_read): the
+// user-valued fields of the write-back's documents (reportedByUid, renamedBy) carry it, as the legacy writers did.
+func (q *Queries) CallerAuthUID(ctx context.Context, id uuid.UUID) (*string, error) {
+	row := q.db.QueryRow(ctx, callerAuthUID, id)
+	var legacy_auth_uid *string
+	err := row.Scan(&legacy_auth_uid)
+	return legacy_auth_uid, err
+}
 
 const clearDriverActiveTask = `-- name: ClearDriverActiveTask :execrows
 UPDATE drivers
@@ -46,6 +60,46 @@ func (q *Queries) DeleteTaskStops(ctx context.Context, taskID uuid.UUID) (int64,
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const helperPayrollLocks = `-- name: HelperPayrollLocks :many
+SELECT h.driver_id::uuid AS driver_id, h.status::text AS status
+FROM task_helper_payroll_locks($1::uuid[], $2::text, $3::text)
+  AS h (driver_id, status)
+`
+
+type HelperPayrollLocksParams struct {
+	DriverIds []uuid.UUID
+	PayPeriod string
+	PayRound  string
+}
+
+type HelperPayrollLocksRow struct {
+	DriverID uuid.UUID
+	Status   string
+}
+
+// The approved or paid payroll runs of drivers for one pay period (YYYY-MM) and round (R1 | R2): the payroll lock of a
+// change of a task's helper day (T31 review; task_helper_payroll_locks(), SECURITY DEFINER, 0020: the caller's RLS
+// does not show payroll_runs to staff without hr:view_payroll, nor a carrier helper's run of another tenant).
+func (q *Queries) HelperPayrollLocks(ctx context.Context, arg HelperPayrollLocksParams) ([]HelperPayrollLocksRow, error) {
+	rows, err := q.db.Query(ctx, helperPayrollLocks, arg.DriverIds, arg.PayPeriod, arg.PayRound)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []HelperPayrollLocksRow{}
+	for rows.Next() {
+		var i HelperPayrollLocksRow
+		if err := rows.Scan(&i.DriverID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setIncidentPhotos = `-- name: SetIncidentPhotos :one
@@ -137,6 +191,69 @@ func (q *Queries) TaskParties(ctx context.Context, id uuid.UUID) ([]uuid.UUID, e
 	return items, nil
 }
 
+const taskPlanBilledTrips = `-- name: TaskPlanBilledTrips :many
+SELECT r.id, bp.id AS party_id, r.billing_date
+FROM trip_records r
+JOIN tasks t ON t.id = r.task_id
+JOIN billing_parties bp ON bp.id = coalesce(r.billing_party_id, t.billing_party_id)
+WHERE r.task_id = $1::uuid
+  AND (r.status = 'delivered' OR r.billing_date IS NOT NULL)
+  AND bp.billing_date_basis = 'plan'
+ORDER BY r.id
+`
+
+type TaskPlanBilledTripsRow struct {
+	ID          uuid.UUID
+	PartyID     uuid.UUID
+	BillingDate *time.Time
+}
+
+// The trips of a task whose billing a move of the task's plan day reaches (T31 review, main spec §6.10, ADR 0027):
+// delivered, or already stamped with a billing date, and billed to a party (the trip's, else the task's) on the plan
+// axis. The move reads the period lock of that party for the trip's billing instant (its billing date, else the task's
+// plan instant) and the new plan instant in the update's transaction.
+func (q *Queries) TaskPlanBilledTrips(ctx context.Context, taskID uuid.UUID) ([]TaskPlanBilledTripsRow, error) {
+	rows, err := q.db.Query(ctx, taskPlanBilledTrips, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskPlanBilledTripsRow{}
+	for rows.Next() {
+		var i TaskPlanBilledTripsRow
+		if err := rows.Scan(&i.ID, &i.PartyID, &i.BillingDate); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const tenantsLinked = `-- name: TenantsLinked :one
+SELECT ($1::uuid = $2::uuid OR EXISTS (
+  SELECT 1 FROM tenants t
+  WHERE (t.id = $1::uuid AND t.contractor_tenant_id = $2::uuid)
+     OR (t.id = $2::uuid AND t.contractor_tenant_id = $1::uuid)))::boolean AS linked
+`
+
+type TenantsLinkedParams struct {
+	A uuid.UUID
+	B uuid.UUID
+}
+
+// Whether two tenants are one or linked by contractor_tenant_id in either direction (R60): a helper or a truck of such a
+// tenant may serve a row of the other (the link rule of the R13 mover, iam TenantsLinked). Both tenants are in the
+// writer's reach when it is asked (operations.checkTenantLinks), so its RLS reads them.
+func (q *Queries) TenantsLinked(ctx context.Context, arg TenantsLinkedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tenantsLinked, arg.A, arg.B)
+	var linked bool
+	err := row.Scan(&linked)
+	return linked, err
+}
+
 const tripParties = `-- name: TripParties :many
 SELECT DISTINCT p::uuid AS party_id FROM (
   SELECT r.billing_party_id AS p FROM trip_records r WHERE r.id = $1
@@ -175,10 +292,15 @@ func (q *Queries) TripParties(ctx context.Context, id uuid.UUID) ([]uuid.UUID, e
 const trucksByPlate = `-- name: TrucksByPlate :many
 SELECT t.id, t.tenant_id, t.license_plate, t.vehicle_class, t.type_raw, t.legacy_doc_id
 FROM trucks t
-WHERE upper(regexp_replace(t.license_plate, '[[:space:]-]', '', 'g')) = $1::text
+WHERE upper(translate(t.license_plate, $1::text, '')) = $2::text
 ORDER BY t.id
 LIMIT 2
 `
+
+type TrucksByPlateParams struct {
+	StripChars string
+	PlateKey   string
+}
 
 type TrucksByPlateRow struct {
 	ID           uuid.UUID
@@ -190,9 +312,10 @@ type TrucksByPlateRow struct {
 }
 
 // The fleet trucks of a plate as the task import matches it (import-dialog.tsx normalizePlate: upper case without
-// spaces and dashes), at most two (two trucks of one plate make the cell ambiguous).
-func (q *Queries) TrucksByPlate(ctx context.Context, plateKey string) ([]TrucksByPlateRow, error) {
-	rows, err := q.db.Query(ctx, trucksByPlate, plateKey)
+// JavaScript's \s and dashes; strip_chars is that set, operations.plateStrip, so both sides drop the same characters
+// whatever the database's ctype calls a space), at most two (two trucks of one plate make the cell ambiguous).
+func (q *Queries) TrucksByPlate(ctx context.Context, arg TrucksByPlateParams) ([]TrucksByPlateRow, error) {
+	rows, err := q.db.Query(ctx, trucksByPlate, arg.StripChars, arg.PlateKey)
 	if err != nil {
 		return nil, err
 	}

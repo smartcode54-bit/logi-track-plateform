@@ -192,6 +192,12 @@ func (k Keyspace) MirrorAck(collection, docID string) string {
 	return k.Key(NSCache, "mirror_ack", collection, docID)
 }
 
+// RunOrderHold holds the last queue position the operations write-back handed out to a driver (T31), until
+// the mirror has loaded the task that carries it.
+func (k Keyspace) RunOrderHold(driverID string) string {
+	return k.Key(NSCache, "run_order", driverID)
+}
+
 // --- auth: (Appendix B §B.6.2, Appendix C §C.4.14) ---
 
 // AuthRefresh is the refresh-token index entry of a token hash (hex sha256).

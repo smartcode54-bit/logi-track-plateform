@@ -13,8 +13,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/vehicleclass"
+	hrcompute "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr/compute"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
 )
@@ -348,6 +351,21 @@ func (s *Service) planTask(ctx context.Context, q *operationsdb.Queries, d direc
 		}
 	}
 	if in.truckType != nil && in.truckID == nil && !sameStr(in.truckType, cur.TruckType) {
+		if !in.has("truckId") && cur.TruckID != nil {
+			// The task keeps its truck: a class-only change must be the truck's class, as on create (R15, the vehicle
+			// identity ADR: the truck's class wins; billing prices with the task's class). A truck of unknown class may
+			// take one; a truck the caller no longer reads is not checked.
+			tr, err := q.WriteTruck(ctx, *cur.TruckID)
+			switch {
+			case err == nil:
+				pl.truck = &tr
+				if tr.VehicleClass != nil && *tr.VehicleClass != *in.truckType {
+					ck.add("truckType", "not_truck_class")
+				}
+			case !errors.Is(err, pgx.ErrNoRows):
+				return pl, MapError(err)
+			}
+		}
 		n.TruckType, n.LegacyTruckType = in.truckType, nil
 		mark("truckType")
 	}
@@ -359,10 +377,12 @@ func (s *Service) planTask(ctx context.Context, q *operationsdb.Queries, d direc
 			return pl, MapError(err)
 		}
 	}
-	// People: the driver and the helper must be drivers the caller reads; the helper is never the driver (ADR 0011).
+	// People: a new driver or helper must be a driver the caller reads and an active one; one the body sends back
+	// unchanged is only read for the encoder (a driver deactivated since the assignment does not block the task's other
+	// edits). The helper is never the driver (ADR 0011).
 	if in.has("driverId") || (create && in.driverID != nil) {
 		if in.driverID != nil {
-			dr, err := s.driverRow(ctx, q, ck, "driverId", *in.driverID)
+			dr, err := s.personRow(ctx, q, ck, "driverId", *in.driverID, !create && sameID(in.driverID, cur.DriverID))
 			if err != nil {
 				return pl, err
 			}
@@ -384,7 +404,7 @@ func (s *Service) planTask(ctx context.Context, q *operationsdb.Queries, d direc
 	}
 	if in.has("helperDriverId") || (create && in.helperDriverID != nil) {
 		if in.helperDriverID != nil {
-			hr, err := s.driverRow(ctx, q, ck, "helperDriverId", *in.helperDriverID)
+			hr, err := s.personRow(ctx, q, ck, "helperDriverId", *in.helperDriverID, !create && sameID(in.helperDriverID, cur.HelperDriverID))
 			if err != nil {
 				return pl, err
 			}
@@ -475,12 +495,9 @@ func (s *Service) planLifecycle(ctx context.Context, q *operationsdb.Queries, ck
 		}
 		n.RunOrder = nil
 		if n.DriverID != nil && in.runOrder == nil {
-			if err := q.LockDriverQueue(ctx, *n.DriverID); err != nil {
-				return MapError(err)
-			}
-			ro, err := q.NextRunOrder(ctx, *n.DriverID)
+			ro, err := s.nextRunOrder(ctx, q, *n.DriverID)
 			if err != nil {
-				return MapError(err)
+				return err
 			}
 			n.RunOrder = &ro
 		}
@@ -512,6 +529,7 @@ func (s *Service) planLifecycle(ctx context.Context, q *operationsdb.Queries, ck
 				return MapError(err)
 			}
 			n.RunOrder = in.runOrder
+			s.holdRunOrder(ctx, *n.DriverID, *in.runOrder)
 			if !slices.Contains(pl.changed, "runOrder") {
 				pl.changed = append(pl.changed, "runOrder")
 			}
@@ -542,19 +560,82 @@ func placeOf(d directory, ck *checker, field string, raw *string, hubID *uuid.UU
 	return text, r.hubID, r.party
 }
 
-// driverRow reads a driver the caller can see (422 <field> not_found); an inactive driver is 409 driver_inactive.
-func (s *Service) driverRow(ctx context.Context, q *operationsdb.Queries, ck *checker, field string, id uuid.UUID) (*operationsdb.WriteDriverRow, error) {
+// personRow reads the driver or helper a task write names. A new or changed value must be a driver the caller can see
+// (422 <field> not_found) and active (409 driver_inactive); the value the task already holds (unchanged) is only read
+// for the encoder, inactive or not, and a row the caller no longer reads is left out (nil) without a violation, as when
+// the body does not name the field.
+func (s *Service) personRow(ctx context.Context, q *operationsdb.Queries, ck *checker, field string, id uuid.UUID,
+	unchanged bool) (*operationsdb.WriteDriverRow, error) {
 	dr, err := q.WriteDriver(ctx, id)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		ck.add(field, "not_found")
+		if !unchanged {
+			ck.add(field, "not_found")
+		}
 		return nil, nil
 	case err != nil:
 		return nil, MapError(err)
-	case dr.Status == "inactive":
+	case dr.Status == "inactive" && !unchanged:
 		return nil, errPrecondition(ReasonDriverInactive, "the driver is inactive").WithDetails(map[string]any{"field": field})
 	}
 	return &dr, nil
+}
+
+// ReasonNotInTenant is the reason of a 422 for a driver, helper or truck a write links to a row of another tenant.
+const ReasonNotInTenant = "not_in_tenant"
+
+// tenantLink is one link of an operations row to a driver, helper or truck, with the tenant of that master row.
+type tenantLink struct {
+	field  string
+	tenant uuid.UUID
+	exact  bool // the driver of a task: the row's own tenant only; a helper or a truck: that tenant or a linked one
+}
+
+// checkTenantLinks applies the tenant rules of the R13 mover (iam.TaskMover.checkPeople) to the links a write sets on
+// a row of tenant (T31 review; Appendix C §C.1.7, §C.9.2 #12): a task's driver belongs to the task's tenant; a helper
+// or a truck to that tenant or to a tenant linked to it by contractor_tenant_id (R60); and a master row of another
+// tenant must be in the writer's own write reach (writable: its tenant and contractor reach, never the read-only
+// dispatcher scope). Readable is wider than writable: a dispatcher reads other carriers' drivers and trucks through
+// its parties' scope, and a driver of another carrier joins a call-out only through the audited move (PATCH with
+// tenantId). A violation is 422 <field> not_in_tenant. Only new or changed links are passed: a link a row already
+// holds (a legacy row the mirror loaded) stays editable.
+func (s *Service) checkTenantLinks(ctx context.Context, q *operationsdb.Queries, p *authz.Principal, tenant uuid.UUID,
+	links ...tenantLink) error {
+	var ck checker
+	for _, l := range links {
+		if l.tenant == tenant {
+			continue
+		}
+		ok := !l.exact && writable(p, l.tenant)
+		if ok {
+			linked, err := q.TenantsLinked(ctx, operationsdb.TenantsLinkedParams{A: l.tenant, B: tenant})
+			if err != nil {
+				return MapError(err)
+			}
+			ok = linked
+		}
+		if !ok {
+			ck.add(l.field, ReasonNotInTenant)
+		}
+	}
+	return ck.err()
+}
+
+// taskLinks are the links of a task plan to check against the task's tenant: on a create every driver, helper and
+// truck it names; on an update the ones that change.
+func taskLinks(pl taskPlan, cur Task, create bool) []tenantLink {
+	n := pl.next
+	var out []tenantLink
+	if pl.driver != nil && n.DriverID != nil && (create || !sameID(n.DriverID, cur.DriverID)) {
+		out = append(out, tenantLink{field: "driverId", tenant: pl.driver.TenantID, exact: true})
+	}
+	if pl.helper != nil && n.HelperDriverID != nil && (create || !sameID(n.HelperDriverID, cur.HelperDriverID)) {
+		out = append(out, tenantLink{field: "helperDriverId", tenant: pl.helper.TenantID})
+	}
+	if pl.truck != nil && n.TruckID != nil && (create || !sameID(n.TruckID, cur.TruckID)) {
+		out = append(out, tenantLink{field: "truckId", tenant: pl.truck.TenantID})
+	}
+	return out
 }
 
 // loadParties caches the parties a row names that the write did not check (a hub-derived link): the write-back names
@@ -694,6 +775,9 @@ func (s *Service) insertTask(ctx context.Context, tx pgx.Tx, p *authz.Principal,
 		return Task{}, err
 	}
 	tenant, _ := uuid.Parse(res.TenantID)
+	if err := s.checkTenantLinks(ctx, q, p, tenant, taskLinks(pl, Task{}, true)...); err != nil {
+		return Task{}, err
+	}
 	n := pl.next
 	var by *uuid.UUID
 	if !p.IsMachine() {
@@ -824,6 +908,15 @@ func (s *Service) PatchTaskAPI(ctx context.Context, p *authz.Principal, rid stri
 		if len(pl.changed) == 0 {
 			return nil // nothing changes: no write, no event
 		}
+		if err := s.checkTenantLinks(ctx, q, p, cur.TenantID, taskLinks(pl, cur, false)...); err != nil {
+			return err
+		}
+		if err := planMoveLock(ctx, tx, q, cur, pl); err != nil {
+			return err
+		}
+		if err := helperPayrollLock(ctx, q, cur, pl); err != nil {
+			return err
+		}
 		next, err := s.updateTask(ctx, q, pl)
 		if err != nil {
 			return err
@@ -838,6 +931,95 @@ func (s *Service) PatchTaskAPI(ctx context.Context, p *authz.Principal, rid stri
 		return WriteResult{}, err
 	}
 	return WriteResult{Status: http.StatusOK, Data: view}, nil
+}
+
+// planMoveLock reads, in the update's transaction, the period lock a move of the task's plan day reaches (main spec
+// §6.10: "lock in the same tx", as PATCH /v1/trips/{id} deliveredAt): for each delivered (or billing-stamped) trip of
+// the task billed on the plan axis, the period of its billing instant and of the new plan instant; a sent or paid
+// statement there is 409 billing_period_locked with blockedInvoiceNumber, and nothing is written. A delivered-axis
+// party's billing does not follow the plan day, so its trips are not read.
+func planMoveLock(ctx context.Context, tx pgx.Tx, q *operationsdb.Queries, cur Task, pl taskPlan) error {
+	if !pl.planMove {
+		return nil
+	}
+	trips, err := q.TaskPlanBilledTrips(ctx, cur.ID)
+	if err != nil {
+		return MapError(err)
+	}
+	for _, r := range trips {
+		old := cur.PlanAt
+		if r.BillingDate != nil {
+			old = *r.BillingDate
+		}
+		l, locked, err := billing.PeriodLock(ctx, tx, r.PartyID, old, pl.next.PlanAt)
+		if err != nil {
+			return MapError(err)
+		}
+		if locked {
+			return billing.ErrPeriodLocked(l)
+		}
+	}
+	return nil
+}
+
+// CodePayrollLocked is the 409 of a task change that moves a helper day of an approved or paid payroll round (Appendix
+// B §B.1.5).
+const CodePayrollLocked = "payroll_locked"
+
+// payRound is a pay period (Bangkok YYYY-MM) and round (R1 = days 1-15, R2 = 16 to the month's end) of a plan instant:
+// the round whose helper pay counts the task (hr ListHelperTasks reads tasks by plan_at; ADR 0011, 0013).
+type payRound struct{ period, round string }
+
+func payRoundOf(at time.Time) payRound {
+	return payRound{period: at.In(clock.Bangkok).Format("2006-01"), round: string(hrcompute.AssignRound(at))}
+}
+
+// helperPayrollLock is the payroll lock of a task update (Appendix B §B.2.11 "helper change checks payroll lock", the
+// legacy EditTripDetailsDialog check, now server-side): a change of the helper moves the day from the old helper's
+// round to the new helper's, and a move of the plan day of a task with a helper moves it between that helper's rounds;
+// when the payroll run of an affected helper for that round is approved or paid (approved line items are frozen, ADR
+// 0013) the update is 409 payroll_locked with details {driverId, status, period, round} and nothing is written. The
+// runs are read through task_helper_payroll_locks() (0020), so an operator without HR capabilities and a carrier
+// helper's run in another tenant are checked alike.
+func helperPayrollLock(ctx context.Context, q *operationsdb.Queries, cur Task, pl taskPlan) error {
+	n := pl.next
+	affected := map[payRound][]uuid.UUID{}
+	add := func(driver *uuid.UUID, at time.Time) {
+		if driver == nil {
+			return
+		}
+		k := payRoundOf(at)
+		if !slices.Contains(affected[k], *driver) {
+			affected[k] = append(affected[k], *driver)
+		}
+	}
+	switch {
+	case !sameID(n.HelperDriverID, cur.HelperDriverID):
+		add(cur.HelperDriverID, cur.PlanAt)
+		add(n.HelperDriverID, n.PlanAt)
+	case n.HelperDriverID != nil && payRoundOf(n.PlanAt) != payRoundOf(cur.PlanAt):
+		add(n.HelperDriverID, cur.PlanAt)
+		add(n.HelperDriverID, n.PlanAt)
+	}
+	keys := make([]payRound, 0, len(affected))
+	for k := range affected {
+		keys = append(keys, k)
+	}
+	slices.SortFunc(keys, func(a, b payRound) int { return strings.Compare(a.period+a.round, b.period+b.round) })
+	for _, k := range keys {
+		rows, err := q.HelperPayrollLocks(ctx, operationsdb.HelperPayrollLocksParams{DriverIds: affected[k],
+			PayPeriod: k.period, PayRound: k.round})
+		if err != nil {
+			return MapError(err)
+		}
+		if len(rows) > 0 {
+			return httpx.NewError(http.StatusConflict, CodePayrollLocked,
+				"the helper's payroll for this period is already "+rows[0].Status+"; correct it with an adjustment").
+				WithDetails(map[string]any{"field": "helperDriverId", "driverId": rows[0].DriverID, "status": rows[0].Status,
+					"period": k.period, "round": k.round})
+		}
+	}
+	return nil
 }
 
 // sameTenantRefusal reports the mover's 422 tenantId same_tenant (a driver change without a move).

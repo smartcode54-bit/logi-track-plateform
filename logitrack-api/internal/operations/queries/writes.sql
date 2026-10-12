@@ -90,9 +90,46 @@ RETURNING *;
 
 -- name: TrucksByPlate :many
 -- The fleet trucks of a plate as the task import matches it (import-dialog.tsx normalizePlate: upper case without
--- spaces and dashes), at most two (two trucks of one plate make the cell ambiguous).
+-- JavaScript's \s and dashes; strip_chars is that set, operations.plateStrip, so both sides drop the same characters
+-- whatever the database's ctype calls a space), at most two (two trucks of one plate make the cell ambiguous).
 SELECT t.id, t.tenant_id, t.license_plate, t.vehicle_class, t.type_raw, t.legacy_doc_id
 FROM trucks t
-WHERE upper(regexp_replace(t.license_plate, '[[:space:]-]', '', 'g')) = sqlc.arg(plate_key)::text
+WHERE upper(translate(t.license_plate, sqlc.arg(strip_chars)::text, '')) = sqlc.arg(plate_key)::text
 ORDER BY t.id
 LIMIT 2;
+
+-- name: TenantsLinked :one
+-- Whether two tenants are one or linked by contractor_tenant_id in either direction (R60): a helper or a truck of such a
+-- tenant may serve a row of the other (the link rule of the R13 mover, iam TenantsLinked). Both tenants are in the
+-- writer's reach when it is asked (operations.checkTenantLinks), so its RLS reads them.
+SELECT (sqlc.arg(a)::uuid = sqlc.arg(b)::uuid OR EXISTS (
+  SELECT 1 FROM tenants t
+  WHERE (t.id = sqlc.arg(a)::uuid AND t.contractor_tenant_id = sqlc.arg(b)::uuid)
+     OR (t.id = sqlc.arg(b)::uuid AND t.contractor_tenant_id = sqlc.arg(a)::uuid)))::boolean AS linked;
+
+-- name: TaskPlanBilledTrips :many
+-- The trips of a task whose billing a move of the task's plan day reaches (T31 review, main spec §6.10, ADR 0027):
+-- delivered, or already stamped with a billing date, and billed to a party (the trip's, else the task's) on the plan
+-- axis. The move reads the period lock of that party for the trip's billing instant (its billing date, else the task's
+-- plan instant) and the new plan instant in the update's transaction.
+SELECT r.id, bp.id AS party_id, r.billing_date
+FROM trip_records r
+JOIN tasks t ON t.id = r.task_id
+JOIN billing_parties bp ON bp.id = coalesce(r.billing_party_id, t.billing_party_id)
+WHERE r.task_id = sqlc.arg(task_id)::uuid
+  AND (r.status = 'delivered' OR r.billing_date IS NOT NULL)
+  AND bp.billing_date_basis = 'plan'
+ORDER BY r.id;
+
+-- name: HelperPayrollLocks :many
+-- The approved or paid payroll runs of drivers for one pay period (YYYY-MM) and round (R1 | R2): the payroll lock of a
+-- change of a task's helper day (T31 review; task_helper_payroll_locks(), SECURITY DEFINER, 0020: the caller's RLS
+-- does not show payroll_runs to staff without hr:view_payroll, nor a carrier helper's run of another tenant).
+SELECT h.driver_id::uuid AS driver_id, h.status::text AS status
+FROM task_helper_payroll_locks(sqlc.arg(driver_ids)::uuid[], sqlc.arg(pay_period)::text, sqlc.arg(pay_round)::text)
+  AS h (driver_id, status);
+
+-- name: CallerAuthUID :one
+-- The Firebase uid of the writer's login (users.legacy_auth_uid; a caller reads its own users row, p_self_read): the
+-- user-valued fields of the write-back's documents (reportedByUid, renamedBy) carry it, as the legacy writers did.
+SELECT legacy_auth_uid FROM users WHERE id = sqlc.arg(id);

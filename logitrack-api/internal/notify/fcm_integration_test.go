@@ -811,3 +811,127 @@ func TestFCMWriteBackPushWaitsForTheMirror(t *testing.T) {
 		t.Fatalf("pushes %+v", rows)
 	}
 }
+
+// T31 review: the push of a write-back PATCH or cancel of an existing task. The writer's event (origin=writeback)
+// names the task document and the update time of the Firestore commit; read before the mirror applied that write, the
+// row still shows the previous driver or status, so the delivery fails transiently (never permanently, never acked
+// without a push) until cache:mirror_ack reaches the write's time. Then exactly one visible push is sent, and the
+// mirror's own event of the change (origin=etl.sync) sends none: an assignment of a pending task, a reassignment from
+// A to B and a staff cancel.
+func TestFCMWriteBackPushWaitsForTheMirroredChange(t *testing.T) {
+	e := newFCMEnv(t)
+	a, ua := e.driver("wa@logitrack.test", "fsA")
+	b, ub := e.driver("wb2@logitrack.test", "fsB")
+	e.device(ua, "inst-a", "tok-a", "android")
+	e.device(ub, "inst-b", "tok-b", "android")
+	acks := cache.New(e.rdb, e.ks)
+	written := time.Now().UTC().Truncate(time.Microsecond)
+	writer := func(key string, payload map[string]any) *mq.Delivery {
+		d := e.delivery(key, payload)
+		d.Headers = map[string]any{outbox.HeaderOrigin: outbox.OriginWriteBack}
+		return d
+	}
+	mirror := func(key string, payload map[string]any) *mq.Delivery {
+		d := e.delivery(key, payload)
+		d.Headers = map[string]any{outbox.HeaderOrigin: outbox.OriginMirror}
+		return d
+	}
+	pending := func(d *mq.Delivery) {
+		t.Helper()
+		calls := e.fcm.Calls()
+		if err := e.consumer.Handle(e.ctx, d); err == nil || mq.IsPermanent(err) {
+			t.Fatalf("%s before the mirror applied it: %v, want a transient error", d.RoutingKey, err)
+		}
+		if e.fcm.Calls() != calls {
+			t.Fatalf("%s pushed before the mirror applied the write", d.RoutingKey)
+		}
+	}
+	kinds := func(tok string) []string {
+		var out []string
+		for _, s := range e.fcm.SentTo(tok) {
+			out = append(out, s.Message.Data["type"])
+		}
+		return out
+	}
+
+	// Assignment of a pending task.
+	assign := e.task(nil, nil, "doc-assign")
+	e.exec(`UPDATE tasks SET status = 'pending' WHERE id = $1`, assign)
+	wa := writer(notify.RouteTaskAssigned, map[string]any{"id": assign, "driverId": a, "previousDriverId": nil,
+		"legacyDocId": "doc-assign", "writeUpdateTime": written})
+	pending(wa)
+	// An acknowledgement older than the write is not the write.
+	if err := acks.SetMirrorAck(e.ctx, "tasks", "doc-assign", written.Add(-time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	pending(wa)
+	e.exec(`UPDATE tasks SET driver_id = $2, status = 'assigned' WHERE id = $1`, assign, a)
+	if err := acks.SetMirrorAck(e.ctx, "tasks", "doc-assign", written); err != nil {
+		t.Fatal(err)
+	}
+	e.handle(mirror(notify.RouteTaskAssigned, map[string]any{"id": assign, "driverId": a, "previousDriverId": nil}))
+	e.handle(wa)
+	e.handle(wa) // a redelivery sends nothing more
+	if !slices.Equal(kinds("tok-a"), []string{"first_mile_task_assigned"}) || len(kinds("tok-b")) != 0 {
+		t.Fatalf("assignment: a %v b %v", kinds("tok-a"), kinds("tok-b"))
+	}
+
+	// Reassignment A -> B.
+	re := e.task(&a, nil, "doc-re")
+	wr := writer(notify.RouteTaskReassigned, map[string]any{"id": re, "driverId": b, "previousDriverId": a,
+		"legacyDocId": "doc-re", "writeUpdateTime": written})
+	pending(wr)
+	e.exec(`UPDATE tasks SET driver_id = $2 WHERE id = $1`, re, b)
+	if err := acks.SetMirrorAck(e.ctx, "tasks", "doc-re", written.Add(time.Second)); err != nil { // a later write applied too
+		t.Fatal(err)
+	}
+	e.handle(mirror(notify.RouteTaskReassigned, map[string]any{"id": re, "driverId": b, "previousDriverId": a}))
+	e.handle(wr)
+	if !slices.Equal(kinds("tok-a"), []string{"first_mile_task_assigned", "first_mile_task_unassigned"}) ||
+		!slices.Equal(kinds("tok-b"), []string{"first_mile_task_assigned"}) {
+		t.Fatalf("reassignment: a %v b %v", kinds("tok-a"), kinds("tok-b"))
+	}
+
+	// A staff cancel.
+	cancelled := e.task(&b, nil, "doc-cancel")
+	wc := writer(notify.RouteTaskCancelled, map[string]any{"id": cancelled, "legacyDocId": "doc-cancel", "writeUpdateTime": written})
+	pending(wc)
+	e.exec(`UPDATE tasks SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, cancelled)
+	if err := acks.SetMirrorAck(e.ctx, "tasks", "doc-cancel", written); err != nil {
+		t.Fatal(err)
+	}
+	e.handle(mirror(notify.RouteTaskCancelled, map[string]any{"id": cancelled}))
+	e.handle(wc)
+	if !slices.Equal(kinds("tok-b"), []string{"first_mile_task_assigned", "first_mile_task_cancelled"}) {
+		t.Fatalf("cancel: b %v", kinds("tok-b"))
+	}
+	rows := e.rows()
+	if count(rows, notify.KindTaskAssigned, notify.StatusSent) != 2 || count(rows, notify.KindTaskUnassigned, notify.StatusSent) != 1 ||
+		count(rows, notify.KindTaskCancelled, notify.StatusSent) != 1 || len(rows) != 4 {
+		t.Fatalf("delivery rows %+v", rows)
+	}
+
+	// Superseded before the mirror ran: the 3.x app gave the task to B after the write-back gave it to A; the mirror
+	// applied only the newer state. The writer's event is then planned from the row (A no longer holds it): no push,
+	// and no retry either.
+	sup := e.task(nil, nil, "doc-sup")
+	e.exec(`UPDATE tasks SET driver_id = $2 WHERE id = $1`, sup, b)
+	if err := acks.SetMirrorAck(e.ctx, "tasks", "doc-sup", written.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	calls := e.fcm.Calls()
+	e.handle(writer(notify.RouteTaskAssigned, map[string]any{"id": sup, "driverId": a, "previousDriverId": nil,
+		"legacyDocId": "doc-sup", "writeUpdateTime": written}))
+	if e.fcm.Calls() != calls {
+		t.Fatal("a superseded write-back assignment pushed")
+	}
+
+	// An acknowledgement lives 10 minutes: a write older than that without one is taken as applied and planned from
+	// the row (here assigned to A: one push).
+	old := e.task(&a, nil, "doc-old")
+	e.handle(writer(notify.RouteTaskAssigned, map[string]any{"id": old, "driverId": a, "previousDriverId": nil,
+		"legacyDocId": "doc-old", "writeUpdateTime": time.Now().Add(-cache.MirrorAckTTL - time.Minute)}))
+	if got := kinds("tok-a"); len(got) != 3 || got[2] != "first_mile_task_assigned" {
+		t.Fatalf("an old write without an acknowledgement: a %v", got)
+	}
+}

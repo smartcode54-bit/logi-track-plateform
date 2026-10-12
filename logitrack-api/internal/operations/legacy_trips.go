@@ -193,13 +193,13 @@ func (s *Service) deliverTripWriteBack(ctx context.Context, p *authz.Principal, 
 	var evs []opsEvent
 	next := cur
 	next.Status, next.DeliveredAt = TripDelivered, &when
-	evs = append(evs, tripEvent(RouteTripDelivered, next, []string{"status", "deliveredAt"}))
+	evs = append(evs, onDoc(*cur.LegacyDocID, tripEvent(RouteTripDelivered, next, []string{"status", "deliveredAt"}))...)
 	if task != nil {
 		docs = append(docs, wbDoc{collection: CollTasks, docID: *task.LegacyDocID, mustExist: true,
 			fields: map[string]any{"status": legacyTaskStatus[TaskCompleted], "updatedAt": now}})
 		done := *task
 		done.Status = TaskCompleted
-		evs = append(evs, taskEvent(RouteTaskUpdated, done, []string{"status"}))
+		evs = append(evs, onDoc(*task.LegacyDocID, taskEvent(RouteTaskUpdated, done, []string{"status"}))...)
 		if driverDoc != "" {
 			docs = append(docs, wbDoc{collection: "drivers", docID: driverDoc, mustExist: true,
 				fields: map[string]any{"activeTruck": nil}})
@@ -209,7 +209,7 @@ func (s *Service) deliverTripWriteBack(ctx context.Context, p *authz.Principal, 
 	if err != nil {
 		return WriteResult{}, err
 	}
-	s.notifyWriteBack(ctx, p, rid, evs...)
+	s.notifyWriteBack(ctx, p, rid, wat, evs...)
 	return s.answerTrip(ctx, p, id, docs[0], wat, acked)
 }
 
@@ -242,7 +242,7 @@ func (s *Service) cancelTripWriteBack(ctx context.Context, p *authz.Principal, r
 	if err != nil {
 		return WriteResult{}, err
 	}
-	s.notifyWriteBack(ctx, p, rid, evs...)
+	s.notifyWriteBack(ctx, p, rid, at, evs...)
 	return s.answerTrip(ctx, p, id, docs[0], at, acked)
 }
 
@@ -258,7 +258,7 @@ func (s *Service) cancelDocs(trip Trip, task *Task) ([]wbDoc, []opsEvent) {
 			"status": legacyTaskStatus[TaskCancelled], "cancelledAt": now, "cancelReason": reason, "updatedAt": now}})
 		done := *task
 		done.Status = TaskCancelled
-		evs = append(evs, taskEvent(RouteTaskCancelled, done, []string{"status"}))
+		evs = append(evs, onDoc(*task.LegacyDocID, taskEvent(RouteTaskCancelled, done, []string{"status"}))...)
 	}
 	return docs, evs
 }
@@ -301,11 +301,11 @@ func (s *Service) bulkCancelWriteBack(ctx context.Context, p *authz.Principal, r
 	if len(docs) == 0 {
 		return WriteResult{Status: http.StatusOK, Data: out}, nil
 	}
-	_, acked, err := s.writeBack(ctx, docs...)
+	at, acked, err := s.writeBack(ctx, docs...)
 	if err != nil {
 		return WriteResult{}, err
 	}
-	s.notifyWriteBack(ctx, p, rid, evs...)
+	s.notifyWriteBack(ctx, p, rid, at, evs...)
 	if !acked {
 		out.Pending = true
 		return WriteResult{Status: http.StatusAccepted, Data: out}, nil
@@ -325,6 +325,7 @@ func (s *Service) renameTripWriteBack(ctx context.Context, p *authz.Principal, r
 	}
 	var cur Trip
 	var incidents []string
+	var actor string
 	err := s.lockedTrip(ctx, p, id, func(_ pgx.Tx, q *operationsdb.Queries, c Trip) error {
 		cur = c
 		switch {
@@ -332,6 +333,10 @@ func (s *Service) renameTripWriteBack(ctx context.Context, p *authz.Principal, r
 			return invalid("newTripNo", "unchanged")
 		case c.Status != TripDelivered:
 			return errPrecondition("not_delivered", "only a delivered trip can be renamed").WithDetails(map[string]any{"status": c.Status})
+		}
+		var err error
+		if actor, err = actorRef(ctx, q, p); err != nil {
+			return err
 		}
 		r := ReachOf(p)
 		rows, err := q.IncidentsOfTrip(ctx, operationsdb.IncidentsOfTripParams{TripID: c.ID, AllTenants: r.All,
@@ -371,7 +376,7 @@ func (s *Service) renameTripWriteBack(ctx context.Context, p *authz.Principal, r
 			copied[k] = v
 		}
 		copied["spxTripId"], copied["renamedFromTripId"] = newNo, old
-		copied["renamedAt"], copied["renamedBy"], copied["updatedAt"] = now, p.UserID.String(), now
+		copied["renamedAt"], copied["renamedBy"], copied["updatedAt"] = now, actor, now
 		docs := []wbDoc{{collection: CollTrips, docID: newNo, fields: copied, replace: true, create: true}}
 		for _, inc := range incidents {
 			docs = append(docs, wbDoc{collection: CollIncidents, docID: inc, mustExist: true,

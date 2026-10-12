@@ -145,8 +145,12 @@ func TestFirestoreCommit(t *testing.T) {
 	if _, ok := b.Doc("tasks/t2"); ok {
 		t.Fatal("a refused commit wrote")
 	}
+	// Firestore answers these with 404 NOT_FOUND ("No document to update" / "to delete"): still a conflict.
 	if _, err := w.Commit(ctx, writeback.DocWrite{Collection: "tasks", DocID: "gone", MustExist: true, Fields: map[string]any{"a": "b"}}); !errors.Is(err, writeback.ErrConflict) {
 		t.Fatalf("an update of a missing document: %v", err)
+	}
+	if _, err := w.Commit(ctx, writeback.DocWrite{Collection: "tasks", DocID: "gone", MustExist: true, Delete: true}); !errors.Is(err, writeback.ErrConflict) {
+		t.Fatalf("a delete of a missing document: %v", err)
 	}
 	if _, err := w.Commit(ctx, writeback.DocWrite{Collection: "trip_records", DocID: "NEW", UpdateTime: updated, Fields: map[string]any{"a": "b"}}); !errors.Is(err, writeback.ErrConflict) {
 		t.Fatalf("a stale read-modify-write: %v", err)

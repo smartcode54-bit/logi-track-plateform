@@ -426,6 +426,37 @@ func TestMirrorAckOnlyMovesForward(t *testing.T) {
 	}
 }
 
+// T31: the write-back's queue positions. Each reservation is past both PostgreSQL's max (floor) and the last one held;
+// a position set by a write-back raises the hold; the hold expires with RunOrderHoldTTL.
+func TestRunOrderHold(t *testing.T) {
+	c, rdb := newCache(t)
+	ctx := context.Background()
+	for i, want := range []int32{1, 2, 3} {
+		if got, err := c.ReserveRunOrder(ctx, "d1", 0); err != nil || got != want {
+			t.Fatalf("reservation %d: %d %v, want %d", i, got, err, want)
+		}
+	}
+	if got, err := c.ReserveRunOrder(ctx, "d1", 7); err != nil || got != 8 { // the mirror loaded positions up to 7
+		t.Fatalf("past the floor: %d %v", got, err)
+	}
+	if err := c.HoldRunOrder(ctx, "d1", 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.HoldRunOrder(ctx, "d1", 5); err != nil { // never lowered
+		t.Fatal(err)
+	}
+	if got, err := c.ReserveRunOrder(ctx, "d1", 0); err != nil || got != 21 {
+		t.Fatalf("after a set position: %d %v", got, err)
+	}
+	if got, err := c.ReserveRunOrder(ctx, "d2", 4); err != nil || got != 5 {
+		t.Fatalf("another driver: %d %v", got, err)
+	}
+	ttl, err := rdb.PTTL(ctx, c.Keys().RunOrderHold("d1")).Result()
+	if err != nil || ttl <= cache.RunOrderHoldTTL-time.Minute || ttl > cache.RunOrderHoldTTL {
+		t.Fatalf("hold TTL %v %v", ttl, err)
+	}
+}
+
 func TestTicketsAreSingleUse(t *testing.T) {
 	c, _ := newCache(t)
 	ctx := context.Background()

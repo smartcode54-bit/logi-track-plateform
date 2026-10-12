@@ -443,7 +443,8 @@ func operationsWriteBack(cfg *APIConfig, acks *cache.Cache, log zerolog.Logger) 
 		return nil, &config.Error{Invalid: []string{err.Error()}}
 	}
 	log.Info().Msg("operations writes: Firestore write-back (operations is not in PG_OWNED_DOMAINS)")
-	return &operations.WriteBack{Writer: writeback.Firestore{FS: fs}, Acks: acks, Wait: operations.DefaultMirrorWait}, nil
+	return &operations.WriteBack{Writer: writeback.Firestore{FS: fs}, Acks: acks, Wait: operations.DefaultMirrorWait,
+		RunOrders: acks}, nil
 }
 
 // buildFirebase builds the bridge's collaborators (Appendix C §C.6) without I/O beyond reading the key

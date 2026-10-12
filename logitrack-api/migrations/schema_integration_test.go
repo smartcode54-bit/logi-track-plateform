@@ -628,7 +628,7 @@ func TestSecurityDefinerAllocators(t *testing.T) {
 		"app_task_stops_in_scope(uuid)", "app_task_in_scope(uuid)", "app_trip_in_scope(uuid)",
 		"app_recent_work_in_scope(uuid,uuid)", "driver_directory()", "trg_driver_link_membership()",
 		"driver_active_assignment(uuid)", "assignment_release_driver(uuid,uuid,text,text,timestamptz)",
-		"trip_seal_taken(text,uuid)", "bump_task_seq(text,date,integer)"} {
+		"trip_seal_taken(text,uuid)", "bump_task_seq(text,date,integer)", "task_helper_payroll_locks(uuid[],text,text)"} {
 		got := scalar[string](t, owner, `SELECT format('owner=%s secdef=%s public=%s', pg_get_userbyid(proowner), prosecdef,
 			proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(proacl) a WHERE a.grantee = 0))
 			FROM pg_proc WHERE oid = $1::regprocedure`, fn)
@@ -659,6 +659,9 @@ func TestSecurityDefinerAllocators(t *testing.T) {
 		{db.RoleApp, "bump_task_seq(text,date,integer)", true},
 		{db.RoleETL, "bump_task_seq(text,date,integer)", false},
 		{db.RoleReadonly, "bump_task_seq(text,date,integer)", false},
+		{db.RoleApp, "task_helper_payroll_locks(uuid[],text,text)", true},
+		{db.RoleETL, "task_helper_payroll_locks(uuid[],text,text)", false},
+		{db.RoleReadonly, "task_helper_payroll_locks(uuid[],text,text)", false},
 	} {
 		if got := scalar[bool](t, owner, `SELECT has_function_privilege($1, $2, 'EXECUTE')`, p.role, p.fn); got != p.want {
 			t.Errorf("%s EXECUTE %s = %t, want %t", p.role, p.fn, got, p.want)
@@ -690,6 +693,7 @@ func TestSecurityDefinerAllocators(t *testing.T) {
 	}
 	// trip_seal_taken refuses a caller that is neither staff, a driver nor the system context (no GUCs set here).
 	wantSQLState(t, app, "42501", "duplicate-seal check needs", `SELECT trip_seal_taken('SEAL-1', NULL)`)
+	wantSQLState(t, app, "42501", "helper payroll lock needs", `SELECT * FROM task_helper_payroll_locks('{}', '2026-10', 'R1')`)
 	wantSQLState(t, app, "42501", "permission denied", `SELECT * FROM task_number_counters`)
 	wantSQLState(t, app, "42501", "permission denied", `UPDATE billing_counters SET last_seq = 0`)
 	wantSQLState(t, connect(t, d, db.RoleReadonly), "42501", "permission denied", `SELECT next_task_seq('first_mile', '2026-10-10')`)

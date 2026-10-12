@@ -54,6 +54,17 @@ type MirrorAcks interface {
 	WaitMirrorAck(ctx context.Context, collection, docID string, want time.Time, timeout time.Duration) (bool, error)
 }
 
+// RunOrders holds the queue positions the write-back hands out (cache.Cache.ReserveRunOrder, HoldRunOrder): a
+// write-back's task reaches PostgreSQL only when the mirror loads it, so max(run_order) + 1 alone would give two
+// assignments of one driver within the mirror's lag the same position.
+type RunOrders interface {
+	// ReserveRunOrder returns one more than the larger of floor (max(run_order), read under the driver's queue lock)
+	// and the position held for the driver, and holds it.
+	ReserveRunOrder(ctx context.Context, driverID string, floor int32) (int32, error)
+	// HoldRunOrder raises the position held for the driver to at least pos.
+	HoldRunOrder(ctx context.Context, driverID string, pos int32) error
+}
+
 // WriteBack is the Firestore-first path of the writes while the operations domain is not PostgreSQL-owned.
 type WriteBack struct {
 	// Writer writes the Firestore documents (writeback.Firestore over the REST client; writeback.Memory in tests).
@@ -62,6 +73,46 @@ type WriteBack struct {
 	Acks MirrorAcks
 	// Wait bounds the wait for the acknowledgement; 0 = DefaultMirrorWait.
 	Wait time.Duration
+	// RunOrders holds the queue positions handed out; nil (or Redis unreachable, logged) = max(run_order) + 1 alone.
+	RunOrders RunOrders
+}
+
+// nextRunOrder is the end of a driver's queue under the driver's queue lock (LockDriverQueue, held until the
+// transaction ends): max(run_order) + 1 and, on the write-back path, past every position the write-back handed out
+// that the mirror may not have loaded yet (WriteBack.RunOrders, T31 review).
+func (s *Service) nextRunOrder(ctx context.Context, q *operationsdb.Queries, driver uuid.UUID) (int32, error) {
+	if err := q.LockDriverQueue(ctx, driver); err != nil {
+		return 0, MapError(err)
+	}
+	ro, err := q.NextRunOrder(ctx, driver)
+	if err != nil {
+		return 0, MapError(err)
+	}
+	if ros := s.runOrders(); ros != nil {
+		n, err := ros.ReserveRunOrder(ctx, driver.String(), ro-1)
+		if err != nil {
+			s.log.Warn().Err(err).Msg("write-back: the queue position was not held (Redis); max(run_order) + 1 is used")
+			return ro, nil
+		}
+		return n, nil
+	}
+	return ro, nil
+}
+
+// holdRunOrder records a position a write-back sets itself (the body's runOrder), so the next reservation passes it.
+func (s *Service) holdRunOrder(ctx context.Context, driver uuid.UUID, pos int32) {
+	if ros := s.runOrders(); ros != nil {
+		if err := ros.HoldRunOrder(ctx, driver.String(), pos); err != nil {
+			s.log.Warn().Err(err).Msg("write-back: the queue position was not held (Redis)")
+		}
+	}
+}
+
+func (s *Service) runOrders() RunOrders {
+	if s.pgOwned || s.wb == nil || s.wb.Writer == nil {
+		return nil
+	}
+	return s.wb.RunOrders
 }
 
 // Firestore collections of the write-back (legacy names).
@@ -414,6 +465,7 @@ type opsEvent struct {
 	tenant  uuid.UUID
 	payload map[string]any
 	topics  []string
+	doc     string // write-back: the Firestore document the write committed (payload legacyDocId)
 }
 
 // appendEvents appends the events of a write in tx. origin "" is a PostgreSQL-path event (with its realtime topics);
@@ -575,11 +627,23 @@ func echo(id uuid.UUID, d wbDoc, at time.Time) WriteResult {
 }
 
 // notifyWriteBack appends the writer's notify events of a write-back in a request transaction of its own, after the
-// Firestore write succeeded (header origin=writeback, no topic). A failure here is logged, not returned: the document
-// is written, and the client must not retry a write that happened.
-func (s *Service) notifyWriteBack(ctx context.Context, p *authz.Principal, rid string, evs ...opsEvent) {
+// Firestore write succeeded (header origin=writeback, no topic). Each event names the document it tells of and the
+// update time at of that commit (payload legacyDocId, writeUpdateTime): notify.fcm holds its push until the mirror
+// acknowledged that time (cache:mirror_ack), so it never plans from the row as it was before the write. A failure here
+// is logged, not returned: the document is written, and the client must not retry a write that happened.
+func (s *Service) notifyWriteBack(ctx context.Context, p *authz.Principal, rid string, at time.Time, evs ...opsEvent) {
 	if len(evs) == 0 {
 		return
+	}
+	for i := range evs {
+		if evs[i].doc == "" {
+			continue
+		}
+		if evs[i].payload == nil {
+			evs[i].payload = map[string]any{}
+		}
+		evs[i].payload["legacyDocId"] = evs[i].doc
+		evs[i].payload["writeUpdateTime"] = at.UTC().Format(time.RFC3339Nano)
 	}
 	if err := s.Tx(ctx, p, func(tx pgx.Tx) error { return appendEvents(ctx, tx, rid, outbox.OriginWriteBack, evs...) }); err != nil {
 		s.log.Error().Err(err).Str("route", evs[0].route).Msg("write-back: the notify event was not appended")

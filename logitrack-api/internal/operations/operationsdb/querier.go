@@ -18,6 +18,9 @@ type Querier interface {
 	// (bump_task_seq(), SECURITY DEFINER, 0014), so NextTaskSeq never mints that number again. It locks the counter row
 	// until COMMIT, as NextTaskSeq does.
 	BumpTaskSeq(ctx context.Context, arg BumpTaskSeqParams) (int32, error)
+	// The Firebase uid of the writer's login (users.legacy_auth_uid; a caller reads its own users row, p_self_read): the
+	// user-valued fields of the write-back's documents (reportedByUid, renamedBy) carry it, as the legacy writers did.
+	CallerAuthUID(ctx context.Context, id uuid.UUID) (*string, error)
 	// POST /v1/trips/bulk-cancel: in-transit trips only; the ids that were not cancelled are the caller's failed[]. The
 	// task of each cancelled trip is cancelled with it in the same transaction (EditTripDetailsDialog.tsx:782-797).
 	CancelInTransitTrips(ctx context.Context, ids []uuid.UUID) ([]CancelInTransitTripsRow, error)
@@ -71,6 +74,10 @@ type Querier interface {
 	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
 	// --- reads ------------------------------------------------------------------------------------------------------
 	GetTrip(ctx context.Context, arg GetTripParams) (TripRecord, error)
+	// The approved or paid payroll runs of drivers for one pay period (YYYY-MM) and round (R1 | R2): the payroll lock of a
+	// change of a task's helper day (T31 review; task_helper_payroll_locks(), SECURITY DEFINER, 0020: the caller's RLS
+	// does not show payroll_runs to staff without hr:view_payroll, nor a carrier helper's run of another tenant).
+	HelperPayrollLocks(ctx context.Context, arg HelperPayrollLocksParams) ([]HelperPayrollLocksRow, error)
 	IncidentByClientOp(ctx context.Context, arg IncidentByClientOpParams) (IncidentReport, error)
 	IncidentByLegacyDocID(ctx context.Context, arg IncidentByLegacyDocIDParams) (IncidentReport, error)
 	// A trip's incidents, oldest first (the Edit Trip dialog, tripEvidence.ts:139, lineNotify.ts:411; GET
@@ -274,12 +281,21 @@ type Querier interface {
 	// The billing parties of a task (its billing party, its linked source and destination, its stops' linked
 	// destinations): the dispatch:{partyId}:tasks topics of its events (Appendix B §B.4.2), the set app_task_in_scope reads.
 	TaskParties(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error)
+	// The trips of a task whose billing a move of the task's plan day reaches (T31 review, main spec §6.10, ADR 0027):
+	// delivered, or already stamped with a billing date, and billed to a party (the trip's, else the task's) on the plan
+	// axis. The move reads the period lock of that party for the trip's billing instant (its billing date, else the task's
+	// plan instant) and the new plan instant in the update's transaction.
+	TaskPlanBilledTrips(ctx context.Context, taskID uuid.UUID) ([]TaskPlanBilledTripsRow, error)
 	TaskStops(ctx context.Context, taskID uuid.UUID) ([]TaskDeliveryStop, error)
 	// The stops of a page of tasks (one round trip instead of one per row).
 	TaskStopsOf(ctx context.Context, taskIds []uuid.UUID) ([]TaskDeliveryStop, error)
 	// GET /v1/tasks/by-number/{taskNo}: an array, because legacy numbers are not unique (web padded, mobile not); the
 	// number is matched verbatim (an unpadded legacy FM-01102026-7 is not FM-01102026-007).
 	TasksByNumber(ctx context.Context, arg TasksByNumberParams) ([]Task, error)
+	// Whether two tenants are one or linked by contractor_tenant_id in either direction (R60): a helper or a truck of such a
+	// tenant may serve a row of the other (the link rule of the R13 mover, iam TenantsLinked). Both tenants are in the
+	// writer's reach when it is asked (operations.checkTenantLinks), so its RLS reads them.
+	TenantsLinked(ctx context.Context, arg TenantsLinkedParams) (bool, error)
 	// The Firestore trip doc id (shim targets; the mirror's key).
 	TripByLegacyDocID(ctx context.Context, arg TripByLegacyDocIDParams) (TripRecord, error)
 	// GET /v1/trips/by-no/{tripNo} (trip_records_trip_no).
@@ -312,8 +328,9 @@ type Querier interface {
 	// newest first per task (trip_records_task).
 	TripsOfTasks(ctx context.Context, arg TripsOfTasksParams) ([]TripRecord, error)
 	// The fleet trucks of a plate as the task import matches it (import-dialog.tsx normalizePlate: upper case without
-	// spaces and dashes), at most two (two trucks of one plate make the cell ambiguous).
-	TrucksByPlate(ctx context.Context, plateKey string) ([]TrucksByPlateRow, error)
+	// JavaScript's \s and dashes; strip_chars is that set, operations.plateStrip, so both sides drop the same characters
+	// whatever the database's ctype calls a space), at most two (two trucks of one plate make the cell ambiguous).
+	TrucksByPlate(ctx context.Context, arg TrucksByPlateParams) ([]TrucksByPlateRow, error)
 	// Photos whose type is outside TRIP_PHOTO_TYPE_ENUM and stop_{n}_* (trip_photos_unknown_type): the ETL review list.
 	UnknownTripPhotos(ctx context.Context, tripID uuid.UUID) ([]TripPhoto, error)
 	// PATCH writes the merged row (Go merges the request into the locked row; an absent field keeps its value, and status

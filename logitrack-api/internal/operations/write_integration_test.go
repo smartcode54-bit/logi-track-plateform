@@ -25,6 +25,8 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
@@ -535,6 +537,185 @@ func TestPatchTask(t *testing.T) {
 	r.refused(403, "permission_denied", "user", "PATCH", path, map[string]any{"jobCategory": "PRIMARY"})
 }
 
+// T31 review (Appendix C §C.1.7, §C.9.2 #12): the ordinary writes never link a driver, helper or truck of another
+// tenant. Readable is wider than writable: once carrier A's driver and truck have recent work for party X, the
+// dispatcher reads them through its scope, yet its call-out takes them only through the audited move (PATCH with
+// tenantId). A task's driver is of the task's tenant; a helper or a truck may come from a tenant linked by
+// contractor_tenant_id, within the writer's own reach. Refusals write nothing and emit nothing.
+func TestWriteLinksStayInTheTenant(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	r.must(201, "staffA", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dA1.String(), "truckId": r.truckA.String()}))
+	callout := r.must(201, "dispatcher", "POST", "/v1/tasks", r.taskBody(nil))["id"].(string)
+	path := "/v1/tasks/" + callout
+	k := len(r.events(callout))
+	for name, c := range map[string]struct {
+		method, path string
+		body         any
+		reason       string
+	}{
+		"PATCH a carrier's driver":     {"PATCH", path, map[string]any{"driverId": r.dA1.String()}, "driverId not_in_tenant"},
+		"PATCH a carrier's truck":      {"PATCH", path, map[string]any{"truckId": r.truckA.String()}, "truckId not_in_tenant"},
+		"PATCH a carrier's helper":     {"PATCH", path, map[string]any{"helperDriverId": r.dA1.String()}, "helperDriverId not_in_tenant"},
+		"POST with a carrier's helper": {"POST", "/v1/tasks", r.taskBody(map[string]any{"helperDriverId": r.dA1.String()}), "helperDriverId not_in_tenant"},
+		"POST with a carrier's truck":  {"POST", "/v1/tasks", r.taskBody(map[string]any{"truckId": r.truckA.String()}), "truckId not_in_tenant"},
+		"a call-out's standby": {"POST", "/v1/standby/backfill", map[string]any{"taskId": callout, "driverId": r.dA1.String(),
+			"truckId": r.truckA.String(), "startLocation": "A", "endLocation": "B", "startedAt": "2026-10-10T01:00:00Z",
+			"endedAt": "2026-10-10T02:00:00Z"}, "driverId not_in_tenant, truckId not_in_tenant"},
+	} {
+		tasks, records := r.count(`SELECT count(*) FROM tasks`), r.count(`SELECT count(*) FROM standby_records`)
+		r.refused(422, c.reason, "dispatcher", c.method, c.path, c.body)
+		if r.count(`SELECT count(*) FROM tasks`) != tasks || r.count(`SELECT count(*) FROM standby_records`) != records {
+			t.Fatalf("%s: a refused write wrote a row", name)
+		}
+	}
+	if r.count(`SELECT count(*) FROM tasks WHERE id = $1 AND driver_id IS NULL AND truck_id IS NULL AND helper_driver_id IS NULL
+		AND tenant_id = $2`, callout, r.D) != 1 || len(r.events(callout)) != k {
+		t.Fatal("a refused update changed the call-out or emitted an event")
+	}
+	// The audited move still takes the call-out to the carrier with its driver.
+	if d := r.must(200, "dispatcher", "PATCH", path, map[string]any{"tenantId": r.A.String(), "driverId": r.dA1.String()}); d["moved"] != true {
+		t.Fatalf("move: %v", d)
+	}
+
+	// The own fleet's staff: an own-fleet task does not take a carrier's driver by an update (that is a move), but a
+	// carrier's task takes an own-fleet helper and truck (the carrier's contractor) in the staff's reach.
+	own := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(nil))["id"].(string)
+	r.refused(422, "driverId not_in_tenant", "staffO", "PATCH", "/v1/tasks/"+own, map[string]any{"driverId": r.dA1.String()})
+	carried := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dA1.String(),
+		"helperDriverId": r.dO1.String(), "truckId": r.truckO.String()}))
+	if carried["tenantId"] != r.A.String() || carried["helperDriverId"] != r.dO1.String() || carried["truckId"] != r.truckO.String() {
+		t.Fatalf("a carrier's task with the contractor's helper and truck: %v", carried)
+	}
+	r.must(200, "staffO", "PATCH", "/v1/tasks/"+carried["id"].(string), map[string]any{"helperDriverId": r.dO2.String()})
+
+	// An admin incident on an own-fleet trip naming another carrier's driver; the contractor-linked truck is fine.
+	_, trip := r.tripOf("SPXTH-LINK1")
+	r.refused(422, "driverId not_in_tenant", "staffO", "POST", "/v1/incidents", map[string]any{"tripId": trip,
+		"driverId": r.dA1.String(), "description": "x"})
+	r.must(201, "staffO", "POST", "/v1/incidents", map[string]any{"tripId": trip, "truckId": r.truckA.String(), "description": "x"})
+}
+
+// T31 review: the driver and the helper a task already holds are not checked again. A driver deactivated since the
+// assignment does not block the task's other edits when a form sends its full state back; a new inactive driver or
+// helper is still 409 driver_inactive.
+func TestPatchTaskKeepsAnInactiveDriver(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	id := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dO1.String(),
+		"helperDriverId": r.dO2.String()}))["id"].(string)
+	path := "/v1/tasks/" + id
+	r.exec(`UPDATE drivers SET status = 'inactive' WHERE id = ANY($1)`, []uuid.UUID{r.dO1, r.dO2})
+	k := len(r.events(id))
+	d := r.must(200, "staffO", "PATCH", path, map[string]any{"driverId": r.dO1.String(), "helperDriverId": r.dO2.String(), "time": "10:00"})
+	if d["planTime"] != "10:00" || d["driverId"] != r.dO1.String() || d["helperDriverId"] != r.dO2.String() {
+		t.Fatalf("full-state edit: %v", d)
+	}
+	if got := routes(r.events(id)[k:]); !slices.Equal(got, []string{"task.updated"}) {
+		t.Fatalf("events %v, want task.updated only", got)
+	}
+	r.must(200, "staffO", "PATCH", path, map[string]any{"driverId": r.dO1.String()}) // nothing changes
+	other := r.id(`INSERT INTO drivers (tenant_id, tenant_source, first_name, last_name, mobile, status)
+		VALUES ($1, 'self', 'O3', 'T', '0800000003', 'inactive') RETURNING id`, r.O)
+	r.refused(409, operations.ReasonDriverInactive, "staffO", "PATCH", path, map[string]any{"driverId": other.String()})
+	r.refused(409, operations.ReasonDriverInactive, "staffO", "PATCH", path, map[string]any{"helperDriverId": other.String()})
+}
+
+// T31 review (Appendix B §B.2.11 "helper change checks payroll lock", the legacy EditTripDetailsDialog check): a change
+// of a task's helper, or a move of its plan day out of the round, is 409 payroll_locked when the affected helper's
+// payroll run for that Bangkok period and round is approved or paid; a draft or pending one is no lock, and an update
+// that leaves the helper's day where it is never reads it. The runs are read by a SECURITY DEFINER helper (0020): a
+// principal holding operations:manage_tasks alone, and a carrier admin whose old helper is the own fleet's (a run its
+// RLS hides), are refused alike.
+func TestPatchTaskHelperPayrollLock(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	tasksOnly := *r.ps["staffO"]
+	tasksOnly.Caps = authz.NewCapSet(authz.OperationsManageTasks)
+	r.ps["tasksOnly"] = &tasksOnly
+	dO3 := r.id(`INSERT INTO drivers (tenant_id, tenant_source, first_name, last_name, mobile) VALUES ($1, 'self', 'O3', 'T', '0800000003') RETURNING id`, r.O)
+	run := func(driver, tenant uuid.UUID, period, round, status string) {
+		r.exec(`INSERT INTO payroll_runs (tenant_id, driver_id, pay_period, pay_round, period_start, period_end, status)
+			VALUES ($1, $2, $3, $4, '2026-09-30T17:00:00Z', '2026-10-15T17:00:00Z', $5)
+			ON CONFLICT DO NOTHING`, tenant, driver, period, round, status)
+		r.exec(`UPDATE payroll_runs SET status = $4 WHERE driver_id = $1 AND pay_period = $2 AND pay_round = $3`, driver, period, round, status)
+	}
+	// Plan day 2026-10-12: period 2026-10, round R1.
+	id := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dO1.String(),
+		"helperDriverId": r.dO2.String()}))["id"].(string)
+	path := "/v1/tasks/" + id
+	for _, status := range []string{"approved", "paid"} {
+		run(r.dO2, r.O, "2026-10", "R1", status)
+		got, m := r.call("tasksOnly", "PATCH", path, map[string]any{"helperDriverId": dO3.String()})
+		d, _ := m["error"].(map[string]any)["details"].(map[string]any)
+		if got != 409 || reasonOf(m) != operations.CodePayrollLocked || d["driverId"] != r.dO2.String() || d["status"] != status ||
+			d["period"] != "2026-10" || d["round"] != "R1" {
+			t.Fatalf("the old helper's %s run: %d %v", status, got, m)
+		}
+	}
+	if r.count(`SELECT count(*) FROM tasks WHERE id = $1 AND helper_driver_id = $2`, id, r.dO2) != 1 {
+		t.Fatal("a locked helper change was written")
+	}
+	// Updates that leave the helper's day where it is: not read.
+	r.must(200, "tasksOnly", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY", "helperDriverId": r.dO2.String()})
+	r.must(200, "tasksOnly", "PATCH", path, map[string]any{"date": "2026-10-13"}) // the same round
+	// A draft or pending run is no lock.
+	for _, status := range []string{"draft", "pending_approval"} {
+		run(r.dO2, r.O, "2026-10", "R1", status)
+	}
+	if d := r.must(200, "tasksOnly", "PATCH", path, map[string]any{"helperDriverId": dO3.String()}); d["helperDriverId"] != dO3.String() {
+		t.Fatalf("a pending run: %v", d)
+	}
+	// The new helper's approved run.
+	run(r.dO2, r.O, "2026-10", "R1", "approved")
+	r.refused(409, operations.CodePayrollLocked, "tasksOnly", "PATCH", path, map[string]any{"helperDriverId": r.dO2.String()})
+	// The plan day moves the helper's day into an approved round (2026-10 R2).
+	run(dO3, r.O, "2026-10", "R2", "approved")
+	r.refused(409, operations.CodePayrollLocked, "tasksOnly", "PATCH", path, map[string]any{"date": "2026-10-20"})
+
+	// A carrier's task with the own fleet's helper: the carrier's admin does not read the own fleet's run, the check does.
+	carried := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dA1.String(),
+		"helperDriverId": r.dO1.String()}))["id"].(string)
+	dA2 := r.id(`INSERT INTO drivers (tenant_id, tenant_source, first_name, last_name, mobile) VALUES ($1, 'self', 'A2', 'T', '0800000004') RETURNING id`, r.A)
+	run(r.dO1, r.O, "2026-10", "R1", "paid")
+	r.refused(409, operations.CodePayrollLocked, "staffA", "PATCH", "/v1/tasks/"+carried, map[string]any{"helperDriverId": dA2.String()})
+
+	// The write-back path refuses before the Firestore commit.
+	mem := writeback.NewMemory()
+	w := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem}})
+	wt := w.createTask(w.staffO, func() operations.NewTask {
+		n := w.newTask(w.O, time.Date(2026, 10, 12, 2, 0, 0, 0, time.UTC))
+		n.LegacyDocID, n.DriverID, n.HelperDriverID, n.Status = ptr("task_pay_doc"), &w.dO1, &w.dO2, operations.TaskAssigned
+		return n
+	}())
+	mem.Put("tasks", "task_pay_doc", map[string]any{"status": "Assigned"}, now)
+	w.exec(`INSERT INTO payroll_runs (tenant_id, driver_id, pay_period, pay_round, period_start, period_end, status)
+		VALUES ($1, $2, '2026-10', 'R1', '2026-09-30T17:00:00Z', '2026-10-15T17:00:00Z', 'approved')`, w.O, w.dO2)
+	before := len(mem.Writes())
+	w.refused(409, operations.CodePayrollLocked, "staffO", "PATCH", "/v1/tasks/"+wt.ID.String(), map[string]any{"helperDriverId": nil})
+	if len(mem.Writes()) != before {
+		t.Fatal("a locked write-back helper change wrote Firestore")
+	}
+}
+
+// T31 review: a class-only PATCH of a task that keeps a truck of known class must be that truck's class (the truck's
+// class wins, as on create); clearing the truck in the same body sets any class, and a truck of unknown class takes one.
+func TestPatchTaskTruckClass(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	id := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"truckId": r.truckO.String()}))["id"].(string)
+	path := "/v1/tasks/" + id
+	r.refused(422, "truckType not_truck_class", "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"truckId": r.truckO.String(), "truckType": "4WJ"}))
+	r.refused(422, "truckType not_truck_class", "staffO", "PATCH", path, map[string]any{"truckType": "4WJ"})
+	if d := r.must(200, "staffO", "PATCH", path, map[string]any{"truckType": "6WH"}); d["truckType"] != "6WH" || d["truckId"] != r.truckO.String() {
+		t.Fatalf("the truck's own class: %v", d)
+	}
+	if d := r.must(200, "staffO", "PATCH", path, map[string]any{"truckId": nil, "truckType": "4WJ"}); d["truckType"] != "4WJ" || d["truckId"] != nil {
+		t.Fatalf("truck cleared, class set: %v", d)
+	}
+	r.exec(`UPDATE trucks SET vehicle_class = NULL WHERE id = $1`, r.truckO)
+	r.must(200, "staffO", "PATCH", path, map[string]any{"truckId": r.truckO.String()})
+	if d := r.must(200, "staffO", "PATCH", path, map[string]any{"truckType": "10WH"}); d["truckType"] != "10WH" {
+		t.Fatalf("a truck of unknown class: %v", d)
+	}
+}
+
 // A body whose tenantId differs from the task's is still T28's move (iam.TaskMover).
 func TestPatchTaskMoveStaysR13(t *testing.T) {
 	r := newWriteWorld(t, writeOptions{pgOwned: true})
@@ -656,6 +837,91 @@ func TestImportTasks(t *testing.T) {
 	r.refused(403, "permission_denied", "user", "POST", "/v1/tasks/import", body)
 }
 
+// T31 review: the import matches plates as normalizePlate did, dropping JavaScript's \s (NBSP, the Zs spaces, BOM, VT)
+// and dashes on both sides: a cell pasted with a non-breaking space finds its truck, and so does a cell with a dash for
+// a truck stored with one.
+func TestImportPlateKeys(t *testing.T) {
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	stored := r.id(`INSERT INTO trucks (tenant_id, tenant_source, license_plate, province, status, brand, model, year, color, type_raw, vehicle_class)
+		VALUES ($1, 'self', $2, 'กรุงเทพมหานคร', 'active', 'ISUZU', 'FRR', 2020, 'white', '6 Wheels', '6WH') RETURNING id`, r.O, "3กข\u00a05678")
+	row := func(plate string) map[string]any {
+		return map[string]any{"date": "2026-10-14", "sourceHub": "ALANG-A", "destination": "SOCE", "billingPartyId": r.partyX.String(), "plate": plate}
+	}
+	d := r.must(200, "staffO", "POST", "/v1/tasks/import", map[string]any{"taskType": "first_mile", "rows": []any{
+		row("1กข\u00a01234"), row("1กข\u30001234"), row("\ufeff1กข\v1234"), row("3กข-5678"), row("3กข 5678")}})
+	if len(d["created"].([]any)) != 5 || len(d["errors"].([]any)) != 0 {
+		t.Fatalf("import %v", d)
+	}
+	if n := r.count(`SELECT count(*) FROM tasks WHERE truck_id = $1`, r.truckO); n != 3 {
+		t.Fatalf("%d tasks on 1กข-1234", n)
+	}
+	if n := r.count(`SELECT count(*) FROM tasks WHERE truck_id = $1`, stored); n != 2 {
+		t.Fatalf("%d tasks on the truck stored with a NBSP", n)
+	}
+}
+
+// T31 review: the counters behind the task numbers are global across tenants (R10, R66). A sheet's canonical number
+// moves the counter of the type and day it names, so it must be of the import's type and of its row's plan day and
+// within the allocator's three digits; an unrelated carrier's manager cannot push a day's counter to the int ceiling and
+// stop every tenant's creations of that day. A kept number past operations.MaxBumpSeq moves nothing, and a counter at
+// the ceiling answers 409 task_counter_exhausted, never 500.
+func TestImportTaskNoBounds(t *testing.T) {
+	mem := writeback.NewMemory()
+	for _, wb := range []bool{false, true} {
+		opt := writeOptions{pgOwned: true}
+		if wb {
+			opt = writeOptions{writeBack: &operations.WriteBack{Writer: mem}}
+		}
+		r := newWriteWorld(t, opt)
+		r.exec(`UPDATE customers SET legacy_doc_id = 'cust_cjsf' WHERE code = 'CJSF'`)
+		row := func(date, no string) map[string]any {
+			return map[string]any{"date": date, "sourceHub": "ALANG-A", "destination": "SOCE", "billingPartyId": r.partyX.String(), "taskNo": no}
+		}
+		before := len(mem.Writes())
+		d := r.must(map[bool]int{false: 200, true: 202}[wb], "staffC", "POST", "/v1/tasks/import", map[string]any{"taskType": "first_mile",
+			"rows": []any{
+				row("2026-10-12", "FM-20102026-2147483647"), // 1: another day
+				row("2026-10-20", "FM-20102026-2147483647"), // 2: past three digits
+				row("2026-10-20", "LH-20102026-005"),        // 3: another type
+				row("2026-10-20", "FM-20102026-1000"),       // 4: past three digits
+				row("2026-10-20", "SHP-778899"),             // 5: a shipment id: kept, moves nothing
+				row("2026-10-20", "FM-20102026-7"),          // 6: unpadded: kept, moves nothing
+			}})
+		reasons := map[float64]string{}
+		for _, e := range d["errors"].([]any) {
+			m := e.(map[string]any)
+			reasons[m["row"].(float64)] = reasonOf(map[string]any{"error": map[string]any{"details": map[string]any{"fields": m["fields"]}}})
+		}
+		if len(d["created"].([]any)) != 2 || reasons[1] != "taskNo mismatch" || reasons[2] != "taskNo out_of_range" ||
+			reasons[3] != "taskNo mismatch" || reasons[4] != "taskNo out_of_range" {
+			t.Fatalf("write-back %v: import %v", wb, d)
+		}
+		if wb && len(mem.Writes()) != before+2 { // the two valid rows' documents
+			t.Fatalf("write-back import writes %d", len(mem.Writes())-before)
+		}
+		if n := r.count(`SELECT count(*) FROM task_number_counters WHERE plan_date = '2026-10-20'`); n != 0 {
+			t.Fatalf("write-back %v: %d counters moved", wb, n)
+		}
+		if wb {
+			continue
+		}
+		// Every tenant still numbers that day from 001.
+		if no := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"date": "2026-10-20"}))["taskNo"]; no != "FM-20102026-001" {
+			t.Fatalf("after the refused sheet: %v", no)
+		}
+		// A number kept by CreateTask (a mirrored or legacy number) past MaxBumpSeq moves nothing either.
+		n := r.newTask(r.O, time.Date(2026, 10, 21, 2, 0, 0, 0, time.UTC))
+		n.TaskNo = ptr("FM-21102026-2147483647")
+		r.createTask(r.staffO, n)
+		if no := r.must(201, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"date": "2026-10-21"}))["taskNo"]; no != "FM-21102026-001" {
+			t.Fatalf("after a kept number past the bound: %v", no)
+		}
+		// A counter already at the ceiling (a planted legacy number before this rule) is a 409, not a 500.
+		r.exec(`INSERT INTO task_number_counters (task_type, plan_date, last_seq) VALUES ('first_mile', '2026-10-22', 2147483647)`)
+		r.refused(409, operations.ReasonTaskCounterExhausted, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"date": "2026-10-22"}))
+	}
+}
+
 // --- trips ------------------------------------------------------------------------------------------------------
 
 // tripOf creates an assigned task of dO1 and its in-transit trip.
@@ -753,6 +1019,69 @@ func TestTripWrites(t *testing.T) {
 	}
 	r.refused(422, "ids required", "staffO", "POST", "/v1/trips/bulk-cancel", map[string]any{"ids": []string{}})
 	r.refused(404, "not_found", "staffC", "POST", "/v1/trips/"+trip4+"/cancel", nil)
+}
+
+// T31 review (main spec §6.10): moving the plan day of a task whose trip is delivered and billed on the plan axis
+// reads the period lock in the update's transaction, like the trip's deliveredAt: into or out of a sent period it is
+// 409 billing_period_locked (nothing written, no event; on the write-back path before the Firestore commit); within
+// open periods, or for a party billed on the delivery axis, it is the ordinary update with task.plan_date_changed.
+func TestPatchTaskPlanDateLock(t *testing.T) {
+	statement := func(r *writeWorld) {
+		r.exec(`INSERT INTO billing_statements (tenant_id, billing_party_id, invoice_number, period_year, period_month,
+			total_amount, withholding_tax_rate, withholding_tax, net_amount, status, generated_at)
+			VALUES ($1, $2, 'CJSF-202609-001', 2026, 9, 100, 0.01, 1, 99, 'sent', now())`, r.O, r.partyX)
+	}
+	r := newWriteWorld(t, writeOptions{pgOwned: true})
+	r.exec(`UPDATE billing_parties SET billing_date_basis = 'plan' WHERE id = $1`, r.partyX)
+	task, trip := r.tripOf("SPXTH-PLAN1")
+	path := "/v1/tasks/" + task
+	r.must(200, "staffO", "PATCH", path, map[string]any{"date": "2026-09-30"})
+	r.must(200, "staffO", "POST", "/v1/trips/"+trip+"/deliver", map[string]any{"deliveredAt": "2026-09-30T05:00:00Z"})
+	statement(r)
+	k := len(r.events(task))
+	for _, day := range []string{"2026-10-01", "2026-09-29"} {
+		got, m := r.call("staffO", "PATCH", path, map[string]any{"date": day})
+		if got != 409 || m["error"].(map[string]any)["code"] != "billing_period_locked" ||
+			m["error"].(map[string]any)["details"].(map[string]any)["blockedInvoiceNumber"] != "CJSF-202609-001" {
+			t.Fatalf("plan day %s: %d %v", day, got, m)
+		}
+	}
+	if len(r.events(task)) != k || r.count(`SELECT count(*) FROM tasks WHERE id = $1 AND plan_date = '2026-09-30'`, task) != 1 {
+		t.Fatal("a locked plan-day move wrote")
+	}
+	// The other fields of the same task still change; a delivered-axis party is not read.
+	r.must(200, "staffO", "PATCH", path, map[string]any{"time": "07:00"})
+	r.exec(`UPDATE billing_parties SET billing_date_basis = 'delivered' WHERE id = $1`, r.partyX)
+	k = len(r.events(task))
+	r.must(200, "staffO", "PATCH", path, map[string]any{"date": "2026-10-01"})
+	if got := routes(r.events(task)[k:]); !slices.Equal(got, []string{"task.updated", "task.plan_date_changed"}) {
+		t.Fatalf("delivered axis: %v", got)
+	}
+	// Plan axis between open periods.
+	r.exec(`UPDATE billing_parties SET billing_date_basis = 'plan' WHERE id = $1`, r.partyX)
+	r.exec(`UPDATE trip_records SET billing_date = '2026-10-01T00:00:00+07:00' WHERE id = $1`, trip)
+	r.must(200, "staffO", "PATCH", path, map[string]any{"date": "2026-10-02"})
+
+	// The write-back path refuses before the Firestore commit.
+	mem := writeback.NewMemory()
+	w := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem}})
+	w.exec(`UPDATE billing_parties SET billing_date_basis = 'plan' WHERE id = $1`, w.partyX)
+	wt := w.createTask(w.staffO, func() operations.NewTask {
+		n := w.newTask(w.O, time.Date(2026, 9, 29, 17, 0, 0, 0, time.UTC)) // 2026-09-30 Bangkok
+		n.LegacyDocID = ptr("task_plan_doc")
+		return n
+	}())
+	in := w.newTrip(wt, "SPXTH-PLAN2")
+	in.LegacyDocID = ptr("SPXTH-PLAN2")
+	tr := w.createTrip(w.staffO, in)
+	w.exec(`UPDATE trip_records SET status = 'delivered', delivered_at = '2026-09-30T05:00:00Z' WHERE id = $1`, tr.ID)
+	mem.Put("tasks", "task_plan_doc", map[string]any{"status": "Pending"}, now)
+	statement(w)
+	before := len(mem.Writes())
+	got, m := w.call("staffO", "PATCH", "/v1/tasks/"+wt.ID.String(), map[string]any{"date": "2026-10-01"})
+	if got != 409 || m["error"].(map[string]any)["code"] != "billing_period_locked" || len(mem.Writes()) != before {
+		t.Fatalf("write-back plan-day move: %d %v, %d writes", got, m, len(mem.Writes())-before)
+	}
 }
 
 func TestRenameTrip(t *testing.T) {
@@ -901,6 +1230,12 @@ func TestWriteBackTasks(t *testing.T) {
 		evs[0].payload["driverId"] != r.dO1.String() {
 		t.Fatalf("write-back events %v", evs)
 	}
+	// The event names the document and the update time of the commit: notify.fcm holds the push until the mirror
+	// acknowledged it (T31 review).
+	if at, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(evs[0].payload["writeUpdateTime"])); evs[0].payload["legacyDocId"] != id ||
+		at.IsZero() || fmt.Sprint(d["updateTime"]) == "" || !strings.HasPrefix(fmt.Sprint(d["updateTime"]), at.Format("2006-01-02T15:04:05")) {
+		t.Fatalf("write-back event payload %v, echo updateTime %v", evs[0].payload, d["updateTime"])
+	}
 
 	// The mirror loaded it (here: the row the load transforms would write, under the minted id) and acknowledged it:
 	// the answer is the task as GET reads it.
@@ -936,7 +1271,8 @@ func TestWriteBackTasks(t *testing.T) {
 	if _, status := w.Fields["status"]; w.Fields["driverId"] != "drv_o2" || status || w.Fields["runOrder"] == nil {
 		t.Fatalf("driver change %v", w.Fields)
 	}
-	if evs := r.events(id); evs[len(evs)-1].route != "task.reassigned" || evs[len(evs)-1].headers["origin"] != "writeback" {
+	if evs := r.events(id); evs[len(evs)-1].route != "task.reassigned" || evs[len(evs)-1].headers["origin"] != "writeback" ||
+		evs[len(evs)-1].payload["legacyDocId"] != id || evs[len(evs)-1].payload["writeUpdateTime"] == nil {
 		t.Fatalf("reassignment event %v", evs[len(evs)-1])
 	}
 	// Cancel and stops write their documents.
@@ -962,11 +1298,84 @@ func TestWriteBackTasks(t *testing.T) {
 	mem.Fail(nil)
 }
 
+// T31 review: a write-back import is one Firestore commit, all of it or nothing: more than operations.WriteBackBatch
+// rows is 422 rows too_many (details.max) before anything is numbered, and a failed commit leaves no document, so the
+// retry the 503 invites imports nothing twice.
+func TestWriteBackImportIsOneCommit(t *testing.T) {
+	mem := writeback.NewMemory()
+	r := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem}})
+	r.exec(`UPDATE customers SET legacy_doc_id = 'cust_cjsf' WHERE code = 'CJSF'`)
+	rows := func(n int) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = map[string]any{"date": "2026-10-14", "sourceHub": "ALANG-A", "destination": "SOCE", "billingPartyId": r.partyX.String()}
+		}
+		return out
+	}
+	got, m := r.call("staffO", "POST", "/v1/tasks/import", map[string]any{"taskType": "first_mile", "rows": rows(operations.WriteBackBatch + 1)})
+	fs, _ := m["error"].(map[string]any)["details"].(map[string]any)["fields"].([]any)
+	if got != 422 || reasonOf(m) != "rows too_many" || len(fs) != 1 || fs[0].(map[string]any)["params"].(map[string]any)["max"] != float64(operations.WriteBackBatch) {
+		t.Fatalf("a write-back import past one commit: %d %v", got, m)
+	}
+	if len(mem.Writes()) != 0 || r.count(`SELECT count(*) FROM task_number_counters`) != 0 {
+		t.Fatal("a refused import wrote or numbered")
+	}
+	mem.Fail(fmt.Errorf("firestore down"))
+	r.refused(503, "write_back", "staffO", "POST", "/v1/tasks/import", map[string]any{"taskType": "first_mile", "rows": rows(operations.WriteBackBatch)})
+	mem.Fail(nil)
+	if len(mem.Writes()) != 0 {
+		t.Fatal("a failed commit left documents")
+	}
+	d := r.must(202, "staffO", "POST", "/v1/tasks/import", map[string]any{"taskType": "first_mile", "rows": rows(operations.WriteBackBatch)})
+	if len(d["created"].([]any)) != operations.WriteBackBatch || len(mem.Writes()) != operations.WriteBackBatch {
+		t.Fatalf("the retry: %d created, %d documents", len(d["created"].([]any)), len(mem.Writes()))
+	}
+}
+
+// T31 review: a write-back's task reaches PostgreSQL only when the mirror loads it, so the queue positions it hands
+// out are held (cache:run_order:{driverId}): two creations of one driver before the mirror ran, and an assignment of a
+// mirrored task to that driver, get 1, 2 and 3; a position set by the body raises the hold.
+func TestWriteBackRunOrders(t *testing.T) {
+	mem := writeback.NewMemory()
+	rdb, ks := cachetest.NewClient(t)
+	r := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem, RunOrders: cache.New(rdb, ks)}})
+	r.exec(`UPDATE drivers SET legacy_doc_id = 'drv_o1', legacy_auth_uid = 'uid_o1' WHERE id = $1`, r.dO1)
+	r.exec(`UPDATE customers SET legacy_doc_id = 'cust_cjsf' WHERE code = 'CJSF'`)
+	runOrder := func(d map[string]any) any {
+		doc, _ := mem.Doc("tasks", d["docId"].(string))
+		return doc["runOrder"]
+	}
+	first := r.must(202, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dO1.String()}))
+	second := r.must(202, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dO1.String()}))
+	if runOrder(first) != int64(1) || runOrder(second) != int64(2) {
+		t.Fatalf("two creations before the mirror: %v %v", runOrder(first), runOrder(second))
+	}
+	mirrored := r.createTask(r.staffO, func() operations.NewTask {
+		n := r.newTask(r.O, now)
+		n.LegacyDocID = ptr("task_ro")
+		return n
+	}())
+	mem.Put("tasks", "task_ro", map[string]any{"status": "Pending"}, now)
+	r.must(202, "staffO", "PATCH", "/v1/tasks/"+mirrored.ID.String(), map[string]any{"driverId": r.dO1.String()})
+	if doc, _ := mem.Doc("tasks", "task_ro"); doc["runOrder"] != int64(3) {
+		t.Fatalf("an assignment after them: %v", doc["runOrder"])
+	}
+	// (the row is still driverless in PostgreSQL: the mirror has not applied the assignment)
+	r.must(202, "staffO", "PATCH", "/v1/tasks/"+mirrored.ID.String(), map[string]any{"driverId": r.dO1.String(), "runOrder": 9})
+	third := r.must(202, "staffO", "POST", "/v1/tasks", r.taskBody(map[string]any{"driverId": r.dO1.String()}))
+	if runOrder(third) != int64(10) {
+		t.Fatalf("after a set position: %v", runOrder(third))
+	}
+}
+
 func TestWriteBackTripsAndRecords(t *testing.T) {
 	mem := writeback.NewMemory()
 	ack := &acks{}
 	r := newWriteWorld(t, writeOptions{writeBack: &operations.WriteBack{Writer: mem, Acks: ack}})
 	r.exec(`UPDATE drivers SET legacy_doc_id = 'drv_o1', legacy_auth_uid = 'uid_o1' WHERE id = $1`, r.dO1)
+	// The admin's Firebase uid (an identity column: the system context writes it).
+	r.exec(`WITH c AS (SELECT set_config('app.bypass_tenant', 'on', true))
+		UPDATE users SET legacy_auth_uid = 'uid_staff' FROM c WHERE id = $1`, r.userO)
 	// The mirrored rows of a running job (as the load wrote them) and their documents.
 	task := r.createTask(r.staffO, func() operations.NewTask {
 		n := r.newTask(r.O, now)
@@ -1019,6 +1428,7 @@ func TestWriteBackTripsAndRecords(t *testing.T) {
 	nd, _ := mem.Doc("trip_records", "SPXTH-WB2")
 	idoc, _ := mem.Doc("incidentReport", "inc_doc")
 	if nd["spxTripId"] != "SPXTH-WB2" || nd["renamedFromTripId"] != "SPXTH-WB1" || nd["status"] != "delivered" || idoc["tripId"] != "SPXTH-WB2" ||
+		nd["renamedBy"] != "uid_staff" ||
 		nd["createdAt"] != (dump.Timestamp{Time: now}) || len(nd["photos"].([]any)) != 1 {
 		t.Fatalf("renamed %v incident %v", nd, idoc)
 	}
@@ -1033,8 +1443,14 @@ func TestWriteBackTripsAndRecords(t *testing.T) {
 		t.Fatalf("standby document %v", doc)
 	}
 	ic := r.must(202, "staffO", "POST", "/v1/incidents", map[string]any{"driverId": r.dO1.String(), "description": "ยางแตก"})
-	if doc, ok := mem.Doc("incidentReport", ic["id"].(string)); !ok || doc["reportedBy"] != "admin" || doc["driverId"] != "uid_o1" {
+	if doc, ok := mem.Doc("incidentReport", ic["id"].(string)); !ok || doc["reportedBy"] != "admin" || doc["driverId"] != "uid_o1" ||
+		doc["reportedByUid"] != "uid_staff" {
 		t.Fatalf("incident document %v", doc)
+	}
+	// A login born in Go has no Firebase uid: its users.id (the mirror resolves either).
+	ic = r.must(202, "platformO", "POST", "/v1/incidents", map[string]any{"driverId": r.dO1.String(), "description": "x"})
+	if doc, _ := mem.Doc("incidentReport", ic["id"].(string)); doc["reportedByUid"] != r.ps["platformO"].UserID.String() {
+		t.Fatalf("incident of a Go login %v", doc)
 	}
 	// Bulk cancel of a mirrored in-transit trip.
 	task2 := r.createTask(r.staffO, func() operations.NewTask {

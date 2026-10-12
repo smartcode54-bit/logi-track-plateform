@@ -195,7 +195,7 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			return err
 		}, nil},
 		{"TrucksByPlate", staff, func(ctx context.Context, q *operationsdb.Queries) error {
-			_, err := q.TrucksByPlate(ctx, "1กข1234")
+			_, err := q.TrucksByPlate(ctx, operationsdb.TrucksByPlateParams{StripChars: "\t\n\v\f\r \u00a0-", PlateKey: "1กข1234"})
 			return err
 		}, nil}, // the trucks master (not an operations table): one tenant's fleet, read by the import only
 		{"WriteDriver", staff, func(ctx context.Context, q *operationsdb.Queries) error {
@@ -206,6 +206,23 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			_, err := q.WriteParty(ctx, w.partyX)
 			return err
 		}, nil},
+		{"TenantsLinked", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TenantsLinked(ctx, operationsdb.TenantsLinkedParams{A: w.A, B: w.O})
+			return err
+		}, nil}, // the tenants master (not an operations table): primary-key reads
+		{"TaskPlanBilledTrips", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.TaskPlanBilledTrips(ctx, task)
+			return err
+		}, []string{"trip_records_task"}},
+		{"CallerAuthUID", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.CallerAuthUID(ctx, staff.UserID)
+			return err
+		}, nil}, // users (not an operations table): its primary key
+		{"HelperPayrollLocks", staff, func(ctx context.Context, q *operationsdb.Queries) error {
+			_, err := q.HelperPayrollLocks(ctx, operationsdb.HelperPayrollLocksParams{DriverIds: []uuid.UUID{drv},
+				PayPeriod: "2026-08", PayRound: "R1"})
+			return err
+		}, nil}, // payroll_runs (not an operations table) inside the definer function: its (driver_id, pay_period, pay_round) key
 		{"TaskParties", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.TaskParties(ctx, task)
 			return err

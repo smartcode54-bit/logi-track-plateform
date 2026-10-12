@@ -332,10 +332,30 @@ func (tr transport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func authorized(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+accessToken }
 
-func apiError(w http.ResponseWriter, status int, code string) {
+func apiError(w http.ResponseWriter, status int, code string) { apiErrorMessage(w, status, code, code) }
+
+func apiErrorMessage(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "status": code, "message": code}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "status": code, "message": message}})
+}
+
+// preconditionFailed answers a failed currentDocument precondition as real Firestore does: exists=true on a missing
+// document is 404 NOT_FOUND ("No document to update" / "No document to delete"), exists=false on an existing one 409
+// ALREADY_EXISTS, an updateTime that does not match 400 FAILED_PRECONDITION.
+func preconditionFailed(w http.ResponseWriter, name string, del bool, wantExists *bool, exists bool) {
+	switch {
+	case wantExists != nil && *wantExists && !exists:
+		verb := "update"
+		if del {
+			verb = "delete"
+		}
+		apiErrorMessage(w, http.StatusNotFound, "NOT_FOUND", "No document to "+verb+": "+name)
+	case wantExists != nil && !*wantExists && exists:
+		apiErrorMessage(w, http.StatusConflict, "ALREADY_EXISTS", "Document already exists: "+name)
+	default:
+		apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+	}
 }
 
 func (b *Backend) token(w http.ResponseWriter, r *http.Request) {
@@ -610,7 +630,7 @@ func (b *Backend) handlePatch(w http.ResponseWriter, r *http.Request, path strin
 	cur, exists := b.docs[path]
 	if e := q.Get("currentDocument.exists"); e != "" {
 		if want, _ := strconv.ParseBool(e); want != exists {
-			apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+			preconditionFailed(w, b.Root()+"/"+path, false, &want, exists)
 			return
 		}
 	}
@@ -725,7 +745,7 @@ func (b *Backend) handleCommit(w http.ResponseWriter, r *http.Request) {
 		}
 		cur, exists := b.docs[plan[i].path]
 		if e := cw.CurrentDocument.Exists; e != nil && *e != exists {
-			apiError(w, http.StatusBadRequest, "FAILED_PRECONDITION")
+			preconditionFailed(w, b.Root()+"/"+plan[i].path, plan[i].del, e, exists)
 			return
 		}
 		if ut := cw.CurrentDocument.UpdateTime; ut != "" {

@@ -318,23 +318,23 @@ func (s *Service) createTaskWriteBack(ctx context.Context, p *authz.Principal, r
 			return err
 		}
 		pl.next.ID, pl.next.TenantID = id, uuid.MustParse(res.TenantID)
+		if err := s.checkTenantLinks(ctx, q, p, pl.next.TenantID, taskLinks(pl, Task{}, true)...); err != nil {
+			return err
+		}
 		no := in.taskNo
 		if no == nil {
 			day := PlanDate(pl.next.PlanAt)
 			seq, err := q.NextTaskSeq(ctx, operationsdb.NextTaskSeqParams{TaskType: pl.next.TaskType, PlanDate: day})
 			if err != nil {
-				return MapError(err)
+				return seqError(err)
 			}
 			no = ptr(FormatTaskNo(pl.next.TaskType, day, int(seq)))
 		}
 		pl.next.TaskNo = no
 		if pl.next.DriverID != nil {
-			if err := q.LockDriverQueue(ctx, *pl.next.DriverID); err != nil {
-				return MapError(err)
-			}
-			ro, err := q.NextRunOrder(ctx, *pl.next.DriverID)
+			ro, err := s.nextRunOrder(ctx, q, *pl.next.DriverID)
 			if err != nil {
-				return MapError(err)
+				return err
 			}
 			pl.next.RunOrder = &ro
 		}
@@ -353,7 +353,7 @@ func (s *Service) createTaskWriteBack(ctx context.Context, p *authz.Principal, r
 	if pl.next.DriverID != nil {
 		ev := taskEvent(RouteTaskAssigned, pl.next, []string{"driverId", "status"})
 		ev.payload["driverId"], ev.payload["previousDriverId"] = pl.next.DriverID, nil
-		s.notifyWriteBack(ctx, p, rid, ev)
+		s.notifyWriteBack(ctx, p, rid, at, onDoc(id.String(), ev)...)
 	}
 	if !acked {
 		return echo(id, w, at), nil
@@ -368,7 +368,7 @@ func (s *Service) createTaskWriteBack(ctx context.Context, p *authz.Principal, r
 // lockedTask runs fn with the task row locked under the caller's RLS (FOR UPDATE: the caller's UPDATE policy decides,
 // so a task it may not change is 404), without writing PostgreSQL: the write-back's authorization and plan.
 func (s *Service) lockedTask(ctx context.Context, p *authz.Principal, id uuid.UUID,
-	fn func(q *operationsdb.Queries, cur Task) error) error {
+	fn func(tx pgx.Tx, q *operationsdb.Queries, cur Task) error) error {
 	return s.Tx(ctx, p, func(tx pgx.Tx) error {
 		q := operationsdb.New(tx)
 		cur, err := q.LockTask(ctx, id)
@@ -378,7 +378,7 @@ func (s *Service) lockedTask(ctx context.Context, p *authz.Principal, id uuid.UU
 		if cur.LegacyDocID == nil || *cur.LegacyDocID == "" {
 			return notProjected("id")
 		}
-		return fn(q, cur)
+		return fn(tx, q, cur)
 	})
 }
 
@@ -388,7 +388,7 @@ func (s *Service) patchTaskWriteBack(ctx context.Context, p *authz.Principal, ri
 	var cur Task
 	var pl taskPlan
 	var doc map[string]any
-	err := s.lockedTask(ctx, p, id, func(q *operationsdb.Queries, c Task) error {
+	err := s.lockedTask(ctx, p, id, func(tx pgx.Tx, q *operationsdb.Queries, c Task) error {
 		cur = c
 		var ck checker
 		var err error
@@ -409,6 +409,15 @@ func (s *Service) patchTaskWriteBack(ctx context.Context, p *authz.Principal, ri
 		if len(pl.changed) == 0 {
 			return nil
 		}
+		if err := s.checkTenantLinks(ctx, q, p, cur.TenantID, taskLinks(pl, cur, false)...); err != nil {
+			return err
+		}
+		if err := planMoveLock(ctx, tx, q, cur, pl); err != nil { // before the Firestore commit
+			return err
+		}
+		if err := helperPayrollLock(ctx, q, cur, pl); err != nil {
+			return err
+		}
 		if slices.Contains(pl.changed, "status") && pl.next.Status != TaskCancelled && cur.Status == TaskCancelled {
 			pl.changed = append(pl.changed, "cancelled")
 		}
@@ -427,7 +436,7 @@ func (s *Service) patchTaskWriteBack(ctx context.Context, p *authz.Principal, ri
 	if err != nil {
 		return WriteResult{}, err
 	}
-	s.notifyWriteBack(ctx, p, rid, taskChangeEvents(cur, pl.next, pl)...)
+	s.notifyWriteBack(ctx, p, rid, at, onDoc(*cur.LegacyDocID, taskChangeEvents(cur, pl.next, pl)...)...)
 	return s.answerTask(ctx, p, id, w, at, acked)
 }
 
@@ -447,7 +456,7 @@ func (s *Service) answerTask(ctx context.Context, p *authz.Principal, id uuid.UU
 func (s *Service) cancelTaskWriteBack(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, reason *string) (WriteResult, error) {
 	var cur Task
 	skip := false
-	err := s.lockedTask(ctx, p, id, func(_ *operationsdb.Queries, c Task) error {
+	err := s.lockedTask(ctx, p, id, func(_ pgx.Tx, _ *operationsdb.Queries, c Task) error {
 		cur = c
 		switch c.Status {
 		case TaskCancelled:
@@ -473,7 +482,7 @@ func (s *Service) cancelTaskWriteBack(ctx context.Context, p *authz.Principal, r
 	if err != nil {
 		return WriteResult{}, err
 	}
-	s.notifyWriteBack(ctx, p, rid, taskEvent(RouteTaskCancelled, next, []string{"status"}))
+	s.notifyWriteBack(ctx, p, rid, at, onDoc(*cur.LegacyDocID, taskEvent(RouteTaskCancelled, next, []string{"status"}))...)
 	return s.answerTask(ctx, p, id, w, at, acked)
 }
 
@@ -484,7 +493,7 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 	var cur Task
 	var st NewStop
 	var party *operationsdb.WritePartyRow
-	err := s.lockedTask(ctx, p, id, func(q *operationsdb.Queries, c Task) error {
+	err := s.lockedTask(ctx, p, id, func(_ pgx.Tx, q *operationsdb.Queries, c Task) error {
 		cur = c
 		var err error
 		if st, err = s.stopOf(ctx, q, d, in); err != nil {
@@ -563,7 +572,7 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 		if err != nil {
 			return WriteResult{}, err
 		}
-		s.notifyWriteBack(ctx, p, rid, taskEvent(RouteTaskUpdated, cur, []string{"deliveryStops"}))
+		s.notifyWriteBack(ctx, p, rid, at, onDoc(*cur.LegacyDocID, taskEvent(RouteTaskUpdated, cur, []string{"deliveryStops"}))...)
 		if !acked {
 			return echo(id, w, at), nil
 		}
@@ -581,6 +590,14 @@ func (s *Service) addStopWriteBack(ctx context.Context, p *authz.Principal, rid 
 		}
 		return WriteResult{Status: http.StatusOK, Data: map[string]any{"taskId": id, "stops": out}}, nil
 	}
+}
+
+// onDoc names the Firestore document of write-back events (notifyWriteBack).
+func onDoc(doc string, evs ...opsEvent) []opsEvent {
+	for i := range evs {
+		evs[i].doc = doc
+	}
+	return evs
 }
 
 func stringOf(v any) string {

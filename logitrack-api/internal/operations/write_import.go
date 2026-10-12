@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -33,7 +32,8 @@ import (
 //   - taskNo (the sheet's own shipment id) is kept verbatim, else the number is allocated.
 //
 // The imported tasks are pending (no driver), so nothing is pushed: notify is accepted and must stay false. dryRun
-// validates without writing. At most MaxImportRows rows per request; each row runs in a savepoint, so one row's refusal
+// validates without writing. At most MaxImportRows rows per request (WriteBackBatch on the write-back path, one
+// Firestore commit); each row runs in a savepoint, so one row's refusal
 // never undoes another. The answer is {created: [{row, id, taskNo}], errors: [{row, fields: [...]}], dryRun}.
 
 // MaxImportRows bounds one import request.
@@ -66,10 +66,21 @@ type ImportError struct {
 	Fields []httpx.FieldViolation `json:"fields,omitempty"`
 }
 
-var plateKeyRx = regexp.MustCompile(`[\s-]+`)
+// plateStrip are the characters a plate key drops: JavaScript's \s (trimChars, the ECMAScript WhiteSpace and
+// LineTerminator set: NBSP, the Zs spaces, BOM and the rest, which Go's \s and PostgreSQL's [[:space:]] partly miss)
+// and the dash.
+const plateStrip = trimChars + "-"
 
-// plateKey is normalizePlate of the import dialog.
-func plateKey(s string) string { return strings.ToUpper(plateKeyRx.ReplaceAllString(trimText(s), "")) }
+// plateKey is normalizePlate of the import dialog (import-dialog.tsx:18: upper case, /[\s-]/g removed). The fleet
+// side is normalised with the same set (TrucksByPlate, translate with plateStrip).
+func plateKey(s string) string {
+	return strings.ToUpper(strings.Map(func(r rune) rune {
+		if strings.ContainsRune(plateStrip, r) {
+			return -1
+		}
+		return r
+	}, s))
+}
 
 // importRow is one parsed row before its fleet lookup.
 type importRow struct {
@@ -109,11 +120,15 @@ func (s *Service) ImportTasksAPI(ctx context.Context, p *authz.Principal, rid st
 	if raw := f.raw("rows"); raw == nil || isNull(raw) || json.Unmarshal(raw, &raws) != nil {
 		ck.add("rows", "required")
 	}
+	limit := MaxImportRows
+	if mode == modeWriteBack {
+		limit = WriteBackBatch // one Firestore commit: all of the import or none of it
+	}
 	switch {
 	case len(raws) == 0 && !ck.hasField("rows"):
 		ck.add("rows", "required")
-	case len(raws) > MaxImportRows:
-		ck.add("rows", "too_many")
+	case len(raws) > limit:
+		ck.bad = append(ck.bad, httpx.FieldViolation{Field: "rows", Reason: "too_many", Params: map[string]any{"max": limit}})
 	}
 	if err := ck.err(); err != nil {
 		return WriteResult{}, err
@@ -240,6 +255,19 @@ func parseImportRow(index int, taskType string, raw json.RawMessage) importRow {
 		}
 	}
 	in.taskNo = f.optText("taskNo")
+	if in.taskNo != nil {
+		// A sheet's canonical number moves the global counter of the type and day it names (CreateTask): it must be a
+		// number of this import's type and of its row's plan day, and within the allocator's three digits (T31 review).
+		// Any other text (a shipment id) is kept verbatim and moves nothing.
+		if typ, day, seq, padded, ok := ParseTaskNo(*in.taskNo); ok && padded {
+			switch {
+			case typ != taskType || (in.planAt != nil && !day.Equal(PlanDate(*in.planAt))):
+				ck.add("taskNo", "mismatch")
+			case seq > MaxSheetTaskSeq:
+				ck.add("taskNo", "out_of_range")
+			}
+		}
+	}
 	for _, k := range []string{"time", "jobCategory"} {
 		if f.has(k) {
 			in.set[k] = true
@@ -263,7 +291,7 @@ func (s *Service) importTruck(ctx context.Context, q *operationsdb.Queries, r *i
 	if r.plate == "" {
 		return nil
 	}
-	trucks, err := q.TrucksByPlate(ctx, r.plate)
+	trucks, err := q.TrucksByPlate(ctx, operationsdb.TrucksByPlateParams{StripChars: plateStrip, PlateKey: r.plate})
 	if err != nil {
 		return MapError(err)
 	}
@@ -280,8 +308,10 @@ func (s *Service) importTruck(ctx context.Context, q *operationsdb.Queries, r *i
 }
 
 // importWriteBack creates the valid rows' task documents while operations is Firestore-owned: every row is planned
-// and numbered in one transaction of the caller (a refused row allocates no number), then the documents are created
-// in batches of WriteBackBatch, and the answer waits for the mirror's acknowledgement of the last one (202 otherwise).
+// and numbered in one transaction of the caller (a refused row allocates no number), then the documents are created in
+// one Firestore commit (at most WriteBackBatch rows, checked before anything is planned: the import is all or nothing,
+// so a failed commit leaves no half of it to be imported twice), and the answer waits for the mirror's
+// acknowledgement of the first document (202 otherwise).
 func (s *Service) importWriteBack(ctx context.Context, p *authz.Principal, _ string, d directory, rows []importRow, out ImportResult) (WriteResult, error) {
 	var docs []wbDoc
 	errDry := errors.New("dry run")
@@ -328,13 +358,9 @@ func (s *Service) importWriteBack(ctx context.Context, p *authz.Principal, _ str
 		}
 		return WriteResult{Status: http.StatusOK, Data: out}, nil
 	}
-	acked := false
-	for start := 0; start < len(docs); start += WriteBackBatch {
-		end := min(start+WriteBackBatch, len(docs))
-		var err error
-		if _, acked, err = s.writeBack(ctx, docs[start:end]...); err != nil {
-			return WriteResult{}, err
-		}
+	_, acked, err := s.writeBack(ctx, docs...)
+	if err != nil {
+		return WriteResult{}, err
 	}
 	if !acked {
 		out.Pending = true
@@ -343,7 +369,8 @@ func (s *Service) importWriteBack(ctx context.Context, p *authz.Principal, _ str
 	return WriteResult{Status: http.StatusOK, Data: out}, nil
 }
 
-// WriteBackBatch is the number of documents one Firestore commit of the import writes (a commit takes 500 writes).
+// WriteBackBatch is the most rows a write-back import takes: its documents go in one Firestore commit (a commit takes
+// 500 writes), so a failed commit writes none of them (422 rows too_many with details.max above it).
 const WriteBackBatch = 400
 
 // planImportWriteBack plans, stamps and numbers one row of a write-back import and encodes its document.
@@ -368,19 +395,22 @@ func (s *Service) planImportWriteBack(ctx context.Context, tx pgx.Tx, q *operati
 		return nil, Task{}, err
 	}
 	pl.next.ID, pl.next.TenantID = id, uuid.MustParse(res.TenantID)
+	if err := s.checkTenantLinks(ctx, q, p, pl.next.TenantID, taskLinks(pl, Task{}, true)...); err != nil {
+		return nil, Task{}, err
+	}
 	no := r.in.taskNo
 	if no == nil {
 		day := PlanDate(pl.next.PlanAt)
 		seq, err := q.NextTaskSeq(ctx, operationsdb.NextTaskSeqParams{TaskType: pl.next.TaskType, PlanDate: day})
 		if err != nil {
-			return nil, Task{}, MapError(err)
+			return nil, Task{}, seqError(err)
 		}
 		no = ptr(FormatTaskNo(pl.next.TaskType, day, int(seq)))
 	}
-	if typ, day, seq, padded, ok := ParseTaskNo(*no); ok && padded && r.in.taskNo != nil {
+	if typ, day, seq, padded, ok := ParseTaskNo(*no); ok && padded && r.in.taskNo != nil && seq <= MaxBumpSeq {
 		// a sheet's canonical number moves its day's counter past it, as CreateTask does (the mirror keeps it verbatim)
 		if _, err := q.BumpTaskSeq(ctx, operationsdb.BumpTaskSeqParams{TaskType: typ, PlanDate: day, Seq: int32(seq)}); err != nil {
-			return nil, Task{}, MapError(err)
+			return nil, Task{}, seqError(err)
 		}
 	}
 	pl.next.TaskNo = no

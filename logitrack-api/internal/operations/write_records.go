@@ -106,6 +106,9 @@ func (s *Service) StandbyBackfillAPI(ctx context.Context, p *authz.Principal, ri
 		if err != nil {
 			return err
 		}
+		if err := s.checkTenantLinks(ctx, q, p, uuid.MustParse(res.TenantID), pl.links()...); err != nil {
+			return err
+		}
 		ins := pl.insert
 		ins.TenantID, ins.TenantSource = uuid.MustParse(res.TenantID), string(res.Source)
 		if rec, _, err = CreateStandby(ctx, tx, NewStandby{StandbyInsert: ins}); err != nil {
@@ -272,6 +275,29 @@ func (s *Service) standbySideEffects(ctx context.Context, q *operationsdb.Querie
 	return evs, nil
 }
 
+// links are the driver and truck of a backfill to check against the record's tenant (checkTenantLinks): the ones its
+// task or trip does not already carry (a record of the job's own driver and truck is the job's).
+func (pl standbyPlan) links() []tenantLink {
+	var jobDrivers, jobTrucks []*uuid.UUID
+	if pl.task != nil {
+		jobDrivers, jobTrucks = append(jobDrivers, pl.task.DriverID), append(jobTrucks, pl.task.TruckID)
+	}
+	if pl.trip != nil {
+		jobDrivers, jobTrucks = append(jobDrivers, pl.trip.DriverID), append(jobTrucks, pl.trip.TruckID)
+	}
+	carried := func(id uuid.UUID, of []*uuid.UUID) bool {
+		return slices.ContainsFunc(of, func(x *uuid.UUID) bool { return sameID(x, &id) })
+	}
+	var out []tenantLink
+	if pl.driver != nil && !carried(pl.driver.ID, jobDrivers) {
+		out = append(out, tenantLink{field: "driverId", tenant: pl.driver.TenantID, exact: true})
+	}
+	if pl.truck != nil && !carried(pl.truck.ID, jobTrucks) {
+		out = append(out, tenantLink{field: "truckId", tenant: pl.truck.TenantID})
+	}
+	return out
+}
+
 // parseStandbyPhotos reads photos[]: [{type: customer_worksheet | site_photo, key, overlayText?}] (one per type).
 func parseStandbyPhotos(f fields) []standbyPhotoIn {
 	raw := f.raw("photos")
@@ -350,8 +376,11 @@ func (s *Service) standbyBackfillWriteBack(ctx context.Context, p *authz.Princip
 		if pl, err = s.planStandby(ctx, q, in); err != nil {
 			return err
 		}
-		_, err = Stamp(ctx, tx, p, TableStandby, Links{TaskID: in.taskID, TripID: in.tripID, DriverID: in.driverID})
-		return err
+		res, err := Stamp(ctx, tx, p, TableStandby, Links{TaskID: in.taskID, TripID: in.tripID, DriverID: in.driverID})
+		if err != nil {
+			return err
+		}
+		return s.checkTenantLinks(ctx, q, p, uuid.MustParse(res.TenantID), pl.links()...)
 	})
 	if err != nil {
 		return WriteResult{}, err
@@ -404,8 +433,8 @@ func (s *Service) standbyBackfillWriteBack(ctx context.Context, p *authz.Princip
 	} else if pl.trip != nil {
 		tenant = pl.trip.TenantID
 	}
-	s.notifyWriteBack(ctx, p, rid, opsEvent{route: RouteStandbyCompleted, agg: "standby", id: id, tenant: tenant,
-		payload: map[string]any{"taskId": in.taskID, "tripId": in.tripID, "changed": []string{}}})
+	s.notifyWriteBack(ctx, p, rid, at, opsEvent{route: RouteStandbyCompleted, agg: "standby", id: id, tenant: tenant,
+		doc: id.String(), payload: map[string]any{"taskId": in.taskID, "tripId": in.tripID, "changed": []string{}}})
 	if !acked {
 		return echo(id, docs[0], at), nil
 	}
@@ -477,6 +506,9 @@ func (s *Service) CreateIncidentAPI(ctx context.Context, p *authz.Principal, rid
 		}
 		res, err := Stamp(ctx, tx, p, TableIncidents, Links{TripID: in.tripID, DriverID: in.driverID})
 		if err != nil {
+			return err
+		}
+		if err := s.checkTenantLinks(ctx, q, p, uuid.MustParse(res.TenantID), pl.links()...); err != nil {
 			return err
 		}
 		pl.insert.TenantID, pl.insert.TenantSource = uuid.MustParse(res.TenantID), string(res.Source)
@@ -586,6 +618,33 @@ func (s *Service) planIncident(ctx context.Context, q *operationsdb.Queries, p *
 	return pl, nil
 }
 
+// links are the driver and truck of an admin incident to check against the report's tenant (checkTenantLinks): the
+// ones its trip does not already carry.
+func (pl incidentPlan) links() []tenantLink {
+	var out []tenantLink
+	if pl.driver != nil && (pl.trip == nil || !sameID(pl.trip.DriverID, &pl.driver.ID)) {
+		out = append(out, tenantLink{field: "driverId", tenant: pl.driver.TenantID, exact: true})
+	}
+	if pl.truck != nil && (pl.trip == nil || !sameID(pl.trip.TruckID, &pl.truck.ID)) {
+		out = append(out, tenantLink{field: "truckId", tenant: pl.truck.TenantID})
+	}
+	return out
+}
+
+// actorRef is the value of a user-valued field of a write-back document (reportedByUid, renamedBy): the caller's
+// Firebase uid, as the legacy writers stored it and the mirror resolves it (users.legacy_auth_uid), else its users.id
+// (a login born in Go; the mirror resolves that too, etl docCtx.userID).
+func actorRef(ctx context.Context, q *operationsdb.Queries, p *authz.Principal) (string, error) {
+	uid, err := q.CallerAuthUID(ctx, p.UserID)
+	switch {
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return "", MapError(err)
+	case err == nil && uid != nil && strings.TrimSpace(*uid) != "":
+		return strings.TrimSpace(*uid), nil
+	}
+	return p.UserID.String(), nil
+}
+
 // anyDriverRow reads a driver the caller can see, inactive included (a record of past work: 422 <field> not_found).
 func anyDriverRow(ctx context.Context, q *operationsdb.Queries, ck *checker, field string, id uuid.UUID) (*operationsdb.WriteDriverRow, error) {
 	dr, err := q.WriteDriver(ctx, id)
@@ -630,13 +689,21 @@ func (s *Service) createIncidentWriteBack(ctx context.Context, p *authz.Principa
 		return WriteResult{}, err
 	}
 	var pl incidentPlan
+	var actor string
 	err = s.Tx(ctx, p, func(tx pgx.Tx) error {
 		q := operationsdb.New(tx)
 		var err error
 		if pl, err = s.planIncident(ctx, q, p, in); err != nil {
 			return err
 		}
-		_, err = Stamp(ctx, tx, p, TableIncidents, Links{TripID: in.tripID, DriverID: in.driverID})
+		res, err := Stamp(ctx, tx, p, TableIncidents, Links{TripID: in.tripID, DriverID: in.driverID})
+		if err != nil {
+			return err
+		}
+		if err := s.checkTenantLinks(ctx, q, p, uuid.MustParse(res.TenantID), pl.links()...); err != nil {
+			return err
+		}
+		actor, err = actorRef(ctx, q, p)
 		return err
 	})
 	if err != nil {
@@ -644,7 +711,7 @@ func (s *Service) createIncidentWriteBack(ctx context.Context, p *authz.Principa
 	}
 	now := s.now().UTC()
 	doc := map[string]any{"driverId": nil, "tripId": nil, "delayCause": optStr(in.cause), "description": in.description,
-		"lat": nil, "lng": nil, "reportedBy": "admin", "reportedByUid": p.UserID.String(), "truckId": nil,
+		"lat": nil, "lng": nil, "reportedBy": "admin", "reportedByUid": actor, "truckId": nil,
 		"truckPlate": nil, "createdAt": now, "updatedAt": now}
 	if in.lat != nil {
 		doc["lat"] = *in.lat
