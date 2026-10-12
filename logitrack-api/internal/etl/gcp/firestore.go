@@ -156,12 +156,23 @@ func (f *Firestore) DocumentsAt(ctx context.Context, collection string, group bo
 // collections, applies it (main spec §13.7, T29: the listeners poll this query between sweeps). The query needs only
 // the single-field index Firestore keeps by default.
 func (f *Firestore) Changed(ctx context.Context, collection, field string, since, at time.Time) ([]dump.Doc, time.Time, error) {
+	return f.changed(ctx, collection, false, field, since, at)
+}
+
+// ChangedGroup is Changed over a collection group (every collection of that id at any depth: chats/*/messages, T47).
+// Unlike Changed it needs a collection-group single-field index on the field, which Firestore does not keep by
+// default (an index exemption of the project; without it the query is refused and the sweep alone applies the group).
+func (f *Firestore) ChangedGroup(ctx context.Context, collection, field string, since, at time.Time) ([]dump.Doc, time.Time, error) {
+	return f.changed(ctx, collection, true, field, since, at)
+}
+
+func (f *Firestore) changed(ctx context.Context, collection string, group bool, field string, since, at time.Time) ([]dump.Doc, time.Time, error) {
 	if field == "" || since.IsZero() {
 		return nil, time.Time{}, errors.New("gcp: Changed needs a field and an instant")
 	}
 	fp := quoteFieldPath(field)
 	q := map[string]any{
-		"from": []any{map[string]any{"collectionId": collection, "allDescendants": false}},
+		"from": []any{map[string]any{"collectionId": collection, "allDescendants": group}},
 		"where": map[string]any{"fieldFilter": map[string]any{"field": map[string]any{"fieldPath": fp}, "op": "GREATER_THAN_OR_EQUAL",
 			"value": map[string]any{"timestampValue": since.UTC().Format(time.RFC3339Nano)}}},
 		"orderBy": []any{
@@ -171,7 +182,7 @@ func (f *Firestore) Changed(ctx context.Context, collection, field string, since
 		"limit": pageSize,
 	}
 	var bad error
-	docs, read, err := f.query(ctx, collection, false, q, at, func(d dump.Doc) []any {
+	docs, read, err := f.query(ctx, collection, group, q, at, func(d dump.Doc) []any {
 		ts, ok := d.Fields[field].(dump.Timestamp)
 		if !ok {
 			bad = fmt.Errorf("gcp: runQuery %s answered %s without a timestamp %s", collection, d.Path, field)
@@ -183,6 +194,26 @@ func (f *Firestore) Changed(ctx context.Context, collection, field string, since
 		err = bad
 	}
 	return docs, read, err
+}
+
+// Where reads the documents of a top-level collection whose field holds the string value, ordered by name and paged
+// with a name cursor, at one read time. An equality filter needs only the single-field index Firestore keeps by default
+// (the chat write-back finds a driver's chat documents by driverId with it, T47).
+func (f *Firestore) Where(ctx context.Context, collection, field, value string) ([]dump.Doc, error) {
+	if field == "" {
+		return nil, errors.New("gcp: Where needs a field")
+	}
+	q := map[string]any{
+		"from": []any{map[string]any{"collectionId": collection, "allDescendants": false}},
+		"where": map[string]any{"fieldFilter": map[string]any{"field": map[string]any{"fieldPath": quoteFieldPath(field)}, "op": "EQUAL",
+			"value": map[string]any{"stringValue": value}}},
+		"orderBy": []any{map[string]any{"field": map[string]any{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
+		"limit":   pageSize,
+	}
+	docs, _, err := f.query(ctx, collection, false, q, time.Time{}, func(d dump.Doc) []any {
+		return []any{map[string]any{"referenceValue": f.root + "/" + d.Path}}
+	})
+	return docs, err
 }
 
 // query pages one structured query at one read time; cursor gives the startAt values after a page's last document.

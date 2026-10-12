@@ -30,6 +30,9 @@ import (
 //     its boards refetch and drop the row, and its dispatchers read none of the row's new values, which RLS no longer
 //     lets them read (Appendix B §B.4.2). A leftPartyIds the relay cannot read gives every dispatch topic of the event
 //     that copy (fail closed).
+//   - A chat event (chat.*, T47) keeps its whole payload on chat:{id} only (SSE message.created carries the message,
+//     read.updated the read state): tenant:{tid}:chats keeps the thin list keys (chatThinKeyList) and a driver's
+//     user:{uid} the envelope of its own chat (chatUserKeyList), never a message text (Appendix B §B.4.4).
 //   - The leave events (leave.*, T45) keep on every topic the leave keys only (leaveKeyList), each a JSON scalar; a
 //     driver:{driverId} copy leaves out driverId. The rejection's free-text reason stays in the outbox row for
 //     notify.fcm: tenant:{tid}:hr also opens on hr:view_payroll, which does not read leave requests.
@@ -44,6 +47,15 @@ var thinKeyList = []string{
 	"taskType", "planDate", "status", "tripNo", "previousTripNo", "taskId", "tripId", "driverId", "previousDriverId",
 	"billingDateMoved",
 }
+
+// chatThinKeyList are the keys a chat event keeps on tenant:{tid}:chats: the envelope and what the chat lists and the
+// badges show (Appendix B §B.4.3: chat.created|updated carry {status, assignedAdminUserId}; chat.message_created is
+// thin there).
+var chatThinKeyList = []string{"entity", "id", "tenantId", "at", "version", "changed", "chatId", "status", "priority",
+	"assignedAdminUserId", "driverId", "senderRole", "messageType"}
+
+// chatUserKeyList are the keys a chat event keeps on the driver's user:{uid} (its own chat, Appendix B §B.4.2).
+var chatUserKeyList = []string{"entity", "id", "tenantId", "at", "chatId", "senderRole", "messageType"}
 
 // leaveKeyList are the payload keys a leave event keeps on its realtime topics (Appendix B §B.4.1, §B.4.3 as built
 // T45): the envelope, the new status and the one before, and the request's driver.
@@ -100,6 +112,8 @@ const partySuffix = "PartyId"
 
 var (
 	thinKeys        = setOf(thinKeyList)
+	chatThinKeys    = setOf(chatThinKeyList)
+	chatUserKeys    = setOf(chatUserKeyList)
 	leaveKeys       = setOf(leaveKeyList)
 	dispatchChanged = map[string]map[string]bool{}
 	// driverHidden are left out of driver:{driverId} copies: a driver's stream names no other driver.
@@ -176,6 +190,13 @@ func Project(topic, eventType string, data json.RawMessage) (json.RawMessage, bo
 			return nil, false
 		}
 	}
+	if strings.HasPrefix(eventType, "chat.") && !strings.HasPrefix(topic, "chat:") {
+		keys := chatThinKeys
+		if strings.HasPrefix(topic, "user:") {
+			keys = chatUserKeys
+		}
+		return thinCopy(data, keys)
+	}
 	if entity == "" && !leaveEvent(eventType) {
 		return data, true
 	}
@@ -211,6 +232,38 @@ func Project(topic, eventType string, data json.RawMessage) (json.RawMessage, bo
 					return nil, false
 				}
 				names = kept
+			}
+			b, err := json.Marshal(names)
+			if err != nil {
+				return nil, false
+			}
+			out[k] = b
+		case scalar(v):
+			out[k] = v
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+// thinCopy keeps the scalar values of keys (changed: a list of strings) of a JSON object payload; a payload that is not
+// an object, or whose changed[] is not a list of strings, is not carried.
+func thinCopy(data json.RawMessage, keys map[string]bool) (json.RawMessage, bool) {
+	var in map[string]json.RawMessage
+	if err := json.Unmarshal(data, &in); err != nil || in == nil {
+		return nil, false
+	}
+	out := make(map[string]json.RawMessage, len(keys))
+	for k, v := range in {
+		switch {
+		case !keys[k]:
+		case k == "changed":
+			names, ok := stringList(v)
+			if !ok {
+				return nil, false
 			}
 			b, err := json.Marshal(names)
 			if err != nil {

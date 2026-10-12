@@ -19,6 +19,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify/notifydb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -52,8 +53,7 @@ const (
 // fail as transient and dead-letter after the last retry, to be replayed once the planner exists
 // (POST /v1/admin/queues/notify.fcm/replay), instead of being acked and lost.
 var pendingRoutes = map[string]string{
-	RouteChatMessageCreated: "T47",
-	RouteBroadcastCreated:   "T48",
+	RouteBroadcastCreated: "T48",
 }
 
 // FromMirror reports whether a delivery is a domain event the FS->PG mirror appended (header origin=etl.sync). While
@@ -120,7 +120,14 @@ const reasonClaimsChanged = "claims_changed"
 //     truck (T40);
 //   - leave.decided (a staff approval, rejection or cancellation, T45): leave_decided to the request's driver;
 //   - user.sessions_revoked: the silent session_revoked push to the device of each revoked session
-//     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none.
+//     (device_tokens.install_id = sessions.install_id, R50, R83, R84); claims_changed sends none;
+//   - chat.message_created (T47): "chat" to the devices of the chat's driver for a staff message (one per device:
+//     exactly one push per message and device, fn:chat.ts:170-179), and, with NotifyAdminOnDriverMessage, "chat" to
+//     the devices of the admin assigned to the chat for a driver message (the legacy code never pushed to admins),
+//     while that admin is an active staff member who reaches the chat's tenant with chat:view. A Go write-back
+//     appends the event of a message again when a send is replayed, so a chat push is claimed per message too:
+//     SET idem:push:chat:{chatRef}:{messageRef} {messageId} NX (24 h), and only the event holding it sends; the
+//     others log deduplicated.
 //
 // While Firestore owns the operations collections, the task events of the mirror (origin=etl.sync) push nothing and
 // those of a Go write-back handler (origin=writeback) are the push; such an event waits (transient failures) until
@@ -142,8 +149,11 @@ type FCM struct {
 	Redis   redis.UniversalClient
 	Keys    cache.Keyspace
 	Enabled bool // FCM_ENABLED: false acks every message without sending (local default)
-	Log     zerolog.Logger
-	Now     func() time.Time // nil: time.Now
+	// NotifyAdminOnDriverMessage (NOTIFY_ADMIN_ON_DRIVER_MESSAGE) also pushes a driver's chat message to the assigned
+	// admin's devices (T47); off by default, as the legacy code never pushed to admins.
+	NotifyAdminOnDriverMessage bool
+	Log                        zerolog.Logger
+	Now                        func() time.Time // nil: time.Now
 }
 
 // Registration binds the consumer to its queue.
@@ -173,6 +183,7 @@ type target struct {
 	installID string
 	token     string
 	dedupe    *uuid.UUID // tasks_changed: the driver whose 30 s window applies
+	once      string     // chat: the idem:push:chat key of the message (the first event that pushes it sends)
 	push      Push
 }
 
@@ -195,6 +206,8 @@ func (f *FCM) planner(key string) (planner, bool) {
 		return planSessionsRevoked, true
 	case RouteMaintenanceCreated, RouteMaintenanceReminder:
 		return planMaintenance, true
+	case RouteChatMessageCreated:
+		return f.planChat, true
 	case RouteLeaveDecided:
 		return planLeave, true
 	}
@@ -271,7 +284,7 @@ const maxSendsPerMessage = push.DefaultConcurrency
 func (f *FCM) deliver(ctx context.Context, messageID string, targets []target) ([]result, error) {
 	results := make([]result, len(targets))
 	errs := make([]error, len(targets))
-	dd := &dedupe{f: f, messageID: messageID, decided: map[uuid.UUID]dedupeDecision{}}
+	dd := &dedupe{f: f, messageID: messageID, decided: map[string]dedupeDecision{}}
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for range min(len(targets), maxSendsPerMessage) {
@@ -325,8 +338,12 @@ func (f *FCM) deliverOne(ctx context.Context, messageID string, t target, dd *de
 		f.settle(ctx, messageID, key, res)
 		return res, nil
 	}
+	window, ttl := t.once, cache.ChatPushTTL
 	if t.dedupe != nil {
-		suppressed, err := dd.suppressed(ctx, *t.dedupe)
+		window, ttl = f.Keys.IdemTasksChangedPush(t.dedupe.String()), TasksChangedWindow
+	}
+	if window != "" {
+		suppressed, err := dd.suppressed(ctx, window, ttl)
 		if err != nil {
 			f.release(ctx, key, c.marker)
 			return res, err
@@ -805,36 +822,36 @@ type dedupeDecision struct {
 	err        error
 }
 
-// dedupe decides the tasks_changed window once per driver and message attempt:
-// SET idem:push:tasks_changed:{driverId} {messageId} NX EX 30. The key holds the message that opened
-// the window, so a retry of that message still sends, and any other message inside the 30 s is
-// suppressed (R21).
+// dedupe decides a window once per key and message attempt: SET {key} {messageId} NX EX {ttl}. The key holds the
+// message that opened the window, so a retry of that message still sends, and any other message inside the window is
+// suppressed: the tasks_changed window of a driver, idem:push:tasks_changed:{driverId} for 30 s (R21), and the push of
+// one chat message, idem:push:chat:{chatRef}:{messageRef} for 24 h (T47: a write-back replay's event of the same
+// message).
 type dedupe struct {
 	f         *FCM
 	messageID string
 	mu        sync.Mutex
-	decided   map[uuid.UUID]dedupeDecision
+	decided   map[string]dedupeDecision
 }
 
-func (d *dedupe) suppressed(ctx context.Context, driverID uuid.UUID) (bool, error) {
+func (d *dedupe) suppressed(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if v, ok := d.decided[driverID]; ok {
+	if v, ok := d.decided[key]; ok {
 		return v.suppressed, v.err
 	}
-	v := d.decide(ctx, driverID)
+	v := d.decide(ctx, key, ttl)
 	if v.err == nil {
-		d.decided[driverID] = v
+		d.decided[key] = v
 	}
 	return v.suppressed, v.err
 }
 
-func (d *dedupe) decide(ctx context.Context, driverID uuid.UUID) dedupeDecision {
+func (d *dedupe) decide(ctx context.Context, key string, ttl time.Duration) dedupeDecision {
 	rctx, cancel := context.WithTimeout(ctx, redisOpTimeout)
 	defer cancel()
-	key := d.f.Keys.IdemTasksChangedPush(driverID.String())
 	for range 2 {
-		ok, err := d.f.Redis.SetNX(rctx, key, d.messageID, TasksChangedWindow).Result()
+		ok, err := d.f.Redis.SetNX(rctx, key, d.messageID, ttl).Result()
 		if err != nil {
 			return dedupeDecision{err: fmt.Errorf("idem:push window: %w", err)}
 		}
@@ -926,6 +943,133 @@ func planMaintenance(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) (
 		}})
 	}
 	return driverTargets(ctx, q, pushes)
+}
+
+// chatEvent is the part of a chat.message_created payload notify.fcm reads (internal/chats). The PostgreSQL path names
+// the message (id) and everything else is re-read from chat_messages and chats. A write-back handler's event
+// (writeBack, header origin=writeback) is sent before the mirror has the message: it carries the message as the
+// handler wrote it in Firestore (the ids the app knows, the sender's role and the text), the chat's PostgreSQL id
+// (absent for a chat the mirror had not applied) and its tenant; the driver, the assignee and the tenant are read from
+// the chat when the mirror holds it (by id, else by document id), else the handler's server-side values are used.
+type chatEvent struct {
+	ID                  uuid.UUID  `json:"id"`
+	ChatID              uuid.UUID  `json:"chatId"`
+	TenantID            uuid.UUID  `json:"tenantId"`
+	WriteBack           bool       `json:"writeBack"`
+	ChatRef             string     `json:"chatRef"`
+	MessageRef          string     `json:"messageRef"`
+	SenderRole          string     `json:"senderRole"`
+	Text                *string    `json:"text"`
+	DriverID            *uuid.UUID `json:"driverId"`
+	AssignedAdminUserID *uuid.UUID `json:"assignedAdminUserId"`
+}
+
+// chatImagePreview is the body of a push for an image without text (the chat lists' "[Image]").
+const chatImagePreview = "[Image]"
+
+// planChat plans chat.message_created: "chat" to the driver's devices for a staff message; with
+// NotifyAdminOnDriverMessage, "chat" to the assigned admin's devices for a driver message (nobody when the chat is in
+// the queue: the console's SSE shows it, nor when the assignee may no longer read the chat, chatReader). Every target
+// carries the message's idem:push:chat key.
+func (f *FCM) planChat(ctx context.Context, q *notifydb.Queries, d *mq.Delivery) ([]target, error) {
+	var ev chatEvent
+	if err := d.Decode(&ev); err != nil {
+		return nil, err
+	}
+	var role, text, chatRef, msgRef, driverName string
+	var driver, admin *uuid.UUID
+	var tenant uuid.UUID
+	if ev.WriteBack {
+		if ev.ChatRef == "" || ev.MessageRef == "" || ev.SenderRole == "" {
+			return nil, mq.Permanent(errors.New("notify.fcm: a write-back chat.message_created without chatRef, messageRef or senderRole"))
+		}
+		role, chatRef, msgRef, driver, admin, tenant = ev.SenderRole, ev.ChatRef, ev.MessageRef, ev.DriverID,
+			ev.AssignedAdminUserID, ev.TenantID
+		if ev.Text != nil {
+			text = *ev.Text
+		}
+		c, err := q.GetChatForPush(ctx, notifydb.GetChatForPushParams{ID: ev.ChatID, Ref: ev.ChatRef})
+		switch {
+		case err == nil:
+			driver, driverName, tenant = c.DriverID, c.DriverName, c.TenantID
+			if admin == nil {
+				admin = c.AssignedAdminUserID
+			}
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, err
+		}
+	} else {
+		if ev.ID == uuid.Nil {
+			return nil, mq.Permanent(errors.New("notify.fcm: chat.message_created without id"))
+		}
+		m, err := q.GetChatMessageForPush(ctx, ev.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, mq.Permanent(fmt.Errorf("notify.fcm: chat message %s not found", ev.ID))
+		}
+		if err != nil {
+			return nil, err
+		}
+		role, text, chatRef, msgRef, driver, admin, driverName, tenant = m.SenderRole, m.Text, m.ChatRef, m.MessageRef,
+			m.DriverID, m.AssignedAdminUserID, m.DriverName, m.TenantID
+		if text == "" && m.HasImage {
+			text = chatImagePreview
+		}
+	}
+	once := f.Keys.IdemChatPush(chatRef, msgRef)
+	switch {
+	case role == "admin" && driver != nil:
+		out, err := driverTargets(ctx, q, []driverPush{{driverID: *driver, build: func(string) Push {
+			return ChatMessage(chatRef, msgRef, text)
+		}}})
+		for i := range out {
+			out[i].once = once
+		}
+		return out, err
+	case role == "driver" && f.NotifyAdminOnDriverMessage && admin != nil:
+		ok, err := chatReader(ctx, q, *admin, tenant)
+		if err != nil || !ok {
+			return nil, err
+		}
+		rows, err := q.UserDevices(ctx, notifydb.UserDevicesParams{UserID: *admin, PerUser: MaxDevicesPerDriver})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]target, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, target{userID: *admin, installID: r.InstallID, token: r.Token, once: once,
+				push: ChatFromDriver(chatRef, msgRef, driverName, text)})
+		}
+		return out, nil
+	}
+	return nil, nil
+}
+
+// chatReader reports whether a user may receive a chat's text: an active user with an active staff membership in the
+// chat's tenant or in the contractor that tenant works for (R60) whose role set there holds chat:view (the catalog
+// default with the platform-wide and tenant overrides, Appendix C §C.2.5). An assignment outlives a revoked
+// membership, a disabled account and a role change, and a device token outlives all three, so every push checks it.
+func chatReader(ctx context.Context, q *notifydb.Queries, user, tenant uuid.UUID) (bool, error) {
+	if tenant == uuid.Nil {
+		return false, nil
+	}
+	rows, err := q.ChatAssigneeRoles(ctx, notifydb.ChatAssigneeRolesParams{UserID: user, ChatTenantID: tenant})
+	if err != nil {
+		return false, err
+	}
+	for _, r := range rows {
+		ov, err := q.RoleOverrides(ctx, notifydb.RoleOverridesParams{Role: r.Role, TenantID: r.TenantID})
+		if err != nil {
+			return false, err
+		}
+		overrides := make([]authz.Override, 0, len(ov))
+		for _, o := range ov {
+			overrides = append(overrides, authz.Override{TenantID: o.TenantID, Cap: authz.Cap(o.Capability), Allowed: o.Allowed})
+		}
+		if authz.RoleCaps(authz.TenantRole(r.Role), true, overrides).Has(authz.ChatView) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // leaveEvent is the payload of leave.decided (internal/hr emitLeave): the request, the decision and a rejection's

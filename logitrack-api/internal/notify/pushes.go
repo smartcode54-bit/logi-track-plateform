@@ -175,11 +175,25 @@ func buddhistDay(day string) string {
 
 // ChatMessage is "chat" to the driver of a chat an admin wrote in (fn:chat.ts:174-178): body = the
 // first 80 UTF-16 units of the text, "…" when it was longer. chatRef opens the room in the app
-// (main.dart:71-82). The consumer of chat.message_created lands with T47.
+// (main.dart:71-82). notify.fcm sends it for chat.message_created of a staff message (T47).
 func ChatMessage(chatRef, messageRef, text string) Push {
 	return Push{
 		Kind: KindChat, Channel: ChannelChat,
 		Notification: &push.Notification{Title: "New message from Admin", Body: jsPreview(text, 80)},
+		Data:         map[string]string{"type": KindChat, "chatId": chatRef, "messageId": messageRef},
+	}
+}
+
+// ChatFromDriver is "chat" to the admin assigned to a chat a driver wrote in (T47, NOTIFY_ADMIN_ON_DRIVER_MESSAGE; the
+// legacy code never pushed to admins): the title names the driver ("Driver" without a name), the body as ChatMessage,
+// the data as ChatMessage, so a web or phone client opens the room the same way.
+func ChatFromDriver(chatRef, messageRef, driverName, text string) Push {
+	if jsTrim(driverName) == "" {
+		driverName = "Driver"
+	}
+	return Push{
+		Kind: KindChat, Channel: ChannelChat,
+		Notification: &push.Notification{Title: "New message from " + driverName, Body: jsPreview(text, 80)},
 		Data:         map[string]string{"type": KindChat, "chatId": chatRef, "messageId": messageRef},
 	}
 }

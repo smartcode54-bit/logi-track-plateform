@@ -63,6 +63,9 @@ const (
 	// GenTTL keeps a cache:gen:{family} counter after its last increment. It only has to outlive the
 	// longest load of a read-through (seconds); a day keeps the handful of counters around.
 	GenTTL = 24 * time.Hour
+	// ChatPushTTL is the life of idem:push:chat:{chatRef}:{messageRef} (T47): the push of one chat message is sent by
+	// the first outbox event that pushes it, however many a write-back's replays append within it.
+	ChatPushTTL = 24 * time.Hour
 )
 
 // Bounds of each Redis round trip (the client honours context deadlines, Open). A slow or hung Redis

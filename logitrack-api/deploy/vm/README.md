@@ -364,6 +364,12 @@ gate's writers (developer-spec.md §12.2, the T52R rollout), never the flag alon
   keeping `WEB_FLAG_OVERRIDES` for the web pages' own switch, `operations=firebase` while the operations pages are
   not on Go yet) and reload `logitrack-api`. Never set `WRITEBACK_FIRESTORE_PROJECT_ID` on this VM: it would point
   the api's writes at a real Firestore project.
+- Chats (T47): the chat write routes (`/v1/chats*`, `/v1/mobile/chat*`) write PostgreSQL only while `comms` is in
+  `PG_OWNED_DOMAINS`; with it absent they answer `503 write_back_unconfigured` (this VM has no Firestore to write
+  back to). To serve them here append `comms` to `PG_OWNED_DOMAINS` (keeping the domains already listed) and keep
+  the web pages' own switch in `WEB_FLAG_OVERRIDES` (`comms=firebase` until the chat pages are on Go, T50), then
+  reload `logitrack-api`. A driver's chat pushes to the assigned admin only with
+  `NOTIFY_ADMIN_ON_DRIVER_MESSAGE=true` (worker, off by default).
 - Leave decisions (T45): leave requests are written by the 3.x APKs in Firestore until P7b, so
   `POST /v1/leave-requests/{id}/approve|reject|cancel` write PostgreSQL only when `PG_OWNED_DOMAINS` holds every
   domain (`all`, the P7b state, which fits this PostgreSQL-only VM). With any domain left out they are Firestore

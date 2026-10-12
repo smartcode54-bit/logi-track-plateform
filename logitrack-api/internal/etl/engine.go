@@ -162,6 +162,9 @@ type Report struct {
 	// Extra are findings a collection's after-hook raised on documents of an earlier collection (a trip whose
 	// restamp would cross a locked period is known only once the statements are loaded).
 	Extra []ExtraFinding
+	// Skipped are the collections a listener's poll could not read and left to the sweep (a collection group whose
+	// index the Firestore project lacks, T47), with the reason.
+	Skipped []string
 }
 
 // ExtraFinding is a finding written on another collection's document.
@@ -343,9 +346,13 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 		c := &docCtx{ctx: ctx, tx: tx, e: e, coll: spec.name, doc: doc, f: doc.Fields, billable: billable.has(spec.name, doc) || o.Changes, run: r}
 		if o.Mirror {
 			var before opsState
+			var comms commsState
 			if r.events {
 				var err error
 				if before, err = opsBefore(c); err != nil {
+					return stats, err
+				}
+				if comms, err = commsBefore(c); err != nil {
 					return stats, err
 				}
 			}
@@ -371,7 +378,11 @@ func (e *Engine) loadCollection(ctx context.Context, tx pgx.Tx, spec collectionS
 				if err != nil {
 					return stats, err
 				}
-				stats.Events += n
+				m, err := emitCommsEvents(c, comms)
+				if err != nil {
+					return stats, err
+				}
+				stats.Events += n + m
 			}
 		} else if err := e.apply(c, spec); err != nil {
 			return stats, err

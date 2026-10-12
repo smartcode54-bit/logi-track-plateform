@@ -452,7 +452,7 @@ func TestListenersAfterAGapLoseNothing(t *testing.T) {
 	h := newSyncHarness(t)
 	p := h.plan(owned("auth", "masterdata"))
 	h.sweep(p)
-	if got := ListenCollections(p); !slices.Equal(got, OpsCollections) {
+	if got := ListenCollections(p); !slices.Equal(got, append(slices.Clone(OpsCollections), CommsCollections...)) {
 		t.Fatalf("listened %v", got)
 	}
 	start := func() map[string]time.Time {
