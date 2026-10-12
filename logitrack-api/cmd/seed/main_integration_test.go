@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -232,10 +233,10 @@ func TestDemoLoadVerify(t *testing.T) {
 	// TTP tenant_admin, operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR ->
 	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left: d13's TTP work of the 42 days
 	// before its move (T35: tasks, trips, photos and their objects, an incident, a standby wait; T43: its expenses on the
-	// TTP truck and a receipt). Every readable RLS table is classified.
+	// TTP truck and their receipts). Every readable RLS table is classified.
 	for _, want := range []string{
 		"11 carrier principal(s) (7 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
-		"d13.thawisak@logitrack.test (NWR, driver): file_objects 187, incident_reports 1, memberships 1, standby_records 1, " +
+		"d13.thawisak@logitrack.test (NWR, driver): file_objects 190, incident_reports 1, memberships 1, standby_records 1, " +
 			"tasks 42, trip_photos 183, trip_records 42, truck_assignments 1, vehicle_expenses 10",
 		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
 	} {
@@ -397,7 +398,9 @@ func checkDemoBilling(t *testing.T, s *stack, conn *pgx.Conn) {
 
 // A database seeded with a smaller profile takes the demo rows with --mode upsert, as the staging VM seeded with an
 // older demo takes the T26 master data: the top-up inserts only what is missing, passes --verify, and ends with the
-// fingerprint of a fresh demo load.
+// fingerprint of a fresh demo load. A database whose demo trucks predate T43's maintenance history (the staging VM:
+// its trucks hold their T26 mileage and service state, and none of the generated records) takes the records, keeps
+// the truck rows and says so.
 func TestDemoUpsertOverSmaller(t *testing.T) {
 	s := newStack(t, "s3") // MinIO: the local backend's fsync per object is slow on macOS (TestDemoLoadVerify covers it)
 	s.mustSeed(t, "--profile", "smoke")
@@ -416,6 +419,60 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 	fresh.mustSeed(t, "--profile", "demo")
 	if a, b := fingerprintBlock(t, topped.stdout), fingerprintBlock(t, fresh.mustSeed(t, "--verify", "--profile", "demo").stdout); a != b {
 		t.Fatalf("a topped-up and a fresh demo differ:\n%s\nvs\n%s", a, b)
+	}
+
+	// Back to a pre-T43 fleet: the generated maintenance records gone and every truck they name with another state.
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	fx := seed.FixtureFS{FS: fixtures, Registry: "testdata/registry.json", Smoke: "testdata/smoke"}
+	smoke, err := seed.Build(ctx, fx, seed.Options{Profile: seed.ProfileSmoke, Bucket: "logitrack", PublicBucket: "logitrack-public", Backend: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var smokeTrucks []uuid.UUID
+	for _, r := range smoke.Tables["trucks"] {
+		smokeTrucks = append(smokeTrucks, uuid.MustParse(r.Str("id")))
+	}
+	var plates []string
+	if err := conn.QueryRow(ctx, `SELECT coalesce(array_agg(DISTINCT license_plate ORDER BY license_plate), '{}') FROM trucks
+		WHERE id IN (SELECT truck_id FROM maintenance_records) AND NOT id = ANY($1::uuid[])`, smokeTrucks).Scan(&plates); err != nil {
+		t.Fatal(err)
+	}
+	var records, removed int64
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM maintenance_records`).Scan(&records); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`UPDATE trucks SET active_maintenance_id = NULL, last_alert_mileage = NULL, last_service_date = NULL,
+		status = 'active', current_mileage = current_mileage - 1000 WHERE id IN (SELECT truck_id FROM maintenance_records)
+		AND NOT id = ANY($1::uuid[])`, `DELETE FROM maintenance_records WHERE NOT truck_id = ANY($1::uuid[])`} {
+		tag, err := conn.Exec(ctx, q, smokeTrucks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		removed = tag.RowsAffected()
+	}
+	if len(plates) < 3 || removed == 0 {
+		t.Fatalf("the demo's maintenance history names %v (%d records)", plates, removed)
+	}
+	r = s.mustSeed(t, "--profile", "demo", "--mode", "upsert")
+	var after int64
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM maintenance_records`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != records {
+		t.Errorf("after the top-up %d maintenance records, want the %d of a demo (%d inserted again)", after, records, removed)
+	}
+	if want := fmt.Sprintf("%d truck row(s) kept as the database holds them", len(plates)); !strings.Contains(r.stderr, want) {
+		t.Errorf("the top-up does not report the %d kept trucks (%q):\n%s", len(plates), want, r.stderr)
+	}
+	for _, plate := range plates {
+		if !strings.Contains(r.stderr, plate) {
+			t.Errorf("the kept-truck warning does not name %s:\n%s", plate, r.stderr)
+		}
 	}
 }
 
@@ -695,6 +752,16 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 		FROM customer_rate_entries WHERE id = $1`, sym("RE01"), party, hub, dest, class); err != nil {
 		t.Fatal(err)
 	}
+	// A later SPK fuel round from 20 August (an announcement through the API): the smoke TR16 of 26 August is now priced
+	// otherwise than it stores. The top-up writes no sent statement over it (T43): SPK August waits for the backfill,
+	// SPK July lands.
+	if _, err := conn.Exec(ctx, `INSERT INTO customer_fuel_rate_adjustments (tenant_id, tenant_source, billing_party_id,
+		effective_from_date, effective_from_at, rate_multiplier, add_thb_per_trip, announcement_note, created_by, created_at, voided)
+		SELECT tenant_id, tenant_source, billing_party_id, '2026-08-20', '2026-08-20T00:00:00+07:00', 1.000000, -20.00,
+		       'รอบ 20 ส.ค.', created_by, '2026-08-18T10:00:00+07:00', false
+		FROM customer_fuel_rate_adjustments WHERE id = $1`, sym("FA06")); err != nil {
+		t.Fatal(err)
+	}
 	// The staging VM numbers statements through the API (T37): an SPX August draft is already there, with its counter,
 	// so the top-up leaves that month alone (T43) and writes the other generated statements from what the database holds.
 	for _, q := range []string{`INSERT INTO billing_counters (billing_party_id, period_year, period_month, tenant_id, last_seq,
@@ -709,6 +776,9 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 	if !strings.Contains(top.stderr, "1 generated statement month(s) already numbered in the database") {
 		t.Errorf("the top-up does not report the SPX August month the database numbered:\n%s", top.stderr)
 	}
+	if !strings.Contains(top.stderr, "statement SPK-202608 (2026-08) not written") || !strings.Contains(top.stderr, "ZXJB26082600116") {
+		t.Errorf("the top-up does not leave SPK August (the stale TR16) for after the backfill:\n%s", top.stderr)
+	}
 	var spx, spk, badTotals int
 	if err := conn.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM billing_statements WHERE invoice_number LIKE 'SPX-202608-%'),
@@ -718,13 +788,16 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 		   GROUP BY 1) l ON l.statement_id = b.id WHERE b.total_amount <> l.total)`).Scan(&spx, &spk, &badTotals); err != nil {
 		t.Fatal(err)
 	}
-	if spx != 1 || spk != 3 || badTotals != 0 {
-		t.Errorf("after the top-up: %d SPX August statements (want the API's one), %d generated SPK statements (want 3), "+
+	if spx != 1 || spk != 2 || badTotals != 0 {
+		t.Errorf("after the top-up: %d SPX August statements (want the API's one), %d generated SPK statements (want July's 2), "+
 			"%d statements whose totals are not their lines'", spx, spk, badTotals)
 	}
-	// The verify of a shared database differs from the manifest (the API's rows), never in the billing invariants.
+	// The backfill the deploy notes give for such a database (deploy/vm/README.md §4: every unpriced delivered trip,
+	// and a forced recompute of the open periods' priced ones) leaves no price after a sent or paid statement's sent_at:
+	// the generated statements locked no period whose rows the database prices otherwise.
+	backfill(t, s, conn, sym("BP_SPK"), "2026-08-01")
 	if v := s.seed(t, "--verify", "--profile", "demo"); !strings.Contains(v.stdout, " 4 PASS") || !strings.Contains(v.stdout, " 5 PASS") {
-		t.Errorf("invariants 4 and 5 after the top-up:\n%s", v.stdout)
+		t.Errorf("invariants 4 and 5 after the top-up and the backfill:\n%s", v.stdout)
 	}
 	var trips, laterRound, newCard int
 	if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM trip_records),
@@ -737,6 +810,49 @@ func TestUpsertLeavesExistingPricesAlone(t *testing.T) {
 	if trips != 790 || laterRound == 0 || newCard == 0 {
 		t.Errorf("after the top-up: %d trips (want 790), %d priced on the later RE01 round, %d on the new card (want both > 0)",
 			trips, laterRound, newCard)
+	}
+}
+
+// backfill runs what POST /v1/jobs/billing.backfill-trips writes (billing.PriceTrip): every unpriced delivered trip in
+// auto mode, whatever its period (a first price is not period-locked), and a forced recompute of the party's priced
+// trips delivered from openFrom on (refused in a sent or paid period).
+func backfill(t *testing.T, s *stack, conn *pgx.Conn, party uuid.UUID, openFrom string) {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := conn.Query(ctx, `SELECT t.id, s.estimate_thb IS NULL FROM trip_records t JOIN trip_billing_snapshots s ON s.trip_id = t.id
+		WHERE t.status = 'delivered' AND (s.estimate_thb IS NULL OR (t.billing_party_id = $2 AND t.delivered_at >= $1::date
+		  AND s.computed_by NOT IN ('etl','manual_edit')))
+		ORDER BY t.id`, openFrom, party)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		id       uuid.UUID
+		unpriced bool
+	}
+	var todo []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.unpriced); err != nil {
+			t.Fatal(err)
+		}
+		todo = append(todo, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	app := s.d.Pool(t, db.RoleApp)
+	for _, r := range todo {
+		req := billing.TripRequest{Mode: billing.ModeAuto, ComputedBy: billing.ComputedByScheduler, At: time.Now()}
+		if !r.unpriced {
+			req.Mode, req.ComputedBy = billing.ModeForce, billing.ComputedByAdminForce
+		}
+		if err := db.WithSystem(ctx, app, nil, func(tx pgx.Tx) error {
+			_, err := billing.PriceTrip(ctx, tx, r.id, req)
+			return err
+		}); err != nil {
+			t.Fatalf("backfill of %s: %v", r.id, err)
+		}
 	}
 }
 

@@ -22,7 +22,7 @@ import (
 )
 
 // The billing statements of the demo profile (T43, issue #63; Appendix D §D.1.2 "Demo billing and finance", §D.2 #6):
-// every billing party with priced rows in a closed month of the window gets the statement POST /v1/billing/statements
+// every billing party with priced rows in a closed full calendar month of the window gets the statement POST /v1/billing/statements
 // would make (internal/billing CreateStatement): its invoice number from the party's counter, the invoice set of
 // InsertStatementLines as lines (never repriced), the exact totals, the issuing company's withholding rate (R18) and
 // due date. A month the plan already holds a statement for (the smoke ST1-ST4) is left alone, and so is a month whose
@@ -303,8 +303,9 @@ func withholdingRate(percent string) (string, error) {
 	return strconv.FormatFloat(math.Round(v*100)/1e4, 'f', 4, 64), nil
 }
 
-// addStatements appends the statements of the closed months of the window (demo and load), their lines and counters,
-// once every price is in (after priceOperations).
+// addStatements appends the statements of the closed full calendar months of the window (demo and load), their lines
+// and counters, once every price is in (after priceOperations). A month the window covers in part is left out: whether
+// a party has priced rows in its few days depends on the drawn routes, and so would the statements' count.
 func addStatements(p *Plan, o Options) error {
 	own := p.Symbols.MustID(ownFleetSymbol).String()
 	var issuer, percent string
@@ -347,6 +348,9 @@ func addStatements(p *Plan, o Options) error {
 		next := m.AddDate(0, 1, 0)
 		if next.AddDate(0, 0, 3).After(anchor) { // invoiced on the 2nd, sent on the 3rd: the month is closed by the anchor
 			break
+		}
+		if m.Before(start) {
+			continue // a partial first month: whether a party has rows in its few days is the stream's draw
 		}
 		mo := month{year: m.Year(), month: int(m.Month())}
 		for _, pt := range parties {
@@ -581,6 +585,46 @@ func dbLines(ctx context.Context, tx pgx.Tx, party stmtParty, own string, k stmt
 	return out, nil
 }
 
+// staleRows runs the engine check (CheckEngine) over every delivered trip of a party's month on its billing axis and
+// every completed standby record of it by ended_at, priced or not, and returns the differences: what a statement
+// written now would lock as the database stores it although the database's pricing inputs price it otherwise.
+func staleRows(ctx context.Context, tx pgx.Tx, party stmtParty, k stmtKey) ([]Mismatch, error) {
+	from, to := bkkMonth(k.year, k.month)
+	ids := func(sql string, args ...any) ([]uuid.UUID, error) {
+		rows, err := tx.Query(ctx, sql, args...)
+		if err != nil {
+			return nil, err
+		}
+		out := []uuid.UUID{} // never nil: nil selects every row in CheckEngine
+		err = scanAll(rows, func(r pgx.Rows) error {
+			var id uuid.UUID
+			if err := r.Scan(&id); err != nil {
+				return err
+			}
+			out = append(out, id)
+			return nil
+		})
+		return out, err
+	}
+	trips, err := ids(`SELECT tr.id FROM trip_records tr JOIN tasks k ON k.id = tr.task_id
+		WHERE tr.status = 'delivered'
+		  AND coalesce(k.billing_party_id, k.source_linked_party_id, k.destination_linked_party_id) = $1::uuid
+		  AND CASE WHEN $2::boolean THEN coalesce(tr.billing_date, k.plan_at) ELSE tr.delivered_at END >= $3::timestamptz
+		  AND CASE WHEN $2::boolean THEN coalesce(tr.billing_date, k.plan_at) ELSE tr.delivered_at END < $4::timestamptz`,
+		party.id, party.planBasis, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("seed: statements: the trips of %s %d-%02d: %w", party.code, k.year, k.month, err)
+	}
+	standby, err := ids(`SELECT sr.id FROM standby_records sr LEFT JOIN tasks k ON k.id = sr.task_id
+		WHERE sr.status = 'completed'
+		  AND coalesce(sr.customer_party_id, k.source_linked_party_id, k.destination_linked_party_id) = $1::uuid
+		  AND sr.ended_at >= $2::timestamptz AND sr.ended_at < $3::timestamptz`, party.id, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("seed: statements: the standby records of %s %d-%02d: %w", party.code, k.year, k.month, err)
+	}
+	return CheckEngine(ctx, tx, trips, standby)
+}
+
 // dbParty resolves a party as CreateStatement does (billingdb.ResolveParty).
 func dbParty(ctx context.Context, tx pgx.Tx, id string) (stmtParty, error) {
 	pid, err := uuid.Parse(id)
@@ -614,8 +658,9 @@ func dbParty(ctx context.Context, tx pgx.Tx, id string) (stmtParty, error) {
 // written (just before billing_statements loads). Insert mode: the derived rows must equal the plan's (else the load
 // rolls back: the plan's copy of the invoice set or of the totals drifted). Upsert mode: the derived rows replace the
 // plan's, and a party and month is skipped, with a note, when the database already numbered it (a statement or a
-// counter), when its set is empty or holds a row outside the own fleet's reach, or when a row of a sent or paid
-// statement was priced after its planned sent_at (invariant 5). tables is never modified: the result is a copy.
+// counter), when its set is empty or holds a row outside the own fleet's reach, when a row of a sent or paid statement
+// was priced after its planned sent_at (invariant 5), or when a sent or paid statement would lock a row the database's
+// pricing inputs price otherwise than it stores (staleRows). tables is never modified: the result is a copy.
 func statementTables(ctx context.Context, tx pgx.Tx, p *Plan, tables map[string][]Row, mode Mode) (map[string][]Row, []string, error) {
 	fin := p.fin
 	if fin == nil || len(fin.statements) == 0 {
@@ -681,9 +726,26 @@ func statementTables(ctx context.Context, tx pgx.Tx, p *Plan, tables map[string]
 		case slices.ContainsFunc(set, func(l stmtLine) bool { return !reach[l.tenant] }):
 			problem = "a row runs in a tenant outside the own fleet's reach (rows_outside_reach)"
 		}
+		locks := false
 		for _, s := range specs {
+			locks = locks || !s.sent.IsZero()
 			if problem == "" && !s.sent.IsZero() && slices.ContainsFunc(set, func(l stmtLine) bool { return l.pricedAt.After(s.sent) }) {
 				problem = "a row was priced after the planned sent_at " + ts(s.sent.In(clock.Bangkok)) + " (invariant 5)"
+			}
+		}
+		if problem == "" && locks && mode == ModeUpsert {
+			// A sent or paid statement locks its period (main spec §6.11): a row the database's pricing inputs now price
+			// differently (a stored no_rate a later card prices, a price a later round moves) could then never be repaired
+			// by a forced recompute, and the backfill's first price of such a no_rate row would land after sent_at
+			// (invariant 5). Such a month waits for the backfill.
+			stale, err := staleRows(ctx, tx, party, k)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(stale) > 0 {
+				problem = fmt.Sprintf("%d value(s) of the period's rows that the database's pricing inputs price differently "+
+					"(%s); reprice them (the trip billing backfill) and reseed, so a sent or paid statement does not lock them as "+
+					"stored", len(stale), stale[0])
 			}
 		}
 		if problem != "" {

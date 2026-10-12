@@ -2,12 +2,16 @@ package seed
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
@@ -126,10 +130,11 @@ func priceStandbyRow(t *testing.T, p *Plan, in *engineInputs, r Row) compute.Sta
 }
 
 // The rounds T43 adds price the generated rows as the engine does (Appendix D §D.2 #8): an SPX demo-hub trip takes the
-// round-1 card under FA05 (x1.1 +50) before round 2 and the round-2 card under the SPX round 2 (x1.05 +30) from it; a
-// trip to SOCW stays the "need a rate card" row; the CJSF-BPL tie (R16) prices the first-created card and never its
-// twin, and no voided card prices anything; the SPK band round (reference 36.80: floor 36, (36 - 41) x 10 = -50) gives
-// RE08 1100 - 50 = 1050.00 with the band 36.01-37.00; a CJSF wait after the mid-month standby round prices 900.
+// round-1 card under FA05 (x1.1 +50) before round 2 and the round-2 card from it, under the SPX fuel round 2 (x1.05 +30)
+// from fuelRound (round 2 for the default anchor); a trip to SOCW stays the "need a rate card" row; the CJSF-BPL tie
+// (R16) prices the first-created card and never its twin, and no voided card prices anything; the SPK band round
+// (reference 36.80: floor 36, (36 - 41) x 10 = -50) gives RE08 1100 - 50 = 1050.00 with the band 36.01-37.00; a CJSF
+// wait after the mid-month standby round prices 900.
 func TestFinanceRoundVectors(t *testing.T) {
 	p := plan(t, ProfileDemo)
 	g := newFinGen(p, Options{Anchor: DefaultAnchor, Namespace: DefaultNamespace})
@@ -154,7 +159,7 @@ func TestFinanceRoundVectors(t *testing.T) {
 			t.Errorf("trip %s priced by a voided card", tr.Str("trip_no"))
 		}
 		bill := parseTS(t, firstNonEmpty(tr.Str("billing_date"), tr.Str("delivered_at")))
-		late := clock.Day(bill) >= clock.Day(g.round2)
+		lateCard, lateFuel := clock.Day(bill) >= clock.Day(g.round2), clock.Day(bill) >= clock.Day(g.fuelRound)
 		src, dst := k.Str("source_hub_raw"), k.Str("destination_raw")
 		switch {
 		case slices.Contains(spxDemoHubs, src) && dst == "SOCW" && k.Str("job_category") == "PRIMARY":
@@ -171,32 +176,34 @@ func TestFinanceRoundVectors(t *testing.T) {
 			h := slices.Index(spxDemoHubs, src)
 			want := spxCardBase[k.Str("truck_type")][dst] + 10*h
 			mult, add := "1.100000", "50.00"
-			if late {
+			if lateCard {
 				want += spxRound2[k.Str("truck_type")]
-				mult, add = "1.050000", "30.00"
 				seen["spx-r2"]++
 			} else {
 				seen["spx-r1"]++
+			}
+			if lateFuel {
+				mult, add = "1.050000", "30.00"
 			}
 			rate, _ := strconv.ParseFloat(card.Str("rate_thb"), 64)
 			m, _ := strconv.ParseFloat(mult, 64)
 			a, _ := strconv.ParseFloat(add, 64)
 			if card.Str("rate_thb") != fmt.Sprintf("%d.00", want) || adj.Str("rate_multiplier") != mult || adj.Str("add_thb_per_trip") != add ||
 				s.Str("estimate_thb") != money(compute.FinalRateTHB(rate, m, a)) {
-				t.Errorf("SPX demo trip %s (%s, late %v): %s by card %s and fuel x%s %s, want card %d, x%s %s",
-					tr.Str("trip_no"), clock.DateString(bill), late, s.Str("estimate_thb"), card.Str("rate_thb"),
+				t.Errorf("SPX demo trip %s (%s, card round 2 %v, fuel round 2 %v): %s by card %s and fuel x%s %s, want card %d, x%s %s",
+					tr.Str("trip_no"), clock.DateString(bill), lateCard, lateFuel, s.Str("estimate_thb"), card.Str("rate_thb"),
 					adj.Str("rate_multiplier"), adj.Str("add_thb_per_trip"), want, mult, add)
 			}
-		case src == "CJSF-BPL" && late:
+		case src == "CJSF-BPL" && lateCard:
 			seen["tie"]++
 			tie[cards[s.Str("rate_entry_id")].Str("rate_thb")]++
-		case src == "SPK-GW" && dst == "SPK890146" && k.Str("billing_party_id") == "" && s["is_multi_delivery"] != true && late:
+		case src == "SPK-GW" && dst == "SPK890146" && k.Str("billing_party_id") == "" && s["is_multi_delivery"] != true && lateFuel:
 			seen["band"]++
 			if s.Str("estimate_thb") != "1050.00" || s.Str("fuel_band_lower_thb") != "36.01" || s.Str("fuel_band_upper_thb") != "37.00" ||
-				s.Str("round_effective_from_date") != clock.DateString(g.round2) {
+				s.Str("round_effective_from_date") != clock.DateString(g.fuelRound) {
 				t.Errorf("SPK band trip %s: %s, band %s-%s, round %s; want 1050.00, 36.01-37.00, %s", tr.Str("trip_no"),
 					s.Str("estimate_thb"), s.Str("fuel_band_lower_thb"), s.Str("fuel_band_upper_thb"),
-					s.Str("round_effective_from_date"), clock.DateString(g.round2))
+					s.Str("round_effective_from_date"), clock.DateString(g.fuelRound))
 			}
 		}
 	}
@@ -208,7 +215,7 @@ func TestFinanceRoundVectors(t *testing.T) {
 			t.Errorf("the demo has no %s vector", v)
 		}
 	}
-	mid := g.round2.AddDate(0, 0, 15)
+	mid := g.fuelRound.AddDate(0, 0, 15)
 	n900 := 0
 	for _, r := range generated(t, p, "standby_records") {
 		if r.Str("billing_party_id") == p.Symbols.MustID("BP_CJSF").String() && r.Str("ended_at") != "" {
@@ -224,6 +231,131 @@ func TestFinanceRoundVectors(t *testing.T) {
 	}
 	if n900 == 0 {
 		t.Error("no CJSF standby after the mid-month round")
+	}
+}
+
+// The party-wide rounds T43 adds start on smokePricedThrough at the earliest because every smoke row they could price
+// is billed before it: the smoke SPX and SPK trips on their billing axis, and the smoke CJSF standby waits before the
+// standby round 15 days later. A fixture row past it would be repriced by an anchor whose round 2 falls on it.
+func TestSmokePricedThrough(t *testing.T) {
+	p := plan(t, ProfileSmoke)
+	spx, spk, cjsf := p.Symbols.MustID("BP_SPX").String(), p.Symbols.MustID("BP_SPK").String(), p.Symbols.MustID("BP_CJSF").String()
+	for _, tr := range p.Tables["trip_records"] {
+		if party := tr.Str("billing_party_id"); party != spx && party != spk {
+			continue
+		}
+		if at := parseTS(t, firstNonEmpty(tr.Str("billing_date"), tr.Str("delivered_at"), tr.Str("created_at"))); !at.Before(smokePricedThrough) {
+			t.Errorf("smoke trip %s bills on %s, on or after smokePricedThrough", tr.Str("trip_no"), at)
+		}
+	}
+	for _, sb := range p.Tables["standby_records"] {
+		if sb.Str("billing_party_id") != cjsf && sb.Str("customer_party_id") != cjsf {
+			continue
+		}
+		if v := sb.Str("ended_at"); v != "" && !parseTS(t, v).Before(smokePricedThrough.AddDate(0, 0, 15)) {
+			t.Errorf("smoke CJSF standby %s ends on %s, after the earliest standby round", sb.Str("id"), v)
+		}
+	}
+}
+
+// planCheckEngine is CheckEngine over a plan's rows: every snapshot whose writer is the engine (computed_by other than
+// etl and manual_edit) recomputed from its trip, task and stops, and every completed standby record with a price or a
+// stored reason, with the plan's pricing inputs.
+func planCheckEngine(t *testing.T, p *Plan) []Mismatch {
+	t.Helper()
+	in, err := planEngineInputs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trips, tasks := byID(p.Tables["trip_records"]), byID(p.Tables["tasks"])
+	stops := map[string][]Row{}
+	for _, s := range p.Tables["trip_delivery_stops"] {
+		stops[s.Str("trip_id")] = append(stops[s.Str("trip_id")], s)
+	}
+	opt := func(r Row, col string) *string {
+		v := r[col]
+		if v == nil {
+			return nil
+		}
+		s := fmt.Sprint(v)
+		return &s
+	}
+	var out []Mismatch
+	for _, sn := range p.Tables["trip_billing_snapshots"] {
+		if by := sn.Str("computed_by"); by == "etl" || by == "manual_edit" {
+			continue
+		}
+		tr := trips[sn.Str("trip_id")]
+		tin, err := tripInput(&opsTrip{trip: tr, task: tasks[tr.Str("task_id")], stops: stops[tr.Str("id")]})
+		if err != nil {
+			t.Fatalf("trip %s: %v", tr.Str("trip_no"), err)
+		}
+		snap := &tripSnapshot{id: tr.Str("id"), tripNo: tr.Str("trip_no"), in: tin, estimate: opt(sn, "estimate_thb"),
+			reason: opt(sn, "unpriced_reason"), base: opt(sn, "base_rate_thb"), stopCharge: opt(sn, "stop_charge_thb"),
+			rateEntry: opt(sn, "rate_entry_id"), fuel: opt(sn, "fuel_adjustment_id"), lookupHub: opt(sn, "lookup_hub_code"),
+			lookupDest: opt(sn, "lookup_destination_code"), roundDate: opt(sn, "round_effective_from_date"),
+			bandLower: opt(sn, "fuel_band_lower_thb"), bandUpper: opt(sn, "fuel_band_upper_thb"),
+			jobAtPrice: opt(sn, "job_category_at_pricing"), manual: sn["manual_override"] == true, multi: sn["is_multi_delivery"] == true}
+		party, _ := compute.ResolveTaskParty(tin.Task.TaskParties)
+		res, err := compute.PriceTrip(tin, in.tables(party))
+		if err != nil {
+			t.Fatalf("trip %s: %v", tr.Str("trip_no"), err)
+		}
+		out = append(out, compareTrip(snap, res)...)
+	}
+	own := p.Symbols.MustID(ownFleetSymbol).String()
+	for _, sb := range p.Tables["standby_records"] {
+		if sb.Str("status") != "completed" || (sb["billing_estimate_thb"] == nil && sb["billing_unpriced_reason"] == nil) {
+			continue
+		}
+		var task Row
+		if id := sb.Str("task_id"); id != "" {
+			task = tasks[id]
+		}
+		pr := &opsPrices{set: map[string]Row{}}
+		if err := priceStandby(pr, in, &opsStandby{row: sb, task: task}, own); err != nil {
+			t.Fatal(err)
+		}
+		set := pr.set[sb.Str("id")]
+		for _, col := range []string{"billing_estimate_thb", "billing_unpriced_reason", "billing_party_id", "billing_rate_source",
+			"billing_rate_entry_id", "billing_effective_from_date"} {
+			if stored, engine := deref(opt(sb, col)), deref(opt(set, col)); stored != engine {
+				out = append(out, Mismatch{Kind: "standby", ID: sb.Str("id"), Label: sb.Str("id"), Field: col, Stored: stored, Engine: engine})
+			}
+		}
+	}
+	return out
+}
+
+// No SEED_ANCHOR_DATE makes the engine price a seeded row otherwise than the plan stores it: the plan-level engine
+// check (CheckEngine's comparison, which a load runs and rolls back on) over every engine-written snapshot and
+// completed standby record, smoke rows included, for anchors every five days from July 2026 to January 2027 (two
+// seeds in turn). Before the fuel and standby rounds were bound by smokePricedThrough, the anchors from 31 July to 29
+// September repriced the smoke TR16 (1700.00 -> 1650.00 under the SPK band round) and up to 30 August the smoke CJSF
+// standby SB01 (800.00 -> 900.00), and the demo load rolled back.
+func TestFinanceRoundsKeepEveryPrice(t *testing.T) {
+	first := time.Date(2026, 7, 1, 0, 0, 0, 0, clock.Bangkok)
+	for i := 0; ; i++ {
+		anchor := first.AddDate(0, 0, 5*i)
+		if anchor.After(time.Date(2027, 1, 15, 0, 0, 0, 0, clock.Bangkok)) {
+			break
+		}
+		seed := uint64(0)
+		if i%2 == 1 {
+			seed = integrationSeed
+		}
+		t.Run(clock.DateString(anchor), func(t *testing.T) {
+			t.Parallel()
+			p := buildPlan(t, Options{Profile: ProfileDemo, RandomSeed: seed, Anchor: anchor})
+			if mism := planCheckEngine(t, p); len(mism) > 0 {
+				lines := make([]string, 0, 5)
+				for _, m := range mism[:min(len(mism), 5)] {
+					lines = append(lines, m.String())
+				}
+				t.Errorf("anchor %s, seed %d: the engine does not reproduce %d seeded value(s): %v", clock.DateString(anchor), seed,
+					len(mism), lines)
+			}
+		})
 	}
 }
 
@@ -388,119 +520,49 @@ func TestBrokerTripsOnStatements(t *testing.T) {
 	}
 }
 
+// demoCases are the demo plans of opsPlans, by name: a SEED_RANDOM_SEED (0: the default) and an anchor (zero: the
+// default).
+var demoCases = map[string]struct {
+	seed   uint64
+	anchor time.Time
+}{"default": {}, "integration-seed": {seed: integrationSeed}, "anchor-2026-10-11": {anchor: time.Date(2026, 10, 11, 0, 0, 0, 0, clock.Bangkok)},
+	"integration-seed-anchor-2026-10-11": {seed: integrationSeed, anchor: time.Date(2026, 10, 11, 0, 0, 0, 0, clock.Bangkok)}}
+
 // The expenses (Appendix D §D.2 #16) and maintenance records (#15) keep the rules of the services that write them, on
-// every demo plan: the counts and statuses of §D.2, a fuel log's odometer rising per truck with the distance since the
-// last one, a unique station tax invoice per driver, the amount of its litres and price, client_op_id on the driver's
-// rows and none on the office's toll import (numbered from 1 per import, imported on the next Monday or the anchor
-// morning), no receipt on a rejected row, every row in its truck's tenant on a truck its driver held that day; the
-// maintenance records leave the trucks as the maintenance service does.
+// every demo plan: the counts and statuses of §D.2 and the expense rules (checkExpenseRows); the maintenance history
+// the approved fuel logs and the records imply, replayed against the plan built without the finance generators
+// (checkFleetHistory: every PM booking is the one maintenance.CheckPMInTx books, every due reading has one, every truck
+// row ends as the services leave it); no fuel log on a smoke truck, whose row the check would change; the scheduled
+// tyre change of WRT2 and the brake repair of WRT3 in progress (the truck in the shop).
 func TestExpensesAndMaintenance(t *testing.T) {
-	for name, p := range opsPlans(t) {
+	plans := opsPlans(t)
+	for name, c := range demoCases {
+		p := plans[name]
 		t.Run(name, func(t *testing.T) {
+			office, err := approvers(p, Options{Namespace: DefaultNamespace})
+			if err != nil {
+				t.Fatal(err)
+			}
 			rows := generated(t, p, "vehicle_expenses")
-			kinds := countBy(rows, func(r Row) string { return r.Str("expense_type") + "/" + r.Str("category") })
-			statuses := countBy(rows, func(r Row) string { return r.Str("status") })
-			if kinds["fuel/"] != demoFuelLogs || kinds["other/toll"] != demoTollRows || len(rows) != demoFuelLogs+demoTollRows+demoOtherRows ||
-				statuses["pending"] != demoPendingRows || statuses["rejected"] != demoRejectedRows {
-				t.Errorf("expenses %v, statuses %v", kinds, statuses)
-			}
-			trucks, drivers, objects := byID(p.Tables["trucks"]), byID(p.Tables["drivers"]), byID(p.Tables["file_objects"])
-			held := map[string][]opsSpan{}
-			for _, a := range p.Tables["truck_assignments"] {
-				if a.Str("status") == "cancelled" {
-					continue
-				}
-				sp := opsSpan{truck: trucks[a.Str("truck_id")], from: parseTS(t, a.Str("created_at"))}
-				if a.Str("revoked_at") != "" {
-					sp.to = parseTS(t, a.Str("revoked_at"))
-				}
-				held[a.Str("driver_id")] = append(held[a.Str("driver_id")], sp)
-			}
-			anchor := planAnchor(t, p)
-			lastOdo := map[string]int{}
-			taxInv := map[string]bool{}
-			batches := map[string][]int{}
+			checkExpenseRows(t, p, rows, [5]int{demoFuelLogs, demoTollRows, demoOtherRows, demoPendingRows, demoRejectedRows}, office)
+			trucks := byID(p.Tables["trucks"])
 			for _, r := range rows {
-				at := parseTS(t, r.Str("expense_at"))
-				tr := trucks[r.Str("truck_id")]
-				if tr == nil || tr.Str("tenant_id") != r.Str("tenant_id") || r.Str("truck_license_plate_snapshot") != tr.Str("license_plate") {
-					t.Errorf("expense %s: not in its truck's tenant", r.Str("id"))
-					continue
-				}
-				ok := false
-				for _, sp := range held[r.Str("driver_id")] {
-					if sp.truck.Str("id") == tr.Str("id") && !sp.from.After(at) && (sp.to.IsZero() || sp.to.After(at)) {
-						ok = true
-					}
-				}
-				if !ok {
-					t.Errorf("expense %s: driver %s did not hold truck %s then", r.Str("id"), drivers[r.Str("driver_id")].Str("id_card"), tr.Str("license_plate"))
-				}
-				toll := r.Str("category") == "toll"
-				if toll != (r["client_op_id"] == nil) || (toll && (r.Str("created_by_user_id") != p.Symbols.MustID("U_WRT_OPS").String() ||
-					r.Str("status") != "approved")) {
-					t.Errorf("expense %s: client_op_id on the driver's rows only, toll imports approved by the office", r.Str("id"))
-				}
-				if r.Str("status") == "rejected" && (r["receipt_file_id"] != nil || r.Str("admin_note") == "") {
-					t.Errorf("rejected expense %s: a receipt, or no admin note", r.Str("id"))
-				}
-				if f := objects[r.Str("receipt_file_id")]; r["receipt_file_id"] != nil &&
-					(f == nil || f.Str("owner_id") != r.Str("id") || f.Str("purpose") != "expense_receipt" || f.Str("uploaded_by") != r.Str("created_by_user_id")) {
-					t.Errorf("expense %s: receipt object", r.Str("id"))
-				}
-				if toll {
-					created := parseTS(t, r.Str("created_at"))
-					if created.Before(at) || created.After(anchor.Add(9*time.Hour)) {
-						t.Errorf("toll %s imported at %s for a passage at %s", r.Str("id"), r.Str("created_at"), r.Str("expense_at"))
-					}
-					n, _ := intOf(r["toll_import_sequence"])
-					batches[r.Str("created_at")] = append(batches[r.Str("created_at")], n)
-				}
-				if r.Str("expense_type") != "fuel" {
-					continue
-				}
-				odo, _ := intOf(r["odometer_km"])
-				if prev, ok := lastOdo[tr.Str("id")]; ok {
-					if odo <= prev || r.Str("distance_km") != fmt.Sprintf("%d.00", odo-prev) {
-						t.Errorf("fuel %s on %s: odometer %d after %d, distance %s", r.Str("id"), tr.Str("license_plate"), odo, prev, r.Str("distance_km"))
-					}
-				} else if r["distance_km"] != nil {
-					t.Errorf("fuel %s: the truck's first log has a distance", r.Str("id"))
-				}
-				lastOdo[tr.Str("id")] = odo
-				key := r.Str("driver_id") + "|" + r.Str("tax_inv_id")
-				if taxInv[key] || len(r.Str("station_tax_id")) != 13 || thaiID(r.Str("station_tax_id")[:12]) != r.Str("station_tax_id") {
-					t.Errorf("fuel %s: tax invoice %s repeated or station tax id %s invalid", r.Str("id"), r.Str("tax_inv_id"), r.Str("station_tax_id"))
-				}
-				taxInv[key] = true
-				l, _ := strconv.ParseFloat(r.Str("volume_liters"), 64)
-				pr, _ := strconv.ParseFloat(r.Str("price_per_liter"), 64)
-				if r.Str("amount_thb") != money(compute.FinalRateTHB(l, pr, 0)) {
-					t.Errorf("fuel %s: %s L x %s = %s", r.Str("id"), r.Str("volume_liters"), r.Str("price_per_liter"), r.Str("amount_thb"))
+				if r.Str("expense_type") == "fuel" && p.Symbols.SymbolOf(uuid.MustParse(r.Str("truck_id"))) != "" {
+					t.Errorf("fuel log %s on the smoke truck %s", r.Str("id"), trucks[r.Str("truck_id")].Str("license_plate"))
 				}
 			}
-			for at, seqs := range batches {
-				slices.Sort(seqs)
-				for i, n := range seqs {
-					if n != i+1 {
-						t.Errorf("toll import %s numbers its rows %v", at, seqs)
-						break
-					}
-				}
+			before := buildPlan(t, Options{Profile: ProfileDemo, RandomSeed: c.seed, Anchor: c.anchor, skipFinance: true})
+			if n := checkFleetHistory(t, p, before); n == 0 {
+				t.Error("no approved fuel log books a PM")
 			}
 			mt := generated(t, p, "maintenance_records")
-			if got := countBy(mt, func(r Row) string { return r.Str("status") }); len(mt) != 3 || got["completed"] != 1 ||
-				got["scheduled"] != 1 || got["in_progress"] != 1 {
+			got := countBy(mt, func(r Row) string { return r.Str("maintenance_type") + "/" + r.Str("status") })
+			if got["CM/scheduled"] != 1 || got["CM/in_progress"] != 1 || got["PM/completed"] == 0 || len(mt) != got["PM/completed"]+got["PM/pm_booking"]+2 {
 				t.Errorf("maintenance %v", got)
 			}
 			for _, r := range mt {
 				tr := trucks[r.Str("truck_id")]
 				switch r.Str("status") {
-				case "completed":
-					if tr.Str("last_service_date") != r.Str("end_date") || fmt.Sprint(tr["next_service_mileage"]) != fmt.Sprint(r["next_service_mileage"]) ||
-						fmt.Sprint(tr["current_mileage"]) != fmt.Sprint(r["current_mileage"]) || tr["active_maintenance_id"] != nil {
-						t.Errorf("completed PM on %s: the truck does not carry its service", tr.Str("license_plate"))
-					}
 				case "scheduled":
 					if tr.Str("active_maintenance_id") != r.Str("id") || tr.Str("status") != "active" {
 						t.Errorf("scheduled visit on %s: not the truck's active maintenance", tr.Str("license_plate"))
@@ -512,6 +574,120 @@ func TestExpensesAndMaintenance(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// checkExpenseRows: the generated expenses rows of a plan keep the rules of the services that write them: the counts
+// (fuel, toll, other, pending, rejected), a fuel log's odometer rising per truck with the distance since the last one,
+// a unique station tax invoice per driver, the amount of its litres and price, client_op_id on the driver's rows and
+// none on the office's toll import (by the tenant's office, numbered from 1 per import, imported on the next Monday or
+// the anchor morning), an audit time on the audited rows, no receipt on a rejected row, every row in its truck's tenant
+// on a truck its driver held that day.
+func checkExpenseRows(t *testing.T, p *Plan, rows []Row, want [5]int, office map[string]string) {
+	t.Helper()
+	kinds := countBy(rows, func(r Row) string { return r.Str("expense_type") + "/" + r.Str("category") })
+	statuses := countBy(rows, func(r Row) string { return r.Str("status") })
+	if kinds["fuel/"] != want[0] || kinds["other/toll"] != want[1] || len(rows) != want[0]+want[1]+want[2] ||
+		statuses["pending"] != want[3] || statuses["rejected"] != want[4] {
+		t.Errorf("expenses %v, statuses %v", kinds, statuses)
+	}
+	trucks, drivers, objects := byID(p.Tables["trucks"]), byID(p.Tables["drivers"]), byID(p.Tables["file_objects"])
+	held := map[string][]opsSpan{}
+	for _, a := range p.Tables["truck_assignments"] {
+		if a.Str("status") == "cancelled" {
+			continue
+		}
+		sp := opsSpan{truck: trucks[a.Str("truck_id")], from: parseTS(t, a.Str("created_at"))}
+		if a.Str("revoked_at") != "" {
+			sp.to = parseTS(t, a.Str("revoked_at"))
+		}
+		held[a.Str("driver_id")] = append(held[a.Str("driver_id")], sp)
+	}
+	anchor := planAnchor(t, p)
+	lastOdo := map[string]int{}
+	taxInv := map[string]bool{}
+	batches := map[string][]int{}
+	type timed struct {
+		r  Row
+		at time.Time
+	}
+	byTime := make([]timed, len(rows))
+	for i, r := range rows {
+		byTime[i] = timed{r, parseTS(t, r.Str("expense_at"))}
+	}
+	slices.SortStableFunc(byTime, func(a, b timed) int { return a.at.Compare(b.at) })
+	for _, x := range byTime {
+		r, at := x.r, x.at
+		tr := trucks[r.Str("truck_id")]
+		if tr == nil || tr.Str("tenant_id") != r.Str("tenant_id") || r.Str("truck_license_plate_snapshot") != tr.Str("license_plate") {
+			t.Errorf("expense %s: not in its truck's tenant", r.Str("id"))
+			continue
+		}
+		ok := false
+		for _, sp := range held[r.Str("driver_id")] {
+			if sp.truck.Str("id") == tr.Str("id") && !sp.from.After(at) && (sp.to.IsZero() || sp.to.After(at)) {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("expense %s: driver %s did not hold truck %s then", r.Str("id"), drivers[r.Str("driver_id")].Str("id_card"), tr.Str("license_plate"))
+		}
+		toll := r.Str("category") == "toll"
+		if toll != (r["client_op_id"] == nil) || (toll && (r.Str("created_by_user_id") != office[r.Str("tenant_id")] ||
+			r.Str("status") != "approved")) {
+			t.Errorf("expense %s: client_op_id on the driver's rows only, toll imports approved by the tenant's office", r.Str("id"))
+		}
+		if r.Str("status") == "rejected" && (r["receipt_file_id"] != nil || r.Str("admin_note") == "") {
+			t.Errorf("rejected expense %s: a receipt, or no admin note", r.Str("id"))
+		}
+		if audited := !toll && r.Str("status") != "pending"; audited != (r["updated_at"] != nil) ||
+			(audited && !parseTS(t, r.Str("updated_at")).After(parseTS(t, r.Str("created_at")))) {
+			t.Errorf("expense %s (%s): the audit time is missing, or comes before the submission", r.Str("id"), r.Str("status"))
+		}
+		if f := objects[r.Str("receipt_file_id")]; r["receipt_file_id"] != nil &&
+			(f == nil || f.Str("owner_id") != r.Str("id") || f.Str("purpose") != "expense_receipt" || f.Str("uploaded_by") != r.Str("created_by_user_id")) {
+			t.Errorf("expense %s: receipt object", r.Str("id"))
+		}
+		if toll {
+			created := parseTS(t, r.Str("created_at"))
+			if created.Before(at) || created.After(anchor.Add(9*time.Hour)) {
+				t.Errorf("toll %s imported at %s for a passage at %s", r.Str("id"), r.Str("created_at"), r.Str("expense_at"))
+			}
+			n, _ := intOf(r["toll_import_sequence"])
+			key := r.Str("tenant_id") + "|" + r.Str("created_at")
+			batches[key] = append(batches[key], n)
+		}
+		if r.Str("expense_type") != "fuel" {
+			continue
+		}
+		odo, _ := intOf(r["odometer_km"])
+		if prev, ok := lastOdo[tr.Str("id")]; ok {
+			if odo <= prev || r.Str("distance_km") != fmt.Sprintf("%d.00", odo-prev) {
+				t.Errorf("fuel %s on %s: odometer %d after %d, distance %s", r.Str("id"), tr.Str("license_plate"), odo, prev, r.Str("distance_km"))
+			}
+		} else if r["distance_km"] != nil {
+			t.Errorf("fuel %s: the truck's first log has a distance", r.Str("id"))
+		}
+		lastOdo[tr.Str("id")] = odo
+		key := r.Str("driver_id") + "|" + r.Str("tax_inv_id")
+		if taxInv[key] || len(r.Str("station_tax_id")) != 13 || thaiID(r.Str("station_tax_id")[:12]) != r.Str("station_tax_id") {
+			t.Errorf("fuel %s: tax invoice %s repeated or station tax id %s invalid", r.Str("id"), r.Str("tax_inv_id"), r.Str("station_tax_id"))
+		}
+		taxInv[key] = true
+		l, _ := strconv.ParseFloat(r.Str("volume_liters"), 64)
+		pr, _ := strconv.ParseFloat(r.Str("price_per_liter"), 64)
+		if r.Str("amount_thb") != money(compute.FinalRateTHB(l, pr, 0)) {
+			t.Errorf("fuel %s: %s L x %s = %s", r.Str("id"), r.Str("volume_liters"), r.Str("price_per_liter"), r.Str("amount_thb"))
+		}
+	}
+	for at, seqs := range batches {
+		slices.Sort(seqs)
+		for i, n := range seqs {
+			if n != i+1 {
+				t.Errorf("toll import %s numbers its rows %v", at, seqs)
+				break
+			}
+		}
 	}
 }
 
@@ -530,7 +706,8 @@ func planAnchor(t *testing.T, p *Plan) time.Time {
 
 // The T43 counts are a function of the window, never of SEED_RANDOM_SEED (Appendix D §D.1.2 states them exactly), except
 // the statement lines: a line is a priced trip of the party, and the stream draws each trip's route (§D.1.2 gives their
-// default-seed count as a target).
+// default-seed count as a target). Checked at the default anchor and at anchors whose window starts with a few days of
+// a month (a statement of such a partial month would depend on the drawn routes, so none is written).
 func TestFinanceCountsIgnoreTheSeed(t *testing.T) {
 	a, b := plan(t, ProfileDemo), planSeed(t, ProfileDemo, integrationSeed)
 	for _, table := range append(slices.Clone(finExactTables), "file_objects") {
@@ -540,6 +717,140 @@ func TestFinanceCountsIgnoreTheSeed(t *testing.T) {
 	}
 	if reflectEqualRows(generated(t, a, "vehicle_expenses"), generated(t, b, "vehicle_expenses")) {
 		t.Error("two seeds draw the same expenses: the generator ignores SEED_RANDOM_SEED")
+	}
+	for _, day := range []string{"2026-09-26", "2026-10-21", "2026-10-27", "2026-11-27"} {
+		anchor, err := time.ParseInLocation(time.DateOnly, day, clock.Bangkok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(day, func(t *testing.T) {
+			t.Parallel()
+			var want map[string]int
+			for _, seed := range []uint64{0, integrationSeed, 2, 8} {
+				p := buildPlan(t, Options{Profile: ProfileDemo, RandomSeed: seed, Anchor: anchor})
+				got := map[string]int{}
+				for _, table := range append(slices.Clone(finExactTables), "file_objects") {
+					got[table] = len(p.Tables[table])
+				}
+				if want == nil {
+					want = got
+				} else if !maps.Equal(got, want) {
+					t.Errorf("anchor %s, seed %d: %v; the default seed gives %v", day, seed, got, want)
+				}
+			}
+		})
+	}
+}
+
+// The load profile's billing and finance volume (finance_load.go) on its own rows: the counts of Appendix D §D.1.2
+// (TestCountsMatchAppendixTable); every load card prices a route of a load hub for the party that links it (no demo
+// or smoke route, and no party-wide input of a demo party: TestProfilesOnlyAppend holds every demo price), with
+// SUPPLEMENTARY cards, R16 tie pairs and voided hand entries; the load customers' fuel round a month, one fee per
+// type and standby rounds; the expense rules (checkExpenseRows) on the load drivers' days; and the maintenance history
+// (checkFleetHistory) against the load plan built without the finance generators, every load truck T26 left in the
+// shop holding its repair in progress as its active maintenance.
+func TestLoadFinance(t *testing.T) {
+	p, demo := plan(t, ProfileLoad), plan(t, ProfileDemo)
+	before := buildPlan(t, Options{Profile: ProfileLoad, skipFinance: true})
+	tail := func(table string) []Row { return p.Tables[table][len(demo.Tables[table]):] }
+	hubs := map[string]Row{}
+	for _, h := range before.Tables["hubs"][len(demo.Tables["hubs"]):] {
+		hubs[h.Str("source_id")] = h
+	}
+	customers := map[string]bool{}
+	for _, pt := range planParties(p) {
+		if strings.HasPrefix(pt.code, "LC") {
+			customers[pt.id] = true
+		}
+	}
+	if len(customers) != loadCustomers {
+		t.Fatalf("%d load customers", len(customers))
+	}
+	groups := map[string]int{}
+	kinds := map[string]int{}
+	for _, c := range tail("customer_rate_entries") {
+		h := hubs[c.Str("hub_code")]
+		if c.Str("hub_code") == "SPK-GW" {
+			h = hubs[c.Str("destination_code")]
+		}
+		if h == nil || h.Str("linked_party_id") != c.Str("billing_party_id") {
+			t.Errorf("load card %s: %s -> %s is no route of a load hub its party links", c.Str("id"), c.Str("hub_code"), c.Str("destination_code"))
+		}
+		if c["voided"] == true {
+			kinds["voided"]++
+			continue
+		}
+		kinds[c.Str("job_category")]++
+		groups[strings.Join([]string{c.Str("billing_party_id"), c.Str("hub_code"), c.Str("destination_code"), c.Str("vehicle_class"),
+			c.Str("job_category"), c.Str("effective_from_at")}, "|")]++
+	}
+	ties := 0
+	for _, n := range groups {
+		if n > 1 {
+			ties++
+		}
+	}
+	if kinds["voided"] == 0 || kinds["SUPPLEMENTARY"] == 0 || kinds["PRIMARY"] == 0 || ties == 0 {
+		t.Errorf("load cards %v with %d tie pairs: want voided, SUPPLEMENTARY and PRIMARY cards and R16 ties", kinds, ties)
+	}
+	rounds := map[string]map[string]bool{}
+	for _, table := range []string{"customer_fuel_rate_adjustments", "customer_service_fees", "standby_rate_entries"} {
+		for _, r := range tail(table) {
+			if !customers[r.Str("billing_party_id")] {
+				t.Errorf("%s %s: a party-wide input of a party that is no load customer", table, r.Str("id"))
+			}
+			if table == "customer_fuel_rate_adjustments" && r["voided"] != true {
+				if rounds[r.Str("billing_party_id")] == nil {
+					rounds[r.Str("billing_party_id")] = map[string]bool{}
+				}
+				month := r.Str("effective_from_date")[:7]
+				if rounds[r.Str("billing_party_id")][month] {
+					t.Errorf("two live fuel rounds of one load customer in %s", month)
+				}
+				rounds[r.Str("billing_party_id")][month] = true
+			}
+		}
+	}
+	for party, months := range rounds {
+		if len(months) != loadFuelRounds {
+			t.Errorf("load customer %s: fuel rounds in %d months, want %d", party, len(months), loadFuelRounds)
+		}
+	}
+	if fees := countBy(tail("customer_service_fees"), func(r Row) string { return r.Str("billing_party_id") + r.Str("fee_type") }); len(fees) != 3*loadCustomers {
+		t.Errorf("load fees %v: one per customer and type", fees)
+	}
+	office, err := approvers(p, Options{Namespace: DefaultNamespace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expenses := tail("vehicle_expenses")
+	checkExpenseRows(t, p, expenses, [5]int{loadFuelLogs, loadTollRows, loadOtherRows, loadPendingRows, loadRejectedRows}, office)
+	loadDrivers := map[string]bool{}
+	for _, d := range before.Tables["drivers"][len(demo.Tables["drivers"]):] {
+		loadDrivers[d.Str("id")] = true
+	}
+	for _, r := range expenses {
+		if !loadDrivers[r.Str("driver_id")] {
+			t.Errorf("load expense %s of a driver outside the load fleets", r.Str("id"))
+		}
+	}
+	if n := checkFleetHistory(t, p, before); n == 0 {
+		t.Error("no approved fuel log books a PM")
+	}
+	records := byID(p.Tables["maintenance_records"])
+	shop := 0
+	for _, tr := range p.Tables["trucks"][len(demo.Tables["trucks"]):] {
+		if tr.Str("status") != "maintenance" {
+			continue
+		}
+		shop++
+		if m := records[tr.Str("active_maintenance_id")]; m == nil || m.Str("status") != "in_progress" {
+			t.Errorf("load truck %s is in the shop without its repair in progress", tr.Str("license_plate"))
+		}
+	}
+	if got := countBy(tail("maintenance_records"), func(r Row) string { return r.Str("status") }); got["in_progress"] != shop || shop == 0 ||
+		got["completed"] == 0 {
+		t.Errorf("load maintenance %v, %d trucks in the shop", got, shop)
 	}
 }
 

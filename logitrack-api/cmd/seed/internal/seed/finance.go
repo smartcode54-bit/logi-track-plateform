@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/jsmath"
@@ -17,37 +19,45 @@ import (
 // §D.2 #3-#8, #15, #16): on top of the smoke rate tables, two rate rounds for the routes the demo operations run that
 // no smoke card prices (the SPX demo hubs to SOCE and SOCN, the CJSF distribution centres), a tie pair (R16) and two
 // voided cards; a second fuel round for SPX (multiplier) and SPK (fuel band); a waiting-time fee; a mid-month CJSF
-// standby rate; three months of fuel, toll and other expenses on the trucks the generated drivers held; and three
-// maintenance records (completed, scheduled, in progress). The statements of the closed months come from
-// statements.go once every price is in. Smoke rows are never touched (the generator only appends; the routes, fuel
-// rounds and standby rate it adds price no smoke trip or standby record, so every golden vector of Appendix D §D.4.3
-// and §D.4.4 keeps its value), and every count is a function of the window, never of SEED_RANDOM_SEED: the stream draws
-// times, volumes, odometers and amounts only.
+// standby rate; three months of fuel, toll and other expenses on the trucks the generated drivers held; and the
+// maintenance history they imply (maintenance_history.go: the PM bookings the approved fuel logs book, completed when
+// serviced) with a scheduled and an in-progress repair. The statements of the closed months come from statements.go once
+// every price is in; the load profile's volume from finance_load.go. Smoke rows are never touched (the generator only
+// appends; the routes it prices are no smoke route, and its party-wide rounds start on smokePricedThrough at the
+// earliest, so every golden vector of Appendix D §D.4.3 and §D.4.4 keeps its value whatever the anchor; no fuel log is
+// generated on a smoke truck, so no smoke truck row changes), and every count is a function of the window, never of
+// SEED_RANDOM_SEED: the stream draws times, volumes, prices and amounts only.
 //
 // Rate cards, fuel rounds, fees and standby rates are the inputs the office types; the prices of trips and standby
 // records stay the engine's (priceOperations, Appendix D §D.1.4).
 
-// finTables are the tables the T43 generator writes; load carries their demo rows until the load-scale generators land
-// (Appendix D §D.1.2). finExactTables are those whose demo count does not depend on SEED_RANDOM_SEED: all but the
-// statement lines, one per priced row of a party and month, whose routes the stream draws.
+// finExactTables are the tables of the T43 generators whose demo count does not depend on SEED_RANDOM_SEED: all but the
+// statement lines, one per priced row of a party and month, whose routes the stream draws. finStatementTables are the
+// statement tables: load carries their demo rows until T35V, the load-scale operations generator, gives it trips to
+// invoice (developer-spec §18.3); the others have a load-scale generator here (finance_load.go), so their load count is
+// exact too.
 var (
-	finTables = []string{"customer_rate_entries", "customer_fuel_rate_adjustments", "customer_service_fees",
-		"standby_rate_entries", "billing_statements", "billing_statement_lines", "billing_counters", "vehicle_expenses",
-		"maintenance_records"}
 	finExactTables = []string{"customer_rate_entries", "customer_fuel_rate_adjustments", "customer_service_fees",
 		"standby_rate_entries", "billing_statements", "billing_counters", "vehicle_expenses", "maintenance_records"}
+	finStatementTables = []string{"billing_statements", "billing_statement_lines", "billing_counters"}
 )
 
 // The demo expense volume (Appendix D §D.2 #16: 180 with the four of smoke: fuel 120, toll 40, other 20; 40 % pending,
 // 50 % approved, 10 % rejected). Toll imports are always approved.
 const (
-	demoFuelLogs      = 118
-	demoTollRows      = 39
-	demoOtherRows     = 19
-	demoPendingRows   = 71
-	demoRejectedRows  = 17
-	pmAlertThresholdK = 2000 // maintenance.PMAlertThresholdKm: a fuel log this close to the next service books a PM
+	demoFuelLogs     = 118
+	demoTollRows     = 39
+	demoOtherRows    = 19
+	demoPendingRows  = 71
+	demoRejectedRows = 17
 )
+
+// smokePricedThrough bounds the party-wide rounds T43 adds (the SPX and SPK fuel round 2, and the CJSF standby round
+// from 15 days after it): none starts before it, so none prices a smoke row whatever SEED_ANCHOR_DATE is. The smoke
+// SPX and SPK trips bill by 26 August (TR16) and the smoke CJSF standby waits end by 1 September 02:00 (SB02, before
+// the standby round's 16 September); TestSmokePricedThrough holds the fixture to it. The rate cards need no bound:
+// they price routes no smoke row runs.
+var smokePricedThrough = time.Date(2026, 9, 1, 0, 0, 0, 0, clock.Bangkok)
 
 // finGen holds one run of the generator.
 type finGen struct {
@@ -59,18 +69,26 @@ type finGen struct {
 	anchor time.Time // Bangkok midnight of SEED_ANCHOR_DATE
 	round1 time.Time // first rate round: the first day of the window's first month
 	round2 time.Time // second rate round: two months later
-	own    string
-	mgr    string // users.id of the manager who imports rate cards and announces rounds
-	admin  string // users.id of the admin who voids
-	ops    string // users.id of the operations staff (toll import, maintenance)
+	// fuelRound starts the SPX and SPK fuel round 2 (and, 15 days later, the CJSF standby round): round 2, never
+	// before smokePricedThrough.
+	fuelRound time.Time
+	own       string
+	mgr       string // users.id of the manager who imports rate cards and announces rounds
+	admin     string // users.id of the admin who voids
+	ops       string // users.id of the operations staff (toll import, maintenance)
 }
 
 func newFinGen(p *Plan, o Options) *finGen {
 	anchor := time.Date(o.Anchor.Year(), o.Anchor.Month(), o.Anchor.Day(), 0, 0, 0, 0, clock.Bangkok)
 	start := anchor.AddDate(0, 0, -(opsDays - 1))
 	round1 := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, clock.Bangkok)
+	round2 := round1.AddDate(0, 2, 0)
+	fuel := round2
+	if fuel.Before(smokePricedThrough) {
+		fuel = smokePricedThrough
+	}
 	return &finGen{p: p, o: o, s: p.Symbols, r: rng(o, "demo-finance"), start: start, anchor: anchor, round1: round1,
-		round2: round1.AddDate(0, 2, 0), own: p.Symbols.MustID(ownFleetSymbol).String(),
+		round2: round2, fuelRound: fuel, own: p.Symbols.MustID(ownFleetSymbol).String(),
 		mgr: p.Symbols.MustID("U_WRT_MGR").String(), admin: p.Symbols.MustID("U_WRT_ADMIN").String(),
 		ops: p.Symbols.MustID("U_WRT_OPS").String()}
 }
@@ -78,6 +96,16 @@ func newFinGen(p *Plan, o Options) *finGen {
 func (g *finGen) add(table string, r Row) { g.p.Tables[table] = append(g.p.Tables[table], r) }
 
 func (g *finGen) id(table, key string) string { return ID(g.o.Namespace, table, key).String() }
+
+// announced is when the office typed an input that takes effect at eff: lead days before it at the given time of day,
+// but never after the morning before the anchor (an early anchor gets a round announced ahead of its start).
+func (g *finGen) announced(eff time.Time, lead int, at time.Duration) time.Time {
+	t := time.Date(eff.Year(), eff.Month(), eff.Day()-lead, 0, 0, 0, 0, clock.Bangkok).Add(at)
+	if latest := g.anchor.AddDate(0, 0, -1).Add(at); t.After(latest) {
+		return latest
+	}
+	return t
+}
 
 // addDemoFinance appends the rate tables, the expenses and the maintenance records of the demo (it runs after the
 // operations generator, so the expenses follow the trucks the drivers held; the pricing pass and the statements come
@@ -88,17 +116,18 @@ func addDemoFinance(p *Plan, o Options) error {
 	g.fuelRounds()
 	g.serviceFees()
 	g.standbyRates()
-	odo, err := g.expenses()
+	odo, approved, err := g.expenses()
 	if err != nil {
 		return err
 	}
-	return g.maintenance(odo)
+	return g.maintenance(odo, approved)
 }
 
 // --- rate tables --------------------------------------------------------------------------------------------
 
 // spxCardBase are the round-1 prices of the SPX demo-hub cards by vehicle class and SOC (round 2 adds spxRound2Step);
-// a hub adds 10 THB per position in spxDemoHubs. SOCW gets no card: its trips stay the "need a rate card" rows.
+// a hub adds 10 THB per position in spxDemoHubs. SOCW gets no card, and neither does TTP's TTP-HUB2 -> SOCN: their
+// trips stay the "need a rate card" rows.
 var (
 	spxCardSOCs  = []string{"SOCE", "SOCN"}
 	spxCardBase  = map[string]map[string]int{"4WJ": {"SOCE": 950, "SOCN": 1200}, "6WH": {"SOCE": 1450, "SOCN": 1700}, "10WH": {"SOCE": 2200, "SOCN": 2600}}
@@ -184,20 +213,20 @@ func (g *finGen) rateCards() {
 }
 
 // fuelRounds appends the second round of SPX (multiplier and per-trip add, no band) and of SPK (fuel band: the add is
-// the band surcharge of its reference price, as the rate-card page computes it), both from round 2.
+// the band surcharge of its reference price, as the rate-card page computes it), both from fuelRound.
 func (g *finGen) fuelRounds() {
-	created := time.Date(g.round2.Year(), g.round2.Month(), g.round2.Day()-4, 10, 0, 0, 0, clock.Bangkok)
-	month := thaiMonth(g.round2)
-	g.add("customer_fuel_rate_adjustments", Row{"id": g.id("customer_fuel_rate_adjustments", "SPX:"+clock.DateString(g.round2)),
+	created := g.announced(g.fuelRound, 4, 10*time.Hour)
+	month := thaiMonth(g.fuelRound)
+	g.add("customer_fuel_rate_adjustments", Row{"id": g.id("customer_fuel_rate_adjustments", "SPX:"+clock.DateString(g.fuelRound)),
 		"tenant_id": g.own, "tenant_source": "form", "billing_party_id": g.s.MustID("BP_SPX").String(),
-		"effective_from_date": clock.DateString(g.round2), "effective_from_at": ts(g.round2), "rate_multiplier": "1.050000",
+		"effective_from_date": clock.DateString(g.fuelRound), "effective_from_at": ts(g.fuelRound), "rate_multiplier": "1.050000",
 		"add_thb_per_trip": "30.00", "announcement_note": "รอบ " + month + " ปรับสูตรราคา x1.05 +30", "created_by": g.mgr,
 		"created_at": ts(created), "voided": false})
 	const ref = 36.80
 	add := compute.FuelSurchargeTHB(ref, 41, 10)
-	g.add("customer_fuel_rate_adjustments", Row{"id": g.id("customer_fuel_rate_adjustments", "SPK:"+clock.DateString(g.round2)),
+	g.add("customer_fuel_rate_adjustments", Row{"id": g.id("customer_fuel_rate_adjustments", "SPK:"+clock.DateString(g.fuelRound)),
 		"tenant_id": g.own, "tenant_source": "form", "billing_party_id": g.s.MustID("BP_SPK").String(),
-		"effective_from_date": clock.DateString(g.round2), "effective_from_at": ts(g.round2), "rate_multiplier": "1.000000",
+		"effective_from_date": clock.DateString(g.fuelRound), "effective_from_at": ts(g.fuelRound), "rate_multiplier": "1.000000",
 		"add_thb_per_trip": money(add), "reference_fuel_price_thb": money(ref),
 		"announcement_note": fmt.Sprintf("รอบ %s ดีเซลอ้างอิง %.2f", month, ref), "fuel_band_enabled": true,
 		"fuel_band_baseline_floor": intNum(41), "fuel_band_thb_per_baht": "10.00", "created_by": g.mgr,
@@ -213,14 +242,14 @@ func (g *finGen) serviceFees() {
 		"created_at": ts(time.Date(g.round1.Year(), g.round1.Month(), g.round1.Day()-6, 9, 50, 0, 0, clock.Bangkok))})
 }
 
-// standbyRates appends a mid-month CJSF standby round (900 from the 16th of round 2's month): the CJSF waits after it
+// standbyRates appends a mid-month CJSF standby round (900 from the 16th of fuelRound's month): the CJSF waits after it
 // price at 900, those before at the smoke rates.
 func (g *finGen) standbyRates() {
-	eff := g.round2.AddDate(0, 0, 15)
+	eff := g.fuelRound.AddDate(0, 0, 15)
 	g.add("standby_rate_entries", Row{"id": g.id("standby_rate_entries", "CJSF:"+clock.DateString(eff)), "tenant_id": g.own,
 		"tenant_source": "form", "billing_party_id": g.s.MustID("BP_CJSF").String(), "rate_thb": "900.00",
 		"effective_from_date": clock.DateString(eff), "effective_from_at": ts(eff), "note": "ปรับอัตรา standby กลางเดือน",
-		"created_at": ts(eff.AddDate(0, 0, -6).Add(10*time.Hour + 5*time.Minute))})
+		"created_at": ts(g.announced(eff, 6, 10*time.Hour+5*time.Minute))})
 }
 
 // thaiMonth is the Thai abbreviation of an instant's Bangkok month (the announcement notes of the smoke rounds).
@@ -246,17 +275,21 @@ type expense struct {
 }
 
 // odometer is a truck's reading on window day i: its mileage at the master data's creation plus its daily run, and a
-// drawn part of one day's run (monotone: a truck refuels at most once a day).
+// part of one day's run that the log's position decides (monotone: a truck refuels at most once a day). It is never
+// drawn, so the PM bookings the approved readings book do not depend on SEED_RANDOM_SEED.
 type odometer struct {
 	base, perDay int
 }
 
-func (g *finGen) odometerOf(truck Row) odometer {
+// dailyKm is a truck's daily run by vehicle class.
+var dailyKm = map[string]int{"4W": 130, "4WJ": 130, "6WH": 150, "10WH": 170, "18WH": 220}
+
+func odometerOf(truck Row) odometer {
 	base := 60000
 	if v, ok := floatOf(truck["current_mileage"]); ok {
 		base = int(v)
 	}
-	perDay := map[string]int{"4WJ": 130, "6WH": 150, "10WH": 170}[truck.Str("vehicle_class")]
+	perDay := dailyKm[truck.Str("vehicle_class")]
 	if perDay == 0 {
 		perDay = 120
 	}
@@ -265,58 +298,64 @@ func (g *finGen) odometerOf(truck Row) odometer {
 
 func (o odometer) at(day int, part int) int { return o.base + o.perDay*day + part }
 
-// expenses appends the fuel logs, toll imports and other expenses of the window's past days, on the truck each driver
-// held that day (Appendix D §D.2 #16), and returns the odometer model of every truck it refuelled.
-func (g *finGen) expenses() (map[string]odometer, error) {
-	og := &opsGen{p: g.p, o: g.o, s: g.s}
-	if err := og.collectDrivers(); err != nil {
-		return nil, err
+// logPart is the part of a day's run before the refuel of the fuel log at position n on window day day.
+func (o odometer) logPart(day, n int) int { return (o.perDay / 4) * ((day*7 + n*3) % 10) / 10 }
+
+// fuelApproval is an approved fuel log with an odometer: the PM check it ran (maintenance_history.go).
+type fuelApproval struct {
+	truck   Row
+	at      time.Time // when the office approved it
+	reading int
+}
+
+// expensePlan is the expense volume of one generator: the counts by kind and status, the driver days they spread over,
+// who imports the toll rows of a tenant and who audits the rest.
+type expensePlan struct {
+	tag                              string // the station tax invoice series: G (demo), L (load)
+	start, anchor                    time.Time
+	days                             int // the window's length, the anchor day included
+	fuel, toll, other                int
+	pending, rejected                int
+	fuelSlots, tollSlots, otherSlots []expSlot
+	tollOffset, otherOffset          int
+	receiptFuel, receiptOther        int               // a receipt on every n-th fuel log and other expense not rejected
+	office                           map[string]string // tenant -> users.id of the staff who import and audit its expenses
+}
+
+// pickSlots are n slots spread evenly over slots, starting at offset.
+func pickSlots(slots []expSlot, n, offset int) []expSlot {
+	out := make([]expSlot, n)
+	for j := range n {
+		out[j] = slots[(j*len(slots)+offset)/n%len(slots)]
 	}
-	tenantCode := map[string]string{}
-	for _, t := range g.p.Tables["tenants"] {
-		tenantCode[t.Str("id")] = t.Str("code")
-	}
-	tenantCode[g.own] = "WRT"
-	var all, own []expSlot
-	for i := range opsDays - 1 {
-		day := g.start.AddDate(0, 0, i)
-		for _, d := range og.drivers {
-			if tr := d.truckOn(day); tr != nil {
-				s := expSlot{day: i, d: d, truck: tr}
-				all = append(all, s)
-				if tenantCode[tr.Str("tenant_id")] == "WRT" {
-					own = append(own, s)
-				}
-			}
-		}
-	}
-	if len(all) < demoFuelLogs || len(own) < demoTollRows {
-		return nil, fmt.Errorf("seed: %d driver days (%d own fleet) cannot carry the demo expenses", len(all), len(own))
-	}
-	pick := func(slots []expSlot, n, offset int) []expSlot { // n slots spread evenly over the window
-		out := make([]expSlot, n)
-		for j := range n {
-			out[j] = slots[(j*len(slots)+offset)/n%len(slots)]
-		}
-		return out
+	return out
+}
+
+// writeExpenses appends the fuel logs, toll imports and other expenses of ep, each on the truck its driver held that day
+// and in that truck's tenant (Appendix D §D.2 #16), and returns the odometer model of every truck it refuelled and the
+// fuel logs the office approved, in order.
+func (g *finGen) writeExpenses(og *opsGen, ep expensePlan) (map[string]odometer, []fuelApproval, error) {
+	if len(ep.fuelSlots) < ep.fuel || len(ep.tollSlots) < ep.toll || len(ep.otherSlots) < ep.other {
+		return nil, nil, fmt.Errorf("seed: %d/%d/%d driver days cannot carry %d fuel logs, %d toll rows and %d other expenses",
+			len(ep.fuelSlots), len(ep.tollSlots), len(ep.otherSlots), ep.fuel, ep.toll, ep.other)
 	}
 	var list []*expense
-	for j, s := range pick(all, demoFuelLogs, 0) {
-		at := g.start.AddDate(0, 0, s.day).Add(5*time.Hour + 30*time.Minute + time.Duration(5*g.r.IntN(8))*time.Minute)
+	for j, s := range pickSlots(ep.fuelSlots, ep.fuel, 0) {
+		at := ep.start.AddDate(0, 0, s.day).Add(5*time.Hour + 30*time.Minute + time.Duration(5*g.r.IntN(8))*time.Minute)
 		list = append(list, &expense{kind: "fuel", slot: s, at: at, n: j})
 	}
-	for j, s := range pick(own, demoTollRows, len(own)/2) {
-		at := g.start.AddDate(0, 0, s.day).Add(8*time.Hour + 10*time.Minute + time.Duration(g.r.IntN(300))*time.Minute)
+	for j, s := range pickSlots(ep.tollSlots, ep.toll, ep.tollOffset) {
+		at := ep.start.AddDate(0, 0, s.day).Add(8*time.Hour + 10*time.Minute + time.Duration(g.r.IntN(300))*time.Minute)
 		list = append(list, &expense{kind: "toll", slot: s, at: at, n: j})
 	}
-	for j, s := range pick(all, demoOtherRows, len(all)/(2*demoOtherRows)) {
-		at := g.start.AddDate(0, 0, s.day).Add(12*time.Hour + time.Duration(g.r.IntN(360))*time.Minute)
+	for j, s := range pickSlots(ep.otherSlots, ep.other, ep.otherOffset) {
+		at := ep.start.AddDate(0, 0, s.day).Add(12*time.Hour + time.Duration(g.r.IntN(360))*time.Minute)
 		list = append(list, &expense{kind: "other", slot: s, at: at, n: j})
 	}
 	// Statuses: toll imports approved; of the fuel and other rows the newest are still pending audit, and of the older
-	// ones every so often one was rejected (the counts of §D.2 #16 whatever the anchor). Newest by window day, then fuel
+	// ones every so often one was rejected (fixed counts whatever the anchor). Newest by window day, then fuel
 	// (mornings) before other (afternoons), then position: never by a drawn time, so the statuses, and with them the
-	// receipts (a rejected row has none), do not depend on SEED_RANDOM_SEED.
+	// receipts (a rejected row has none) and the PM bookings, do not depend on SEED_RANDOM_SEED.
 	var audited []*expense
 	for _, e := range list {
 		if e.kind != "toll" {
@@ -334,12 +373,12 @@ func (g *finGen) expenses() (map[string]odometer, error) {
 		return a.n > b.n
 	})
 	status := map[*expense]string{}
-	older := len(audited) - demoPendingRows
+	older := len(audited) - ep.pending
 	for k, e := range audited {
 		switch {
-		case k < demoPendingRows:
+		case k < ep.pending:
 			status[e] = "pending"
-		case (k-demoPendingRows)*demoRejectedRows/older != (k-demoPendingRows+1)*demoRejectedRows/older:
+		case (k-ep.pending)*ep.rejected/older != (k-ep.pending+1)*ep.rejected/older:
 			status[e] = "rejected"
 		default:
 			status[e] = "approved"
@@ -349,27 +388,33 @@ func (g *finGen) expenses() (map[string]odometer, error) {
 	// tax invoice (unique per driver, vehicle_expenses_fuel_taxinv).
 	odo := map[string]odometer{}
 	last := map[string]int{}
+	var approved []fuelApproval
 	sort.SliceStable(list, func(i, j int) bool { return list[i].at.Before(list[j].at) })
 	rejectNotes := []string{"ไม่มีใบเสร็จ", "ยอดไม่ตรงกับใบเสร็จ", "เลขไมล์ไม่สอดคล้องกับรอบก่อน", "ซ้ำกับรายการเดิม"}
 	tollBatch := map[string]int{}
 	for _, e := range list {
 		s := e.slot
 		tr := s.truck
+		tenant := tr.Str("tenant_id")
 		natural := fmt.Sprintf("%s:%s:%s", s.d.key, e.kind, e.at.Format("2006-01-02T15:04"))
 		id := g.id("vehicle_expenses", natural)
-		g.p.labels[id] = tr.Str("license_plate")
-		r := Row{"id": id, "tenant_id": tr.Str("tenant_id"), "tenant_source": "driver", "driver_id": s.d.id,
+		r := Row{"id": id, "tenant_id": tenant, "tenant_source": "driver", "driver_id": s.d.id,
 			"truck_id": tr.Str("id"), "truck_license_plate_snapshot": tr.Str("license_plate"), "expense_at": ts(e.at)}
 		created := e.at.Add(time.Minute)
+		// The office audits a driver's expense the next morning (09:00 onwards, in submission order).
+		next := e.at.AddDate(0, 0, 1)
+		audit := time.Date(next.Year(), next.Month(), next.Day(), 9, 0, 0, 0, clock.Bangkok).Add(time.Duration(e.n%45) * time.Minute)
+		reading := 0
 		switch e.kind {
 		case "fuel":
 			m, ok := odo[tr.Str("id")]
 			if !ok {
-				m = g.odometerOf(tr)
+				m = odometerOf(tr)
 				odo[tr.Str("id")] = m
 			}
-			reading := m.at(s.day, g.r.IntN(m.perDay/4))
-			price := 33.50 + 0.025*float64(s.day) + float64(g.r.IntN(31)-15)/100
+			reading = m.at(s.day, m.logPart(s.day, e.n))
+			// Diesel rises 0.025 THB a day over the last 92 days before the anchor (flat before them).
+			price := 33.50 + 0.025*float64(max(0, s.day-(ep.days-opsDays))) + float64(g.r.IntN(31)-15)/100
 			price = math.Round(price*100) / 100
 			lo, hi := 30, 45
 			if v, ok := tankLitres[tr.Str("vehicle_class")]; ok {
@@ -384,7 +429,7 @@ func (g *finGen) expenses() (map[string]odometer, error) {
 				r["distance_km"] = fmt.Sprintf("%d.00", reading-prev)
 			}
 			last[tr.Str("id")] = reading
-			r["tax_inv_id"] = fmt.Sprintf("SEED-TAXINV-G%04d", e.n+1)
+			r["tax_inv_id"] = fmt.Sprintf("SEED-TAXINV-%s%05d", ep.tag, e.n+1)
 			r["station_tax_id"] = thaiID(fmt.Sprintf("09999000030%d", e.n%10))
 		case "toll":
 			// The office imports a week of toll-gate rows every Monday at 10:00 (the anchor's morning for the last
@@ -395,16 +440,16 @@ func (g *finGen) expenses() (map[string]odometer, error) {
 			}
 			monday := e.at.AddDate(0, 0, days)
 			imported := time.Date(monday.Year(), monday.Month(), monday.Day(), 10, 0, 0, 0, clock.Bangkok)
-			if !imported.Before(g.anchor) {
-				imported = g.anchor.Add(9 * time.Hour)
+			if !imported.Before(ep.anchor) {
+				imported = ep.anchor.Add(9 * time.Hour)
 			}
-			batch := clock.DateString(imported)
+			batch := tenant + "|" + clock.DateString(imported)
 			tollBatch[batch]++
 			amounts := []int{25, 30, 45, 50, 60, 75, 90, 110}
 			r["expense_type"], r["category"], r["amount_thb"] = "other", "toll", fmt.Sprintf("%d.00", amounts[g.r.IntN(len(amounts))])
 			r["toll_import_sequence"], r["toll_location"] = intNum(tollBatch[batch]), tollGates[e.n%len(tollGates)]
 			r["toll_lane"], r["toll_source_type"] = fmt.Sprintf("%02d", 1+g.r.IntN(12)), "ผ่านทาง"
-			r["created_by_user_id"], r["created_at"], r["status"] = g.ops, ts(imported), "approved"
+			r["created_by_user_id"], r["created_at"], r["status"] = ep.office[tenant], ts(imported), "approved"
 			g.add("vehicle_expenses", r)
 			continue
 		case "other":
@@ -415,23 +460,66 @@ func (g *finGen) expenses() (map[string]odometer, error) {
 		r["status"] = status[e]
 		r["created_by_user_id"], r["created_at"] = s.d.user, ts(created)
 		r["client_op_id"] = ClientOpID(g.o.Namespace, "vehicle_expenses:"+natural).String()
+		if status[e] != "pending" {
+			r["updated_at"] = ts(audit)
+		}
 		if status[e] == "rejected" {
 			r["admin_note"] = rejectNotes[e.n%len(rejectNotes)]
-		} else if (e.kind == "fuel" && e.n%3 == 0) || (e.kind == "other" && e.n%2 == 0) {
-			fid, err := og.object("expense_receipt", ID(g.o.Namespace, "vehicle_expenses", natural), "", created,
-				tr.Str("tenant_id"), s.d.user)
+		} else if (e.kind == "fuel" && e.n%ep.receiptFuel == 0) || (e.kind == "other" && e.n%ep.receiptOther == 0) {
+			fid, err := og.object("expense_receipt", ID(g.o.Namespace, "vehicle_expenses", natural), "", created, tenant, s.d.user)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			r["receipt_file_id"] = fid
+			g.p.labels[id] = tr.Str("license_plate") // the receipt's overlay names the truck
+		}
+		if status[e] == "approved" && reading > 0 {
+			approved = append(approved, fuelApproval{truck: tr, at: audit, reading: reading})
 		}
 		g.add("vehicle_expenses", r)
 	}
-	return odo, nil
+	return odo, approved, nil
+}
+
+// expenses appends the demo's fuel logs, toll imports and other expenses on the window's past days, on the truck each
+// generated driver held that day (Appendix D §D.2 #16): the fuel logs on the demo trucks only (none on the smoke T3 that
+// d10 drives, whose row a PM check would change), the toll rows on the own fleet's days.
+func (g *finGen) expenses() (map[string]odometer, []fuelApproval, error) {
+	og := &opsGen{p: g.p, o: g.o, s: g.s}
+	if err := og.collectDrivers(); err != nil {
+		return nil, nil, err
+	}
+	office, err := approvers(g.p, g.o)
+	if err != nil {
+		return nil, nil, err
+	}
+	var all, own, fuel []expSlot
+	for i := range opsDays - 1 {
+		day := g.start.AddDate(0, 0, i)
+		for _, d := range og.drivers {
+			if tr := d.truckOn(day); tr != nil {
+				s := expSlot{day: i, d: d, truck: tr}
+				all = append(all, s)
+				if tr.Str("tenant_id") == g.own {
+					own = append(own, s)
+				}
+				if g.s.SymbolOf(uuid.MustParse(tr.Str("id"))) == "" {
+					fuel = append(fuel, s)
+				}
+			}
+		}
+	}
+	if len(all) == 0 || len(own) == 0 {
+		return nil, nil, fmt.Errorf("seed: %d driver days (%d own fleet) cannot carry the demo expenses", len(all), len(own))
+	}
+	return g.writeExpenses(og, expensePlan{tag: "G", start: g.start, anchor: g.anchor, days: opsDays, fuel: demoFuelLogs, toll: demoTollRows,
+		other: demoOtherRows, pending: demoPendingRows, rejected: demoRejectedRows, fuelSlots: fuel, tollSlots: own,
+		otherSlots: all, tollOffset: len(own) / 2, otherOffset: len(all) / (2 * demoOtherRows), receiptFuel: 3, receiptOther: 2,
+		office: office})
 }
 
 // tankLitres are the litres a refuel takes by vehicle class (lower, upper).
-var tankLitres = map[string][2]int{"4WJ": {38, 58}, "6WH": {65, 95}, "10WH": {110, 160}}
+var tankLitres = map[string][2]int{"4W": {35, 55}, "4WJ": {38, 58}, "6WH": {65, 95}, "10WH": {110, 160}, "18WH": {250, 380}}
 
 // tollGates are synthetic toll-gate names (§D.1.9: no real place is implied).
 var tollGates = []string{"ด่านตัวอย่าง A", "ด่านตัวอย่าง B", "ด่านทดสอบบางนา", "ด่านทดสอบรามอินทรา", "ด่านทดสอบดินแดง",
@@ -450,11 +538,29 @@ var otherExpenses = []struct {
 
 // --- maintenance ----------------------------------------------------------------------------------------------
 
-// maintenance appends three records on the own fleet's demo trucks (Appendix D §D.2 #15, beside the three of smoke): a
-// PM booked from a fuel log within the alert threshold and completed (the truck takes the service's mileage, date and
-// next service mileage), a scheduled tyre change (the truck's active maintenance) and a brake repair in progress (the
-// truck in the shop), as the maintenance service leaves the truck after each step (maintenance.applyToTruck).
-func (g *finGen) maintenance(odo map[string]odometer) error {
+// maintenance replays the history the demo's approved fuel logs imply (maintenance_history.go: a PM booked when a
+// reading comes within the alert threshold of the next service, serviced two days later and completed the day after,
+// the truck taking the service's mileage, date and next service; the readings in between moving its current mileage),
+// with two records of the office beside them (Appendix D §D.2 #15): a tyre change on WRT2 booked the day before the
+// anchor for two days after it (its active maintenance unless a PM booking still is) and a brake repair on WRT3 in the
+// shop since the day before the anchor (the truck in status maintenance; its driver D11 runs no trip of the demo).
+func (g *finGen) maintenance(odo map[string]odometer, approved []fuelApproval) error {
+	office, err := approvers(g.p, g.o)
+	if err != nil {
+		return err
+	}
+	h := newFleetHistory(g.p, g.o)
+	register := func(tr Row) *fleetTruck {
+		m, ok := odo[tr.Str("id")]
+		if !ok {
+			m = odometerOf(tr)
+		}
+		start := g.start
+		return h.truck(tr, func(day time.Time) int { return m.at(windowDay(start, day), 0) }, office[tr.Str("tenant_id")])
+	}
+	for _, a := range approved {
+		h.fuel(register(a.truck), a.at, a.reading)
+	}
 	trucks := map[string]Row{}
 	for _, t := range g.p.Tables["trucks"] {
 		trucks[t.Str("license_plate")] = t
@@ -469,10 +575,6 @@ func (g *finGen) maintenance(odo map[string]odometer) error {
 		}
 		return nil, fmt.Errorf("seed: demo truck %s not in the plan", key)
 	}
-	wrt1, err := truck("WRT1")
-	if err != nil {
-		return err
-	}
 	wrt2, err := truck("WRT2")
 	if err != nil {
 		return err
@@ -483,78 +585,33 @@ func (g *finGen) maintenance(odo map[string]odometer) error {
 	}
 	rec := func(t Row, typ, service string, start time.Time, status string) Row {
 		natural := t.Str("license_plate") + ":" + clock.DateString(start) + ":" + typ
-		r := Row{"id": g.id("maintenance_records", natural), "tenant_id": t.Str("tenant_id"), "tenant_source": "truck",
+		return Row{"id": g.id("maintenance_records", natural), "tenant_id": t.Str("tenant_id"), "tenant_source": "truck",
 			"truck_id": t.Str("id"), "truck_license_plate_snapshot": t.Str("license_plate"), "truck_brand_snapshot": t.Str("brand"),
 			"maintenance_type": typ, "service_type": service, "start_date": clock.DateString(start), "status": status,
 			"created_by": g.ops}
-		g.p.labels[r.Str("id")] = t.Str("license_plate")
-		return r
 	}
-
-	// 1. The PM of WRT1: the first day its fuel logs come within the alert threshold of the next service (else window
-	// day 20) books it; serviced two days later; the truck takes the mileage, the date and the next service mileage.
-	pm, _ := floatOf(wrt1["pm_interval_km"])
-	interval := int(pm)
-	if interval == 0 {
-		interval = 10000
-	}
-	m, ok := odo[wrt1.Str("id")]
-	if !ok {
-		m = g.odometerOf(wrt1)
-	}
-	due := (m.base/interval + 1) * interval
-	day := 20
-	for i := range opsDays - 4 {
-		if due-m.at(i, 0) <= pmAlertThresholdK {
-			day = i
-			break
-		}
-	}
-	booked := g.start.AddDate(0, 0, day).Add(10 * time.Hour)
-	serviced := g.start.AddDate(0, 0, day+2)
-	mileage := m.at(day+2, 0)
-	r1 := rec(wrt1, "PM", fmt.Sprintf("เช็คระยะ %s กม.", groupThousands(due)), serviced, "completed")
-	r1["end_date"] = clock.DateString(serviced.AddDate(0, 0, 1))
-	r1["cost_labor_thb"], r1["cost_parts_thb"], r1["total_cost_thb"], r1["invoice_amount_thb"] = "1500.00", "3200.00", "4700.00", "4700.00"
-	r1["provider"], r1["payment_method"], r1["driver_submitted"] = "อู่ทดสอบลาดกระบัง (ตัวอย่าง)", "transfer", true
-	r1["current_mileage"], r1["next_service_mileage"] = intNum(mileage), intNum(due+interval)
-	r1["check_in_at"], r1["check_out_at"] = ts(serviced.Add(8*time.Hour+30*time.Minute)), ts(serviced.AddDate(0, 0, 1).Add(16*time.Hour))
-	r1["notes"] = fmt.Sprintf("ระบบอัตโนมัติ: จากรายการเติมน้ำมัน (เหลือไม่เกิน %s กม.)", groupThousands(pmAlertThresholdK))
-	r1["created_at"], r1["updated_by"] = ts(booked), g.ops
-	g.add("maintenance_records", r1)
-	wrt1["current_mileage"], wrt1["next_service_mileage"] = intNum(mileage), intNum(due+interval)
-	wrt1["last_service_date"] = r1.Str("end_date")
-
-	// 2. A tyre change booked for two days after the anchor: WRT2's active maintenance, the truck still running.
+	// A tyre change booked for two days after the anchor, the truck still running.
+	booked := g.anchor.AddDate(0, 0, -1).Add(14 * time.Hour)
 	r2 := rec(wrt2, "CM", "เปลี่ยนยางหน้า 2 เส้น", g.anchor.AddDate(0, 0, 2), "scheduled")
 	r2["appointment_time"], r2["provider"] = "09:30", "ร้านยางทดสอบบางนา (ตัวอย่าง)"
-	r2["notes"], r2["created_at"] = "ดอกยางหน้าเหลือน้อย นัดเปลี่ยนก่อนรอบส่งงานถัดไป", ts(g.anchor.AddDate(0, 0, -1).Add(14*time.Hour))
-	g.add("maintenance_records", r2)
-	wrt2["active_maintenance_id"] = r2.Str("id")
-
-	// 3. A brake repair in the shop since the day before the anchor: WRT3 is in maintenance (its driver D11 runs no
-	// trip of the demo).
+	r2["notes"], r2["created_at"] = "ดอกยางหน้าเหลือน้อย นัดเปลี่ยนก่อนรอบส่งงานถัดไป", ts(booked)
+	h.record(register(wrt2), r2, fleetStep{booked, "scheduled"})
+	// A brake repair booked two days before the anchor, in the shop since the day before.
+	reported, checkIn := g.anchor.AddDate(0, 0, -2).Add(16*time.Hour), g.anchor.AddDate(0, 0, -1).Add(8*time.Hour+40*time.Minute)
 	r3 := rec(wrt3, "CM", "ซ่อมระบบเบรกหลัง", g.anchor.AddDate(0, 0, -1), "in_progress")
 	r3["provider"], r3["payment_method"] = "อู่ทดสอบสมุทรปราการ (ตัวอย่าง)", "billing"
-	r3["check_in_at"], r3["notes"] = ts(g.anchor.AddDate(0, 0, -1).Add(8*time.Hour+40*time.Minute)), "เบรกหลังมีเสียงดัง รอเปลี่ยนจานเบรก"
-	r3["created_at"], r3["updated_by"] = ts(g.anchor.AddDate(0, 0, -2).Add(16*time.Hour)), g.ops
-	g.add("maintenance_records", r3)
-	wrt3["active_maintenance_id"], wrt3["status"] = r3.Str("id"), "maintenance"
+	r3["check_in_at"], r3["notes"] = ts(checkIn), "เบรกหลังมีเสียงดัง รอเปลี่ยนจานเบรก"
+	r3["created_at"], r3["updated_by"], r3["updated_at"] = ts(reported), g.ops, ts(checkIn)
+	h.record(register(wrt3), r3, fleetStep{reported, "scheduled"}, fleetStep{checkIn, "in_progress"})
+	changed, err := h.run()
+	if err != nil {
+		return err
+	}
+	g.p.noteTruckChanges(changed)
 	return nil
 }
 
-// groupThousands writes n with thousands separators ("50,000"), as the maintenance notes do.
-func groupThousands(n int) string {
-	s := strconv.Itoa(n)
-	if len(s) <= 3 {
-		return s
-	}
-	var out []byte
-	for i, c := range []byte(s) {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, c)
-	}
-	return string(out)
+// windowDay is the window day of a Bangkok midnight (day 0 = start).
+func windowDay(start, day time.Time) int {
+	return int(math.Round(day.Sub(start).Hours() / 24))
 }
