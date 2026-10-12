@@ -214,7 +214,14 @@ export const queryKeys = {
     penalties: <P extends Params>(params?: P) => listKey("penalties", params),
     leave: <P extends Params>(params?: P) => listKey("leave", params),
 
+    /**
+     * The chat console (T50): `['chats','queued' | 'mine']` the two keyset lists of the conversations panel
+     * (`GET /v1/chats?filter=queue|mine`, closed chats left out by Go), `['chats']` their prefix; `['chat', id]`
+     * one chat with its read state, `['chat', id, 'messages']` its messages (keyset, 50 newest first). The detail
+     * is invalidated `exact`, so a chat change never refetches the loaded message pages below it.
+     */
     chats: {
+        all: () => ["chats"] as const,
         queued: () => ["chats", "queued"] as const,
         mine: () => ["chats", "mine"] as const,
     },
@@ -222,6 +229,7 @@ export const queryKeys = {
         detail: (id: string) => ["chat", id] as const,
         messages: (id: string) => ["chat", id, "messages"] as const,
     },
+    /** `GET /v1/broadcasts` (keyset, newest first, voided ones left out; T50). */
     broadcasts: () => ["broadcasts"] as const,
 
     /**

@@ -38,6 +38,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
+import { chatWithDriverHref } from "@/features/chat/api/chats.go";
+
 
 export default function DriversList() {
     const router = useRouter();
@@ -280,8 +282,8 @@ export default function DriversList() {
                                                     <DropdownMenuLabel>{t("drivers.action.label")}</DropdownMenuLabel>
                                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/view?id=${driver.id}`); }}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
                                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/edit?id=${driver.id}`); }}>{t("drivers.action.editDetails")}</DropdownMenuItem>
-                                                    {driver.legacyAuthUid && (
-                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/chat/with-driver?authId=${driver.legacyAuthUid}`); }} className="gap-2">
+                                                    {(driver.legacyAuthUid || driver.userId) && (
+                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(chatWithDriverHref(driver)); }} className="gap-2">
                                                             <MessageCircle className="h-4 w-4" />
                                                             {t("masterData.drivers.chat")}
                                                         </DropdownMenuItem>

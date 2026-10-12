@@ -1,39 +1,19 @@
 "use client";
 
+// The chat console's home and broadcast composer (T50): `GET/POST/DELETE /v1/broadcasts` over Go while the
+// `comms` web flag is on, the Firestore page otherwise. Each source is its own chunk.
 import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { MessageCircle, Loader2 } from "lucide-react";
-import { BroadcastComposer } from "./components/BroadcastComposer";
+import dynamic from "next/dynamic";
 
-function ChatPageContent() {
-  const searchParams = useSearchParams();
-  const view = searchParams?.get("view");
+import { DomainPage, PageLoading } from "@/features/platform/components/DomainPage";
 
-  if (view === "broadcast") {
-    return <BroadcastComposer />;
-  }
+const GoPage = dynamic(() => import("@/features/chat/components/ChatHomeGo").then((m) => m.ChatHomeGo), { loading: () => <PageLoading /> });
+const FirestorePage = dynamic(() => import("@/features/chat/legacy/LegacyChatHome"), { loading: () => <PageLoading /> });
 
-  return (
-    <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
-      <MessageCircle className="h-16 w-16 text-muted-foreground/50 mb-4" />
-      <h2 className="text-lg font-semibold text-foreground mb-1">Command Center</h2>
-      <p className="text-muted-foreground text-sm max-w-sm">
-        Select a conversation from the list to view messages, or use the driver panel on the right when a chat is selected.
-      </p>
-    </div>
-  );
-}
-
-export default function AdminChatListPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      }
-    >
-      <ChatPageContent />
-    </Suspense>
-  );
+export default function AdminChatPage() {
+    return (
+        <Suspense fallback={<PageLoading />}>
+            <DomainPage domain="comms" go={GoPage} firestore={FirestorePage} />
+        </Suspense>
+    );
 }

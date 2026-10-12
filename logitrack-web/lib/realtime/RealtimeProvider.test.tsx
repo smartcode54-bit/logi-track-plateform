@@ -20,6 +20,8 @@ import { makeMe } from "@/test-utils/fakeWeb";
 import { RealtimeProvider } from "./RealtimeProvider";
 import { CLOSED, CONNECTING, OPEN, type EventSourceLike } from "./realtimeStream";
 import { getRealtimeStatus, setRealtimeStatus } from "./status";
+import { chatTopic, resetRealtimeTopicsForTests, useRealtimeTopic } from "./topics";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 class FakeEventSource implements EventSourceLike {
     readyState = CONNECTING;
@@ -224,6 +226,92 @@ describe("RealtimeProvider", () => {
         sources[0].open();
         act(() => sources[0].emit("job.updated", { id: "job-1", type: "distances.compute", status: "running", progress: { done: 3, total: 9 } }, "30"));
         expect(client.getQueryData(queryKeys.jobs("job-1"))).toMatchObject({ status: "running", progress: { done: 3, total: 9 } });
+        view.unmount();
+    });
+
+    it("an open chat room joins chat:{id} within 500 ms, from the last id; message.created shows the message without a refetch (T50)", async () => {
+        resetRealtimeTopicsForTests();
+        const client = newClient();
+        let messageFetches = 0;
+        function Room() {
+            useRealtimeTopic(chatTopic("c1"));
+            const q = useInfiniteQuery({
+                queryKey: queryKeys.chat.messages("c1"),
+                queryFn: async () => {
+                    messageFetches++;
+                    return { data: [{ id: "m1", chatId: "c1", senderRole: "driver", text: "first", clientMessageId: null, createdAt: "2026-10-12T01:00:01Z" }] };
+                },
+                initialPageParam: undefined as string | undefined,
+                getNextPageParam: () => undefined,
+                staleTime: Infinity,
+            });
+            const texts = (q.data?.pages ?? []).flatMap((p) => p.data.map((m) => (m as { text: string }).text));
+            return <p data-testid="room">{texts.join("|")}</p>;
+        }
+        const tab = (room: boolean) => (
+            <QueryClientProvider client={client}>
+                <RealtimeProvider createEventSource={createEventSource}>{room ? <Room /> : <p>console</p>}</RealtimeProvider>
+            </QueryClientProvider>
+        );
+        // The tab's stream is open before the room is (the console, then a click on a chat).
+        const view = render(tab(false));
+        await advance(0);
+        sources[0].open();
+        act(() => sources[0].emit("hubs.changed", { ids: [] }, "40"));
+        view.rerender(tab(true));
+        await advance(499);
+        expect(sources).toHaveLength(1); // at most one recreate per 500 ms
+        await advance(1);
+        expect(sources).toHaveLength(2);
+        expect(sources[0].closed).toBe(true);
+        const joined = sources[1];
+        expect(joined.url).toBe(`/api/go/v1/events?topics=${encodeURIComponent("chat:c1")}&lastEventId=40`);
+        joined.open();
+        expect(messageFetches).toBe(1);
+        act(() =>
+            joined.emit(
+                "message.created",
+                { entity: "chat_message", id: "m2", chatId: "c1", senderRole: "driver", senderName: "S", text: "second", imageFileId: null, messageType: "normal", clientMessageId: "x", createdAt: "2026-10-12T01:00:02Z" },
+                "41"
+            )
+        );
+        await advance(10);
+        expect(screen.getByTestId("room").textContent).toBe("second|first");
+        // The tenant topic's thin copy of the same message: the room has its topic, so no refetch.
+        act(() => joined.emit("chat.message_created", { entity: "chat_message", id: "m2", chatId: "c1", senderRole: "driver" }, "41"));
+        await advance(600);
+        expect(messageFetches).toBe(1);
+        view.unmount(); // the room's unmount drops its registration
+    });
+
+    it("console -> room A -> room B -> console -> room C: one new stream per new room, none for leaving one (T50)", async () => {
+        // Each new stream costs a SSE_MAX_CONN_PER_USER lease (Go frees the old one when its client closes);
+        // a room left keeps its topic on the stream until it reopens for another reason.
+        resetRealtimeTopicsForTests();
+        const client = newClient();
+        function Room({ id }: { id: string }) {
+            useRealtimeTopic(chatTopic(id));
+            return <p>{id}</p>;
+        }
+        const tab = (room: string | null) => (
+            <QueryClientProvider client={client}>
+                <RealtimeProvider createEventSource={createEventSource}>{room ? <Room key={room} id={room} /> : <p>console</p>}</RealtimeProvider>
+            </QueryClientProvider>
+        );
+        const view = render(tab(null));
+        await advance(0);
+        sources[0].open();
+        act(() => sources[0].emit("hubs.changed", { ids: [] }, "40"));
+        for (const step of ["a", "b", null, "c"]) {
+            view.rerender(tab(step));
+            await advance(600);
+            const last = sources.at(-1)!;
+            if (last.readyState !== OPEN) last.open();
+        }
+        const topics = sources.map((s) => new URL(s.url, "http://web.test").searchParams.get("topics"));
+        expect(topics).toEqual([null, "chat:a", "chat:a,chat:b", "chat:a,chat:b,chat:c"]);
+        expect(sources.slice(0, -1).every((s) => s.closed)).toBe(true);
+        expect(sources.slice(1).every((s) => s.url.endsWith("&lastEventId=40"))).toBe(true);
         view.unmount();
     });
 });

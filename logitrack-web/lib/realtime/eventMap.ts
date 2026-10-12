@@ -45,14 +45,25 @@
  *   and `['penalties']`, whose installments the approval commits), `holidays.changed` (`global` for public rows,
  *   `tenant:{tid}:config` for a tenant's) -> `['holidays']`, and the `payroll.run` job's success -> `['payroll']`.
  *   The leave and payroll lists also poll every 60 s (Appendix E §E.5 rows 10, 12); holidays are a plain fetch.
- * Still to come: the chat lists and the explicit `chat:{id}` topic (M5), `security.event` on
- * `platform:security` (the security pages poll).
+ * - the comms slice of M5 (T50, the chat console; producer T47): `chat.created`, `chat.updated`,
+ *   `chat.message_created` on `tenant:{tid}:chats` make the conversation lists (`['chats']`) and the badges
+ *   stale, a chat's own change its `['chat', id]` (exact: never its loaded message pages); on the explicit
+ *   `chat:{id}` of the open room (lib/realtime/topics.ts) `message.created` writes the whole message into
+ *   `['chat', id, 'messages']` (deduped by id and `clientMessageId`, features/chat/api/chatCache.ts; an
+ *   image message also refetches, the event carries no signed URL) and `read.updated` the reader's state
+ *   into `['chat', id]`, both applied again on a fetch of the key that was running meanwhile
+ *   (`reapplyAfterFetch`). When the open connection does not carry that `chat:{id}` (not joined yet, or Go
+ *   refused it), the tenant topic's thin `chat.message_created` makes the room's messages and chat stale
+ *   instead (`EffectsContext.hasTopic`), so the room never misses a message.
+ * Still to come: `security.event` on `platform:security` (the security pages poll).
  */
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { isRateCardTable, rateCardChangedKeys } from "@/features/accounting/api/rateCardKeys";
 import { mergeVehiclePositions, namesUnlistedTruck, parsePositions } from "@/features/dashboard/api/vehicleLocationEvents";
+import { applyReadState, messageFromEvent, needsImageRefetch, readFromEvent, upsertMessage } from "@/features/chat/api/chatCache";
 import type { RealtimeFrame } from "./realtimeStream";
+import { chatTopic } from "./topics";
 
 /** Coalescing window of a list invalidation (Appendix E §E.5.1 "Backpressure": 500 ms). */
 export const LIST_WINDOW_MS = 500;
@@ -63,6 +74,14 @@ export interface Invalidation {
     queryKey: QueryKey;
     /** Events for the same key inside this window cause one invalidation at its end. */
     windowMs: number;
+    /** Only this key, not the keys below it (`['chat', id]` without `['chat', id, 'messages']`). */
+    exact?: boolean;
+}
+
+/** What an event's effects may depend on besides its payload. */
+export interface EffectsContext {
+    /** Whether the open stream carries the explicit `topic` (Go accepted it at connect). */
+    hasTopic?: (topic: string) => boolean;
 }
 
 export interface CacheWrite {
@@ -80,6 +99,12 @@ export interface CacheWrite {
      * also made stale (one flush per `LIST_WINDOW_MS` window), so the refetch adds what the write cannot.
      */
     refetchWhen?: (cached: unknown) => boolean;
+    /**
+     * Apply the update again on the result of a fetch of the key that was running when the event arrived
+     * (its server read may predate the event; lib/queryWrite.ts). Only for an idempotent, forward-only
+     * update: a never-stale key the stream keeps fresh (T50: a chat's messages and read state).
+     */
+    reapplyAfterFetch?: boolean;
 }
 
 export interface CacheEffects {
@@ -94,7 +119,7 @@ type EventRule =
     /** Keys with their own windows (the monitor's 2 s beside the lists' 500 ms). */
     | { windows: readonly Invalidation[] }
     /** Effects that depend on the payload (`data` is the envelope's `data`, untrusted). */
-    | { effects: (data: unknown) => CacheEffects };
+    | { effects: (data: unknown, ctx: EffectsContext) => CacheEffects };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
     return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -292,9 +317,75 @@ function vehicleLocationEffects(data: unknown): CacheEffects {
 /** `waitlist.created` (platform:security): the waitlist page and the sidebar count. */
 export const WAITLIST_KEYS: readonly QueryKey[] = [queryKeys.waitlist(), queryKeys.badges()];
 
-/** `chat.*` (tenant:{tid}:chats): the chat counters of `['badges']` (the dashboard's chat widget). */
+/** `chat.*` (tenant:{tid}:chats): the chat counters of `['badges']` (the dashboard's chat widget) and the chat lists. */
 export const CHAT_EVENTS = ["chat.created", "chat.updated", "chat.message_created"] as const;
 export const CHAT_BADGE_KEYS: readonly QueryKey[] = [queryKeys.badges()];
+
+// --- chats (T50, M5) ------------------------------------------------------------------------------
+
+/** What every chat event of the tenant topic makes stale: both conversation lists and the badges. */
+export const CHAT_LIST_KEYS: readonly QueryKey[] = [queryKeys.chats.all(), ...CHAT_BADGE_KEYS];
+
+/** The events of the explicit `chat:{id}` topic (Appendix B §B.4.4: SSE names on that topic). */
+export const CHAT_TOPIC_EVENTS = ["message.created", "read.updated"] as const;
+
+const chatIdOf = (data: unknown, field: "id" | "chatId"): string | null =>
+    isRecord(data) && typeof data[field] === "string" && data[field] !== "" ? (data[field] as string) : null;
+
+/** `chat.created`, `chat.updated` {entity: chat, id, status, assignedAdminUserId, ...}: the lists, the badges, the chat. */
+function chatChangedEffects(data: unknown): CacheEffects {
+    const invalidate = invalidations(CHAT_LIST_KEYS);
+    const id = chatIdOf(data, "id");
+    if (id) invalidate.push({ queryKey: queryKeys.chat.detail(id), windowMs: LIST_WINDOW_MS, exact: true });
+    return { invalidate, write: [] };
+}
+
+/**
+ * `chat.message_created` (thin on tenant:{tid}:chats: `chatId`, sender role, no text): the lists and the
+ * badges; and, when the stream does not carry the room's `chat:{id}` (whose `message.created` writes the
+ * message itself), that chat's messages and read state, so an open room still shows it within the window.
+ */
+function chatMessageCreatedEffects(data: unknown, ctx: EffectsContext): CacheEffects {
+    const invalidate = invalidations(CHAT_LIST_KEYS);
+    const chatId = chatIdOf(data, "chatId");
+    if (chatId && !ctx.hasTopic?.(chatTopic(chatId))) {
+        invalidate.push(
+            { queryKey: queryKeys.chat.messages(chatId), windowMs: LIST_WINDOW_MS },
+            { queryKey: queryKeys.chat.detail(chatId), windowMs: LIST_WINDOW_MS, exact: true }
+        );
+    }
+    return { invalidate, write: [] };
+}
+
+/** `message.created` (chat:{id}, the whole message): written into the open room's pages. */
+function messageCreatedEffects(data: unknown): CacheEffects {
+    const msg = messageFromEvent(data);
+    if (!msg) {
+        const chatId = chatIdOf(data, "chatId");
+        return chatId ? { invalidate: invalidations([queryKeys.chat.messages(chatId)]), write: [] } : NONE;
+    }
+    return {
+        invalidate: [],
+        write: [
+            {
+                queryKey: queryKeys.chat.messages(msg.chatId),
+                update: (cached) => upsertMessage(cached, msg),
+                refetchWhen: (cached) => needsImageRefetch(cached, msg),
+                reapplyAfterFetch: true,
+            },
+        ],
+    };
+}
+
+/** `read.updated` (chat:{id}, `{userId, lastReadAt}`): the reader's state in `['chat', id]`. */
+function readUpdatedEffects(data: unknown): CacheEffects {
+    const read = readFromEvent(data);
+    if (!read) return NONE;
+    return {
+        invalidate: [],
+        write: [{ queryKey: queryKeys.chat.detail(read.chatId), update: (cached) => applyReadState(cached, read), reapplyAfterFetch: true }],
+    };
+}
 
 // --- HR (T46, M4) ---------------------------------------------------------------------------------
 
@@ -340,7 +431,12 @@ const RULES = new Map<string, EventRule>([
     // tenant:{tid}:vehicle_locations, platform:security, tenant:{tid}:chats (T54R)
     ["vehicle_locations.updated", { effects: vehicleLocationEffects }],
     ["waitlist.created", { invalidate: WAITLIST_KEYS }],
-    ...CHAT_EVENTS.map((name) => [name, { invalidate: CHAT_BADGE_KEYS }] as [string, EventRule]),
+    // tenant:{tid}:chats and the explicit chat:{id} (T50)
+    ["chat.created", { effects: chatChangedEffects }],
+    ["chat.updated", { effects: chatChangedEffects }],
+    ["chat.message_created", { effects: chatMessageCreatedEffects }],
+    ["message.created", { effects: messageCreatedEffects }],
+    ["read.updated", { effects: readUpdatedEffects }],
     // tenant:{tid}:hr, tenant:{tid}:config and global (T46)
     ...LEAVE_EVENTS.map((name) => [name, { invalidate: [queryKeys.leave()] }] as [string, EventRule]),
     ["payroll.status_changed", { invalidate: [queryKeys.payroll.all()] }],
@@ -352,10 +448,10 @@ const RULES = new Map<string, EventRule>([
 export const REALTIME_EVENTS: readonly string[] = [...RULES.keys()];
 
 /** The cache effects of one frame; none for an event outside the map. */
-export function effectsOf(frame: Pick<RealtimeFrame, "event" | "data">): CacheEffects {
+export function effectsOf(frame: Pick<RealtimeFrame, "event" | "data">, ctx: EffectsContext = {}): CacheEffects {
     const rule = RULES.get(frame.event);
     if (!rule) return NONE;
-    if ("effects" in rule) return rule.effects(frame.data);
+    if ("effects" in rule) return rule.effects(frame.data, ctx);
     if ("windows" in rule) return { invalidate: [...rule.windows], write: [] };
     return { invalidate: invalidations(rule.invalidate, rule.windowMs), write: [] };
 }

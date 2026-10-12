@@ -29,7 +29,7 @@ import { Megaphone, Send, Loader2, Check, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { displayBroadcastTitle } from "@/lib/broadcastDisplay";
-import { BroadcastDeleteConfirmDialog } from "./BroadcastDeleteConfirmDialog";
+import { BroadcastVoidConfirmDialog } from "../components/BroadcastVoidConfirmDialog";
 
 const GROUP_LABELS: Record<string, string> = {
   all_driver: "All Driver",
@@ -74,7 +74,7 @@ async function fetchRecipientGroups(): Promise<RecipientCounts> {
   return { allDriver, ownFleet, subcontractor };
 }
 
-export function BroadcastComposer() {
+export function LegacyBroadcastComposer() {
   const [counts, setCounts] = useState<RecipientCounts | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<RecipientGroup>("all_driver");
   const [loadingCount, setLoadingCount] = useState(true);
@@ -507,7 +507,7 @@ export function BroadcastComposer() {
         )}
       </div>
 
-      <BroadcastDeleteConfirmDialog
+      <BroadcastVoidConfirmDialog
         open={confirmDeleteId !== null}
         onOpenChange={(open) => {
           if (!open && removingHistoryId === null) setConfirmDeleteId(null);

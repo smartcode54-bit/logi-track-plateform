@@ -1,7 +1,7 @@
 // TW5 (developer-spec.md §10.8; Appendix E §E.5.1 "Event -> cache", "Backpressure"): the event map
 // applied to a real QueryClient. Coalescing windows run on captured timers; visibility is a flag.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
+import { InfiniteQueryObserver, QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 
 import { queryKeys } from "../queryKeys";
 import { LIST_WINDOW_MS } from "./eventMap";
@@ -441,5 +441,161 @@ describe("RealtimeInvalidator with fetches in flight", () => {
         h.inv.dispose();
         await q.land();
         expect(q.stats.started).toBe(2);
+    });
+});
+
+describe("RealtimeInvalidator: the chat room (T50)", () => {
+    it("chat.updated refetches the room's chat (exact), never its loaded message pages below it", async () => {
+        const h = setup();
+        const chat = await h.query(queryKeys.chat.detail("c1"));
+        const messages = await h.query(queryKeys.chat.messages("c1"));
+        const queued = await h.query(queryKeys.chats.queued());
+        h.inv.apply({ event: "chat.updated", data: { entity: "chat", id: "c1", status: "closed" } });
+        await h.runTimers();
+        expect(chat()).toBe(2);
+        expect(queued()).toBe(2);
+        expect(messages()).toBe(1);
+        h.cleanup();
+    });
+
+    it("chat.message_created refetches the room's messages only while the stream lacks its chat:{id}", async () => {
+        let joined = false;
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+        const timers: Array<() => void> = [];
+        const inv = new RealtimeInvalidator({
+            client,
+            isVisible: () => true,
+            hasTopic: (t) => joined && t === "chat:c1",
+            setTimer: (fn) => (timers.push(fn), timers.length),
+            clearTimer: () => undefined,
+        });
+        let fetches = 0;
+        const obs = new QueryObserver(client, { queryKey: queryKeys.chat.messages("c1"), queryFn: async () => ++fetches });
+        const off = obs.subscribe(() => undefined);
+        await flush();
+        const thin = { entity: "chat_message", id: "m1", chatId: "c1", senderRole: "driver" };
+        inv.apply({ event: "chat.message_created", data: thin });
+        for (const fn of timers.splice(0)) fn();
+        await flush();
+        expect(fetches).toBe(2); // the fallback: no chat:{id} on the stream
+        joined = true;
+        inv.apply({ event: "chat.message_created", data: { ...thin, id: "m2" } });
+        for (const fn of timers.splice(0)) fn();
+        await flush();
+        expect(fetches).toBe(2); // message.created on chat:{id} writes it instead
+        off();
+        inv.dispose();
+    });
+});
+
+describe("RealtimeInvalidator: a message pushed while the room's messages are fetching (T50)", () => {
+    type Msg = { id: string; chatId: string; senderRole: string; text: string | null; imageFileId: string | null; imageUrl: string | null; clientMessageId: string | null; createdAt: string };
+    const msg = (n: number, over: Partial<Msg> = {}): Msg => ({
+        id: `m${n}`,
+        chatId: "c1",
+        senderRole: "driver",
+        text: `text ${n}`,
+        imageFileId: null,
+        imageUrl: null,
+        clientMessageId: null,
+        createdAt: `2026-10-12T01:00:${String(n).padStart(2, "0")}Z`,
+        ...over,
+    });
+
+    /** The room's messages over a server whose rows the test commits; each fetch reads them when it starts and lands by hand. */
+    function room(client: QueryClient) {
+        const server: Msg[] = [msg(1)];
+        const pending: Array<() => void> = [];
+        let started = 0;
+        const observer = new InfiniteQueryObserver(client, {
+            queryKey: queryKeys.chat.messages("c1"),
+            queryFn: () =>
+                new Promise<{ data: Msg[] }>((resolve) => {
+                    started++;
+                    const read = [...server].reverse().map((m) => (m.imageFileId ? { ...m, imageUrl: `https://files.test/${m.imageFileId}` } : m));
+                    pending.push(() => resolve({ data: read }));
+                }),
+            initialPageParam: undefined as string | undefined,
+            getNextPageParam: () => undefined,
+            staleTime: Infinity,
+            refetchOnWindowFocus: false,
+        });
+        const off = observer.subscribe(() => undefined);
+        return {
+            server,
+            started: () => started,
+            texts: () => (observer.getCurrentResult().data?.pages ?? []).flatMap((p) => p.data.map((m) => m.text ?? `[${m.imageFileId}]`)),
+            async land() {
+                pending.splice(0).forEach((resolve) => resolve());
+                await flush();
+            },
+            off,
+        };
+    }
+
+    const created = (m: Msg) => ({ event: "message.created", data: { entity: "chat_message", senderName: null, legacyDocId: null, messageType: "normal", ...m } });
+
+    it("a caption committed after the photo's refetch read the server is kept when that refetch lands", async () => {
+        const h = setup();
+        // The room's chat:{id} is on the stream: the thin tenant copy refetches nothing.
+        const inv = new RealtimeInvalidator({ client: h.client, isVisible: () => true, hasTopic: () => true, setTimer: (fn, ms) => (h.timers.push({ fn, ms, cleared: false }), h.timers.length), clearTimer: () => undefined });
+        const r = room(h.client);
+        await flush();
+        await r.land(); // the first load: [text 1]
+        // A photo: written in, and its key refetched once the window closes (the event has no signed URL).
+        const photo = msg(2, { text: null, imageFileId: "f2" });
+        r.server.push(photo);
+        inv.apply(created(photo));
+        await h.runTimers();
+        expect(r.started()).toBe(2); // the refetch read [1, photo]
+        // The caption commits after that read; its event arrives before the refetch lands.
+        const caption = msg(3, { text: "the box is broken" });
+        r.server.push(caption);
+        inv.apply(created(caption));
+        inv.apply({ event: "chat.message_created", data: { entity: "chat_message", id: caption.id, chatId: "c1", senderRole: "driver" } });
+        expect(r.texts()).toContain("the box is broken");
+        await r.land();
+        expect(r.texts()).toEqual(["the box is broken", "[f2]", "text 1"]);
+        await h.runTimers();
+        expect(r.started()).toBe(2); // nothing else was needed: the photo's URL came with the refetch
+        r.off();
+        inv.dispose();
+    });
+
+    it("a message pushed during the first load is in the loaded page", async () => {
+        const h = setup();
+        const inv = new RealtimeInvalidator({ client: h.client, isVisible: () => true, hasTopic: () => true, setTimer: () => 0, clearTimer: () => undefined });
+        const r = room(h.client);
+        await flush(); // the first load read [text 1]
+        const late = msg(2, { text: "sent during the load" });
+        r.server.push(late);
+        inv.apply(created(late)); // no cache yet: nothing to write into
+        await r.land();
+        expect(r.texts()).toEqual(["sent during the load", "text 1"]);
+        r.off();
+        inv.dispose();
+    });
+
+    it("an image pushed during a refetch that predates it makes the key stale again (its URL)", async () => {
+        const h = setup();
+        const inv = new RealtimeInvalidator({ client: h.client, isVisible: () => true, hasTopic: () => true, setTimer: (fn, ms) => (h.timers.push({ fn, ms, cleared: false }), h.timers.length), clearTimer: () => undefined });
+        const r = room(h.client);
+        await flush();
+        await r.land();
+        void h.client.invalidateQueries({ queryKey: queryKeys.chat.messages("c1") }); // a poll or resync: reads [1]
+        await flush();
+        expect(r.started()).toBe(2);
+        const photo = msg(2, { text: null, imageFileId: "f2" });
+        r.server.push(photo);
+        inv.apply(created(photo)); // its own window refetch is scheduled too
+        await r.land();
+        expect(r.texts()).toEqual(["[f2]", "text 1"]);
+        await h.runTimers(); // the image's refetch: now with its URL
+        expect(r.started()).toBe(3);
+        await r.land();
+        const cached = h.client.getQueryData<{ pages: { data: Msg[] }[] }>(queryKeys.chat.messages("c1"))!;
+        expect(cached.pages[0].data[0].imageUrl).toBe("https://files.test/f2");
+        r.off();
+        inv.dispose();
     });
 });

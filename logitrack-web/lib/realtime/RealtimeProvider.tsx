@@ -16,7 +16,9 @@
  *
  * The stream is recreated when the user or the active tenant changes and after every forced refresh
  * (`onClaimsRefreshed`): its implicit topics come from the access token. It closes on sign-out and on
- * a session end.
+ * a session end. Explicit topics (`useRealtimeTopic`, lib/realtime/topics.ts: the open chat room's
+ * `chat:{id}`, T50) are applied at most once per 500 ms: one the stream lacks recreates it with
+ * `?topics=`, from the last id seen; one only removed stays on it (`RealtimeStream.setTopics`).
  */
 import { useEffect } from "react";
 import { focusManager, useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -27,9 +29,10 @@ import { onSessionEnd } from "@/lib/sessionEnd";
 import { onClaimsRefreshed } from "@/lib/sharedRefresh";
 import { REALTIME_EVENTS } from "./eventMap";
 import { RealtimeInvalidator } from "./invalidator";
-import type { EventSourceLike } from "./realtimeStream";
+import type { EventSourceLike, RealtimeStream } from "./realtimeStream";
 import { createSessionStream } from "./sessionStream";
 import { setRealtimeStatus } from "./status";
+import { realtimeTopics, subscribeRealtimeTopics, TOPICS_RECREATE_MS } from "./topics";
 
 export interface RealtimeOptions {
     /** Replaced in tests (defaults to the browser's `EventSource`). */
@@ -44,7 +47,9 @@ export function useRealtimeInvalidation(client: QueryClient, userId: string | un
     const { createEventSource } = options;
     useEffect(() => {
         if (!userId || (!createEventSource && typeof EventSource === "undefined")) return;
-        const cache = new RealtimeInvalidator({ client });
+        let current: RealtimeStream | null = null;
+        // The event map reads which explicit topics the open connection carries (chat:{id} or its fallback).
+        const cache = new RealtimeInvalidator({ client, hasTopic: (topic) => current?.hasTopic(topic) ?? false });
         const stream = createSessionStream({
             onResync: () => cache.resync(),
             checkSession: () => refetchMe(client),
@@ -53,7 +58,18 @@ export function useRealtimeInvalidation(client: QueryClient, userId: string | un
             onStatus: setRealtimeStatus,
             createEventSource,
         });
+        current = stream;
+        stream.setTopics(realtimeTopics());
         stream.open();
+        // A changed set of explicit topics reaches the stream at most once per TOPICS_RECREATE_MS.
+        let topicsTimer: ReturnType<typeof setTimeout> | null = null;
+        const offTopics = subscribeRealtimeTopics(() => {
+            if (topicsTimer !== null) return;
+            topicsTimer = setTimeout(() => {
+                topicsTimer = null;
+                stream.setTopics(realtimeTopics());
+            }, TOPICS_RECREATE_MS);
+        });
         const offClaims = onClaimsRefreshed(() => stream.reopen());
         const offEnd = onSessionEnd(() => {
             cache.dispose();
@@ -67,6 +83,8 @@ export function useRealtimeInvalidation(client: QueryClient, userId: string | un
         const onOnline = () => stream.resume();
         window.addEventListener("online", onOnline);
         return () => {
+            if (topicsTimer !== null) clearTimeout(topicsTimer);
+            offTopics();
             window.removeEventListener("online", onOnline);
             offFocus();
             offClaims();

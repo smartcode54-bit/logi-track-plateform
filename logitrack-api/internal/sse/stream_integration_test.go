@@ -22,7 +22,8 @@ import (
 	rt "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
 )
 
-// deadlineConn records the write deadlines a stream sets on its connection.
+// deadlineConn records the write deadlines a stream sets on its connection; reads and read deadlines go
+// to one end of a pipe (the stream watches the connection for the client closing it).
 type deadlineConn struct {
 	net.Conn
 	mu   sync.Mutex
@@ -74,7 +75,9 @@ func TestStreamLeavesItsFinalWriteBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn := &deadlineConn{}
+	server, client := net.Pipe()
+	defer func() { _ = client.Close(); _ = server.Close() }()
+	conn := &deadlineConn{Conn: server}
 	st := &stream{s: svc, kind: KindWeb, userID: uuid.NewString(), streamID: uuid.NewString(), sub: sub,
 		life: time.Hour, conn: conn, log: zerolog.Nop()}
 	svc.open.WithLabelValues(KindWeb).Inc()
