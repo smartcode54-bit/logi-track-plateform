@@ -1,84 +1,19 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { COLLECTIONS } from "@/lib/collections";
-import { useAuth } from "@/context/auth";
-import { Loader2 } from "lucide-react";
+// Opens a driver's chat (T50): one `POST /v1/chats {driverId}` over Go while the `comms` web flag is on, the
+// Firestore lookups otherwise.
+import { Suspense } from "react";
+import dynamic from "next/dynamic";
 
-function ChatWithDriverContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const authId = searchParams.get("authId") ?? "";
-  const auth = useAuth();
-  const currentUser = auth?.currentUser ?? null;
+import { DomainPage, PageLoading } from "@/features/platform/components/DomainPage";
 
-  useEffect(() => {
-    if (!authId || !currentUser?.uid) {
-      if (!authId) router.replace("/app/chat");
-      return;
-    }
-
-    (async () => {
-      const chatsRef = collection(db, COLLECTIONS.CHATS);
-      const q = query(chatsRef, where("driverId", "==", authId));
-      const snap = await getDocs(q);
-      let chatId: string;
-
-      if (!snap.empty) {
-        chatId = snap.docs[0].id;
-      } else {
-        let driverDisplayName = "Driver";
-        const driversSnap = await getDocs(
-          query(collection(db, COLLECTIONS.DRIVERS), where("authId", "==", authId))
-        );
-        if (!driversSnap.empty) {
-          const d = driversSnap.docs[0].data();
-          driverDisplayName = [d.firstName, d.lastName].filter(Boolean).join(" ") || driverDisplayName;
-        }
-        const newChat = await addDoc(chatsRef, {
-          driverId: authId,
-          driverDisplayName,
-          status: "open",
-          assignedAdminId: null,
-          assignedAt: null,
-          closedAt: null,
-          priority: "normal",
-          lastReadByAdmin: {},
-          lastMessage: "",
-          lastMessageAt: serverTimestamp(),
-          lastMessageBy: "",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        chatId = newChat.id;
-      }
-
-      router.replace(`/app/chat/room?chatId=${chatId}`);
-    })();
-  }, [authId, currentUser?.uid, router]);
-
-  return (
-    <div className="flex items-center justify-center min-h-[50vh] gap-2">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      <span className="text-muted-foreground">Opening chat...</span>
-    </div>
-  );
-}
+const GoPage = dynamic(() => import("@/features/chat/components/ChatWithDriverGo").then((m) => m.ChatWithDriverGo), { loading: () => <PageLoading /> });
+const FirestorePage = dynamic(() => import("@/features/chat/legacy/LegacyChatWithDriverPage"), { loading: () => <PageLoading /> });
 
 export default function ChatWithDriverPage() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
-      <ChatWithDriverContent />
-    </Suspense>
-  );
+    return (
+        <Suspense fallback={<PageLoading />}>
+            <DomainPage domain="comms" go={GoPage} firestore={FirestorePage} />
+        </Suspense>
+    );
 }

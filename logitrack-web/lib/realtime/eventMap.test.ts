@@ -53,6 +53,8 @@ const CATALOGUE = {
     tasks: ["task.created", "task.updated", "task.assigned", "task.checked_in", "task.cancelled", "task.reassigned", "task.plan_date_changed"],
     // M6 (T54R): tenant:{tid}:chats (the dashboard's chat counters), tenant:{tid}:vehicle_locations, platform:security.
     chats: ["chat.created", "chat.updated", "chat.message_created"],
+    // M5 (T50): the explicit chat:{id} of the open room (its SSE names, Appendix B §B.4.4).
+    chat: ["message.created", "read.updated"],
     vehicleLocations: ["vehicle_locations.updated"],
     platformSecurity: ["security.event", "waitlist.created"],
     // M4 (T46): tenant:{tid}:hr.
@@ -119,7 +121,7 @@ describe("event map (M1 slice)", () => {
     });
 
     it("an event outside the map, or a prototype name, has no effect", () => {
-        for (const name of ["task.deleted", "trip.photos_changed", "message.created", "constructor", "__proto__", "toString", ""]) {
+        for (const name of ["task.deleted", "trip.photos_changed", "chat.read", "broadcast.created", "constructor", "__proto__", "toString", ""]) {
             expect(effectsOf({ event: name, data: {} })).toEqual({ invalidate: [], write: [] });
         }
     });
@@ -267,9 +269,14 @@ describe("dashboard and waitlist (M6, T54R)", () => {
         expect(reaches(keysOf("waitlist.created"), queryKeys.security.events({ reach: "all" }))).toBe(false);
     });
 
-    it("chat events make only the badges stale (the dashboard's chat widget, Appendix E §E.5 row 21)", () => {
+    it("chat events make the badges stale (the dashboard's chat widget, Appendix E §E.5 row 21) and the chat lists (T50)", () => {
         expect([...CHAT_EVENTS].sort()).toEqual([...CATALOGUE.chats].sort());
-        for (const name of CHAT_EVENTS) expect(keysOf(name, { entity: "chat", id: "c1" })).toEqual([queryKeys.badges()]);
+        for (const name of CHAT_EVENTS) {
+            const keys = keysOf(name, { entity: "chat", id: "c1", chatId: "c1" });
+            expect(reaches(keys, queryKeys.badges())).toBe(true);
+            expect(reaches(keys, queryKeys.chats.queued())).toBe(true);
+            expect(reaches(keys, queryKeys.chats.mine())).toBe(true);
+        }
     });
 
     it("vehicle_locations.updated writes the batch into ['vehicleLocations'] without a refetch", () => {
@@ -329,5 +336,58 @@ describe("dashboard and waitlist (M6, T54R)", () => {
         expect(JOB_SUCCESS_KEYS.get("payroll.run")).toEqual([queryKeys.payroll.all()]);
         expect(keysOf("job.updated", { id: "j1", type: "payroll.run", status: "succeeded" })).toEqual([queryKeys.payroll.all()]);
         expect(keysOf("job.updated", { id: "j1", type: "payroll.run", status: "running" })).toEqual([]);
+    });
+});
+
+describe("chats (M5, T50)", () => {
+    const fx = (event: string, data: unknown, hasTopic?: (t: string) => boolean) => effectsOf({ event, data }, { hasTopic });
+
+    it("chat.created / chat.updated: the lists, the badges and that chat alone (exact: never its loaded message pages)", () => {
+        for (const name of ["chat.created", "chat.updated"]) {
+            const { invalidate, write } = fx(name, { entity: "chat", id: "c1", status: "in_progress", assignedAdminUserId: "u-1" });
+            expect(write).toEqual([]);
+            expect(invalidate).toContainEqual({ queryKey: queryKeys.chats.all(), windowMs: LIST_WINDOW_MS });
+            expect(invalidate).toContainEqual({ queryKey: queryKeys.badges(), windowMs: LIST_WINDOW_MS });
+            expect(invalidate).toContainEqual({ queryKey: queryKeys.chat.detail("c1"), windowMs: LIST_WINDOW_MS, exact: true });
+            expect(invalidate.some((i) => partialMatchKey(i.queryKey, queryKeys.chat.messages("c1")) && !i.exact)).toBe(false);
+        }
+    });
+
+    it("chat.message_created: the lists; the room's messages and chat only while the stream lacks its chat:{id}", () => {
+        const thin = { entity: "chat_message", id: "m1", chatId: "c1", tenantId: "t", senderRole: "driver" };
+        const joined = fx("chat.message_created", thin, (t) => t === "chat:c1").invalidate.map((i) => i.queryKey);
+        expect(joined).toEqual([queryKeys.chats.all(), queryKeys.badges()]);
+        const fallback = fx("chat.message_created", thin, () => false).invalidate;
+        expect(fallback).toContainEqual({ queryKey: queryKeys.chat.messages("c1"), windowMs: LIST_WINDOW_MS });
+        expect(fallback).toContainEqual({ queryKey: queryKeys.chat.detail("c1"), windowMs: LIST_WINDOW_MS, exact: true });
+        // Without a context (no stream topics known) the fallback applies.
+        expect(fx("chat.message_created", thin).invalidate.map((i) => i.queryKey)).toContainEqual(queryKeys.chat.messages("c1"));
+    });
+
+    it("message.created (chat:{id}): the whole message is written into the room's pages; an image message also refetches", () => {
+        const ev = { entity: "chat_message", id: "m2", chatId: "c1", senderRole: "driver", senderName: "Somchai", text: "hello", imageFileId: null,
+            messageType: "normal", clientMessageId: "cm2", createdAt: "2026-10-12T01:00:02Z" };
+        const { invalidate, write } = fx("message.created", ev);
+        expect(invalidate).toEqual([]);
+        expect(write).toHaveLength(1);
+        expect(write[0].queryKey).toEqual(queryKeys.chat.messages("c1"));
+        const cached = { pages: [{ data: [{ ...ev, id: "m1", clientMessageId: "cm1", imageUrl: null, legacyDocId: null, senderUserId: "d" }] }], pageParams: [undefined] };
+        const next = write[0].update(cached) as typeof cached;
+        expect(next.pages[0].data.map((m) => m.id)).toEqual(["m2", "m1"]);
+        expect(write[0].update(undefined)).toBeUndefined();
+        expect(write[0].refetchWhen?.(cached)).toBe(false);
+        expect(fx("message.created", { ...ev, imageFileId: "f1" }).write[0].refetchWhen?.(cached)).toBe(true);
+        // An unreadable message makes that room's messages stale instead; one without a chat does nothing.
+        expect(fx("message.created", { chatId: "c1" }).invalidate).toEqual([{ queryKey: queryKeys.chat.messages("c1"), windowMs: LIST_WINDOW_MS }]);
+        expect(fx("message.created", {})).toEqual({ invalidate: [], write: [] });
+    });
+
+    it("read.updated (chat:{id}): the reader's state in ['chat', id]", () => {
+        const { invalidate, write } = fx("read.updated", { entity: "chat", id: "c1", chatId: "c1", userId: "d-user", lastReadAt: "2026-10-12T01:00:09Z" });
+        expect(invalidate).toEqual([]);
+        expect(write[0].queryKey).toEqual(queryKeys.chat.detail("c1"));
+        const detail = { id: "c1", driverUserId: "d-user", reads: [], driverLastReadAt: null };
+        expect(write[0].update(detail)).toMatchObject({ driverLastReadAt: "2026-10-12T01:00:09Z" });
+        expect(fx("read.updated", { userId: "x" })).toEqual({ invalidate: [], write: [] });
     });
 });

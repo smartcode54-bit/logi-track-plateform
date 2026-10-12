@@ -99,23 +99,23 @@
       "locales": {}
     },
     "/app/chat": {
-      "chunks": 36,
-      "parsedBytes": 1379519,
-      "gzipBytes": 426233,
+      "chunks": 28,
+      "parsedBytes": 761254,
+      "gzipBytes": 239582,
       "forbidden": {},
       "locales": {}
     },
     "/app/chat/room": {
-      "chunks": 36,
-      "parsedBytes": 1382712,
-      "gzipBytes": 428362,
+      "chunks": 28,
+      "parsedBytes": 761208,
+      "gzipBytes": 239576,
       "forbidden": {},
       "locales": {}
     },
     "/app/chat/with-driver": {
-      "chunks": 36,
-      "parsedBytes": 1361845,
-      "gzipBytes": 421585,
+      "chunks": 28,
+      "parsedBytes": 761172,
+      "gzipBytes": 239571,
       "forbidden": {},
       "locales": {}
     },

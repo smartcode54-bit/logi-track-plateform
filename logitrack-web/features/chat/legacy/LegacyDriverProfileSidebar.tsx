@@ -9,7 +9,7 @@ import { getDriverAssignmentHistory } from "@/app/app/truck-assignment/actions.c
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Truck, MapPin, Loader2, FileText, AlertTriangle } from "lucide-react";
-import type { ReportIncidentContext } from "./ReportIncidentModal";
+import type { ReportIncidentContext } from "@/app/app/chat/components/ReportIncidentModal";
 
 interface DriverProfileSidebarProps {
   activeDriverId: string | null;
@@ -32,7 +32,7 @@ interface AssignmentInfo {
   driverName: string;
 }
 
-export function DriverProfileSidebar({ activeDriverId, onReportIncident }: DriverProfileSidebarProps) {
+export function LegacyDriverProfileSidebar({ activeDriverId, onReportIncident }: DriverProfileSidebarProps) {
   const [driver, setDriver] = useState<DriverInfo | null>(null);
   const [assignment, setAssignment] = useState<AssignmentInfo | null>(null);
   const [loading, setLoading] = useState(false);

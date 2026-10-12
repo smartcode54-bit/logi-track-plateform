@@ -24,6 +24,14 @@
  *   is open (`onResync`).
  * - Every other named event goes to `onEvent`; the names to listen to are registered with `listen`
  *   (EventSource delivers a named event only to listeners of that name).
+ * - Explicit topics (`setTopics`, `?topics=`: the open chat room's `chat:{id}`, T50) recreate the stream
+ *   when their set changes, resuming from the last id seen, so the replay spans the new topic too (one
+ *   global sequence, R52). Go authorises them at connect and refuses the whole stream when one is not
+ *   allowed (403, which EventSource hides): after `TOPIC_FAILURES_BEFORE_DROP` consecutive failed opens
+ *   with explicit topics the stream reopens without them, so one unreadable chat never costs the tab its
+ *   implicit topics; `hasTopic` says which explicit topics the open connection carries (the event map
+ *   falls back to the tenant topic's thin events for the others). A stream without them that fails too
+ *   was an outage, not a refusal: the next attempt carries them again. A new set is tried afresh.
  * - `onStatus` follows the stream's state (lib/realtime/status.ts): queries whose disposition is SSE
  *   poll while it is not `open` (Appendix E §E.5.1 "Backpressure").
  */
@@ -86,6 +94,9 @@ export const REOPEN_JITTER_MS = 2_000;
 /** Ceiling of the doubling backoff after failed opens. */
 export const REOPEN_MAX_MS = 60_000;
 
+/** Consecutive failed opens with explicit topics after which the stream reopens without them. */
+export const TOPIC_FAILURES_BEFORE_DROP = 2;
+
 export const EVENT_RECONNECT = "reconnect";
 export const EVENT_RESYNC = "resync";
 
@@ -119,6 +130,14 @@ export class RealtimeStream {
     private pendingSince = 0;
     private stopped = true;
     private current: RealtimeStatus = "idle";
+    /** The explicit topics wanted (sorted, unique). */
+    private explicit: readonly string[] = [];
+    /** The explicit topics are left out of the next connections (they kept the stream from opening). */
+    private topicsDropped = false;
+    /** Consecutive opens with explicit topics that failed before the stream opened. */
+    private topicFailures = 0;
+    /** The explicit topics of the open connection (Go accepted them at connect). */
+    private openTopics: ReadonlySet<string> = new Set();
     private readonly now: () => number;
     private readonly random: () => number;
     private readonly setTimer: (fn: () => void, ms: number) => unknown;
@@ -144,6 +163,30 @@ export class RealtimeStream {
     /** The last event id seen (sent as `lastEventId` when the stream is recreated). */
     get lastId(): string {
         return this.lastEventId;
+    }
+
+    /** The explicit topics wanted (`?topics=`), sorted. */
+    get topics(): readonly string[] {
+        return this.explicit;
+    }
+
+    /** Whether the open connection carries the explicit `topic` (Go authorised it at connect). */
+    hasTopic(topic: string): boolean {
+        return this.openTopics.has(topic);
+    }
+
+    /**
+     * Sets the explicit topics (`?topics=`). A changed set recreates a running stream now, from the last id
+     * seen, so Go replays the new topics' events after it (R52); the caller throttles the calls (§10.8: at
+     * most once per 500 ms). A new set is tried afresh, even after an earlier set was dropped.
+     */
+    setTopics(topics: Iterable<string>): void {
+        const next = [...new Set(topics)].sort();
+        if (next.length === this.explicit.length && next.every((t, i) => t === this.explicit[i])) return;
+        this.explicit = next;
+        this.topicsDropped = false;
+        this.topicFailures = 0;
+        this.reopen();
     }
 
     /** Opens the stream (no-op while running). */
@@ -199,21 +242,42 @@ export class RealtimeStream {
         this.deps.onStatus?.(next);
     }
 
-    private url(): string {
-        if (!this.lastEventId) return this.deps.url;
+    private url(topics: readonly string[]): string {
+        const params: string[] = [];
+        if (topics.length > 0) params.push(`topics=${encodeURIComponent(topics.join(","))}`);
+        if (this.lastEventId) params.push(`lastEventId=${encodeURIComponent(this.lastEventId)}`);
+        if (params.length === 0) return this.deps.url;
         const sep = this.deps.url.includes("?") ? "&" : "?";
-        return `${this.deps.url}${sep}lastEventId=${encodeURIComponent(this.lastEventId)}`;
+        return `${this.deps.url}${sep}${params.join("&")}`;
+    }
+
+    /** A connection that never opened has failed: count it against its explicit topics (EventSource hides a 403). */
+    private failedBeforeOpen(topics: readonly string[]): void {
+        if (topics.length > 0) {
+            this.topicFailures++;
+            if (this.topicFailures >= TOPIC_FAILURES_BEFORE_DROP) this.topicsDropped = true;
+        } else if (this.topicsDropped) {
+            // Without them it failed too: an outage, not a refusal. Try them again next time.
+            this.topicsDropped = false;
+            this.topicFailures = 0;
+        }
     }
 
     /** `catchUp`: a reopen without a position, so the owner resyncs once the new stream is open. */
     private connect(catchUp: boolean): void {
-        const source = this.deps.createEventSource(this.url());
+        const topics = this.topicsDropped ? [] : this.explicit;
+        const source = this.deps.createEventSource(this.url(topics));
         this.source = source;
+        this.openTopics = new Set();
         this.setStatus("connecting");
         let pendingCatchUp = catchUp;
+        let opened = false;
         source.onopen = () => {
             if (this.source !== source) return;
+            opened = true;
             this.failures = 0;
+            if (topics.length > 0) this.topicFailures = 0;
+            this.openTopics = new Set(topics);
             this.setStatus("open");
             if (pendingCatchUp) {
                 pendingCatchUp = false;
@@ -227,6 +291,7 @@ export class RealtimeStream {
                 this.setStatus("connecting");
                 return;
             }
+            if (!opened) this.failedBeforeOpen(topics);
             this.detach();
             this.recover(this.now());
         };
@@ -257,6 +322,7 @@ export class RealtimeStream {
     private detach(): void {
         const s = this.source;
         this.source = null;
+        this.openTopics = new Set();
         if (s) {
             s.onopen = null;
             s.onerror = null;

@@ -443,3 +443,47 @@ describe("RealtimeInvalidator with fetches in flight", () => {
         expect(q.stats.started).toBe(2);
     });
 });
+
+describe("RealtimeInvalidator: the chat room (T50)", () => {
+    it("chat.updated refetches the room's chat (exact), never its loaded message pages below it", async () => {
+        const h = setup();
+        const chat = await h.query(queryKeys.chat.detail("c1"));
+        const messages = await h.query(queryKeys.chat.messages("c1"));
+        const queued = await h.query(queryKeys.chats.queued());
+        h.inv.apply({ event: "chat.updated", data: { entity: "chat", id: "c1", status: "closed" } });
+        await h.runTimers();
+        expect(chat()).toBe(2);
+        expect(queued()).toBe(2);
+        expect(messages()).toBe(1);
+        h.cleanup();
+    });
+
+    it("chat.message_created refetches the room's messages only while the stream lacks its chat:{id}", async () => {
+        let joined = false;
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+        const timers: Array<() => void> = [];
+        const inv = new RealtimeInvalidator({
+            client,
+            isVisible: () => true,
+            hasTopic: (t) => joined && t === "chat:c1",
+            setTimer: (fn) => (timers.push(fn), timers.length),
+            clearTimer: () => undefined,
+        });
+        let fetches = 0;
+        const obs = new QueryObserver(client, { queryKey: queryKeys.chat.messages("c1"), queryFn: async () => ++fetches });
+        const off = obs.subscribe(() => undefined);
+        await flush();
+        const thin = { entity: "chat_message", id: "m1", chatId: "c1", senderRole: "driver" };
+        inv.apply({ event: "chat.message_created", data: thin });
+        for (const fn of timers.splice(0)) fn();
+        await flush();
+        expect(fetches).toBe(2); // the fallback: no chat:{id} on the stream
+        joined = true;
+        inv.apply({ event: "chat.message_created", data: { ...thin, id: "m2" } });
+        for (const fn of timers.splice(0)) fn();
+        await flush();
+        expect(fetches).toBe(2); // message.created on chat:{id} writes it instead
+        off();
+        inv.dispose();
+    });
+});

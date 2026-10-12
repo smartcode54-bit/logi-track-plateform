@@ -60,7 +60,7 @@ function formatTime(ts: Timestamp): string {
 const DRIVER_SEARCH_LIMIT = 200;
 const DRIVER_SEARCH_RESULTS_SHOW = 8;
 
-export function ConversationsPanel() {
+export function LegacyConversationsPanel() {
   const auth = useAuth();
   const currentUser = auth?.currentUser ?? null;
   const [queued, setQueued] = useState<ChatListItem[]>([]);

@@ -24,16 +24,31 @@
  *   starts itself;
  * - `resync` (the replay window was lost, or a stream reopened without a position) is the flush of
  *   every query (the root key), on the same terms.
+ * - an invalidation marked `exact` reaches only its own key, not the keys below it (`['chat', id]`, the
+ *   room's chat, without its messages `['chat', id, 'messages']`, T50).
  */
 import { focusManager, hashKey, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { effectsOf, LIST_WINDOW_MS } from "./eventMap";
 import type { RealtimeFrame } from "./realtimeStream";
 
+/** A key to flush: a prefix, or one key alone (`exact`). */
+interface Target {
+    queryKey: QueryKey;
+    exact: boolean;
+}
+
 /** The prefix of every query: what `resync` flushes. */
-const ROOT_KEY: QueryKey = [];
+const ROOT: Target = { queryKey: [], exact: false };
+
+const targetHash = (t: Target) => (t.exact ? `=${hashKey(t.queryKey)}` : hashKey(t.queryKey));
+
+/** The query filters of a target (`exact` only when set, so a prefix flush is the plain `{queryKey}`). */
+const filtersOf = (t: Target) => (t.exact ? { queryKey: t.queryKey, exact: true } : { queryKey: t.queryKey });
 
 export interface InvalidatorDeps {
     client: QueryClient;
+    /** Whether the open stream carries an explicit topic (`chat:{id}`, lib/realtime/topics.ts); none by default. */
+    hasTopic?: (topic: string) => boolean;
     /** Whether the tab is visible (TanStack's focusManager by default). */
     isVisible?: () => boolean;
     setTimer?: (fn: () => void, ms: number) => unknown;
@@ -42,6 +57,7 @@ export interface InvalidatorDeps {
 
 export class RealtimeInvalidator {
     private readonly client: QueryClient;
+    private readonly hasTopic: (topic: string) => boolean;
     private readonly isVisible: () => boolean;
     private readonly setTimer: (fn: () => void, ms: number) => unknown;
     private readonly clearTimer: (handle: unknown) => void;
@@ -50,13 +66,14 @@ export class RealtimeInvalidator {
     /** Keys whose flush refetch (or awaited running fetch) has not landed yet. */
     private readonly inflight = new Set<string>();
     /** Keys flushed again while their refetch ran: one trailing flush each when it lands. */
-    private readonly dirty = new Map<string, QueryKey>();
+    private readonly dirty = new Map<string, Target>();
     /** Keys (and single queries) made stale while the tab was hidden, refetched when it is visible again. */
-    private readonly deferred = new Map<string, QueryKey>();
+    private readonly deferred = new Map<string, Target>();
     private disposed = false;
 
     constructor(deps: InvalidatorDeps) {
         this.client = deps.client;
+        this.hasTopic = deps.hasTopic ?? (() => false);
         this.isVisible = deps.isVisible ?? (() => focusManager.isFocused());
         this.setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
         this.clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
@@ -65,20 +82,20 @@ export class RealtimeInvalidator {
     /** One frame of the stream. */
     apply(frame: Pick<RealtimeFrame, "event" | "data">): void {
         if (this.disposed) return;
-        const effects = effectsOf(frame);
+        const effects = effectsOf(frame, { hasTopic: this.hasTopic });
         for (const w of effects.write) {
             const state = this.client.getQueryState(w.queryKey);
-            if (w.refetchWhen?.(state?.data)) this.schedule(w.queryKey, LIST_WINDOW_MS);
+            if (w.refetchWhen?.(state?.data)) this.schedule({ queryKey: w.queryKey, exact: false }, LIST_WINDOW_MS);
             // A partial write keeps the time of the server's last answer (a `pollFromLastAnswer` key).
             const kept = w.keepUpdatedAt && state && state.dataUpdatedAt > 0 ? { updatedAt: state.dataUpdatedAt } : undefined;
             this.client.setQueryData(w.queryKey, w.update, kept);
         }
-        for (const i of effects.invalidate) this.schedule(i.queryKey, i.windowMs);
+        for (const i of effects.invalidate) this.schedule({ queryKey: i.queryKey, exact: i.exact === true }, i.windowMs);
     }
 
     /** `event: resync`, or a stream reopened without a position: everything may have changed. */
     resync(): void {
-        this.flush(ROOT_KEY);
+        this.flush(ROOT);
     }
 
     /** The tab is visible again: the active queries made stale while it was hidden refetch now. */
@@ -86,8 +103,8 @@ export class RealtimeInvalidator {
         if (this.disposed) return;
         // cancelRefetch: false joins the focus refetch TanStack may have started for the same query
         // (a fetch that predates a change is awaited by the flush, which makes its query stale again).
-        for (const queryKey of this.deferred.values()) {
-            void this.client.refetchQueries({ queryKey, type: "active", stale: true }, { cancelRefetch: false });
+        for (const target of this.deferred.values()) {
+            void this.client.refetchQueries({ ...filtersOf(target), type: "active", stale: true }, { cancelRefetch: false });
         }
         this.deferred.clear();
     }
@@ -102,49 +119,50 @@ export class RealtimeInvalidator {
         this.deferred.clear();
     }
 
-    private schedule(queryKey: QueryKey, windowMs: number): void {
-        const hash = hashKey(queryKey);
+    private schedule(target: Target, windowMs: number): void {
+        const hash = targetHash(target);
         if (this.windows.has(hash)) return;
         this.windows.set(
             hash,
             this.setTimer(() => {
                 this.windows.delete(hash);
-                this.flush(queryKey);
+                this.flush(target);
             }, windowMs)
         );
     }
 
-    private flush(queryKey: QueryKey): void {
+    private flush(target: Target): void {
         if (this.disposed) return;
-        const hash = hashKey(queryKey);
+        const filters = filtersOf(target);
+        const hash = targetHash(target);
         if (this.inflight.has(hash)) {
             // Let the running refetch land (restarting it again and again would starve the key);
             // the trailing flush then covers the events it may predate.
-            this.dirty.set(hash, queryKey);
-            void this.client.invalidateQueries({ queryKey, refetchType: "none" });
+            this.dirty.set(hash, target);
+            void this.client.invalidateQueries({ ...filters, refetchType: "none" });
             return;
         }
-        const running = this.client.getQueryCache().findAll({ queryKey, type: "active", fetchStatus: "fetching" });
+        const running = this.client.getQueryCache().findAll({ ...filters, type: "active", fetchStatus: "fetching" });
         let refetched: Promise<void>;
         let awaited: Query[];
         if (this.isVisible()) {
             // The default cancelRefetch restarts a running fetch that has data; TanStack joins a first load.
-            refetched = this.client.invalidateQueries({ queryKey });
+            refetched = this.client.invalidateQueries(filters);
             awaited = running.filter((query) => query.state.data === undefined);
         } else {
-            this.deferred.set(hash, queryKey);
-            refetched = this.client.invalidateQueries({ queryKey, refetchType: "none" });
+            this.deferred.set(hash, target);
+            refetched = this.client.invalidateQueries({ ...filters, refetchType: "none" });
             awaited = running;
         }
-        this.track(hash, queryKey, Promise.allSettled([refetched, ...awaited.map((query) => query.promise)]), awaited);
+        this.track(hash, target, Promise.allSettled([refetched, ...awaited.map((query) => query.promise)]), awaited);
     }
 
-    private track(hash: string, queryKey: QueryKey, landed: Promise<unknown>, awaited: readonly Query[]): void {
+    private track(hash: string, target: Target, landed: Promise<unknown>, awaited: readonly Query[]): void {
         this.inflight.add(hash);
-        void landed.then(() => this.settle(hash, queryKey, awaited));
+        void landed.then(() => this.settle(hash, target, awaited));
     }
 
-    private settle(hash: string, queryKey: QueryKey, awaited: readonly Query[]): void {
+    private settle(hash: string, target: Target, awaited: readonly Query[]): void {
         if (this.disposed) return;
         this.inflight.delete(hash);
         const again = this.dirty.get(hash);
@@ -159,10 +177,10 @@ export class RealtimeInvalidator {
         const predicate = (query: Query) => queries.has(query);
         if (!this.isVisible()) {
             void this.client.invalidateQueries({ predicate, refetchType: "none" });
-            for (const query of awaited) this.deferred.set(query.queryHash, query.queryKey);
+            for (const query of awaited) this.deferred.set(`=${query.queryHash}`, { queryKey: query.queryKey, exact: true });
             return;
         }
         // cancelRefetch: false joins a fetch that started after they landed (it follows the change).
-        this.track(hash, queryKey, this.client.invalidateQueries({ predicate, refetchType: "active" }, { cancelRefetch: false }), []);
+        this.track(hash, target, this.client.invalidateQueries({ predicate, refetchType: "active" }, { cancelRefetch: false }), []);
     }
 }

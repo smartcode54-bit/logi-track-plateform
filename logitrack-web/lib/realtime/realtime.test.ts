@@ -393,3 +393,103 @@ describe("createSessionStream", () => {
         expect(stream.lastId).toBe("3");
     });
 });
+
+describe("RealtimeStream: explicit topics (T50)", () => {
+    const make = (h: ReturnType<typeof harness>) =>
+        new RealtimeStream({ url: "/s", refresh: async () => true, onSessionLost: vi.fn(), onResync: vi.fn(), onEvent: vi.fn(), ...h });
+
+    it("opens with ?topics= and recreates the stream from the last id when the set changes (Go replays the new topic, R52)", () => {
+        const h = harness();
+        const s = make(h);
+        s.listen(["hubs.changed"]);
+        s.setTopics(["chat:b", "chat:a", "chat:a"]); // before open: only remembered
+        expect(h.sources).toHaveLength(0);
+        s.open();
+        expect(h.sources[0].url).toBe(`/s?topics=${encodeURIComponent("chat:a,chat:b")}`);
+        expect(s.hasTopic("chat:a")).toBe(false); // not open yet
+        h.sources[0].open();
+        expect(s.hasTopic("chat:a")).toBe(true);
+        h.sources[0].emit("hubs.changed", { type: "hubs.changed", topic: "global", eventId: "e", data: {} }, "77");
+        s.setTopics(["chat:a", "chat:b"]); // same set: nothing
+        expect(h.sources).toHaveLength(1);
+        s.setTopics(["chat:c"]);
+        expect(h.sources[0].closed).toBe(true);
+        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:c")}&lastEventId=77`);
+        expect(s.hasTopic("chat:a")).toBe(false);
+        s.setTopics([]);
+        expect(h.sources[2].url).toBe("/s?lastEventId=77");
+    });
+
+    it("drops the explicit topics after two opens that failed with them (Go's 403), keeping the implicit stream", async () => {
+        const h = harness();
+        const s = make(h);
+        s.setTopics(["chat:x"]);
+        s.open();
+        h.sources[0].fail();
+        await h.runTimers();
+        expect(h.sources[1].url).toBe(`/s?topics=${encodeURIComponent("chat:x")}`);
+        h.sources[1].fail();
+        await h.runTimers();
+        expect(h.sources[2].url).toBe("/s");
+        h.sources[2].open();
+        expect(s.status).toBe("open");
+        expect(s.hasTopic("chat:x")).toBe(false);
+        expect(s.topics).toEqual(["chat:x"]);
+        // A new set is tried afresh.
+        s.setTopics(["chat:y"]);
+        expect(h.sources[3].url).toBe(`/s?topics=${encodeURIComponent("chat:y")}`);
+    });
+
+    it("a stream that fails without its dropped topics too was an outage: the next open carries them again", async () => {
+        const h = harness();
+        const s = make(h);
+        s.setTopics(["chat:x"]);
+        s.open();
+        h.sources[0].fail();
+        await h.runTimers();
+        h.sources[1].fail();
+        await h.runTimers();
+        expect(h.sources[2].url).toBe("/s");
+        h.sources[2].fail();
+        await h.runTimers();
+        expect(h.sources[3].url).toBe(`/s?topics=${encodeURIComponent("chat:x")}`);
+        h.sources[3].open();
+        expect(s.hasTopic("chat:x")).toBe(true);
+    });
+
+    it("a stream that opened and later closed does not count against its topics", async () => {
+        const h = harness();
+        const s = make(h);
+        s.setTopics(["chat:x"]);
+        s.open();
+        for (let i = 0; i < 3; i++) {
+            h.sources[i].open();
+            h.sources[i].fail();
+            await h.runTimers();
+            expect(h.sources[i + 1].url).toBe(`/s?topics=${encodeURIComponent("chat:x")}`);
+        }
+    });
+});
+
+describe("explicit topic registry (T50)", () => {
+    it("counts registrations per topic and notifies only when the set changes", async () => {
+        const { addRealtimeTopic, realtimeTopics, resetRealtimeTopicsForTests, subscribeRealtimeTopics, MAX_EXPLICIT_TOPICS } = await import("./topics");
+        resetRealtimeTopicsForTests();
+        const changes = vi.fn();
+        const off = subscribeRealtimeTopics(changes);
+        const a1 = addRealtimeTopic("chat:a");
+        const a2 = addRealtimeTopic("chat:a");
+        expect(realtimeTopics()).toEqual(["chat:a"]);
+        expect(changes).toHaveBeenCalledTimes(1);
+        a1();
+        a1(); // once
+        expect(realtimeTopics()).toEqual(["chat:a"]);
+        a2();
+        expect(realtimeTopics()).toEqual([]);
+        expect(changes).toHaveBeenCalledTimes(2);
+        const many = Array.from({ length: MAX_EXPLICIT_TOPICS + 3 }, (_, i) => addRealtimeTopic(`chat:${String(i).padStart(2, "0")}`));
+        expect(realtimeTopics()).toHaveLength(MAX_EXPLICIT_TOPICS);
+        for (const remove of many) remove();
+        off();
+    });
+});
