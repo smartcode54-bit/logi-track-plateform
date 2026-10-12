@@ -29,10 +29,11 @@
  *   Bangchak jobs. The priced events' producer is T38 (compute-on-delivery: billing.compute and the billing
  *   endpoints append them on the trips topic of the tenant that ran the record and of its billing carrier).
  * - the dashboard and waitlist slice of M6 (T54R): `vehicle_locations.updated` on
- *   `tenant:{tid}:vehicle_locations` (the Cartrack batch, data written into `['vehicleLocations']`, no
- *   refetch), `waitlist.created` on `platform:security` (`['waitlist']`, `['badges']`; tenant stewards
- *   poll), and the chat events of `tenant:{tid}:chats` for the dashboard's chat widget, which reads the
- *   chat counters of `['badges']` (Appendix E §E.5 row 21; the chat pages add their own keys in M5).
+ *   `tenant:{tid}:vehicle_locations` (the Cartrack batch, data written into `['vehicleLocations']`; a
+ *   refetch only when it names a truck the list lacks), `waitlist.created` on `platform:security`
+ *   (`['waitlist']`, `['badges']`; tenant stewards poll), and the chat events of `tenant:{tid}:chats` for
+ *   the dashboard's chat widget, which reads the chat counters of `['badges']` (Appendix E §E.5 row 21;
+ *   the chat pages add their own keys in M5).
  * Still to come: tasks and trips with the 2 s monitor window (M2), HR and holidays (M4), the chat lists
  * and the explicit `chat:{id}` topic (M5), `security.event` on `platform:security` (the security pages
  * poll).
@@ -40,7 +41,7 @@
 import type { QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "../queryKeys";
 import { isRateCardTable, rateCardChangedKeys } from "@/features/accounting/api/rateCardKeys";
-import { mergeVehiclePositions, parsePositions } from "@/features/dashboard/api/vehicleLocationEvents";
+import { mergeVehiclePositions, namesUnlistedTruck, parsePositions } from "@/features/dashboard/api/vehicleLocationEvents";
 import type { RealtimeFrame } from "./realtimeStream";
 
 /** Coalescing window of a list invalidation (Appendix E §E.5.1 "Backpressure": 500 ms). */
@@ -58,6 +59,17 @@ export interface CacheWrite {
     queryKey: QueryKey;
     /** `setQueryData` updater: the new value from the cached one (`undefined` when none). */
     update: (cached: unknown) => unknown;
+    /**
+     * The payload carries only part of what the key holds, so the write is not a fresh answer: the
+     * query keeps its `dataUpdatedAt`, and its staleness and `pollFromLastAnswer` interval still count
+     * from the server's last answer (lib/realtime/polling.ts).
+     */
+    keepUpdatedAt?: boolean;
+    /**
+     * Whether the cached value (before the write) lacks something the payload names: the key is then
+     * also made stale (one flush per `LIST_WINDOW_MS` window), so the refetch adds what the write cannot.
+     */
+    refetchWhen?: (cached: unknown) => boolean;
 }
 
 export interface CacheEffects {
@@ -190,13 +202,27 @@ export const PRICED_EVENTS = ["trip.priced", "trip.repriced"] as const;
 /**
  * `vehicle_locations.updated {positions: [...]}` (tenant:{tid}:vehicle_locations, every 3 min with the
  * Cartrack sync): the batch is written into `['vehicleLocations']` (Appendix E §E.5.1: vehicle-location
- * batches are trusted as data), each known truck taking the newer fix. A payload without a readable
- * position makes the key stale instead.
+ * batches are trusted as data), each known truck taking the newer fix. The batch carries the position
+ * only (not the address, engine, driver, odometer or fuel) and names no removed truck, so the write
+ * keeps the query's `dataUpdatedAt` (its `pollFromLastAnswer` refetch still comes, useVehicleLocations),
+ * and a batch naming a truck the cached list lacks (its first fix, a new GPS id) makes the key stale:
+ * the batch has no plate or telemetry to add it with. A payload without a readable position makes the
+ * key stale instead.
  */
 function vehicleLocationEffects(data: unknown): CacheEffects {
     const positions = parsePositions(data);
     if (positions.length === 0) return { invalidate: invalidations([queryKeys.vehicleLocations()]), write: [] };
-    return { invalidate: [], write: [{ queryKey: queryKeys.vehicleLocations(), update: (cached) => mergeVehiclePositions(cached, positions) }] };
+    return {
+        invalidate: [],
+        write: [
+            {
+                queryKey: queryKeys.vehicleLocations(),
+                update: (cached) => mergeVehiclePositions(cached, positions),
+                keepUpdatedAt: true,
+                refetchWhen: (cached) => namesUnlistedTruck(cached, positions),
+            },
+        ],
+    };
 }
 
 /** `waitlist.created` (platform:security): the waitlist page and the sidebar count. */

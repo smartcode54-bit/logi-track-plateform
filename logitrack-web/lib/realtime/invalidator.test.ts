@@ -186,6 +186,39 @@ describe("RealtimeInvalidator", () => {
         expect(distances()).toBe(2);
     });
 
+    it("a vehicle_locations.updated batch keeps the list's dataUpdatedAt and refetches it when it names an unlisted truck", async () => {
+        const h = setup();
+        cleanup = h.cleanup;
+        let fetches = 0;
+        const row = (truckId: string) => ({ truckId, tenantId: "t", licensePlate: `p-${truckId}`, lat: 13, lng: 100, speedKmh: 0, heading: null, lastGpsAt: "2026-10-12T01:00:00Z", updatedAt: "2026-10-12T01:00:05Z" });
+        const observer = new QueryObserver(h.client, {
+            queryKey: queryKeys.vehicleLocations(),
+            queryFn: async () => (++fetches === 1 ? [row("a")] : [row("a"), row("b")]),
+        });
+        const unsub = observer.subscribe(() => undefined);
+        await flush();
+        const answeredAt = h.client.getQueryState(queryKeys.vehicleLocations())!.dataUpdatedAt;
+        expect(answeredAt).toBeGreaterThan(0);
+        await new Promise((r) => setTimeout(r, 5));
+
+        const at = "2026-10-12T01:03:00Z";
+        h.inv.apply({ event: "vehicle_locations.updated", data: { positions: [{ truckId: "a", lat: 14, lng: 101, speed: 30, heading: 0, at }] } });
+        const after = h.client.getQueryState(queryKeys.vehicleLocations())!;
+        expect((after.data as { lat: number }[])[0].lat).toBe(14);
+        expect(after.dataUpdatedAt).toBe(answeredAt); // a partial write is not an answer
+        expect(h.timers).toHaveLength(0); // every truck was listed: no refetch
+        await h.runTimers();
+        expect(fetches).toBe(1);
+
+        h.inv.apply({ event: "vehicle_locations.updated", data: { positions: [{ truckId: "b", lat: 15, lng: 102, speed: 0, heading: null, at }] } });
+        expect(h.timers.map((t) => t.ms)).toEqual([LIST_WINDOW_MS]);
+        await h.runTimers();
+        await flush();
+        expect(fetches).toBe(2);
+        expect((h.client.getQueryData(queryKeys.vehicleLocations()) as { truckId: string }[]).map((r) => r.truckId)).toEqual(["a", "b"]);
+        unsub();
+    });
+
     it("resync refetches every active query; hidden, it waits for the tab to be visible", async () => {
         const h = setup();
         cleanup = h.cleanup;

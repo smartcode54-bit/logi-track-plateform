@@ -56,8 +56,9 @@ export function parsePositions(data: unknown): VehiclePositionEvent[] {
 
 /**
  * The cached list with a batch applied: each known truck takes the newer fix (latest only, as Go stores
- * it); a truck the list does not hold yet waits for the next refetch (its plate and telemetry are not in
- * the event). `undefined` (nothing cached) stays `undefined`, so no query is created.
+ * it); a truck the list does not hold yet is left to the refetch the same batch causes
+ * (`namesUnlistedTruck`: its plate and telemetry are not in the event). `undefined` (nothing cached)
+ * stays `undefined`, so no query is created.
  */
 export function mergeVehiclePositions(cached: unknown, positions: readonly VehiclePositionEvent[]): unknown {
     if (!Array.isArray(cached) || positions.length === 0) return cached;
@@ -72,4 +73,16 @@ export function mergeVehiclePositions(cached: unknown, positions: readonly Vehic
         return { ...row, lat: p.lat, lng: p.lng, speedKmh: p.speed, heading: p.heading, lastGpsAt: p.at };
     });
     return changed ? next : cached;
+}
+
+/**
+ * Whether a batch names a truck the cached list does not hold (its first fix after the page loaded, or a
+ * GPS id just given to it): the realtime map then makes `['vehicleLocations']` stale. False without a
+ * cached list (the first load is still to come). Go sends a principal the batches of the tenants in its
+ * RLS reach only (Appendix B §B.4.2, `authz.TenantReach`), so a miss is a new row, not a hidden one.
+ */
+export function namesUnlistedTruck(cached: unknown, positions: readonly VehiclePositionEvent[]): boolean {
+    if (!Array.isArray(cached) || positions.length === 0) return false;
+    const listed = new Set((cached as VehicleLocationDTO[]).map((row) => row.truckId));
+    return positions.some((p) => !listed.has(p.truckId));
 }

@@ -225,6 +225,23 @@ describe("dashboard and waitlist (M6, T54R)", () => {
         const cached = [{ truckId: "a", tenantId: "t", licensePlate: "70-1", lat: 13, lng: 100, speedKmh: 0, heading: null, lastGpsAt: "2026-10-12T01:00:00Z", updatedAt: at }];
         expect(fx.write[0].update(cached)).toEqual([{ ...cached[0], lat: 14, lng: 101, speedKmh: 30, heading: 0, lastGpsAt: at }]);
         expect(fx.write[0].update(undefined)).toBeUndefined();
+        // A partial row: the write is not an answer of the server (the key's poll counts from its last one).
+        expect(fx.write[0].keepUpdatedAt).toBe(true);
+        expect(fx.write[0].refetchWhen?.(cached)).toBe(false);
+    });
+
+    it("a vehicle_locations.updated batch naming a truck the cached list lacks also makes the key stale", () => {
+        const at = "2026-10-12T01:03:00Z";
+        const fx = effectsOf({
+            event: "vehicle_locations.updated",
+            data: { positions: [{ truckId: "a", lat: 14, lng: 101, speed: 30, heading: 0, at }, { truckId: "new", lat: 13.5, lng: 100.2, speed: 0, heading: null, at }] },
+        });
+        const cached = [{ truckId: "a", tenantId: "t", licensePlate: "70-1", lat: 13, lng: 100, speedKmh: 0, heading: null, lastGpsAt: "2026-10-12T01:00:00Z", updatedAt: at }];
+        expect(fx.write[0].refetchWhen?.(cached)).toBe(true);
+        expect(fx.write[0].refetchWhen?.([])).toBe(true);
+        expect(fx.write[0].refetchWhen?.(undefined)).toBe(false); // the first load is still to come
+        // The known truck still moves at once; the new one comes with the refetch (no plate in the batch).
+        expect(fx.write[0].update(cached)).toEqual([{ ...cached[0], lat: 14, lng: 101, speedKmh: 30, heading: 0, lastGpsAt: at }]);
     });
 
     it("an unreadable vehicle_locations.updated makes the key stale instead", () => {

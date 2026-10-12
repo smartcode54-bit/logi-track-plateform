@@ -9,7 +9,9 @@ import { focusManager, InfiniteQueryObserver, QueryClient, QueryClientProvider, 
 import { QUERY_POLICY, queryKeys } from "../queryKeys";
 import {
     loadedPages,
+    MIN_POLL_TIMER_MS,
     POLL_INTERVAL_MS,
+    pollFromLastAnswer,
     pollHeadWhileVisible,
     pollWhileVisible,
     refetchOnFocusOlderThan,
@@ -286,5 +288,66 @@ describe("SSE fallback poll", () => {
         off();
         setRealtimeStatus("down");
         expect(seen).toEqual(["connecting", "open"]);
+    });
+});
+
+describe("pollFromLastAnswer (a key the stream also writes into, T54R)", () => {
+    const at = (dataUpdatedAt: number, errorUpdatedAt = 0) => ({ state: { dataUpdatedAt, errorUpdatedAt } });
+
+    it("is the time left until the last answer (data or error) is one interval old", () => {
+        const poll = pollFromLastAnswer(5 * 60_000);
+        expect(poll).toMatchObject({ refetchIntervalInBackground: false });
+        expect(poll.refetchOnWindowFocus).toBe(refetchOnFocusOlderThan(5 * 60_000));
+        const now = Date.now();
+        expect(poll.refetchInterval(at(0))).toBe(5 * 60_000); // nothing answered yet
+        expect(poll.refetchInterval(at(now - 3 * 60_000))).toBe(2 * 60_000);
+        expect(poll.refetchInterval(at(now - 3 * 60_000, now - 60_000))).toBe(4 * 60_000); // an error is an answer
+        expect(poll.refetchInterval(at(now - 5 * 60_000 + 10))).toBe(MIN_POLL_TIMER_MS); // never a spinning timer
+        expect(poll.refetchInterval(at(now - 6 * 60_000))).toBe(5 * 60_000); // due: running, or the focus rule refetches
+        expect(pollFromLastAnswer().refetchInterval(at(now))).toBe(POLL_INTERVAL_MS);
+    });
+
+    it("refetches one interval after the last answer although writes that keep dataUpdatedAt arrive more often (a constant interval never fires)", async () => {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        client.mount();
+        const key = ["vehicleLocations"];
+        const counts = { fromAnswer: 0, constant: 0 };
+        const fromAnswer = new QueryObserver(client, { queryKey: key, queryFn: async () => ++counts.fromAnswer, ...pollFromLastAnswer(5 * 60_000) });
+        const constantKey = ["vehicleLocations", "constant"];
+        const constant = new QueryObserver(client, { queryKey: constantKey, queryFn: async () => ++counts.constant, ...pollWhileVisible(5 * 60_000) });
+        const stops = [fromAnswer.subscribe(() => undefined), constant.subscribe(() => undefined)];
+        await vi.advanceTimersByTimeAsync(0);
+        const answered = client.getQueryState(key)!.dataUpdatedAt;
+        // A batch every 3 min: TanStack restarts an observer's interval on every update of its query.
+        for (let i = 0; i < 4; i++) {
+            await vi.advanceTimersByTimeAsync(3 * 60_000);
+            client.setQueryData(key, (n: number | undefined) => n, { updatedAt: client.getQueryState(key)!.dataUpdatedAt });
+            client.setQueryData(constantKey, (n: number | undefined) => n);
+            if (i === 0) expect(client.getQueryState(key)!.dataUpdatedAt).toBe(answered);
+        }
+        // 12 minutes: two refetches 5 min apart; the constant 5-min interval was restarted every 3 min.
+        expect(counts.fromAnswer).toBe(3);
+        expect(counts.constant).toBe(1);
+        stops.forEach((s) => s());
+        client.unmount();
+        client.clear();
+    });
+
+    it("refetches nothing in a hidden tab, and at once on focus once the last answer is older than the interval", async () => {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        client.mount();
+        let fetches = 0;
+        const observer = new QueryObserver(client, { queryKey: ["vehicleLocations"], queryFn: async () => ++fetches, ...pollFromLastAnswer(60_000) });
+        const stop = observer.subscribe(() => undefined);
+        await vi.advanceTimersByTimeAsync(0);
+        focusManager.setFocused(false);
+        await vi.advanceTimersByTimeAsync(10 * 60_000);
+        expect(fetches).toBe(1);
+        focusManager.setFocused(true);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetches).toBe(2);
+        stop();
+        client.unmount();
+        client.clear();
     });
 });
