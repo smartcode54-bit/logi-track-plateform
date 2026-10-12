@@ -499,15 +499,37 @@ func (q *Queries) PartyBasis(ctx context.Context, id uuid.UUID) (string, error) 
 	return billing_date_basis, err
 }
 
+const partyLegacyDocID = `-- name: PartyLegacyDocID :one
+SELECT coalesce(cu.legacy_doc_id, cu.id::text, tn.legacy_doc_id, tn.id::text)::text AS doc_id
+FROM billing_parties bp
+LEFT JOIN customers cu ON cu.id = bp.customer_id
+LEFT JOIN tenants tn ON tn.id = bp.tenant_id
+WHERE bp.id = $1
+`
+
+// The id Firestore names a billing party by (customerId, billingCustomerId; the etl projections' partyDocSQL): its
+// customer's document id, else its carrier's (subcontractors), else the PostgreSQL id of either.
+func (q *Queries) PartyLegacyDocID(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, partyLegacyDocID, id)
+	var doc_id string
+	err := row.Scan(&doc_id)
+	return doc_id, err
+}
+
 const resolveTripRef = `-- name: ResolveTripRef :one
 SELECT tr.id, tr.driver_id, t.driver_id AS task_driver_id, t.helper_driver_id AS task_helper_driver_id,
-       (CASE WHEN tr.id::text = $1::text THEN 0 WHEN tr.legacy_doc_id = $1::text THEN 1 ELSE 2 END)::int AS rank
+       (CASE WHEN tr.id = $1::uuid THEN 0 WHEN tr.legacy_doc_id = $2::text THEN 1 ELSE 2 END)::int AS rank
 FROM trip_records tr
 LEFT JOIN tasks t ON t.id = tr.task_id
-WHERE tr.id::text = $1::text OR tr.legacy_doc_id = $1::text OR tr.trip_no = $1::text
+WHERE tr.id = $1::uuid OR tr.legacy_doc_id = $2::text OR tr.trip_no = $2::text
 ORDER BY rank, tr.id
 LIMIT 1
 `
+
+type ResolveTripRefParams struct {
+	ID  *uuid.UUID
+	Ref string
+}
 
 type ResolveTripRefRow struct {
 	ID                 uuid.UUID
@@ -517,11 +539,13 @@ type ResolveTripRefRow struct {
 	Rank               int32
 }
 
-// The trip a mobile shim names (Appendix B §B.2.22): the PostgreSQL id, the Firestore doc id (legacy_doc_id) or the
-// trip number, with its driver and its task's drivers for the driver:self check. Read in the system context: a trip
-// that is not there is not_mirrored, one of another driver is refused.
-func (q *Queries) ResolveTripRef(ctx context.Context, ref string) (ResolveTripRefRow, error) {
-	row := q.db.QueryRow(ctx, resolveTripRef, ref)
+// The trip a mobile shim names (Appendix B §B.2.22): the PostgreSQL id (id: the ref parsed as a canonical uuid, else
+// NULL), the Firestore doc id (legacy_doc_id) or the trip number, in that order, with its driver and its task's drivers
+// for the driver:self check. Each branch is an index probe (BitmapOr over trip_records_pkey, trip_records_legacy and
+// trip_records_trip_no; explain_integration_test.go). Read in the system context: a trip that is not there is
+// not_mirrored, one of another driver is refused.
+func (q *Queries) ResolveTripRef(ctx context.Context, arg ResolveTripRefParams) (ResolveTripRefRow, error) {
+	row := q.db.QueryRow(ctx, resolveTripRef, arg.ID, arg.Ref)
 	var i ResolveTripRefRow
 	err := row.Scan(
 		&i.ID,
@@ -552,17 +576,19 @@ const safetyNetStandby = `-- name: SafetyNetStandby :many
 SELECT sr.id
 FROM standby_records sr
 WHERE sr.status = 'completed' AND sr.ended_at >= $1::timestamptz AND sr.billing_estimate_thb IS NULL
+  AND (NOT $2::boolean OR sr.legacy_doc_id IS NULL)
 ORDER BY sr.ended_at, sr.id
-LIMIT $2
+LIMIT $3
 `
 
 type SafetyNetStandbyParams struct {
-	Since    time.Time
-	RowLimit int32
+	Since        time.Time
+	BornInPgOnly bool
+	RowLimit     int32
 }
 
 func (q *Queries) SafetyNetStandby(ctx context.Context, arg SafetyNetStandbyParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, safetyNetStandby, arg.Since, arg.RowLimit)
+	rows, err := q.db.Query(ctx, safetyNetStandby, arg.Since, arg.BornInPgOnly, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -587,19 +613,22 @@ SELECT tr.id
 FROM trip_records tr
 LEFT JOIN trip_billing_snapshots s ON s.trip_id = tr.id
 WHERE tr.status = 'delivered' AND tr.delivered_at >= $1::timestamptz AND s.estimate_thb IS NULL
+  AND (NOT $2::boolean OR tr.legacy_doc_id IS NULL)
 ORDER BY tr.delivered_at, tr.id
-LIMIT $2
+LIMIT $3
 `
 
 type SafetyNetTripsParams struct {
-	Since    time.Time
-	RowLimit int32
+	Since        time.Time
+	BornInPgOnly bool
+	RowLimit     int32
 }
 
 // --- sweeps --------------------------------------------------------------------------------------------------------
-// job.billing.safety-net (main spec §6.13): delivered trips of the last window without a price, oldest first.
+// job.billing.safety-net (main spec §6.13): delivered trips of the last window without a price, oldest first; with
+// born_in_pg_only (the mirror runs while billing is Firestore-owned) only the trips the mirror does not write.
 func (q *Queries) SafetyNetTrips(ctx context.Context, arg SafetyNetTripsParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, safetyNetTrips, arg.Since, arg.RowLimit)
+	rows, err := q.db.Query(ctx, safetyNetTrips, arg.Since, arg.BornInPgOnly, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -907,6 +936,18 @@ func (q *Queries) TripStopsForPricing(ctx context.Context, tripID uuid.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const tripTaskLegacyDocID = `-- name: TripTaskLegacyDocID :one
+SELECT t.legacy_doc_id FROM trip_records tr JOIN tasks t ON t.id = tr.task_id WHERE tr.id = $1
+`
+
+// The Firestore document of a trip's task (the job-category write-back, legacy.go): NULL for a task born in PostgreSQL.
+func (q *Queries) TripTaskLegacyDocID(ctx context.Context, id uuid.UUID) (*string, error) {
+	row := q.db.QueryRow(ctx, tripTaskLegacyDocID, id)
+	var legacy_doc_id *string
+	err := row.Scan(&legacy_doc_id)
+	return legacy_doc_id, err
 }
 
 const tripVisible = `-- name: TripVisible :one

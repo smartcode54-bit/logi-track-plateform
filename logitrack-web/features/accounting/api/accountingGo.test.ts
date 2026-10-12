@@ -26,7 +26,7 @@ import {
 import { PartialCreateError, UploadRefusedError } from "@/lib/goUpload";
 import { walkComplete } from "../components/go/IncomePage";
 import { isLegacyXls } from "../components/go/TollImportDialog";
-import { computeTripBilling, startBillingJob } from "./billingWrites.go";
+import { computeTripBilling, repairTrips, startBillingJob } from "./billingWrites.go";
 import { expensePatchOf } from "../components/go/ExpenseDetailDialog";
 import { auditFilter } from "../components/go/ExpenseAuditPage";
 import { effectiveStatus, statementStats } from "../components/go/BillingResultPage";
@@ -524,10 +524,55 @@ describe("billing aggregates and statements", () => {
         );
         const out = await computeTripBilling("t2", { forceRecompute: true, month: { customerId: "c1", year: 2026, month: 9 } });
         expect(out.ok).toBe(false);
+        expect(out.blocked).toBe(true);
         expect(out.blockedInvoiceNumber).toBe("TTP-202609-001");
         // Any other error still throws.
         web.on("POST", "/api/go/v1/trips/t3/billing/compute", () => goErr(403, "permission_denied"));
         await expect(computeTripBilling("t3", { forceRecompute: true })).rejects.toMatchObject({ status: 403, code: "permission_denied" });
+    });
+});
+
+describe("the Billing Document repair (review of PR #161)", () => {
+    const period = { customerId: "c1", year: 2026, month: 10 };
+    const seed = () => {
+        const client = getQueryClient();
+        const keys = [queryKeys.billing.rows("c1", 2026, 10), queryKeys.billing.missingDate("c1", 2026, 10), queryKeys.billing.standbyDiag("c1", 2026, 10)];
+        for (const k of keys) client.setQueryData(k, { cached: true });
+        return () => keys.map((k) => client.getQueryState(k)?.isInvalidated);
+    };
+
+    it("refreshes the month once when its last trip hits a locked period", async () => {
+        const web = fakeWeb();
+        const stale = seed();
+        web.on("POST", "/api/go/v1/trips/t1/billing/compute", () => json(200, { data: { ok: true, billingEstimateThb: 900 } }));
+        web.on("POST", "/api/go/v1/trips/t2/billing/compute", () => json(200, { data: { ok: true, skipped: true, billingDateMoved: true } }));
+        web.on("POST", "/api/go/v1/trips/t3/billing/compute", () => goErr(409, "billing_period_locked", { blockedInvoiceNumber: "TTP-202609-001" }));
+        const done: number[] = [];
+        const out = await repairTrips(["t1", "t2", "t3"], period, (n) => done.push(n));
+        expect(out).toEqual({ repriced: 1, moved: 1, unchanged: 0, failed: 0, blocked: ["TTP-202609-001"] });
+        expect(done).toEqual([1, 2, 3]);
+        expect(stale()).toEqual([true, true, true]);
+    });
+
+    it("refreshes when the last call fails, and counts a lock without an invoice number as blocked", async () => {
+        const web = fakeWeb();
+        const stale = seed();
+        web.on("POST", "/api/go/v1/trips/t1/billing/compute", () => goErr(409, "billing_period_locked", {}));
+        web.on("POST", "/api/go/v1/trips/t2/billing/compute", () => goErr(422, "invalid_argument"));
+        const out = await repairTrips(["t1", "t2"], period);
+        expect(out).toEqual({ repriced: 0, moved: 0, unchanged: 0, failed: 1, blocked: [] });
+        expect(stale()).toEqual([true, true, true]);
+    });
+
+    it("a lone locked compute still refreshes unless told to skip", async () => {
+        const web = fakeWeb();
+        let stale = seed();
+        web.on("POST", "/api/go/v1/trips/t9/billing/compute", () => goErr(409, "billing_period_locked", { blockedInvoiceNumber: "X-1" }));
+        await computeTripBilling("t9", { forceRecompute: true, month: period, skipInvalidate: true });
+        expect(stale()).toEqual([false, false, false]);
+        stale = seed();
+        await computeTripBilling("t9", { forceRecompute: true, month: period });
+        expect(stale()).toEqual([true, true, true]);
     });
 });
 

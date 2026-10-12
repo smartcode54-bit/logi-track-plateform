@@ -445,6 +445,14 @@ func loadTrip(c *docCtx) error {
 		set("created_at", createdAt).setPresent("updated_at", c.ts("updatedAt"))
 	if c.billingOwned() {
 		r.unset("billing_party_id", "billing_date")
+		// The resolved หลัก/เสริม is the pricer's from its first write on (trip_billing projects it): a version of the
+		// document applied between the pricer's commit and its projection would otherwise put the stale value back.
+		if priced, err := c.pricedInPG(`SELECT EXISTS (SELECT 1 FROM trip_records tr JOIN trip_billing_snapshots s
+			ON s.trip_id = tr.id WHERE tr.legacy_doc_id = $1)`); err != nil {
+			return err
+		} else if priced {
+			r.unset("job_category")
+		}
 	}
 	id, err := upsertLegacy(c, r)
 	if err != nil {
@@ -806,9 +814,19 @@ func (c *docCtx) tripStops(id, tenant uuid.UUID) error {
 // billingOwned reports a mirror sweep once the billing domain is PostgreSQL-owned (P3, T38): the billing fields of the
 // Firestore-written trips and standby records (billingCustomerId, billingDate, the billing* snapshot) are then the
 // pricer's: billing.compute writes them in PostgreSQL and firestore.shadow projects them onto the document
-// (shadow_billing.go), so the mirror leaves them as PostgreSQL holds them (one writer per field, no echo loop). A load
-// (P1) and a sweep before P3 still apply them.
+// (shadow_billing.go), so the mirror leaves them as PostgreSQL holds them (one writer per field, no echo loop). The
+// record's jobCategory joins them once the pricer has written the record (pricedInPG): before that it is the 3.x app's
+// (seeded at loading) and the mirror applies it. A load (P1) and a sweep before P3 still apply them all.
 func (c *docCtx) billingOwned() bool { return c.run != nil && c.run.owned["billing"] }
+
+// pricedInPG runs an EXISTS query on the document id: whether the pricer has written the record's billing state.
+func (c *docCtx) pricedInPG(query string) (bool, error) {
+	var ok bool
+	if err := c.tx.QueryRow(c.ctx, query, c.doc.ID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("etl: %s: %w", c.doc.Path, err)
+	}
+	return ok, nil
+}
 
 // tripSnapshot loads trip_billing_snapshots iff billingEstimateThb is a number or any billing* field is present
 // ("stamped but unpriced"). Legacy prices are never recomputed (R15): computed_by 'etl', compute_version 0. The
@@ -1048,6 +1066,13 @@ func loadStandby(c *docCtx) error {
 	if c.billingOwned() {
 		r.unset("billing_estimate_thb", "billing_party_id", "billing_rate_source", "billing_rate_entry_id",
 			"billing_effective_from_date", "billing_unpriced_reason", "billing_computed_at")
+		// As on trips: the denormalised หลัก/เสริม is the pricer's (standby_billing) once it priced the record.
+		if priced, err := c.pricedInPG(`SELECT EXISTS (SELECT 1 FROM standby_records WHERE legacy_doc_id = $1
+			AND (billing_estimate_thb IS NOT NULL OR billing_unpriced_reason IS NOT NULL OR billing_computed_at IS NOT NULL))`); err != nil {
+			return err
+		} else if priced {
+			r.unset("job_category")
+		}
 	}
 	c.times(r)
 	id, err := upsertLegacy(c, r)

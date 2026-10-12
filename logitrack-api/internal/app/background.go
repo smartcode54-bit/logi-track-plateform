@@ -286,8 +286,11 @@ func workerRegistrations(cfg *WorkerConfig, pool, etlPool *pgxpool.Pool, st *sto
 	available[billing.QueueBangchak] = fuel.Registration()
 
 	// billing.compute and billing.backfill (T38): compute-on-delivery (the outbox events of delivered trips, moved dates
-	// and standby records, and the */15 safety net) and the backfill and impact-report jobs; PostgreSQL only (R17).
-	billingDeps := billing.JobDeps{Pool: pool, Locks: jobs.NewRedisLocker(rdb, ks), Log: log}
+	// and standby records, and the */15 safety net) and the backfill and impact-report jobs; PostgreSQL only (R17). While
+	// the mirror runs and billing is not PostgreSQL-owned (P1-P2), the records it writes stay Firestore's to price.
+	billingDeps := billing.JobDeps{Pool: pool, Locks: jobs.NewRedisLocker(rdb, ks), Log: log,
+		FirestorePricing: FirestorePricing(cfg.ETLSyncEnabled, cfg.Coexist.Owned)}
+	log.Info().Bool("firestore_pricing", billingDeps.FirestorePricing).Msg("billing.compute: records the mirror writes stay Firestore's to price")
 	billingCompute, err := billing.NewComputeJob(billingDeps, reg)
 	if err != nil {
 		return nil, nil, err

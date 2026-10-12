@@ -6,12 +6,21 @@
  * the caller's own Firebase ID token as `Authorization: Bearer` (Go verifies it and acts as that user, driver:self;
  * there is no shared token and no acting-user header). The callable keeps its response contract.
  *
- * Functions params (developer-spec.md §16.1; set before the deploy that enables a shim; names only, never values):
+ * Functions params (developer-spec.md §16.1; names only, never values):
  *   LOGITRACK_API_BASE_URL    the public API origin; empty = every shim off
  *   LOGITRACK_API_KEY         the cf_shim key (a Secret Manager secret: firebase functions:secrets:set LOGITRACK_API_KEY)
  *   LOGITRACK_SHIM_CALLABLES  comma list of the callables that forward (each goes live in its own phase: setDriverClaims
  *                             and addDeliveryStop at P2, computeTripBillingSnapshot at P3 with billing in
  *                             PG_OWNED_DOMAINS, sendCustomerLineNotification and markBroadcastRead at P5); empty = none
+ *
+ * Deploy precondition (all three, even with every shim off): this module declares the params when it loads, and
+ * firebase-tools resolves every declared param of the codebase on each functions deploy, `--only functions:<other>`
+ * included. So before the first deploy of a tree that contains this file, in every target project (logitrack-prod and
+ * logi-track-wrt-dev): the Secret Manager secret LOGITRACK_API_KEY must exist with an enabled version (a placeholder is
+ * fine while LOGITRACK_SHIM_CALLABLES is empty), and the functions .env (FUNCTIONS_ENV_DEV / FUNCTIONS_ENV_PROD of
+ * deploy.yml) must carry `LOGITRACK_API_BASE_URL=` and `LOGITRACK_SHIM_CALLABLES=` lines. A non-interactive deploy
+ * (deploy.yml) ignores param defaults and aborts the whole hosting+functions+firestore deploy without them; an
+ * interactive one prompts and creates the secret. Turning a shim on is then only a change of those values.
  *
  * First shim (T38): computeTripBillingSnapshot -> POST /v1/mobile/trips/{id}/billing/compute. T32 adds the others.
  */

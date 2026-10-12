@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,10 +72,13 @@ func (w *world) appendEvent(key, aggregate, id string, tenant string) int64 {
 	return out
 }
 
-func (w *world) computeJob() *billing.ComputeJob {
+func (w *world) computeJob() *billing.ComputeJob { return w.computeJobWith(false) }
+
+// computeJobWith is the consumer of a deployment whose mirror runs while billing is Firestore-owned (firestorePricing).
+func (w *world) computeJobWith(firestorePricing bool) *billing.ComputeJob {
 	w.t.Helper()
-	j, err := billing.NewComputeJob(billing.JobDeps{Pool: w.pool, Now: func() time.Time { return now }, Log: zerolog.Nop()},
-		prometheus.NewRegistry())
+	j, err := billing.NewComputeJob(billing.JobDeps{Pool: w.pool, Now: func() time.Time { return now }, Log: zerolog.Nop(),
+		FirestorePricing: firestorePricing}, prometheus.NewRegistry())
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -688,7 +692,10 @@ func TestStandbyComputeAndCustomer(t *testing.T) {
 // --- jobs: backfills and the impact report --------------------------------------------------------------------------
 
 // runJob hands the billing.backfill consumer the command of job id and returns the finished job's result.
-func (w *world) runJob(id string) map[string]any {
+func (w *world) runJob(id string) map[string]any { return w.runJobWith(id, false) }
+
+// runJobWith is runJob on the consumer of a deployment whose mirror runs while billing is Firestore-owned.
+func (w *world) runJobWith(id string, firestorePricing bool) map[string]any {
 	w.t.Helper()
 	var key string
 	var payload []byte
@@ -697,7 +704,7 @@ func (w *world) runJob(id string) map[string]any {
 		w.t.Fatal(err)
 	}
 	j, err := billing.NewBackfillJob(billing.JobDeps{Pool: w.pool, Locks: jobs.NewRedisLocker(w.rdb, w.ks),
-		Now: func() time.Time { return now }, Log: zerolog.Nop()})
+		Now: func() time.Time { return now }, Log: zerolog.Nop(), FirestorePricing: firestorePricing})
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -821,9 +828,23 @@ func TestShimTargetComputesForTheDriver(t *testing.T) {
 	if string(b) != `{"ok":true}` {
 		t.Fatalf("the shim answer carries more than ok/skipped/error: %s", b)
 	}
-	// Again (by trip number): already priced, a skip.
-	if out, err := w.svc.ComputeTripForShim(ctx, p, "", "SHIM-1", billing.ComputeInput{}); err != nil || !out.Skipped {
-		t.Fatalf("second call: %+v %v", out, err)
+	// Again (by trip number, by the PostgreSQL id): already priced, a skip. An id in another spelling is no id.
+	for _, ref := range []string{"SHIM-1", trip} {
+		if out, err := w.svc.ComputeTripForShim(ctx, p, "", ref, billing.ComputeInput{}); err != nil || !out.Skipped {
+			t.Fatalf("second call by %s: %+v %v", ref, out, err)
+		}
+	}
+	if out, err := w.svc.ComputeTripForShim(ctx, p, "", strings.ToUpper(trip), billing.ComputeInput{}); err != nil ||
+		out.Error != billing.ReasonNotMirrored {
+		t.Fatalf("upper-case id: %+v %v", out, err)
+	}
+	// An unpriced trip answers {ok: false}: no reason for a driver (Appendix C §C.3.7).
+	noRateTask := w.task(taskSpec{tenant: w.O, party: w.partyY, src: "SPK-GW", dest: "SPK890103", class: "18WH", cat: "PRIMARY", driver: drv})
+	w.tripOf(w.O, "", "SHIM-2", noRateTask, drv, bkk(2026, 9, 15, 11, 0), nil, "", false)
+	if out, err := w.svc.ComputeTripForShim(ctx, p, "", "SHIM-2", billing.ComputeInput{}); err != nil {
+		t.Fatal(err)
+	} else if b, _ := json.Marshal(out); string(b) != `{"ok":false}` {
+		t.Fatalf("unpriced shim answer %s", b)
 	}
 	// A trip not mirrored yet; another driver's trip; forceRecompute; a staff principal.
 	if out, err := w.svc.ComputeTripForShim(ctx, p, "", "unknownDoc", billing.ComputeInput{}); err != nil || out.Error != billing.ReasonNotMirrored {

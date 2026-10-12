@@ -55,11 +55,11 @@ async function afterBillingWrite(month: BillingMonthRef | null, client: QueryCli
 }
 
 /**
- * `skipInvalidate` leaves the cache alone (a loop over many trips invalidates once, with its last call). A forced
- * recompute whose old or new period is sent or paid is `409 billing_period_locked` with
- * `details.blockedInvoiceNumber` (T38, main spec §6.10 state 6); it is answered here in the callable's shape
- * (`{ok: false, blockedInvoiceNumber}`), which the pages count as blocked rather than failed. Nothing was written, so
- * nothing is invalidated.
+ * `skipInvalidate` leaves the cache alone (a loop over many trips invalidates once, at its end). A forced recompute
+ * whose old or new period is sent or paid is `409 billing_period_locked` with `details.blockedInvoiceNumber` (T38,
+ * main spec §6.10 state 6); it is answered here in the callable's shape (`{ok: false, blocked: true,
+ * blockedInvoiceNumber}`), which the pages count as blocked rather than failed. The refused call wrote nothing, but it
+ * still refreshes unless told to skip: a caller's earlier `skipInvalidate` calls may have written.
  */
 export async function computeTripBilling(
     tripId: string,
@@ -74,22 +74,66 @@ export async function computeTripBilling(
         });
     } catch (e) {
         const locked = periodLocked(e);
-        if (locked) return locked;
-        throw e;
+        if (!locked) throw e;
+        if (!opts.skipInvalidate) await afterBillingWrite(opts.month ?? null, client);
+        return locked;
     }
     if (!opts.skipInvalidate) await afterBillingWrite(opts.month ?? null, client);
     return out;
 }
 
-/** The callable-shaped answer of a `409 billing_period_locked`, or null for any other error. */
+/** The callable-shaped answer of a `409 billing_period_locked` (`blocked` even without an invoice number), or null. */
 export function periodLocked(e: unknown): ComputeBillingResult | null {
     if (!isApiError(e) || e.code !== "billing_period_locked") return null;
     const invoice = e.details.blockedInvoiceNumber;
     return {
         ok: false,
+        blocked: true,
         blockedInvoiceNumber: typeof invoice === "string" ? invoice : "",
         error: e.message,
     };
+}
+
+/** What a repair loop did: the counts the result line shows and the invoices that blocked it. */
+export interface RepairTally {
+    repriced: number;
+    moved: number;
+    unchanged: number;
+    failed: number;
+    blocked: string[];
+}
+
+/**
+ * The Billing Document's repair (คำนวณใหม่ตามใบงาน): a forced recompute of each trip, one at a time, none of them
+ * refreshing the cache; the month's keys are refreshed once at the end whatever the last call answered (a priced
+ * trip, a blocked period or an error), so the trips repriced earlier never keep their old rows on screen.
+ */
+export async function repairTrips(
+    ids: string[],
+    month: BillingMonthRef,
+    onProgress: (done: number) => void = () => {},
+    client: QueryClient = getQueryClient()
+): Promise<RepairTally> {
+    const tally: RepairTally = { repriced: 0, moved: 0, unchanged: 0, failed: 0, blocked: [] };
+    try {
+        for (let n = 0; n < ids.length; n++) {
+            try {
+                const out = await computeTripBilling(ids[n], { forceRecompute: true, month, skipInvalidate: true }, client);
+                if (out.blocked) {
+                    if (out.blockedInvoiceNumber && !tally.blocked.includes(out.blockedInvoiceNumber)) tally.blocked.push(out.blockedInvoiceNumber);
+                } else if (!out.ok) tally.failed += 1;
+                else if (out.billingDateMoved) tally.moved += 1;
+                else if (out.skipped) tally.unchanged += 1;
+                else tally.repriced += 1;
+            } catch {
+                tally.failed += 1;
+            }
+            onProgress(n + 1);
+        }
+    } finally {
+        if (ids.length > 0) await afterBillingWrite(month, client);
+    }
+    return tally;
 }
 
 /** The single manual-price exception (`accounting:override_price`, R17): `manual_override=true`. */

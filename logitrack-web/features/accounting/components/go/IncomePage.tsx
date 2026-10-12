@@ -231,7 +231,7 @@ function MissingBillingTab({ canRecompute, customerName }: { canRecompute: boole
         setBusy(u.id);
         try {
             const out = await computeTripBilling(u.tripId, { month: { customerId: ALL_PARTIES, year, month } });
-            if (out.blockedInvoiceNumber) toast.error(t("accounting.go.income.blocked", { invoiceNumber: out.blockedInvoiceNumber }));
+            if (out.blocked) toast.error(t("accounting.go.income.blocked", { invoiceNumber: out.blockedInvoiceNumber ?? "" }));
             else if (!out.ok) toast.error(out.error ?? t("accounting.billingDocument.standbyIssues.fixFailed"));
         } catch (e) {
             toast.error(apiErrorText(e, t));
@@ -469,7 +469,7 @@ export function IncomePage() {
         setBusyRow(r.id);
         try {
             const out = await computeTripBilling(r.tripId, { forceRecompute: canRecompute });
-            if (out.blockedInvoiceNumber) toast.error(t("accounting.go.income.blocked", { invoiceNumber: out.blockedInvoiceNumber }));
+            if (out.blocked) toast.error(t("accounting.go.income.blocked", { invoiceNumber: out.blockedInvoiceNumber ?? "" }));
             else if (!out.ok) toast.error(out.error ?? t("accounting.billingDocument.standbyIssues.fixFailed"));
         } catch (e) {
             toast.error(apiErrorText(e, t));

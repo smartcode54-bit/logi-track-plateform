@@ -180,6 +180,12 @@ type JobDeps struct {
 	// Now is the clock of computed_at and of the safety net's window (default time.Now).
 	Now func() time.Time
 	Log zerolog.Logger
+	// FirestorePricing reports a deployment whose FS->PG mirror runs (ETL_SYNC_ENABLED) while billing is not in
+	// PG_OWNED_DOMAINS (P1-P2, main spec §6.13 coexistence): Firestore's Cloud Functions still price the trips and standby
+	// records the mirror writes, and the mirror carries those prices into PostgreSQL, so billing.compute, the safety net
+	// and the backfills leave them alone (OutcomeNotOwned, nothing written) and price only the records born in
+	// PostgreSQL. False on the staging VM (PostgreSQL only, no mirror) and from P3 on, when Go is the only pricer.
+	FirestorePricing bool
 }
 
 // BackfillJob is the billing.backfill consumer of the worker.
@@ -348,7 +354,7 @@ func (j *BackfillJob) backfillTrips(ctx context.Context, job jobs.Job, p Billing
 	}
 	res.Eligible = len(eligible)
 	maxWrite := int(scanLimit(p.MaxWrite, DefaultBackfillWrite))
-	req := TripRequest{Mode: ModeAuto, ComputedBy: ComputedByScheduler}
+	req := TripRequest{Mode: ModeAuto, ComputedBy: ComputedByScheduler, SkipMirrored: j.d.FirestorePricing}
 	if p.ForceRecompute {
 		req.Mode, req.ComputedBy = ModeForce, ComputedByAdminForce
 	}
@@ -419,7 +425,7 @@ func (j *BackfillJob) backfillStandby(ctx context.Context, job jobs.Job, p Billi
 		var out StandbyOutcome
 		err := db.WithSystem(cache.MoneyPath(ctx), j.d.Pool, nil, func(tx pgx.Tx) error {
 			var err error
-			out, err = PriceStandby(ctx, tx, r.ID, StandbyRequest{Force: p.ForceRecompute, At: j.d.Now()})
+			out, err = PriceStandby(ctx, tx, r.ID, StandbyRequest{Force: p.ForceRecompute, At: j.d.Now(), SkipMirrored: j.d.FirestorePricing})
 			return err
 		})
 		switch {

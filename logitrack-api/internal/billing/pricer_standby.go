@@ -23,6 +23,8 @@ type StandbyRequest struct {
 	EventID   int64
 	At        time.Time
 	RequestID string
+	// SkipMirrored leaves a record the FS->PG mirror writes alone (TripRequest.SkipMirrored).
+	SkipMirrored bool
 }
 
 // StandbyComputeResult is the answer of POST /v1/standby/{id}/billing/compute, in the shape of the
@@ -103,6 +105,10 @@ func PriceStandby(ctx context.Context, tx pgx.Tx, id uuid.UUID, req StandbyReque
 		return StandbyOutcome{}, err
 	}
 	out := StandbyOutcome{RecordTenant: sr.TenantID, WasPriced: sr.BillingEstimateThb != nil}
+	if req.SkipMirrored && sr.LegacyDocID != nil {
+		out.Outcome, out.Result = OutcomeNotOwned, StandbyComputeResult{OK: true, Skipped: true, Reason: ReasonBillingNotOwned}
+		return out, nil
+	}
 	if req.EventID > 0 && sr.BillingLastEventID != nil && req.EventID <= *sr.BillingLastEventID {
 		out.Outcome, out.Result = OutcomeStale, StandbyComputeResult{OK: true, Skipped: true, Reason: OutcomeStale}
 		return out, nil

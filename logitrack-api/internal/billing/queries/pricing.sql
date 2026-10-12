@@ -111,15 +111,30 @@ SELECT tr.id FROM trip_records tr WHERE tr.task_id = sqlc.arg(task_id)::uuid AND
 -- A request's reach check before a compute: RLS of the caller's transaction decides (no row = 404).
 SELECT tr.id FROM trip_records tr WHERE tr.id = sqlc.arg(id);
 
+-- name: TripTaskLegacyDocID :one
+-- The Firestore document of a trip's task (the job-category write-back, legacy.go): NULL for a task born in PostgreSQL.
+SELECT t.legacy_doc_id FROM trip_records tr JOIN tasks t ON t.id = tr.task_id WHERE tr.id = sqlc.arg(id);
+
+-- name: PartyLegacyDocID :one
+-- The id Firestore names a billing party by (customerId, billingCustomerId; the etl projections' partyDocSQL): its
+-- customer's document id, else its carrier's (subcontractors), else the PostgreSQL id of either.
+SELECT coalesce(cu.legacy_doc_id, cu.id::text, tn.legacy_doc_id, tn.id::text)::text AS doc_id
+FROM billing_parties bp
+LEFT JOIN customers cu ON cu.id = bp.customer_id
+LEFT JOIN tenants tn ON tn.id = bp.tenant_id
+WHERE bp.id = sqlc.arg(id);
+
 -- name: ResolveTripRef :one
--- The trip a mobile shim names (Appendix B §B.2.22): the PostgreSQL id, the Firestore doc id (legacy_doc_id) or the
--- trip number, with its driver and its task's drivers for the driver:self check. Read in the system context: a trip
--- that is not there is not_mirrored, one of another driver is refused.
+-- The trip a mobile shim names (Appendix B §B.2.22): the PostgreSQL id (id: the ref parsed as a canonical uuid, else
+-- NULL), the Firestore doc id (legacy_doc_id) or the trip number, in that order, with its driver and its task's drivers
+-- for the driver:self check. Each branch is an index probe (BitmapOr over trip_records_pkey, trip_records_legacy and
+-- trip_records_trip_no; explain_integration_test.go). Read in the system context: a trip that is not there is
+-- not_mirrored, one of another driver is refused.
 SELECT tr.id, tr.driver_id, t.driver_id AS task_driver_id, t.helper_driver_id AS task_helper_driver_id,
-       (CASE WHEN tr.id::text = sqlc.arg(ref)::text THEN 0 WHEN tr.legacy_doc_id = sqlc.arg(ref)::text THEN 1 ELSE 2 END)::int AS rank
+       (CASE WHEN tr.id = sqlc.narg(id)::uuid THEN 0 WHEN tr.legacy_doc_id = sqlc.arg(ref)::text THEN 1 ELSE 2 END)::int AS rank
 FROM trip_records tr
 LEFT JOIN tasks t ON t.id = tr.task_id
-WHERE tr.id::text = sqlc.arg(ref)::text OR tr.legacy_doc_id = sqlc.arg(ref)::text OR tr.trip_no = sqlc.arg(ref)::text
+WHERE tr.id = sqlc.narg(id)::uuid OR tr.legacy_doc_id = sqlc.arg(ref)::text OR tr.trip_no = sqlc.arg(ref)::text
 ORDER BY rank, tr.id
 LIMIT 1;
 
@@ -175,11 +190,13 @@ SELECT sr.id FROM standby_records sr WHERE sr.id = sqlc.arg(id);
 -- --- sweeps --------------------------------------------------------------------------------------------------------
 
 -- name: SafetyNetTrips :many
--- job.billing.safety-net (main spec §6.13): delivered trips of the last window without a price, oldest first.
+-- job.billing.safety-net (main spec §6.13): delivered trips of the last window without a price, oldest first; with
+-- born_in_pg_only (the mirror runs while billing is Firestore-owned) only the trips the mirror does not write.
 SELECT tr.id
 FROM trip_records tr
 LEFT JOIN trip_billing_snapshots s ON s.trip_id = tr.id
 WHERE tr.status = 'delivered' AND tr.delivered_at >= sqlc.arg(since)::timestamptz AND s.estimate_thb IS NULL
+  AND (NOT sqlc.arg(born_in_pg_only)::boolean OR tr.legacy_doc_id IS NULL)
 ORDER BY tr.delivered_at, tr.id
 LIMIT sqlc.arg(row_limit);
 
@@ -187,6 +204,7 @@ LIMIT sqlc.arg(row_limit);
 SELECT sr.id
 FROM standby_records sr
 WHERE sr.status = 'completed' AND sr.ended_at >= sqlc.arg(since)::timestamptz AND sr.billing_estimate_thb IS NULL
+  AND (NOT sqlc.arg(born_in_pg_only)::boolean OR sr.legacy_doc_id IS NULL)
 ORDER BY sr.ended_at, sr.id
 LIMIT sqlc.arg(row_limit);
 

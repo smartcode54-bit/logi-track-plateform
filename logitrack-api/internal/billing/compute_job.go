@@ -23,7 +23,10 @@ import (
 // trip.delivered, trip.delivered_at_changed, task.plan_date_changed, standby.completed or standby.customer_assigned; the
 // relay publishes it; this consumer prices in one db.WithSystem transaction that starts with the consumer_inbox claim
 // (a redelivery is acked), locks the trip (standby record) FOR UPDATE and drops a message whose outbox id is not above
-// the record's last_event_id. The 15-minute job.billing.safety-net sweeps what no event priced. Permanent outcomes
+// the record's last_event_id. The 15-minute job.billing.safety-net sweeps what no event priced. While the deployment
+// mirrors Firestore and billing is not PostgreSQL-owned (JobDeps.FirestorePricing, P1-P2), the records the mirror writes
+// stay the legacy pricer's: their messages are acked as not_owned and the safety net reads only records born in
+// PostgreSQL, so PostgreSQL billing state keeps one writer before P3. Permanent outcomes
 // (unpriced reasons, multi_insufficient_stops, a missing task, a sent or paid period) are acked and counted in
 // billing_compute_total{result}; a database failure is retried by the ladder and dead-lettered after the last rung.
 
@@ -62,7 +65,7 @@ func NewComputeJob(d JobDeps, reg prometheus.Registerer) (*ComputeJob, error) {
 	}
 	total := prometheus.NewCounterVec(prometheus.CounterOpts{Name: "billing_compute_total",
 		Help: "Pricing runs of billing.compute by outcome (priced, repriced, restamped, unpriced, skipped, stale, blocked, " +
-			"task_missing, multi_insufficient_stops, not_delivered, not_found)."}, []string{"result"})
+			"task_missing, multi_insufficient_stops, not_delivered, not_found, not_owned)."}, []string{"result"})
 	if reg != nil {
 		if err := reg.Register(total); err != nil {
 			if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
@@ -103,22 +106,24 @@ func (j *ComputeJob) Handle(ctx context.Context, d *mq.Delivery) error {
 	_, err := inbox.Run(cache.MoneyPath(ctx), j.d.Pool, d, func(tx pgx.Tx) error {
 		switch d.RoutingKey {
 		case RouteTripDelivered:
-			return j.trip(ctx, tx, ref.ID, TripRequest{Mode: ModeAuto, EventID: ev, At: j.d.Now()})
+			return j.trip(ctx, tx, ref.ID, TripRequest{Mode: ModeAuto, EventID: ev, At: j.d.Now(), SkipMirrored: j.d.FirestorePricing})
 		case RouteTripDeliveredAtChange:
-			return j.trip(ctx, tx, ref.ID, TripRequest{Mode: ModeForce, ComputedBy: ComputedByAdminForce, EventID: ev, At: j.d.Now()})
+			return j.trip(ctx, tx, ref.ID, TripRequest{Mode: ModeForce, ComputedBy: ComputedByAdminForce, EventID: ev, At: j.d.Now(),
+				SkipMirrored: j.d.FirestorePricing})
 		case RouteTaskPlanDateChanged:
 			ids, err := billingdb.New(tx).TaskDeliveredTrips(ctx, ref.ID)
 			if err != nil {
 				return err
 			}
 			for _, id := range ids {
-				if err := j.trip(ctx, tx, id, TripRequest{Mode: ModeForce, ComputedBy: ComputedByAdminForce, EventID: ev, At: j.d.Now()}); err != nil {
+				if err := j.trip(ctx, tx, id, TripRequest{Mode: ModeForce, ComputedBy: ComputedByAdminForce, EventID: ev, At: j.d.Now(),
+					SkipMirrored: j.d.FirestorePricing}); err != nil {
 					return err
 				}
 			}
 			return nil
 		case RouteStandbyCompleted, RouteStandbyCustomerAssigned:
-			out, err := PriceStandby(ctx, tx, ref.ID, StandbyRequest{EventID: ev, At: j.d.Now()})
+			out, err := PriceStandby(ctx, tx, ref.ID, StandbyRequest{EventID: ev, At: j.d.Now(), SkipMirrored: j.d.FirestorePricing})
 			if errors.Is(err, ErrRecordNotFound) {
 				j.count(OutcomeNotFound)
 				return nil
@@ -175,9 +180,9 @@ type SafetyNetResult struct {
 }
 
 // safetyNet runs one job.billing.safety-net command (the scheduler's */15 cron, §7.4): the jobs row goes running, the
-// unpriced delivered trips and completed standby records of the last SafetyNetWindow (at most SafetyNetLimit each) are
-// priced one transaction each in ModeAuto, and the row ends succeeded with the counts. A duplicate of a finished command
-// is acked.
+// unpriced delivered trips and completed standby records of the last SafetyNetWindow (at most SafetyNetLimit each;
+// only those born in PostgreSQL while FirestorePricing) are priced one transaction each in ModeAuto, and the row ends
+// succeeded with the counts. A duplicate of a finished command is acked.
 func (j *ComputeJob) safetyNet(ctx context.Context, d *mq.Delivery) error {
 	cmd, err := jobs.DecodeCommand(d)
 	if err != nil {
@@ -195,10 +200,12 @@ func (j *ComputeJob) safetyNet(ctx context.Context, d *mq.Delivery) error {
 	var trips, standby []uuid.UUID
 	if err := readOnly(ctx, j.d.Pool, func(q *billingdb.Queries) error {
 		var err error
-		if trips, err = q.SafetyNetTrips(ctx, billingdb.SafetyNetTripsParams{Since: since, RowLimit: SafetyNetLimit}); err != nil {
+		if trips, err = q.SafetyNetTrips(ctx, billingdb.SafetyNetTripsParams{Since: since, BornInPgOnly: j.d.FirestorePricing,
+			RowLimit: SafetyNetLimit}); err != nil {
 			return err
 		}
-		standby, err = q.SafetyNetStandby(ctx, billingdb.SafetyNetStandbyParams{Since: since, RowLimit: SafetyNetLimit})
+		standby, err = q.SafetyNetStandby(ctx, billingdb.SafetyNetStandbyParams{Since: since, BornInPgOnly: j.d.FirestorePricing,
+			RowLimit: SafetyNetLimit})
 		return err
 	}); err != nil {
 		return err
@@ -208,7 +215,8 @@ func (j *ComputeJob) safetyNet(ctx context.Context, d *mq.Delivery) error {
 		var out TripOutcome
 		err := db.WithSystem(cache.MoneyPath(ctx), j.d.Pool, nil, func(tx pgx.Tx) error {
 			var err error
-			out, err = PriceTrip(ctx, tx, id, TripRequest{Mode: ModeAuto, ComputedBy: ComputedByScheduler, At: j.d.Now()})
+			out, err = PriceTrip(ctx, tx, id, TripRequest{Mode: ModeAuto, ComputedBy: ComputedByScheduler, At: j.d.Now(),
+				SkipMirrored: j.d.FirestorePricing})
 			return err
 		})
 		switch {
@@ -224,7 +232,7 @@ func (j *ComputeJob) safetyNet(ctx context.Context, d *mq.Delivery) error {
 		var out StandbyOutcome
 		err := db.WithSystem(cache.MoneyPath(ctx), j.d.Pool, nil, func(tx pgx.Tx) error {
 			var err error
-			out, err = PriceStandby(ctx, tx, id, StandbyRequest{At: j.d.Now()})
+			out, err = PriceStandby(ctx, tx, id, StandbyRequest{At: j.d.Now(), SkipMirrored: j.d.FirestorePricing})
 			return err
 		})
 		switch {

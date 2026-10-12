@@ -16,7 +16,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing/compute"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/etl/dump"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
 
 func (h *syncHarness) projectBilling(p *Projector, coll string, ids ...uuid.UUID) ProjectStats {
@@ -175,5 +178,107 @@ func TestBillingWriteBack(t *testing.T) {
 	h.sweep(h.plan(owned("auth", "masterdata")))
 	if v := h.scalar(`SELECT billing_estimate_thb::float8 FROM standby_records WHERE id = $1`, sb3); v != 310.0 {
 		t.Fatalf("the P2 mirror did not load the legacy price: %v", v)
+	}
+}
+
+// TestBillingCoexistenceKeepsGoWrites (review of PR #161): at P3, with the mirror still applying trips, standby records
+// and tasks whole (class C), what Go wrote stays written. The resolved หลัก/เสริม of a priced trip or standby record is
+// the pricer's (a later document version without it, such as the legacy LINE callable's lineDeliveredNotifiedAt write,
+// changes nothing), while an unpriced record still takes the 3.x app's; and the class C writes of the job-category and
+// standby-customer endpoints, merged into Firestore first by the write-back (billing.TaskJobCategoryLegacyWrite,
+// billing.StandbyCustomerLegacyWrite through writeback.Firestore), survive the standby_billing projection's own echo and
+// a later legacy edit of the task.
+func TestBillingCoexistenceKeepsGoWrites(t *testing.T) {
+	h := newSyncHarness(t)
+	p3 := owned("auth", "masterdata", "billing")
+	proj := h.projector(p3)
+	wb := writeback.Firestore{FS: h.client}
+	at := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
+
+	// The pricer resolved TRIP001 (its document carries no jobCategory) as เสริม; the LINE callable then writes the trip.
+	trip := h.id(`SELECT id FROM trip_records WHERE legacy_doc_id = 'TRIP001'`)
+	h.exec(`UPDATE trip_records SET job_category = 'SUPPLEMENTARY' WHERE id = $1`, trip)
+	h.exec(`UPDATE trip_billing_snapshots SET job_category_at_pricing = 'SUPPLEMENTARY' WHERE trip_id = $1`, trip)
+	h.fs.Merge("trip_records/TRIP001", map[string]any{"lineDeliveredNotifiedAt": dump.Timestamp{Time: at}})
+	if rep := h.sweep(h.plan(p3)); applied(rep, "trip_records") != 1 {
+		t.Fatalf("the trip was not mirrored: %+v", rep.Collections)
+	}
+	if v := h.scalar(`SELECT job_category FROM trip_records WHERE id = $1`, trip); v != "SUPPLEMENTARY" {
+		t.Fatalf("the mirror reverted the priced trip's category: %v", v)
+	}
+	if st := h.projectBilling(proj, ProjectionTripBilling, trip); st.Written != 1 {
+		t.Fatalf("trip projection %+v", st)
+	}
+	if f := h.doc("trip_records/TRIP001"); f["jobCategory"] != "SUPPLEMENTARY" {
+		t.Fatalf("projected category %v", f["jobCategory"])
+	}
+	// An unpriced delivered trip still takes the document's category (the 3.x app seeds it at loading).
+	var unpriced string
+	if err := h.pool.QueryRow(h.ctx, `SELECT tr.legacy_doc_id FROM trip_records tr
+		LEFT JOIN trip_billing_snapshots s ON s.trip_id = tr.id
+		WHERE s.trip_id IS NULL AND tr.legacy_doc_id IS NOT NULL ORDER BY tr.legacy_doc_id LIMIT 1`).Scan(&unpriced); err != nil {
+		t.Fatal(err)
+	}
+	h.fs.Merge("trip_records/"+unpriced, map[string]any{"jobCategory": "SUPPLEMENTARY"})
+	h.sweep(h.plan(p3))
+	if v := h.scalar(`SELECT job_category FROM trip_records WHERE legacy_doc_id = $1`, unpriced); v != "SUPPLEMENTARY" {
+		t.Fatalf("an unpriced trip did not take the document's category: %v", v)
+	}
+	// Before P3 the document's category is applied to a priced trip as well (Firestore prices it).
+	h.fs.Merge("trip_records/TRIP001", map[string]any{"jobCategory": "PRIMARY"})
+	h.sweep(h.plan(owned("auth", "masterdata")))
+	if v := h.scalar(`SELECT job_category FROM trip_records WHERE id = $1`, trip); v != "PRIMARY" {
+		t.Fatalf("the P2 mirror did not apply the category: %v", v)
+	}
+
+	// A priced standby record (sb3) keeps the category the pricer denormalised.
+	sb3 := h.id(`SELECT id FROM standby_records WHERE legacy_doc_id = 'sb3'`)
+	h.exec(`UPDATE standby_records SET job_category = 'SUPPLEMENTARY' WHERE id = $1`, sb3)
+	h.fs.Merge("standby_records/sb3", map[string]any{"lineNotifiedAt": dump.Timestamp{Time: at}})
+	h.sweep(h.plan(p3))
+	if v := h.scalar(`SELECT job_category FROM standby_records WHERE id = $1`, sb3); v != "SUPPLEMENTARY" {
+		t.Fatalf("the mirror reverted the priced standby record's category: %v", v)
+	}
+
+	// PATCH /v1/standby/{id}/customer on sb2: Firestore first (the write-back), then PostgreSQL (customer and price).
+	sb2 := h.id(`SELECT id FROM standby_records WHERE legacy_doc_id = 'sb2'`)
+	cjsf := h.id(`SELECT bp.id FROM billing_parties bp JOIN customers c ON c.id = bp.customer_id WHERE c.legacy_doc_id = 'cust_cjsf'`)
+	if err := wb.Merge(h.ctx, "standby_records", "sb2", billing.StandbyCustomerLegacyWrite("cust_cjsf", at)); err != nil {
+		t.Fatal(err)
+	}
+	h.exec(`UPDATE standby_records SET customer_party_id = $2, customer_resolved = true, customer_resolved_from = 'manual',
+		billing_estimate_thb = 500, billing_party_id = $2, billing_rate_source = 'service_fee', billing_computed_at = $3
+		WHERE id = $1`, sb2, cjsf, at)
+	if st := h.projectBilling(proj, ProjectionStandbyBilling, sb2); st.Written != 1 {
+		t.Fatalf("standby projection %+v", st)
+	}
+	h.sweep(h.plan(p3)) // the projection's write moved the document: the mirror applies it whole
+	var party string
+	var resolved bool
+	var from string
+	if err := h.pool.QueryRow(h.ctx, `SELECT customer_party_id::text, customer_resolved, customer_resolved_from
+		FROM standby_records WHERE id = $1`, sb2).Scan(&party, &resolved, &from); err != nil {
+		t.Fatal(err)
+	}
+	if party != cjsf.String() || !resolved || from != "manual" {
+		t.Fatalf("the standby customer was reverted: %s %v %s", party, resolved, from)
+	}
+	if v := h.scalar(`SELECT billing_estimate_thb::float8 FROM standby_records WHERE id = $1`, sb2); v != 500.0 {
+		t.Fatalf("standby price %v", v)
+	}
+
+	// POST /v1/trips/{id}/job-category on a task_1 trip: the task's category goes to Firestore first; a later legacy
+	// edit of the task (mirrored whole) keeps it.
+	task := h.id(`SELECT id FROM tasks WHERE legacy_doc_id = 'task_1'`)
+	if err := wb.Merge(h.ctx, "tasks", "task_1", billing.TaskJobCategoryLegacyWrite(compute.Supplementary, at)); err != nil {
+		t.Fatal(err)
+	}
+	h.exec(`UPDATE tasks SET job_category = 'SUPPLEMENTARY' WHERE id = $1`, task)
+	h.fs.Merge("tasks/task_1", map[string]any{"licensePlate": "70-5555"})
+	if rep := h.sweep(h.plan(p3)); applied(rep, "tasks") != 1 {
+		t.Fatalf("the task was not mirrored: %+v", rep.Collections)
+	}
+	if v := h.scalar(`SELECT job_category FROM tasks WHERE id = $1`, task); v != "SUPPLEMENTARY" {
+		t.Fatalf("the task category was reverted: %v", v)
 	}
 }

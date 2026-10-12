@@ -22,20 +22,21 @@ import (
 // The billing endpoints of T38 (Appendix B §B.2.11-§B.2.14): the synchronous compute of a trip or a standby record,
 // the หลัก/เสริม change of a delivered trip, the manual price and the standby customer. Each checks the caller's reach
 // under its RLS (a row it cannot read is 404), then prices in a db.WithSystem transaction through PriceTrip /
-// PriceStandby (main spec §6.1: pricing reads one carrier's rate tables whoever asks). Amounts and invoice numbers are
-// answered only to the billing carrier's staff (the own fleet, R61): a carrier tenant that ran a trip may ask for its
-// compute, never read its price.
+// PriceStandby (main spec §6.1: pricing reads one carrier's rate tables whoever asks). Amounts, invoice numbers and the
+// unpriced reason (with its message, which names the rate-card route or the party) are answered only to the billing
+// carrier's staff with accounting:view_income (the own fleet, R61; the billing blocks of GET /v1/trips need the same):
+// a carrier tenant that ran a trip may ask for its compute, never read its price or why it has none.
 
 // Codes of the domain's refusals (Appendix B §B.1.5).
 const (
 	ReasonNotDelivered = "not_delivered"
 )
 
-// priceVisible reports whether p reads prices: staff of the billing carrier (the own fleet, R61), or a platform admin
-// acting on it.
+// priceVisible reports whether p reads prices and unpriced reasons: staff of the billing carrier (the own fleet, R61),
+// or a platform admin acting on it, holding accounting:view_income.
 func priceVisible(p *authz.Principal) bool {
 	_, err := billingTenantOf(p)
-	return err == nil && p.EffectiveRole().IsStaff()
+	return err == nil && p.EffectiveRole().IsStaff() && p.Can(authz.AccountingViewIncome)
 }
 
 // forceAllowed is the check of forceRecompute (accounting:recompute_force, a billing write of the own fleet).
@@ -107,7 +108,7 @@ func (s *Service) ComputeTrip(ctx context.Context, p *authz.Principal, rid strin
 	}
 	res := out.Result
 	if !priceVisible(p) {
-		res.BillingEstimateTHB, res.BlockedInvoiceNumber = nil, ""
+		res = ComputeResult{OK: res.OK, Skipped: res.Skipped, BillingDateMoved: res.BillingDateMoved}
 	}
 	return res, nil
 }
@@ -147,7 +148,11 @@ func (s *Service) SetTripJobCategory(ctx context.Context, p *authz.Principal, ri
 	err := s.system(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = PriceTrip(ctx, tx, id, TripRequest{Mode: ModeJobCategory, Category: cat, At: s.now(), RequestID: rid})
-		return err
+		if err != nil || !out.Written {
+			return err
+		}
+		// The task took the target (class C): Firestore first, before this transaction commits (legacy.go).
+		return s.writeBackTaskCategory(ctx, tx, id, cat)
 	})
 	if errors.Is(err, ErrRecordNotFound) {
 		return ComputeResult{}, httpx.ErrNotFound()
@@ -258,7 +263,7 @@ func (s *Service) ComputeStandby(ctx context.Context, p *authz.Principal, rid st
 	}
 	res := out.Result
 	if !priceVisible(p) {
-		res.BillingEstimateTHB, res.InvoiceNumber = nil, ""
+		res = StandbyComputeResult{OK: res.OK, Skipped: res.Skipped, Blocked: res.Blocked}
 	}
 	return res, nil
 }
@@ -332,7 +337,8 @@ func (s *Service) AssignStandbyCustomer(ctx context.Context, p *authz.Principal,
 		if out.Outcome == OutcomeBlocked {
 			return ErrPeriodLocked(*out.Lock)
 		}
-		return nil
+		// The record's customer (class C): Firestore first, before this transaction commits (legacy.go).
+		return s.writeBackStandbyCustomer(ctx, tx, sr.LegacyDocID, party)
 	})
 	if err != nil {
 		return StandbyComputeResult{}, err
@@ -344,8 +350,9 @@ func (s *Service) AssignStandbyCustomer(ctx context.Context, p *authz.Principal,
 // prices it (a record the endpoint priced already drops it as stale).
 const RouteStandbyCustomerAssigned = "standby.customer_assigned"
 
-// ShimResult is the answer of the mobile shim target: {ok, skipped?, error?}, never an amount (drivers never see
-// billing; APK 3.x ignores it, delivery_trip_repository.dart:107-115).
+// ShimResult is the answer of the mobile shim target: {ok, skipped?, error?}, never an amount or an unpriced reason
+// (drivers never see billing, Appendix C §C.3.7; APK 3.x ignores it, delivery_trip_repository.dart:107-115): error is
+// only not_mirrored.
 type ShimResult struct {
 	OK      bool   `json:"ok"`
 	Skipped bool   `json:"skipped,omitempty"`
@@ -371,13 +378,19 @@ func (s *Service) ComputeTripForShim(ctx context.Context, p *authz.Principal, ri
 	if ref == "" || len(ref) > 1500 {
 		return ShimResult{}, httpx.ErrNotFound()
 	}
+	// The PostgreSQL id branch only for a canonical uuid (lower case, hyphenated), the form the id compares equal to as
+	// text; each branch of the lookup then uses its index (the primary key, trip_records_legacy, trip_records_trip_no).
+	var asID *uuid.UUID
+	if u, err := uuid.Parse(ref); err == nil && u.String() == ref {
+		asID = &u
+	}
 	var trip billingdb.ResolveTripRefRow
 	found := false
 	if err := s.system(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); err != nil {
 			return err
 		}
-		r, err := billingdb.New(tx).ResolveTripRef(ctx, ref)
+		r, err := billingdb.New(tx).ResolveTripRef(ctx, billingdb.ResolveTripRefParams{ID: asID, Ref: ref})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -406,11 +419,7 @@ func (s *Service) ComputeTripForShim(ctx context.Context, p *authz.Principal, ri
 	if err != nil {
 		return ShimResult{}, err
 	}
-	r := ShimResult{OK: out.Result.OK, Skipped: out.Result.Skipped, Error: out.Result.Error}
-	if out.Result.Reason != "" && !out.Result.OK {
-		r.Error = out.Result.Reason // a stable code, never a route or an amount
-	}
-	return r, nil
+	return ShimResult{OK: out.Result.OK, Skipped: out.Result.Skipped}, nil
 }
 
 // CodeNotTaskOwner is the refusal of a driver acting on another driver's task or trip (Appendix B §B.1.5).

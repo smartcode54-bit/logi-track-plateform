@@ -15,7 +15,8 @@ import (
 // fields (fn:tripBillingOnDelivered.ts:453-482, 581-600; fn:standbyBilling.ts:183-207), on trip.priced, trip.repriced
 // and standby.priced, once the billing domain is PostgreSQL-owned (P3). These two projections own fields of documents
 // another collection's mirror applies (the operations domain stays Firestore-written): they write only their mask, the
-// mirror leaves those fields as PostgreSQL holds them (docCtx.billingOwned: no echo loop), they never create a
+// mirror leaves those fields as PostgreSQL holds them (docCtx.billingOwned: no echo loop; jobCategory from the pricer's
+// first write of the record on, before which it is the 3.x app's), they never create a
 // document (a record PostgreSQL holds without a Firestore document has no legacy reader), and the reconciliation reads
 // the record's collection and reports no Firestore-only documents for them. Each encoder is the inverse of its
 // loader (map_ops.go tripSnapshot, loadTrip, loadStandby), so a fixture document loaded at P1 projects back unchanged.

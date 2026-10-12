@@ -59,7 +59,13 @@ const (
 	OutcomeUnpriced     = "unpriced" // state 5 (the reason is in Reason)
 	OutcomePriced       = "priced"   // first price (state 7)
 	OutcomeRepriced     = "repriced" // a priced row rewritten
+	// OutcomeNotOwned is a record the FS->PG mirror writes while billing is Firestore-owned (TripRequest.SkipMirrored):
+	// the legacy pricer's, nothing written.
+	OutcomeNotOwned = "not_owned"
 )
+
+// ReasonBillingNotOwned is the answer's reason of OutcomeNotOwned.
+const ReasonBillingNotOwned = "billing_not_owned"
 
 // TripMode selects the path of PriceTrip (main spec §6.10).
 type TripMode int
@@ -94,6 +100,10 @@ type TripRequest struct {
 	At time.Time
 	// RequestID travels on the outbox event (headers.requestId).
 	RequestID string
+	// SkipMirrored leaves a trip the FS->PG mirror writes (legacy_doc_id set) alone: the deployment runs the mirror
+	// while billing is not PostgreSQL-owned (JobDeps.FirestorePricing, P1-P2), so Firestore's Cloud Functions still price
+	// it and the mirror carries that price into PostgreSQL. A trip born in PostgreSQL is priced either way.
+	SkipMirrored bool
 }
 
 // ComputeResult is the answer of POST /v1/trips/{id}/billing/compute and of every trip pricing run, in the shape of the
@@ -235,6 +245,10 @@ func PriceTrip(ctx context.Context, tx pgx.Tx, id uuid.UUID, req TripRequest) (T
 		return TripOutcome{}, err
 	}
 	out := TripOutcome{TripTenant: tr.TenantID}
+	if req.SkipMirrored && tr.LegacyDocID != nil {
+		out.Outcome, out.Result = OutcomeNotOwned, ComputeResult{OK: true, Skipped: true, Reason: ReasonBillingNotOwned}
+		return out, nil
+	}
 	snap, err := q.TripSnapshotForPricing(ctx, id)
 	hasSnap := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
