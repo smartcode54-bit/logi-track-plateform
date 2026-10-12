@@ -110,10 +110,15 @@ LIMIT sqlc.arg(row_limit);
 
 -- name: FindDriverBroadcast :one
 -- POST /v1/mobile/broadcasts/{id}/read: the broadcast by its uuid or its Firestore document id (legacy_doc_id: the
--- 3.x app knows the document id, which the projection mints as the uuid of a broadcast born in PostgreSQL). RLS hides
--- a voided broadcast and one the driver may not read.
-SELECT id FROM broadcasts
+-- 3.x app knows the document id, which the projection mints as the uuid of a broadcast born in PostgreSQL), among the
+-- broadcasts DriverBroadcasts lists for the driver: addressed to it (a recipient row), or without recipients (legacy and
+-- seeded rows, addressed by their group); never a voided one. RLS limits the rows a driver sees to its tenant's, the
+-- platform-wide ones and those addressed to it, so an unaddressed row here is one of the first two: a broadcast of the
+-- driver's own tenant addressed to other drivers is not one the driver may mark read (its readCount would count a
+-- non-recipient).
+SELECT id, tenant_id FROM broadcasts
 WHERE (id = sqlc.narg(id)::uuid OR legacy_doc_id = sqlc.arg(ref)::text) AND voided_at IS NULL
+  AND (app_broadcast_recipient(id) OR broadcast_unaddressed(id))
 ORDER BY (id = sqlc.narg(id)::uuid) DESC NULLS LAST
 LIMIT 1;
 

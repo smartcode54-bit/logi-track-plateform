@@ -1229,8 +1229,8 @@ func foldCode(k string) string { return strings.ToUpper(strings.TrimSpace(k)) }
 //   - a code PostgreSQL holds and the map lacks is added under the code; an entry of no known code holding exactly
 //     those values is the same entry under the customer's former code (changed in Go) and goes;
 //   - any other entry (a code no customer has: customer_unresolved at the load) stays as it is.
-func mergeCodes(want map[string]any, known map[string]bool) func(cur any) any {
-	return func(cur any) any {
+func mergeCodes(want map[string]any, known map[string]bool) func(cur any, _ map[string]any) any {
+	return func(cur any, _ map[string]any) any {
 		stored, _ := cur.(map[string]any)
 		out := make(map[string]any, len(stored)+len(want))
 		present := map[string]bool{}

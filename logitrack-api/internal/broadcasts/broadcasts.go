@@ -87,6 +87,9 @@ const (
 	ReasonBroadcastNotFound = "broadcast_not_found"
 	// CodeDriverProfileRequired: a driver-app route called by a principal without a driver profile.
 	CodeDriverProfileRequired = "driver_profile_required"
+	// ReasonUnsupportedUntilP7b is the field reason of recipientUserIds while installed 3.x APKs may be recipients
+	// (Deps.LegacyFleet): a send to selected users waits for every domain to be PostgreSQL-owned.
+	ReasonUnsupportedUntilP7b = "unsupported_until_p7b"
 )
 
 // Deps are the collaborators of the service.
@@ -96,13 +99,21 @@ type Deps struct {
 	Log  zerolog.Logger
 	// Now is the clock (nil: time.Now).
 	Now func() time.Time
+	// LegacyFleet is whether installed 3.x APKs may still be the recipients' app: not every domain is PostgreSQL-owned
+	// (P0-P7a; the api's classCPGOwned). The 3.x app lists every document of the Firestore broadcasts collection and
+	// the Firestore rules let any signed-in user read it, so a send to selected users (recipientUserIds) cannot stay
+	// private there (projected: every 3.x user lists it) nor reach its 3.x recipients' list (not projected: the push
+	// only); such a send is refused (422 recipientUserIds unsupported_until_p7b) until P7b. The group sends are the
+	// legacy composer's and stay open.
+	LegacyFleet bool
 }
 
 // Service serves /v1/broadcasts* and /v1/mobile/broadcasts*.
 type Service struct {
-	pool db.Beginner
-	log  zerolog.Logger
-	now  func() time.Time
+	pool        db.Beginner
+	log         zerolog.Logger
+	now         func() time.Time
+	legacyFleet bool
 }
 
 // New builds the service. It does no I/O.
@@ -114,7 +125,7 @@ func New(d Deps) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{pool: d.Pool, log: d.Log, now: now}, nil
+	return &Service{pool: d.Pool, log: d.Log, now: now, legacyFleet: d.LegacyFleet}, nil
 }
 
 // at is the service's clock at the precision PostgreSQL keeps.

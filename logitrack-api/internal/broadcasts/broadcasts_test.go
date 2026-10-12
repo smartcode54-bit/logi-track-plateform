@@ -1,6 +1,7 @@
 package broadcasts
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -9,7 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/broadcasts/broadcastsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
@@ -108,5 +111,51 @@ func TestDriverBroadcastRef(t *testing.T) {
 	at := time.Now()
 	if got := driverBroadcastOf(broadcastsdb.DriverBroadcastsRow{ID: id, LegacyDocID: &doc, ReadAt: &at}); got.Ref != doc || !got.Read {
 		t.Errorf("with a document %+v", got)
+	}
+}
+
+// countingPool counts the transactions a test reaches; each Begin fails (no database in a unit test).
+type countingPool struct{ begins *int }
+
+func (p countingPool) Begin(context.Context) (pgx.Tx, error) {
+	*p.begins++
+	return nil, errors.New("no database in this test")
+}
+
+// A send to selected users (recipientUserIds) is refused while installed 3.x APKs may be its recipients' app
+// (Deps.LegacyFleet: not every domain is PostgreSQL-owned, before P7b): 422 recipientUserIds unsupported_until_p7b,
+// before any database work. The 3.x app lists every document of the projected Firestore collection, so such a send
+// could neither stay private there nor reach its 3.x recipients' list (T48 review). The group sends stay open, and once
+// the 3.x fleet is gone the selected send goes on to the database.
+func TestSelectedSendWaitsForTheLegacyFleet(t *testing.T) {
+	tenant := uuid.New()
+	p := &authz.Principal{UserID: uuid.New(), AMR: authz.AMRPassword, TenantID: &tenant, TenantRole: authz.TenantAdmin}
+	selected := `{"recipientUserIds":["` + uuid.NewString() + `"],"title":"t","messageText":"m"}`
+	group := `{"recipientGroup":"own_fleet","title":"t","messageText":"m"}`
+	for _, tc := range []struct {
+		name    string
+		legacy  bool
+		raw     string
+		refused bool
+	}{
+		{"selected, 3.x fleet", true, selected, true},
+		{"group, 3.x fleet", true, group, false},
+		{"selected, no 3.x fleet", false, selected, false},
+	} {
+		begins := 0
+		s, err := New(Deps{Pool: countingPool{&begins}, LegacyFleet: tc.legacy})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Send(context.Background(), p, "rid", input(t, tc.raw))
+		if tc.refused {
+			if got := fieldsOf(t, err); !slices.Equal(got, []string{"recipientUserIds:" + ReasonUnsupportedUntilP7b}) || begins != 0 {
+				t.Errorf("%s: %v after %d transactions", tc.name, got, begins)
+			}
+			continue
+		}
+		if begins != 1 || err == nil {
+			t.Errorf("%s: %d transactions, %v; want the send to reach the database", tc.name, begins, err)
+		}
 	}
 }

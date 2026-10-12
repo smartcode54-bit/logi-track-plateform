@@ -24,7 +24,9 @@ import (
 //     (trg_billing_statement_draft_only_delete refuses any other), a sent or paid one is kept and reported;
 //   - customer_service_fees (features/accounting/api/billing.ts:592), holidays (functions/src/holidays.ts:136, deleteHoliday),
 //     chats/*/messages (named by main spec §13.7; no current writer deletes one, a console delete is honoured), broadcasts (BroadcastComposer.tsx:178, BroadcastHistoryModal.tsx:80) and waitlist
-//     (waitlist/page.tsx:46): the row is deleted (their children cascade);
+//     (waitlist/page.tsx:46): the row is deleted (their children cascade); a voided broadcast is kept and reported: its
+//     document was deleted by the projection of its void (T48, the soft delete of DELETE /v1/broadcasts/{id} during P5),
+//     not by a legacy delete, and R14 keeps the row (voided_at, voided_by) for the audit after a P5 rollback;
 //   - standby_rate_entries (billing.ts:690): kept and reported: the table is soft-delete only and a void needs the
 //     staff member who voided it (voided_by), which a Firestore delete does not carry (R20).
 //
@@ -112,13 +114,20 @@ func (e *Engine) mirrorRemoved(ctx context.Context, r *runState, coll string, do
 	return nil
 }
 
-// removeRow deletes one row in a savepoint: false when the row is gone already, a statement is no longer a draft, or
-// the database refuses the delete (a reference, a trigger), which keeps the row.
+// keptRows are the rows of a removable table that a document's absence never deletes: a statement that is no longer a
+// draft, a voided broadcast (its document was the projection's to delete, T48).
+var keptRows = map[string]string{
+	"billing_statements": "status <> 'draft'",
+	"broadcasts":         "voided_at IS NOT NULL",
+}
+
+// removeRow deletes one row in a savepoint: false when the row is gone already, it is a kept row (keptRows), or the
+// database refuses the delete (a reference, a trigger), which keeps the row.
 func removeRow(ctx context.Context, tx pgx.Tx, table, id string) (bool, error) {
-	if table == "billing_statements" {
-		var status string
-		err := tx.QueryRow(ctx, `SELECT status FROM billing_statements WHERE id = $1`, id).Scan(&status)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "draft") {
+	if cond, ok := keptRows[table]; ok {
+		var kept bool
+		err := tx.QueryRow(ctx, `SELECT `+cond+` FROM `+pgx.Identifier{table}.Sanitize()+` WHERE id = $1`, id).Scan(&kept)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && kept) {
 			return false, nil
 		}
 		if err != nil {

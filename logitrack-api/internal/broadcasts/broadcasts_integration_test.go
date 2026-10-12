@@ -229,9 +229,11 @@ func TestHistoryPagesAndReach(t *testing.T) {
 }
 
 // AC: a read receipt is idempotent per user. Through the markBroadcastRead shim target (cf_shim key + the driver's
-// Firebase ID token): the first read writes the row, every later one (concurrent ones included) answers alreadyRead
-// and writes nothing; the Firestore document id names the broadcast too; a voided broadcast, another tenant's that is
-// not addressed to the driver, an unknown id and a staff user are refused.
+// Firebase ID token): the first read writes the row and appends broadcast.read (firestore.shadow projects the readers),
+// every later one (concurrent ones included) answers alreadyRead and writes nothing; the Firestore document id names
+// the broadcast too; a voided broadcast, another tenant's that is not addressed to the driver, the own tenant's
+// addressed to other drivers (T48 review: the broadcasts GET /v1/mobile/broadcasts lists, so readCount counts
+// recipients only), an unknown id and a staff user are refused.
 func TestReadReceiptIsIdempotentPerUser(t *testing.T) {
 	w := newWorld(t)
 	if n := w.shimCalls(); n != 0 {
@@ -274,16 +276,38 @@ func TestReadReceiptIsIdempotentPerUser(t *testing.T) {
 	if rc := w.get("/v1/broadcasts", ta).list()[0].(map[string]any); rc["id"] != id || num(rc["readCount"]) != 2 {
 		t.Fatalf("readCount %v", rc)
 	}
+	// One broadcast.read per first receipt (2), none for the repeats; no realtime topic.
+	es := w.events(id)
+	if len(es) != 3 || es[0].Key != broadcasts.RouteCreated {
+		t.Fatalf("events after the reads %+v", es)
+	}
+	readers := []string{}
+	for _, e := range es[1:] {
+		if e.Key != broadcasts.RouteRead || len(e.Topics) != 0 || e.Payload["id"] != id || e.Payload["tenantId"] != w.O ||
+			e.Payload["entity"] != "broadcast" {
+			t.Fatalf("read event %s %v", e.Raw, e.Topics)
+		}
+		readers = append(readers, str(e.Payload["userId"]))
+	}
+	if !slices.Equal(sorted(readers...), sorted(w.uDO, w.uDA)) {
+		t.Fatalf("read events of %v", readers)
+	}
 	// The Firestore document id (a loaded legacy broadcast: platform-wide, no recipients) names it too.
 	legacy := w.id(`INSERT INTO broadcasts (legacy_doc_id, message_text, recipient_count) VALUES ('fsBroadcast01', 'เก่า', 2) RETURNING id::text`)
 	r = w.markRead("d.c@example.test", "fsBroadcast01")
 	if r.status != http.StatusOK || r.data()["broadcastId"] != legacy || r.data()["alreadyRead"] != false {
 		t.Fatalf("by doc id %d %s", r.status, r.raw)
 	}
+	if es := w.events(legacy); len(es) != 1 || es[0].Key != broadcasts.RouteRead || es[0].Payload["tenantId"] != nil {
+		t.Fatalf("the legacy broadcast's read event %+v", es)
+	}
 	// Refusals.
-	ownOnly := w.send(ta, map[string]any{"recipientGroup": "own_fleet"})
+	ownOnly := w.send(ta, map[string]any{"recipientGroup": "own_fleet"})    // recipients: d.o
+	toDO := w.send(ta, map[string]any{"recipientUserIds": []string{w.uDO}}) // recipients: d.o
 	for _, tc := range []struct{ email, ref string }{
 		{"d.a@example.test", ownOnly},          // the own fleet's broadcast not addressed to a carrier's driver
+		{"d.os@example.test", ownOnly},         // the own tenant's broadcast addressed to other drivers
+		{"d.os@example.test", toDO},            // a broadcast to selected users, read by another driver of the tenant
 		{"d.o@example.test", uuid.NewString()}, // unknown
 		{"d.o@example.test", "noSuchDoc"},      // unknown document id
 	} {
@@ -291,6 +315,20 @@ func TestReadReceiptIsIdempotentPerUser(t *testing.T) {
 		expect(t, r, http.StatusNotFound, "not_found")
 		if r.detail("reason") != broadcasts.ReasonBroadcastNotFound {
 			t.Fatalf("%s %s: %s", tc.email, tc.ref, r.raw)
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM broadcast_reads WHERE broadcast_id IN ($1, $2)`, ownOnly, toDO); n != 0 {
+		t.Fatalf("%d read rows of non-recipients", n)
+	}
+	for _, b := range []string{ownOnly, toDO} {
+		if es := w.events(b); len(es) != 1 {
+			t.Fatalf("a refused read appended an event: %+v", es)
+		}
+	}
+	// Their recipient still reads them.
+	for _, b := range []string{ownOnly, toDO} {
+		if r := w.markRead("d.o@example.test", b); r.status != http.StatusOK || r.data()["alreadyRead"] != false {
+			t.Fatalf("the recipient's read %d %s", r.status, r.raw)
 		}
 	}
 	expect(t, w.del("/v1/broadcasts/"+id, ta), http.StatusNoContent, "")
@@ -304,9 +342,10 @@ func TestReadReceiptIsIdempotentPerUser(t *testing.T) {
 	expect(t, w.markRead("ta.o@example.test", ownOnly), http.StatusForbidden, authz.CodePermissionDenied)
 	expect(t, w.call(w.public, http.MethodPost, "/v1/mobile/broadcasts/"+ownOnly+"/read", nil, bearer(w.login("d.o@example.test"))...),
 		http.StatusUnauthorized, "")
-	// Every authenticated call counts (2 + 10 + 1 + 3 refusals + the voided one + the staff user), the Go token none.
-	if n := w.shimCalls(); n != 18 {
-		t.Fatalf("shim_requests_total{callable=markBroadcastRead} = %v, want 18", n)
+	// Every authenticated call counts (2 + 10 + 1 + 5 refusals + 2 recipient reads + the voided one + the staff user),
+	// the Go token none.
+	if n := w.shimCalls(); n != 22 {
+		t.Fatalf("shim_requests_total{callable=markBroadcastRead} = %v, want 22", n)
 	}
 }
 

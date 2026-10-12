@@ -2,6 +2,7 @@ package broadcasts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,10 +20,14 @@ import (
 //     refetches GET /v1/mobile/broadcasts/latest);
 //   - broadcast.voided (DELETE /v1/broadcasts/{id}): firestore.shadow deletes the Firestore document, so the 3.x
 //     APKs' list loses it as the legacy delete did. No realtime topic: the staff history refetches after its own
-//     mutation, and a driver's list leaves voided rows out on its next fetch.
+//     mutation, and a driver's list leaves voided rows out on its next fetch;
+//   - broadcast.read (POST /v1/mobile/broadcasts/{id}/read, the first read receipt of a driver only): firestore.shadow
+//     projects the document's readCount and readDriverAuthIds, so Firestore stays complete for the legacy web history
+//     and the pre-shim callable after a P5 rollback. No realtime topic.
 const (
 	RouteCreated = "broadcast.created"
 	RouteVoided  = "broadcast.voided"
+	RouteRead    = "broadcast.read"
 )
 
 // AggregateBroadcast is the outbox aggregate of the broadcast events: the void of a broadcast locks it, so its events
@@ -66,5 +71,14 @@ func voidedEvent(ctx context.Context, tx pgx.Tx, rid string, b broadcastsdb.Broa
 	p["legacyDocId"] = b.LegacyDocID
 	_, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteVoided, AggregateType: AggregateBroadcast,
 		AggregateID: b.ID.String(), TenantID: b.TenantID, Payload: p, Headers: headers(rid)})
+	return err
+}
+
+// readEvent appends broadcast.read: the first read receipt of user (no realtime topic). The payload is thin, like the
+// others: firestore.shadow re-reads every reader of the broadcast.
+func readEvent(ctx context.Context, tx pgx.Tx, rid string, id uuid.UUID, tenant *uuid.UUID, user uuid.UUID, at time.Time) error {
+	p := map[string]any{"entity": EntityBroadcast, "id": id, "tenantId": tenant, "at": at.UTC(), "userId": user}
+	_, err := outbox.Append(ctx, tx, outbox.Event{RoutingKey: RouteRead, AggregateType: AggregateBroadcast,
+		AggregateID: id.String(), TenantID: tenant, Payload: p, Headers: headers(rid)})
 	return err
 }

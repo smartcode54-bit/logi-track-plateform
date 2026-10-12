@@ -221,6 +221,8 @@ func TestShadowTargets(t *testing.T) {
 			[]ShadowTarget{{Collection: "broadcasts", IDs: []uuid.UUID{a}}}},
 		{"broadcast.voided", `{"entity":"broadcast","id":"` + b.String() + `","legacyDocId":"bc_1"}`,
 			[]ShadowTarget{{Collection: "broadcasts", IDs: []uuid.UUID{b}}}},
+		{"broadcast.read", `{"entity":"broadcast","id":"` + c.String() + `","userId":"` + a.String() + `"}`,
+			[]ShadowTarget{{Collection: "broadcasts", IDs: []uuid.UUID{c}}}},
 		{"trip.priced", `{"id":"` + a.String() + `","priced":true}`, []ShadowTarget{{Collection: ProjectionTripBilling, IDs: []uuid.UUID{a}}}},
 		{"trip.repriced", `{"id":"` + b.String() + `","billingDateMoved":true}`, []ShadowTarget{{Collection: ProjectionTripBilling, IDs: []uuid.UUID{b}}}},
 		{"standby.priced", `{"id":"` + c.String() + `"}`, []ShadowTarget{{Collection: ProjectionStandbyBilling, IDs: []uuid.UUID{c}}}},
@@ -410,24 +412,24 @@ func TestMergeCodes(t *testing.T) {
 	}
 	// A Go edit of the value: written under the stored key, the unresolved entry kept.
 	want2 := map[string]any{"SPX": map[string]any{"appId": "A-002"}, "CJSF": map[string]any{"empId": "E-9"}}
-	got := mergeCodes(want2, known)(stored).(map[string]any)
+	got := mergeCodes(want2, known)(stored, nil).(map[string]any)
 	if fmt.Sprint(got) != fmt.Sprint(map[string]any{"spx": map[string]any{"appId": "A-002", "blank": ""}, "NOPE": map[string]any{"x": "1"},
 		"CJSF": map[string]any{"empId": "E-9"}}) {
 		t.Errorf("merged %v", got)
 	}
 	// Every value removed in Go: the entry goes; the unresolved one stays.
-	got = mergeCodes(map[string]any{}, known)(map[string]any{"SPX": map[string]any{"appId": "A-001"}, "NOPE": map[string]any{"x": "1"}}).(map[string]any)
+	got = mergeCodes(map[string]any{}, known)(map[string]any{"SPX": map[string]any{"appId": "A-001"}, "NOPE": map[string]any{"x": "1"}}, nil).(map[string]any)
 	if fmt.Sprint(got) != fmt.Sprint(map[string]any{"NOPE": map[string]any{"x": "1"}}) {
 		t.Errorf("after removal %v", got)
 	}
 	// The customer's code changed in Go (SPX -> SPXN): the entry moves to the new code.
 	known2 := map[string]bool{"SPXN": true}
 	got = mergeCodes(map[string]any{"SPXN": map[string]any{"appId": "A-001"}}, known2)(map[string]any{"SPX": map[string]any{"appId": "A-001"},
-		"NOPE": map[string]any{"x": "1"}}).(map[string]any)
+		"NOPE": map[string]any{"x": "1"}}, nil).(map[string]any)
 	if fmt.Sprint(got) != fmt.Sprint(map[string]any{"SPXN": map[string]any{"appId": "A-001"}, "NOPE": map[string]any{"x": "1"}}) {
 		t.Errorf("after the code change %v", got)
 	}
-	if mergeCodes(map[string]any{}, known)(nil) != nil {
+	if mergeCodes(map[string]any{}, known)(nil, nil) != nil {
 		t.Error("no codes on either side is no field")
 	}
 }

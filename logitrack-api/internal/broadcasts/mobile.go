@@ -77,9 +77,11 @@ func (s *Service) driverRows(ctx context.Context, p *authz.Principal, arg broadc
 // MarkRead is POST /v1/mobile/broadcasts/{id}/read (mobile:broadcasts; markBroadcastRead, fn:chat.ts:203, the shim
 // target from P5): the driver's read receipt of the broadcast named by its uuid or its Firestore document id. The
 // primary key of broadcast_reads makes it idempotent per user: a second read (concurrent ones included) writes nothing
-// and answers alreadyRead true. A broadcast that does not exist for the driver (unknown, voided, not readable) is 404
-// with details.reason broadcast_not_found.
-func (s *Service) MarkRead(ctx context.Context, p *authz.Principal, ref string) (ReadResult, error) {
+// and answers alreadyRead true. A broadcast that is not one of the driver's (unknown, voided, another tenant's not
+// addressed to it, or its own tenant's addressed to other drivers: the broadcasts Mine lists) is 404 with
+// details.reason broadcast_not_found. The first receipt appends broadcast.read in the same transaction (the
+// projection of the Firestore readers).
+func (s *Service) MarkRead(ctx context.Context, p *authz.Principal, rid, ref string) (ReadResult, error) {
 	if _, err := driverOf(p); err != nil {
 		return ReadResult{}, err
 	}
@@ -92,20 +94,24 @@ func (s *Service) MarkRead(ctx context.Context, p *authz.Principal, ref string) 
 		arg.ID = &id
 	}
 	var out ReadResult
-	err := s.tx(ctx, p, func(_ pgx.Tx, q *broadcastsdb.Queries) error {
-		id, err := q.FindDriverBroadcast(ctx, arg)
+	err := s.tx(ctx, p, func(tx pgx.Tx, q *broadcastsdb.Queries) error {
+		b, err := q.FindDriverBroadcast(ctx, arg)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errBroadcastNotFound()
 		}
 		if err != nil {
 			return err
 		}
-		n, err := q.MarkRead(ctx, broadcastsdb.MarkReadParams{BroadcastID: id, UserID: p.UserID, ReadAt: s.at()})
+		at := s.at()
+		n, err := q.MarkRead(ctx, broadcastsdb.MarkReadParams{BroadcastID: b.ID, UserID: p.UserID, ReadAt: at})
 		if err != nil {
 			return err
 		}
-		out = ReadResult{BroadcastID: id, AlreadyRead: n == 0}
-		return nil
+		out = ReadResult{BroadcastID: b.ID, AlreadyRead: n == 0}
+		if n == 0 {
+			return nil
+		}
+		return readEvent(ctx, tx, rid, b.ID, b.TenantID, p.UserID, at)
 	})
 	return out, err
 }

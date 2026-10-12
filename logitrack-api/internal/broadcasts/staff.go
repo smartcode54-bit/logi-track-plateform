@@ -183,8 +183,9 @@ func userID(raw json.RawMessage) (uuid.UUID, bool) {
 // Send is POST /v1/broadcasts (broadcasts:send; sendBroadcast, fn:chat.ts:135): one transaction writes the broadcast
 // (tenant_id the caller's tenant, NULL for all_tenants), its recipients and broadcast.created. A send needs a staff
 // member acting in a tenant (403 tenant_required otherwise: a platform admin acts through X-Act-On-Tenant); all_tenants
-// needs a steward (R60, 403); a send that reaches nobody is 422 (the legacy callable refused an empty list). Answers the
-// broadcast (201).
+// needs a steward (R60, 403); recipientUserIds needs the 3.x fleet gone (Deps.LegacyFleet: 422 recipientUserIds
+// unsupported_until_p7b before P7b); a send that reaches nobody is 422 (the legacy callable refused an empty list).
+// Answers the broadcast (201).
 func (s *Service) Send(ctx context.Context, p *authz.Principal, rid string, in SendInput) (Broadcast, error) {
 	r, err := in.validate()
 	if err != nil {
@@ -195,6 +196,9 @@ func (s *Service) Send(ctx context.Context, p *authz.Principal, rid string, in S
 	}
 	if r.group == GroupAllTenants && !p.Steward {
 		return Broadcast{}, errPlatformWide()
+	}
+	if r.group == GroupSelected && s.legacyFleet {
+		return Broadcast{}, httpx.ErrInvalidArgument(violation("recipientUserIds", ReasonUnsupportedUntilP7b))
 	}
 	var out Broadcast
 	err = s.tx(ctx, p, func(tx pgx.Tx, q *broadcastsdb.Queries) error {

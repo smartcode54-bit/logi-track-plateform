@@ -215,7 +215,7 @@ func ShadowTargets(routingKey string, body []byte) ([]ShadowTarget, error) {
 		return one(ProjectionTripBilling, p.ID)
 	case "standby.priced":
 		return one(ProjectionStandbyBilling, p.ID)
-	case "broadcast.created", "broadcast.voided":
+	case "broadcast.created", "broadcast.voided", "broadcast.read":
 		return one("broadcasts", p.ID)
 	}
 	return nil, fmt.Errorf("etl: firestore.shadow does not project %s", routingKey)
@@ -396,7 +396,8 @@ func (p *Projector) ProjectAll(ctx context.Context) (map[string]ProjectStats, er
 
 // project encodes the selection in one transaction, which mints the document ids of rows born in PostgreSQL and
 // commits, then writes each document that differs: a sweep that reads a projected document finds its row. A
-// one-document collection is projected by projectOne.
+// one-document collection is projected by projectOne. A collection with absentAfterWrite re-reads the written rows
+// afterwards and deletes the documents of those that must have none by now (a broadcast voided meanwhile).
 func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel selection) (ProjectStats, error) {
 	if singleDocument[coll] {
 		return p.projectOne(ctx, coll, enc, sel)
@@ -409,7 +410,67 @@ func (p *Projector) project(ctx context.Context, coll string, enc encoder, sel s
 	}); err != nil {
 		return ProjectStats{}, err
 	}
-	return p.write(ctx, coll, docs)
+	st, err := p.write(ctx, coll, docs)
+	if err != nil {
+		return st, err
+	}
+	n, err := p.deleteAbsentAfterWrite(ctx, coll, sel, docs)
+	st.Deleted += n
+	return st, err
+}
+
+// absentAfterWrite, per collection, lists among ids the rows whose document must not exist by now, as document paths:
+// the broadcasts voided since they were encoded. A projection encodes, commits, then writes Firestore, and
+// firestore.shadow runs handlers side by side (prefetch 4), so the handler of a send can encode the row before its
+// void commits and write the document after the void's handler found nothing to delete (its Get came first); a void is
+// final, so no later event would correct it. Re-reading the rows after the write closes that: when the void commits
+// before the re-read, this handler deletes the document; when it commits after it, broadcast.voided is appended after
+// this write returned, so the void's handler finds the document and deletes it. Whichever writes last leaves no
+// document behind (main spec §13.8 as built T48; the holidays have projectDeletable).
+var absentAfterWrite = map[string]func(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) ([]string, error){
+	"broadcasts": voidedBroadcastDocs,
+}
+
+// deleteAbsentAfterWrite runs the collection's absentAfterWrite over the rows of sel whose documents write may have
+// written (not skipped, not absent already, a valid path) and deletes those documents; it reports how many it deleted.
+// An All projection pages through ids (Project), so sel.ids names the rows of every batch.
+func (p *Projector) deleteAbsentAfterWrite(ctx context.Context, coll string, sel selection, docs []ExportDoc) (int, error) {
+	after := absentAfterWrite[coll]
+	if after == nil || len(sel.ids) == 0 {
+		return 0, nil
+	}
+	written := map[string]bool{}
+	for _, d := range docs {
+		if d.Skip == "" && !d.Absent && validDocPath(d.Path) {
+			written[d.Path] = true
+		}
+	}
+	if len(written) == 0 {
+		return 0, nil
+	}
+	var paths []string
+	if err := p.Tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		paths, err = after(ctx, tx, sel.ids)
+		return err
+	}); err != nil {
+		return 0, fmt.Errorf("etl: project %s: re-read: %w", coll, err)
+	}
+	n := 0
+	for _, path := range paths {
+		if !written[path] {
+			continue
+		}
+		deleted, err := deleteAbsent(ctx, p.FS, path)
+		if err != nil {
+			return n, err
+		}
+		if deleted {
+			n++
+			p.Log.Info().Str("path", path).Msg("firestore.shadow: deleted the document of a row voided while it was projected")
+		}
+	}
+	return n, nil
 }
 
 // projectOne projects a one-document collection (singleDocument: the version gate settings/mobile_app, the distance
@@ -568,7 +629,7 @@ func (d ExportDoc) Diff(cur map[string]any) (map[string]any, []string) {
 		want, has := d.Fields[f]
 		c, curHas := cur[f]
 		if m := d.Merge[f]; m != nil {
-			want = m(c)
+			want = m(c, cur)
 			has = want != nil
 		}
 		var same bool
@@ -788,7 +849,7 @@ type docBuilder struct{ d ExportDoc }
 
 func newDoc(path string) *docBuilder {
 	return &docBuilder{d: ExportDoc{Path: path, Fields: map[string]any{}, Equiv: map[string]func(any, bool) bool{},
-		Merge: map[string]func(any) any{}}}
+		Merge: map[string]func(any, map[string]any) any{}}}
 }
 
 // set adds field to the mask with value v (nil, a nil pointer or a blank string: the field is empty and deleted).

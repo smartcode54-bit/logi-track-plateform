@@ -179,7 +179,7 @@ func (h handlers) markRead(c fiber.Ctx) error {
 	if len(c.Queries()) > 0 {
 		return httpx.ErrBadRequest("this route takes no query parameter")
 	}
-	out, err := h.s.MarkRead(c.Context(), p, ref)
+	out, err := h.s.MarkRead(c.Context(), p, httpx.RequestIDFrom(c), ref)
 	if err != nil {
 		return err
 	}
