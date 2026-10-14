@@ -16,8 +16,9 @@
  *   node scripts/bundle-report.mjs --check                 # fail on a forbidden library or a
  *                                                          # locale dictionary in initial JS, a
  *                                                          # split namespace in a base dictionary chunk,
- *                                                          # or a banned package (Firebase, TW7) in
- *                                                          # any client chunk, lazy ones included
+ *                                                          # or a banned package (Firebase, TW7; the
+ *                                                          # browser document stack, F87) in any
+ *                                                          # client chunk, lazy ones included
  *   node scripts/bundle-report.mjs --check --baseline bundle-budget.json [--max-growth 5]
  *                                                          # also fail when a route's initial gzip
  *                                                          # grows more than 5% over the baseline
@@ -42,10 +43,6 @@ import { pathToFileURL } from "url";
  */
 export const FORBIDDEN_INITIAL_PACKAGES = [
     "xlsx",
-    "xlsx-js-style",
-    "jspdf",
-    "jspdf-autotable",
-    "bahttext",
     "jszip",
     "fullcalendar",
     "@fullcalendar/",
@@ -62,11 +59,18 @@ export const FORBIDDEN_INITIAL_PACKAGES = [
 export const BANNED_PACKAGES = ["firebase", "@firebase/"];
 
 /**
+ * The browser document stack, also banned from every client chunk (F87, issue #87; R69, Appendix E
+ * §E.7 row 15): Go renders the statement PDFs, the detail sheet, the ZIP and the Shopee report, and
+ * the web no longer depends on these packages.
+ */
+export const DOCUMENT_STACK_PACKAGES = ["jspdf", "jspdf-autotable", "xlsx-js-style", "bahttext"];
+
+/**
  * True when `pkg` is banned from the client bundle (exact name, or inside a banned scope).
  * @param {string} pkg
  */
 export function isBannedPackage(pkg) {
-    return BANNED_PACKAGES.some((f) => (f.endsWith("/") ? pkg.startsWith(f) : pkg === f));
+    return [...BANNED_PACKAGES, ...DOCUMENT_STACK_PACKAGES].some((f) => (f.endsWith("/") ? pkg.startsWith(f) : pkg === f));
 }
 
 /** Default allowed growth of a route's initial gzip size over the committed baseline, in percent. */
@@ -263,7 +267,11 @@ export function buildReport(clientChunks) {
 export function gateViolations(report, baseline, maxGrowthPercent = DEFAULT_MAX_GROWTH_PERCENT) {
     const problems = [];
     for (const [label, pkgs] of Object.entries(report.bannedChunks ?? {})) {
-        problems.push(`${label}: ${Object.keys(pkgs).join(", ")} in a client chunk (the web holds no Firebase SDK, TW7)`);
+        const names = Object.keys(pkgs);
+        const why = names.every((n) => DOCUMENT_STACK_PACKAGES.includes(n))
+            ? "documents render in Go, F87"
+            : "the web holds no Firebase SDK, TW7";
+        problems.push(`${label}: ${names.join(", ")} in a client chunk (${why})`);
     }
     for (const [label, c] of Object.entries(report.localeChunks ?? {})) {
         for (const lang of new Set(c.files.map((f) => f.split("/")[0]))) {
