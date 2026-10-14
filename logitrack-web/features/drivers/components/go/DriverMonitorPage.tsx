@@ -13,13 +13,13 @@
  * loads the next page. SSE `trip.*`, `standby.*`, `incident.created` and `task.*` refresh it through the 2 s window.
  * The export pages through the same route with its cursor and loads xlsx on the click.
  */
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { differenceInCalendarDays, endOfMonth, format, parseISO, startOfMonth, subDays } from "date-fns";
 import { enUS, th as thLocale } from "date-fns/locale";
-import { AlertTriangle, ChevronDown, Download, Loader2, Package, PackageCheck, RefreshCw, Search, Truck, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Download, Loader2, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
@@ -30,9 +30,12 @@ import { cn } from "@/lib/utils";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { Label } from "@/components/ui/label";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useMe } from "@/features/auth/api/useMe";
+import { navigationProfileOf, profileRouteLabelKey } from "@/features/auth/utils/navigationProfile";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -53,6 +56,7 @@ import {
     type MonitorFilter,
     type MonitorRowDTO,
 } from "../../api/monitor.go";
+import { MonitorTripSummary } from "./MonitorTripSummary";
 import { JOB_TYPE_COLOR, STATUS_COLOR } from "./monitorStyles";
 
 const TripDetailDialog = dynamic(() => import("./TripDetailDialog").then((m) => m.TripDetailDialog), { ssr: false });
@@ -60,7 +64,7 @@ const MonitorExportDialog = dynamic(() => import("./MonitorExportDialog").then((
 
 const dayKey = (d: Date) => format(d, "yyyy-MM-dd");
 const col = createColumnHelper<MonitorRowDTO>();
-const HEAD = "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
+const HEAD = "text-sm font-medium text-foreground";
 
 /** The monitor's maximum table height, px (the page scrolls the table, not the window). */
 export const MONITOR_TABLE_MAX_HEIGHT = 640;
@@ -80,6 +84,13 @@ export function DriverMonitorPage() {
 
 function Monitor() {
     const { t, language } = useLanguage();
+    const { data: me } = useMe();
+    const profile = navigationProfileOf(me);
+    const compact = useIsMobile() && profile !== "staff";
+    const title = t(profileRouteLabelKey("/app/driver-monitor", profile) ?? "nav.driverMonitor");
+    const id = useId();
+    const [summaryOpen, setSummaryOpen] = useState(false);
+    const [filtersOpen, setFiltersOpen] = useState(false);
     const dateLocale = language === "th" ? thLocale : enUS;
     const [filter, setFilter] = useState<MonitorFilter>(() => {
         const r = defaultRange();
@@ -119,7 +130,14 @@ function Monitor() {
     const exportTotal = active === 0 ? (facets?.total ?? null) : !list.hasNextPage && !list.isPending ? rows.length : null;
 
     const columns = useMemo(
-        () => [
+        () => compact ? [
+            col.display({
+                id: "summary",
+                header: () => title,
+                cell: ({ row: { original } }) => <MonitorTripSummary row={original} onOpen={setDetail} />,
+                meta: { headerClassName: HEAD, cellClassName: "whitespace-normal p-3 align-top" },
+            }),
+        ] : [
             col.accessor("tripNo", { header: () => t("driverMonitor.table.tripId"), cell: (c) => <span className="font-mono text-xs">{c.getValue()}</span>, meta: { headerClassName: HEAD } }),
             col.accessor("checkInAt", { header: () => t("driverMonitor.table.checkInAt"), cell: (c) => formatDateTime(c.getValue()), meta: { headerClassName: HEAD, cellClassName: "text-sm text-muted-foreground" } }),
             col.accessor("createdAt", { header: () => t("driverMonitor.table.depart"), cell: (c) => formatDateTime(c.getValue()), meta: { headerClassName: HEAD, cellClassName: "text-sm text-muted-foreground" } }),
@@ -137,7 +155,7 @@ function Monitor() {
             col.accessor("jobType", {
                 header: () => t("driverMonitor.table.jobType"),
                 cell: (c) => (
-                    <Badge variant="secondary" className={cn("border font-medium", JOB_TYPE_COLOR[c.getValue()] ?? "bg-gray-500/10 text-gray-500")}>
+                    <Badge variant="secondary" className={cn("border font-medium", JOB_TYPE_COLOR[c.getValue()] ?? "bg-muted text-foreground border-border")}>
                         {jobTypeLabel(c.getValue())}
                     </Badge>
                 ),
@@ -156,15 +174,15 @@ function Monitor() {
                     r.stops?.length > 0 ? (
                         <Collapsible>
                             <CollapsibleTrigger onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-200">
+                                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium text-foreground hover:bg-accent">
                                 {t("taskBoard.stops", { count: r.stops.length })}
                                 <ChevronDown className="h-3 w-3" />
                             </CollapsibleTrigger>
                             <CollapsibleContent className="mt-2 w-max space-y-1">
                                 {r.stops.map((s) => (
                                     <Badge key={s.index} variant="outline"
-                                        className={cn("block text-xs font-medium", s.status === "delivered" ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 bg-gray-50 text-gray-600")}>
-                                        {s.status === "delivered" ? "✓" : "◯"} {placeLabel(s.place)}
+                                        className={cn("block text-xs font-medium", s.status === "delivered" ? "border-success/25 bg-success/10 text-success" : "border-border bg-muted text-muted-foreground")}>
+                                        {placeLabel(s.place)}{s.status === "delivered" ? ` · ${t("driverMonitor.status.delivered")}` : ""}
                                     </Badge>
                                 ))}
                             </CollapsibleContent>
@@ -182,7 +200,7 @@ function Monitor() {
                 cell: ({ row: { original: r } }) => (
                     <div className="flex items-center gap-1">
                         <Badge variant="outline" className={cn("font-medium", STATUS_COLOR[r.status])}>{t(`driverMonitor.status.${r.status}`)}</Badge>
-                        {r.incidentCount > 0 && r.status !== "incident" ? <AlertTriangle className="h-4 w-4 text-red-500" aria-label={t("driverMonitor.status.incident")} /> : null}
+                        {r.incidentCount > 0 && r.status !== "incident" ? <AlertTriangle className="h-4 w-4 text-destructive" aria-label={t("driverMonitor.status.incident")} /> : null}
                     </div>
                 ),
                 meta: { headerClassName: HEAD },
@@ -195,124 +213,186 @@ function Monitor() {
             }),
         ],
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the labels follow the language only
-        [t]
+        [compact, t, title]
+    );
+
+    const dateLabelId = `${id}-range-label`;
+    const dateButtonId = `${id}-range`;
+    const dateValueId = `${dateButtonId}-value`;
+    const rangeHint = (
+        <p className={cn("max-w-xl text-xs", rangeNote ? "text-warning" : "text-muted-foreground")}>
+            {t("driverMonitor.filter.maxRangeHint", { days: MONITOR_MAX_DAYS })}
+        </p>
+    );
+    const dateControl = (
+        <div className={cn("flex gap-2", compact ? "flex-col" : "flex-wrap items-center")}>
+            <Label id={dateLabelId} htmlFor={dateButtonId}>{t("driverMonitor.filter.dateRange")}</Label>
+            <DateRangePicker id={dateButtonId} aria-labelledby={`${dateLabelId} ${dateValueId}`} from={parseISO(filter.from)} to={parseISO(filter.to)} onChange={setRange} locale={dateLocale}
+                className={compact ? "h-11 w-full" : "w-[230px]"} numberOfMonths={compact ? 1 : 2}
+                calendarClassName={compact ? "p-2 [--cell-size:--spacing(11)]" : undefined}
+                calendarClassNames={compact ? { month: "flex w-full flex-col gap-2", week: "mt-0 flex w-full" } : undefined} />
+        </div>
+    );
+    const statusControl = (
+        <Select value={filter.status} onValueChange={(v) => set("status", v)}>
+            <SelectTrigger id={`${id}-status`} aria-label={t("driverMonitor.filter.status")} className={compact ? "h-11 w-full min-w-0" : "h-9 w-[180px]"}>
+                <SelectValue placeholder={t("driverMonitor.filter.allStatuses")} />
+            </SelectTrigger>
+            <SelectContent className={compact ? "[&_[role=option]]:min-h-11" : undefined}>
+                <SelectItem value={MONITOR_ALL}>{t("driverMonitor.filter.allStatuses")}</SelectItem>
+                {TRIP_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                        {t(`driverMonitor.status.${s}`)}{facets ? ` (${s === "incident" ? facets.incident : count(s)})` : ""}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
+    const actions = (
+        <>
+            <Button variant="outline" size={compact ? "icon" : "sm"} className={compact ? "size-11 shrink-0" : undefined}
+                onClick={() => setExportOpen(true)} aria-label={t("driverMonitor.export.open")}>
+                <Download className={cn("h-4 w-4", !compact && "mr-2")} aria-hidden />
+                {!compact ? t("driverMonitor.export.open") : null}
+            </Button>
+            <Button variant="outline" size="icon" className={compact ? "size-11 shrink-0" : undefined}
+                onClick={() => void list.refetch()} aria-label={t("driverMonitor.refresh")}>
+                <RefreshCw className={cn("h-4 w-4", list.isFetching && "animate-spin")} aria-hidden />
+            </Button>
+        </>
     );
 
     return (
-        <div className="flex flex-col gap-section">
+        <div className={cn("flex min-w-0 flex-col", compact ? "gap-3" : "gap-section")}>
             <PageHeader
-                title={t("nav.driverMonitor")}
-                description={t("driverMonitor.subtitle")}
-                actions={
-                    <>
-                        <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
-                            <Download className="mr-2 h-4 w-4" aria-hidden />
-                            {t("driverMonitor.export.open")}
-                        </Button>
-                        <Button variant="outline" size="icon" onClick={() => void list.refetch()} aria-label={t("driverMonitor.refresh")}>
-                            <RefreshCw className={cn("h-4 w-4", list.isFetching && "animate-spin")} aria-hidden />
-                        </Button>
-                    </>
-                }
+                title={title}
+                description={compact ? undefined : t(profile === "staff" ? "driverMonitor.subtitle" : "driverMonitor.scopedSubtitle")}
+                actions={compact ? undefined : actions}
             />
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Stat label={t("driverMonitor.stats.totalTrips")} value={facets?.total} icon={<Package className="h-6 w-6" />} tone="bg-blue-100 text-blue-500 dark:bg-blue-900/30" />
-                <Stat label={t("driverMonitor.stats.inTransit")} value={facets ? count("in_transit") : undefined} icon={<Truck className="h-5 w-5" />} tone="bg-amber-100 text-amber-500 dark:bg-amber-900/30" />
-                <Stat label={t("driverMonitor.stats.delivered")} value={facets ? count("delivered") : undefined} icon={<PackageCheck className="h-5 w-5" />} tone="bg-emerald-100 text-emerald-500 dark:bg-emerald-900/30" />
-                <Stat label={t("driverMonitor.status.incident")} value={facets?.incident} icon={<AlertTriangle className="h-5 w-5" />} tone="bg-red-100 text-red-500 dark:bg-red-900/30" />
-            </div>
-
-            <div className="flex flex-col flex-wrap gap-4 rounded-lg border border-border/50 bg-card/50 p-4 sm:flex-row">
-                <div className="flex gap-2 border-b border-border/50 pb-4 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-4">
-                    {[MONITOR_ALL, "first_mile", "line_haul"].map((j) => (
-                        <Button key={j} variant={filter.jobType === j ? "secondary" : "ghost"} size="sm" className="whitespace-nowrap" onClick={() => set("jobType", j)}>
-                            {j === MONITOR_ALL ? t("driverMonitor.jobType.all") : jobTypeLabel(j)}
-                        </Button>
-                    ))}
-                </div>
-                <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="whitespace-nowrap text-xs text-muted-foreground">{t("driverMonitor.filter.dateRange")}</span>
-                        <DateRangePicker from={parseISO(filter.from)} to={parseISO(filter.to)} onChange={setRange} locale={dateLocale} className="w-[230px]" />
-                        <Button type="button" variant="secondary" size="sm" onClick={() => setFilter((prev) => ({ ...prev, ...defaultRange() }))}>
-                            {t("driverMonitor.filter.presetLastDays", { days: MONITOR_DEFAULT_DAYS })}
-                        </Button>
-                        <Button type="button" variant="outline" size="sm"
-                            onClick={() => setFilter((prev) => ({ ...prev, from: dayKey(startOfMonth(new Date())), to: dayKey(endOfMonth(new Date())) }))}>
-                            {t("driverMonitor.filter.presetThisMonth")}
-                        </Button>
+            {compact ? (
+                <div className="space-y-3">
+                    {dateControl}
+                    {rangeHint}
+                    <div className="space-y-2">
+                        <Label htmlFor={`${id}-status`}>{t("driverMonitor.filter.status")}</Label>
+                        <div className="flex min-w-0 items-center gap-2">
+                            <div className="min-w-0 flex-1">{statusControl}</div>
+                            <Button variant="outline" size="icon" className="size-11 shrink-0" aria-label={t("driverMonitor.filtersActive", { count: active })}
+                                aria-expanded={filtersOpen} aria-controls={`${id}-filters`} onClick={() => setFiltersOpen((open) => !open)}>
+                                <SlidersHorizontal className="size-4" aria-hidden />
+                            </Button>
+                            {actions}
+                        </div>
                     </div>
-                    <p className={cn("max-w-xl text-[11px]", rangeNote ? "text-amber-700" : "text-muted-foreground")}>
-                        {t("driverMonitor.filter.maxRangeHint", { days: MONITOR_MAX_DAYS })}
-                    </p>
                 </div>
-                <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverMonitor.filter.allDrivers")}
-                    clearLabel={t("driverMonitor.filter.allDrivers")} className="h-9 w-[200px]" />
-                <Select value={filter.status} onValueChange={(v) => set("status", v)}>
-                    <SelectTrigger className="h-9 w-[180px]">
-                        <SelectValue placeholder={t("driverMonitor.filter.allStatuses")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value={MONITOR_ALL}>{t("driverMonitor.filter.allStatuses")}</SelectItem>
-                        {TRIP_STATUSES.map((s) => (
-                            <SelectItem key={s} value={s}>
-                                {t(`driverMonitor.status.${s}`)}{facets ? ` (${s === "incident" ? facets.incident : count(s)})` : ""}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <Select value={filter.partner} onValueChange={(v) => set("partner", v)}>
-                    <SelectTrigger className="h-9 w-[200px]">
-                        <SelectValue placeholder={t("driverMonitor.filter.partnerChannel")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value={MONITOR_ALL}>{t("driverMonitor.filter.allPartnerChannels")}</SelectItem>
-                        {(facets?.partners ?? []).map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                                {o.value === FILTER_NONE ? t("driverMonitor.filter.partnerNotSpecified") : o.label} ({o.count})
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <PlateFilterCombobox options={facets?.plates ?? []} value={filter.plate} onChange={(v) => set("plate", v)} keyPrefix="driverMonitor.filter" className="w-[200px]" />
-                <Select value={filter.vehicleClass} onValueChange={(v) => set("vehicleClass", v)}>
-                    <SelectTrigger className="h-9 w-[200px]">
-                        <SelectValue placeholder={t("driverMonitor.filter.vehicleClass")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value={MONITOR_ALL}>{t("driverMonitor.filter.allVehicleClasses")}</SelectItem>
-                        {(facets?.vehicleClasses ?? []).map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                                {o.value === FILTER_NONE ? t("driverMonitor.filter.vehicleClassNotSpecified") : o.label} ({o.count})
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <PlaceFilterCombobox kind="origin" options={facets?.origins ?? []} value={filter.origin} onChange={(v) => set("origin", v)} keyPrefix="driverMonitor.filter" className="w-[200px]" />
-                <PlaceFilterCombobox kind="destination" options={facets?.destinations ?? []} value={filter.destination} onChange={(v) => set("destination", v)}
-                    keyPrefix="driverMonitor.filter" className="w-[200px]" />
-                <div className="relative min-w-[200px] flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input placeholder={t("driverMonitor.filter.searchDriver")} className="h-9 border-border/50 bg-background/50 pl-10" value={search}
-                        onChange={(e) => setSearch(e.target.value)} />
-                </div>
-                {active > 0 ? (
-                    <Button variant="ghost" size="sm" onClick={clearAll} className="h-9 whitespace-nowrap text-muted-foreground">
-                        <X className="mr-1.5 h-4 w-4" />
-                        {t("driverMonitor.filter.clearAll", { count: active })}
-                    </Button>
+            ) : null}
+
+            <Collapsible open={!compact || summaryOpen} onOpenChange={setSummaryOpen}>
+                {compact ? (
+                    <CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-3 text-sm font-medium">
+                        {t("driverMonitor.summary")}
+                        <ChevronDown className={cn("size-4 shrink-0", summaryOpen && "rotate-180")} aria-hidden />
+                    </CollapsibleTrigger>
                 ) : null}
-            </div>
+                <CollapsibleContent>
+                    <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4", compact && "mt-3 grid-cols-2 gap-3")}>
+                        <Stat label={t("driverMonitor.stats.totalTrips")} value={facets?.total} />
+                        <Stat label={t("driverMonitor.stats.inTransit")} value={facets ? count("in_transit") : undefined} />
+                        <Stat label={t("driverMonitor.stats.delivered")} value={facets ? count("delivered") : undefined} />
+                        <Stat label={t("driverMonitor.status.incident")} value={facets?.incident} />
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
+
+            <Collapsible open={!compact || filtersOpen} onOpenChange={setFiltersOpen}>
+                {compact ? (
+                    <CollapsibleTrigger aria-controls={`${id}-filters`} className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-3 text-sm font-medium">
+                        <span>{t("driverMonitor.moreFilters")}</span>
+                        <span className="flex items-center gap-2">
+                            {active > 0 ? <Badge variant="secondary">{t("driverMonitor.filtersActive", { count: active })}</Badge> : null}
+                            <ChevronDown className={cn("size-4 shrink-0", filtersOpen && "rotate-180")} aria-hidden />
+                        </span>
+                    </CollapsibleTrigger>
+                ) : null}
+                <CollapsibleContent id={`${id}-filters`}>
+                    <div className={cn("flex flex-col flex-wrap gap-4 rounded-lg border bg-card p-4 sm:flex-row", compact && "mt-3 [&_button]:min-h-11 [&_button]:min-w-11 [&_input]:h-11 [&_button[role=combobox]]:w-full [&>div]:max-w-full")}>
+                        <div className="flex gap-2 border-b border-border/50 pb-4 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-4">
+                            {[MONITOR_ALL, "first_mile", "line_haul"].map((j) => (
+                                <Button key={j} variant={filter.jobType === j ? "secondary" : "ghost"} size="sm" className="whitespace-nowrap" onClick={() => set("jobType", j)}>
+                                    {j === MONITOR_ALL ? t("driverMonitor.jobType.all") : jobTypeLabel(j)}
+                                </Button>
+                            ))}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {!compact ? dateControl : null}
+                                <Button type="button" variant="secondary" size="sm" onClick={() => setFilter((prev) => ({ ...prev, ...defaultRange() }))}>
+                                    {t("driverMonitor.filter.presetLastDays", { days: MONITOR_DEFAULT_DAYS })}
+                                </Button>
+                                <Button type="button" variant="outline" size="sm"
+                                    onClick={() => setFilter((prev) => ({ ...prev, from: dayKey(startOfMonth(new Date())), to: dayKey(endOfMonth(new Date())) }))}>
+                                    {t("driverMonitor.filter.presetThisMonth")}
+                                </Button>
+                            </div>
+                            {!compact ? rangeHint : null}
+                        </div>
+                        <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverMonitor.filter.allDrivers")}
+                            clearLabel={t("driverMonitor.filter.allDrivers")} className="h-9 w-[200px]" />
+                        {!compact ? statusControl : null}
+                        <Select value={filter.partner} onValueChange={(v) => set("partner", v)}>
+                            <SelectTrigger aria-label={t("driverMonitor.filter.partnerChannel")} className="h-9 w-[200px]">
+                                <SelectValue placeholder={t("driverMonitor.filter.partnerChannel")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value={MONITOR_ALL}>{t("driverMonitor.filter.allPartnerChannels")}</SelectItem>
+                                {(facets?.partners ?? []).map((o) => (
+                                    <SelectItem key={o.value} value={o.value}>
+                                        {o.value === FILTER_NONE ? t("driverMonitor.filter.partnerNotSpecified") : o.label} ({o.count})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <PlateFilterCombobox options={facets?.plates ?? []} value={filter.plate} onChange={(v) => set("plate", v)} keyPrefix="driverMonitor.filter" className="w-[200px]" />
+                        <Select value={filter.vehicleClass} onValueChange={(v) => set("vehicleClass", v)}>
+                            <SelectTrigger aria-label={t("driverMonitor.filter.vehicleClass")} className="h-9 w-[200px]">
+                                <SelectValue placeholder={t("driverMonitor.filter.vehicleClass")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value={MONITOR_ALL}>{t("driverMonitor.filter.allVehicleClasses")}</SelectItem>
+                                {(facets?.vehicleClasses ?? []).map((o) => (
+                                    <SelectItem key={o.value} value={o.value}>
+                                        {o.value === FILTER_NONE ? t("driverMonitor.filter.vehicleClassNotSpecified") : o.label} ({o.count})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <PlaceFilterCombobox kind="origin" options={facets?.origins ?? []} value={filter.origin} onChange={(v) => set("origin", v)} keyPrefix="driverMonitor.filter" className="w-[200px]" />
+                        <PlaceFilterCombobox kind="destination" options={facets?.destinations ?? []} value={filter.destination} onChange={(v) => set("destination", v)}
+                            keyPrefix="driverMonitor.filter" className="w-[200px]" />
+                        <div className="relative min-w-[200px] flex-1">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input aria-label={t("driverMonitor.filter.searchLabel")} placeholder={t("driverMonitor.filter.searchDriver")} className="h-9 border-border/50 bg-background/50 pl-10" value={search}
+                                onChange={(e) => setSearch(e.target.value)} />
+                        </div>
+                        {active > 0 ? (
+                            <Button variant="ghost" size="sm" onClick={clearAll} className="h-9 whitespace-nowrap text-muted-foreground">
+                                <X className="mr-1.5 h-4 w-4" />
+                                {t("driverMonitor.filter.clearAll", { count: active })}
+                            </Button>
+                        ) : null}
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
 
             <ApiErrorAlert error={list.error} />
 
-            <div className="overflow-hidden rounded-lg border bg-card">
+            <div className={cn("overflow-hidden rounded-lg border bg-card", compact && "[&_button]:min-h-11 [&_button]:min-w-11")}>
                 <VirtualTable
                     data={rows}
                     columns={columns}
                     getRowId={(r) => r.id}
-                    aria-label={t("driverMonitor.title")}
+                    aria-label={title}
                     infinite={list}
                     loading={list.isPending}
                     loadingState={
@@ -322,9 +402,12 @@ function Monitor() {
                         </span>
                     }
                     error={Boolean(list.error)}
+                    errorState={<Button variant="outline" className={compact ? "min-h-11" : undefined} onClick={() => void list.refetch()}>{t("shell.retry")}</Button>}
                     emptyState={<span className="block py-8 text-sm">{t("driverMonitor.table.noTrips")}</span>}
                     resetScrollKey={JSON.stringify(effective)}
-                    onRowClick={setDetail}
+                    onRowClick={compact ? undefined : setDetail}
+                    estimateRowHeight={compact ? 260 : undefined}
+                    className={compact ? "[&_table]:table-fixed" : undefined}
                     maxHeight={MONITOR_TABLE_MAX_HEIGHT}
                     headerRowClassName="border-b border-border/50 bg-muted/50"
                     rowClassName="border-b border-border/50 transition-colors hover:bg-muted/50"
@@ -339,16 +422,11 @@ function Monitor() {
     );
 }
 
-function Stat({ label, value, icon, tone }: { label: string; value: number | undefined; icon: React.ReactNode; tone: string }) {
+function Stat({ label, value }: { label: string; value: number | undefined }) {
     return (
-        <Card className="bg-card">
-            <CardContent className="flex items-center justify-between p-6">
-                <div>
-                    <p className="text-sm font-medium text-muted-foreground">{label}</p>
-                    <h2 className="mt-1 text-3xl font-bold">{value ?? "—"}</h2>
-                </div>
-                <div className={cn("flex h-12 w-12 items-center justify-center rounded-full", tone)}>{icon}</div>
-            </CardContent>
-        </Card>
+        <div className="rounded-xl border bg-card p-4">
+            <p className="text-sm font-medium text-muted-foreground">{label}</p>
+            <p className="mt-1 text-3xl font-semibold tabular-nums">{value ?? "—"}</p>
+        </div>
     );
 }

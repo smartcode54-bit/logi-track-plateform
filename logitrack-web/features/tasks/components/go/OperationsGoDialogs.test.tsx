@@ -103,9 +103,9 @@ function goHub(call: FakeCall) {
     return hub ? json(200, { data: hub }) : goErr(404, "not_found");
 }
 
-function setup(caps = ALL_CAPS) {
+function setup(caps = ALL_CAPS, principal = makeMe({ capabilities: caps })) {
     const web = fakeWeb();
-    web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities: caps }) }));
+    web.on("GET", "/api/go/v1/me", () => json(200, { data: principal }));
     web.on("GET", "/api/go/v1/hubs", goHubs);
     web.on("GET", /^\/api\/go\/v1\/hubs\/[^/]+$/, goHub);
     web.on("GET", "/api/go/v1/customers", () => json(200, { data: [{ id: "c1", billingPartyId: "p1", code: "CJSF", name: "CJ" }] }));
@@ -177,8 +177,9 @@ function monitorRow(i: number) {
     };
 }
 
-function monitorWeb(total: number) {
-    const web = setup();
+function monitorWeb(total: number, customer = false) {
+    const web = setup(ALL_CAPS, customer ? makeMe({ tenant: null, platformRoles: [], steward: false,
+        customerScopes: [{ billingPartyId: "p1", name: "Customer" }], capabilities: ALL_CAPS }) : undefined);
     const all = Array.from({ length: total }, (_, i) => monitorRow(i));
     web.on("GET", "/api/go/v1/trips/monitor", (c) => {
         const q = params(c.url);
@@ -194,7 +195,7 @@ function monitorWeb(total: number) {
 }
 
 describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
-    const viewport = () => screen.getByRole("region", { name: "Driver Job Monitor" });
+    const viewport = () => screen.getByRole("region", { name: "Driver monitor" });
     const domRows = () => viewport().querySelectorAll("tbody tr[data-index]");
 
     it("5,000 trips: scrolling pages to the last row while fewer than 100 rows are in the DOM; no revenue column", async () => {
@@ -224,8 +225,35 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
         expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/trips/monitor"))).toHaveLength(total / 200);
     }, 60_000);
 
-    it("the export shows the facets total only with no filter on (the facets count the range, not the filters)", async () => {
-        monitorWeb(412);
+    it("customer phone: the same 5,000 trips page through one summary column with fewer than 100 rows", async () => {
+        vi.stubGlobal("innerWidth", 375);
+        const restore = stubVirtualLayout({ viewport: 480, row: 260, width: 375 });
+        try {
+            const total = 5000;
+            const web = monitorWeb(total, true);
+            renderPage("/app/driver-monitor", <DriverMonitorPage />);
+            await screen.findByText("200 rows loaded");
+            const region = screen.getByRole("region", { name: "Your trips" });
+            expect(within(region).getAllByRole("columnheader")).toHaveLength(1);
+            expect(within(region).queryByText("Estimated revenue")).toBeNull();
+            let maxRows = 0;
+            for (let loaded = 200; loaded <= total; loaded += 200) {
+                await screen.findByText(`${loaded} rows loaded`);
+                maxRows = Math.max(maxRows, region.querySelectorAll("tbody tr[data-index]").length);
+                scrollViewport(region, "end", 260, loaded);
+            }
+            expect(screen.getByRole("button", { name: "View trip SPXTH-4999 and evidence" })).toBeInTheDocument();
+            expect(maxRows).toBeGreaterThan(0);
+            expect(maxRows).toBeLessThan(100);
+            expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/trips/monitor"))).toHaveLength(total / 200);
+        } finally {
+            restore();
+        }
+    }, 60_000);
+
+    it.each([false, true])("the export shows the facets total only with no filter on (customer phone: %s)", async (customer) => {
+        if (customer) vi.stubGlobal("innerWidth", 375);
+        monitorWeb(412, customer);
         renderPage("/app/driver-monitor", <DriverMonitorPage />);
         expect(await screen.findByText("200 rows loaded")).toBeInTheDocument();
         const u = userEvent.setup();
@@ -234,10 +262,11 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
         await u.keyboard("{Escape}");
         await waitFor(() => expect(screen.queryByText("412 trips match these filters.")).toBeNull());
         // A filter on (first mile), more pages to load: no up-front number (it would be the unfiltered range).
+        if (customer) await u.click(screen.getByRole("button", { name: "More filters" }));
         await u.click(screen.getByRole("button", { name: "First Mile" }));
         await waitFor(() => expect(screen.getByRole("button", { name: /Clear/ })).toBeInTheDocument());
         await u.click(screen.getByRole("button", { name: /^Export$/ }));
-        expect(await screen.findByText("Export")).toBeInTheDocument();
+        expect(await screen.findByRole("dialog", { name: "Export trips" })).toBeInTheDocument();
         expect(screen.queryByText(/trips match these filters/)).toBeNull();
     });
 });

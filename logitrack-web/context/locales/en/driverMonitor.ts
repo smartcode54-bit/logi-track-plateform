@@ -4,6 +4,14 @@ export default {
     "driverMonitor.subtitle": "Real-time monitoring of driver trips and task progress",
     "driverMonitor.refresh": "Refresh",
 
+    "driverMonitor.scopedSubtitle": "Trips and delivery evidence in your scope.",
+    "driverMonitor.summary": "Trip summary",
+    "driverMonitor.moreFilters": "More filters",
+    "driverMonitor.filtersActive": "Filters ({count})",
+    "driverMonitor.filter.searchLabel": "Search trips",
+    "driverMonitor.openTrip": "View trip {tripNo} and evidence",
+    "driverMonitor.photoCount": "{count} photos",
+
     // Stats Cards
     "driverMonitor.stats.totalTrips": "Total Trips",
     "driverMonitor.stats.inTransit": "In Transit",
