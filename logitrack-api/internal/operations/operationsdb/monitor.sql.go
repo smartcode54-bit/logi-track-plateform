@@ -174,73 +174,68 @@ SELECT t.id, t.legacy_doc_id, t.tenant_id, t.tenant_source, t.trip_no, t.status,
        tk.license_plate_snapshot AS task_plate, tk.truck_type AS task_vehicle_class,
        d.full_name_th AS driver_full_name_th, d.first_name AS driver_first_name, d.last_name AS driver_last_name,
        (SELECT count(*) FROM incident_reports i WHERE i.trip_id = t.id)::int AS incident_count,
-       (SELECT count(*) FROM trip_photos ph WHERE ph.trip_id = t.id)::int AS photo_count,
-       s.estimate_thb AS price_estimate_thb, s.unpriced_reason AS price_unpriced_reason,
-       s.manual_override AS price_manual_override, s.job_category_at_pricing AS price_job_category,
-       s.is_multi_delivery AS price_is_multi_delivery, s.computed_at AS price_computed_at
+       (SELECT count(*) FROM trip_photos ph WHERE ph.trip_id = t.id)::int AS photo_count
 FROM trip_records t
 LEFT JOIN tasks tk ON tk.id = t.task_id
 LEFT JOIN drivers d ON d.id = t.driver_id
-LEFT JOIN trip_billing_snapshots s ON $1::boolean AND s.trip_id = t.id
-WHERE ($2::boolean OR t.tenant_id = ANY ($3::uuid[]))
-  AND t.created_at >= $4::timestamptz AND t.created_at < $5::timestamptz
-  AND ($6::text[] IS NULL OR t.status = ANY ($6::text[])
-       OR ($7::boolean AND EXISTS (SELECT 1 FROM incident_reports i WHERE i.trip_id = t.id)))
-  AND ($8::text IS NULL OR t.job_type = $8::text)
-  AND ($9::uuid IS NULL OR t.driver_id = $9::uuid)
-  AND ($10::uuid IS NULL OR t.billing_party_id = $10::uuid)
-  AND ($11::text IS NULL OR btrim(t.partner_code, $12::text) = $11::text)
-  AND (NOT $13::boolean OR coalesce(btrim(t.partner_code, $12::text), '') = '')
-  AND ($14::uuid IS NULL OR coalesce(t.truck_id, tk.truck_id) = $14::uuid)
-  AND ($15::text IS NULL
+WHERE ($1::boolean OR t.tenant_id = ANY ($2::uuid[]))
+  AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
+  AND ($5::text[] IS NULL OR t.status = ANY ($5::text[])
+       OR ($6::boolean AND EXISTS (SELECT 1 FROM incident_reports i WHERE i.trip_id = t.id)))
+  AND ($7::text IS NULL OR t.job_type = $7::text)
+  AND ($8::uuid IS NULL OR t.driver_id = $8::uuid)
+  AND ($9::uuid IS NULL OR t.billing_party_id = $9::uuid)
+  AND ($10::text IS NULL OR btrim(t.partner_code, $11::text) = $10::text)
+  AND (NOT $12::boolean OR coalesce(btrim(t.partner_code, $11::text), '') = '')
+  AND ($13::uuid IS NULL OR coalesce(t.truck_id, tk.truck_id) = $13::uuid)
+  AND ($14::text IS NULL
        OR (coalesce(t.truck_id, tk.truck_id) IS NULL
-           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, $12::text), ''), nullif(btrim(tk.license_plate_snapshot, $12::text), ''))
-               = $15::text))
-  AND (NOT $16::boolean
+           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, $11::text), ''), nullif(btrim(tk.license_plate_snapshot, $11::text), ''))
+               = $14::text))
+  AND (NOT $15::boolean
        OR (coalesce(t.truck_id, tk.truck_id) IS NULL
-           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, $12::text), ''), nullif(btrim(tk.license_plate_snapshot, $12::text), '')) IS NULL))
-  AND ($17::text IS NULL OR coalesce(t.vehicle_class, tk.truck_type) = $17::text)
-  AND (NOT $18::boolean OR coalesce(t.vehicle_class, tk.truck_type) IS NULL)
-  AND (NOT $19::boolean
-       OR t.origin_hub_id = ANY ($20::uuid[])
+           AND coalesce(nullif(btrim(t.truck_license_plate_snapshot, $11::text), ''), nullif(btrim(tk.license_plate_snapshot, $11::text), '')) IS NULL))
+  AND ($16::text IS NULL OR coalesce(t.vehicle_class, tk.truck_type) = $16::text)
+  AND (NOT $17::boolean OR coalesce(t.vehicle_class, tk.truck_type) IS NULL)
+  AND (NOT $18::boolean
+       OR t.origin_hub_id = ANY ($19::uuid[])
        OR (t.origin_hub_id IS NULL
-           AND CASE WHEN upper(btrim(t.origin_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])' THEN left(upper(btrim(t.origin_raw, $12::text)), 4) END
-               = $21::text)
-       OR (t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-           AND btrim(t.origin_raw, $12::text) = $22::text)
-       OR ($23::boolean AND t.origin_hub_id IS NULL AND coalesce(btrim(t.origin_raw, $12::text), '') = ''))
-  AND (NOT $24::boolean
+           AND CASE WHEN upper(btrim(t.origin_raw, $11::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])' THEN left(upper(btrim(t.origin_raw, $11::text)), 4) END
+               = $20::text)
+       OR (t.origin_hub_id IS NULL AND upper(btrim(t.origin_raw, $11::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+           AND btrim(t.origin_raw, $11::text) = $21::text)
+       OR ($22::boolean AND t.origin_hub_id IS NULL AND coalesce(btrim(t.origin_raw, $11::text), '') = ''))
+  AND (NOT $23::boolean
        OR EXISTS (SELECT 1 FROM trip_delivery_stops st WHERE st.trip_id = t.id
-                  AND (st.destination_hub_id = ANY ($25::uuid[])
+                  AND (st.destination_hub_id = ANY ($24::uuid[])
                        OR (st.destination_hub_id IS NULL
-                           AND CASE WHEN upper(btrim(st.destination_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                                    THEN left(upper(btrim(st.destination_raw, $12::text)), 4) END = $26::text)
-                       OR (st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                           AND btrim(st.destination_raw, $12::text) = $27::text)
-                       OR ($28::boolean AND st.destination_hub_id IS NULL
-                           AND btrim(st.destination_raw, $12::text) = '')))
+                           AND CASE WHEN upper(btrim(st.destination_raw, $11::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                                    THEN left(upper(btrim(st.destination_raw, $11::text)), 4) END = $25::text)
+                       OR (st.destination_hub_id IS NULL AND upper(btrim(st.destination_raw, $11::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                           AND btrim(st.destination_raw, $11::text) = $26::text)
+                       OR ($27::boolean AND st.destination_hub_id IS NULL
+                           AND btrim(st.destination_raw, $11::text) = '')))
        OR (NOT EXISTS (SELECT 1 FROM trip_delivery_stops st WHERE st.trip_id = t.id)
-           AND (t.destination_hub_id = ANY ($25::uuid[])
+           AND (t.destination_hub_id = ANY ($24::uuid[])
                 OR (t.destination_hub_id IS NULL
                     AND coalesce(t.destination_soc_key,
-                                 CASE WHEN upper(btrim(t.destination_raw, $12::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                                      THEN left(upper(btrim(t.destination_raw, $12::text)), 4) END) = $26::text)
+                                 CASE WHEN upper(btrim(t.destination_raw, $11::text)) ~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                                      THEN left(upper(btrim(t.destination_raw, $11::text)), 4) END) = $25::text)
                 OR (t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
-                    AND upper(btrim(t.destination_raw, $12::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
-                    AND btrim(t.destination_raw, $12::text) = $27::text)
-                OR ($28::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
-                    AND coalesce(btrim(t.destination_raw, $12::text), '') = ''))))
-  AND ($29::text IS NULL
+                    AND upper(btrim(t.destination_raw, $11::text)) !~ '^(SOCE|SOCN|SOCW)($|[ (])'
+                    AND btrim(t.destination_raw, $11::text) = $26::text)
+                OR ($27::boolean AND t.destination_hub_id IS NULL AND t.destination_soc_key IS NULL
+                    AND coalesce(btrim(t.destination_raw, $11::text), '') = ''))))
+  AND ($28::text IS NULL
        OR strpos(lower(concat_ws(' ', t.trip_no, tk.task_no, d.full_name_th, d.first_name, d.last_name)),
-                 lower($29::text)) > 0)
-  AND ($30::timestamptz IS NULL
-       OR (t.created_at, t.id) < ($30::timestamptz, $31::uuid))
+                 lower($28::text)) > 0)
+  AND ($29::timestamptz IS NULL
+       OR (t.created_at, t.id) < ($29::timestamptz, $30::uuid))
 ORDER BY t.created_at DESC, t.id DESC
-LIMIT $32
+LIMIT $31
 `
 
 type MonitorTripsParams struct {
-	WithPrice        bool
 	AllTenants       bool
 	TenantIds        []uuid.UUID
 	FromAt           time.Time
@@ -275,34 +270,30 @@ type MonitorTripsParams struct {
 }
 
 type MonitorTripsRow struct {
-	TripRecord           TripRecord
-	TaskNo               *string
-	TaskStatus           *string
-	TaskCheckInAt        *time.Time
-	TaskRunOrder         *int32
-	TaskPlanAt           *time.Time
-	TaskTruckID          *uuid.UUID
-	TaskPlate            *string
-	TaskVehicleClass     *string
-	DriverFullNameTh     *string
-	DriverFirstName      *string
-	DriverLastName       *string
-	IncidentCount        int32
-	PhotoCount           int32
-	PriceEstimateThb     *float64
-	PriceUnpricedReason  *string
-	PriceManualOverride  *bool
-	PriceJobCategory     *string
-	PriceIsMultiDelivery *bool
-	PriceComputedAt      *time.Time
+	TripRecord       TripRecord
+	TaskNo           *string
+	TaskStatus       *string
+	TaskCheckInAt    *time.Time
+	TaskRunOrder     *int32
+	TaskPlanAt       *time.Time
+	TaskTruckID      *uuid.UUID
+	TaskPlate        *string
+	TaskVehicleClass *string
+	DriverFullNameTh *string
+	DriverFirstName  *string
+	DriverLastName   *string
+	IncidentCount    int32
+	PhotoCount       int32
 }
 
 // The driver monitor (GET /v1/trips/monitor, T30, W8; main spec §5.4) and the read joins of the T30 lists: one paged
 // server join of trip_records with its task (check-in, ADR 0001; the assigned round; the task's truck), the driver's
-// Thai name, the incident and photo counts and, for accounting:view_income, the stored price preview
-// (trip_billing_snapshots, never computed on read), replacing useDriverMonitor.ts:443-840 (an unbounded trips listener, three capped side
-// listeners, a rate-card fan-out and per-row pricing calls). Staff only: a dispatcher or a customer-scope principal
-// reads the same page from the projections (internal/scope/repo/scope_monitor.sql), with the same keys.
+// Thai name and the incident and photo counts, replacing useDriverMonitor.ts:443-840 (an unbounded trips listener,
+// three capped side listeners, a rate-card fan-out and per-row pricing calls). The price of a row (accounting:view_income)
+// is not joined here: internal/operations/monitor.go reads it in the same transaction from billing.TripBillingOf, the
+// one billing projection of a trip (GET /v1/trips and the trip detail read it too, F59). Staff only: a dispatcher or a
+// customer-scope principal reads the same page from the projections (internal/scope/repo/scope_monitor.sql), with the
+// same keys.
 //
 // Filter keys (ADR 0005, ADR 0006; internal/operations/monitor.go maps the API values to these arguments):
 //
@@ -323,13 +314,12 @@ type MonitorTripsRow struct {
 // 'Bangna\t' would be listed under one key and filtered under another. The text inside is kept verbatim (control
 // characters included): an option is the stored value, and the filter takes it back as it was listed.
 // Indexes: trip_records_tenant_created (trip_records_created under X-Act-On-Tenant: *) for the page and the options,
-// tasks_pkey, drivers_pkey, trip_billing_snapshots_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
+// tasks_pkey, drivers_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
 // trip_delivery_stops (trip_id, stop_index).
 // One keyset page (created_at, id), newest first; from / to bound created_at, [from, to). statuses with
 // incident_status: the legacy "incident" status filter also matches a trip that has an incident report.
 func (q *Queries) MonitorTrips(ctx context.Context, arg MonitorTripsParams) ([]MonitorTripsRow, error) {
 	rows, err := q.db.Query(ctx, monitorTrips,
-		arg.WithPrice,
 		arg.AllTenants,
 		arg.TenantIds,
 		arg.FromAt,
@@ -436,12 +426,6 @@ func (q *Queries) MonitorTrips(ctx context.Context, arg MonitorTripsParams) ([]M
 			&i.DriverLastName,
 			&i.IncidentCount,
 			&i.PhotoCount,
-			&i.PriceEstimateThb,
-			&i.PriceUnpricedReason,
-			&i.PriceManualOverride,
-			&i.PriceJobCategory,
-			&i.PriceIsMultiDelivery,
-			&i.PriceComputedAt,
 		); err != nil {
 			return nil, err
 		}

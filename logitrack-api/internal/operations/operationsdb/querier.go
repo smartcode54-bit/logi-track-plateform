@@ -206,10 +206,12 @@ type Querier interface {
 	MonitorFacets(ctx context.Context, arg MonitorFacetsParams) ([]MonitorFacetsRow, error)
 	// The driver monitor (GET /v1/trips/monitor, T30, W8; main spec §5.4) and the read joins of the T30 lists: one paged
 	// server join of trip_records with its task (check-in, ADR 0001; the assigned round; the task's truck), the driver's
-	// Thai name, the incident and photo counts and, for accounting:view_income, the stored price preview
-	// (trip_billing_snapshots, never computed on read), replacing useDriverMonitor.ts:443-840 (an unbounded trips listener, three capped side
-	// listeners, a rate-card fan-out and per-row pricing calls). Staff only: a dispatcher or a customer-scope principal
-	// reads the same page from the projections (internal/scope/repo/scope_monitor.sql), with the same keys.
+	// Thai name and the incident and photo counts, replacing useDriverMonitor.ts:443-840 (an unbounded trips listener,
+	// three capped side listeners, a rate-card fan-out and per-row pricing calls). The price of a row (accounting:view_income)
+	// is not joined here: internal/operations/monitor.go reads it in the same transaction from billing.TripBillingOf, the
+	// one billing projection of a trip (GET /v1/trips and the trip detail read it too, F59). Staff only: a dispatcher or a
+	// customer-scope principal reads the same page from the projections (internal/scope/repo/scope_monitor.sql), with the
+	// same keys.
 	//
 	// Filter keys (ADR 0005, ADR 0006; internal/operations/monitor.go maps the API values to these arguments):
 	//   plate         the truck is coalesce(trip.truck_id, task.truck_id) (never drivers.active_truck_*, ADR 0005 §6); a row
@@ -228,7 +230,7 @@ type Querier interface {
 	// 'Bangna\t' would be listed under one key and filtered under another. The text inside is kept verbatim (control
 	// characters included): an option is the stored value, and the filter takes it back as it was listed.
 	// Indexes: trip_records_tenant_created (trip_records_created under X-Act-On-Tenant: *) for the page and the options,
-	// tasks_pkey, drivers_pkey, trip_billing_snapshots_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
+	// tasks_pkey, drivers_pkey, incident_reports_trip, trip_photos (trip_id, photo_type),
 	// trip_delivery_stops (trip_id, stop_index).
 	// One keyset page (created_at, id), newest first; from / to bound created_at, [from, to). statuses with
 	// incident_status: the legacy "incident" status filter also matches a trip that has an incident report.

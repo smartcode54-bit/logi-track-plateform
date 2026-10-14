@@ -84,8 +84,9 @@ type TripBilling struct {
 	BillingAxisDate *string `json:"billingAxisDate"`
 }
 
-// PricePreview is the stored price of a trip as the monitor row carries it (trip_billing_snapshots, joined by
-// MonitorTrips): written by the billing service only (main spec §6.10), never computed on read.
+// PricePreview is the stored price of a trip as the monitor row carries it: a subset of billing.TripBillingOf's
+// projection (the one billing projection of a trip, F59; GET /v1/trips and the trip detail carry the whole of it),
+// written by the billing service only (main spec §6.10), never computed on read.
 type PricePreview struct {
 	EstimateThb          *float64  `json:"estimateThb"`
 	UnpricedReason       *string   `json:"unpricedReason"`
@@ -93,6 +94,16 @@ type PricePreview struct {
 	JobCategoryAtPricing *string   `json:"jobCategoryAtPricing"`
 	IsMultiDelivery      bool      `json:"isMultiDelivery"`
 	ComputedAt           time.Time `json:"computedAt"`
+}
+
+// pricePreview is the monitor's view of a trip's billing projection: nil before pricing (no snapshot the caller may
+// read, R61).
+func pricePreview(b billing.TripBilling) *PricePreview {
+	if b.ComputedAt == nil {
+		return nil
+	}
+	return &PricePreview{EstimateThb: b.EstimateTHB, UnpricedReason: b.UnpricedReason, ManualOverride: b.ManualOverride,
+		JobCategoryAtPricing: b.JobCategoryAtPricing, IsMultiDelivery: b.IsMultiDelivery, ComputedAt: *b.ComputedAt}
 }
 
 // TripStopRow is one stop of a trip's progress (multi-drop).
