@@ -284,7 +284,7 @@ export default function SourcesMap({ sources, selectedSourceId = null, onSourceS
                 key={mapId}
                 center={center}
                 zoom={pointsWithCoords.length <= 1 ? 12 : 10}
-                style={{ height: "100%", width: "100%" }}
+                className="h-full w-full"
                 scrollWheelZoom
                 dragging
             >

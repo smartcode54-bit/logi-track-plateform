@@ -127,11 +127,11 @@ export function FleetMapClient({ vehicles, incidentTruckIds, incidentPlates }: F
             <button
                 type="button"
                 onClick={fit}
-                className="absolute right-2 top-2 z-[1000] inline-flex items-center gap-1 rounded bg-background/90 px-2 py-1 text-xs font-medium text-primary shadow hover:bg-muted"
+                className="absolute right-2 top-2 z-raised inline-flex items-center gap-1 rounded bg-background/90 px-2 py-1 text-xs font-medium text-primary shadow hover:bg-muted"
             >
                 {t("dashboard.vehicleMap.centerAll")}
             </button>
-            <div ref={containerRef} style={{ height: "100%", width: "100%" }} className="relative h-full w-full overflow-hidden z-0" />
+            <div ref={containerRef} className="relative h-full w-full overflow-hidden z-0" />
         </div>
     );
 }

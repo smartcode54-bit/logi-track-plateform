@@ -3,8 +3,9 @@ import { Geist, Geist_Mono, Sarabun } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
-// Two families (developer-spec.md §10.11): Geist (sans + mono) for Latin text, Sarabun for Thai.
-// The body uses `font-display` (app/globals.css): Geist first, Sarabun for the glyphs Geist lacks.
+// One sans pairing and one mono (developer-spec.md §10.11, DESIGN.md): Geist for Latin, Sarabun for Thai,
+// Geist Mono for codes and figures. The variables sit on <html>, so `--font-sans` (app/globals.css: Geist
+// first, Sarabun for the glyphs Geist lacks) resolves everywhere, portals included.
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -36,30 +37,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body
-        suppressHydrationWarning
-        className={`${geistSans.variable} ${geistMono.variable} ${sarabun.variable} antialiased font-display`}
-      >
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  const theme = localStorage.getItem('theme');
-                  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                  const shouldBeDark = theme === 'dark' || (!theme && prefersDark);
-                  if (shouldBeDark) {
-                    document.documentElement.classList.add('dark');
-                  } else {
-                    document.documentElement.classList.remove('dark');
-                  }
-                } catch (e) {}
-              })();
-            `,
-          }}
-        />
-        {/* TanStack Query, language, auth over ['me'], the session stream, toasts (developer-spec.md §10.6). */}
+    // next-themes (app/providers.tsx) sets the `dark` class before paint, hence suppressHydrationWarning.
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} ${sarabun.variable}`}
+      suppressHydrationWarning
+    >
+      <body suppressHydrationWarning>
+        {/* Theme, TanStack Query, language, auth over ['me'], the session stream, toasts (developer-spec.md §10.6). */}
         <Providers>{children}</Providers>
       </body>
     </html>

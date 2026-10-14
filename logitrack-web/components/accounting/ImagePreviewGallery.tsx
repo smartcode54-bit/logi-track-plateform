@@ -112,7 +112,7 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
             {fullScreenIndex != null && (
                 <div
                     ref={containerRef}
-                    className="fixed inset-0 z-50 bg-black/95 flex flex-col"
+                    className="fixed inset-0 z-modal bg-black/95 flex flex-col"
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseLeave}
@@ -155,9 +155,8 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                         )}
 
                         <div
-                            className="w-full h-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing"
+                            className="w-full h-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing touch-none"
                             onMouseDown={handleMouseDown}
-                            style={{ touchAction: "none" }}
                         >
                             <div
                                 className="flex items-center justify-center"
@@ -172,7 +171,6 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                                     alt={currentLabel}
                                     className="max-w-[90vw] max-h-[85vh] w-auto h-auto object-contain select-none pointer-events-none"
                                     draggable={false}
-                                    style={{ maxHeight: "85vh" }}
                                 />
                             </div>
                         </div>

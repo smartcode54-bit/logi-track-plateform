@@ -19,7 +19,7 @@ export function BroadcastVoidConfirmDialog({ open, onOpenChange, onConfirm, load
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
-                className="z-[1003] sm:max-w-md"
+                className="sm:max-w-md"
                 onPointerDownOutside={(e) => loading && e.preventDefault()}
                 onEscapeKeyDown={(e) => loading && e.preventDefault()}
             >

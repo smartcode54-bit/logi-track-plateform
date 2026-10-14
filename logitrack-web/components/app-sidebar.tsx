@@ -175,7 +175,7 @@ export function AppSidebar() {
     return (
         <Sidebar
             collapsible="icon"
-            className="border-r-0 !z-40"
+            className="border-r-0"
         >
             <SidebarHeader>
                 <SidebarMenu>

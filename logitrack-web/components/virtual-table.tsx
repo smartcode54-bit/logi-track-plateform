@@ -191,7 +191,7 @@ export function VirtualTable<TData>({
         >
             {/* The header row counts; -1 while more pages exist (the total is not known yet, WAI-ARIA). */}
             <table data-slot="table" className="w-full caption-bottom text-sm" aria-rowcount={hasNextPage ? -1 : rows.length + 1}>
-                <TableHeader className={cn("sticky top-0 z-10 bg-card", headerClassName)}>
+                <TableHeader className={cn("sticky top-0 z-raised bg-card", headerClassName)}>
                     {table.getHeaderGroups().map((group) => (
                         <TableRow key={group.id} aria-rowindex={1} className={headerRowClassName}>
                             {group.headers.map((header) => (

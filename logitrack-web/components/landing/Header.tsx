@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
+import { useTheme } from "next-themes";
+import { useHydrated } from "@/hooks/useHydrated";
 import { Moon, Sun } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { LoginModal } from "./LoginModal";
@@ -9,32 +11,15 @@ import { cn } from "@/lib/utils";
 
 export function Header() {
     const { language, setLanguage, t } = useLanguage();
-    const [mounted, setMounted] = useState(false);
-    const [isDark, setIsDark] = useState(false);
-
-    // Handle hydration mismatch
-    useEffect(() => {
-        setMounted(true);
-        // Check initial theme
-        const isDarkMode = document.documentElement.classList.contains("dark");
-        setIsDark(isDarkMode);
-    }, []);
-
-    const toggleTheme = () => {
-        if (document.documentElement.classList.contains("dark")) {
-            document.documentElement.classList.remove("dark");
-            localStorage.setItem("theme", "light");
-            setIsDark(false);
-        } else {
-            document.documentElement.classList.add("dark");
-            localStorage.setItem("theme", "dark");
-            setIsDark(true);
-        }
-    };
+    // The theme lives in next-themes (app/providers.tsx, UI1); the controls render once hydrated.
+    const { resolvedTheme, setTheme } = useTheme();
+    const mounted = useHydrated();
+    const isDark = resolvedTheme === "dark";
+    const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
     if (!mounted) {
         return (
-            <header className="sticky top-0 z-50 w-full border-b border-solid border-slate-200 dark:border-[#283039] bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 md:px-10 lg:px-40 py-3">
+            <header className="sticky top-0 z-sticky w-full border-b border-solid border-border bg-background px-4 md:px-10 lg:px-40 py-3">
                 <div className="mx-auto flex max-w-[1280px] items-center justify-between whitespace-nowrap">
                     <div className="flex items-center gap-3">
                         <h2 className="text-slate-900 dark:text-white text-xl font-bold leading-tight tracking-tight">Logi-Track</h2>
@@ -45,7 +30,7 @@ export function Header() {
     }
 
     return (
-        <header className="sticky top-0 z-50 w-full border-b border-solid border-slate-200 dark:border-[#283039] bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-4 md:px-10 lg:px-40 py-3">
+        <header className="sticky top-0 z-sticky w-full border-b border-solid border-border bg-background px-4 md:px-10 lg:px-40 py-3">
             <div className="mx-auto flex max-w-[1280px] items-center justify-between whitespace-nowrap">
                 <div className="flex items-center gap-3">
                     <div className="text-primary size-8">
@@ -105,7 +90,7 @@ export function Header() {
                             className={cn(
                                 "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all",
                                 language === "en"
-                                    ? "bg-primary text-white"
+                                    ? "bg-primary text-primary-foreground"
                                     : "text-slate-500 dark:text-slate-400 hover:text-primary"
                             )}
                         >
@@ -116,7 +101,7 @@ export function Header() {
                             className={cn(
                                 "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all",
                                 language === "th"
-                                    ? "bg-primary text-white"
+                                    ? "bg-primary text-primary-foreground"
                                     : "text-slate-500 dark:text-slate-400 hover:text-primary"
                             )}
                         >
@@ -132,7 +117,7 @@ export function Header() {
                     </button>
 
                     <LoginModal>
-                        <button className="hidden sm:flex min-w-[120px] cursor-pointer items-center justify-center rounded-lg h-10 px-4 bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all">
+                        <button className="hidden sm:flex min-w-[120px] cursor-pointer items-center justify-center rounded-lg h-10 px-4 bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-all">
                             {t("nav.login") || "Log In"}
                         </button>
                     </LoginModal>

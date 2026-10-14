@@ -9,7 +9,7 @@ import { HONEYPOT_FIELD } from "@/lib/publicForms";
  */
 export function HoneypotField({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
     return (
-        <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", top: "auto", width: 1, height: 1, overflow: "hidden" }}>
+        <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
             <label htmlFor={id}>Website</label>
             <input id={id} name={HONEYPOT_FIELD} type="text" tabIndex={-1} autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} />
         </div>

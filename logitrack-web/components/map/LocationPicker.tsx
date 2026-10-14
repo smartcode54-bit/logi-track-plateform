@@ -99,7 +99,7 @@ export default function LocationPicker({ value, onChange }: LocationPickerProps)
                 key={mapId}
                 center={value || defaultCenter}
                 zoom={10}
-                style={{ height: "100%", width: "100%" }}
+                className="h-full w-full"
             >
                 <style jsx global>{`
                     .leaflet-control-geosearch form input {
