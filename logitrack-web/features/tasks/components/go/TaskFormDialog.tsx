@@ -2,7 +2,8 @@
 
 /**
  * The task form over Go (T34): create, edit (re-assign) and duplicate of a first-mile or line-haul task. Mounted
- * on open only; its pickers are the cached Go hub master (`['hubs',{view:'go'}]`), the customer list
+ * on open only; its pickers are server searches of the hubs and SOCs (`HubSelect`: a page per term, each value
+ * labelled by a single-record lookup, UI2B), the customer list
  * (`['customers',{fields:'minimal'}]`, which carries each customer's billing party) and server searches for the
  * truck, driver and helper. The task number, the run order, the truck's class and plate snapshot, the hub-derived
  * customer links and the assignment push are the server's (`POST /v1/tasks`, `PATCH /v1/tasks/{id}`; Appendix B
@@ -38,7 +39,8 @@ import {
     type TaskPatch,
     type TaskType,
 } from "../../api/tasks.go";
-import { fromLocalInput, HubCombobox, toLocalInput, useGoHubs, WriteErrorAlert } from "./opsShared";
+import { HubSelect } from "@/components/entity-pickers";
+import { fromLocalInput, toLocalInput, WriteErrorAlert } from "./opsShared";
 
 export type TaskFormMode = "create" | "edit" | "duplicate";
 
@@ -123,7 +125,6 @@ export function TaskFormDialog({
     onClose: () => void;
 }) {
     const { t } = useLanguage();
-    const hubs = useGoHubs();
     const customers = useCustomerPicks();
     const maps = useMemo(() => customerMaps(customers.list), [customers.list]);
     const customerOfParty = (p: string | null | undefined) => (p ? (maps.byParty.get(p)?.id ?? "") : "");
@@ -257,12 +258,12 @@ export function TaskFormDialog({
                         <Input id="task-pickup" type="datetime-local" value={v.actualPickupAt} onChange={(e) => set("actualPickupAt", e.target.value)} />
                     </Field>
                     <Field label={t("firstMile.task.sourceHub")}>
-                        <HubCombobox hubs={hubs.list} value={v.sourceHub} prefer={fm ? "hub" : "soc"} placeholder={t("firstMile.task.selectHub")}
-                            onChange={(code, h) => pickPlace("sourceHub", code, h?.linkedPartyId)} />
+                        <HubSelect value={v.sourceHub} prefer={fm ? "HUB" : "SOC"} placeholder={t("firstMile.task.selectHub")} className="w-full"
+                            aria-label={t("firstMile.task.sourceHub")} onHubChange={(code, h) => pickPlace("sourceHub", code, h?.linkedPartyId)} />
                     </Field>
                     <Field label={t("firstMile.task.destination")}>
-                        <HubCombobox hubs={hubs.list} value={v.destination} prefer={fm ? "soc" : "hub"} placeholder={t("firstMile.task.selectSOC")}
-                            onChange={(code, h) => pickPlace("destination", code, h?.linkedPartyId)} />
+                        <HubSelect value={v.destination} prefer={fm ? "SOC" : "HUB"} placeholder={t("firstMile.task.selectSOC")} className="w-full"
+                            aria-label={t("firstMile.task.destination")} onHubChange={(code, h) => pickPlace("destination", code, h?.linkedPartyId)} />
                     </Field>
                     <Field label={t("firstMile.task.customer")}>
                         <CustomerSelect value={v.customerId} onChange={(id) => set("customerId", id)} customers={customers.list} placeholder={t("firstMile.task.selectCustomer")} />
@@ -319,8 +320,9 @@ export function TaskFormDialog({
                             {v.stops.map((s, i) => (
                                 <div key={i} className="flex items-center gap-2">
                                     <span className="w-16 text-xs text-muted-foreground">{t("firstMile.task.stopIndex")} {i + 1}</span>
-                                    <HubCombobox hubs={hubs.list} value={s} prefer={fm ? "soc" : "hub"} placeholder={t("firstMile.task.stopDestination")} className="flex-1"
-                                        onChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
+                                    <HubSelect value={s} prefer={fm ? "SOC" : "HUB"} placeholder={t("firstMile.task.stopDestination")} className="w-full flex-1"
+                                        aria-label={t("firstMile.task.stopIndex", { index: i + 1 })}
+                                        onValueChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
                                     {i === 0 && s.trim().toUpperCase() === v.destination.trim().toUpperCase() ? (
                                         <span className="text-xs text-muted-foreground">({t("firstMile.task.primaryDestination")})</span>
                                     ) : null}

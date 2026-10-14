@@ -45,7 +45,9 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { LineNotifyActions } from "@/features/line/components/go/LineNotifyActions";
 import { patchTask, taskDetailQuery } from "@/features/tasks/api/tasks.go";
-import { fromLocalInput, HubCombobox, isSocStation, toLocalInput, useGoHubs, WriteErrorAlert } from "@/features/tasks/components/go/opsShared";
+import { HubSelect, useHubByCode } from "@/components/entity-pickers";
+import { isSocStation } from "@/features/accounting/api/pickers.go";
+import { fromLocalInput, toLocalInput, WriteErrorAlert } from "@/features/tasks/components/go/opsShared";
 import {
     bulkCancelTrips,
     cancelTrip,
@@ -110,7 +112,6 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
     const canTasks = useCan("operations:manage_tasks").allowed;
     const { data: me } = useMe();
     const tenantAdmin = me?.tenant?.role === "tenant_admin" || (me?.platformRoles ?? []).includes("platform_admin");
-    const hubs = useGoHubs();
     const task = useQuery(taskDetailQuery(trip.taskId ?? "", Boolean(trip.taskId)));
 
     const [sealCode, setSealCode] = useState(trip.sealCode ?? "");
@@ -135,7 +136,8 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
     }, [task.data, helperTouched]);
 
     const photoByType = useMemo(() => new Map(trip.photos.map((p) => [p.type, p])), [trip.photos]);
-    const originHub = hubs.byCode.get(origin.trim().toUpperCase());
+    // The origin's station type gives the job type: the origin picker's own lookup (`GET /v1/hubs/{code}`, one cache entry).
+    const originHub = useHubByCode(origin).data ?? undefined;
     const derivedJobType = originHub ? (isSocStation(originHub) ? "line_haul" : "first_mile") : /^SOC[ENW]/i.test(origin.trim()) ? "line_haul" : null;
     const delivered = trip.status === "delivered";
     const open = trip.status === "in_transit" || trip.status === "incident";
@@ -260,12 +262,13 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                         <h3 className="text-sm font-semibold">{t("driverMonitor.editTrip.routeSection")}</h3>
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Field label={t("driverMonitor.detail.origin")}>
-                                <HubCombobox hubs={hubs.list} value={origin} onChange={(code) => setOrigin(code)} placeholder={t("driverMonitor.editTrip.selectOrigin")}
-                                    disabled={routeLocked} />
+                                <HubSelect value={origin} prefer="HUB" onValueChange={(code) => setOrigin(code)} placeholder={t("driverMonitor.editTrip.selectOrigin")}
+                                    className="w-full" aria-label={t("driverMonitor.detail.origin")} disabled={routeLocked} />
                             </Field>
                             <Field label={t("driverMonitor.detail.destination")}>
-                                <HubCombobox hubs={hubs.list} value={destination} prefer="soc" onChange={(code) => setDestination(code)}
-                                    placeholder={t("driverMonitor.editTrip.selectDestination")} disabled={routeLocked} />
+                                <HubSelect value={destination} prefer="SOC" onValueChange={(code) => setDestination(code)} className="w-full"
+                                    aria-label={t("driverMonitor.detail.destination")} placeholder={t("driverMonitor.editTrip.selectDestination")}
+                                    disabled={routeLocked} />
                             </Field>
                         </div>
                         {routeLocked ? <p className="text-xs text-muted-foreground">{t("driverMonitor.editTrip.routeNeedsTaskPermission")}</p> : null}
@@ -315,8 +318,9 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                                     </span>
                                 ) : (
                                     <>
-                                        <HubCombobox hubs={hubs.list} value={s.destination} prefer="soc" className="flex-1" placeholder={t("driverMonitor.editTrip.selectDestination")}
-                                            disabled={routeLocked} onChange={(code) => setStops((prev) => prev.map((x, j) => (j === i ? { ...x, destination: code } : x)))} />
+                                        <HubSelect value={s.destination} prefer="SOC" className="w-full flex-1" placeholder={t("driverMonitor.editTrip.selectDestination")}
+                                            aria-label={t("driverMonitor.editTrip.stopN", { n: i + 1 })} disabled={routeLocked}
+                                            onValueChange={(code) => setStops((prev) => prev.map((x, j) => (j === i ? { ...x, destination: code } : x)))} />
                                         <Button type="button" variant="ghost" size="icon" aria-label={t("driverMonitor.editTrip.removeStop")} disabled={routeLocked}
                                             onClick={() => setStops((prev) => prev.filter((_, j) => j !== i))}>
                                             <Trash2 className="h-4 w-4 text-destructive" />

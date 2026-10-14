@@ -29,8 +29,9 @@ const (
 // Groups are the routes of T21 on the internal listener behind requireAuth (auth.Service.RequireAuth, which resolves
 // the principal through iam.RBAC.Authorize). s may be nil while the route table is only listed.
 //
-//	GET   /v1/hubs                                   authenticated (?stationType&q; ETag)
+//	GET   /v1/hubs                                   authenticated (?stationType&q; ETag; ?limit&cursor: one keyset page)
 //	GET   /v1/hubs/maps                              authenticated (ETag)
+//	GET   /v1/hubs/{id}                              authenticated (a uuid or a code; ETag)
 //	POST  /v1/hubs                                   operations:manage_sources (a steward key, R60)
 //	POST  /v1/hubs/import                            operations:manage_sources
 //	PATCH /v1/hubs/{id}                              operations:manage_sources
@@ -44,7 +45,8 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	return []ingress.Group{
 		{Prefix: HubsPrefix, Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, h.list)
-			r.Get("/maps", requireAuth, h.maps)
+			r.Get("/maps", requireAuth, h.maps) // before /:id, which would take "maps" for a code
+			r.Get("/:id", requireAuth, h.lookup)
 			r.Post("", requireAuth, need(authz.OperationsManageSources), h.create)
 			r.Post("/import", requireAuth, need(authz.OperationsManageSources), h.importHubs)
 			r.Patch("/:id", requireAuth, need(authz.OperationsManageSources), h.patch)
@@ -80,12 +82,14 @@ func onlyQuery(c fiber.Ctx, allowed ...string) error {
 	return nil
 }
 
-// cached writes {"data": v} with a strong ETag of the body and answers 304 to a matching If-None-Match (master-data
-// reads, Appendix B §B.1.5 "Caching headers"). The client revalidates every time (no-cache).
-func cached(c fiber.Ctx, v any) error {
+// cached writes {"data": v} (and the nextCursor of a keyset page, when there is a next page) with a strong ETag of the
+// body and answers 304 to a matching If-None-Match (master-data reads, Appendix B §B.1.5 "Caching headers"). The
+// client revalidates every time (no-cache).
+func cached(c fiber.Ctx, v any, nextCursor string) error {
 	body, err := json.Marshal(struct {
-		Data any `json:"data"`
-	}{v})
+		Data       any    `json:"data"`
+		NextCursor string `json:"nextCursor,omitempty"`
+	}{v, nextCursor})
 	if err != nil {
 		return err
 	}
@@ -116,14 +120,46 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := onlyQuery(c, "stationType", "q"); err != nil {
+	if err := onlyQuery(c, "stationType", "q", "limit", "cursor"); err != nil {
 		return err
 	}
-	out, err := h.s.List(c.Context(), p, ListInput{StationType: c.Query("stationType"), Q: c.Query("q")})
+	// ?limit or ?cursor asks for one keyset page; neither keeps the whole master in one response (the maps, the
+	// distance matrix and the master-data pages read it so).
+	in := ListInput{StationType: c.Query("stationType"), Q: c.Query("q"), Cursor: c.Query("cursor")}
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n == 0 {
+			return httpx.ErrInvalidArgument(violation("limit", "out_of_range"))
+		}
+		in.Limit = n
+	}
+	in.Page = c.Query("limit") != "" || in.Cursor != ""
+	out, next, err := h.s.List(c.Context(), p, in)
 	if err != nil {
 		return err
 	}
-	return cached(c, out)
+	return cached(c, out, next)
+}
+
+// lookup is GET /v1/hubs/{id}: one hub by uuid or code (a picker's label of the value it holds).
+func (h handlers) lookup(c fiber.Ctx) error {
+	p, err := principal(c)
+	if err != nil {
+		return err
+	}
+	if err := onlyQuery(c); err != nil {
+		return err
+	}
+	// Path params stay percent-encoded (as in pair): decode them, so a code with a space or Thai text resolves.
+	ref, err := url.PathUnescape(c.Params("id"))
+	if err != nil {
+		return httpx.ErrNotFound()
+	}
+	out, err := h.s.Lookup(c.Context(), p, ref)
+	if err != nil {
+		return err
+	}
+	return cached(c, out, "")
 }
 
 func (h handlers) maps(c fiber.Ctx) error {
@@ -137,7 +173,7 @@ func (h handlers) maps(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return cached(c, out)
+	return cached(c, out, "")
 }
 
 func (h handlers) create(c fiber.Ctx) error {

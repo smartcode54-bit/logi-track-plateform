@@ -2,9 +2,11 @@
 
 /**
  * Pieces the Go operations pages share (T34): the capability gate (no query runs before `['me']` grants the
- * route), the hub and SOC picker over `['hubs',{view:'go'}]`, the status badges and the "load more" footer of a
- * keyset list. Nothing here imports Firebase, and nothing renders a key of a split namespace (`driverMonitor`,
- * `accounting`), so the standby and incident routes (outside the driver-monitor group) can use it.
+ * route), the hub master of the boards' source-hub filter (`['hubs',{view:'go'}]`), the status badges and the
+ * "load more" footer of a keyset list. The task and trip forms pick hubs with the server-searched `HubSelect`
+ * (`components/entity-pickers.tsx`, UI2B). Nothing here imports Firebase, and nothing renders a key of a split
+ * namespace (`driverMonitor`, `accounting`), so the standby and incident routes (outside the driver-monitor
+ * group) can use it.
  */
 import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -20,7 +22,6 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { SearchSelect, type SearchSelectOption } from "@/components/ui/search-select";
 
 import type { TaskStatus } from "../../api/tasks.go";
 
@@ -55,12 +56,14 @@ export function CapabilityGate({ capability, anyOf, children }: { capability: st
     return <>{children}</>;
 }
 
-/** Every hub and SOC from Go (`['hubs',{view:'go'}]`, 10 min; `hubs.changed` reaches it through `['hubs']`). */
+/**
+ * Every hub and SOC from Go (`['hubs',{view:'go'}]`: `GET /v1/hubs` without a page, 10 min; `hubs.changed` reaches it
+ * through `['hubs']`): the boards' source-hub filter lists the whole master (TW8). Pickers search a page instead.
+ */
 export function useGoHubs(enabled = true) {
     const q = useQuery({ ...hubPicksQuery, enabled });
     const list = useMemo(() => [...(q.data ?? [])].sort((a, b) => a.sourceId.localeCompare(b.sourceId)), [q.data]);
-    const byCode = useMemo(() => new Map(list.map((h) => [h.sourceId.toUpperCase(), h])), [list]);
-    return { ...q, list, byCode };
+    return { ...q, list };
 }
 
 /**
@@ -79,59 +82,6 @@ export function goHubFilterOptions(hubs: readonly HubPick[]): { value: string; l
         out.push({ value: code, label: th || en || code, searchText: [code, en, th].filter(Boolean).join(" ") });
     }
     return out;
-}
-
-export function isSocStation(h: Pick<HubPick, "stationType">): boolean {
-    return String(h.stationType ?? "").trim().toUpperCase().startsWith("SOC");
-}
-
-export function hubDisplay(h: Pick<HubPick, "sourceId" | "sourceNameTh" | "sourceNameEn">): string {
-    const name = h.sourceNameTh?.trim() || h.sourceNameEn?.trim();
-    return name && name !== h.sourceId ? `${h.sourceId} — ${name}` : h.sourceId;
-}
-
-interface HubComboboxProps {
-    hubs: HubPick[];
-    /** The hub or SOC code (the task's `sourceHub` / `destination`). */
-    value: string;
-    onChange: (code: string, hub: HubPick | null) => void;
-    /** Which stations come first: hubs (first-mile source, line-haul destination) or SOCs. */
-    prefer?: "hub" | "soc";
-    placeholder: string;
-    className?: string;
-    disabled?: boolean;
-    id?: string;
-}
-
-/**
- * A searchable hub / SOC picker over the Go hub master: every station, the preferred kind first, no slice (the
- * legacy dropdowns showed the first 50, TW8). A code that is not in the master (a legacy task) stays shown.
- * The shared searchable select (UI2): Thai / English search on the code and both names, virtualised when long.
- */
-export function HubCombobox({ hubs, value, onChange, prefer = "hub", placeholder, className, disabled, id }: HubComboboxProps) {
-    const options = useMemo<SearchSelectOption[]>(() => {
-        const first = hubs.filter((h) => (prefer === "soc" ? isSocStation(h) : !isSocStation(h)));
-        const rest = hubs.filter((h) => !first.includes(h));
-        return [...first, ...rest].map((h) => ({
-            value: h.sourceId,
-            label: hubDisplay(h),
-            keywords: [h.sourceNameEn ?? "", h.sourceNameTh ?? ""],
-            description: isSocStation(h) ? "SOC" : undefined,
-        }));
-    }, [hubs, prefer]);
-    const byCode = useMemo(() => new Map(hubs.map((h) => [h.sourceId, h])), [hubs]);
-    return (
-        <SearchSelect
-            id={id}
-            value={value}
-            onValueChange={(code) => onChange(code, byCode.get(code) ?? null)}
-            options={options}
-            searchable
-            placeholder={placeholder}
-            disabled={disabled}
-            className={cn("w-full", className)}
-        />
-    );
 }
 
 const TASK_STATUS_STYLE: Record<TaskStatus, string> = {

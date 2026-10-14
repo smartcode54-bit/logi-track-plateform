@@ -24,6 +24,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties/partiesdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db/pgtest"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security/securitydb"
 )
 
@@ -133,12 +134,20 @@ func checkPlanShapes(t *testing.T, s *stack) {
 	expID := id(`SELECT id FROM vehicle_expenses ORDER BY expense_at DESC, id DESC OFFSET 50 LIMIT 1`)
 	secAt := time.Now().Add(-24 * time.Hour)
 	pending, fuel, other := "pending", []string{"fuel"}, []string{"other"}
+	// A folded search (UI2B, search_fold of 0026): no index serves `search_fold(...) LIKE ALL (...)`, so a search keeps
+	// the keyset index of the plain list and filters the rows it walks (the masters are small; the page stops at LIMIT).
+	words, q := searchtext.LikePatterns("ส 1"), "ส 1"
 	const page = 51 // the default page of 50 plus the look-ahead row
 
 	shapes := []planShape{
 		// --- M1 master data
 		{"ListCustomers", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
 			_, err := partiesdb.New(x).ListCustomers(ctx, partiesdb.ListCustomersParams{PartyIds: []uuid.UUID{}, RowLimit: page})
+			return err
+		}, []string{"customers"}, []string{"customers_code", "customers_pkey"}},
+		{"ListCustomers search", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := partiesdb.New(x).ListCustomers(ctx, partiesdb.ListCustomersParams{QWords: words, PartyIds: []uuid.UUID{},
+				RowLimit: page})
 			return err
 		}, []string{"customers"}, []string{"customers_code", "customers_pkey"}},
 		{"ListDistances", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
@@ -153,8 +162,18 @@ func checkPlanShapes(t *testing.T, s *stack) {
 			_, err := fleetdb.New(x).ListTrucks(ctx, fleetdb.ListTrucksParams{TenantIds: reachOwn, RowLimit: page})
 			return err
 		}, []string{"trucks"}, []string{"trucks_tenant_created", "trucks_tenant_status"}},
+		{"ListTrucks own fleet search", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := fleetdb.New(x).ListTrucks(ctx, fleetdb.ListTrucksParams{TenantIds: reachOwn, QWords: words, Q: &q,
+				RowLimit: page})
+			return err
+		}, []string{"trucks"}, []string{"trucks_tenant_created", "trucks_tenant_status"}},
 		{"ListDrivers own fleet", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
 			_, err := driversdb.New(x).ListDrivers(ctx, driversdb.ListDriversParams{TenantIds: reachOwn, RowLimit: page})
+			return err
+		}, []string{"drivers"}, []string{"drivers_tenant_created", "drivers_tenant_status"}},
+		{"ListDrivers own fleet search", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := driversdb.New(x).ListDrivers(ctx, driversdb.ListDriversParams{TenantIds: reachOwn, QWords: words,
+				RowLimit: page})
 			return err
 		}, []string{"drivers"}, []string{"drivers_tenant_created", "drivers_tenant_status"}},
 		{"ListAssignments own fleet", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
@@ -182,6 +201,11 @@ func checkPlanShapes(t *testing.T, s *stack) {
 		}, []string{"users"}, []string{"users_created"}},
 		{"ListUsersByCreated own fleet", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
 			_, err := iamdb.New(x).ListUsersByCreated(ctx, iamdb.ListUsersByCreatedParams{TenantIds: reachOwn, RowLimit: page})
+			return err
+		}, []string{"users"}, []string{"users_created"}},
+		{"ListUsersByCreated search", all, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := iamdb.New(x).ListUsersByCreated(ctx, iamdb.ListUsersByCreatedParams{AllUsers: true,
+				TenantIds: []uuid.UUID{}, QWords: words, RowLimit: page})
 			return err
 		}, []string{"users"}, []string{"users_created"}},
 		{"ListAdminSessions", all, func(ctx context.Context, x *pgtest.Explainer) error {

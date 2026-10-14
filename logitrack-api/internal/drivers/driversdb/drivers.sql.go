@@ -17,12 +17,10 @@ SELECT d.status, count(*)::int AS n
 FROM drivers d
 WHERE ($1::boolean OR d.tenant_id = ANY ($2::uuid[]))
   AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)
-  AND ($4::text IS NULL
-       OR strpos(lower(coalesce(d.full_name_th, '')), lower($4::text)) > 0
-       OR strpos(lower(d.first_name || ' ' || d.last_name), lower($4::text)) > 0
-       OR strpos(lower(coalesce(d.truck_license_id, '')), lower($4::text)) > 0
-       OR strpos(lower(d.mobile), lower($4::text)) > 0
-       OR strpos(lower(coalesce(d.email::text, '')), lower($4::text)) > 0)
+  AND ($4::text[] IS NULL
+       OR search_fold(coalesce(d.full_name_th, '') || ' ' || coalesce(d.first_name, '') || ' ' || coalesce(d.last_name, '')
+                      || ' ' || coalesce(d.truck_license_id, '') || ' ' || coalesce(d.mobile, '') || ' '
+                      || coalesce(d.email::text, '')) LIKE ALL ($4::text[]))
 GROUP BY d.status
 ORDER BY d.status
 `
@@ -31,7 +29,7 @@ type CountDriversByStatusParams struct {
 	AllTenants bool
 	TenantIds  []uuid.UUID
 	TenantID   *uuid.UUID
-	Q          *string
+	QWords     []string
 }
 
 type CountDriversByStatusRow struct {
@@ -46,7 +44,7 @@ func (q *Queries) CountDriversByStatus(ctx context.Context, arg CountDriversBySt
 		arg.AllTenants,
 		arg.TenantIds,
 		arg.TenantID,
-		arg.Q,
+		arg.QWords,
 	)
 	if err != nil {
 		return nil, err
@@ -474,12 +472,10 @@ LEFT JOIN trucks tr ON tr.id = a.truck_id
 WHERE ($1::boolean OR d.tenant_id = ANY ($2::uuid[]))
   AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)
   AND ($4::text IS NULL OR d.status = $4::text)
-  AND ($5::text IS NULL
-       OR strpos(lower(coalesce(d.full_name_th, '')), lower($5::text)) > 0
-       OR strpos(lower(d.first_name || ' ' || d.last_name), lower($5::text)) > 0
-       OR strpos(lower(coalesce(d.truck_license_id, '')), lower($5::text)) > 0
-       OR strpos(lower(d.mobile), lower($5::text)) > 0
-       OR strpos(lower(coalesce(d.email::text, '')), lower($5::text)) > 0)
+  AND ($5::text[] IS NULL
+       OR search_fold(coalesce(d.full_name_th, '') || ' ' || coalesce(d.first_name, '') || ' ' || coalesce(d.last_name, '')
+                      || ' ' || coalesce(d.truck_license_id, '') || ' ' || coalesce(d.mobile, '') || ' '
+                      || coalesce(d.email::text, '')) LIKE ALL ($5::text[]))
   AND ($6::timestamptz IS NULL
        OR (d.created_at, d.id) < ($6::timestamptz, $7::uuid))
 ORDER BY d.created_at DESC, d.id DESC
@@ -491,7 +487,7 @@ type ListDriversParams struct {
 	TenantIds    []uuid.UUID
 	TenantID     *uuid.UUID
 	Status       *string
-	Q            *string
+	QWords       []string
 	AfterCreated *time.Time
 	AfterID      uuid.UUID
 	RowLimit     int32
@@ -521,16 +517,17 @@ type ListDriversRow struct {
 // check-in, cleared at the end of the trip, by the driver app), tasks.truck_id the truck of one job. Nothing here
 // writes either of the first two.
 // GET /v1/drivers, newest first; keyset (created_at, id). q matches the names, the licence number, the mobile and
-// the e-mail. The joins read under the caller's RLS: a tenant, assignment or truck the caller cannot see stays NULL.
-// assignment_status tells a home truck apart from a pointer at a revoked or cancelled row (loaded data), which the
-// payload does not show.
+// the e-mail, folded (search_fold, 0026): q_words are its folded words as LIKE patterns (searchtext.LikePatterns),
+// each somewhere in the row, in any order; NULL is no search. The joins read under the caller's RLS: a tenant,
+// assignment or truck the caller cannot see stays NULL. assignment_status tells a home truck apart from a pointer at
+// a revoked or cancelled row (loaded data), which the payload does not show.
 func (q *Queries) ListDrivers(ctx context.Context, arg ListDriversParams) ([]ListDriversRow, error) {
 	rows, err := q.db.Query(ctx, listDrivers,
 		arg.AllTenants,
 		arg.TenantIds,
 		arg.TenantID,
 		arg.Status,
-		arg.Q,
+		arg.QWords,
 		arg.AfterCreated,
 		arg.AfterID,
 		arg.RowLimit,
