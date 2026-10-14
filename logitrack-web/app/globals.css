@@ -40,6 +40,7 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-control-edge: var(--control-edge);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -115,6 +116,8 @@
   --accent-foreground: oklch(0.21 0.006 285.885);
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.871 0.006 286.286);
+  /* The outline of a checkbox or an unchecked switch track: 3:1 against paper and mist (WCAG 1.4.11). */
+  --control-edge: oklch(0.62 0.01 286);
 
   /* The one accent: actions, links, selection and focus. */
   --primary: oklch(0.52 0.15 258);
@@ -160,6 +163,7 @@
   --accent-foreground: oklch(0.985 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
+  --control-edge: oklch(0.55 0.01 286);
 
   --primary: oklch(0.72 0.12 252);
   --primary-foreground: oklch(0.141 0.005 285.823);

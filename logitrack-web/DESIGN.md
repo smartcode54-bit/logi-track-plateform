@@ -13,6 +13,7 @@ colors:
   graphite: "oklch(0.52 0.016 286)"
   hairline: "oklch(0.92 0.004 286.32)"
   field-edge: "oklch(0.871 0.006 286.286)"
+  control-edge: "oklch(0.62 0.01 286)"
   sidebar-paper: "oklch(0.985 0 0)"
   night: "oklch(0.141 0.005 285.823)"
   night-surface: "oklch(0.21 0.006 285.885)"
@@ -20,6 +21,7 @@ colors:
   night-graphite: "oklch(0.705 0.015 286.067)"
   night-hairline: "oklch(1 0 0 / 10%)"
   night-field-edge: "oklch(1 0 0 / 15%)"
+  night-control-edge: "oklch(0.55 0.01 286)"
   signal-red: "oklch(0.577 0.245 27.325)"
   signal-red-night: "oklch(0.704 0.191 22.216)"
   delivered-green: "oklch(0.52 0.12 155)"
@@ -126,10 +128,15 @@ components:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
     rounded: "{rounded.md}"
+    padding: "16px"
+  menu:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
     padding: "4px"
   badge:
-    backgroundColor: "{colors.mist}"
-    textColor: "{colors.ink-soft}"
+    backgroundColor: "{colors.route-blue}"
+    textColor: "{colors.on-route-blue}"
     rounded: "{rounded.md}"
     padding: "2px 8px"
   table-row:
@@ -178,7 +185,7 @@ A zinc greyscale with a single, slightly muted blue; status colours are reserved
 ### Primary
 - **Route Blue** (`route-blue`, dark: `route-blue-night`): the only accent. Primary buttons, links, the selected
   option, the active nav item, checked checkboxes and switches, focus rings (`--ring`) and the selection highlight.
-  White text on it is 5.6:1; on dark it turns light (8:1 against night) and its text turns ink. Token: `--primary`.
+  White text on it is 5.35:1; on dark it turns light (8:1 against night) and its text turns ink. Token: `--primary`.
 
 ### Neutral
 - **Paper** (`paper`): page, card and popover background in light mode (`--background`, `--card`, `--popover`).
@@ -188,15 +195,19 @@ A zinc greyscale with a single, slightly muted blue; status colours are reserved
 - **Graphite** (`graphite`): secondary text, helper text, table meta (`--muted-foreground`); 5.5:1 on paper and
   5.0:1 on mist, so it stays AA on both.
 - **Hairline** (`hairline`): borders and dividers (`--border`). **Field Edge** (`field-edge`) is one step darker,
-  for input, select and checkbox outlines (`--input`), so fields read as fields against card borders.
-- **Night**, **Night Surface**, **Night Mist**, **Night Graphite**, **Night Hairline**, **Night Field Edge**: the dark
+  for input and select outlines (`--input`), so fields read as fields against card borders. **Control Edge**
+  (`control-edge`) is darker again, the outline of a checkbox and the track of an unchecked switch (`--control-edge`):
+  a control with no text needs 3:1 against paper and mist (WCAG 1.4.11), which Field Edge does not reach.
+- **Night**, **Night Surface**, **Night Mist**, **Night Graphite**, **Night Hairline**, **Night Field Edge**, **Night Control Edge**: the dark
   theme's counterparts (`.dark` in app/globals.css).
 
 ### Status
 - **Signal Red** (`signal-red`): errors, destructive actions, invalid fields (`--destructive`).
 - **Delivered Green** (`delivered-green`): success and completed states (`--success`).
 - **Caution Amber** (`caution-amber`): warnings, expiring documents, pending states (`--warning`).
-  Each has a `-foreground` token for text on a filled chip.
+  Each has a `-foreground` token for text on a filled chip. On dark, Signal Red Night is too light for white text
+  (2.8:1), so a filled destructive button or badge uses it at 60% (`dark:bg-destructive/60`, 5.7:1), as the shared
+  primitives do.
 
 ### Named Rules
 **The One Voice Rule.** Route Blue is the only accent. A page never introduces its own blue, violet or teal for

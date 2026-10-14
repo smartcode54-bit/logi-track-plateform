@@ -84,6 +84,11 @@ describe("one layering scale (UI1)", () => {
         expect(offenders).toEqual([]);
     });
 
+    it("each Leaflet map is its own stacking context, so its 400-1000 panes stay under the scale", () => {
+        const css = readFileSync(path.join(root, "app/globals.css"), "utf8");
+        expect(css).toMatch(/\.leaflet-container\s*\{[^}]*isolation:\s*isolate/);
+    });
+
     it("the guard patterns catch the old ladder", () => {
         expect(overScale(`className="z-[1005]" "!z-[1003]" "z-1001" "z-50" "z-10" "z-modal"`, Z_CLASS)).toEqual(["z-[1005]", "!z-[1003]", "z-1001"]);
         expect(overScale(`style={{ zIndex: 1000 }} .x { z-index: 1100; } { zIndex: "40" }`, Z_STYLE)).toEqual(["zIndex: 1000", "z-index: 1100"]);
