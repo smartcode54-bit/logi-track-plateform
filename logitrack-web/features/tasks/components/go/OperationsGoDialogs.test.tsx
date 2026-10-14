@@ -370,7 +370,7 @@ describe("hub pickers: a server search per term, each value labelled by a single
             { q: "หวยขวาง", stationType: "HUB", limit: "50" },
             { q: "หวยขวาง", stationType: "SOC", limit: "50" },
         ]);
-        expect(source).toHaveTextContent("SPK890174 — ห้วยขวาง10");
+        await waitFor(() => expect(source).toHaveTextContent("SPK890174 — ห้วยขวาง10"));
 
         await u.click(screen.getByRole("combobox", { name: "Destination (SOC)" }));
         await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
