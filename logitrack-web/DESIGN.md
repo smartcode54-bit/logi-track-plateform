@@ -243,10 +243,11 @@ case, so the pattern makes the two languages look different.
 
 ## Layout
 
-The app shell is a collapsible icon sidebar (16 rem open, 3 rem as icons, an 18 rem sheet on mobile) beside a sticky
-64 px header (one height whatever the sidebar does) with the sidebar trigger, the breadcrumb, the tenant switcher and
-the user menu; the language and theme live in the user menu, so they are there at every width. Content sits in a
-single column with a 16 px gutter (`gutter`), sections 24 px apart (`section`), fields and cards 16 px apart
+The app shell has a sticky 64 px header and a collapsible icon sidebar (16 rem open, 3 rem as icons, an 18 rem sheet
+on mobile). Keyboard and DOM order is skip link → header/banner → sidebar → main; explicit grid slots place the
+header above the page and the sidebar at its left on desktop. The header has the sidebar trigger, breadcrumb, tenant
+switcher and user menu; the language and theme live in the user menu at every width. Content sits in a single
+column with a 16 px gutter (`gutter`), sections 24 px apart (`section`), fields and cards 16 px apart
 (`stack`), inline controls 8 px apart. All spacing is on Tailwind's 4 px step; the named steps are tokens
 (`p-gutter`, `gap-section`, `space-y-stack`).
 
@@ -354,26 +355,23 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 ### Navigation
 - The sidebar uses the sidebar tokens (paper-tinted, hairline border); icons are lucide at 16 px, one distinct icon
   per entry and per group. The header is paper with a hairline bottom border, sticky at `z-sticky`, 64 px at every
-  width; it is the page's banner, beside `<main>` (which holds the page, `#main-content`), and the menu is a
-  `<nav>` named "Main menu" / "เมนูหลัก" (the Security Center's: "Security center menu").
+  width; it is the page's banner, outside `<main>` (which holds `#main-content`). Support stays inside the one
+  labelled `<nav>` landmark (the Security Center has its own single "Security center menu" landmark).
 - **You are here.** The current page's entry is Route Blue text (`sidebar-primary`, its icon too) in medium weight on
   the mist fill, with `aria-current="page"`; sub-entries the same; a closed group that holds the page, and a rail
   group, show it the same way and carry `aria-current="true"` (the current section, not only a colour). No side
   stripe. A detail page keeps its entry current. When the sidebar or the phone sheet opens, the current entry is
   scrolled into view (nearest edge).
-- **The order is the work loop** (owner, UI3B): the principal's home first (the dashboard, or for customers,
-  partners, dispatchers and operators the driver monitor, with the dashboard inside Operations), then Operations
-  (job assignment, first mile, line haul, driver monitor, incidents, standby, chat, pickup and delivery points),
-  Billing (rate cards, trips to bill, billing documents, statements, the Shopee report), Costs (fuel, fuel price
-  history, other expenses, expense audit), Fleet and partners (trucks, truck assignment, drivers, renewals,
-  maintenance, customers, partners), Payroll and HR; then System (security center, waitlist, billing utilities,
-  companies, company profile) and Support. Only the group of the current page starts open. Labels are sentence
-  case and say "and", never "&"; the four billing pages read four different names in both languages. The
-  subcontracted carriers are "Partners" / "รถร่วม" wherever the console names them (menu, page, forms, broadcasts,
-  company types), as in the scope line's "Partner admin" / "ผู้ดูแลรถร่วม".
-- **One name per page.** The menu label, the crumb, the page's H1 and the tab title are one i18n key ("Trips to
-  bill · LogiTrack Pro"; a detail page "<its name> · <entry> · LogiTrack Pro", named by `PageHeader`'s
-  `recordName`).
+- **The order is the work loop** (UI3B/UI3F): staff see their home first, then Operations → Billing → Costs → Fleet
+  and partners → Payroll and HR → Settings → Platform → Support. Customers have a four-destination short menu
+  (Trips, Tasks, Delivery issues, Support); partners have nine (Fleet trips, Tasks, Delivery issues, Chat, Fleet
+  with Trucks, Drivers and Maintenance, Billing documents, Support). These menus are presentation subsets of
+  allowed routes. Only the group of the current page starts open. Labels are sentence case and say "and", never
+  "&". The subcontracted carriers are "Partners" / "รถร่วม" wherever the console names them, as in the scope
+  line's "Partner admin" / "ผู้ดูแลรถร่วม".
+- **One name per page.** The active profile's resolved route label is shared by the sidebar, quick-jump, crumb,
+  page H1 and tab title ("Trips to bill · LogiTrack Pro"; a detail page "<its name> · <entry> · LogiTrack Pro",
+  named by `PageHeader`'s `recordName`). The ⌘K quick-jump mirrors the active sidebar's destinations and order.
 - **The sidebar keeps its state.** Open or icons, as the user left it (`sidebar_state` cookie, a year); without a
   choice it starts open from `lg` and as icons from `md`. The trigger names what it controls (`aria-controls`,
   `aria-expanded`), its label is translated and its tooltip adds only the shortcut ("Shortcut: ⌘B" on Apple
@@ -386,13 +384,14 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   opens its pages as a menu to the right (`DropdownMenu`, `side="right"`, on the popover layer, keyboard operable).
 - **On a phone** the sidebar is a sheet with a visible title and a labelled 44 px close button; every entry in it
   is 44 px tall (`max-md:h-11`, desktop density unchanged), as are the user menu's items; when the sheet closes,
-  focus returns to the menu button. A page has one `<main>` (the shell's): a page component never adds another.
-- **One definition** (`components/app-nav.ts`): the sidebars and the breadcrumb read the same entries and i18n keys,
-  so a crumb is the menu's label in the active language, never a URL slug. A detail page keeps its entry as a link
-  back to the list and ends with its own name (a plate, a driver's name) or a generic New / Edit / Details. A crumb
-  the principal cannot open is text, not a link. The current page shows at every width, Home from `md`, the group and
-  entry from `lg`; the trail truncates rather than run under the header's controls. On a phone the sidebar sheet
-  closes when a link is tapped.
+  focus returns to the menu button. Below `md` (768 px), the tenant switcher is a named 44 px building-icon trigger
+  for the current company. A page has one `<main>` (the shell's): a page component never adds another.
+- **One route catalog** (`components/app-nav.ts`): the breadcrumb uses the complete route catalog, including
+  hidden-but-allowed destinations, and resolves the active profile's label in the current language rather than using
+  a URL slug. A detail page keeps its entry as a link back to the list and ends with its own name (a plate, a driver's
+  name) or a generic New / Edit / Details. A crumb the principal cannot open is text, not a link. The current page
+  shows at every width, Home from `md`, the group and entry from `lg`; the trail truncates rather than run under the
+  header's controls. On a phone the sidebar sheet closes when a link is tapped.
 - **The scope line** names the slice of the data the principal works in, as `slice · role` ("WRT · Tenant admin",
   "CJSF · Customer view", "Platform admin"): in the sidebar header (in the collapsed rail, the logo's tooltip with
   the title and the scope line on two lines), in the user menu and its trigger (and the trigger's accessible name),
@@ -405,6 +404,12 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   header carries only controls that work: no placeholder search, bell or report button.
 - A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
   targets are 44 px on phones. The page area takes `min-w-0`, so a wide page scrolls without pushing the header out.
+
+### Compact driver monitor
+- Below `md` (768 px), customer and partner views use the compact monitor: keep the date range and status controls
+  visible, with the summary and additional filters collapsed by default. Filters retain their values when collapsed.
+- Keep the first trip record above the fold. Use one summary column with a named open button for each trip; the
+  button opens the existing detail and evidence view. Keep the desktop monitor layout intact.
 
 ### Public pages
 - The landing `/`, `/join-network`, `/about` and the sign-in pages share `components/navigation.tsx` (logo, "LogiTrack
