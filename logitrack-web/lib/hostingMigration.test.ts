@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import nextConfig, {
   APP_CACHE_CONTROL,
   ASSET_CACHE_CONTROL,
+  LANDING_CACHE_CONTROL,
   PAGE_CACHE_CONTROL,
   PAGE_SOURCE,
   SECURITY_HEADERS,
@@ -61,7 +62,8 @@ describe("next.config (standalone)", () => {
   });
 
   it.each([
-    ["/", PAGE_CACHE_CONTROL],
+    // UI3C: the landing reads the session cookie, so it is never kept by a shared cache.
+    ["/", LANDING_CACHE_CONTROL],
     ["/login", PAGE_CACHE_CONTROL],
     ["/apple", PAGE_CACHE_CONTROL],
     ["/app", APP_CACHE_CONTROL],
@@ -85,6 +87,7 @@ describe("next.config (standalone)", () => {
     expect(PAGE_CACHE_CONTROL).toBe("public, max-age=0, must-revalidate");
     expect(ASSET_CACHE_CONTROL).toBe("public, max-age=3600");
     expect(APP_CACHE_CONTROL).toBe("private, no-cache");
+    expect(LANDING_CACHE_CONTROL).toBe("private, no-store");
     expect(PAGE_SOURCE.startsWith("/:path(")).toBe(true);
   });
 

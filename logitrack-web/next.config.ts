@@ -30,6 +30,11 @@ export const SECURITY_HEADERS = [
 export const PAGE_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 export const APP_CACHE_CONTROL = "private, no-cache";
 export const ASSET_CACHE_CONTROL = "public, max-age=3600";
+/**
+ * `/` renders per request from the session cookie (UI3C: a signed-in visitor gets the "opening your console" state,
+ * app/page.tsx), so no cache may keep one visitor's answer for another.
+ */
+export const LANDING_CACHE_CONTROL = "private, no-store";
 
 /** Every path except `/_next/*`, `/api/*` and `/app`, `/app/*` (path-to-regexp negative lookahead). */
 export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";
@@ -94,6 +99,8 @@ const nextConfig: NextConfig = {
       { source: ASSET_SOURCE, headers: [{ key: "Cache-Control", value: ASSET_CACHE_CONTROL }] },
       // `/app/:path*` also matches `/app` itself.
       { source: "/app/:path*", headers: [{ key: "Cache-Control", value: APP_CACHE_CONTROL }] },
+      // A later rule wins: `/` depends on the session cookie (UI3C).
+      { source: "/", headers: [{ key: "Cache-Control", value: LANDING_CACHE_CONTROL }] },
       // The reset and invite links carry their token in the fragment; no Referer leaves the page either
       // (Appendix C §C.4.9). A later rule wins, so this replaces SECURITY_HEADERS' Referrer-Policy here.
       { source: RESET_PASSWORD_PATH, headers: [{ key: "Referrer-Policy", value: "no-referrer" }] },

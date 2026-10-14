@@ -408,7 +408,10 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   on paper separated by hairlines, each with a Headline (600) and its points as a list under hairlines (`dl`), never
   icon cards. No kicker, no stat chips, no coloured band.
 - The sign-in card is the same on `/` and `/login` (`LoginForm`): sign-in is the primary button, the waitlist a text
-  link under it. A signed-in visitor of `/` goes to the role's home (`homeRouteOf`).
+  link under it; its title is the page's h1 on `/login` and an h2 under the landing's h1. A signed-in visitor of `/`
+  goes to the role's home (`homeRouteOf`); a driver-only account is told to use the driver app instead.
+- Forms: required labels carry the Signal Red star; errors sit under the field (`aria-invalid`, `aria-describedby`),
+  with a toast only as a summary.
 - Copy states only what PRODUCT.md has evidence for: no counts, testimonials, customer logos, pricing or "global"
   claims (`components/landing/__tests__/landingCopy.test.ts`).
 

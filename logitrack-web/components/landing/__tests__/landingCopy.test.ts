@@ -1,6 +1,7 @@
 // UI3C (#143): the public copy says only what PRODUCT.md holds evidence for, under one brand. No "Logi-Track",
 // "LogisticsPro" or "Logistics Pro"; no "thousands of professionals" or other counts; no "global logistics"; no
-// links to pages that do not exist; and the footer's company is GORATECH, not a former name with a fixed year.
+// third-party marks or customer names; no links to pages that do not exist; and the footer's company is GORATECH,
+// not a former name with a fixed year.
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,6 +17,8 @@ import { WEB_ROOT } from "@/test-utils/importGraph";
 const BRAND_VARIANTS = /Logi-Track|LogisticsPro|Logistics Pro|Logi Track/i;
 const FABRICATED = /thousands|นับพัน|hundreds of|หลายร้อย|trusted by|ไว้วางใจ|\bleading\b|ชั้นนำ|\bbest\b|ดีที่สุด|\bAI\b|\belite\b|\d+\s*%|\d+\s*\+/i;
 const GLOBAL = /global|ระดับโลก|ทั่วโลก|worldwide|international/i;
+/** Third-party marks: none is approved for marketing (PRODUCT.md, Evidence on Hand). */
+const MARKS = /Shopee|J&T|\bSPX\b|\bSPK\b|Lazada|Kerry|Flash Express|CJSF|\bTTP\b/i;
 
 /** The fleet-size options are a choice, not a claim; `{year}` is computed. */
 const CHOICES = /^landing\.join\.form\.(fleet|vehicle)\./;
@@ -29,6 +32,7 @@ describe("the public copy (en + th)", () => {
             for (const [key, value] of Object.entries(dict)) {
                 expect(value, key).not.toMatch(BRAND_VARIANTS);
                 expect(value, key).not.toMatch(GLOBAL);
+                expect(value, key).not.toMatch(MARKS);
                 if (!CHOICES.test(key)) expect(value, key).not.toMatch(FABRICATED);
             }
         });

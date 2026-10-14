@@ -1,6 +1,7 @@
 export default {
     // The public pages (UI3C, #143): the landing page `/`, its footer and the partner-carrier page `/join-network`.
     // Only claims PRODUCT.md holds evidence for: no counts, testimonials, customer names or "global" positioning.
+    "landing.nav.label": "Main",
     "landing.nav.solutions": "Features",
     "landing.nav.about": "About",
     "landing.nav.waitlist": "Waitlist",
@@ -10,6 +11,10 @@ export default {
         "LogiTrack Pro is one system for first-mile and line-haul work in Thailand. Drivers check in, load and deliver in the mobile app with photos, location and time at every step; each trip is priced from the customer's rate card, billed and paid without re-keying.",
     "landing.openingConsole": "Opening your console…",
     "landing.openConsole": "Open console",
+    // A driver-only account has no console (the edge gate sends it to /app/unauthorized): the app is theirs.
+    "landing.driver.title": "Use the LogiTrack driver app",
+    "landing.driver.body":
+        "Your account is a driver account. Check-in, loading and delivery are done in the LogiTrack mobile app; this website is for the office, customers and partner carriers.",
 
     "landing.features.title": "One record from dispatch to payout",
     "landing.features.description":
@@ -22,7 +27,7 @@ export default {
         "Photos, GPS position and timestamps at check-in, loading and each delivery stop, ready to show the customer as proof.",
     "landing.feature.thai.title": "Built for Thai first-mile and line-haul",
     "landing.feature.thai.desc":
-        "Marketplace hubs and SOCs such as Shopee SPX and J&T SPK, main and extra jobs, multi-drop, standby, and the way customers are actually billed.",
+        "Marketplace hubs and sort centres (SOCs), main and extra jobs, multi-drop, standby, and the way customers are actually billed.",
     "landing.feature.scoped.title": "Partners and customers see their own data",
     "landing.feature.scoped.desc":
         "Partner carriers and shippers sign in to their own view of tasks, trips and evidence, and see nothing beyond it.",
@@ -50,7 +55,7 @@ export default {
     "landing.join.how.view.title": "Your own view of your fleet",
     "landing.join.how.view.desc": "Your company signs in to see its own trucks, drivers and trips, and nothing of other carriers.",
     "landing.join.form.title": "Partner interest form",
-    "landing.join.form.description": "Fields marked * are required. We use these details only to contact you about partner work.",
+    "landing.join.form.description": "Fields marked * are required.",
     "landing.join.form.companyName": "Company name",
     "landing.join.form.contactName": "Contact name",
     "landing.join.form.email": "Email",
@@ -73,5 +78,9 @@ export default {
     "landing.join.form.submit": "Send application",
     "landing.join.form.submitting": "Sending…",
     "landing.join.form.required": "Fill in the company name, the contact name and the email.",
+    "landing.join.form.companyNameRequired": "Enter the company name.",
+    "landing.join.form.contactNameRequired": "Enter the name of the person to contact.",
+    "landing.join.form.emailRequired": "Enter an email address.",
+    "landing.join.form.emailInvalid": "Enter an email address such as name@company.co.th.",
     "landing.join.form.sent": "Thank you. Your application was sent; our team will contact you.",
 };

@@ -9,7 +9,7 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut, Moon, Sun, User } from "lucide-react";
+import { LayoutDashboard, LogOut, Moon, Smartphone, Sun, User } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { homeRouteOf } from "@/features/auth/api/homeRoute";
+import { homeRouteOf, isDriverOnly } from "@/features/auth/api/homeRoute";
 import { useSignOut } from "@/features/auth/hooks/useSignOut";
 import { useHydrated } from "@/hooks/useHydrated";
 import { initialOf } from "@/lib/initials";
@@ -53,10 +53,13 @@ export default function Navigation() {
   const isDark = hydrated && resolvedTheme === "dark";
   const themeLabel = isDark ? t("shell.theme.toLight") : t("shell.theme.toDark");
   const userName = currentUser?.displayName || currentUser?.email || t("shell.unnamedUser");
-  const consoleHref = authContext?.me ? homeRouteOf(authContext.me) : APP_PATH;
+  const me = authContext?.me ?? null;
+  // A driver-only account has no console (the edge gate sends it to /app/unauthorized): it is pointed to the app.
+  const driverOnly = me ? isDriverOnly(me) : false;
+  const consoleHref = me ? homeRouteOf(me) : APP_PATH;
 
   return (
-    <nav className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
+    <nav aria-label={t("landing.nav.label")} className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
         {/* Brand */}
         <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
@@ -107,13 +110,20 @@ export default function Navigation() {
                     <span>{t("nav.myAccount")}</span>
                   </Link>
                 </DropdownMenuItem>
-                {/* Every signed-in principal has a console (UI3C): the role's home, as the shell's Home crumb. */}
-                <DropdownMenuItem asChild>
-                  <Link href={consoleHref} className="flex items-center" prefetch={false}>
-                    <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
-                    <span>{t("landing.openConsole")}</span>
-                  </Link>
-                </DropdownMenuItem>
+                {/* UI3C: the console is the role's home, as the shell's Home crumb; a driver is told to use the app. */}
+                {driverOnly ? (
+                  <DropdownMenuLabel className="flex items-center text-sm font-normal text-muted-foreground">
+                    <Smartphone className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+                    <span>{t("landing.driver.title")}</span>
+                  </DropdownMenuLabel>
+                ) : (
+                  <DropdownMenuItem asChild>
+                    <Link href={consoleHref} className="flex items-center" prefetch={false}>
+                      <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
+                      <span>{t("landing.openConsole")}</span>
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center">
                   <LogOut className="mr-2 h-4 w-4" aria-hidden />

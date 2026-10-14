@@ -35,7 +35,10 @@ export function Footer() {
                         ))}
                     </ul>
                 </nav>
-                <p className="text-muted-foreground">{t("landing.footer.copyright", { year: String(year) })}</p>
+                {/* The year comes from the reader's clock; a page prerendered in another year differs only here. */}
+                <p className="text-muted-foreground" suppressHydrationWarning>
+                    {t("landing.footer.copyright", { year: String(year) })}
+                </p>
             </div>
         </footer>
     );

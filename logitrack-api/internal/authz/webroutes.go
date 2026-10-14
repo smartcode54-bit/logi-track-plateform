@@ -8,15 +8,15 @@ import (
 
 // webRoutes is ROUTE_CAPABILITIES of the web edge gate (proxy.ts, R39): the 53 entries of
 // logitrack-web/lib/capabilities.ts:340-394 re-keyed to the catalog with the changes of Appendix C
-// §C.2.7 and main spec §10.5. An empty list means any signed-in principal (/app/dashboard,
-// /app/unauthorized and, since UI3C, /app/support stay open); any-of otherwise. A path matches exactly, else by its longest mapped
+// §C.2.7 and main spec §10.5. An empty list means any signed-in principal the gate lets reach the map (not a
+// driver-only one): /app/dashboard, /app/unauthorized and, since UI3C, /app/support stay open; any-of otherwise. A path matches exactly, else by its longest mapped
 // prefix; an unmapped path is denied. It is generated into shared-docs/schemas/capabilities.ts, which
 // TW3 turns into lib/routeCapabilities.ts. The gate is a necessary-condition filter: Go authorises
 // every request again.
 var webRoutes = map[string][]Cap{
 	"/app/dashboard":    {},
 	"/app/unauthorized": {},
-	"/app/support":      {}, // UI3C: help inside the shell, for every signed-in principal (customers and partners too)
+	"/app/support":      {}, // UI3C: help inside the shell for every console principal, customers and partners too (a driver-only one is sent to /app/unauthorized first)
 
 	"/app/trucks":             {FleetViewTrucks},
 	"/app/trucks/new":         {FleetCreateTruck},

@@ -3,7 +3,8 @@
  * (developer-spec.md §16.1, web-public: inlined at build like `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`). No address is
  * written into the code: while the owner has not set one, the page shows no contact block at all.
  */
-const EMAIL_RX = /^[^\s@<>"(),;:]+@[^\s@<>"(),;:]+\.[^\s@<>"(),;:]+$/;
+/** A plain address only: a safe local part and host labels, so nothing can add `?bcc=`, `#` or a path to the link. */
+const EMAIL_RX = /^[A-Za-z0-9._+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
 /** The configured support address, or null when it is unset or not a plain address. */
 export function supportEmail(raw: string | undefined = process.env.NEXT_PUBLIC_SUPPORT_EMAIL): string | null {

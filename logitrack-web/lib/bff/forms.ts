@@ -1,9 +1,9 @@
 /**
  * The anonymous BFF form handlers (R44, R77; developer-spec.md §10.4 "Anonymous forms", Appendix E
  * §E.8.3; T54R): `POST /api/forms/waitlist` -> internal `POST /v1/waitlist`, `POST /api/forms/partner-interest`
- * -> internal `POST /v1/partner-interest`. They replace the landing page's anonymous Firestore writes
- * (`components/landing/WaitlistModal.tsx:75`, `features/auth/hooks/useWaitlist.ts:40`,
- * `app/join-network/actions.client.ts:20`).
+ * -> internal `POST /v1/partner-interest`. They replaced the landing page's anonymous Firestore writes
+ * (the waitlist dialog, deleted in UI3C: the landing links to `/waitlist`; `features/auth/hooks/useWaitlist.ts`;
+ * `app/join-network/page.tsx`).
  *
  * - Unauthenticated: no cookie is read and no `Authorization` is sent, whatever the browser sends.
  * - The mutation Origin check (`sameOrigin`, Appendix C §C.4.5) runs first: a cross-origin post gets

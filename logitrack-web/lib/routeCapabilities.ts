@@ -6,7 +6,8 @@
  * Go catalog (`logitrack-api/internal/authz/webroutes.go`, `go generate ./internal/authz`) with colon
  * keys; it replaces the legacy table that `lib/capabilities.ts:340-394` held until TW3. Rules:
  * exact path, else the longest mapped prefix at a segment boundary; an unmapped path is denied; an
- * empty list (`/app/dashboard`, `/app/unauthorized`) admits every signed-in principal; otherwise any
+ * empty list (`/app/dashboard`, `/app/unauthorized`, `/app/support`) admits every signed-in principal that is not
+ * driver-only (the gate sends those to `/app/unauthorized` first); otherwise any
  * one of the listed keys. It is a necessary-condition filter: Go authorises every request again.
  *
  * No server code and no environment here: the module is safe in the browser bundle.

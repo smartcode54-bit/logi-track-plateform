@@ -80,6 +80,41 @@ describe("Navigation", () => {
     expect(screen.getByRole("button", { name: "Switch to the dark theme" })).toBeInTheDocument();
   });
 
+  it("has an accessible name in the active language", async () => {
+    await renderWithProviders(<Navigation />);
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+  });
+
+  it("points a driver-only account to the driver app instead of a console it cannot open (UI3C)", async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      currentUser: { uid: "d", email: "d@own.test", displayName: "Driver" },
+      me: {
+        id: "d",
+        email: "d@own.test",
+        displayName: "Driver",
+        photoUrl: null,
+        tenant: { id: "t", nameTh: "กองรถ", nameEn: null, kind: "own_fleet", role: "driver" },
+        tenants: [],
+        platformRoles: [],
+        dispatcher: false,
+        steward: false,
+        driver: { id: "drv" },
+        customerScopes: [],
+        capabilities: [],
+        mustChangePassword: false,
+      },
+      loading: false,
+      customClaims: { role: "driver" },
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    await renderWithProviders(<Navigation />);
+    await user.click(screen.getByRole("button", { name: "Account menu for Driver" }));
+    expect(screen.getByText("Use the LogiTrack driver app")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Open console" })).toBeNull();
+  });
+
   it("offers every signed-in user their console (the role's home, UI3C), and signs out to the sign-in page", async () => {
     const user = userEvent.setup();
     const logout = vi.fn(async () => undefined);

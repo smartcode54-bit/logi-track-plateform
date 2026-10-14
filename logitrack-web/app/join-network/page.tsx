@@ -16,7 +16,7 @@ import { Footer } from "@/components/landing/Footer";
 import { HoneypotField } from "@/components/landing/HoneypotField";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -39,19 +39,49 @@ const EMPTY = {
     vehicleType: "",
 };
 type Field = keyof typeof EMPTY;
-const REQUIRED: readonly Field[] = ["companyName", "contactName", "email"];
+type RequiredKey = "companyName" | "contactName" | "email";
+const REQUIRED: readonly RequiredKey[] = ["companyName", "contactName", "email"];
+const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** A required field's label: the text and a Signal Red star (DESIGN.md); the star is not read out. */
-function RequiredLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
+/** The message key of each required field that fails, in form order; Go validates the post again. */
+function validate(form: typeof EMPTY): Partial<Record<RequiredKey, string>> {
+    const errors: Partial<Record<RequiredKey, string>> = {};
+    if (!form.companyName.trim()) errors.companyName = "landing.join.form.companyNameRequired";
+    if (!form.contactName.trim()) errors.contactName = "landing.join.form.contactNameRequired";
+    if (!form.email.trim()) errors.email = "landing.join.form.emailRequired";
+    else if (!EMAIL_RX.test(form.email.trim())) errors.email = "landing.join.form.emailInvalid";
+    return errors;
+}
+
+/**
+ * A required text field (DESIGN.md form style): the label with a Signal Red star (not read out), the input, and its
+ * error under it, tied to the input by `aria-invalid` and `aria-describedby`.
+ */
+function RequiredField({
+    name,
+    label,
+    error,
+    ...input
+}: { name: RequiredKey; label: string; error?: string } & Omit<React.ComponentProps<typeof Input>, "id" | "name">) {
+    const id = `join-${name}`;
+    const errorId = `${id}-error`;
     return (
-        <Label htmlFor={htmlFor}>
-            <span>
-                {children}
-                <span aria-hidden className="text-destructive">
-                    {" *"}
+        <div className="flex flex-col gap-2">
+            <Label htmlFor={id}>
+                <span>
+                    {label}
+                    <span aria-hidden className="text-destructive">
+                        {" *"}
+                    </span>
                 </span>
-            </span>
-        </Label>
+            </Label>
+            <Input id={id} name={name} aria-required aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} {...input} />
+            {error ? (
+                <p id={errorId} className="text-sm text-destructive">
+                    {error}
+                </p>
+            ) : null}
+        </div>
     );
 }
 
@@ -60,16 +90,23 @@ export default function JoinNetworkPage() {
     const [loading, setLoading] = useState(false);
     const [website, setWebsite] = useState("");
     const [form, setForm] = useState(EMPTY);
+    const [errors, setErrors] = useState<Partial<Record<RequiredKey, string>>>({});
     const formRef = useRef<HTMLFormElement>(null);
 
-    const set = (key: Field, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+    const set = (key: Field, value: string) => {
+        setForm((prev) => ({ ...prev, [key]: value }));
+        // A field's error goes once it is edited; the next submit checks again.
+        setErrors((prev) => (key in prev ? { ...prev, [key]: undefined } : prev));
+    };
 
     const submit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const missing = REQUIRED.find((key) => !form[key].trim());
-        if (missing) {
+        const found = validate(form);
+        setErrors(found);
+        const first = REQUIRED.find((key) => found[key]);
+        if (first) {
             toast.error(t("landing.join.form.required"));
-            formRef.current?.querySelector<HTMLInputElement>(`#join-${missing}`)?.focus();
+            formRef.current?.querySelector<HTMLInputElement>(`#join-${first}`)?.focus();
             return;
         }
         setLoading(true);
@@ -77,6 +114,7 @@ export default function JoinNetworkPage() {
             await submitPartnerInterest({ ...form, email: form.email.trim(), website });
             toast.success(t("landing.join.form.sent"));
             setForm(EMPTY);
+            setErrors({});
         } catch (error) {
             toastSaveError(error, t);
         } finally {
@@ -123,47 +161,41 @@ export default function JoinNetworkPage() {
                     <div className="mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
                         <Card>
                             <CardHeader className="gap-1">
-                                <CardTitle id="join-form-title" className="text-xl font-semibold tracking-tight">
+                                <h2 id="join-form-title" data-slot="card-title" className="text-xl leading-none font-semibold tracking-tight">
                                     {t("landing.join.form.title")}
-                                </CardTitle>
+                                </h2>
                                 <CardDescription>{t("landing.join.form.description")}</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <form ref={formRef} onSubmit={submit} noValidate className="relative flex flex-col gap-4">
                                     <HoneypotField id="partner-website" value={website} onChange={setWebsite} />
                                     <div className="grid gap-4 md:grid-cols-2">
-                                        <div className="flex flex-col gap-2">
-                                            <RequiredLabel htmlFor="join-companyName">{t("landing.join.form.companyName")}</RequiredLabel>
-                                            <Input
-                                                id="join-companyName"
-                                                autoComplete="organization"
-                                                aria-required
-                                                value={form.companyName}
-                                                onChange={(e) => set("companyName", e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <RequiredLabel htmlFor="join-contactName">{t("landing.join.form.contactName")}</RequiredLabel>
-                                            <Input
-                                                id="join-contactName"
-                                                autoComplete="name"
-                                                aria-required
-                                                value={form.contactName}
-                                                onChange={(e) => set("contactName", e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <RequiredLabel htmlFor="join-email">{t("landing.join.form.email")}</RequiredLabel>
-                                            <Input
-                                                id="join-email"
-                                                type="email"
-                                                autoComplete="email"
-                                                placeholder="name@company.co.th"
-                                                aria-required
-                                                value={form.email}
-                                                onChange={(e) => set("email", e.target.value)}
-                                            />
-                                        </div>
+                                        <RequiredField
+                                            name="companyName"
+                                            label={t("landing.join.form.companyName")}
+                                            error={errors.companyName ? t(errors.companyName) : undefined}
+                                            autoComplete="organization"
+                                            value={form.companyName}
+                                            onChange={(e) => set("companyName", e.target.value)}
+                                        />
+                                        <RequiredField
+                                            name="contactName"
+                                            label={t("landing.join.form.contactName")}
+                                            error={errors.contactName ? t(errors.contactName) : undefined}
+                                            autoComplete="name"
+                                            value={form.contactName}
+                                            onChange={(e) => set("contactName", e.target.value)}
+                                        />
+                                        <RequiredField
+                                            name="email"
+                                            label={t("landing.join.form.email")}
+                                            error={errors.email ? t(errors.email) : undefined}
+                                            type="email"
+                                            autoComplete="email"
+                                            placeholder="name@company.co.th"
+                                            value={form.email}
+                                            onChange={(e) => set("email", e.target.value)}
+                                        />
                                         <div className="flex flex-col gap-2">
                                             <Label htmlFor="join-contractNumber">{t("landing.join.form.phone")}</Label>
                                             <Input

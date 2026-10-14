@@ -1,6 +1,7 @@
 export default {
     // The public pages (UI3C, #143): the landing page `/`, its footer and the partner-carrier page `/join-network`.
     // Only claims PRODUCT.md holds evidence for: no counts, testimonials, customer names or "global" positioning.
+    "landing.nav.label": "เมนูหลัก",
     "landing.nav.solutions": "ความสามารถ",
     "landing.nav.about": "เกี่ยวกับเรา",
     "landing.nav.waitlist": "รายการรอ",
@@ -10,6 +11,10 @@ export default {
         "LogiTrack Pro คือระบบเดียวสำหรับงานขนส่ง first-mile และ line-haul ในประเทศไทย คนขับเช็คอิน ขึ้นของ และส่งของผ่านแอปพร้อมรูปถ่าย ตำแหน่ง และเวลาในทุกขั้นตอน แต่ละเที่ยวคิดราคาจาก rate card ของลูกค้า วางบิล และจ่ายเงินได้โดยไม่ต้องคีย์ข้อมูลซ้ำ",
     "landing.openingConsole": "กำลังเปิดคอนโซลของคุณ…",
     "landing.openConsole": "เปิดคอนโซล",
+    // A driver-only account has no console (the edge gate sends it to /app/unauthorized): the app is theirs.
+    "landing.driver.title": "ใช้แอป LogiTrack สำหรับคนขับ",
+    "landing.driver.body":
+        "บัญชีของคุณเป็นบัญชีคนขับ การเช็คอิน ขึ้นของ และส่งของทำในแอปมือถือ LogiTrack ส่วนเว็บไซต์นี้สำหรับสำนักงาน ลูกค้า และรถร่วม",
 
     "landing.features.title": "ข้อมูลชุดเดียว ตั้งแต่จ่ายงานถึงจ่ายเงิน",
     "landing.features.description":
@@ -21,7 +26,7 @@ export default {
     "landing.feature.evidence.desc": "รูปถ่าย ตำแหน่ง GPS และเวลา ตอนเช็คอิน ขึ้นของ และทุกจุดส่ง พร้อมใช้เป็นหลักฐานกับลูกค้า",
     "landing.feature.thai.title": "ออกแบบมาสำหรับงาน first-mile และ line-haul ในไทย",
     "landing.feature.thai.desc":
-        "รองรับฮับและ SOC ของมาร์เก็ตเพลส เช่น Shopee SPX และ J&T SPK งานหลักและงานเสริม การส่งหลายจุด standby และวิธีวางบิลลูกค้าตามจริง",
+        "รองรับฮับและศูนย์คัดแยก (SOC) ของมาร์เก็ตเพลส งานหลักและงานเสริม การส่งหลายจุด standby และวิธีวางบิลลูกค้าตามจริง",
     "landing.feature.scoped.title": "รถร่วมและลูกค้าเห็นเฉพาะข้อมูลของตัวเอง",
     "landing.feature.scoped.desc": "ผู้ประกอบการรถร่วมและลูกค้าเข้าสู่ระบบเพื่อดูงาน เที่ยววิ่ง และหลักฐานของตัวเองเท่านั้น",
 
@@ -48,7 +53,7 @@ export default {
     "landing.join.how.view.title": "เห็นกองรถของคุณเอง",
     "landing.join.how.view.desc": "บริษัทของคุณเข้าสู่ระบบเพื่อดูรถ คนขับ และเที่ยววิ่งของตัวเอง โดยไม่เห็นข้อมูลของรถร่วมรายอื่น",
     "landing.join.form.title": "แบบฟอร์มสมัครเป็นรถร่วม",
-    "landing.join.form.description": "ช่องที่มี * ต้องกรอก เราใช้ข้อมูลนี้เพื่อติดต่อคุณเรื่องงานรถร่วมเท่านั้น",
+    "landing.join.form.description": "ช่องที่มี * ต้องกรอก",
     "landing.join.form.companyName": "ชื่อบริษัท",
     "landing.join.form.contactName": "ชื่อผู้ติดต่อ",
     "landing.join.form.email": "อีเมล",
@@ -71,5 +76,9 @@ export default {
     "landing.join.form.submit": "ส่งใบสมัคร",
     "landing.join.form.submitting": "กำลังส่ง…",
     "landing.join.form.required": "กรอกชื่อบริษัท ชื่อผู้ติดต่อ และอีเมล",
+    "landing.join.form.companyNameRequired": "กรอกชื่อบริษัท",
+    "landing.join.form.contactNameRequired": "กรอกชื่อผู้ที่ให้ติดต่อ",
+    "landing.join.form.emailRequired": "กรอกอีเมล",
+    "landing.join.form.emailInvalid": "กรอกอีเมลให้ถูกต้อง เช่น name@company.co.th",
     "landing.join.form.sent": "ขอบคุณ ส่งใบสมัครแล้ว ทีมงานจะติดต่อกลับ",
 };

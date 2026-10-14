@@ -37,6 +37,9 @@ describe("the landing page, signed out", () => {
         renderWithProviders(<LandingPage />);
         const card = await screen.findByTestId("sign-in-card");
         expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Run your trucking operation from assignment to payout");
+        // The card's title is a heading under the page's h1; the navigation has a name.
+        expect(within(card).getByRole("heading", { level: 2, name: "Sign in" })).toBeInTheDocument();
+        expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
         expect(screen.getAllByText("LogiTrack Pro").length).toBeGreaterThan(0);
         expect(screen.getAllByText("by GORATECH").length).toBeGreaterThan(0);
         expect(within(card).getByLabelText("Email")).toBeInTheDocument();
@@ -101,11 +104,41 @@ describe("the landing page, signed in", () => {
         await waitFor(() => expect(replace).toHaveBeenCalledWith("/app/driver-monitor"));
     });
 
+    it("tells a driver-only account to use the driver app, with no console link and no redirect", async () => {
+        const me = makeMe({
+            tenant: { id: "t-own", nameTh: "กองรถ", nameEn: "Own fleet", kind: "own_fleet", role: "driver" },
+            tenants: [],
+            steward: false,
+            driver: { id: "d-1" },
+            capabilities: ["mobile:check_in"],
+        });
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
+        renderWithProviders(<LandingPage sessionHint />);
+        expect(await screen.findByRole("heading", { level: 1, name: "Use the LogiTrack driver app" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Logout" })).toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "Open console" })).toBeNull();
+        expect(screen.queryByTestId("sign-in-card")).toBeNull();
+        expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("with a stale session cookie (no session behind it) shows the landing, and redirects nowhere", async () => {
+        const web = signedOut();
+        renderWithProviders(<LandingPage sessionHint />);
+        expect(await screen.findByTestId("sign-in-card")).toBeInTheDocument();
+        expect(screen.queryByTestId("opening-console")).toBeNull();
+        expect(replace).not.toHaveBeenCalled();
+        // One look at ['me'] and one refused refresh: no loop.
+        expect(web.count("GET", "/api/go/v1/me")).toBe(1);
+        expect(web.count("POST", "/api/auth/refresh")).toBeLessThanOrEqual(1);
+    });
+
     it("with a session cookie, shows the opening state (not a sign-in form) while ['me'] loads", async () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/me", () => new Promise<Response>(() => undefined));
         renderWithProviders(<LandingPage sessionHint />);
         expect(await screen.findByTestId("opening-console")).toBeInTheDocument();
+        expect(screen.getByRole("heading", { level: 1, name: "Opening your console…" })).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Open console" })).toHaveAttribute("href", "/app");
         expect(screen.queryByTestId("sign-in-card")).toBeNull();
     });

@@ -7,14 +7,14 @@ test.describe("Auth", () => {
       await page.goto("/login");
       await expect(page.getByLabel("Email")).toBeVisible();
       await expect(page.getByLabel("Password")).toBeVisible();
-      await expect(page.getByRole("button", { name: /^(sign in|เข้าสู่ระบบ)$/i })).toBeVisible();
+      await expect(page.getByTestId("sign-in-submit")).toHaveText(/^(sign in|เข้าสู่ระบบ)$/i);
     });
 
     test("shows error on invalid credentials", async ({ page }) => {
       await page.goto("/login");
       await page.getByLabel("Email").fill("invalid@example.com");
       await page.getByLabel("Password").fill("wrongpassword");
-      await page.getByRole("button", { name: /^(sign in|เข้าสู่ระบบ)$/i }).click();
+      await page.getByTestId("sign-in-submit").click();
       // Wait for login attempt to finish; should stay on login, not redirect to admin
       await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
       await expect(page).not.toHaveURL(/\/app\//);
