@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type AriaAttributes, type ComponentProps } from "react";
 import { format } from "date-fns";
 import type { Locale } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
@@ -24,6 +24,12 @@ export interface DateRangePickerProps {
     className?: string;
     align?: "start" | "center" | "end";
     disabled?: boolean;
+    id?: string;
+    "aria-label"?: AriaAttributes["aria-label"];
+    "aria-labelledby"?: AriaAttributes["aria-labelledby"];
+    "aria-describedby"?: AriaAttributes["aria-describedby"];
+    calendarClassName?: string;
+    calendarClassNames?: ComponentProps<typeof Calendar>["classNames"];
 }
 
 /**
@@ -47,6 +53,12 @@ export function DateRangePicker({
     className,
     align = "start",
     disabled = false,
+    id,
+    "aria-label": ariaLabel,
+    "aria-labelledby": ariaLabelledby,
+    "aria-describedby": ariaDescribedby,
+    calendarClassName,
+    calendarClassNames,
 }: DateRangePickerProps) {
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<DateRange | undefined>(undefined);
@@ -73,6 +85,10 @@ export function DateRangePicker({
                     type="button"
                     variant="outline"
                     disabled={disabled}
+                    id={id}
+                    aria-label={ariaLabel}
+                    aria-labelledby={ariaLabelledby}
+                    aria-describedby={ariaDescribedby}
                     className={cn(
                         "h-9 justify-start font-normal",
                         !(from && to) && "text-muted-foreground",
@@ -80,11 +96,13 @@ export function DateRangePicker({
                     )}
                 >
                     <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-                    {label}
+                    <span id={id ? `${id}-value` : undefined}>{label}</span>
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align={align}>
                 <Calendar
+                    className={calendarClassName}
+                    classNames={calendarClassNames}
                     mode="range"
                     numberOfMonths={numberOfMonths}
                     defaultMonth={from ?? undefined}
