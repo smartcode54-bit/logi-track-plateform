@@ -351,14 +351,20 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   text, and a detail page keeps its entry active; icons are lucide at 16 px. The header is paper with a hairline
   bottom border, sticky at `z-sticky`, 64 px at every width.
 - **One definition** (`components/app-nav.ts`): the sidebars and the breadcrumb read the same entries and i18n keys,
-  so a crumb is the menu's label in the active language, never a URL slug; a detail page shows its entry's label
-  until the page names itself (a plate, a driver's name). Below `md` the breadcrumb shows only the current page.
+  so a crumb is the menu's label in the active language, never a URL slug. A detail page keeps its entry as a link
+  back to the list and ends with its own name (a plate, a driver's name) or a generic New / Edit / Details. A crumb
+  the principal cannot open is text, not a link. The current page shows at every width, Home from `md`, the group and
+  entry from `lg`; the trail truncates rather than run under the header's controls. On a phone the sidebar sheet
+  closes when a link is tapped.
 - **The scope line** names the slice of the data the principal works in, as `slice · role` ("WRT · Tenant admin",
-  "CJSF · Customer view", "Platform admin"): in the sidebar header (the logo's tooltip in the collapsed rail), in the
-  user menu and its trigger, and on the 403 page. One source: `principalRoleLabel` over `['me']`.
+  "CJSF · Customer view", "Platform admin"): in the sidebar header (in the collapsed rail, the logo's tooltip with
+  the title and the scope line on two lines), in the user menu and its trigger (and the trigger's accessible name),
+  and on the 403 page. One source: `principalRoleLabel` over `['me']`; customer scopes name the slice only for a
+  customer view (no tenant, platform role or dispatcher grant).
 - **The user menu** holds the name, email and scope line, the language and theme (radio items) and the one sign-out,
   which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.
-- A skip link ("Skip to main content") is the first stop of the keyboard; header targets are 44 px on phones.
+- A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
+  targets are 44 px on phones. The page area takes `min-w-0`, so a wide page scrolls without pushing the header out.
 
 ### Toasts
 - sonner on `z-toast`, in the popover colours and the app font, bottom-right, 5 s; typed toasts (success, error,
