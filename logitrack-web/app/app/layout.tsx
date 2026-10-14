@@ -13,6 +13,7 @@ import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { ScopeLine } from "@/components/scope-line";
 import { initialSidebarOpen, sidebarShortcutKeys } from "@/components/sidebar-shell";
 import { UserMenu } from "@/components/user-menu";
+import { QuickJump } from "@/components/quick-jump";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/context/language";
@@ -99,7 +100,7 @@ export default function AdminLayout({
                         label={t("shell.toggleSidebar")}
                         tooltip={t("shell.toggleSidebarHint", { keys: sidebarShortcutKeys() })}
                     />
-                    {/* Quick-jump trigger goes immediately after the sidebar toggle. */}
+                    <QuickJump />
                     <Separator orientation="vertical" className="mr-2 hidden data-[orientation=vertical]:h-4 md:block" />
                     <div className="flex min-w-0 flex-1 items-center">
                         <AppBreadcrumb pathname={pathname} homeHref={homeHref} className={phoneScope ? "hidden md:block" : undefined} />
