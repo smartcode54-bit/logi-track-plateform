@@ -89,29 +89,30 @@ export default function AdminLayout({
                 {t("shell.skipToContent")}
             </a>
             {/* The user's choice is kept (the `sidebar_state` cookie); without one the sidebar is open from lg. */}
-            <SidebarProvider defaultOpen={initialSidebarOpen}>
+            <SidebarProvider defaultOpen={initialSidebarOpen} layout="grid">
+                {/* The page's banner (outside <main>). One height whatever the sidebar does (UI3: it jumped
+                    64/48 px on toggle). It spans both grid rows but sits at the top (self-start): a sticky grid item
+                    only sticks within its grid area, and a 64 px row alone would let it scroll away. */}
+                <header className="sticky top-0 z-sticky col-start-1 row-span-2 row-start-1 flex h-16 self-start min-w-0 items-center gap-2 border-b border-border bg-background px-gutter md:col-start-2">
+                    <SidebarTrigger
+                        className="-ml-2 size-11 md:size-9"
+                        label={t("shell.toggleSidebar")}
+                        tooltip={t("shell.toggleSidebarHint", { keys: sidebarShortcutKeys() })}
+                    />
+                    {/* Quick-jump trigger goes immediately after the sidebar toggle. */}
+                    <Separator orientation="vertical" className="mr-2 hidden data-[orientation=vertical]:h-4 md:block" />
+                    <div className="flex min-w-0 flex-1 items-center">
+                        <AppBreadcrumb pathname={pathname} homeHref={homeHref} className={phoneScope ? "hidden md:block" : undefined} />
+                        {phoneScope ? <ScopeLine compact className="max-w-full text-sm text-muted-foreground md:hidden" testId="header-scope" /> : null}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <TenantSwitcher />
+                        <UserMenu />
+                    </div>
+                </header>
                 {isSecurityCenter ? <SecurityCenterSidebar /> : <AppSidebar />}
-                {/* min-w-0: a wide page scrolls inside the page area instead of pushing the header (and the user
-                    menu, the only home of sign-out, language and theme) past the viewport. */}
-                <SidebarInset className="min-w-0">
-                    {/* The page's banner (outside <main>). One height whatever the sidebar does (UI3: it jumped
-                        64/48 px on toggle). */}
-                    <header className="sticky top-0 z-sticky flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
-                        <SidebarTrigger
-                            className="-ml-2 size-11 md:size-9"
-                            label={t("shell.toggleSidebar")}
-                            tooltip={t("shell.toggleSidebarHint", { keys: sidebarShortcutKeys() })}
-                        />
-                        <Separator orientation="vertical" className="mr-2 hidden data-[orientation=vertical]:h-4 md:block" />
-                        <div className="flex min-w-0 flex-1 items-center">
-                            <AppBreadcrumb pathname={pathname} homeHref={homeHref} className={phoneScope ? "hidden sm:block" : undefined} />
-                            {phoneScope ? <ScopeLine className="text-sm text-muted-foreground sm:hidden" testId="header-scope" /> : null}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                            <TenantSwitcher />
-                            <UserMenu />
-                        </div>
-                    </header>
+                {/* min-w-0 keeps a wide page inside its grid slot without pushing the header controls out. */}
+                <SidebarInset>
                     {/* scroll-mt-16: the skip link lands below the 64 px sticky header, not under it. The shell owns the
                         page's 16 px gutter (UI3D, DESIGN.md `gutter`): pages never pad themselves, so every page starts at
                         the same left edge and keeps the full width at 360 px. */}

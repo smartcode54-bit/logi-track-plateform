@@ -320,11 +320,11 @@ describe("on a phone", () => {
         await renderShell(customer);
         const scope = within(header()).getByTestId("header-scope");
         expect(scope).toHaveTextContent("CJSF · Customer view");
-        expect(scope.className).toMatch(/\bsm:hidden\b/);
+        expect(scope.className).toMatch(/\bmd:hidden\b/);
         const [slice, , role] = Array.from(scope.children);
         expect(slice.className).toMatch(/\btruncate\b/);
         expect(role.className).not.toMatch(/\btruncate\b/);
-        expect(screen.getByRole("navigation", { name: "Breadcrumb" }).className).toMatch(/\bhidden\b.*\bsm:block\b/);
+        expect(screen.getByRole("navigation", { name: "Breadcrumb" }).className).toMatch(/\bhidden\b.*\bmd:block\b/);
     });
 
     it("makes every item of the user menu 44 px tall, and names languages without flags (UI3B)", async () => {
@@ -336,9 +336,62 @@ describe("on a phone", () => {
         for (const item of items) expect(item.className, item.textContent ?? "").toMatch(/\bmax-md:min-h-11\b/);
         expect(menu.querySelector("img")).toBeNull();
     });
+
+    it("keeps a named compact tenant picker and the full Thai role with long names and multiple memberships (UI3F)", async () => {
+        Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 360 });
+        const name = "บริษัทขนส่งวันเพ็ญรัชดาและพันธมิตรทั่วประเทศไทยจำกัด";
+        const tenant = { ...tenantAdmin.tenant!, nameTh: name };
+        const tenants = Array.from({ length: 9 }, (_, index) => ({ ...tenant, id: index === 0 ? tenant.id : `t-${index}`, status: "active" }));
+        await renderShell(makeMe({ ...tenantAdmin, displayName: name, tenant, tenants }));
+        const user = userEvent.setup();
+        await user.click(screen.getByTestId("user-menu-trigger"));
+        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
+        const picker = await screen.findByRole("combobox", { name: `เปลี่ยนบริษัท (ปัจจุบัน: ${name})` });
+        expect(picker.className).toMatch(/\bsize-11\b/);
+        expect(picker.querySelector("[data-slot=select-value]")?.className).toMatch(/\bhidden\b.*\bmd:flex\b/);
+        const scope = within(header()).getByTestId("header-scope");
+        expect(scope).toHaveTextContent(`${name} · ผู้ดูแลองค์กร`);
+        expect(scope.firstElementChild?.className).toMatch(/\bmin-w-6\b/);
+        expect(scope.lastElementChild?.className).not.toMatch(/truncate|whitespace-nowrap/);
+        await user.click(picker);
+        expect(await screen.findByRole("listbox")).toBeInTheDocument();
+        expect(screen.getAllByRole("option")).toHaveLength(9);
+        expect(screen.getByPlaceholderText("ค้นหา...")).toBeInTheDocument();
+    });
 });
 
 describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
+    it.each(["/app/dashboard", "/app/security-center/users"])("puts the banner before the sidebar and main in the DOM at %s (UI3F)", async (pathname) => {
+        mockPathname = pathname;
+        await renderShell(pathname.includes("security-center") ? makeMe({ ...platformAdmin, capabilities: ["users:view"] }) : tenantAdmin);
+        const banner = screen.getByRole("banner");
+        const sidebar = document.querySelector("[data-slot=sidebar]")!;
+        const main = screen.getByRole("main");
+        const skip = screen.getByRole("link", { name: "Skip to main content" });
+        expect(screen.getAllByRole("banner")).toHaveLength(1);
+        expect(screen.getAllByRole("main")).toHaveLength(1);
+        for (const [before, after] of [[skip, banner], [banner, sidebar], [sidebar, main]]) {
+            expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+        expect(banner.parentElement).toBe(sidebar.parentElement);
+        expect(banner.parentElement).toHaveAttribute("data-layout", "grid");
+        expect(document.querySelector('[tabindex]:not([tabindex="-1"]):not([tabindex="0"])')).toBeNull();
+    });
+
+    it("reaches the account controls before any sidebar entry, within seven Tabs (UI3F)", async () => {
+        mockPathname = "/app/customers/abc/edit";
+        await renderShell(makeMe({ ...tenantAdmin, capabilities: ["fleet:manage_customers"] }));
+        const user = userEvent.setup();
+        const account = screen.getByTestId("user-menu-trigger");
+        for (let count = 0; count < 7 && document.activeElement !== account; count++) {
+            await user.tab();
+            expect(document.querySelector("[data-slot=sidebar]")?.contains(document.activeElement)).toBe(false);
+        }
+        expect(document.activeElement).toBe(account);
+        expect(account.className).toMatch(/\bh-11\b/);
+        expect(account.className).toMatch(/\bmin-w-11\b/);
+    });
+
     it("has a banner beside <main>, not inside it, and a named navigation for the menu", async () => {
         await renderShell(tenantAdmin);
         const banner = screen.getByRole("banner");
