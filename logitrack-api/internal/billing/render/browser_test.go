@@ -58,7 +58,8 @@ func instant(t *testing.T, s string) time.Time {
 }
 
 // TestDetailXLSXMatchesTheBrowser compares the detail sheet with what the browser's generateDetailExcelBuffer built for
-// the same rows (testdata/detail_ts.json, written by detail_ts.mjs from logitrack-web/lib/billingDocumentRender.ts):
+// the same rows (testdata/detail_ts.json, written by detail_ts.mjs from logitrack-web/lib/billingDocumentRender.ts; frozen since F87
+// removed both, the last tree holding them is 4fc3d70e):
 // every title, header and data cell (value, type, number format), the merges and the column widths. The one intended
 // difference is the footer: the server prints the statement's exact NUMERIC totals where the browser printed its float
 // sum (5047.150000000001), within the 0.005 THB of R20.
@@ -239,7 +240,8 @@ func browserRows(t *testing.T) []documents.Row {
 
 // TestInvoicePDFMatchesTheBrowser compares every text of the invoice and receipt PDFs with what the browser's
 // buildInvoicePdf drew for the same input (testdata/invoice_ts.json, written by invoice_ts.mjs from
-// logitrack-web/lib/billingDocumentRender.ts with jsPDF 4 and jspdf-autotable): text, page, start x and baseline y
+// logitrack-web/lib/billingDocumentRender.ts with jsPDF 4 and jspdf-autotable; frozen since F87 removed them, the last
+// tree holding them is 4fc3d70e): text, page, start x and baseline y
 // within 0.05 mm, size and weight; three scenarios (two price rounds with the legend, the receipt, a single round over
 // 45 lines that moves the footer to a second page). Intended differences (main spec §6.18 #6, §9.9): the issue date
 // is the statement's (the browser printed the day it ran) and the withholding label prints the stored rate (the
@@ -370,7 +372,7 @@ func matchOps(t *testing.T, ops []Op, want []tsOp, rewrite func(string) string) 
 
 // TestShopeeReportMatchesTheBrowser compares the Shopee report's texts with what the browser's
 // generateShopeeExpressReportBlob drew for 70 trips without signed run-sheets (testdata/shopee_ts.json, written by
-// shopee_ts.mjs; the photo pages need the browser's canvas and are pinned by TestShopeeReportLayout): the header, the
+// shopee_ts.mjs from logitrack-web/lib/shopeeExpressReport.ts, frozen since F87 removed both at 4fc3d70e; the photo pages need the browser's canvas and are pinned by TestShopeeReportLayout): the header, the
 // summary table over pages, the fail-loud table and the page numbers. The issue date is the render's.
 func TestShopeeReportMatchesTheBrowser(t *testing.T) {
 	var golden struct {

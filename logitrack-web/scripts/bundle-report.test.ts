@@ -174,6 +174,15 @@ describe("banned packages (TW7: no Firebase chunk)", () => {
         expect(gateViolations(report, undefined)).toEqual(["static/chunks/1234.js: @firebase/app, firebase in a client chunk (the web holds no Firebase SDK, TW7)"]);
     });
 
+    it("bans the browser document stack from every client chunk (F87)", () => {
+        for (const pkg of ["jspdf", "jspdf-autotable", "xlsx-js-style", "bahttext"]) expect(isBannedPackage(pkg)).toBe(true);
+        expect(isBannedPackage("xlsx")).toBe(false);
+        const JSPDF = "./node_modules/.pnpm/jspdf@4.2.1/node_modules/jspdf/dist/jspdf.es.min.js";
+        const report = buildReport([chunk("static/chunks/5678.abcdef0123456789.js", 40, [], [mod(JSPDF, 40)])]);
+        expect(report.bannedChunks).toEqual({ "static/chunks/5678.js": { jspdf: 40 } });
+        expect(gateViolations(report, undefined)).toEqual(["static/chunks/5678.js: jspdf in a client chunk (documents render in Go, F87)"]);
+    });
+
     it("passes a bundle without Firebase", () => {
         const report = buildReport([chunk("static/chunks/main-app.js", 100, ["main-app"], [mod("./node_modules/.pnpm/react@19/node_modules/react/index.js", 100)])]);
         expect(report.bannedChunks).toEqual({});
