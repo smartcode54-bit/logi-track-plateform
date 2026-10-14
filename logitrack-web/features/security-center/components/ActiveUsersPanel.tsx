@@ -161,8 +161,14 @@ export function ActiveUsersPanel() {
                                                 variant="ghost"
                                                 size="sm"
                                                 className="gap-1"
-                                                disabled={isSelf(u)}
-                                                title={isSelf(u) ? t("users.revokeSessionsSelf") : undefined}
+                                                disabled={isSelf(u) || u.manageAccount === false}
+                                                title={
+                                                    isSelf(u)
+                                                        ? t("users.revokeSessionsSelf")
+                                                        : u.manageAccount === false
+                                                          ? t(`users.account.locked.${u.accountReason || "outside_reach"}`, t("users.account.locked.outside_reach"))
+                                                          : undefined
+                                                }
                                                 onClick={() => setSelected(u)}
                                             >
                                                 <MonitorSmartphone className="h-4 w-4" />

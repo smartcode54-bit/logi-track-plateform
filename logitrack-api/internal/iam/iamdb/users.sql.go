@@ -1055,6 +1055,26 @@ func (q *Queries) LockMoveDriver(ctx context.Context, id uuid.UUID) (LockMoveDri
 	return i, err
 }
 
+const lockUserByEmail = `-- name: LockUserByEmail :one
+SELECT id, status FROM users
+WHERE email = $1::text::citext AND status <> 'deleted'
+FOR NO KEY UPDATE
+`
+
+type LockUserByEmailRow struct {
+	ID     uuid.UUID
+	Status string
+}
+
+// POST /v1/tenants/{id}/members {email} (T62): the account behind an address (a deleted account has left the
+// address, users_email), locked as the first users row of the transaction.
+func (q *Queries) LockUserByEmail(ctx context.Context, email string) (LockUserByEmailRow, error) {
+	row := q.db.QueryRow(ctx, lockUserByEmail, email)
+	var i LockUserByEmailRow
+	err := row.Scan(&i.ID, &i.Status)
+	return i, err
+}
+
 const setDriverUser = `-- name: SetDriverUser :exec
 UPDATE drivers SET user_id = $1 WHERE id = $2
 `
@@ -1118,6 +1138,55 @@ func (q *Queries) TargetPrivileges(ctx context.Context, id uuid.UUID) (TargetPri
 	return i, err
 }
 
+const targetPrivilegesMany = `-- name: TargetPrivilegesMany :many
+SELECT u.id AS user_id,
+       EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)::boolean AS platform_role,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = u.id ORDER BY m.tenant_id)::uuid[] AS tenant_ids,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = u.id AND m.role = 'tenant_admin'
+             ORDER BY m.tenant_id)::uuid[] AS admin_tenant_ids,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = u.id AND s.kind = 'dispatcher')::boolean AS dispatcher,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = u.id AND s.kind = 'customer')::boolean AS customer
+FROM users u
+WHERE u.id = ANY ($1::uuid[])
+`
+
+type TargetPrivilegesManyRow struct {
+	UserID         uuid.UUID
+	PlatformRole   bool
+	TenantIds      []uuid.UUID
+	AdminTenantIds []uuid.UUID
+	Dispatcher     bool
+	Customer       bool
+}
+
+// TargetPrivileges of several users at once: the manageAccount flag of GET /v1/users (T62).
+func (q *Queries) TargetPrivilegesMany(ctx context.Context, ids []uuid.UUID) ([]TargetPrivilegesManyRow, error) {
+	rows, err := q.db.Query(ctx, targetPrivilegesMany, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TargetPrivilegesManyRow{}
+	for rows.Next() {
+		var i TargetPrivilegesManyRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.PlatformRole,
+			&i.TenantIds,
+			&i.AdminTenantIds,
+			&i.Dispatcher,
+			&i.Customer,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tenantExists = `-- name: TenantExists :one
 SELECT EXISTS (SELECT 1 FROM tenants WHERE id = $1)::boolean AS found
 `
@@ -1177,22 +1246,25 @@ func (q *Queries) UpdateAdminUser(ctx context.Context, arg UpdateAdminUserParams
 
 const upsertMembership = `-- name: UpsertMembership :exec
 INSERT INTO memberships (user_id, tenant_id, role, status, created_by)
-VALUES ($1, $2, $3, 'active', $4)
-ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = EXCLUDED.role, status = 'active'
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status
 `
 
 type UpsertMembershipParams struct {
 	UserID    uuid.UUID
 	TenantID  uuid.UUID
 	Role      string
+	Status    string
 	CreatedBy *uuid.UUID
 }
 
+// status: active, or suspended (PUT /v1/tenants/{id}/members/{userId} {status}, T62).
 func (q *Queries) UpsertMembership(ctx context.Context, arg UpsertMembershipParams) error {
 	_, err := q.db.Exec(ctx, upsertMembership,
 		arg.UserID,
 		arg.TenantID,
 		arg.Role,
+		arg.Status,
 		arg.CreatedBy,
 	)
 	return err

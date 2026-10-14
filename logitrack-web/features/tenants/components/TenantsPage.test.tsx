@@ -235,6 +235,15 @@ describe("TenantSwitcher", () => {
         expect(screen.queryByTestId("tenant-switcher")).toBeNull();
     });
 
+    it("is hidden when the only other membership is in a suspended tenant (T62: active memberships count)", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ tenant: tenantA }) }));
+        web.on("GET", "/api/go/v1/me/tenants", () => json(200, { data: [tenantA, { ...tenantB, status: "suspended" }] }));
+        renderWithProviders(<TenantSwitcher />);
+        await waitFor(() => expect(web.calls.some((c) => c.url === "/api/go/v1/me/tenants")).toBe(true));
+        expect(screen.queryByTestId("tenant-switcher")).toBeNull();
+    });
+
     it("switches the session tenant, refetches ['me'] and re-runs the edge gate for the page", async () => {
         const web = fakeWeb();
         let active = tenantA;

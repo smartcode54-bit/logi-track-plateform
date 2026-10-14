@@ -59,3 +59,14 @@ export function isSelf(me: MeDTO | null | undefined, user: Pick<UserDTO, "id">):
 export function primaryMembership(user: UserDTO, activeTenantId: string | undefined) {
     return user.memberships.find((m) => m.tenantId === activeTenantId) ?? (user.memberships.length === 1 ? user.memberships[0] : undefined);
 }
+
+/**
+ * Why the account-wide actions (temporary password, email, disable, invite, sessions) do not apply to `user`, or
+ * `null` when they do (T62, Appendix C §C.8 "Reach"). Go answers `manageAccount` per user; the caller itself is
+ * handled by `isSelf`.
+ */
+export function accountLockReason(user: Pick<UserDTO, "manageAccount" | "accountReason">): string | null {
+    if (user.manageAccount !== false) return null;
+    return user.accountReason || "outside_reach";
+}
+

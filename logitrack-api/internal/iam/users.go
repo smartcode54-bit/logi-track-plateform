@@ -34,6 +34,10 @@ type User struct {
 	Scopes             []Scope      `json:"scopes"`
 	PlatformRoles      []string     `json:"platformRoles"`
 	Driver             *DriverRef   `json:"driver"`
+	// ManageAccount: the caller may use the account-wide routes on this user (password, email, disable, sessions,
+	// invite); AccountReason is the details.reason they would refuse with otherwise (T62).
+	ManageAccount bool   `json:"manageAccount"`
+	AccountReason string `json:"accountReason,omitempty"`
 
 	photoFileID *uuid.UUID
 }
@@ -160,15 +164,20 @@ func (a *Admin) getUser(ctx context.Context, q *iamdb.Queries, r reach, id uuid.
 
 // GetUser is GET /v1/users/{id}.
 func (a *Admin) GetUser(ctx context.Context, p *authz.Principal, id uuid.UUID) (*User, error) {
-	return a.loadUser(ctx, readReach(p), id)
+	return a.loadUser(ctx, p, readReach(p), id)
 }
 
 // loadUser reads one user inside r with its photo signed; 404 when it does not exist for the caller.
-func (a *Admin) loadUser(ctx context.Context, r reach, id uuid.UUID) (*User, error) {
+func (a *Admin) loadUser(ctx context.Context, p *authz.Principal, r reach, id uuid.UUID) (*User, error) {
 	var u User
 	var ok bool
 	err := a.read(ctx, func(q *iamdb.Queries) (err error) {
-		u, ok, err = a.getUser(ctx, q, r, id)
+		if u, ok, err = a.getUser(ctx, q, r, id); err != nil || !ok {
+			return err
+		}
+		us := []User{u}
+		err = a.markAccountActions(ctx, q, p, us)
+		u = us[0]
 		return err
 	})
 	if err != nil {
@@ -296,8 +305,11 @@ func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersI
 			}
 		}
 		var err error
-		users, err = a.enrich(ctx, qq, r, rows)
-		return err
+		if users, err = a.enrich(ctx, qq, r, rows); err != nil {
+			return err
+		}
+		// One TargetPrivilegesMany for the page (T62): every row says whether its account-wide actions apply.
+		return a.markAccountActions(ctx, qq, p, users)
 	})
 	if err != nil {
 		return nil, "", err
@@ -518,7 +530,7 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 			details["billingPartyIds"] = parties
 		} else {
 			if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: tenant, Role: string(role),
-				CreatedBy: &actor}); err != nil {
+				Status: MembershipActive, CreatedBy: &actor}); err != nil {
 				return err
 			}
 			details["tenantId"] = tenant
@@ -560,7 +572,7 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 	if err != nil {
 		return nil, err
 	}
-	u, err := a.loadUser(c.ctx, writeReach(c.p), uid)
+	u, err := a.loadUser(c.ctx, c.p, writeReach(c.p), uid)
 	if err != nil {
 		return nil, err
 	}
@@ -611,26 +623,100 @@ func (a *Admin) outranks(c call, q *iamdb.Queries, id uuid.UUID, r reach) error 
 	if err != nil {
 		return err
 	}
-	deny := func(reason, msg string) error {
-		return authz.ErrPermissionDenied(msg).WithDetails(map[string]any{"reason": reason})
+	return outranksTarget(p, r, privileges{platformRole: t.PlatformRole, dispatcher: t.Dispatcher, customer: t.Customer,
+		tenants: t.TenantIds, adminTenants: t.AdminTenantIds})
+}
+
+// privileges are the rows of TargetPrivileges a rank check reads.
+type privileges struct {
+	platformRole, dispatcher, customer bool
+	tenants, adminTenants              []uuid.UUID
+}
+
+// outranksTarget is the rule of outranks on the target's privileges t (nil when p outranks it).
+func outranksTarget(p *authz.Principal, r reach, t privileges) error {
+	if r.all || (p.HasPlatform(authz.PlatformAdmin) && !p.IsMachine()) {
+		return nil
 	}
 	switch {
-	case t.PlatformRole || t.Dispatcher:
+	case t.platformRole || t.dispatcher:
 		return deny(ReasonPlatformTarget, "the user holds a platform role or a dispatcher grant; only a platform admin manages it")
-	case t.Customer && stewardOrPlatform(p) != nil:
+	case t.customer && stewardOrPlatform(p) != nil:
 		return deny(ReasonStewardOnly, "the user holds a customer scope; the own fleet or a platform admin manages it")
 	}
-	for _, tid := range t.TenantIds {
+	for _, tid := range t.tenants {
 		if !r.hasTenant(tid) {
 			return deny(ReasonOutsideReach, "the user also belongs to a tenant outside the caller's reach")
 		}
 	}
-	for _, tid := range t.AdminTenantIds {
+	for _, tid := range t.adminTenants {
 		if !isTenantAdminOf(p, tid) {
 			return deny(ReasonTenantAdminOnly, "the user is a tenant_admin; only a tenant_admin of its tenant or a platform admin manages it")
 		}
 	}
 	return nil
+}
+
+// deny is the 403 permission_denied of a rank check, with details.reason.
+func deny(reason, msg string) error {
+	return authz.ErrPermissionDenied(msg).WithDetails(map[string]any{"reason": reason})
+}
+
+// markAccountActions sets manageAccount (and accountReason) on users read by p (T62, Appendix C §C.8 "Reach"): whether
+// the account-wide routes (password, email, disable, sessions, invite) would accept the user under p's write reach,
+// so the users page shows which actions apply. A membership in another organisation shows as reason outside_reach
+// (the organisation is not named; the read lists only the memberships inside the caller's reach).
+func (a *Admin) markAccountActions(ctx context.Context, q *iamdb.Queries, p *authz.Principal, users []User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(users))
+	for i, u := range users {
+		ids[i] = u.ID
+	}
+	rows, err := q.TargetPrivilegesMany(ctx, ids)
+	if err != nil {
+		return err
+	}
+	byID := make(map[uuid.UUID]privileges, len(rows))
+	for _, t := range rows {
+		byID[t.UserID] = privileges{platformRole: t.PlatformRole, dispatcher: t.Dispatcher, customer: t.Customer,
+			tenants: t.TenantIds, adminTenants: t.AdminTenantIds}
+	}
+	r := writeReach(p)
+	for i := range users {
+		u := &users[i]
+		u.ManageAccount, u.AccountReason = false, ""
+		switch {
+		case u.ID == p.UserID:
+			u.AccountReason = "self"
+		case u.Status == "deleted":
+			u.AccountReason = "deleted"
+		default:
+			if err := outranksTarget(p, r, byID[u.ID]); err != nil {
+				var he *httpx.Error
+				if errors.As(err, &he) {
+					u.AccountReason, _ = he.Details["reason"].(string)
+				}
+				redactForeignAccount(u)
+			} else {
+				u.ManageAccount = true
+			}
+		}
+	}
+	return nil
+}
+
+// redactForeignAccount drops what a read would say about an account the caller cannot manage beyond its own reach
+// (T62, Appendix C §C.8): the customer or dispatcher scopes (their billing parties belong to other organisations)
+// and the legacy Firebase uid. The memberships are already limited to the caller's reach; tenant_admin_only is a
+// rank inside the reach and keeps everything.
+func redactForeignAccount(u *User) {
+	switch u.AccountReason {
+	case ReasonOutsideReach, ReasonStewardOnly, ReasonPlatformTarget:
+		u.Scopes = []Scope{}
+		u.LegacyAuthUID = nil
+	}
 }
 
 // visible checks that a route without a lock (a read, or the pre-check of a write) may act on user id inside r:
@@ -734,7 +820,7 @@ func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error
 	if err != nil {
 		return nil, err
 	}
-	return a.loadUser(c.ctx, writeReach(c.p), id)
+	return a.loadUser(c.ctx, c.p, writeReach(c.p), id)
 }
 
 func equalPtr(a, b *string) bool {

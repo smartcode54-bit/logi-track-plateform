@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * Tenant switcher of the app header (T18 owner addition, 2026-10-10; R83). Shown only when
- * `GET /v1/me/tenants` lists more than one tenant; the select itself is a lazily loaded chunk
+ * Tenant switcher of the app header (T18 owner addition, 2026-10-10; R83; T62). Shown whenever the user has more
+ * than one active membership in a tenant that is not suspended (`GET /v1/me/tenants` lists active memberships with
+ * the tenant status; a suspended tenant is shown disabled but does not count); the select itself is a lazily loaded chunk
  * (components/tenant-switcher-menu.tsx), so single-tenant principals never download it. A switch
  * calls `POST /api/auth/tenant`, which replaces `lt_at`; `['me']` and every tenant-scoped query
  * follow (context/auth.tsx `switchTenant`, lib/queryClient.ts `watchPrincipal`),
- * and the route is checked again by the edge gate (`router.refresh`).
+ * and the route is checked again by the edge gate (`router.refresh`). The SSE stream reconnects for the new
+ * tenant (lib/realtime, TW5). The web holds no Firebase session since TW7, so no bridge claims are re-minted.
  */
 import { useState } from "react";
 import dynamic from "next/dynamic";
@@ -15,7 +17,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { tenantName, type MeTenant } from "@/features/auth/api/me";
+import { tenantName, usableTenantCount, type MeTenant } from "@/features/auth/api/me";
 import { useMyTenants } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 
@@ -35,7 +37,7 @@ export function TenantSwitcher() {
     if (userId && fetched && (last?.userId !== userId || last.tenants !== fetched)) setLast({ userId, tenants: fetched });
     const tenants = fetched ?? (last && last.userId === userId ? last.tenants : undefined);
 
-    if (!auth?.me || !tenants || tenants.length <= 1) return null;
+    if (!auth?.me || !tenants || usableTenantCount(tenants) <= 1) return null;
     const active = auth.me.tenant?.id ?? "";
 
     const choose = async (tenantId: string) => {
