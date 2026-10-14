@@ -20,6 +20,7 @@ import { useLanguage } from "@/context/language";
 import { isJobFinished, useJob } from "@/features/jobs/api/jobs";
 import { apiErrorText } from "@/lib/apiError";
 import { downloadFromGo } from "@/lib/goDownload";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { SHOPEE_PDF_PATH, shopeePdfQuery, shopeeReportQuery, type ShopeeHalf, type ShopeeTripDTO } from "../../api/billing.go";
-import { ApiErrorAlert, CustomerSelect, formatDateTime, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
+import { customerSearchQuery } from "../../api/pickers.go";
+import { ApiErrorAlert, formatDateTime, MONTHS, monthName, yearOptions } from "./shared";
 
 interface Loaded {
     customerId: string;
@@ -41,7 +43,6 @@ const col = createColumnHelper<ShopeeTripDTO>();
 
 export function ShopeeReportPage() {
     const { t, language } = useLanguage();
-    const customers = useCustomerPicks();
     const now = new Date();
     const [month, setMonth] = useState(now.getMonth() + 1);
     const [year, setYear] = useState(now.getFullYear());
@@ -51,12 +52,16 @@ export function ShopeeReportPage() {
     const [jobId, setJobId] = useState<string | null>(null);
     const [downloading, setDownloading] = useState(false);
 
-    // Default to the TTP customer, as the Firestore page did.
+    // Default to the TTP customer, as the Firestore page did, else the first customer by code: the picker's
+    // server search for "TTP" (and its first page only when no customer has that code), never every customer.
+    const ttpPage = useQuery({ ...customerSearchQuery("TTP"), enabled: customerId === "" });
+    const ttp = ttpPage.data?.find((c) => c.code.trim().toUpperCase() === "TTP");
+    const firstPage = useQuery({ ...customerSearchQuery(""), enabled: customerId === "" && ttpPage.isSuccess && !ttp });
     useEffect(() => {
-        if (customerId || customers.list.length === 0) return;
-        const ttp = customers.list.find((c) => c.code.trim().toUpperCase() === "TTP");
-        setCustomerId((ttp ?? customers.list[0]).id);
-    }, [customerId, customers.list]);
+        if (customerId) return;
+        const pick = ttp ?? firstPage.data?.[0];
+        if (pick) setCustomerId(pick.id);
+    }, [customerId, ttp, firstPage.data]);
 
     const report = useQuery(shopeeReportQuery(loaded?.customerId ?? "", loaded?.year ?? 0, loaded?.month ?? 0, loaded?.half ?? "full", loaded !== null));
     const job = useJob(jobId);
@@ -178,7 +183,12 @@ export function ShopeeReportPage() {
                     </div>
                     <div className="space-y-1">
                         <Label>{t("accounting.shopeeReport.filters.customer")}</Label>
-                        <CustomerSelect value={customerId} onChange={setCustomerId} customers={customers.list} />
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.shopeeReport.filters.customer")}
+                            value={customerId}
+                            onValueChange={setCustomerId}
+                            className="min-w-[200px]"
+                        />
                     </div>
                     <Button
                         variant="outline"

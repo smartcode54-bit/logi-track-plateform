@@ -13,15 +13,15 @@ import { Loader2, Upload } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import type { CustomerPick } from "../../../api/pickers.go";
 import { importRateEntries, type JobCategory, type RateRowInput } from "../../../api/rateCard.go";
-import { CustomerSelect, todayKey } from "../shared";
+import { todayKey } from "../shared";
 
 function num(value: unknown): number | null {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -61,13 +61,11 @@ export function parseRateSheet(raw: unknown[][], knownHubs: Set<string>): Parsed
 export function RateImportDialog({
     open,
     onOpenChange,
-    customers,
     knownHubIds,
     initialCustomerId,
 }: {
     open: boolean;
     onOpenChange: (o: boolean) => void;
-    customers: CustomerPick[];
     knownHubIds: string[];
     initialCustomerId?: string;
 }) {
@@ -131,7 +129,13 @@ export function RateImportDialog({
                 <div className="grid gap-4 sm:grid-cols-3">
                     <div className="space-y-1 sm:col-span-3">
                         <Label>{t("accounting.rateCard.import.selectCustomer")}</Label>
-                        <CustomerSelect value={customerId} onChange={setCustomerId} customers={customers} placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")} className="w-full" />
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.rateCard.import.selectCustomer")}
+                            value={customerId}
+                            onValueChange={setCustomerId}
+                            placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")}
+                            className="w-full"
+                        />
                     </div>
                     <div className="space-y-1">
                         <Label>{t("accounting.rateCard.table.effectiveFrom")}</Label>

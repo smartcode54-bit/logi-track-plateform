@@ -73,9 +73,9 @@ const ALL_CAPS = [
 ];
 
 const HUBS = [
-    { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1" },
+    { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" },
     { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC" },
-    { id: "h3", sourceId: "SPK890174", sourceNameTh: "ห้วยขวาง10", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1" },
+    { id: "h3", sourceId: "SPK890174", sourceNameTh: "ห้วยขวาง10", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" },
     { id: "h4", sourceId: "RC-01", sourceNameTh: "ศูนย์คืนสินค้า", sourceNameEn: null, stationType: "SOC" },
     ...Array.from({ length: 60 }, (_, i) => ({ id: `hx${i}`, sourceId: `HUB-${String(i).padStart(3, "0")}`, sourceNameTh: `ฮับ ${i}`,
         sourceNameEn: null, stationType: "HUB" })),
@@ -357,7 +357,6 @@ describe("hub pickers: a server search per term, each value labelled by a single
         web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskNo: "FM-NEW-1" }) }));
         const onClose = vi.fn();
         renderPage("/app/first-mile", <TaskFormDialog mode="create" taskType="first_mile" allowTypeSwitch={false} onClose={onClose} />);
-        await waitFor(() => expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/customers"))).toBe(true));
         const source = await screen.findByRole("combobox", { name: "Pickup Point" });
         expect(hubCalls(web)).toEqual([]); // nothing is read before a list opens: no whole master
 
@@ -444,11 +443,16 @@ describe("job-assign import: a later type's failure keeps the earlier type's res
                 dryRun: false } });
         });
         renderPage("/app/job-assign", <TaskImportDialog kind="all" onClose={vi.fn()} />);
-        await waitFor(() => expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/customers"))).toBe(true));
-        await act(async () => undefined);
         const u = userEvent.setup();
+        // Nothing about customers is read before the sheet is.
+        await screen.findByRole("button", { name: /Click to Upload/ });
+        expect(web.count("GET", "/api/go/v1/customers")).toBe(0);
         await u.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, new File(["x"], "jobs.xlsx"));
         expect(await screen.findByText(/4 records/i)).toBeInTheDocument();
+        // The one customer cell is one server search (UI2C), not a read of every customer; the rows' pickers
+        // are labelled from that page.
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/customers")).map((c) => params(c.url))).toEqual([{ fields: "minimal", q: "CJSF", limit: "50" }]);
+        expect(screen.getAllByRole("combobox", { name: /^Customer \d$/ }).map((b) => b.textContent)).toEqual(Array(4).fill("CJCJSF"));
 
         await u.click(screen.getByRole("button", { name: "Upload" }));
         expect(await screen.findByText(/2 task\(s\) were imported before the error/)).toBeInTheDocument();

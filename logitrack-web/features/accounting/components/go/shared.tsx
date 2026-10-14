@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Small pieces the Go accounting and maintenance pages share (T42): money and date formatting, the
- * customer select over `['customers',{fields:'minimal'}]`, a server-searched driver / truck picker,
- * the error banner over `apiErrorText`. Nothing here imports Firebase, and nothing renders a key of the
- * split `accounting` namespace, so the maintenance routes (outside that route group) can use it.
+ * Small pieces the Go accounting and maintenance pages share (T42): money and date formatting, a
+ * server-searched driver / truck picker, the error banner over `apiErrorText`. The customer pickers are the
+ * shared `CustomerSearchSelect` / `CustomerPartySelect` (`components/entity-pickers.tsx`) and row labels come
+ * from `useCustomerLookup` (UI2C). Nothing here imports Firebase, and nothing renders a key of the split
+ * `accounting` namespace, so the maintenance routes (outside that route group) can use it.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, type ReactNode } from "react";
 import { format, isValid, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 
@@ -16,13 +16,7 @@ import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DriverSelect, TruckSelect } from "@/components/entity-pickers";
-import { SearchSelect, nodeText, type SearchSelectOption } from "@/components/ui/search-select";
-
-import {
-    customerLabel,
-    customerPicksQuery,
-    type CustomerPick,
-} from "../../api/pickers.go";
+import { nodeText } from "@/components/ui/search-select";
 
 /** `฿1,234.50` (two decimals only when the amount has them). */
 export function formatThb(n: number | null | undefined): string {
@@ -64,51 +58,6 @@ export function CenteredSpinner() {
         <div className="flex justify-center py-12" role="status" aria-busy="true">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-    );
-}
-
-/** The customer list of the Go pages (`['customers',{fields:'minimal'}]`, every page, 10 min). */
-export function useCustomerPicks() {
-    const q = useQuery(customerPicksQuery);
-    const list = useMemo(() => [...(q.data ?? [])].sort((a, b) => a.code.localeCompare(b.code)), [q.data]);
-    return { ...q, list };
-}
-
-export interface CustomerSelectProps {
-    value: string;
-    onChange: (id: string) => void;
-    customers: CustomerPick[];
-    /** The value and label of the "every customer" row; none = a customer is required. */
-    allValue?: string;
-    allLabel?: string;
-    placeholder?: string;
-    className?: string;
-    disabled?: boolean;
-    id?: string;
-}
-
-/**
- * A customer pick over the page's customer list (UI2: the shared searchable select, so the list filters as
- * the user types and virtualises when long); `allValue` adds the "every customer" row first.
- */
-export function CustomerSelect({ value, onChange, customers, allValue, allLabel, placeholder, className, disabled, id }: CustomerSelectProps) {
-    const options = useMemo<SearchSelectOption[]>(
-        () => [
-            ...(allValue !== undefined ? [{ value: allValue, label: allLabel ?? allValue }] : []),
-            ...customers.map((c) => ({ value: c.id, label: customerLabel(c), keywords: [c.code] })),
-        ],
-        [customers, allValue, allLabel]
-    );
-    return (
-        <SearchSelect
-            id={id}
-            value={value}
-            onValueChange={(v) => onChange(v)}
-            options={options}
-            placeholder={placeholder}
-            disabled={disabled}
-            className={cn("min-w-[200px]", className)}
-        />
     );
 }
 

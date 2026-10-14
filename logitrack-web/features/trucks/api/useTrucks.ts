@@ -56,7 +56,7 @@ export function useFleetStats() {
     return { ...query, trucks: query.data ?? NO_TRUCKS };
 }
 
-/** `['trucks','options']`: own trucks for the truck-assignment picker. */
+/** `['trucks','options']`: own trucks not in maintenance (the truck-assignment counter). */
 export function useTruckOptions(enabled = true) {
     const query = useQuery({ ...truckOptionsQuery, enabled });
     return { ...query, options: query.data ?? NO_OPTIONS };

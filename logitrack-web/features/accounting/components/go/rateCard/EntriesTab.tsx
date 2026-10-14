@@ -5,17 +5,19 @@
  * /v1/billing/rate-entries?customerId&includeVoided`), enabled only while the tab is shown. Source,
  * destination, class and search narrow the loaded pages (the server pages by customer only). A manual row
  * (`POST`), an import (`POST .../import`) and a void (`POST .../{id}/void`) refetch only this customer's
- * key and the `all` view (`rateCardChangedKeys`); the rate card's other tables stay cached.
+ * key and the `all` view (`rateCardChangedKeys`); the rate card's other tables stay cached. The customer
+ * column and the export name each loaded row's customer by id (`useCustomerLookup`).
  */
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Ban, Download, Loader2, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { LazyDialogLoading } from "@/components/lazy-dialog";
 import { LoadMore } from "@/components/load-more";
 import { VirtualTable } from "@/components/virtual-table";
@@ -28,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 
-import { customerLabel, hubLabel, hubPicksQuery, type CustomerPick } from "../../../api/pickers.go";
+import { hubLabel, hubPicksQuery } from "../../../api/pickers.go";
 import {
     ALL_CUSTOMERS,
     createRateEntry,
@@ -39,7 +41,8 @@ import {
     type JobCategory,
     type RateEntryDTO,
 } from "../../../api/rateCard.go";
-import { ApiErrorAlert, CustomerSelect, formatDay, formatThb, todayKey } from "../shared";
+import { fetchCustomerLookup, useCustomerLookup } from "../../../api/useCustomerLookup";
+import { ApiErrorAlert, formatDay, formatThb, todayKey } from "../shared";
 import { VoidDialog } from "./VoidDialog";
 
 // xlsx loads with the dialog, on its first open (developer-spec.md §10.11).
@@ -48,7 +51,7 @@ const RateImportDialog = dynamic(() => import("./RateImportDialog").then((m) => 
 const col = createColumnHelper<RateEntryDTO>();
 const ALL = "all";
 
-function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { customers: CustomerPick[]; hubs: { code: string; label: string }[]; initialCustomerId: string; onClose: () => void }) {
+function AddRateDialog({ hubs, initialCustomerId, onClose }: { hubs: { code: string; label: string }[]; initialCustomerId: string; onClose: () => void }) {
     const { t } = useLanguage();
     const [customerId, setCustomerId] = useState(initialCustomerId === ALL_CUSTOMERS ? "" : initialCustomerId);
     const [hubId, setHubId] = useState("");
@@ -93,7 +96,7 @@ function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { custom
                 <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2 space-y-1">
                         <Label>{t("accounting.rateCard.table.customer")}</Label>
-                        <CustomerSelect value={customerId} onChange={setCustomerId} customers={customers} className="w-full" />
+                        <CustomerSearchSelect aria-label={t("accounting.rateCard.table.customer")} value={customerId} onValueChange={setCustomerId} className="w-full" />
                     </div>
                     <div className="space-y-1">
                         <Label>{t("accounting.rateCard.table.hubId")}</Label>
@@ -180,8 +183,9 @@ function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { custom
     );
 }
 
-export function EntriesTab({ customerId, customers, canEdit }: { customerId: string; customers: CustomerPick[]; canEdit: boolean }) {
+export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdit: boolean }) {
     const { t } = useLanguage();
+    const client = useQueryClient();
     const entries = useInfiniteQuery(rateEntriesQuery(customerId));
     const hubsQuery = useQuery(hubPicksQuery);
     const [hub, setHub] = useState(ALL);
@@ -197,7 +201,8 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
 
     const all = rateEntryRows(entries.data?.pages);
     const rows = useMemo(() => filterRateEntries(all, { hubId: hub, destinationCode: dest, vehicleClass, q, showVoided }), [all, hub, dest, vehicleClass, q, showVoided]);
-    const byId = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+    // The loaded rows' customers and the selected one (the export's file name), one cached query each.
+    const customers = useCustomerLookup([customerId === ALL_CUSTOMERS ? null : customerId, ...all.map((r) => r.customerId)]);
     const hubs = useMemo(
         () =>
             (hubsQuery.data ?? [])
@@ -214,10 +219,12 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
     const exportRows = async () => {
         setExporting(true);
         try {
+            // Every row's customer resolved before the file is written (a code, never a pending "…").
+            const names = await fetchCustomerLookup(client, [customerId === ALL_CUSTOMERS ? null : customerId, ...rows.map((r) => r.customerId)]);
             const XLSX = await import("xlsx");
             const sheet = XLSX.utils.json_to_sheet(
                 rows.map((r) => ({
-                    [t("accounting.rateCard.export.customerCode")]: byId.get(r.customerId)?.code ?? r.customerId,
+                    [t("accounting.rateCard.export.customerCode")]: names.get(r.customerId)?.code ?? r.customerId,
                     [t("accounting.rateCard.export.hubName")]: sourceOf(r),
                     [t("accounting.rateCard.table.destination")]: r.destinationCode,
                     [t("accounting.rateCard.export.destinationName")]: destinationOf(r.destinationCode),
@@ -231,7 +238,7 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
             );
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, sheet, "rate_card");
-            XLSX.writeFile(wb, `rate_card_${customerId === ALL_CUSTOMERS ? "all" : (byId.get(customerId)?.code ?? customerId)}.xlsx`);
+            XLSX.writeFile(wb, `rate_card_${customerId === ALL_CUSTOMERS ? "all" : (names.get(customerId)?.code ?? customerId)}.xlsx`);
         } catch (e) {
             toast.error(apiErrorText(e, t));
         } finally {
@@ -242,7 +249,7 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
     const columns = useMemo(
         () => [
             ...(customerId === ALL_CUSTOMERS
-                ? [col.display({ id: "customer", header: () => t("accounting.rateCard.table.customer"), cell: ({ row: { original: r } }) => customerLabel(byId.get(r.customerId)) || r.customerId, meta: { cellClassName: "text-xs" } })]
+                ? [col.display({ id: "customer", header: () => t("accounting.rateCard.table.customer"), cell: ({ row: { original: r } }) => customers.label(r.customerId), meta: { cellClassName: "text-xs" } })]
                 : []),
             col.display({ id: "source", header: () => t("accounting.rateCard.table.hubId"), cell: ({ row: { original: r } }) => sourceOf(r), meta: { cellClassName: "text-xs" } }),
             col.display({
@@ -284,7 +291,7 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
         ],
         // sourceOf / destinationOf read hubName.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [t, customerId, byId, hubName, canEdit]
+        [t, customerId, customers, hubName, canEdit]
     );
 
     return (
@@ -392,12 +399,11 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
                 error={entries.isFetchNextPageError}
                 onLoadMore={() => void entries.fetchNextPage()}
             />
-            {adding ? <AddRateDialog customers={customers} hubs={hubs} initialCustomerId={customerId} onClose={() => setAdding(false)} /> : null}
+            {adding ? <AddRateDialog hubs={hubs} initialCustomerId={customerId} onClose={() => setAdding(false)} /> : null}
             {importMounted ? (
                 <RateImportDialog
                     open={importOpen}
                     onOpenChange={setImportOpen}
-                    customers={customers}
                     knownHubIds={hubs.map((h) => h.code)}
                     initialCustomerId={customerId === ALL_CUSTOMERS ? undefined : customerId}
                 />

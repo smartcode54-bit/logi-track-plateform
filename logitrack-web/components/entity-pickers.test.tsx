@@ -1,9 +1,9 @@
 // UI2 (issue #142): the server-searched pickers (drivers, trucks, hubs, customers) handle 5,000 records with
 // fewer than 100 rows in the DOM. A fake Go origin holds 5,000 of each and answers `q` with a page of `limit`
 // rows (the folding of `q` is Go's, pinned by its integration tests and lib/searchText.test.ts; UI2B). The typed
-// term is debounced into one request and the picked value keeps its label. DriverSelect, TruckSelect and
-// HubSelect are the product's pickers (HubSelect in the task form and the trip editor, whose tests pin its
-// lookups); CustomerSearchSelect has no page caller yet (follow-up of #142).
+// term is debounced into one request and the picked value keeps its label. DriverSelect, TruckSelect, HubSelect
+// and the customer pickers are the product's pickers (HubSelect in the task form and the trip editor, the
+// customer pickers in the pages' tests: UI2C).
 import * as React from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

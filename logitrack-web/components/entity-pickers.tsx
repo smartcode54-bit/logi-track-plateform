@@ -14,7 +14,9 @@
  *   thanthakhat, Thai digits; every word of the term in any order. The page keeps the server's order.
  * - `HubSelect` searches one page per term (both kinds, the preferred kind first) and labels its value with
  *   a single-record lookup (`GET /v1/hubs/{code}`), never with a map of the whole master: the task form and
- *   the trip editor use it. `CustomerSearchSelect` has no product caller yet (the follow-up of #142).
+ *   the trip editor use it.
+ * - The customer pickers label a value the page set (a row's customer, a default) by id
+ *   (`useCustomerLookup`, `['customers','ref',id]`), so no page reads every customer to show one (UI2C).
  */
 import * as React from "react";
 import { useQueries, useQuery, useQueryClient, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
@@ -38,9 +40,12 @@ import {
     truckPicksQuery,
     type CustomerPick,
     type DriverPick,
+    type DriverPickFilter,
     type HubPick,
     type TruckPick,
+    type TruckPickFilter,
 } from "@/features/accounting/api/pickers.go";
+import { useCustomerLookup } from "@/features/accounting/api/useCustomerLookup";
 import { apiErrorText } from "@/lib/apiError";
 
 export const PICKER_DEBOUNCE_MS = 250;
@@ -86,13 +91,35 @@ function selectedFrom(value: string | null | undefined, label: string | null | u
     return value && label ? { value, label } : null;
 }
 
+/** A page's touches of one option (a hint, a disabled row), laid over the picker's default option. */
+export type DescribeOption<T> = (item: T) => Partial<SearchSelectOption> | undefined;
+
+/** The option builder with the page's touches (keep `describe` stable, e.g. `useCallback`). */
+function useDescribed<T>(toOption: (item: T) => SearchSelectOption, describe: DescribeOption<T> | undefined) {
+    return React.useCallback(
+        (item: T): SearchSelectOption => {
+            const option = toOption(item);
+            const extra = describe?.(item);
+            return extra ? { ...option, ...extra } : option;
+        },
+        [toOption, describe]
+    );
+}
+
 // --- drivers ----------------------------------------------------------------------------------------------
 
 export const driverOption = (d: DriverPick): SearchSelectOption => ({ value: d.id, label: d.displayName || d.id.slice(0, 8) });
 
-/** `GET /v1/drivers?fields=minimal&q` (staff and dispatchers). */
-export const DriverSelect = React.forwardRef<HTMLButtonElement, PickerProps>(function DriverSelect({ selectedLabel, ...props }, ref) {
-    const search = useServerSearch(driverPicksQuery, driverOption);
+/**
+ * `GET /v1/drivers?fields=minimal&q` (staff and dispatchers); `status` narrows on the server, `details` reads
+ * the full rows (licence type, status, home truck) for `describe`.
+ */
+export const DriverSelect = React.forwardRef<HTMLButtonElement, PickerProps & DriverPickFilter & { describe?: DescribeOption<DriverPick> }>(function DriverSelect(
+    { selectedLabel, status, details, describe, ...props },
+    ref
+) {
+    const make = React.useCallback((q: string) => driverPicksQuery(q, { status, details }), [status, details]);
+    const search = useServerSearch(make, useDescribed(driverOption, describe));
     return <SearchSelect ref={ref} {...props} {...search} selectedOption={selectedFrom(props.value, selectedLabel)} onOpenChange={(o) => {
         search.onOpenChange(o);
         props.onOpenChange?.(o);
@@ -107,9 +134,13 @@ export const truckOption = (tr: TruckPick): SearchSelectOption => ({
     description: tr.type ?? undefined,
 });
 
-/** `GET /v1/trucks?q` (plate, province, brand, model). */
-export const TruckSelect = React.forwardRef<HTMLButtonElement, PickerProps>(function TruckSelect({ selectedLabel, ...props }, ref) {
-    const search = useServerSearch(truckPicksQuery, truckOption);
+/** `GET /v1/trucks?q` (plate, province, brand, model); `ownership` narrows on the server. */
+export const TruckSelect = React.forwardRef<HTMLButtonElement, PickerProps & TruckPickFilter & { describe?: DescribeOption<TruckPick> }>(function TruckSelect(
+    { selectedLabel, ownership, describe, ...props },
+    ref
+) {
+    const make = React.useCallback((q: string) => truckPicksQuery(q, { ownership }), [ownership]);
+    const search = useServerSearch(make, useDescribed(truckOption, describe));
     return <SearchSelect ref={ref} {...props} {...search} selectedOption={selectedFrom(props.value, selectedLabel)} onOpenChange={(o) => {
         search.onOpenChange(o);
         props.onOpenChange?.(o);
@@ -223,13 +254,61 @@ export const customerOption = (c: CustomerPick): SearchSelectOption => ({
     description: c.code || undefined,
 });
 
-/** `GET /v1/customers?fields=minimal&q`; the value is the customer id. */
-export const CustomerSearchSelect = React.forwardRef<HTMLButtonElement, PickerProps>(function CustomerSearchSelect({ selectedLabel, ...props }, ref) {
-    const search = useServerSearch(customerSearchQuery, customerOption);
-    return <SearchSelect ref={ref} {...props} {...search} selectedOption={selectedFrom(props.value, selectedLabel)} onOpenChange={(o) => {
+/** A customer by its billing party id; a customer without a party is listed but cannot be picked. */
+export const customerPartyOption = (c: CustomerPick): SearchSelectOption => ({
+    ...customerOption(c),
+    value: c.billingPartyId ?? `customer:${c.id}`,
+    disabled: !c.billingPartyId,
+});
+
+export type CustomerPickerProps = PickerProps & {
+    /** The value of an "every customer" row listed first (a filter's "all"); none = a customer is required. */
+    allValue?: string;
+    allLabel?: string;
+};
+
+/**
+ * The single customer pickers. The value's label: the "all" row, `selectedLabel`, the option SearchSelect
+ * remembers once picked, else the customer looked up by the value (`useCustomerLookup`; `…` while it
+ * resolves, the raw id when Go knows none).
+ */
+const CustomerPicker = React.forwardRef<HTMLButtonElement, CustomerPickerProps & { toOption: (c: CustomerPick) => SearchSelectOption }>(function CustomerPicker(
+    { selectedLabel, allValue, allLabel, toOption, ...props },
+    ref
+) {
+    const search = useServerSearch(customerSearchQuery, toOption);
+    const value = props.value ?? "";
+    const all = React.useMemo(() => (allValue === undefined ? null : { value: allValue, label: allLabel ?? allValue }), [allValue, allLabel]);
+    const isAll = all !== null && value === all.value;
+    const lookup = useCustomerLookup(value && !isAll && !selectedLabel ? [value] : []);
+    const found = lookup.get(value);
+    const selected = isAll
+        ? all
+        : selectedLabel
+          ? selectedFrom(value, selectedLabel)
+          : value
+            ? found
+                ? { ...toOption(found), value }
+                : { value, label: lookup.label(value) }
+            : null;
+    const options = React.useMemo(() => (all ? [all, ...search.options] : search.options), [all, search.options]);
+    return <SearchSelect ref={ref} {...props} {...search} options={options} selectedOption={selected} onOpenChange={(o) => {
         search.onOpenChange(o);
         props.onOpenChange?.(o);
     }} />;
+});
+
+/** `GET /v1/customers?fields=minimal&q`; the value is the customer id. */
+export const CustomerSearchSelect = React.forwardRef<HTMLButtonElement, CustomerPickerProps>(function CustomerSearchSelect(props, ref) {
+    return <CustomerPicker ref={ref} {...props} toOption={customerOption} />;
+});
+
+/**
+ * The same search; the value is the customer's billing party id (what tasks, standby records and the income
+ * filters hold).
+ */
+export const CustomerPartySelect = React.forwardRef<HTMLButtonElement, CustomerPickerProps>(function CustomerPartySelect(props, ref) {
+    return <CustomerPicker ref={ref} {...props} toOption={customerPartyOption} />;
 });
 
 /** Several customers by billing party id (the users page's customer scopes). */
@@ -237,11 +316,7 @@ export const CustomerPartyMultiSelect = React.forwardRef<
     HTMLButtonElement,
     Omit<MultiSearchSelectProps, "options" | "onSearchChange" | "loading" | "error"> & { selectedLabels?: Record<string, string> }
 >(function CustomerPartyMultiSelect({ selectedLabels, ...props }, ref) {
-    const toOption = React.useCallback(
-        (c: CustomerPick): SearchSelectOption => ({ ...customerOption(c), value: c.billingPartyId ?? `customer:${c.id}`, disabled: !c.billingPartyId }),
-        []
-    );
-    const search = useServerSearch(customerSearchQuery, toOption);
+    const search = useServerSearch(customerSearchQuery, customerPartyOption);
     const selectedOptions = props.value.flatMap((v) => (selectedLabels?.[v] ? [{ value: v, label: selectedLabels[v] }] : []));
     return <MultiSearchSelect ref={ref} {...props} {...search} selectedOptions={selectedOptions} onOpenChange={(o) => {
         search.onOpenChange(o);

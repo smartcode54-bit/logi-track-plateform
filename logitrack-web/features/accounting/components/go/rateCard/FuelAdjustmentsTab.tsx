@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
 import { pickFleetBangchakDieselReference } from "@/lib/bangchakFleetReferenceFuel";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -24,7 +25,6 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { fuelDayQuery } from "../../../api/fuel.go";
-import { customerLabel, type CustomerPick } from "../../../api/pickers.go";
 import {
     ALL_CUSTOMERS,
     createFuelAdjustment,
@@ -34,7 +34,8 @@ import {
     type FuelAdjustmentDTO,
     type FuelAdjustmentInput,
 } from "../../../api/rateCard.go";
-import { ApiErrorAlert, CenteredSpinner, CustomerSelect, formatDateTime, formatDay, formatThb, todayKey } from "../shared";
+import { useCustomerLookup } from "../../../api/useCustomerLookup";
+import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, formatThb, todayKey } from "../shared";
 import { VoidDialog } from "./VoidDialog";
 
 type Mode = FuelAdjustmentInput["mode"];
@@ -93,7 +94,7 @@ export function fuelAdjustmentInput(d: Draft): FuelAdjustmentInput | null {
     return { ...base, fuelBandBaselineFuelFloor: n(d.baseline), fuelBandThbPerBaht: n(d.perBaht) };
 }
 
-function AdjustmentDialog({ initial, customers, onClose }: { initial: Draft; customers: CustomerPick[]; onClose: () => void }) {
+function AdjustmentDialog({ initial, onClose }: { initial: Draft; onClose: () => void }) {
     const { t } = useLanguage();
     const [d, setD] = useState<Draft>(initial);
     const [saving, setSaving] = useState(false);
@@ -126,7 +127,12 @@ function AdjustmentDialog({ initial, customers, onClose }: { initial: Draft; cus
                 <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2 space-y-1">
                         <Label>{t("accounting.rateCard.fuelAdjustments.form.customer")}</Label>
-                        <CustomerSelect value={d.customerId} onChange={(v) => setD((x) => ({ ...x, customerId: v }))} customers={customers} className="w-full" />
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.rateCard.fuelAdjustments.form.customer")}
+                            value={d.customerId}
+                            onValueChange={(v) => setD((x) => ({ ...x, customerId: v }))}
+                            className="w-full"
+                        />
                     </div>
                     <div className="space-y-1">
                         <Label>{t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}</Label>
@@ -209,13 +215,13 @@ function AdjustmentDialog({ initial, customers, onClose }: { initial: Draft; cus
     );
 }
 
-export function FuelAdjustmentsTab({ customerId, customers, canEdit }: { customerId: string; customers: CustomerPick[]; canEdit: boolean }) {
+export function FuelAdjustmentsTab({ customerId, canEdit }: { customerId: string; canEdit: boolean }) {
     const { t } = useLanguage();
     const list = useQuery(fuelAdjustmentsQuery(customerId));
-    const byId = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
     const [draft, setDraft] = useState<Draft | null>(null);
     const [voiding, setVoiding] = useState<FuelAdjustmentDTO | null>(null);
     const rows = useMemo(() => [...(list.data ?? [])].sort((a, b) => b.effectiveFromDateStr.localeCompare(a.effectiveFromDateStr)), [list.data]);
+    const customers = useCustomerLookup(rows.map((r) => r.customerId));
 
     return (
         <div className="space-y-4">
@@ -251,7 +257,7 @@ export function FuelAdjustmentsTab({ customerId, customers, canEdit }: { custome
                         <TableBody>
                             {rows.map((r) => (
                                 <TableRow key={r.id} className={r.voided ? "opacity-60" : undefined}>
-                                    <TableCell className="text-xs">{customerLabel(byId.get(r.customerId)) || r.customerId}</TableCell>
+                                    <TableCell className="text-xs">{customers.label(r.customerId)}</TableCell>
                                     <TableCell className="whitespace-nowrap text-xs">{formatDay(r.effectiveFromDateStr)}</TableCell>
                                     <TableCell className="text-right font-mono text-xs">{r.rateMultiplier !== 1 ? multiplierPercentText(r.rateMultiplier) : "—"}</TableCell>
                                     <TableCell className="text-right font-mono text-xs">
@@ -291,10 +297,10 @@ export function FuelAdjustmentsTab({ customerId, customers, canEdit }: { custome
                     </Table>
                 </div>
             )}
-            {draft ? <AdjustmentDialog initial={draft} customers={customers} onClose={() => setDraft(null)} /> : null}
+            {draft ? <AdjustmentDialog initial={draft} onClose={() => setDraft(null)} /> : null}
             {voiding ? (
                 <VoidDialog
-                    label={`${customerLabel(byId.get(voiding.customerId))} · ${voiding.effectiveFromDateStr}`}
+                    label={`${customers.label(voiding.customerId)} · ${voiding.effectiveFromDateStr}`}
                     onVoid={(reason) => voidFuelAdjustment(voiding, reason)}
                     onClose={() => setVoiding(null)}
                 />
