@@ -33,6 +33,7 @@ import { useDriverStatusCounts } from "@/features/drivers/api/useDrivers";
 import { toastSaveError } from "@/lib/formServerErrors";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 
 /** A picked driver or truck: its id and what the picker showed (name / plate, licence / truck type). */
 interface Picked {
@@ -147,17 +148,8 @@ export default function TruckAssignmentPage() {
     };
 
     return (
-        <div className="min-h-screen bg-background text-foreground p-6 space-y-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.truckAssignment")}</h1>
-                    <p className="text-muted-foreground mt-1">
-                        {t('assignments.subtitle')}
-                    </p>
-                </div>
-                {/* Removed placeholder buttons */}
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("nav.truckAssignment")} description={t('assignments.subtitle')} />
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

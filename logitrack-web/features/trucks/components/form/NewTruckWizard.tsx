@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,6 +8,7 @@ import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
@@ -106,21 +106,16 @@ export default function NewTruckWizard() {
 
     return (
         <FormProvider {...methods}>
-            <div className="min-h-screen bg-background text-foreground flex flex-col">
-                <div className="flex items-center px-8 py-6 border-b bg-background sticky top-0 z-10">
-                    <Button variant="ghost" size="icon" asChild className="mr-4">
-                        <Link href="/app/trucks" prefetch={false}>
-                            <ArrowLeft className="h-5 w-5" />
-                        </Link>
-                    </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold">{t("trucks.wizard.title")}</h1>
-                        <p className="text-muted-foreground text-sm">
-                            {t("trucks.wizard.subtitle")
-                                .replace("{step}", currentStep.toString())
-                                .replace("{total}", STEPS.length.toString())}
-                        </p>
-                    </div>
+            <div className="flex flex-col gap-section">
+                <div className="sticky top-16 z-raised border-b bg-background pb-4">
+                    <PageHeader
+                        title={t("nav.trucks")}
+                        recordName={t("trucks.wizard.title")}
+                        description={t("trucks.wizard.subtitle")
+                            .replace("{step}", currentStep.toString())
+                            .replace("{total}", STEPS.length.toString())}
+                        back={{ href: "/app/trucks" }}
+                    />
                 </div>
 
                 <div className="flex flex-1 overflow-hidden">

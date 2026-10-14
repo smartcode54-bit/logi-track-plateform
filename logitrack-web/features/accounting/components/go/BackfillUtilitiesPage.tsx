@@ -12,6 +12,7 @@ import { format, startOfMonth } from "date-fns";
 import { Info, Wand2 } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -21,11 +22,8 @@ export function BackfillUtilitiesPage() {
     const { t } = useLanguage();
     const now = new Date();
     return (
-        <div className="container mx-auto max-w-5xl space-y-6 p-6">
-            <div>
-                <h1 className="text-3xl font-bold">{t("nav.utilities")}</h1>
-                <p className="mt-2 text-muted-foreground">{t("accounting.go.utilities.subtitle")}</p>
-            </div>
+        <div className="flex max-w-5xl flex-col gap-section">
+            <PageHeader title={t("nav.utilities")} description={t("accounting.go.utilities.subtitle")} />
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">

@@ -23,6 +23,11 @@ export default {
     "customers.form.idTypeLabel": "Label",
     "customers.form.idTypeKey.placeholder": "เช่น appId",
     "customers.form.idTypeLabel.placeholder": "เช่น App ID",
+    // UI3D: the logo control of the customer forms (its key was missing: the raw key showed) and the page headers.
+    "customers.form.uploadLogo": "อัปโหลดโลโก้",
+    "customers.form.removeLogo": "ลบโลโก้",
+    "customers.edit.subtitle": "แก้ไขข้อมูลลูกค้า ข้อมูลการวางบิล และประเภทรหัสคนขับ",
+    "customers.new.subtitle": "ลูกค้าที่วางบิล พร้อมข้อมูลการวางบิลและประเภทรหัสคนขับที่ต้องใช้",
     "customers.detail.title": "โปรไฟล์ลูกค้า",
     "customers.detail.notFound": "ไม่พบลูกค้า",
     "customers.detail.backToList": "กลับสู่รายการลูกค้า",

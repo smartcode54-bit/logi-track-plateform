@@ -189,12 +189,54 @@ describe("edge gate (proxy.ts, R39)", () => {
         expect(seen.headers.authorization).toMatch(/^Bearer ey/);
     });
 
-    it("sends a route the role lacks, and an unmapped route, to /app/unauthorized?from=", async () => {
+    it("sends a mapped route the role lacks to the 403 page, /app/unauthorized?from=", async () => {
         serveMe(() => me());
         expect(location(await gate("/app/payroll"))).toBe(`${WEB_ORIGIN}/app/unauthorized?from=%2Fapp%2Fpayroll`);
-        expect(location(await gate("/app/not-a-page"))).toBe(`${WEB_ORIGIN}/app/unauthorized?from=%2Fapp%2Fnot-a-page`);
         expect(location(await gate("/app/security-center"))).toBe(`${WEB_ORIGIN}/app/unauthorized?from=%2Fapp%2Fsecurity-center`);
+        // Under a mapped prefix the entry decides, whether or not a page answers below it (Next's 404 then).
+        expect(location(await gate("/app/payroll/nope"))).toBe(`${WEB_ORIGIN}/app/unauthorized?from=%2Fapp%2Fpayroll%2Fnope`);
         expect(await gate("/app/security-center/users")).toBeUndefined();
+    });
+
+    describe("an unmapped path names no page: not found, not forbidden (UI3D)", () => {
+        /** Let through (`NextResponse.next()`) with the status set to 404: the shell's catch-all renders "Page not found". */
+        function notFoundThrough(res: Response | undefined) {
+            expect(res).toBeDefined();
+            expect(res!.status).toBe(404);
+            expect(res!.headers.get("x-middleware-next")).toBe("1");
+            expect(res!.headers.get("location")).toBeNull();
+            expect(res!.headers.get("x-middleware-rewrite")).toBeNull();
+            expect(res!.headers.get("cache-control")).toBe("no-store");
+        }
+
+        it("lets it through to the shell's not-found with HTTP 404 (not the 403 page), the address as typed", async () => {
+            serveMe(() => me());
+            notFoundThrough(await gate("/app/nope?tab=2&_rsc=abc"));
+            notFoundThrough(await gate("/app/constructor"));
+            notFoundThrough(await gate("/app/utilities")); // removed (no page), §10.5
+            notFoundThrough(await gate("/app/trucksx"));
+        });
+
+        it("answers the same whatever the principal holds: an empty capability set gets 404, not the 403 page", async () => {
+            serveMe(() => me({ capabilities: [] }));
+            notFoundThrough(await gate("/app/nope"));
+            expect(location(await gate("/app/payroll"))).toBe(`${WEB_ORIGIN}/app/unauthorized?from=%2Fapp%2Fpayroll`);
+        });
+
+        it("still signs in first: without lt_at the path bounces to the refresh route, and Go is not asked", async () => {
+            expect(location(await gate("/app/nope", null))).toBe(`${WEB_ORIGIN}/api/auth/refresh?next=%2Fapp%2Fnope`);
+            expect(go.requests).toHaveLength(0);
+        });
+
+        it("leaves a driver-only principal on the 403 page (drivers have no console)", async () => {
+            expect(location(await gate("/app/nope", { rol: "driver", drv: "d1", tid: "t1" }))).toBe(`${WEB_ORIGIN}/app/unauthorized?from=%2Fapp%2Fnope`);
+            expect(go.calls("GET", "/v1/me")).toHaveLength(0);
+        });
+
+        it("sends a revoked session to /login before deciding anything about the path", async () => {
+            go.on("GET", "/v1/me", () => ({ status: 401, body: goError("session_revoked") }));
+            expect(location(await gate("/app/nope"))).toBe(`${WEB_ORIGIN}/login?next=%2Fapp%2Fnope&reason=revoked`);
+        });
     });
 
     it("keeps /app/dashboard and /app/unauthorized open to every signed-in principal", async () => {

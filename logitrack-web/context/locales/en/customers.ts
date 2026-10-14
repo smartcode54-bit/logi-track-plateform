@@ -23,6 +23,11 @@ export default {
     "customers.form.idTypeLabel": "Label",
     "customers.form.idTypeKey.placeholder": "e.g. appId",
     "customers.form.idTypeLabel.placeholder": "e.g. App ID",
+    // UI3D: the logo control of the customer forms (its key was missing: the raw key showed) and the page headers.
+    "customers.form.uploadLogo": "Upload logo",
+    "customers.form.removeLogo": "Remove logo",
+    "customers.edit.subtitle": "Change this customer's details, billing information and driver ID types.",
+    "customers.new.subtitle": "A customer you bill, with its billing information and the driver ID types it needs.",
     "customers.detail.title": "Customer Profile",
     "customers.detail.notFound": "Customer not found",
     "customers.detail.backToList": "Back to Customers",

@@ -227,7 +227,7 @@ mixed-language rows.
 ### Hierarchy
 - **Display** (700, clamp 36-60 px, 1.1): public landing and join pages only. Never inside `/app`.
 - **Headline** (600, 24 px / 32 px, tracking -0.025em): the page title, one per page (`text-2xl font-semibold
-  tracking-tight`). Incumbent pages use `text-3xl font-bold` (26 pages); the UI3-UI7 passes bring them to this level.
+  tracking-tight`), rendered only by `PageHeader` (UI3D; see Page header): no page writes its own `<h1>`.
 - **Title** (600, 16 px / 24 px): card, section and dialog titles (`text-base font-semibold`; dialogs use 18 px).
 - **Body** (400, 14 px / 20 px): all app text, table cells and form values (`text-sm`). Inputs use 16 px below
   `md` so mobile browsers do not zoom. Multi-line Thai paragraphs use `leading-relaxed` and stay under 75ch.
@@ -249,6 +249,11 @@ the user menu; the language and theme live in the user menu, so they are there a
 single column with a 16 px gutter (`gutter`), sections 24 px apart (`section`), fields and cards 16 px apart
 (`stack`), inline controls 8 px apart. All spacing is on Tailwind's 4 px step; the named steps are tokens
 (`p-gutter`, `gap-section`, `space-y-stack`).
+
+**The shell owns the page frame** (UI3D). `<main>` pads the page 16 px (`p-gutter`) and spaces its sections 24 px
+(`gap-section`); a page never pads or centres itself (no `container`, `mx-auto`, `p-6` on its outer element), so every
+heading starts at the same left edge (16 px from the sidebar) and a phone keeps the full width for fields. A narrow
+form caps its width with a left-aligned `max-w-*`; cards keep their own padding.
 
 Breakpoints are Tailwind's (`sm` 640, `md` 768, `lg` 1024, `xl` 1280). Every page works from 360 px: filters wrap,
 tables scroll horizontally inside their card (`overflow-x-auto`), dialogs keep a 16 px margin
@@ -367,7 +372,8 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   subcontracted carriers are "Partners" / "รถร่วม" wherever the console names them (menu, page, forms, broadcasts,
   company types), as in the scope line's "Partner admin" / "ผู้ดูแลรถร่วม".
 - **One name per page.** The menu label, the crumb, the page's H1 and the tab title are one i18n key ("Trips to
-  bill · LogiTrack Pro"; a detail page "<its name> · <entry> · LogiTrack Pro").
+  bill · LogiTrack Pro"; a detail page "<its name> · <entry> · LogiTrack Pro", named by `PageHeader`'s
+  `recordName`).
 - **The sidebar keeps its state.** Open or icons, as the user left it (`sidebar_state` cookie, a year); without a
   choice it starts open from `lg` and as icons from `md`. The trigger names what it controls (`aria-controls`,
   `aria-expanded`), its label is translated and its tooltip adds only the shortcut ("Shortcut: ⌘B" on Apple
@@ -427,6 +433,35 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - Copy states only what PRODUCT.md has evidence for: no counts, testimonials, customer logos, pricing or "global"
   claims (`components/landing/__tests__/landingCopy.test.ts`).
 
+### Page header
+- **One component** (`components/page-header.tsx`, UI3D): every `/app` page starts with `<PageHeader>`, the only
+  place an `<h1>` is written (`components/__tests__/page-frame.test.ts`). Headline style, ink.
+- **`title`** is the page's menu key (`t("nav.…")`): the H1 of a menu page, the same string as its crumb and tab.
+- **`recordName`** names a detail, edit or new page: a plate, a customer's or driver's name, "Add customer". It is the
+  H1 and the last crumb, so the tab reads "<record> · <entry> · LogiTrack Pro"; the entry stays in the crumb above.
+  An edit page names its record, never just "Edit".
+- **`description`**: one graphite line (14 px, up to 65ch) under the heading; facts such as a period or an ID go here.
+- **`actions`**: the page's buttons, primary last; right of the heading from `md`, stacked full width below it.
+- **`back`**: an icon link (36 px, 44 px on phones) named "Back to <entry>" / "กลับไปที่<entry>", for detail and edit
+  pages. **`status`**: a badge beside the heading (a truck's status).
+- No icon tile, kicker or eyebrow above or inside the heading.
+
+### Error states
+- **Not found is not forbidden.** An address with no page is "Page not found" / "ไม่พบหน้านี้" inside the shell
+  (HTTP 404, `app/app/not-found.tsx`): one line of explanation and "Go to my home page". A page the role does not open
+  is the 403 page (`/app/unauthorized`): ink heading "No access to this page", the page named as the menu names it
+  (never a raw path), who can change that for this kind of principal, "Go back" and "Go to my home page". No lock
+  tile, no "403" badge, no red.
+- **A missing record** (`components/record-state.tsx`): "Not found" / "ไม่พบข้อมูล" and "does not exist or is not in
+  your scope" (Go answers 404 for both; never say which), with the way back to the entry's list. A load error (5xx,
+  network) says why in words, offers "Try again" and the way back, and shows the request id as a quiet reference.
+  Never an empty form for a record that did not load.
+- **A page that crashed** stays in the shell (`app/app/error.tsx`): "This page stopped working", "Try again", "Go to my
+  home page" and a reference for support (a digest or request id), never the error message. A crash of the shell
+  itself shows `app/global-error.tsx`: standalone, Thai and English together.
+- State pages use the page header like any page (their name is the crumb and the tab title) and red only where a
+  state is named (an alert line), never as a tile.
+
 ### Toasts
 - sonner on `z-toast`, in the popover colours and the app font, bottom-right, 5 s; typed toasts (success, error,
   warning, info) use sonner's rich colours. One toast per event; errors name what to do next.
@@ -439,6 +474,7 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - **Do** use the layering tokens (`z-raised`, `z-sticky`, `z-modal`, `z-popover`) and nothing above 50 by hand.
 - **Do** use lucide icons at 16 px (20 px in the header); every icon-only control has an accessible name in en and th.
 - **Do** check every page in Thai and English, light and dark, at 360 px and at 1280 px.
+- **Do** start every page with `PageHeader` and leave the outer padding to the shell.
 - **Do** keep text AA: 4.5:1 for body text, 3:1 for large text and control outlines that carry meaning.
 
 ### Don't:

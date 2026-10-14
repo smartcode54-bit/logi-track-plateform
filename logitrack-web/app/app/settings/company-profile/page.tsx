@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/page-header";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { useEffect, useRef, useState } from "react";
@@ -204,19 +205,18 @@ export default function CompanyProfilePage() {
 
   return (
     <PagePermissionGuard capability={CAPABILITIES.company_manage}>
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{t("nav.companyProfile")}</h1>
-            <p className="text-muted-foreground text-sm mt-1">{t("company.profile.subtitle")}</p>
-          </div>
-          {companyId && (
-            <Badge variant="outline" className="text-green-600 border-green-300">
-              {t("company.status.active")}
-            </Badge>
-          )}
-        </div>
+      <div className="flex max-w-4xl flex-col gap-section">
+        <PageHeader
+          title={t("nav.companyProfile")}
+          description={t("company.profile.subtitle")}
+          status={
+            companyId ? (
+              <Badge variant="outline" className="text-green-600 border-green-300">
+                {t("company.status.active")}
+              </Badge>
+            ) : null
+          }
+        />
 
         <form onSubmit={handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
 

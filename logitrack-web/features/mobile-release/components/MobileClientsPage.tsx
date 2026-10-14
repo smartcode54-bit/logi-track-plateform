@@ -10,12 +10,13 @@
  * its own tenant): no `partnerScopeId` claim is involved any more.
  */
 import { useState } from "react";
-import { Loader2, RefreshCw, Smartphone } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { useSecurityReach } from "@/features/security-center/api/reach";
 import { formatDateTime } from "@/features/security-center/components/eventDisplay";
 import { apiErrorText } from "@/lib/apiError";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,14 +46,8 @@ export function MobileClientsPage() {
     const s = stats.data;
 
     return (
-        <div className="p-6 space-y-6">
-            <div>
-                <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-                    <Smartphone className="h-8 w-8" aria-hidden />
-                    {t("securityCenter.mobileClients")}
-                </h1>
-                <p className="mt-2 text-muted-foreground">{t("securityCenter.mobileClients.subtitle")}</p>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("securityCenter.mobileClients")} description={t("securityCenter.mobileClients.subtitle")} />
 
             {list.error ? (
                 <Alert variant="destructive">

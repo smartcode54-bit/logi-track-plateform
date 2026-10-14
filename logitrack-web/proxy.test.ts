@@ -35,6 +35,14 @@ describe("proxy.ts", () => {
         expect(res.headers.get("location")).toBe(`${WEB_ORIGIN}/api/auth/refresh?next=%2Fapp%2Fdrivers`);
     });
 
+    it("lets an unmapped path through with HTTP 404 to the shell's not-found, not the 403 page (UI3D)", async () => {
+        const at = await signAccess(key);
+        const res = await proxy(new NextRequest(`${WEB_ORIGIN}/app/nope`, { headers: { cookie: `lt_at=${at}` } }));
+        expect(res.status).toBe(404);
+        expect(res.headers.get("x-middleware-next")).toBe("1");
+        expect(res.headers.get("location")).toBeNull();
+    });
+
     it("lets an allowed navigation through with NextResponse.next()", async () => {
         const at = await signAccess(key);
         const res = await proxy(new NextRequest(`${WEB_ORIGIN}/app/drivers`, { headers: { cookie: `lt_at=${at}` } }));

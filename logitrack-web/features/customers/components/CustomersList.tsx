@@ -24,6 +24,7 @@ import {
 import { useLanguage } from "@/context/language";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { LoadMore } from "@/components/load-more";
+import { PageHeader } from "@/components/page-header";
 
 export default function CustomersList() {
     const { t } = useLanguage();
@@ -35,23 +36,19 @@ export default function CustomersList() {
     const filtered = useMemo(() => pages.data?.pages.flatMap((p) => p.data ?? []) ?? [], [pages.data]);
 
     return (
-        <div className="min-h-screen bg-background text-foreground p-6 space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">
-                        {t("nav.customers")}
-                    </h1>
-                    <p className="text-muted-foreground mt-1">
-                        {t("customers.subtitle")}
-                    </p>
-                </div>
-                <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                    <Link href="/app/customers/new" prefetch={false}>
-                        <Plus className="h-4 w-4" />
-                        {t("customers.add")}
-                    </Link>
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.customers")}
+                description={t("customers.subtitle")}
+                actions={
+                    <Button asChild>
+                        <Link href="/app/customers/new" prefetch={false}>
+                            <Plus className="h-4 w-4" aria-hidden />
+                            {t("customers.add")}
+                        </Link>
+                    </Button>
+                }
+            />
 
             <Card>
                 <CardContent className="p-6">
@@ -103,8 +100,8 @@ export default function CustomersList() {
                                         <TableCell>
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t("common.actionsFor", { name: c.name || c.code })}>
+                                                        <MoreHorizontal className="h-4 w-4" aria-hidden />
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">

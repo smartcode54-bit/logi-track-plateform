@@ -15,18 +15,28 @@
  *    `session_revoked`); a 403 -> `/app/unauthorized`; Go unreachable -> 503.
  * 5. `/app` exactly -> 307 to the role's home route (lib/routeCapabilities.ts `homeRouteFor`); the
  *    page's own `redirect()` stays as a fallback.
- * 6. lib/routeCapabilities.ts decides; an unmapped path is denied -> 307 `/app/unauthorized?from=`.
+ * 6. lib/routeCapabilities.ts decides (UI3D: not found is not forbidden):
+ *    - an unmapped path names no page -> through with HTTP 404 (`notFoundThrough`): the shell's catch-all
+ *      (`app/app/[...missing]/page.tsx`) calls `notFound()`, so "Page not found" renders inside the shell and the
+ *      address stays as typed;
+ *    - a mapped path the principal's capabilities do not open -> 307 `/app/unauthorized?from=` (the 403 page).
+ *    SAFE ONLY BECAUSE every page under app/app is mapped: lib/routeCapabilities.test.ts ("maps every page under
+ *    app/app") and Go's TestEveryWebPageIsMapped fail on a page without a mapping. An unmapped path is let through
+ *    without a capability check, so a page added without a mapping would be served to every signed-in principal
+ *    (with a 404 status); those two tests are what keep that from happening. Go authorises every data call anyway.
  *
  * Redirects are absolute on `WEB_PUBLIC_ORIGIN` (Next requires an absolute Location from proxy.ts, and
  * the internal host of the standalone server must never leak). Go authorises every request anyway.
  */
 import "server-only";
 
+import { NextResponse } from "next/server";
+
 import { verifyAccessToken, type AccessClaims } from "./accessToken";
 import { bffConfig, type BffConfig } from "./config";
 import { callUpstream, cookie, forwardedFor, HEADER_REQUEST_ID, loginLocation, requestIdFor } from "./http";
 import { ACCESS_COOKIE, clearAccessCookie } from "./session";
-import { homeRouteFor, normalizeAppPath, routeAllowed, APP_ROOT, UNAUTHORIZED_PATH } from "../routeCapabilities";
+import { homeRouteFor, normalizeAppPath, routeAllowed, routeFor, APP_ROOT, UNAUTHORIZED_PATH } from "../routeCapabilities";
 
 export const ME_CACHE_TTL_MS = 60_000;
 export const ME_CACHE_MAX_ENTRIES = 5_000;
@@ -148,6 +158,18 @@ function redirect(cfg: BffConfig, location: string, requestId: string, setCookie
     return new Response(null, { status: 307, headers });
 }
 
+/**
+ * An unmapped path (UI3D): let through to the shell's catch-all, which renders "Page not found", with the response's
+ * status set to 404 here. The status has to come from the gate: the `/app` shell renders its page on the client
+ * (after `['me']`), so a `notFound()` in the page never reaches the server render that would set it. Not a rewrite:
+ * Next proxies a middleware rewrite as an external request when its own hostname and the request's differ (HOSTNAME
+ * in the standalone container), and it drops a rewrite's status anyway. A client navigation that gets this 404 for
+ * its RSC payload falls back to a full page load of the same address, which gets the same answer.
+ */
+function notFoundThrough(requestId: string): Response {
+    return NextResponse.next({ status: 404, headers: { "Cache-Control": "no-store", [HEADER_REQUEST_ID]: requestId } });
+}
+
 function unavailable(requestId: string): Response {
     return new Response("Service temporarily unavailable, please retry.\nระบบไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกครั้ง\n", {
         status: 503,
@@ -211,6 +233,8 @@ export async function edgeGate(req: Request, deps: GateDeps = {}): Promise<Respo
     }
 
     if (pathname === APP_ROOT) return redirect(cfg, homeRouteFor(me.me), requestId);
+    // No mapping, no page (the invariant tests above): "Page not found", not the 403 page.
+    if (!routeFor(pathname)) return notFoundThrough(requestId);
     if (!routeAllowed(me.me.capabilities, pathname)) {
         return redirect(cfg, `${UNAUTHORIZED_PATH}?${new URLSearchParams({ from: pathname })}`, requestId);
     }

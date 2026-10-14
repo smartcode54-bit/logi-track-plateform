@@ -17,6 +17,7 @@ import { Download, FileText, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { isJobFinished, useJob } from "@/features/jobs/api/jobs";
 import { apiErrorText } from "@/lib/apiError";
 import { downloadFromGo } from "@/lib/goDownload";
@@ -125,11 +126,8 @@ export function ShopeeReportPage() {
     const stale = loaded !== null && (loaded.customerId !== customerId || loaded.year !== year || loaded.month !== month || loaded.half !== half);
 
     return (
-        <div className="space-y-6 p-6">
-            <div>
-                <h1 className="text-2xl font-bold">{t("nav.shopeeExpressReport")}</h1>
-                <p className="mt-1 text-sm text-muted-foreground">{t("accounting.shopeeReport.subtitle")}</p>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("nav.shopeeExpressReport")} description={t("accounting.shopeeReport.subtitle")} />
 
             <Card>
                 <CardHeader>

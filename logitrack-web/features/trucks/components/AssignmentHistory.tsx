@@ -101,7 +101,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                 cell: ({ row }) => (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted">
+                            <Button aria-label={t("common.actionsForRow")} variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted">
                                 <MoreHorizontal className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>

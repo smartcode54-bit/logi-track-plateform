@@ -90,7 +90,7 @@ export default function FileUploader({ label, upload, onUploadComplete, currentU
                                     )}
                                 </a>
                                 {onRemove && (
-                                    <Button
+                                    <Button aria-label={t("common.removeFile")}
                                         variant="destructive"
                                         size="icon"
                                         type="button"

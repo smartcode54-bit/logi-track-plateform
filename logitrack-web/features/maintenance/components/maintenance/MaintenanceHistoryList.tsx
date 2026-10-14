@@ -141,7 +141,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                 </div>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
+                                        <Button aria-label={t("common.actionsForRow")} variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
                                             <MoreHorizontal className="h-4 w-4" />
                                         </Button>
                                     </DropdownMenuTrigger>

@@ -25,7 +25,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Plus, Trash2, Loader2, Upload, X } from "lucide-react";
+import { Plus, Trash2, Loader2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { toast } from "sonner";
@@ -34,6 +34,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
+import { RecordState } from "@/components/record-state";
 
 export default function EditCustomerForm() {
     // A real dynamic segment since TW2 (standalone server; no Hosting placeholder rewrite).
@@ -115,39 +117,30 @@ export default function EditCustomerForm() {
         }
     };
 
-    const loading = query.isPending && Boolean(id);
-    if (loading) {
-        return (
-            <div className="flex justify-center py-24">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-        );
+    // No id, no customer, or the read failed: not found or outside the reader's scope, or a load error with a retry
+    // (UI3D), never an empty form.
+    if (!id || query.isError || (query.isSuccess && !query.data)) {
+        return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 
-    if (query.isError || (query.isSuccess && !query.data)) {
+    if (query.isPending) {
         return (
-            <div className="container py-12 text-center">
-                <h2 className="text-xl font-semibold mb-4">{t("customers.detail.notFound")}</h2>
-                <Button asChild variant="outline">
-                    <Link href="/app/customers" prefetch={false}>{t("customers.detail.backToList")}</Link>
-                </Button>
+            <div className="flex justify-center py-24" role="status" aria-busy="true">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+                <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
 
     return (
-        <div className="container max-w-2xl py-8">
-            <div className="flex items-center gap-4 mb-6">
-                <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/app/customers/${id}`} prefetch={false}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Link>
-                </Button>
-                <div>
-                    <h1 className="text-2xl font-bold">{t("customers.action.edit")}</h1>
-                    <p className="text-sm text-muted-foreground">{t("customers.subtitle")}</p>
-                </div>
-            </div>
+        <div className="flex max-w-2xl flex-col gap-section">
+            {/* The customer's name is the H1, the crumb and the tab title (UI3D: all three read "Edit" before). */}
+            <PageHeader
+                title={t("nav.customers")}
+                recordName={query.data.name}
+                description={t("customers.edit.subtitle")}
+                back={{ href: `/app/customers/${id}`, label: t("pageHeader.back", { page: query.data.name }) }}
+            />
 
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
@@ -159,20 +152,20 @@ export default function EditCustomerForm() {
                         <CardContent className="space-y-4">
                             <div className="flex justify-center mb-4">
                                 <div className="relative group">
-                                    <div className="w-24 h-24 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 relative">
+                                    <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-input bg-muted focus-within:ring-[3px] focus-within:ring-ring/50">
                                         {logoPreview ? (
                                             <Image src={logoPreview} alt="Logo" fill className="object-cover" />
                                         ) : (
                                             <label htmlFor="logo-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                                                 <Upload className="h-6 w-6 text-muted-foreground mb-1" />
-                                                <span className="text-xs text-muted-foreground">{t("customers.form.uploadLogo") || "Upload Logo"}</span>
+                                                <span className="text-xs text-muted-foreground">{t("customers.form.uploadLogo")}</span>
                                             </label>
                                         )}
-                                        <input id="logo-upload" type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                                        <input id="logo-upload" type="file" accept="image/*" className="sr-only" aria-label={t("customers.form.uploadLogo")} onChange={handleLogoChange} />
                                     </div>
                                     {logoPreview && (
-                                        <button type="button" onClick={removeLogo} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-sm">
-                                            <X className="h-3 w-3" />
+                                        <button type="button" onClick={removeLogo} aria-label={t("customers.form.removeLogo")} className="absolute -top-1 -right-1 rounded-full bg-destructive p-1 text-white shadow-sm hover:bg-destructive/90 dark:bg-destructive/60">
+                                            <X className="h-3 w-3" aria-hidden />
                                         </button>
                                     )}
                                 </div>
@@ -232,7 +225,7 @@ export default function EditCustomerForm() {
                                         control={form.control}
                                         name={`driverIdTypes.${index}.key`}
                                         render={({ field: f }) => (
-                                            <FormItem className="flex-1">
+                                            <FormItem className="min-w-0 flex-1">
                                                 <FormLabel className="text-xs">{t("customers.form.idTypeKey")}</FormLabel>
                                                 <FormControl>
                                                     <Input placeholder={t("customers.form.idTypeKey.placeholder")} {...f} />
@@ -245,7 +238,7 @@ export default function EditCustomerForm() {
                                         control={form.control}
                                         name={`driverIdTypes.${index}.label`}
                                         render={({ field: f }) => (
-                                            <FormItem className="flex-1">
+                                            <FormItem className="min-w-0 flex-1">
                                                 <FormLabel className="text-xs">{t("customers.form.idTypeLabel")}</FormLabel>
                                                 <FormControl>
                                                     <Input placeholder={t("customers.form.idTypeLabel.placeholder")} {...f} />
@@ -254,11 +247,11 @@ export default function EditCustomerForm() {
                                             </FormItem>
                                         )}
                                     />
-                                    <Button
+                                    <Button aria-label={t("common.removeRow")}
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        className="mt-8 text-destructive hover:text-destructive"
+                                        className="mt-8 shrink-0 text-destructive hover:text-destructive"
                                         onClick={() => remove(index)}
                                     >
                                         <Trash2 className="h-4 w-4" />
@@ -288,7 +281,7 @@ export default function EditCustomerForm() {
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                     {t("customers.form.billing.taxSection")}
                                 </p>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                                     <FormField
                                         control={form.control}
                                         name="taxId"
@@ -364,7 +357,7 @@ export default function EditCustomerForm() {
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                     {t("customers.form.billing.contactSection")}
                                 </p>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                                     <FormField
                                         control={form.control}
                                         name="contactName"
@@ -412,7 +405,7 @@ export default function EditCustomerForm() {
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                     {t("customers.form.billing.paymentSection")}
                                 </p>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                                     <FormField
                                         control={form.control}
                                         name="paymentTermsDays"

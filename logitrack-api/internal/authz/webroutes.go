@@ -10,7 +10,9 @@ import (
 // logitrack-web/lib/capabilities.ts:340-394 re-keyed to the catalog with the changes of Appendix C
 // §C.2.7 and main spec §10.5. An empty list means any signed-in principal the gate lets reach the map (not a
 // driver-only one): /app/dashboard, /app/unauthorized and, since UI3C, /app/support stay open; any-of otherwise. A path matches exactly, else by its longest mapped
-// prefix; an unmapped path is denied. It is generated into shared-docs/schemas/capabilities.ts, which
+// prefix; an unmapped path is no page and opens for nobody: the gate answers it with "Page not found" (HTTP 404,
+// UI3D), a mapped path the principal lacks with the 403 page (/app/unauthorized). That 404 is true only while every
+// web page is mapped (TestEveryWebPageIsMapped). It is generated into shared-docs/schemas/capabilities.ts, which
 // TW3 turns into lib/routeCapabilities.ts. The gate is a necessary-condition filter: Go authorises
 // every request again.
 var webRoutes = map[string][]Cap{
@@ -97,7 +99,7 @@ func WebRoutes() map[string][]Cap {
 func WebRoutePaths() []string { return slices.Sorted(maps.Keys(webRoutes)) }
 
 // RouteFor returns the mapping that governs path: the exact entry, else the longest mapped prefix at a
-// segment boundary. ok is false for an unmapped path, which the gate denies.
+// segment boundary. ok is false for an unmapped path, which names no page (the gate answers 404, UI3D).
 func RouteFor(path string) (caps []Cap, matched string, ok bool) {
 	p := strings.TrimSuffix(path, "/")
 	for {
@@ -113,7 +115,8 @@ func RouteFor(path string) (caps []Cap, matched string, ok bool) {
 }
 
 // RouteAllowed is the edge gate's decision for a principal holding caps: an open route admits every
-// signed-in principal, a mapped route needs one of its keys, an unmapped route is denied. (proxy.ts
+// signed-in principal, a mapped route needs one of its keys, an unmapped route opens for nobody (the gate
+// shows "Page not found" there rather than the 403 page; UI3D). (proxy.ts
 // sends a principal whose only role is driver to /app/unauthorized before it consults the map.)
 func RouteAllowed(caps CapSet, path string) bool {
 	need, _, ok := RouteFor(path)

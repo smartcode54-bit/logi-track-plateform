@@ -49,12 +49,12 @@ export function DeliveryActivityChart({ activity, period }: { activity: Activity
     return (
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm" data-testid="activity-chart">
             <div className="mb-6">
-                <h3 className="text-lg font-semibold text-foreground">{t("dashboard.activity.title")}</h3>
+                <h2 className="text-lg font-semibold text-foreground">{t("dashboard.activity.title")}</h2>
                 <p className="text-sm text-muted-foreground">{period === "week" ? t("dashboard.activity.weekly") : t("dashboard.activity.monthly")}</p>
             </div>
 
             <div className="mb-6">
-                <h2 className="text-4xl font-bold text-foreground tabular-nums">{activity.total.toLocaleString()}</h2>
+                <p className="text-4xl font-semibold text-foreground tabular-nums">{activity.total.toLocaleString()}</p>
                 <div className="flex items-center gap-2 mt-1">
                     {activity.trendPct !== null && (
                         <span className={`text-sm font-medium ${activity.trendPct >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="activity-trend">

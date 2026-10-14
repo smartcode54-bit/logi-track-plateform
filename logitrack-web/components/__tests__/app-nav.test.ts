@@ -35,8 +35,10 @@ function appRoutes(): string[] {
     const walk = (dir: string) => {
         for (const name of fs.readdirSync(dir)) {
             const p = path.join(dir, name);
-            if (fs.statSync(p).isDirectory()) walk(p);
-            else if (name === "page.tsx") {
+            if (fs.statSync(p).isDirectory()) {
+                // The shell's catch-all (`[...missing]`, UI3D) only calls notFound(): not a page of its own.
+                if (!/^\[\[?\.\.\./.test(name)) walk(p);
+            } else if (name === "page.tsx") {
                 const rel = path.relative(path.join(WEB_ROOT, "app"), path.dirname(p)).split(path.sep).join("/");
                 out.push(`/${rel}`.replace(/\[[^\]]+\]/g, "x1"));
             }
@@ -287,16 +289,19 @@ describe("the menu of each kind of principal (UI3B: only grouping, order, names 
     });
 });
 
+/** The page's heading (UI3D): its `<PageHeader`, which renders the one H1 (components/page-header.tsx). */
+const HEADING_RX = /<PageHeader\b/;
+
 /**
- * The component that renders the page at `url` and its file: the page's own default export when the page holds an
- * H1, else the one component it imports (statically or through `dynamic(() => import(...).then((m) => m.X))`) whose
- * file holds one.
+ * The component that renders the page at `url` and its file: the page's own default export when the page holds a
+ * PageHeader, else the one component it imports (statically or through `dynamic(() => import(...).then((m) => m.X))`)
+ * whose file holds one.
  */
 function pageComponent(url: string): { file: string; name: string } {
     const page = path.join(WEB_ROOT, "app", ...url.split("/").filter(Boolean), "page.tsx");
     const source = fs.readFileSync(page, "utf8");
     const defaultName = (src: string) => src.match(/export default function (\w+)/)?.[1] ?? "";
-    if (/<h1\b/.test(source)) return { file: page, name: defaultName(source) };
+    if (HEADING_RX.test(source)) return { file: page, name: defaultName(source) };
     const imports = [
         ...[...source.matchAll(/import\(\s*["']([^"']+)["']\s*\)\.then\(\(m\) => m\.(\w+)\)/g)].map((m) => ({ spec: m[1], name: m[2] })),
         ...[...source.matchAll(/import\s*\{\s*(\w+)\s*\}\s*from\s*["']([^"']+)["']/g)].map((m) => ({ spec: m[2], name: m[1] })),
@@ -304,21 +309,23 @@ function pageComponent(url: string): { file: string; name: string } {
     ];
     const candidates = imports
         .map(({ spec, name }) => ({ file: resolveImport(page, spec), name }))
-        .filter((c): c is { file: string; name: string } => Boolean(c.file) && /<h1\b/.test(fs.readFileSync(c.file as string, "utf8")));
-    expect(candidates, `${url}: the components with an H1`).toHaveLength(1);
+        .filter((c): c is { file: string; name: string } => Boolean(c.file) && HEADING_RX.test(fs.readFileSync(c.file as string, "utf8")));
+    expect(candidates, `${url}: the components with a PageHeader`).toHaveLength(1);
     const [found] = candidates;
     return { file: found.file, name: found.name || defaultName(fs.readFileSync(found.file, "utf8")) };
 }
 
 /**
- * The page's primary heading: the one `<h1>` of the file, inside the page component's own body, and not in a branch
- * of it (an `if (...) return` for an error or an empty state), so a heading there cannot stand in for a missing real
- * one. Returns the heading's markup, or a reason it is not the primary heading.
+ * The page's primary heading: the one `<PageHeader` (or, in the self-test below, `<h1>`) of the file, inside the page
+ * component's own body, and not in a branch of it (an `if (...) return` for an error or an empty state), so a heading
+ * there cannot stand in for a missing real one. Returns the heading's markup up to its title, or a reason it is not
+ * the primary heading.
  */
 function primaryHeading(file: string, component: string): { markup?: string; problem?: string } {
     const lines = fs.readFileSync(file, "utf8").split("\n");
-    const h1Lines = lines.flatMap((line, index) => (/<h1\b/.test(line) ? [index] : []));
-    if (h1Lines.length !== 1) return { problem: `${h1Lines.length} <h1> in the file (expected one)` };
+    const headingRx = /<PageHeader\b|<h1\b/;
+    const h1Lines = lines.flatMap((line, index) => (headingRx.test(line) ? [index] : []));
+    if (h1Lines.length !== 1) return { problem: `${h1Lines.length} headings (<PageHeader / <h1>) in the file (expected one)` };
     const declaration = lines.findIndex((line) => new RegExp(`function ${component}\\(`).test(line));
     if (declaration < 0) return { problem: `no function ${component}` };
     const indent = (line: string) => line.length - line.trimStart().length;
@@ -341,7 +348,10 @@ function primaryHeading(file: string, component: string): { markup?: string; pro
     while (statement > start && !(lines[statement].trim() !== "" && indent(lines[statement]) === bodyIndent)) statement -= 1;
     if (/^(if\b|\} else|else\b|case\b)/.test(lines[statement].trim())) return { problem: `the <h1> is in a branch: "${lines[statement].trim()}"` };
     const markup = lines.slice(at).join("\n");
-    return { markup: markup.slice(0, markup.indexOf("</h1>")) };
+    if (/<h1\b/.test(lines[at])) return { markup: markup.slice(0, markup.indexOf("</h1>")) };
+    // A PageHeader names the page by its `title` prop (the H1 of a menu page).
+    const title = /\btitle=\{((?:[^{}\n]|\{[^{}\n]*\})*)\}/.exec(markup);
+    return title ? { markup: title[1] } : { problem: "a <PageHeader without a title on its own line" };
 }
 
 describe("one name per page (UI3B)", () => {
@@ -349,7 +359,7 @@ describe("one name per page (UI3B)", () => {
     const REDIRECTS = new Set(["/app/users", "/app/operations/roles"]);
     const pages = [...new Set([...urlsOf(MAIN_NAV), ...SYSTEM_NAV.map((l) => l.url), ...SECURITY_NAV.map((l) => l.url), "/app/payroll/config", "/app/payroll/penalties", "/app/utilities/billing-impact"])];
 
-    it("every menu page's primary H1 reads the key of its menu entry (= its crumb and its tab title)", () => {
+    it("every menu page's primary H1, its PageHeader's title, reads the key of its menu entry (= its crumb and its tab title)", () => {
         expect(pages.length).toBe(44);
         for (const url of pages) {
             if (REDIRECTS.has(url)) continue;
@@ -388,6 +398,17 @@ describe("one name per page (UI3B)", () => {
             expect(primaryHeading(file, "Page").problem).toMatch(/in a branch/);
             fs.writeFileSync(file, ["export function Page() {", "    return (", '        <h1>{t("nav.income")}</h1>', "    );", "}", ""].join("\n"));
             expect(primaryHeading(file, "Page")).toEqual({ markup: '        <h1>{t("nav.income")}' });
+            // UI3D: the PageHeader is the heading; its title is what the menu key is checked against.
+            fs.writeFileSync(
+                file,
+                ["export function Page() {", "    return (", "        <PageHeader", '            title={t("nav.income")}', '            description={t("income.subtitle")}', "        />", "    );", "}", ""].join("\n")
+            );
+            expect(primaryHeading(file, "Page")).toEqual({ markup: 't("nav.income")' });
+            fs.writeFileSync(
+                file,
+                ["export function Page() {", "    if (failed) {", '        return <PageHeader title={t("nav.income")} />;', "    }", "    return <div />;", "}", ""].join("\n")
+            );
+            expect(primaryHeading(file, "Page").problem).toMatch(/in a branch/);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }

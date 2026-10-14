@@ -23,6 +23,7 @@ import { AlertTriangle, Clock, FileText, Loader2, MoreHorizontal, RefreshCw, Tre
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
@@ -130,11 +131,8 @@ export function BillingResultPage() {
     };
 
     return (
-        <div className="space-y-6 p-6">
-            <div>
-                <h1 className="text-2xl font-bold">{t("nav.billingResult")}</h1>
-                <p className="mt-1 text-sm text-muted-foreground">{t("accounting.billingResult.subtitle")}</p>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("nav.billingResult")} description={t("accounting.billingResult.subtitle")} />
 
             <Card>
                 <CardContent className="pt-4">

@@ -204,8 +204,9 @@ export const STEWARD_CAPABILITIES: readonly CapabilityKey[] = ["fleet:manage_sub
 
 /**
  * The web edge gate (proxy.ts, R39): exact path, else the longest mapped prefix; an unmapped path is
- * denied; an empty list admits every signed-in principal; otherwise any-of. Go authorises every
- * request again.
+ * no page and opens for nobody (the gate answers it with "Page not found", HTTP 404; a mapped path the
+ * principal lacks gets the 403 page); an empty list admits every signed-in principal; otherwise any-of.
+ * Go authorises every request again.
  */
 export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[]>> = {
   "/app/accounting/audit": ["accounting:audit_expense"],

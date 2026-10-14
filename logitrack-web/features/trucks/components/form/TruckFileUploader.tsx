@@ -106,7 +106,7 @@ export default function TruckFileUploader({ label, onUploadComplete, currentUrls
                                         <span className="text-xs text-center">{t("masterData.files.unavailable")}</span>
                                     </div>
                                     {onRemove && (
-                                        <Button
+                                        <Button aria-label={t("common.removeFile")}
                                             variant="destructive"
                                             size="icon"
                                             type="button"
@@ -143,7 +143,7 @@ export default function TruckFileUploader({ label, onUploadComplete, currentUrls
                                     )}
                                 </a>
                                 {onRemove && (
-                                    <Button
+                                    <Button aria-label={t("common.removeFile")}
                                         variant="destructive"
                                         size="icon"
                                         type="button"

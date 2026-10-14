@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useLanguage } from "@/context/language";
 import { formatThb } from "@/features/accounting/components/go/shared";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -48,11 +49,8 @@ export function PayrollConfigPage() {
         );
     }
     return (
-        <div className="max-w-4xl space-y-6 p-4 md:p-6">
-            <div>
-                <h1 className="text-2xl font-semibold">{t("driverComp.config.title")}</h1>
-                <p className="text-sm text-muted-foreground">{t("driverComp.config.subtitle")}</p>
-            </div>
+        <div className="flex max-w-4xl flex-col gap-section">
+            <PageHeader title={t("driverComp.config.title")} description={t("driverComp.config.subtitle")} />
             <HrErrorAlert error={active.error} />
             {active.isSuccess ? (
                 // Keyed by the version it starts from: a new version in effect resets the form once.

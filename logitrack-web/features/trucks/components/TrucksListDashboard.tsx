@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { formatLicensePlate } from "@/lib/utils";
 import {
     Table,
@@ -123,38 +124,35 @@ export default function TrucksListDashboard() {
     };
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.trucks")}</h1>
-                    <p className="text-muted-foreground mt-1">
-                        {t('trucks.monitor')}
-                    </p>
-                </div>
-                <div className="flex gap-3">
-                    <Button variant="outline" className="gap-2">
-                        <Download className="h-4 w-4" />
-                        {t('trucks.export')}
-                    </Button>
-                    <LazyDialog
-                        trigger={
-                            <Button variant="outline" className="gap-2">
-                                <Upload className="h-4 w-4" />
-                                {t('trucks.import')}
-                            </Button>
-                        }
-                    >
-                        {(dialog) => <TruckImportDialog {...dialog} />}
-                    </LazyDialog>
-                    <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                        <Link href="/app/trucks/new" prefetch={false}>
-                            <Plus className="h-4 w-4" />
-                            {t('trucks.addTruck')}
-                        </Link>
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.trucks")}
+                description={t('trucks.monitor')}
+                actions={
+                    <>
+                        <Button variant="outline" className="gap-2">
+                            <Download className="h-4 w-4" aria-hidden />
+                            {t('trucks.export')}
+                        </Button>
+                        <LazyDialog
+                            trigger={
+                                <Button variant="outline" className="gap-2">
+                                    <Upload className="h-4 w-4" aria-hidden />
+                                    {t('trucks.import')}
+                                </Button>
+                            }
+                        >
+                            {(dialog) => <TruckImportDialog {...dialog} />}
+                        </LazyDialog>
+                        <Button asChild className="gap-2">
+                            <Link href="/app/trucks/new" prefetch={false}>
+                                <Plus className="h-4 w-4" aria-hidden />
+                                {t('trucks.addTruck')}
+                            </Link>
+                        </Button>
+                    </>
+                }
+            />
 
             {/* Compliance Cards */}
             <TruckComplianceCards onFilterChange={handleCardFilterChange} />
@@ -406,7 +404,7 @@ export default function TrucksListDashboard() {
                         {t('masterData.list.showing', { from: paginatedTrucks.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0, to: Math.min(currentPage * itemsPerPage, filteredTrucks.length), total: filteredTrucks.length })}
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button
+                        <Button aria-label={t("common.previousPage")}
                             variant="outline"
                             size="icon"
                             className="h-8 w-8"
@@ -436,7 +434,7 @@ export default function TrucksListDashboard() {
                                 );
                             })}
                         </div>
-                        <Button
+                        <Button aria-label={t("common.nextPage")}
                             variant="outline"
                             size="icon"
                             className="h-8 w-8"

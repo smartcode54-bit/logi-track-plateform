@@ -23,6 +23,7 @@ import { useSecurityReach } from "@/features/security-center/api/reach";
 import { formatDateTime } from "@/features/security-center/components/eventDisplay";
 import { apiErrorText } from "@/lib/apiError";
 import { compareSemver, parseSemver } from "@/lib/mobileVersion";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,7 +115,7 @@ export function MobileReleasePage() {
     }
     if (!gate) {
         return (
-            <div className="p-6">
+            <div>
                 <Alert variant="destructive">
                     <AlertDescription>
                         {t("securityCenter.mobileRelease.loadFailed")} {releases.error ? apiErrorText(releases.error, t) : ""}
@@ -154,11 +155,8 @@ export function MobileReleasePage() {
     };
 
     return (
-        <div className="mx-auto max-w-4xl space-y-6 p-6">
-            <div>
-                <h1 className="text-2xl font-bold">{t("securityCenter.mobileRelease")}</h1>
-                <p className="mt-1 text-sm text-muted-foreground">{t("securityCenter.mobileRelease.subtitle")}</p>
-            </div>
+        <div className="flex max-w-4xl flex-col gap-section">
+            <PageHeader title={t("securityCenter.mobileRelease")} description={t("securityCenter.mobileRelease.subtitle")} />
 
             <Card>
                 <CardHeader>

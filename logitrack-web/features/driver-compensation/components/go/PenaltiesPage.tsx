@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useLanguage } from "@/context/language";
 import { SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -49,11 +50,8 @@ export function PenaltiesPage() {
     const [cancelling, setCancelling] = useState<PenaltyDTO | null>(null);
 
     return (
-        <div className="max-w-6xl space-y-6 p-4 md:p-6">
-            <div>
-                <h1 className="text-2xl font-semibold">{t("driverComp.penalty.title")}</h1>
-                <p className="text-sm text-muted-foreground">{t("driverComp.penalty.subtitle")}</p>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("driverComp.penalty.title")} description={t("driverComp.penalty.subtitle")} />
 
             <AddPenaltyForm />
 

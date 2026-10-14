@@ -5,7 +5,8 @@
  * The table itself is `ROUTE_CAPABILITIES` of `shared-docs/schemas/capabilities.ts`, generated from the
  * Go catalog (`logitrack-api/internal/authz/webroutes.go`, `go generate ./internal/authz`) with colon
  * keys; it replaces the legacy table that `lib/capabilities.ts:340-394` held until TW3. Rules:
- * exact path, else the longest mapped prefix at a segment boundary; an unmapped path is denied; an
+ * exact path, else the longest mapped prefix at a segment boundary; an unmapped path is no page (the
+ * gate answers it with "Page not found", HTTP 404; UI3D) and opens for nobody; an
  * empty list (`/app/dashboard`, `/app/unauthorized`, `/app/support`) admits every signed-in principal that is not
  * driver-only (the gate sends those to `/app/unauthorized` first); otherwise any
  * one of the listed keys. It is a necessary-condition filter: Go authorises every request again.

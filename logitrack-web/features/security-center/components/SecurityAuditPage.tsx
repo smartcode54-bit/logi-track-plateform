@@ -17,6 +17,7 @@ import { ChevronDown, FileDown, Loader2, RefreshCw, Search, Shield, TrendingUp, 
 import { useLanguage } from "@/context/language";
 import { useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -101,23 +102,23 @@ export function SecurityAuditPage() {
     };
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.securityAudit")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("securityCenter.audit.subtitle")}</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
-                        <FileDown className="mr-2 h-4 w-4" />
-                        {t("securityCenter.audit.exportCsv")}
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => void events.refetch()} disabled={events.isFetching}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${events.isFetching ? "animate-spin" : ""}`} />
-                        {t("securityCenter.audit.refreshLogs")}
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("securityCenter.securityAudit")}
+                description={t("securityCenter.audit.subtitle")}
+                actions={
+                    <>
+                        <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
+                            <FileDown className="mr-2 h-4 w-4" aria-hidden />
+                            {t("securityCenter.audit.exportCsv")}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => void events.refetch()} disabled={events.isFetching}>
+                            <RefreshCw className={`mr-2 h-4 w-4 ${events.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                            {t("securityCenter.audit.refreshLogs")}
+                        </Button>
+                    </>
+                }
+            />
 
             {events.error ? (
                 <Alert variant="destructive">

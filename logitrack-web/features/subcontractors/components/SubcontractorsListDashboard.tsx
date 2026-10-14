@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 
 // Sub-components
 import { SubcontractorStats } from "./SubcontractorStats";
@@ -97,22 +98,19 @@ export default function SubcontractorsListDashboard() {
     };
 
     return (
-        <div className="min-h-screen bg-background text-foreground p-6 space-y-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.partners")}</h1>
-                    <p className="text-muted-foreground mt-1">
-                        {t("subcontractors.subtitle")}
-                    </p>
-                </div>
-                <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-lg shadow-blue-900/20">
-                    <Link href="/app/subcontractors/new" prefetch={false}>
-                        <Plus className="h-4 w-4" />
-                        {t("subcontractors.add")}
-                    </Link>
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.partners")}
+                description={t("subcontractors.subtitle")}
+                actions={
+                    <Button asChild className="gap-2">
+                        <Link href="/app/subcontractors/new" prefetch={false}>
+                            <Plus className="h-4 w-4" aria-hidden />
+                            {t("subcontractors.add")}
+                        </Link>
+                    </Button>
+                }
+            />
 
             {/* Stats */}
             <SubcontractorStats stats={stats} loading={loading} />

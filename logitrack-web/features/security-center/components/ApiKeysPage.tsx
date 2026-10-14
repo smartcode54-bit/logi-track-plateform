@@ -17,6 +17,7 @@ import { useLanguage } from "@/context/language";
 import { useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { queryKeys } from "@/lib/queryKeys";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,17 +67,17 @@ export function ApiKeysPage() {
         k.tenantId === null ? t("securityCenter.apiKeys.platform") : (language === "en" && k.tenantNameEn) || k.tenantNameTh || k.tenantId;
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.apiKeys")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("securityCenter.apiKeys.subtitle")}</p>
-                </div>
-                <Button onClick={() => setCreating(true)} disabled={!me}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    {t("securityCenter.apiKeys.create")}
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("securityCenter.apiKeys")}
+                description={t("securityCenter.apiKeys.subtitle")}
+                actions={
+                    <Button onClick={() => setCreating(true)} disabled={!me}>
+                        <Plus className="mr-2 h-4 w-4" aria-hidden />
+                        {t("securityCenter.apiKeys.create")}
+                    </Button>
+                }
+            />
 
             <Card>
                 <CardHeader>

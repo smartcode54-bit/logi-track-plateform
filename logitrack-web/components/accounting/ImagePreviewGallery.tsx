@@ -3,10 +3,13 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { useLanguage } from "@/context/language";
 
 const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export function ImagePreviewGallery({ items, compact }: { items: { url: string; label: string }[]; compact?: boolean }) {
+    // The viewer's icon buttons are named in the reader's language (UI3D; keys in imagePreview.ts, base dictionary).
+    const { t } = useLanguage();
     const [fullScreenIndex, setFullScreenIndex] = useState<number | null>(null);
     const [zoomIndex, setZoomIndex] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -118,7 +121,7 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                     onMouseLeave={handleMouseLeave}
                 >
                     <div className="absolute top-2 right-2 z-10">
-                        <Button
+                        <Button aria-label={t("common.close")}
                             type="button"
                             variant="ghost"
                             size="icon"
@@ -133,7 +136,7 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                         {/* ปุ่มเลื่อนซ้าย/ขวา */}
                         {items.length > 1 && (
                             <>
-                                <Button
+                                <Button aria-label={t("accounting.preview.previous")}
                                     type="button"
                                     variant="ghost"
                                     size="icon"
@@ -142,7 +145,7 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                                 >
                                     <ChevronLeft className="h-8 w-8" />
                                 </Button>
-                                <Button
+                                <Button aria-label={t("accounting.preview.next")}
                                     type="button"
                                     variant="ghost"
                                     size="icon"
@@ -179,7 +182,7 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                     {/* แถบล่าง: ปุ่ม zoom + ตัวเลขรูป */}
                     <div className="flex items-center justify-center gap-4 py-3 bg-black/50">
                         <div className="flex items-center gap-1 rounded-full bg-black/60 px-2 py-1">
-                            <Button
+                            <Button aria-label={t("accounting.preview.zoomOut")}
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -190,7 +193,7 @@ export function ImagePreviewGallery({ items, compact }: { items: { url: string; 
                                 <ZoomOut className="h-4 w-4" />
                             </Button>
                             <span className="text-white text-sm w-10 text-center">{Math.round(scale * 100)}%</span>
-                            <Button
+                            <Button aria-label={t("accounting.preview.zoomIn")}
                                 type="button"
                                 variant="ghost"
                                 size="icon"

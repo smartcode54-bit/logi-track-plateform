@@ -4,6 +4,7 @@ import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { useCompanies } from "@/features/companies/api/useCompanies";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,20 +31,19 @@ export default function CompaniesPage() {
 
   return (
     <PagePermissionGuard capability={CAPABILITIES.company_view}>
-      <div className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{t("nav.companies")}</h1>
-            <p className="text-muted-foreground text-sm mt-1">{t("company.subtitle")}</p>
-          </div>
-          <Button asChild>
-            <Link href="/app/companies/new">
-              <Plus className="w-4 h-4 mr-2" />
-              {t("company.new")}
-            </Link>
-          </Button>
-        </div>
+      <div className="flex flex-col gap-section">
+        <PageHeader
+          title={t("nav.companies")}
+          description={t("company.subtitle")}
+          actions={
+            <Button asChild>
+              <Link href="/app/companies/new">
+                <Plus className="w-4 h-4 mr-2" aria-hidden />
+                {t("company.new")}
+              </Link>
+            </Button>
+          }
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">

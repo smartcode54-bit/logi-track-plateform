@@ -7,8 +7,9 @@
  * `platform:manage_tenants` (proxy.ts, lib/routeCapabilities.ts); Go checks every call again.
  */
 import { useMemo, useState } from "react";
-import { Building2, Edit, Loader2, MoreHorizontal, Plus, RefreshCw, UserCog } from "lucide-react";
+import { Edit, Loader2, MoreHorizontal, Plus, RefreshCw, UserCog } from "lucide-react";
 
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -43,30 +44,27 @@ export function TenantsPage() {
     const [adminsOf, setAdminsOf] = useState<TenantDTO | null>(null);
 
     if (!allowed) {
-        return <p className="p-6 text-sm text-muted-foreground">{t("tenants.accessDenied")}</p>;
+        return <p className="text-sm text-muted-foreground">{t("tenants.accessDenied")}</p>;
     }
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-                        <Building2 className="h-7 w-7" aria-hidden />
-                        {t("securityCenter.tenants")}
-                    </h1>
-                    <p className="text-muted-foreground mt-2">{t("tenants.subtitle")}</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" className="gap-2" onClick={() => void tenants.refetch()} disabled={tenants.isFetching}>
-                        {tenants.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        {t("users.refresh")}
-                    </Button>
-                    <Button onClick={() => setForm({ tenant: null })}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        {t("tenants.create")}
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("securityCenter.tenants")}
+                description={t("tenants.subtitle")}
+                actions={
+                    <>
+                        <Button variant="outline" className="gap-2" onClick={() => void tenants.refetch()} disabled={tenants.isFetching}>
+                            {tenants.isFetching ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
+                            {t("users.refresh")}
+                        </Button>
+                        <Button onClick={() => setForm({ tenant: null })}>
+                            <Plus className="mr-2 h-4 w-4" aria-hidden />
+                            {t("tenants.create")}
+                        </Button>
+                    </>
+                }
+            />
 
             <div className="flex flex-wrap items-center gap-3">
                 <Select value={kind || "all"} onValueChange={(v) => setKind(v === "all" ? "" : v)}>

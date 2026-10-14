@@ -38,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { chatWithDriverHref } from "@/features/chat/api/chats.go";
 
 
@@ -85,28 +86,25 @@ export default function DriversList() {
     };
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.drivers")}</h1>
-                    <p className="text-muted-foreground mt-1">
-                        {t("drivers.subtitle")}
-                    </p>
-                </div>
-                <div className="flex gap-3">
-                    <Button variant="outline" className="gap-2">
-                        <Download className="h-4 w-4" />
-                        {t("drivers.export")}
-                    </Button>
-                    <Button asChild>
-                        <Link href="/app/drivers/new" prefetch={false}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            {t("drivers.add")}
-                        </Link>
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.drivers")}
+                description={t("drivers.subtitle")}
+                actions={
+                    <>
+                        <Button variant="outline" className="gap-2">
+                            <Download className="h-4 w-4" aria-hidden />
+                            {t("drivers.export")}
+                        </Button>
+                        <Button asChild>
+                            <Link href="/app/drivers/new" prefetch={false}>
+                                <Plus className="mr-2 h-4 w-4" aria-hidden />
+                                {t("drivers.add")}
+                            </Link>
+                        </Button>
+                    </>
+                }
+            />
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -274,7 +272,7 @@ export default function DriversList() {
                                         <TableCell className="text-right">
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" className="h-8 w-8 p-0">
+                                                    <Button aria-label={t("common.actionsFor", { name: `${driver.firstName} ${driver.lastName}`.trim() })} variant="ghost" className="h-8 w-8 p-0">
                                                         <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>

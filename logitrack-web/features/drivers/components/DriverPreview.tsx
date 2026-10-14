@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-    ArrowLeft, Edit, Truck, Calendar, User, FileText, Info, Loader2,
+    Edit, Truck, Calendar, User, FileText, Info, Loader2,
     Phone, Mail, CreditCard, Briefcase, Building2, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { useBreadcrumb } from "@/context/breadcrumb";
+import { PageHeader } from "@/components/page-header";
+import { RecordState } from "@/components/record-state";
 import { format } from "date-fns";
 import { useLanguage } from "@/context/language";
 
@@ -44,7 +45,6 @@ function StatusBadge({ status }: { status: string }) {
 export default function DriverPreview() {
     const searchParams = useSearchParams();
     const driverId = searchParams.get('id');
-    const { setCustomLastItem } = useBreadcrumb();
     const { t } = useLanguage();
 
     const [isViewerOpen, setIsViewerOpen] = useState(false);
@@ -56,18 +56,6 @@ export default function DriverPreview() {
     const driver = driverQuery.data ?? null;
     const { assignments: assignmentHistory } = useAssignmentsOf({ driverId: driverId ?? "" });
     const isLoading = driverQuery.isPending && Boolean(driverId);
-    const error = !driverId
-        ? t("drivers.toast.noId")
-        : driverQuery.isError
-          ? t("drivers.toast.loadError") + "."
-          : driverQuery.isSuccess && !driver
-            ? t("drivers.detail.notFound") + "."
-            : null;
-
-    useEffect(() => {
-        if (driver) setCustomLastItem(`${driver.firstName} ${driver.lastName}`);
-        return () => setCustomLastItem(null);
-    }, [driver, setCustomLastItem]);
 
     const formatDate = (date: Date | string | null | undefined) => {
         if (!date) return "-";
@@ -87,19 +75,9 @@ export default function DriverPreview() {
         );
     }
 
-    if (error || !driver) {
-        return (
-            <div className="container mx-auto px-4 py-8 max-w-5xl">
-                <div className="text-center py-12">
-                    <h2 className="text-2xl font-bold text-destructive mb-4">
-                        {error || t("drivers.detail.notFound")}
-                    </h2>
-                    <Button asChild>
-                        <Link href="/app/drivers" prefetch={false}>{t("drivers.detail.backToDrivers")}</Link>
-                    </Button>
-                </div>
-            </div>
-        );
+    // No id, no driver, or the read failed: not found, or a load error with a retry (UI3D).
+    if (!driverId || driverQuery.isError || !driver) {
+        return <RecordState error={driverQuery.error} onRetry={() => void driverQuery.refetch()} retrying={driverQuery.isFetching} />;
     }
 
     // Presigned GETs on Go (5 min for the ID card and licence, `drivers:view_pii`), stored URLs on Firestore.
@@ -123,39 +101,31 @@ export default function DriverPreview() {
 
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" asChild className="-ml-2">
-                        <Link href="/app/drivers" prefetch={false}>
-                            <ArrowLeft className="h-5 w-5" />
-                        </Link>
-                    </Button>
-                    <div>
-                        <div className="flex items-center gap-3 mb-1">
-                            <h1 className="text-3xl font-bold tracking-tight">{driver.firstName} {driver.lastName}</h1>
-                            <StatusBadge status={String(driver.status)} />
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                                <Info className="h-3.5 w-3.5" />
-                                {t("drivers.detail.registered")} {formatDate(driver.createdAt)}
-                            </span>
-                            <span>•</span>
-                            <span>ID: {driver.id?.substring(0, 8).toUpperCase() ?? "-"}</span>
-                        </div>
-                    </div>
-                </div>
-                <div className="flex items-center gap-3">
-                    <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                        <Link href={`/app/drivers/edit?id=${driver?.id}`} prefetch={false}>
-                            <Edit className="h-4 w-4" />
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.drivers")}
+                recordName={`${driver.firstName} ${driver.lastName}`}
+                back={{ href: "/app/drivers" }}
+                status={<StatusBadge status={String(driver.status)} />}
+                description={
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="flex items-center gap-1">
+                            <Info className="h-3.5 w-3.5" aria-hidden />
+                            {t("drivers.detail.registered")} {formatDate(driver.createdAt)}
+                        </span>
+                        <span aria-hidden>•</span>
+                        <span>ID: <span className="font-mono">{driver.id?.substring(0, 8).toUpperCase() ?? "-"}</span></span>
+                    </span>
+                }
+                actions={
+                    <Button asChild>
+                        <Link href={`/app/drivers/edit?id=${driver.id}`} prefetch={false}>
+                            <Edit className="h-4 w-4" aria-hidden />
                             {t("drivers.detail.editProfile")}
                         </Link>
                     </Button>
-                </div>
-            </div>
+                }
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column */}

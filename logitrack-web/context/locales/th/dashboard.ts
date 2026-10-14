@@ -29,7 +29,6 @@ export default {
     // Vehicle map (lat/long map with truck icons)
     "dashboard.vehicleMap.title": "ตำแหน่งรถบนแผนที่",
     "dashboard.vehicleMap.loading": "กำลังโหลด...",
-    "dashboard.realTimeOperations": "การดำเนินงานแบบเรียลไทม์",
 
     // Dashboard Stats
     "dashboard.stats.totalUsers": "ผู้ใช้งานทั้งหมด",

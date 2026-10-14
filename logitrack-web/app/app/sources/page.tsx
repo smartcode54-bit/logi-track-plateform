@@ -25,6 +25,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import type { CustomerLinkKind, Hub, StationType } from "@/validate/hubSchema";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
 import type { SearchSelectOption } from "@/components/ui/search-select";
@@ -311,102 +312,107 @@ export default function SourcesPage() {
     };
 
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-3xl font-bold tracking-tight">{t("nav.sourceManagement")}</h1>
-                <div className="flex flex-col items-end gap-2">
-                    <div className="flex flex-col items-end gap-1">
-                        {lastCalculatedAt && (
-                            <p className="text-sm text-muted-foreground">
-                                {t("firstMile.sources.lastCalculated")}: {lastCalculatedAt.toLocaleString()}
-                            </p>
-                        )}
-                        {distancesMessage && (
-                            <p className={distancesMessage.type === "success" ? "text-sm text-green-600" : "text-sm text-destructive"}>
-                                {distancesMessage.text}
-                            </p>
-                        )}
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 w-9 shrink-0 p-0"
-                        onClick={refreshHubs}
-                        disabled={loading}
-                        aria-label={t("firstMile.sources.refresh")}
-                    >
-                        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onClick={handleCalculateDistances}
-                        disabled={calculatingDistances || !isAdmin}
-                        className="gap-2"
-                        title={!isAdmin ? t("apiError.permission_denied") : undefined}
-                    >
-                        {calculatingDistances ? (
-                            <span className="animate-pulse">{t("firstMile.sources.calculatingDistances")}</span>
-                        ) : (
-                            <>
-                                <Route className="h-4 w-4" />
-                                {t("firstMile.sources.calculateDistances")}
-                            </>
-                        )}
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onClick={handleDownloadSources}
-                        disabled={loading || tableSources.length === 0}
-                        className="gap-2"
-                        title={loading || tableSources.length === 0 ? undefined : t("firstMile.sources.downloadHint")}
-                    >
-                        <Download className="h-4 w-4" />
-                        {t("firstMile.sources.download")}
-                    </Button>
-                    <LazyDialog
-                        trigger={
-                            <Button variant="outline" className="gap-2">
-                                <FileSpreadsheet className="h-4 w-4" />
-                                {t("firstMile.sourcesImport.button")}
-                            </Button>
-                        }
-                    >
-                        {(dialog) => <PickupLocationImportDialog {...dialog} />}
-                    </LazyDialog>
-                    <HubDialog
-                        trigger={
-                            <Button>
-                                <Plus className="mr-2 h-4 w-4" />
-                                {t("firstMile.sources.newSource")}
-                            </Button>
-                        }
-                    />
-                    <HubDialog
-                        open={editOpen}
-                        onOpenChange={(open) => {
-                            setEditOpen(open);
-                            if (!open) setEditSource(null);
-                        }}
-                        defaultValues={editSource ? {
-                            source_id: editSource.source_id,
-                            source_name_th: editSource.source_name_th,
-                            source_name_en: editSource.source_name_en,
-                            latitude: editSource.latitude,
-                            longitude: editSource.longitude,
-                            station_type: editSource.station_type,
-                            linkedCustomerId: editSource.linkedCustomerId ?? "",
-                            customerLinkKind: editSource.customerLinkKind ?? "customer",
-                        } : undefined}
-                        documentId={editSource?.id}
-                        onSuccess={() => {
-                            setEditOpen(false);
-                            setEditSource(null);
-                        }}
-                    />
-                    </div>
-                </div>
-            </div>
+        <div className="flex flex-1 flex-col gap-section">
+            <PageHeader
+                title={t("nav.sourceManagement")}
+                description={
+                    lastCalculatedAt || distancesMessage ? (
+                        <>
+                            {lastCalculatedAt && (
+                                <p>
+                                    {t("firstMile.sources.lastCalculated")}: {lastCalculatedAt.toLocaleString()}
+                                </p>
+                            )}
+                            {distancesMessage && (
+                                <p className={distancesMessage.type === "success" ? "text-success" : "text-destructive"}>
+                                    {distancesMessage.text}
+                                </p>
+                            )}
+                        </>
+                    ) : undefined
+                }
+                actions={
+                    <>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 w-9 shrink-0 p-0"
+                            onClick={refreshHubs}
+                            disabled={loading}
+                            aria-label={t("firstMile.sources.refresh")}
+                        >
+                            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={handleCalculateDistances}
+                            disabled={calculatingDistances || !isAdmin}
+                            className="gap-2"
+                            title={!isAdmin ? t("apiError.permission_denied") : undefined}
+                        >
+                            {calculatingDistances ? (
+                                <span className="animate-pulse">{t("firstMile.sources.calculatingDistances")}</span>
+                            ) : (
+                                <>
+                                    <Route className="h-4 w-4" aria-hidden />
+                                    {t("firstMile.sources.calculateDistances")}
+                                </>
+                            )}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={handleDownloadSources}
+                            disabled={loading || tableSources.length === 0}
+                            className="gap-2"
+                            title={loading || tableSources.length === 0 ? undefined : t("firstMile.sources.downloadHint")}
+                        >
+                            <Download className="h-4 w-4" aria-hidden />
+                            {t("firstMile.sources.download")}
+                        </Button>
+                        <LazyDialog
+                            trigger={
+                                <Button variant="outline" className="gap-2">
+                                    <FileSpreadsheet className="h-4 w-4" aria-hidden />
+                                    {t("firstMile.sourcesImport.button")}
+                                </Button>
+                            }
+                        >
+                            {(dialog) => <PickupLocationImportDialog {...dialog} />}
+                        </LazyDialog>
+                        <HubDialog
+                            trigger={
+                                <Button>
+                                    <Plus className="mr-2 h-4 w-4" aria-hidden />
+                                    {t("firstMile.sources.newSource")}
+                                </Button>
+                            }
+                        />
+                    </>
+                }
+            />
+            {/* The edit dialog (opened from a row; it renders nothing until then). */}
+            <HubDialog
+                open={editOpen}
+                onOpenChange={(open) => {
+                    setEditOpen(open);
+                    if (!open) setEditSource(null);
+                }}
+                defaultValues={editSource ? {
+                    source_id: editSource.source_id,
+                    source_name_th: editSource.source_name_th,
+                    source_name_en: editSource.source_name_en,
+                    latitude: editSource.latitude,
+                    longitude: editSource.longitude,
+                    station_type: editSource.station_type,
+                    linkedCustomerId: editSource.linkedCustomerId ?? "",
+                    customerLinkKind: editSource.customerLinkKind ?? "customer",
+                } : undefined}
+                documentId={editSource?.id}
+                onSuccess={() => {
+                    setEditOpen(false);
+                    setEditSource(null);
+                }}
+            />
 
             {driverAddedNeedsCompletion.length > 0 && (
                 <button
@@ -645,7 +651,7 @@ export default function SourcesPage() {
                                     {t("firstMile.sources.pagination.entries")}
                                 </p>
                                 <div className="flex gap-1">
-                                    <Button
+                                    <Button aria-label={t("common.previousPage")}
                                         variant="outline"
                                         size="sm"
                                         onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -653,7 +659,7 @@ export default function SourcesPage() {
                                     >
                                         <ChevronLeft className="h-4 w-4" />
                                     </Button>
-                                    <Button
+                                    <Button aria-label={t("common.nextPage")}
                                         variant="outline"
                                         size="sm"
                                         onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}

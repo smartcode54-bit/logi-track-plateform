@@ -18,6 +18,7 @@ import { enUS, th as thLocale } from "date-fns/locale";
 import { Clock, MapPin, PauseCircle, Plus, RefreshCw, Search } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { useCan } from "@/features/auth/api/useMe";
 import { ApiErrorAlert, formatDateTime } from "@/features/accounting/components/go/shared";
@@ -65,24 +66,24 @@ function Records() {
     const shown = useMemo(() => rows.filter((r) => matches(r, search)), [rows, search]);
 
     return (
-        <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-            <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.standbyRecords")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("standbyRecords.subtitle", "Driver check-in records with no delivery jobs")}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    {canCreate ? (
-                        <Button onClick={() => setBackfill(true)} className="gap-2">
-                            <Plus className="h-4 w-4" />
-                            {t("standbyRecords.create.button", "Backfill Standby")}
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.standbyRecords")}
+                description={t("standbyRecords.subtitle", "Driver check-in records with no delivery jobs")}
+                actions={
+                    <>
+                        <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("taskBoard.refresh")}>
+                            <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} aria-hidden />
                         </Button>
-                    ) : null}
-                    <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("taskBoard.refresh")}>
-                        <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} />
-                    </Button>
-                </div>
-            </div>
+                        {canCreate ? (
+                            <Button onClick={() => setBackfill(true)} className="gap-2">
+                                <Plus className="h-4 w-4" aria-hidden />
+                                {t("standbyRecords.create.button", "Backfill Standby")}
+                            </Button>
+                        ) : null}
+                    </>
+                }
+            />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="bg-card">

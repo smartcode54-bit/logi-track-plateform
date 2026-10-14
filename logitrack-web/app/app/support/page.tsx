@@ -16,6 +16,7 @@
  */
 import { Mail } from "lucide-react";
 
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useLanguage } from "@/context/language";
 import type { MeDTO } from "@/features/auth/api/me";
@@ -45,17 +46,13 @@ export default function SupportPage() {
     const { data: name = "" } = useMe(selectName);
     const scope = useScopeLabel();
     const email = supportEmail();
-    const title = t("nav.supportCenter");
 
     const who = [name, scope].filter(Boolean).join(" · ");
     const signedInAs = who ? <p>{t("support.account.signedInAs", { name: who })}</p> : null;
 
     return (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-            <header className="flex flex-col gap-1">
-                <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-                <p className="text-muted-foreground">{t("support.description")}</p>
-            </header>
+        <div className="flex w-full max-w-3xl flex-col gap-section">
+            <PageHeader title={t("nav.supportCenter")} description={t("support.description")} />
 
             {email ? (
                 <>

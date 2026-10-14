@@ -8,11 +8,15 @@ import { homeRouteFor, ROUTE_CAPABILITIES, routeAllowed, routeFor } from "./rout
 
 const appDir = path.resolve(__dirname, "..", "app", "app");
 
-/** Every `app/app/**\/page.tsx` as its URL path; dynamic segments stay as `[id]`. */
+/** A catch-all segment (`[...x]`, `[[...x]]`): not a page of its own (UI3D: the shell's not-found answers there). */
+const isCatchAll = (segment: string) => /^\[\[?\.\.\./.test(segment);
+
+/** Every `app/app/**\/page.tsx` as its URL path; dynamic segments stay as `[id]`; catch-all segments are skipped. */
 function pages(dir: string, prefix = "/app"): string[] {
     const out: string[] = [];
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         if (e.isDirectory()) {
+            if (isCatchAll(e.name)) continue;
             const seg = e.name.startsWith("(") ? "" : `/${e.name}`;
             out.push(...pages(path.join(dir, e.name), prefix + seg));
         } else if (e.name === "page.tsx") {
@@ -51,13 +55,33 @@ describe("routeFor / routeAllowed", () => {
         }
     });
 
-    it("maps every page under app/app (an unmapped page would always be denied)", () => {
+    it("maps every page under app/app (the gate answers an unmapped path with \"Page not found\", so a page without a mapping would never be served)", () => {
         // `/app` goes to the role's home in proxy.ts; the other two are next.config redirects() that
         // run before proxy.ts (developer-spec.md §10.12). Mirrors TestEveryWebPageIsMapped in Go.
         const redirected = ["/app", "/app/users", "/app/operations/roles"];
         const all = pages(appDir);
         expect(all.length).toBeGreaterThan(50);
         expect(all.filter((p) => !redirected.includes(p) && !routeFor(p))).toEqual([]);
+    });
+});
+
+describe("not found is not forbidden (UI3D)", () => {
+    it("has exactly one catch-all under app/app, at its root, and it only calls notFound()", () => {
+        const catchAlls: string[] = [];
+        const walk = (dir: string) => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (!e.isDirectory()) continue;
+                if (isCatchAll(e.name)) catchAlls.push(path.relative(appDir, path.join(dir, e.name)));
+                walk(path.join(dir, e.name));
+            }
+        };
+        walk(appDir);
+        expect(catchAlls).toEqual(["[...missing]"]);
+        const source = fs.readFileSync(path.join(appDir, "[...missing]", "page.tsx"), "utf8");
+        expect(source).toMatch(/notFound\(\);/);
+        expect(source).not.toMatch(/<[A-Za-z]/); // renders nothing of its own
+        expect(fs.existsSync(path.join(appDir, "not-found.tsx"))).toBe(true);
+        expect(fs.existsSync(path.join(appDir, "error.tsx"))).toBe(true);
     });
 });
 

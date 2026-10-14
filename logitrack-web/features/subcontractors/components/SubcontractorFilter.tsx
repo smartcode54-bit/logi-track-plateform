@@ -2,9 +2,8 @@
 
 import { useLanguage } from "@/context/language";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Filter } from "lucide-react";
+import { Search } from "lucide-react";
 
 interface SubcontractorFilterProps {
     searchQuery: string;
@@ -33,9 +32,6 @@ export function SubcontractorFilter(props: SubcontractorFilterProps) {
                 />
             </div>
             <div className="flex gap-3 overflow-x-auto pb-1 lg:pb-0">
-                <Button variant="outline" size="icon" className="shrink-0 lg:hidden">
-                    <Filter className="h-4 w-4" />
-                </Button>
                 <Select value={props.statusFilter} onValueChange={props.setStatusFilter}>
                     <SelectTrigger className="w-[140px] bg-background/50 border-border/50">
                         <SelectValue placeholder={t("subcontractors.filter.allStatuses")} />

@@ -15,6 +15,8 @@ import { FileViewer } from "@/components/ui/file-viewer";
 import { isPdfUrl } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useTruckPreview } from "../hooks/useTruckPreview";
+import { PageHeader } from "@/components/page-header";
+import { RecordState } from "@/components/record-state";
 import { useLanguage } from "@/context/language";
 
 function StatusBadge({ status }: { status: string }) {
@@ -48,7 +50,10 @@ export default function TruckPreview() {
     const {
         truck,
         isLoading,
-        error,
+        missing,
+        loadError,
+        retry,
+        retrying,
         isViewerOpen,
         setIsViewerOpen,
         viewerIndex,
@@ -73,54 +78,44 @@ export default function TruckPreview() {
         );
     }
 
-    if (error || !truck) {
-        return (
-            <div className="container mx-auto px-4 py-8 max-w-5xl">
-                <div className="text-center py-12">
-                    <h2 className="text-2xl font-bold text-destructive mb-4">
-                        {error || t("trucks.detail.notFound")}
-                    </h2>
-                    <Button asChild>
-                        <Link href="/app/trucks" prefetch={false}>{t("trucks.wizard.back")}</Link>
-                    </Button>
-                </div>
-            </div>
-        );
+    if (missing || !truck) {
+        return <RecordState error={loadError} onRetry={retry} retrying={retrying} />;
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <div className="flex items-center gap-3 mb-1">
-                        <h1 className="text-3xl font-bold tracking-tight">{truck.licensePlate}</h1>
-                        <StatusBadge status={String(truck.status)} />
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.trucks")}
+                recordName={truck.licensePlate}
+                back={{ href: "/app/trucks" }}
+                status={<StatusBadge status={String(truck.status)} />}
+                description={
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="flex items-center gap-1">
-                            <Info className="h-3.5 w-3.5" />
+                            <Info className="h-3.5 w-3.5" aria-hidden />
                             {t("trucks.detail.lastUpdated")}: {truck.updatedAt ? new Date(truck.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
                         </span>
-                        <span>•</span>
-                        <span>{t("masterData.trucks.systemId")}: {truck.id.substring(0, 8).toUpperCase()}</span>
-                    </div>
-                </div>
-                <div className="flex items-center gap-3">
-                    <Button asChild variant="outline" className="gap-2 bg-yellow-600 hover:bg-yellow-700 text-white">
-                        <Link href={`/app/trucks/maintenance?id=${truck.id}`} prefetch={false}>
-                            <Wrench className="h-4 w-4" />
-                            {t("trucks.detail.maintenance")}
-                        </Link>
-                    </Button>
-                    <Button asChild className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                        <Link href={`/app/trucks/edit?id=${truck.id}`} prefetch={false}>
-                            <Edit className="h-4 w-4" />
-                            {t("trucks.detail.editDetails")}
-                        </Link>
-                    </Button>
-                </div>
-            </div>
+                        <span aria-hidden>•</span>
+                        <span>{t("masterData.trucks.systemId")}: <span className="font-mono">{truck.id.substring(0, 8).toUpperCase()}</span></span>
+                    </span>
+                }
+                actions={
+                    <>
+                        <Button asChild variant="outline">
+                            <Link href={`/app/trucks/maintenance?id=${truck.id}`} prefetch={false}>
+                                <Wrench className="h-4 w-4" aria-hidden />
+                                {t("trucks.detail.maintenance")}
+                            </Link>
+                        </Button>
+                        <Button asChild>
+                            <Link href={`/app/trucks/edit?id=${truck.id}`} prefetch={false}>
+                                <Edit className="h-4 w-4" aria-hidden />
+                                {t("trucks.detail.editDetails")}
+                            </Link>
+                        </Button>
+                    </>
+                }
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column - Main Info */}
@@ -391,8 +386,8 @@ export default function TruckPreview() {
                                                             </div>
                                                         </div>
                                                         <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
-                                                            <Link href={`/app/drivers/view?id=${assignment.driverId}`} prefetch={false}>
-                                                                <User className="h-4 w-4 text-muted-foreground" />
+                                                            <Link href={`/app/drivers/view?id=${assignment.driverId}`} prefetch={false} aria-label={assignment.driverName || t("nav.drivers")}>
+                                                                <User className="h-4 w-4 text-muted-foreground" aria-hidden />
                                                             </Link>
                                                         </Button>
                                                     </div>

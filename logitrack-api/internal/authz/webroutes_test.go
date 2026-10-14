@@ -123,14 +123,20 @@ func TestWebRoutesTranslateTheLegacyTable(t *testing.T) {
 	}
 }
 
-// TestEveryWebPageIsMapped: the edge gate denies unmapped paths, so every page under app/app/** needs a
-// mapping (Appendix C §C.2.7) except the pages proxy.ts or next.config redirects (main spec §10.5,
-// §10.12).
+// TestEveryWebPageIsMapped: the edge gate answers an unmapped path with "Page not found" (UI3D: let
+// through with HTTP 404 and no capability check to the shell's catch-all), so every page under
+// app/app/** needs a mapping (Appendix C §C.2.7) except the pages proxy.ts or next.config redirects (main
+// spec §10.5, §10.12). This test, with the web's "maps every page under app/app", is what makes that 404
+// safe: a page without a mapping would be served unchecked. The catch-all segment (`[...missing]`, which
+// only calls notFound()) is not a page of its own.
 func TestEveryWebPageIsMapped(t *testing.T) {
 	root := filepath.Join(moduleRoot(t), "..", "logitrack-web", "app")
 	redirected := []string{"/app", "/app/users", "/app/operations/roles"}
 	n := 0
 	err := filepath.WalkDir(filepath.Join(root, "app"), func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && (strings.HasPrefix(d.Name(), "[...") || strings.HasPrefix(d.Name(), "[[...")) {
+			return filepath.SkipDir
+		}
 		if err != nil || d.IsDir() || d.Name() != "page.tsx" {
 			return err
 		}

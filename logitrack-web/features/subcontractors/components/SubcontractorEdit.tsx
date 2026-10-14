@@ -29,11 +29,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, ArrowLeft, Save } from "lucide-react";
-import Link from "next/link";
+import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 import FileUploader from "./FileUploader";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
+import { RecordState } from "@/components/record-state";
 
 export default function SubcontractorEdit() {
     const router = useRouter();
@@ -66,14 +67,6 @@ export default function SubcontractorEdit() {
         setLoadedId(query.data.id);
     }, [query.data, loadedId, form]);
 
-    useEffect(() => {
-        if (query.isSuccess && !query.data) {
-            toast.error(t("subcontractors.toast.notFound"));
-            router.push("/app/subcontractors");
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [query.isSuccess, query.data]);
-
     const isLoading = query.isPending && Boolean(id);
 
     const uploadDocument = (variant: "id_card" | "company_doc") => (file: File) =>
@@ -97,28 +90,30 @@ export default function SubcontractorEdit() {
         }
     };
 
+    // No id, no partner, or the read failed: not found or outside the reader's scope, or a load error with a retry
+    // (UI3D), never an empty form.
+    if (!id || query.isError || (query.isSuccess && !query.data)) {
+        return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
+    }
+
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center min-h-[400px]" role="status" aria-busy="true">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+                <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
 
     return (
-        <div className="container mx-auto px-4 py-8">
-            <div className="max-w-3xl mx-auto">
-                <Button variant="ghost" asChild className="mb-4 pl-0">
-                    <Link href={`/app/subcontractors/${id}`} prefetch={false}>
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        {t("subcontractors.edit.backToDetails")}
-                    </Link>
-                </Button>
-
-                <div className="flex items-center justify-between mb-8">
-                    <h1 className="text-3xl font-bold">{t("subcontractors.edit.title")}</h1>
-                </div>
-
+        <div className="flex max-w-3xl flex-col gap-section">
+            <PageHeader
+                title={t("nav.partners")}
+                recordName={query.data?.nameTh}
+                description={t("subcontractors.edit.title")}
+                back={{ href: `/app/subcontractors/${id}`, label: t("subcontractors.edit.backToDetails") }}
+            />
+            <div>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
                         <Card>

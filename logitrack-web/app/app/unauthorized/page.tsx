@@ -1,74 +1,62 @@
-"use client"
+"use client";
 
-import { useSearchParams, useRouter } from "next/navigation"
-import { ShieldX, ArrowLeft, Home, Lock } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useLanguage } from "@/context/language"
-import { useAuth } from "@/context/auth"
-import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
-import { homeRouteOf } from "@/features/auth/api/homeRoute"
-import { DASHBOARD_PATH } from "@/lib/routeCapabilities"
-import { Suspense } from "react"
+/**
+ * The 403 page of the console (UI3D, issue #143): a page that exists (it is mapped in the gate's table) but that the
+ * principal's role does not open. An address with no page is "Page not found" instead (app/app/not-found.tsx, the edge
+ * gate tells the two apart). It names the page as the menu does (`breadcrumbTrail(from)`), never the raw path, and
+ * says who can change that, by kind of principal (features/auth/utils/unauthorizedGuide.ts).
+ *
+ * Quiet by design (DESIGN.md: no icon tile above the heading, red only for state): ink heading, graphite text.
+ */
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Home } from "lucide-react";
+
+import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/context/auth";
+import { useLanguage } from "@/context/language";
+import { homeRouteOf } from "@/features/auth/api/homeRoute";
+import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel";
+import { attemptedPageName, unauthorizedAudience } from "@/features/auth/utils/unauthorizedGuide";
+import { DASHBOARD_PATH } from "@/lib/routeCapabilities";
 
 function UnauthorizedContent() {
-    const searchParams = useSearchParams()
-    const router = useRouter()
-    const { t } = useLanguage()
-    const authContext = useAuth()
-
-    const attemptedPath = searchParams.get("from") ?? ""
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const { t } = useLanguage();
+    const me = useAuth()?.me ?? null;
     // The scope line of the shell (UI3): the same label as the sidebar and the user menu.
-    const scope = useScopeLabel()
+    const scope = useScopeLabel();
     // The same home as the proxy.ts gate (R89), over `['me']`.
-    const homeRoute = authContext?.me ? homeRouteOf(authContext.me) : DASHBOARD_PATH
+    const homeRoute = me ? homeRouteOf(me) : DASHBOARD_PATH;
+    const page = attemptedPageName(searchParams.get("from") ?? "", t, homeRoute);
+    const audience = unauthorizedAudience(me);
 
     return (
-        <div className="flex min-h-[70vh] flex-col items-center justify-center gap-8 px-4 text-center">
-            <div className="relative">
-                <div className="flex items-center justify-center w-28 h-28 rounded-full bg-destructive/10 ring-1 ring-destructive/20">
-                    <Lock className="h-12 w-12 text-destructive/70" />
-                </div>
-                <div className="absolute -top-2 -right-2 flex items-center justify-center w-9 h-9 rounded-full bg-destructive text-white text-xs font-medium dark:bg-destructive/60">
-                    403
-                </div>
-            </div>
-
-            <div className="space-y-3 max-w-md">
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                    {t("unauthorized.title")}
-                </h1>
-                <p className="text-muted-foreground">
-                    {t("unauthorized.description")}
-                </p>
-                {attemptedPath && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted text-sm text-muted-foreground font-mono border border-border">
-                        <ShieldX className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate max-w-[280px]">{attemptedPath}</span>
+        <div data-testid="unauthorized" className="flex max-w-2xl flex-col gap-section">
+            <PageHeader
+                title={t("unauthorized.title")}
+                description={
+                    <div className="flex flex-col gap-2">
+                        <p>{page ? t("unauthorized.page", { page }) : t("unauthorized.description")}</p>
+                        <p data-testid="unauthorized-guide">{t(`unauthorized.guide.${audience}`)}</p>
                     </div>
-                )}
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap justify-center">
-                <Button
-                    variant="outline"
-                    onClick={() => router.back()}
-                    className="gap-2"
-                >
-                    <ArrowLeft className="h-4 w-4" />
+                }
+            />
+            <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => router.back()}>
+                    <ArrowLeft aria-hidden />
                     {t("unauthorized.goBack")}
                 </Button>
-                <Button
-                    onClick={() => router.replace(homeRoute)}
-                    className="gap-2"
-                >
-                    <Home className="h-4 w-4" />
-                    {t("unauthorized.goHome")}
+                <Button type="button" onClick={() => router.replace(homeRoute)}>
+                    <Home aria-hidden />
+                    {t("pageState.goHome")}
                 </Button>
             </div>
-
             {scope ? <p className="text-xs text-muted-foreground">{t("unauthorized.roleHint", { role: scope })}</p> : null}
         </div>
-    )
+    );
 }
 
 export default function UnauthorizedPage() {
@@ -76,5 +64,5 @@ export default function UnauthorizedPage() {
         <Suspense fallback={null}>
             <UnauthorizedContent />
         </Suspense>
-    )
+    );
 }
