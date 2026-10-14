@@ -80,12 +80,12 @@ export default function RenewalsPage() {
                         <Button variant={filter === "critical" ? "secondary" : "outline"} aria-pressed={filter === "critical"} onClick={() => setFilter("critical")} className="gap-2">
                             <AlertTriangle className="h-4 w-4 text-destructive" aria-hidden />
                             {t("renewals.filter.critical")}
-                            <Badge variant="secondary" className="ml-1">{taxOverdue + insuranceOverdue}</Badge>
+                            <Badge variant={filter === "critical" ? "outline" : "secondary"} className="ml-1 bg-background">{taxOverdue + insuranceOverdue}</Badge>
                         </Button>
                         <Button variant={filter === "warning" ? "secondary" : "outline"} aria-pressed={filter === "warning"} onClick={() => setFilter("warning")} className="gap-2">
                             <Calendar className="h-4 w-4 text-warning" aria-hidden />
                             {t("renewals.filter.warning")}
-                            <Badge variant="secondary" className="ml-1">{taxExpiring + insuranceExpiring}</Badge>
+                            <Badge variant={filter === "warning" ? "outline" : "secondary"} className="ml-1 bg-background">{taxExpiring + insuranceExpiring}</Badge>
                         </Button>
                     </>
                 }

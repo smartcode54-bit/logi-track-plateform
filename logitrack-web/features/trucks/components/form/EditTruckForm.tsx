@@ -21,6 +21,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
+import { formatLicensePlate } from "@/lib/utils";
 
 import { IdentificationSection } from "./IdentificationSection";
 import { VehicleDetailsSection } from "./VehicleDetailsSection";
@@ -45,7 +46,7 @@ import { applyServerFieldErrors } from "@/lib/formServerErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 function SubcontractorSelector({ value, onChange, disabled }: { value?: string, onChange: (val: string) => void, disabled?: boolean }) {
     const { t } = useLanguage();
@@ -133,7 +134,8 @@ export default function EditTruckForm() {
     };
 
     // No id, no truck, or the read failed: not found, or a load error with a retry (UI3D), never an empty form.
-    if (!truckId || truckQuery.isError || (truckQuery.isSuccess && !truckQuery.data)) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!truckId || recordUnavailable(truckQuery)) {
         return <RecordState error={truckQuery.error} onRetry={() => void truckQuery.refetch()} retrying={truckQuery.isFetching} />;
     }
 
@@ -150,7 +152,7 @@ export default function EditTruckForm() {
         <div className="flex max-w-4xl flex-col gap-section">
             <PageHeader
                 title={t("nav.trucks")}
-                recordName={truckQuery.data?.licensePlate}
+                recordName={truckQuery.data ? formatLicensePlate(truckQuery.data.licensePlate) : undefined}
                 description={t("trucks.edit.subtitle")}
                 back={{ href: `/app/trucks/view?id=${truckId}`, label: t("trucks.edit.backToDetails") }}
             />

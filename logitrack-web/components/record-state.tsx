@@ -7,8 +7,12 @@
  * - **Not found** (HTTP 404, or no id in the address): Go answers 404 both for a record that does not exist and for
  *   one outside the reader's scope, so the page never says which. H1 "Not found", the same in the crumb and the tab
  *   title, and a link back to the entry's list (the menu's entry, components/app-nav.ts).
+ * - **No access** (HTTP 403): an access answer, so no retry that could never succeed; the way back.
  * - **Could not load** (a 5xx, the network, anything else): the reason in the reader's language, a retry, the way
  *   back, and the request id as a quiet reference for support.
+ *
+ * A page shows it only when it has no record to show (`recordUnavailable`): a failed background refetch keeps the
+ * record on screen.
  *
  * Each page keeps its own loading state; this replaces only the old red "load failed" heading without an H1 or a retry.
  */
@@ -25,6 +29,17 @@ import { apiErrorText, isApiError } from "@/lib/apiError";
 /** A 404 from Go or the BFF: the record does not exist, or is outside the reader's scope (never said which). */
 export function isNotFoundError(error: unknown): boolean {
     return isApiError(error) && error.status === 404;
+}
+
+/**
+ * Whether a record's query leaves the page nothing to show, so it renders `RecordState`: the record is gone (404),
+ * or the query has settled without a record. A failed background refetch (TanStack keeps the data and sets the error;
+ * window focus refetches) is not that: the page keeps the record it has, and an edit form keeps what is being typed.
+ */
+export function recordUnavailable(query: { data: unknown; error: unknown; status: "pending" | "error" | "success" }): boolean {
+    if (isNotFoundError(query.error)) return true;
+    if (query.data !== undefined && query.data !== null) return false;
+    return query.status !== "pending";
 }
 
 export interface RecordStateProps {
@@ -62,6 +77,16 @@ export function RecordState({ error, onRetry, retrying = false }: RecordStatePro
                     recordName={t("pageState.record.notFound.title")}
                     description={t("pageState.record.notFound.body")}
                 />
+                {entry?.href ? <div className="flex flex-wrap gap-2">{backToList("default")}</div> : null}
+            </div>
+        );
+    }
+
+    // A 403 is an access answer, not a failure: trying again cannot change it, so no retry.
+    if (isApiError(error) && error.status === 403) {
+        return (
+            <div data-testid="record-forbidden" className="flex flex-col gap-section">
+                <PageHeader title={entryLabel} recordName={t("pageState.record.forbidden.title")} description={t("pageState.record.forbidden.body")} />
                 {entry?.href ? <div className="flex flex-wrap gap-2">{backToList("default")}</div> : null}
             </div>
         );

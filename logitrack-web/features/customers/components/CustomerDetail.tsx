@@ -8,7 +8,7 @@ import { Loader2, Edit, Mail, Phone, User, MapPin, CreditCard, Clock, FileText }
 import Link from "next/link";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
     if (!value && value !== 0) return null;
@@ -30,7 +30,8 @@ export default function CustomerDetail() {
 
     // No id, no customer, or the read failed: not found or outside the reader's scope (Go answers 404 for both), or a
     // load error with a retry (UI3D).
-    if (!id || query.isError) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!id || recordUnavailable(query)) {
         return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 

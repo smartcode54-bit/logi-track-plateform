@@ -18,6 +18,8 @@ export default {
     "pageState.record.notFound.body": "This record does not exist or is not in your scope.",
     "pageState.record.backTo": "Back to {page}",
     "pageState.record.loadError.title": "Could not load this record",
+    "pageState.record.forbidden.title": "No access to this record",
+    "pageState.record.forbidden.body": "Your role does not open this record. Ask whoever manages your access if your work needs it.",
 
     // The page header (components/page-header.tsx).
     "pageHeader.back": "Back to {page}",

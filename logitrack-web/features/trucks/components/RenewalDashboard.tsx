@@ -7,7 +7,7 @@ import { useTruck } from "../api/useTrucks";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import { formatLicensePlate } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RenewalForm } from "./renew/RenewalForm";
@@ -24,14 +24,14 @@ export default function RenewalDashboard() {
     const loadData = () => void query.refetch();
 
     if (loading) return <div className="flex min-h-[50vh] justify-center items-center" role="status" aria-busy="true"><Loader2 className="animate-spin h-8 w-8 text-primary" aria-hidden /><span className="sr-only">{t("common.loading")}</span></div>;
-    if (!truck) return <RecordState error={query.error} onRetry={loadData} retrying={query.isFetching} />;
+    if (!truck || !id) return <RecordState error={recordUnavailable(query) ? query.error : undefined} onRetry={loadData} retrying={query.isFetching} />;
 
     return (
         <div className="flex max-w-4xl flex-col gap-section">
             <PageHeader
                 title={t("nav.trucks")}
                 recordName={formatLicensePlate(truck.licensePlate)}
-                back={{ href: `/app/trucks/view?id=${truck.id}`, label: t("trucks.edit.backToDetails") }}
+                back={{ href: `/app/trucks/view?id=${truck.id}`, label: t("trucks.edit.backToDetails"), history: true }}
                 description={`${t("nav.truckRenewals")} · ${[truck.brand, truck.model].filter(Boolean).join(" ")}`}
                 actions={
                     <Button variant="outline" onClick={loadData} disabled={query.isFetching}>

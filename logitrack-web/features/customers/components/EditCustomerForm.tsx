@@ -35,7 +35,7 @@ import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 export default function EditCustomerForm() {
     // A real dynamic segment since TW2 (standalone server; no Hosting placeholder rewrite).
@@ -119,11 +119,12 @@ export default function EditCustomerForm() {
 
     // No id, no customer, or the read failed: not found or outside the reader's scope, or a load error with a retry
     // (UI3D), never an empty form.
-    if (!id || query.isError || (query.isSuccess && !query.data)) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!id || recordUnavailable(query)) {
         return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 
-    if (query.isPending) {
+    if (!query.data) {
         return (
             <div className="flex justify-center py-24" role="status" aria-busy="true">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />

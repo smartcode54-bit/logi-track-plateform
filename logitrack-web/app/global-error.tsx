@@ -3,11 +3,12 @@
 /**
  * The last error boundary (UI3D, issue #143): a crash of the root layout or the `/app` shell itself. It replaces the
  * whole document, so it brings its own `<html>` and `<body>` and depends on nothing that may have failed: no
- * providers, no dictionary, no shell. Thai and English together (the chosen language is not known here), a retry, the
- * way to the start page, and the reference support needs. Page crashes inside the console stay in the shell
+ * providers, no dictionary, no shell. Thai and English together (the chosen language is not known here), the reader's
+ * theme (stored or the device's), a retry, the way to the start page, and the reference support needs. The page fonts
+ * are not loaded here (the root layout that loads them is what failed): the system sans stands in. Page crashes inside the console stay in the shell
  * (app/app/error.tsx).
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import "./globals.css";
@@ -16,15 +17,34 @@ import { GLOBAL_ERROR_TEXT } from "@/lib/globalErrorText";
 
 const LANGUAGES = ["th", "en"] as const;
 
+/**
+ * The reader's theme without the theme provider: the stored choice (next-themes' `theme` key, app/providers.tsx),
+ * else the device's. Read after mount (the server has neither).
+ */
+function useDarkTheme(): boolean {
+    const [dark, setDark] = useState(false);
+    useEffect(() => {
+        let stored: string | null = null;
+        try {
+            stored = window.localStorage.getItem("theme");
+        } catch {
+            stored = null;
+        }
+        setDark(stored === "dark" || (stored !== "light" && window.matchMedia?.("(prefers-color-scheme: dark)").matches === true));
+    }, []);
+    return dark;
+}
+
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
     const reference = errorReference(error);
+    const dark = useDarkTheme();
 
     useEffect(() => {
         console.error(error);
     }, [error]);
 
     return (
-        <html lang="th">
+        <html lang="th" className={dark ? "dark" : undefined}>
             <body className="min-h-screen bg-background text-foreground">
                 <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-6 p-gutter">
                     <h1 className="flex flex-col gap-1 text-2xl font-semibold tracking-tight">

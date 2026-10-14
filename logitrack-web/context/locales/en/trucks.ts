@@ -293,11 +293,8 @@ export default {
     "trucks.detail.view.legacyImage": "Legacy Image",
     "trucks.detail.loading": "Loading truck data...",
     "trucks.detail.notFound": "Truck not found",
-    "trucks.detail.noId": "No truck ID provided",
-    "trucks.detail.error": "Failed to load truck data.",
 
     // Edit Truck
-    "trucks.edit.title": "Edit Truck",
     "trucks.edit.subtitle": "Update truck information",
     "trucks.edit.backToDetails": "Back to Details",
     "trucks.edit.ownership": "Ownership",

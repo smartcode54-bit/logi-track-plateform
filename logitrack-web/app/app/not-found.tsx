@@ -3,8 +3,8 @@
 /**
  * "Page not found" inside the shell (UI3D, issue #143): the sidebar, the header and the breadcrumb stay, so the way on
  * is in reach. Rendered for `notFound()` under `/app`: the catch-all `app/app/[...missing]/page.tsx` answers every
- * path no page matches (HTTP 404), and the edge gate rewrites unmapped paths there (lib/bff/edgeGate.ts) instead of
- * calling them forbidden. Crumb and tab title: "Page not found" / "ไม่พบหน้านี้".
+ * path no page matches; the edge gate lets an unmapped path through to it with HTTP 404 instead of calling it
+ * forbidden (lib/bff/edgeGate.ts). Crumb and tab title: "Page not found" / "ไม่พบหน้านี้".
  */
 import Link from "next/link";
 import { Home } from "lucide-react";

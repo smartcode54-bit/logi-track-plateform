@@ -249,10 +249,10 @@ export default function CompanyProfilePage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="shortName">{t("company.field.shortName", "ชื่อย่อ (เช่น WRT)")}</Label>
+                  <Label htmlFor="shortName">{t("company.field.shortName")}</Label>
                   <Input
                     id="shortName"
-                    placeholder={t("company.placeholder.shortName", "WRT")}
+                    placeholder={t("company.placeholder.shortName")}
                     {...register("shortName")}
                   />
                 </div>

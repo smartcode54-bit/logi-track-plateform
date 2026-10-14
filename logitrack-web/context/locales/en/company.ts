@@ -26,6 +26,7 @@ export default {
   // Field labels
   "company.field.nameTh": "Company Name (Thai)",
   "company.field.nameEn": "Company Name (English)",
+  "company.field.shortName": "Short name (e.g. WRT)",
   "company.field.taxId": "Tax ID (13 digits)",
   "company.field.branchType": "Branch Type",
   "company.field.branchNumber": "Branch Number",
@@ -48,6 +49,7 @@ export default {
   // Placeholders
   "company.placeholder.nameTh": "บริษัท ตัวอย่าง จำกัด",
   "company.placeholder.nameEn": "Example Co., Ltd.",
+  "company.placeholder.shortName": "WRT",
   "company.placeholder.taxId": "0000000000000",
   "company.placeholder.branchNumber": "00001",
   "company.placeholder.address": "123/45 ถนนตัวอย่าง แขวงตัวอย่าง เขตตัวอย่าง กรุงเทพฯ 10000",

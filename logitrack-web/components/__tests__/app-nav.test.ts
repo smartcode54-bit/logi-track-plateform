@@ -324,8 +324,8 @@ function pageComponent(url: string): { file: string; name: string } {
 function primaryHeading(file: string, component: string): { markup?: string; problem?: string } {
     const lines = fs.readFileSync(file, "utf8").split("\n");
     const headingRx = /<PageHeader\b|<h1\b/;
-    const h1Lines = lines.flatMap((line, index) => (headingRx.test(line) ? [index] : []));
-    if (h1Lines.length !== 1) return { problem: `${h1Lines.length} headings (<PageHeader / <h1>) in the file (expected one)` };
+    const headings = lines.flatMap((line, index) => (headingRx.test(line) ? [index] : []));
+    if (headings.length === 0) return { problem: "no heading (<PageHeader / <h1>) in the file" };
     const declaration = lines.findIndex((line) => new RegExp(`function ${component}\\(`).test(line));
     if (declaration < 0) return { problem: `no function ${component}` };
     const indent = (line: string) => line.length - line.trimStart().length;
@@ -335,18 +335,25 @@ function primaryHeading(file: string, component: string): { markup?: string; pro
     while (!/\{\s*$/.test(lines[start]) || indent(lines[start]) !== declIndent) start += 1;
     let end = start + 1;
     while (!(lines[end].trim() === "}" && indent(lines[end]) === declIndent)) end += 1;
-    const [at] = h1Lines;
-    if (at <= start || at >= end) {
+    const inBody = headings.filter((at) => at > start && at < end);
+    if (inBody.length === 0) {
         // A thin wrapper (the task boards: `<Board kind="all" />`) renders a component of the same file: follow it.
         const body = lines.slice(start + 1, end).join("\n");
         const local = [...body.matchAll(/<([A-Z]\w*)[\s/>]/g)].map((m) => m[1]).find((tag) => lines.some((line) => new RegExp(`^function ${tag}\\(`).test(line)));
-        return local ? primaryHeading(file, local) : { problem: `the <h1> is outside ${component}` };
+        return local ? primaryHeading(file, local) : { problem: `the heading is outside ${component}` };
     }
     const bodyIndent = indent(lines.slice(start + 1, end).find((line) => line.trim() !== "") ?? "");
-    // The statement of the body that holds the heading: the nearest line above it at the body's indentation.
-    let statement = at;
-    while (statement > start && !(lines[statement].trim() !== "" && indent(lines[statement]) === bodyIndent)) statement -= 1;
-    if (/^(if\b|\} else|else\b|case\b)/.test(lines[statement].trim())) return { problem: `the <h1> is in a branch: "${lines[statement].trim()}"` };
+    // The statement of the body that holds a heading: the nearest line above it at the body's indentation. A state
+    // branch (`if (!allowed) return <PageHeader … />`) may have its own heading; it cannot stand in for the page's.
+    const statementOf = (at: number) => {
+        let statement = at;
+        while (statement > start && !(lines[statement].trim() !== "" && indent(lines[statement]) === bodyIndent)) statement -= 1;
+        return lines[statement].trim();
+    };
+    const primary = inBody.filter((at) => !/^(if\b|\} else|else\b|case\b)/.test(statementOf(at)));
+    if (primary.length === 0) return { problem: `the heading is in a branch: "${statementOf(inBody[0])}"` };
+    if (primary.length > 1) return { problem: `${primary.length} headings outside a branch (expected one)` };
+    const [at] = primary;
     const markup = lines.slice(at).join("\n");
     if (/<h1\b/.test(lines[at])) return { markup: markup.slice(0, markup.indexOf("</h1>")) };
     // A PageHeader names the page by its `title` prop (the H1 of a menu page).

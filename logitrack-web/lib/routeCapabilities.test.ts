@@ -4,24 +4,42 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { homeRouteFor, ROUTE_CAPABILITIES, routeAllowed, routeFor } from "./routeCapabilities";
+import { canonicalAppPath, homeRouteFor, ROUTE_CAPABILITIES, routeAllowed, routeFor } from "./routeCapabilities";
 
 const appDir = path.resolve(__dirname, "..", "app", "app");
 
 /** A catch-all segment (`[...x]`, `[[...x]]`): not a page of its own (UI3D: the shell's not-found answers there). */
 const isCatchAll = (segment: string) => /^\[\[?\.\.\./.test(segment);
 
-/** Every `app/app/**\/page.tsx` as its URL path; dynamic segments stay as `[id]`; catch-all segments are skipped. */
+/** A page or route-handler file in any of the extensions Next accepts. */
+const PAGE_FILE = /^page\.(tsx|ts|jsx|js|mdx)$/;
+const ROUTE_FILE = /^route\.(tsx|ts|jsx|js)$/;
+
+/**
+ * Every page under app/app as its URL path; dynamic segments stay as `[id]`. Only the root catch-all of the shell's
+ * not-found (`[...missing]`) is skipped: any other catch-all is a page like the rest and needs its mapping.
+ */
 function pages(dir: string, prefix = "/app"): string[] {
     const out: string[] = [];
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         if (e.isDirectory()) {
-            if (isCatchAll(e.name)) continue;
+            if (dir === appDir && e.name === "[...missing]") continue;
             const seg = e.name.startsWith("(") ? "" : `/${e.name}`;
             out.push(...pages(path.join(dir, e.name), prefix + seg));
-        } else if (e.name === "page.tsx") {
+        } else if (PAGE_FILE.test(e.name)) {
             out.push(prefix);
         }
+    }
+    return out;
+}
+
+/** Every route handler under app/app (relative paths). */
+function routeHandlers(dir: string): string[] {
+    const out: string[] = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) out.push(...routeHandlers(p));
+        else if (ROUTE_FILE.test(e.name)) out.push(path.relative(appDir, p));
     }
     return out;
 }
@@ -55,13 +73,36 @@ describe("routeFor / routeAllowed", () => {
         }
     });
 
-    it("maps every page under app/app (the gate answers an unmapped path with \"Page not found\", so a page without a mapping would never be served)", () => {
+    it("has no route handler under app/app: the gate lets unmapped paths through (404), so one would be reachable unchecked", () => {
+        expect(routeHandlers(appDir)).toEqual([]);
+    });
+
+    it("maps every page under app/app, in any extension (the gate lets an unmapped path through with 404 and no capability check, so an unmapped page would be served unchecked)", () => {
         // `/app` goes to the role's home in proxy.ts; the other two are next.config redirects() that
         // run before proxy.ts (developer-spec.md §10.12). Mirrors TestEveryWebPageIsMapped in Go.
         const redirected = ["/app", "/app/users", "/app/operations/roles"];
         const all = pages(appDir);
         expect(all.length).toBeGreaterThan(50);
         expect(all.filter((p) => !redirected.includes(p) && !routeFor(p))).toEqual([]);
+    });
+});
+
+describe("canonicalAppPath (UI3D review: decide on the path Next routes)", () => {
+    it("decodes each segment once and spells it one way", () => {
+        expect(canonicalAppPath("/app/%70ayroll")).toEqual({ path: "/app/payroll", href: "/app/payroll" });
+        expect(canonicalAppPath("/app/drivers/%6eew/")).toEqual({ path: "/app/drivers/new", href: "/app/drivers/new" });
+        expect(canonicalAppPath("/app//payroll")).toEqual({ path: "/app/payroll", href: "/app/payroll" });
+        // Decoded once only: %2570 is a literal "%70", which no route holds.
+        expect(canonicalAppPath("/app/%2570ayroll")).toEqual({ path: "/app/%70ayroll", href: "/app/%2570ayroll" });
+        // Stable for a segment that must stay escaped (no redirect loop).
+        const thai = canonicalAppPath("/app/x/%E0%B8%81")!;
+        expect(canonicalAppPath(thai.href)).toEqual(thai);
+    });
+
+    it("refuses what cannot be one route: malformed escapes, encoded slashes and backslashes, dot segments, controls", () => {
+        for (const raw of ["/app/%E0%A4%A", "/app/%zz", "/app/a%2Fb", "/app/a%5cb", "/app/%2e%2e", "/app/%2E", "/app/a%00", "/app/a%0Ab"]) {
+            expect(canonicalAppPath(raw), raw).toBeNull();
+        }
     });
 });
 

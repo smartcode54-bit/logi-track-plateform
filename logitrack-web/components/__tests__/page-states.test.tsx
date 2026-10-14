@@ -25,7 +25,7 @@ import AppError from "@/app/app/error";
 import GlobalError from "@/app/global-error";
 import UnauthorizedPage from "@/app/app/unauthorized/page";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import { useLanguage } from "@/context/language";
 import type { MeDTO } from "@/features/auth/api/me";
 import CustomersList from "@/features/customers/components/CustomersList";
@@ -60,6 +60,13 @@ const partnerAdmin = makeMe({
     tenants: [],
     steward: false,
     capabilities: ["fleet:view_trucks", "operations:view_driver_monitor"],
+});
+const partnerStaff = makeMe({
+    displayName: "Sam",
+    tenant: { id: "t-car", nameTh: "รถร่วมหนึ่ง", nameEn: "Carrier One", kind: "carrier", role: "operation_staff" },
+    tenants: [],
+    steward: false,
+    capabilities: ["fleet:view_trucks"],
 });
 const platformAdmin = makeMe({ displayName: "Gora", tenant: null, tenants: [], platformRoles: ["platform_admin"], capabilities: ["security:view_overview"] });
 const driverOnly = makeMe({
@@ -239,9 +246,9 @@ describe("a record that is missing (components/record-state.tsx)", () => {
 });
 
 describe("the 403 page (UI3D: quiet, names the page, says who can help)", () => {
-    async function render403(me: MeDTO, thai = false) {
+    async function render403(me: MeDTO, thai = false, from = "/app/accounting/income") {
         mockPathname = "/app/unauthorized";
-        mockSearch = new URLSearchParams("from=/app/accounting/income");
+        mockSearch = new URLSearchParams({ from });
         await renderShell(me, <UnauthorizedPage />, thai);
         return screen.getByTestId("unauthorized");
     }
@@ -266,10 +273,12 @@ describe("the 403 page (UI3D: quiet, names the page, says who can help)", () => 
         ["other staff: the organisation's administrator", manager, /Ask your organisation's administrator/],
         ["a customer: the transport company", customer, /transport company that invited you/],
         ["a partner admin (a carrier's tenant admin): the transport company", partnerAdmin, /transport company that invited you/],
+        ["a partner admin on an own-fleet page (customers): nobody can grant it", partnerAdmin, /No role of a partner carrier's account can open it/, "/app/customers"],
+        ["partner staff on an own-fleet page (pickup points): nobody can grant it", partnerStaff, /No role of a partner carrier's account can open it/, "/app/sources"],
         ["a platform admin outside a tenant: platform pages only", platformAdmin, /Platform roles open the platform's own pages/],
         ["a driver-only account: the driver app", driverOnly, /LogiTrack driver app/],
-    ])("%s", async (_who, me, guide) => {
-        const page = await render403(me);
+    ])("%s", async (_who, me, guide, from = "/app/accounting/income") => {
+        const page = await render403(me, false, from);
         expect(within(page).getByTestId("unauthorized-guide")).toHaveTextContent(guide);
     });
 
@@ -322,6 +331,54 @@ describe("the page header (components/page-header.tsx)", () => {
         expect(screen.getByRole("heading", { level: 1, name: "Trips to bill" })).toBeInTheDocument();
         expect(screen.getByText("Trips delivered in the period")).toBeInTheDocument();
         await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
+    });
+});
+
+describe("a loaded record survives a failed background refetch (UI3D review)", () => {
+    it("recordUnavailable: only a 404, or a settled query without a record, replaces the page", () => {
+        const truck = { id: "t1" };
+        const down = new ApiError({ status: 503, code: "unavailable", message: "" });
+        const gone = new ApiError({ status: 404, code: "not_found", message: "" });
+        expect(recordUnavailable({ data: truck, error: down, status: "error" })).toBe(false);
+        expect(recordUnavailable({ data: truck, error: gone, status: "error" })).toBe(true);
+        expect(recordUnavailable({ data: undefined, error: down, status: "error" })).toBe(true);
+        expect(recordUnavailable({ data: undefined, error: null, status: "pending" })).toBe(false);
+        expect(recordUnavailable({ data: null, error: null, status: "success" })).toBe(true);
+    });
+
+    it("the truck page keeps its truck when a refetch fails (window focus refetches; TanStack keeps the data)", async () => {
+        mockPathname = "/app/trucks/view";
+        const id = "0199c000-0000-7000-8000-00000000aa01";
+        mockSearch = new URLSearchParams(`id=${id}`);
+        let down = false;
+        const web = serve(tenantAdmin);
+        web.on("GET", `/api/go/v1/trucks/${id}`, () =>
+            down
+                ? json(503, { error: { code: "unavailable", message: "", requestId: "rq" } })
+                : json(200, {
+                      data: { id, tenantId: "t-wrt", ownershipType: "own", licensePlate: "70-1234", status: "active", files: {}, statusHistory: [], currentAssignments: [] },
+                  })
+        );
+        const client = createQueryClient();
+        client.setDefaultOptions({ queries: { retry: false } });
+        renderWithProviders(<TruckPreview />, client);
+        expect(await screen.findByRole("heading", { level: 1, name: "70-1234" })).toBeInTheDocument();
+        down = true;
+        await client.refetchQueries();
+        await waitFor(() => expect(client.getQueryCache().findAll().some((q) => q.state.status === "error")).toBe(true));
+        expect(screen.getByRole("heading", { level: 1, name: "70-1234" })).toBeInTheDocument();
+        expect(screen.queryByText("Could not load this record")).toBeNull();
+    });
+});
+
+describe("a record outside the reader's access (403)", () => {
+    it("is said as such, with no retry that could never succeed", async () => {
+        mockPathname = "/app/trucks/view";
+        serve(tenantAdmin);
+        renderWithProviders(<RecordState error={new ApiError({ status: 403, code: "permission_denied", message: "", requestId: "r3" })} onRetry={vi.fn()} />);
+        expect(await screen.findByRole("heading", { level: 1, name: "No access to this record" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+        expect(screen.getByRole("link", { name: "Back to Trucks" })).toHaveAttribute("href", "/app/trucks");
     });
 });
 

@@ -123,6 +123,7 @@ export default {
 
     // Detail Dialog
     "driverMonitor.detail.title": "รายละเอียดเที่ยวงาน",
+    "driverMonitor.detail.incidentReport": "รายงานเหตุการณ์",
     "driverMonitor.detail.tripInfo": "ข้อมูลเที่ยวงาน",
     "driverMonitor.detail.driverInfo": "ข้อมูลคนขับ",
     "driverMonitor.detail.routeInfo": "ข้อมูลเส้นทาง",

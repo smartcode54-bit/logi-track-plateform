@@ -127,17 +127,26 @@ func TestWebRoutesTranslateTheLegacyTable(t *testing.T) {
 // through with HTTP 404 and no capability check to the shell's catch-all), so every page under
 // app/app/** needs a mapping (Appendix C §C.2.7) except the pages proxy.ts or next.config redirects (main
 // spec §10.5, §10.12). This test, with the web's "maps every page under app/app", is what makes that 404
-// safe: a page without a mapping would be served unchecked. The catch-all segment (`[...missing]`, which
-// only calls notFound()) is not a page of its own.
+// safe: a page without a mapping would be served unchecked. Pages count in every extension Next accepts,
+// and a route handler under app/app fails the test (the gate would let it through unchecked too). Only
+// the shell's root catch-all (`app/app/[...missing]`, which only calls notFound()) is skipped; the web
+// test asserts it is the one catch-all.
 func TestEveryWebPageIsMapped(t *testing.T) {
 	root := filepath.Join(moduleRoot(t), "..", "logitrack-web", "app")
 	redirected := []string{"/app", "/app/users", "/app/operations/roles"}
+	notFoundCatchAll := filepath.Join(root, "app", "[...missing]")
+	pageFile := regexp.MustCompile(`^page\.(tsx|ts|jsx|js|mdx)$`)
+	routeFile := regexp.MustCompile(`^route\.(tsx|ts|jsx|js)$`)
 	n := 0
 	err := filepath.WalkDir(filepath.Join(root, "app"), func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() && (strings.HasPrefix(d.Name(), "[...") || strings.HasPrefix(d.Name(), "[[...")) {
+		if err == nil && d.IsDir() && path == notFoundCatchAll {
 			return filepath.SkipDir
 		}
-		if err != nil || d.IsDir() || d.Name() != "page.tsx" {
+		if err == nil && !d.IsDir() && routeFile.MatchString(d.Name()) {
+			t.Errorf("route handler %s under app/app: the edge gate lets an unmapped path through, so it would be reachable unchecked", path)
+			return nil
+		}
+		if err != nil || d.IsDir() || !pageFile.MatchString(d.Name()) {
 			return err
 		}
 		rel, err := filepath.Rel(root, filepath.Dir(path))

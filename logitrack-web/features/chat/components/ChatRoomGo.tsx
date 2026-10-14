@@ -18,7 +18,7 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import { useCan, useMe } from "@/features/auth/api/useMe";
 import { apiErrorText, isApiError } from "@/lib/apiError";
 import { newIdempotencyKey } from "@/lib/goFetch";
@@ -98,13 +98,15 @@ export function ChatRoomGo() {
     if (!chatId) return null;
     if (!isGoId(chatId)) {
         return (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground" data-testid="chat-legacy-link">
-                <p>{t("chat.room.legacyLink")}</p>
-                <Button variant="outline" size="sm" asChild>
-                    <Link href="/app/chat" prefetch={false}>
-                        {t("chat.room.backToConsole")}
-                    </Link>
-                </Button>
+            <div className="flex flex-1 flex-col gap-section p-4" data-testid="chat-legacy-link">
+                <PageHeader title={t("nav.chat")} description={t("chat.room.legacyLink")} />
+                <div>
+                    <Button variant="outline" asChild>
+                        <Link href="/app/chat" prefetch={false}>
+                            {t("chat.room.backToConsole")}
+                        </Link>
+                    </Button>
+                </div>
             </div>
         );
     }
@@ -191,8 +193,12 @@ function Room({ chatId }: { chatId: string }) {
     }
     // A chat that does not exist or is outside the reader's scope (404), or a load error with a retry (UI3D): said on
     // the page, with the way back to the chat console, instead of a silent bounce or a bare red line.
-    if (chat.isError) {
-        return <RecordState error={chat.error} onRetry={() => void chat.refetch()} retrying={chat.isFetching} />;
+    if (recordUnavailable(chat) || !chat.data) {
+        return (
+            <div className="p-4">
+                <RecordState error={chat.error} onRetry={() => void chat.refetch()} retrying={chat.isFetching} />
+            </div>
+        );
     }
 
     const c = chat.data;

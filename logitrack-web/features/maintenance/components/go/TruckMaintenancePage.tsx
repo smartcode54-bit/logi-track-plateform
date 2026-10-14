@@ -27,7 +27,7 @@ import { formatLicensePlate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
 
 import { createMaintenance, maintenanceCostTotals, maintenanceQuery, maintenanceRows, updateMaintenance, type MaintenanceRecordDTO } from "../../api/maintenance.go";
@@ -157,10 +157,11 @@ export function TruckMaintenancePage() {
     };
 
     // No id, no truck, or the read failed: not found, or a load error with a retry (UI3D).
-    if (!truckId || truck.isError) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!truckId || recordUnavailable(truck)) {
         return <RecordState error={truck.error} onRetry={() => void truck.refetch()} retrying={truck.isFetching} />;
     }
-    if (truck.isPending) {
+    if (!truck.data) {
         return (
             <div className="flex h-[50vh] items-center justify-center" role="status" aria-busy="true">
                 <Loader2 className="animate-spin" aria-hidden />
@@ -176,7 +177,7 @@ export function TruckMaintenancePage() {
             <PageHeader
                 title={t("nav.trucks")}
                 recordName={formatLicensePlate(tr.licensePlate)}
-                back={{ href: `/app/trucks/view?id=${tr.id}`, label: t("trucks.edit.backToDetails") }}
+                back={{ href: `/app/trucks/view?id=${tr.id}`, label: t("trucks.edit.backToDetails"), history: true }}
                 description={`${t("maintenance.title")} · ${[tr.brand, tr.model].filter(Boolean).join(" ")}`}
                 status={
                     <Badge variant={tr.status === "maintenance" ? "destructive" : "secondary"}>

@@ -115,7 +115,8 @@ export function MobileReleasePage() {
     }
     if (!gate) {
         return (
-            <div>
+            <div className="flex max-w-4xl flex-col gap-section">
+                <PageHeader title={t("securityCenter.mobileRelease")} />
                 <Alert variant="destructive">
                     <AlertDescription>
                         {t("securityCenter.mobileRelease.loadFailed")} {releases.error ? apiErrorText(releases.error, t) : ""}

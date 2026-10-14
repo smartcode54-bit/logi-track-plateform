@@ -42,7 +42,7 @@ import { format } from "date-fns";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 /**
  * Reset() replaces every value, so a key absent from the Firestore doc becomes `undefined`
@@ -191,7 +191,8 @@ export default function EditDriverForm() {
     const employmentType = form.watch("employmentType");
 
     // No id, no driver, or the read failed: not found, or a load error with a retry (UI3D), never an empty form.
-    if (!driverId || driverQuery.isError || (driverQuery.isSuccess && !driverQuery.data)) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!driverId || recordUnavailable(driverQuery)) {
         return <RecordState error={driverQuery.error} onRetry={() => void driverQuery.refetch()} retrying={driverQuery.isFetching} />;
     }
 

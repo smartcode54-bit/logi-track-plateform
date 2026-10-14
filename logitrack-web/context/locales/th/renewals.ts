@@ -1,6 +1,5 @@
 export default {
     // Renewals
-    "renewals.title": "การต่ออายุเอกสารและภาษี",
     "renewals.subtitle": "จัดการการต่อภาษีและประกันภัยของกองรถ",
     "renewals.filter.all": "รถทั้งหมด",
     "renewals.filter.critical": "ต้องดำเนินการด่วน",

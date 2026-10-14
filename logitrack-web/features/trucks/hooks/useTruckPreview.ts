@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLanguage } from "@/context/language";
+import { recordUnavailable } from "@/components/record-state";
 import { useAssignmentsOf, useTruck } from "../api/useTrucks";
 import { fileUrl } from "../api/trucks";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
@@ -26,7 +27,8 @@ export function useTruckPreview() {
     const [viewerIndex, setViewerIndex] = useState(0);
 
     // No id, no truck (not found), or the read failed: the page shows RecordState instead of the truck.
-    const missing = !truckId || truckQuery.isError || (truckQuery.isSuccess && !truck);
+    // A failed background refetch keeps the loaded truck (recordUnavailable); only a missing one is "missing".
+    const missing = !truckId || recordUnavailable(truckQuery);
 
     const documentTax = truck ? fileUrl(truck.files, "documentTax") : "";
     const insuranceDocuments = truck ? (truck.files.insuranceDocument ?? []).map((f) => f.url ?? "").filter(Boolean) : [];

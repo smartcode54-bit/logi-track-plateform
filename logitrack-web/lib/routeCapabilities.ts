@@ -29,6 +29,43 @@ export function normalizeAppPath(pathname: string): string {
     return p === "" ? "/" : p;
 }
 
+/** A path as the gate decides on it: the decoded path, and the one encoding of it the gate lets reach Next. */
+export interface CanonicalPath {
+    /** Every segment percent-decoded once, as Next routes it (`/app/%70ayroll` -> `/app/payroll`). */
+    path: string;
+    /** The canonical spelling of `path` in a URL: each segment `encodeURIComponent`-ed, no empty segment. */
+    href: string;
+}
+
+// C0 controls and DEL: no route segment holds one.
+const CONTROL_RX = /[\u0000-\u001f\u007f]/;
+
+/**
+ * The decoded and canonical forms of a raw (still percent-encoded) URL pathname (UI3D review, a P0 of §10.14 row 3).
+ * Next decodes each segment before it routes, so a gate that matched the raw string would let `/app/%70ayroll` through
+ * as "unmapped" while Next serves the payroll page. Returns null for a path that cannot be decided: a malformed escape,
+ * or a segment that decodes to a `/` or `\`, a control character, `.` or `..` (one path that could name two). Empty
+ * segments are dropped from `href` (Next redirects `//` itself).
+ */
+export function canonicalAppPath(rawPathname: string): CanonicalPath | null {
+    const segments: string[] = [];
+    for (const raw of normalizeAppPath(rawPathname).split("/")) {
+        if (raw === "") continue;
+        let segment: string;
+        try {
+            segment = decodeURIComponent(raw);
+        } catch {
+            return null;
+        }
+        if (segment === "." || segment === ".." || /[/\\]/.test(segment) || CONTROL_RX.test(segment)) return null;
+        segments.push(segment);
+    }
+    return {
+        path: `/${segments.join("/")}`,
+        href: `/${segments.map(encodeURIComponent).join("/")}`,
+    };
+}
+
 /** The entry that governs `pathname`: exact, else the longest mapped prefix; undefined when unmapped. */
 export function routeFor(pathname: string): { matched: string; capabilities: readonly CapabilityKey[] } | undefined {
     let p = normalizeAppPath(pathname);

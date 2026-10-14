@@ -16,7 +16,7 @@ import { formatLicensePlate, cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 function NavItem({ icon: Icon, label, active = false }: { icon: React.ElementType; label: string; active?: boolean }) {
     return (
@@ -48,7 +48,8 @@ export default function SubcontractorDetail() {
 
     // No id, no partner, or the read failed: not found or outside the reader's scope, or a load error with a retry
     // (UI3D).
-    if (!id || query.isError) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!id || recordUnavailable(query)) {
         return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 

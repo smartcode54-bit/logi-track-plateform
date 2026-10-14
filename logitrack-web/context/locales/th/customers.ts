@@ -29,8 +29,6 @@ export default {
     "customers.edit.subtitle": "แก้ไขข้อมูลลูกค้า ข้อมูลการวางบิล และประเภทรหัสคนขับ",
     "customers.new.subtitle": "ลูกค้าที่วางบิล พร้อมข้อมูลการวางบิลและประเภทรหัสคนขับที่ต้องใช้",
     "customers.detail.title": "โปรไฟล์ลูกค้า",
-    "customers.detail.notFound": "ไม่พบลูกค้า",
-    "customers.detail.backToList": "กลับสู่รายการลูกค้า",
     "customers.toast.createSuccess": "สร้างลูกค้าสำเร็จ",
     "customers.toast.createError": "ไม่สามารถสร้างลูกค้าได้",
     "customers.toast.updateSuccess": "อัปเดตลูกค้าสำเร็จ",

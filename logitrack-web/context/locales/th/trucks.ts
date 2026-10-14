@@ -292,11 +292,8 @@ export default {
     "trucks.detail.view.legacyImage": "รูปภาพเดิม",
     "trucks.detail.loading": "กำลังโหลดข้อมูลรถ...",
     "trucks.detail.notFound": "ไม่พบข้อมูลรถ",
-    "trucks.detail.noId": "ไม่พบรหัสรถ",
-    "trucks.detail.error": "โหลดข้อมูลรถล้มเหลว",
 
     // Edit Truck
-    "trucks.edit.title": "แก้ไขข้อมูลรถ",
     "trucks.edit.subtitle": "อัปเดตข้อมูลรถบรรทุก",
     "trucks.edit.backToDetails": "กลับไปหน้ารายละเอียด",
     "trucks.edit.ownership": "ความเป็นเจ้าของ",

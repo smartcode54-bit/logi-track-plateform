@@ -13,6 +13,8 @@ export default {
     "pageState.record.notFound.body": "ไม่มีรายการนี้ หรือรายการนี้อยู่นอกขอบเขตข้อมูลของคุณ",
     "pageState.record.backTo": "กลับไปที่{page}",
     "pageState.record.loadError.title": "โหลดข้อมูลรายการนี้ไม่สำเร็จ",
+    "pageState.record.forbidden.title": "ไม่มีสิทธิ์ดูรายการนี้",
+    "pageState.record.forbidden.body": "บทบาทของคุณเปิดรายการนี้ไม่ได้ หากงานของคุณต้องใช้ ให้ติดต่อผู้ดูแลสิทธิ์ของคุณ",
 
     "pageHeader.back": "กลับไปที่{page}",
     "common.actionsFor": "ตัวเลือกของ {name}",

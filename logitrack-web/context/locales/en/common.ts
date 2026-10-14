@@ -402,6 +402,8 @@ export default {
         "The tenant admin role cannot be extended inside a tenant. This page belongs to the team at GORATECH that runs LogiTrack Pro; contact them if your work needs it.",
     "unauthorized.guide.staff":
         "Ask your organisation's administrator. A tenant admin can change which pages your role opens, under Security center › Roles and permissions.",
+    "unauthorized.guide.ownFleet":
+        "This page is the transport company's own work (customers, partners, pickup points, platform settings). No role of a partner carrier's account can open it.",
     "unauthorized.guide.external": "Ask the transport company that invited you to LogiTrack Pro. They decide what you can see here.",
     "unauthorized.guide.platform": "Platform roles open the platform's own pages, such as the Security center, not a company's daily work.",
     "unauthorized.guide.driver": "Drivers work in the LogiTrack driver app. This console is for office staff, customers and partners.",

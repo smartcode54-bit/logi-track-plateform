@@ -127,7 +127,7 @@ export function RoleMatrixPage() {
                 description={t("securityCenter.roles.subtitleGo")}
                 actions={
                     platformAdmin ? (
-                        <div className="w-full max-w-xs space-y-1">
+                        <div className="w-full space-y-1 md:w-72">
                             <p className="text-xs font-medium text-muted-foreground">{t("securityCenter.roles.layer")}</p>
                             <Select value={layerValue} onValueChange={switchLayer}>
                                 <SelectTrigger aria-label={t("securityCenter.roles.layer")}>

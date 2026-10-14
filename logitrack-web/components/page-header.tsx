@@ -44,6 +44,19 @@ export interface PageHeaderBack {
     href: string;
     /** The link's accessible name; "Back to <title>" by default. */
     label?: string;
+    /**
+     * Go back in the tab's history when there is any (a page opened from several places: a truck's renewal or
+     * maintenance from the renewals list, the maintenance board or the truck), else follow `href`.
+     */
+    history?: boolean;
+}
+
+/** `back.history`: the browser's back when the tab has somewhere to go back to (the link stays a real link). */
+function backInHistory(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    if (typeof window === "undefined" || window.history.length <= 1) return;
+    event.preventDefault();
+    window.history.back();
 }
 
 export interface PageHeaderProps {
@@ -67,11 +80,18 @@ export function PageHeader({ title, recordName, description, actions, back, stat
     const heading = record || title;
 
     return (
-        <div data-slot="page-header" className={cn("flex flex-col gap-4 md:flex-row md:items-start md:justify-between", className)}>
-            <div className="flex min-w-0 items-start gap-2">
+        // From md the heading takes the free width (never less than 16 rem) and the actions sit on its right; a page
+        // whose actions do not fit beside it moves them, still on one row, to the line below (right-aligned).
+        <div data-slot="page-header" className={cn("flex flex-col gap-4 md:flex-row md:flex-wrap md:items-start", className)}>
+            <div className="flex min-w-0 items-start gap-2 md:min-w-64 md:flex-1">
                 {back ? (
                     <Button asChild variant="ghost" size="icon" className="-ml-2 shrink-0 max-md:size-11">
-                        <Link href={back.href} prefetch={false} aria-label={back.label ?? t("pageHeader.back", { page: title })}>
+                        <Link
+                            href={back.href}
+                            prefetch={false}
+                            aria-label={back.label ?? t("pageHeader.back", { page: title })}
+                            onClick={back.history ? backInHistory : undefined}
+                        >
                             <ArrowLeft aria-hidden />
                         </Link>
                     </Button>
@@ -87,7 +107,7 @@ export function PageHeader({ title, recordName, description, actions, back, stat
             {actions ? (
                 <div
                     data-slot="page-header-actions"
-                    className="flex w-full flex-col items-start gap-2 md:w-auto md:shrink-0 md:flex-row md:flex-wrap md:items-center md:justify-end [&>*:not([data-size^=icon])]:w-full md:[&>*]:w-auto"
+                    className="flex w-full flex-col items-start gap-2 md:ml-auto md:w-auto md:shrink-0 md:flex-row md:items-center md:justify-end max-md:[&>*:not([data-size^=icon])]:w-full"
                 >
                     {actions}
                 </div>

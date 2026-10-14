@@ -34,7 +34,7 @@ import { toast } from "sonner";
 import FileUploader from "./FileUploader";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 export default function SubcontractorEdit() {
     const router = useRouter();
@@ -92,7 +92,8 @@ export default function SubcontractorEdit() {
 
     // No id, no partner, or the read failed: not found or outside the reader's scope, or a load error with a retry
     // (UI3D), never an empty form.
-    if (!id || query.isError || (query.isSuccess && !query.data)) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!id || recordUnavailable(query)) {
         return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 

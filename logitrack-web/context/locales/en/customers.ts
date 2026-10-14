@@ -29,8 +29,6 @@ export default {
     "customers.edit.subtitle": "Change this customer's details, billing information and driver ID types.",
     "customers.new.subtitle": "A customer you bill, with its billing information and the driver ID types it needs.",
     "customers.detail.title": "Customer Profile",
-    "customers.detail.notFound": "Customer not found",
-    "customers.detail.backToList": "Back to Customers",
     "customers.toast.createSuccess": "Customer created successfully",
     "customers.toast.createError": "Failed to create customer",
     "customers.toast.updateSuccess": "Customer updated successfully",

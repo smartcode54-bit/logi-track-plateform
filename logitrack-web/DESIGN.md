@@ -441,7 +441,8 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   H1 and the last crumb, so the tab reads "<record> · <entry> · LogiTrack Pro"; the entry stays in the crumb above.
   An edit page names its record, never just "Edit".
 - **`description`**: one graphite line (14 px, up to 65ch) under the heading; facts such as a period or an ID go here.
-- **`actions`**: the page's buttons, primary last; right of the heading from `md`, stacked full width below it.
+- **`actions`**: the page's buttons, primary last; on one row right of the heading from `md`, at their own widths;
+  stacked full width below `md`. Icon-only buttons keep 36 x 36 everywhere (`tests/layout/page-header-layout.spec.ts`).
 - **`back`**: an icon link (36 px, 44 px on phones) named "Back to <entry>" / "กลับไปที่<entry>", for detail and edit
   pages. **`status`**: a badge beside the heading (a truck's status).
 - No icon tile, kicker or eyebrow above or inside the heading.
@@ -453,9 +454,10 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   (never a raw path), who can change that for this kind of principal, "Go back" and "Go to my home page". No lock
   tile, no "403" badge, no red.
 - **A missing record** (`components/record-state.tsx`): "Not found" / "ไม่พบข้อมูล" and "does not exist or is not in
-  your scope" (Go answers 404 for both; never say which), with the way back to the entry's list. A load error (5xx,
-  network) says why in words, offers "Try again" and the way back, and shows the request id as a quiet reference.
-  Never an empty form for a record that did not load.
+  your scope" (Go answers 404 for both; never say which), with the way back to the entry's list. A 403 is "No access to
+  this record", without a retry. A load error (5xx, network) says why in words, offers "Try again" and the way back,
+  and shows the request id as a quiet reference. Never an empty form for a record that did not load, and never a
+  loaded record replaced because a background refetch failed (`recordUnavailable`).
 - **A page that crashed** stays in the shell (`app/app/error.tsx`): "This page stopped working", "Try again", "Go to my
   home page" and a reference for support (a digest or request id), never the error message. A crash of the shell
   itself shows `app/global-error.tsx`: standalone, Thai and English together.

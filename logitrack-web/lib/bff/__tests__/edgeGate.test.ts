@@ -198,6 +198,53 @@ describe("edge gate (proxy.ts, R39)", () => {
         expect(await gate("/app/security-center/users")).toBeUndefined();
     });
 
+    describe("a percent-encoded path is decided as Next routes it (UI3D review: §10.14 row 3, P0)", () => {
+        const DRIVERS_VIEW = { capabilities: ["drivers:view"] };
+        const unauthorizedFrom = (from: string) => `${WEB_ORIGIN}/app/unauthorized?from=${encodeURIComponent(from)}`;
+
+        it("refuses an encoded spelling of a page the role lacks, like the plain one (Next decodes before it routes)", async () => {
+            serveMe(() => me(DRIVERS_VIEW));
+            expect(location(await gate("/app/%70ayroll"))).toBe(unauthorizedFrom("/app/payroll"));
+            expect(location(await gate("/app/payrol%6c"))).toBe(unauthorizedFrom("/app/payroll"));
+            expect(location(await gate("/app/accounting/%69ncome"))).toBe(unauthorizedFrom("/app/accounting/income"));
+            expect(location(await gate("/app/%74rucks/%65dit"))).toBe(unauthorizedFrom("/app/trucks/edit"));
+            // Matched under the admitted /app/drivers prefix before the fix: drivers/new needs drivers:create.
+            expect(location(await gate("/app/drivers/%6eew"))).toBe(unauthorizedFrom("/app/drivers/new"));
+            expect(location(await gate("/app/drivers/new"))).toBe(unauthorizedFrom("/app/drivers/new"));
+        });
+
+        it("makes the same decision for the RSC payload (RSC header, ?_rsc=)", async () => {
+            serveMe(() => me(DRIVERS_VIEW));
+            expect(location(await gate("/app/%70ayroll", {}, undefined, { RSC: "1" }))).toBe(unauthorizedFrom("/app/payroll"));
+            expect(location(await gate("/app/%70ayroll?_rsc=abc"))).toBe(unauthorizedFrom("/app/payroll"));
+        });
+
+        it("refuses a path it cannot decode into one route: a malformed escape, an encoded slash or backslash, a control character", async () => {
+            serveMe(() => me(DRIVERS_VIEW));
+            for (const path of ["/app/%E0%A4%A", "/app/drivers%2Fnew", "/app/drivers%2fview", "/app/drivers%5Cnew", "/app/drivers/%00", "/app/%2e%2e%2fpayroll"]) {
+                expect(location(await gate(path)), path).toBe(`${WEB_ORIGIN}/app/unauthorized`);
+            }
+            // Before any session check: nothing about the principal is needed to refuse it.
+            expect(location(await gate("/app/%E0%A4%A", null))).toBe(`${WEB_ORIGIN}/app/unauthorized`);
+        });
+
+        it("sends an admitted path spelled otherwise to its one canonical spelling (308), where it is decided again", async () => {
+            serveMe(() => me(DRIVERS_VIEW));
+            const res = await gate("/app/%64rivers/view?id=d1&_rsc=x");
+            expect(res!.status).toBe(308);
+            expect(res!.headers.get("location")).toBe(`${WEB_ORIGIN}/app/drivers/view?id=d1&_rsc=x`);
+            // Unmapped and encoded: canonical first, then the 404 on the canonical spelling.
+            expect((await gate("/app/%6eope"))!.headers.get("location")).toBe(`${WEB_ORIGIN}/app/nope`);
+            expect((await gate("/app/nope"))!.status).toBe(404);
+            // The canonical spelling of a segment that needs escaping is stable: no redirect loop.
+            expect(await gate("/app/drivers/view/%E0%B8%81")).toBeUndefined();
+        });
+
+        it("bounces a signed-out request to the refresh route with the decoded path", async () => {
+            expect(location(await gate("/app/%70ayroll", null))).toBe(`${WEB_ORIGIN}/api/auth/refresh?next=%2Fapp%2Fpayroll`);
+        });
+    });
+
     describe("an unmapped path names no page: not found, not forbidden (UI3D)", () => {
         /** Let through (`NextResponse.next()`) with the status set to 404: the shell's catch-all renders "Page not found". */
         function notFoundThrough(res: Response | undefined) {

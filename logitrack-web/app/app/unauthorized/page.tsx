@@ -30,8 +30,9 @@ function UnauthorizedContent() {
     const scope = useScopeLabel();
     // The same home as the proxy.ts gate (R89), over `['me']`.
     const homeRoute = me ? homeRouteOf(me) : DASHBOARD_PATH;
-    const page = attemptedPageName(searchParams.get("from") ?? "", t, homeRoute);
-    const audience = unauthorizedAudience(me);
+    const from = searchParams.get("from") ?? "";
+    const page = attemptedPageName(from, t, homeRoute);
+    const audience = unauthorizedAudience(me, from);
 
     return (
         <div data-testid="unauthorized" className="flex max-w-2xl flex-col gap-section">

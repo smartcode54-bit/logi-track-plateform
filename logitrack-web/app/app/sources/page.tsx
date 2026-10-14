@@ -335,8 +335,8 @@ export default function SourcesPage() {
                     <>
                         <Button
                             variant="outline"
-                            size="sm"
-                            className="h-9 w-9 shrink-0 p-0"
+                            size="icon"
+                            className="shrink-0"
                             onClick={refreshHubs}
                             disabled={loading}
                             aria-label={t("firstMile.sources.refresh")}

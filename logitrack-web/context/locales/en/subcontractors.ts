@@ -166,14 +166,11 @@ export default {
     "subcontractors.toast.registerError": "Failed to register the partner",
     "subcontractors.toast.updateSuccess": "Partner updated",
     "subcontractors.toast.updateError": "Failed to update the partner",
-    "subcontractors.toast.notFound": "Partner not found",
     "subcontractors.toast.loadError": "Failed to load the partner's data",
     "subcontractors.toast.uploadSuccess": "File uploaded successfully",
     "subcontractors.toast.uploadError": "Failed to upload file",
 
     // Detail Page
-    "subcontractors.detail.partners": "Partners",
-    "subcontractors.detail.subcontractors": "Partners",
     "subcontractors.detail.partnerPortal": "Partner Portal",
     "subcontractors.detail.subcontractorManagement": "Partners",
     "subcontractors.detail.overview": "Overview",
@@ -181,11 +178,8 @@ export default {
     "subcontractors.detail.contractsDocs": "Contracts & Documents",
     "subcontractors.detail.performance": "Performance",
     "subcontractors.detail.activityLog": "Activity Log",
-    "subcontractors.detail.totalDeliveries": "Total Deliveries",
-    "subcontractors.detail.monthlyTarget": "Monthly target",
     "subcontractors.detail.masterSubcontractor": "Master partner",
     "subcontractors.detail.joined": "Joined",
-    "subcontractors.detail.message": "Message",
     "subcontractors.detail.editProfile": "Edit Profile",
     "subcontractors.detail.companyDetails": "Company Details",
     "subcontractors.detail.legalName": "Legal Name",
@@ -198,8 +192,6 @@ export default {
     "subcontractors.detail.dispatchManager": "DISPATCH MANAGER",
     "subcontractors.detail.available": "Available",
     "subcontractors.detail.viewAllFleet": "View All Fleet",
-    "subcontractors.detail.notFound": "Partner not found",
-    "subcontractors.detail.backToList": "Back to List",
     "subcontractors.detail.noTrucks": "No trucks assigned yet.",
 
     // Detail - Truck Table

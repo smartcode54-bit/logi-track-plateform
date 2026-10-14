@@ -44,7 +44,7 @@ export function TenantsPage() {
     const [adminsOf, setAdminsOf] = useState<TenantDTO | null>(null);
 
     if (!allowed) {
-        return <p className="text-sm text-muted-foreground">{t("tenants.accessDenied")}</p>;
+        return <PageHeader title={t("securityCenter.tenants")} description={t("tenants.accessDenied")} />;
     }
 
     return (

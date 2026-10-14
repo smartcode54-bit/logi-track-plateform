@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { FileViewer } from "@/components/ui/file-viewer";
-import { isPdfUrl } from "@/lib/utils";
+import { formatLicensePlate, isPdfUrl } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useTruckPreview } from "../hooks/useTruckPreview";
 import { PageHeader } from "@/components/page-header";
@@ -86,7 +86,7 @@ export default function TruckPreview() {
         <div className="flex flex-col gap-section">
             <PageHeader
                 title={t("nav.trucks")}
-                recordName={truck.licensePlate}
+                recordName={formatLicensePlate(truck.licensePlate)}
                 back={{ href: "/app/trucks" }}
                 status={<StatusBadge status={String(truck.status)} />}
                 description={

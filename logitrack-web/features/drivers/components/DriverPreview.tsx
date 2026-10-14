@@ -23,7 +23,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
-import { RecordState } from "@/components/record-state";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import { format } from "date-fns";
 import { useLanguage } from "@/context/language";
 
@@ -76,7 +76,8 @@ export default function DriverPreview() {
     }
 
     // No id, no driver, or the read failed: not found, or a load error with a retry (UI3D).
-    if (!driverId || driverQuery.isError || !driver) {
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!driverId || recordUnavailable(driverQuery) || !driver) {
         return <RecordState error={driverQuery.error} onRetry={() => void driverQuery.refetch()} retrying={driverQuery.isFetching} />;
     }
 

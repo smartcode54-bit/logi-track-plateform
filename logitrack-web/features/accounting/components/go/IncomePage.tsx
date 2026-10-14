@@ -325,8 +325,8 @@ function MissingBillingTab({ canRecompute }: { canRecompute: boolean }) {
                                     {canRecompute ? (
                                         <TableCell>
                                             {u.tripId ? (
-                                                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void recompute(u)}>
-                                                    {busy === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                                                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void recompute(u)} aria-label={t("accounting.go.income.recompute")}>
+                                                    {busy === u.id ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Wand2 className="h-3 w-3" aria-hidden />}
                                                 </Button>
                                             ) : null}
                                         </TableCell>
