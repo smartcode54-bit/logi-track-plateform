@@ -34,7 +34,8 @@ export function LanguageSwitcher() {
                         onClick={() => setLanguage(option.value)}
                         className="h-8 gap-1.5 px-2.5 text-xs"
                     >
-                        <Image src={option.flag} alt="" width={16} height={16} className="size-4 rounded-full object-cover" />
+                        {/* Flags give way to the codes on a phone, where the navigation needs the room for the brand. */}
+                        <Image src={option.flag} alt="" width={16} height={16} className="hidden size-4 rounded-full object-cover sm:block" />
                         {option.code}
                     </Button>
                 );

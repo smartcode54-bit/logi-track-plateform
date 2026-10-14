@@ -12,7 +12,7 @@ export function AuthBackground() {
             {/* Decoration only; a plain img keeps next/image's runtime out of the sign-in route. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={SIGN_IN_BACKGROUND_SRC} alt="" decoding="async" className="h-full w-full object-cover" />
-            <div className="absolute inset-0 bg-background/70" />
+            <div className="absolute inset-0 bg-background/80" />
         </div>
     );
 }

@@ -50,7 +50,7 @@ export default function Navigation() {
 
   return (
     <nav className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
         {/* Brand */}
         <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
           {/* eslint-disable-next-line @next/next/no-img-element */}
