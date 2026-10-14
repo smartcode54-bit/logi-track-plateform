@@ -262,7 +262,14 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.hub.linkType")}</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value}>
+                                        <Select
+                                            onValueChange={(kind) => {
+                                                // The linked id belongs to the old kind (a carrier tenant is no customer): pick again.
+                                                if (kind !== field.value) form.setValue("linkedCustomerId", "", { shouldDirty: true });
+                                                field.onChange(kind);
+                                            }}
+                                            value={field.value}
+                                        >
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={t("firstMile.hub.linkTypePlaceholder")} />

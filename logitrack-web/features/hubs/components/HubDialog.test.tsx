@@ -66,4 +66,31 @@ describe("hub dialog: the customer link by search and by id (UI8)", () => {
         expect(web.calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ sourceId: "SPX-B", linkedCustomerId: "c-0005", linkedCustomerKind: "customer" });
         expect(customerDirectoryReads(web.calls)).toEqual([]);
     });
+
+    it("clears the linked id when the link type changes (a carrier's tenant is no customer)", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities: ["operations:manage_sources"] }) }));
+        web.on("GET", "/api/go/v1/subcontractors", () => json(200, { data: [{ id: "t-carrier", name: "Carrier A", code: "CA" }] }));
+        web.on("GET", "/api/go/v1/customers", customersReply(CUSTOMERS));
+        renderWithProviders(
+            <RouteNamespaces pathname="/app/sources">
+                <HubDialog
+                    open
+                    onOpenChange={() => undefined}
+                    onSuccess={vi.fn()}
+                    documentId="h1"
+                    defaultValues={{ source_id: "SPX-B", source_name_th: "ลาดกระบัง", source_name_en: "Lat Krabang", latitude: 13.7, longitude: 100.7, station_type: "HUB", linkedCustomerId: "t-carrier", customerLinkKind: "partner" }}
+                />
+            </RouteNamespaces>,
+            getQueryClient()
+        );
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Link type" }));
+        await u.click(await screen.findByRole("option", { name: "Customer" }));
+        const picker = await screen.findByRole("combobox", { name: "Reference" });
+        await new Promise((r) => setTimeout(r, 50));
+        // The carrier's id is not looked up as a customer, nor shown raw in the customer picker.
+        expect(customerLookups(web.calls)).toEqual([]);
+        expect(picker).not.toHaveTextContent("t-carrier");
+    });
 });

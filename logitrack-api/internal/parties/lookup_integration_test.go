@@ -91,6 +91,14 @@ func TestCustomersByIDs(t *testing.T) {
 	if got := codesOf(r); !slices.Equal(got, []string{"X"}) {
 		t.Errorf("100 ids: %v", got)
 	}
+	// The head limit: the internal listener (the BFF's) reads 16 KiB, the public one keeps fasthttp's 4 KiB, since
+	// its connections (mobile, SSE streams) hold the buffer for their life and never send such a lookup.
+	pad := strings.Repeat("a", 6<<10)
+	expect(t, w.do(w.internal, http.MethodGet, "/v1/customers?fields=minimal&ids="+w.custX, taO, nil, "X-Pad", pad), http.StatusOK, "")
+	expect(t, w.do(w.public, http.MethodGet, "/v1/customers?fields=minimal&ids="+w.custX, taO, nil, "X-Pad", pad),
+		http.StatusRequestHeaderFieldsTooLarge, "")
+	expect(t, w.do(w.internal, http.MethodGet, "/v1/customers?fields=minimal&ids="+w.custX, taO, nil, "X-Pad",
+		strings.Repeat("a", 17<<10)), http.StatusRequestHeaderFieldsTooLarge, "")
 	expect(t, lookup(taO, append(many, w.custX, many[1])...), http.StatusOK, "")
 	r = lookup(taO, append(many, uuid.NewString())...)
 	expect(t, r, http.StatusUnprocessableEntity, "invalid_argument")
