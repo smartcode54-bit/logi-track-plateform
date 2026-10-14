@@ -125,7 +125,7 @@ const lastActiveTenant = `-- name: LastActiveTenant :one
 SELECT last_tenant_id FROM users WHERE id = $1
 `
 
-// The tenant the user worked in most recently (users.last_tenant_id, 0024, T62): the default tenant of a new login.
+// The tenant the user worked in most recently (users.last_tenant_id, 0025, T62): the default tenant of a new login.
 func (q *Queries) LastActiveTenant(ctx context.Context, userID uuid.UUID) (*uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lastActiveTenant, userID)
 	var last_tenant_id *uuid.UUID

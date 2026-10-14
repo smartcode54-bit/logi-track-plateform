@@ -106,3 +106,23 @@ describe("the Go accounting and maintenance pages' import graph", () => {
         for (const chain of importsMatching(entry, JSZIP_RX)) expect(chain).toMatch(/import\(/);
     });
 });
+
+// F87 (issue #87; R69, Appendix E §E.7 row 15): the browser document stack is deleted, not only unreachable. Go draws
+// the statement PDFs, the detail sheet, the ZIP and the Shopee report; the Go renderer's browser references
+// (logitrack-api/internal/billing/render/testdata/*_ts.json) are frozen.
+describe("the browser document stack (F87)", () => {
+    const STACK = ["jspdf", "jspdf-autotable", "xlsx-js-style", "bahttext"];
+
+    it("is no dependency of the web", () => {
+        const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
+        for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+            for (const name of STACK) expect(pkg[field]?.[name], `${field}.${name}`).toBeUndefined();
+        }
+    });
+
+    it("leaves no browser document module behind", () => {
+        for (const file of ["billingDocumentRender.ts", "billingDocumentLoad.ts", "shopeeExpressReport.ts", "pdfThai.ts", "billingConfig.ts"]) {
+            expect(existsSync(path.join(root, "lib", file)), `lib/${file}`).toBe(false);
+        }
+    });
+});

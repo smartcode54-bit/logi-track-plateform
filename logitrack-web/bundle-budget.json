@@ -2,526 +2,526 @@
   "routes": {
     "/": {
       "chunks": 21,
-      "parsedBytes": 671576,
-      "gzipBytes": 210783,
+      "parsedBytes": 672352,
+      "gzipBytes": 211147,
       "forbidden": {},
       "locales": {}
     },
     "/_global-error": {
       "chunks": 15,
-      "parsedBytes": 519245,
-      "gzipBytes": 160234,
+      "parsedBytes": 519989,
+      "gzipBytes": 160550,
       "forbidden": {},
       "locales": {}
     },
     "/_not-found": {
       "chunks": 15,
-      "parsedBytes": 521711,
-      "gzipBytes": 161058,
+      "parsedBytes": 522455,
+      "gzipBytes": 161374,
       "forbidden": {},
       "locales": {}
     },
     "/about": {
       "chunks": 24,
-      "parsedBytes": 681111,
-      "gzipBytes": 215947,
+      "parsedBytes": 681855,
+      "gzipBytes": 216263,
       "forbidden": {},
       "locales": {}
     },
     "/app": {
       "chunks": 28,
-      "parsedBytes": 739109,
-      "gzipBytes": 230905,
+      "parsedBytes": 739853,
+      "gzipBytes": 231231,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/audit": {
       "chunks": 28,
-      "parsedBytes": 744219,
-      "gzipBytes": 232893,
+      "parsedBytes": 744963,
+      "gzipBytes": 233219,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/billing-document": {
       "chunks": 28,
-      "parsedBytes": 744222,
-      "gzipBytes": 232899,
+      "parsedBytes": 744966,
+      "gzipBytes": 233226,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/billing-result": {
       "chunks": 28,
-      "parsedBytes": 744210,
-      "gzipBytes": 232881,
+      "parsedBytes": 744954,
+      "gzipBytes": 233210,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/fuel": {
       "chunks": 28,
-      "parsedBytes": 744228,
-      "gzipBytes": 232899,
+      "parsedBytes": 744970,
+      "gzipBytes": 233222,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/fuel-price-history": {
       "chunks": 28,
-      "parsedBytes": 744155,
-      "gzipBytes": 232868,
+      "parsedBytes": 744899,
+      "gzipBytes": 233197,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/income": {
       "chunks": 28,
-      "parsedBytes": 744252,
-      "gzipBytes": 232904,
+      "parsedBytes": 744996,
+      "gzipBytes": 233225,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/other": {
       "chunks": 28,
-      "parsedBytes": 744228,
-      "gzipBytes": 232891,
+      "parsedBytes": 744972,
+      "gzipBytes": 233218,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/rate-card": {
       "chunks": 28,
-      "parsedBytes": 744254,
-      "gzipBytes": 232905,
+      "parsedBytes": 744996,
+      "gzipBytes": 233231,
       "forbidden": {},
       "locales": {}
     },
     "/app/accounting/shopee-express-report": {
       "chunks": 28,
-      "parsedBytes": 744198,
-      "gzipBytes": 232886,
+      "parsedBytes": 744942,
+      "gzipBytes": 233210,
       "forbidden": {},
       "locales": {}
     },
     "/app/chat": {
       "chunks": 29,
-      "parsedBytes": 749498,
-      "gzipBytes": 235012,
+      "parsedBytes": 750242,
+      "gzipBytes": 235339,
       "forbidden": {},
       "locales": {}
     },
     "/app/chat/room": {
       "chunks": 29,
-      "parsedBytes": 749491,
-      "gzipBytes": 235008,
+      "parsedBytes": 750235,
+      "gzipBytes": 235336,
       "forbidden": {},
       "locales": {}
     },
     "/app/chat/with-driver": {
       "chunks": 29,
-      "parsedBytes": 749473,
-      "gzipBytes": 235002,
+      "parsedBytes": 750217,
+      "gzipBytes": 235328,
       "forbidden": {},
       "locales": {}
     },
     "/app/companies": {
       "chunks": 33,
-      "parsedBytes": 794387,
-      "gzipBytes": 249797,
+      "parsedBytes": 795131,
+      "gzipBytes": 250125,
       "forbidden": {},
       "locales": {}
     },
     "/app/customers": {
       "chunks": 29,
-      "parsedBytes": 764106,
-      "gzipBytes": 239500,
+      "parsedBytes": 764852,
+      "gzipBytes": 239825,
       "forbidden": {},
       "locales": {}
     },
     "/app/customers/[id]": {
       "chunks": 29,
-      "parsedBytes": 764585,
-      "gzipBytes": 239929,
+      "parsedBytes": 765329,
+      "gzipBytes": 240262,
       "forbidden": {},
       "locales": {}
     },
     "/app/customers/[id]/edit": {
       "chunks": 34,
-      "parsedBytes": 956496,
-      "gzipBytes": 296987,
+      "parsedBytes": 957240,
+      "gzipBytes": 297313,
       "forbidden": {},
       "locales": {}
     },
     "/app/customers/new": {
       "chunks": 34,
-      "parsedBytes": 955058,
-      "gzipBytes": 296668,
+      "parsedBytes": 955802,
+      "gzipBytes": 296993,
       "forbidden": {},
       "locales": {}
     },
     "/app/dashboard": {
       "chunks": 28,
-      "parsedBytes": 744087,
-      "gzipBytes": 232835,
+      "parsedBytes": 744831,
+      "gzipBytes": 233161,
       "forbidden": {},
       "locales": {}
     },
     "/app/driver-monitor": {
       "chunks": 28,
-      "parsedBytes": 744240,
-      "gzipBytes": 232897,
+      "parsedBytes": 744984,
+      "gzipBytes": 233227,
       "forbidden": {},
       "locales": {}
     },
     "/app/drivers": {
       "chunks": 31,
-      "parsedBytes": 798776,
-      "gzipBytes": 250566,
+      "parsedBytes": 799520,
+      "gzipBytes": 250889,
       "forbidden": {},
       "locales": {}
     },
     "/app/drivers/edit": {
       "chunks": 28,
-      "parsedBytes": 742763,
-      "gzipBytes": 232199,
+      "parsedBytes": 743507,
+      "gzipBytes": 232525,
       "forbidden": {},
       "locales": {}
     },
     "/app/drivers/new": {
       "chunks": 39,
-      "parsedBytes": 1069707,
-      "gzipBytes": 332263,
+      "parsedBytes": 1070451,
+      "gzipBytes": 332589,
       "forbidden": {},
       "locales": {}
     },
     "/app/drivers/view": {
       "chunks": 28,
-      "parsedBytes": 742684,
-      "gzipBytes": 232173,
+      "parsedBytes": 743428,
+      "gzipBytes": 232499,
       "forbidden": {},
       "locales": {}
     },
     "/app/first-mile": {
       "chunks": 28,
-      "parsedBytes": 744229,
-      "gzipBytes": 232899,
+      "parsedBytes": 744973,
+      "gzipBytes": 233225,
       "forbidden": {},
       "locales": {}
     },
     "/app/holidays": {
       "chunks": 28,
-      "parsedBytes": 744185,
-      "gzipBytes": 232875,
+      "parsedBytes": 744929,
+      "gzipBytes": 233203,
       "forbidden": {},
       "locales": {}
     },
     "/app/incident-reports": {
       "chunks": 28,
-      "parsedBytes": 744202,
-      "gzipBytes": 232883,
+      "parsedBytes": 744946,
+      "gzipBytes": 233207,
       "forbidden": {},
       "locales": {}
     },
     "/app/job-assign": {
       "chunks": 28,
-      "parsedBytes": 744231,
-      "gzipBytes": 232898,
+      "parsedBytes": 744975,
+      "gzipBytes": 233224,
       "forbidden": {},
       "locales": {}
     },
     "/app/leave-requests": {
       "chunks": 28,
-      "parsedBytes": 744191,
-      "gzipBytes": 232887,
+      "parsedBytes": 744935,
+      "gzipBytes": 233210,
       "forbidden": {},
       "locales": {}
     },
     "/app/line-haul": {
       "chunks": 28,
-      "parsedBytes": 744228,
-      "gzipBytes": 232902,
+      "parsedBytes": 744974,
+      "gzipBytes": 233228,
       "forbidden": {},
       "locales": {}
     },
     "/app/maintenance": {
       "chunks": 28,
-      "parsedBytes": 744226,
-      "gzipBytes": 232899,
+      "parsedBytes": 744970,
+      "gzipBytes": 233225,
       "forbidden": {},
       "locales": {}
     },
     "/app/operations/roles": {
       "chunks": 28,
-      "parsedBytes": 739109,
-      "gzipBytes": 230905,
+      "parsedBytes": 739853,
+      "gzipBytes": 231231,
       "forbidden": {},
       "locales": {}
     },
     "/app/payroll": {
       "chunks": 28,
-      "parsedBytes": 744195,
-      "gzipBytes": 232881,
+      "parsedBytes": 744939,
+      "gzipBytes": 233204,
       "forbidden": {},
       "locales": {}
     },
     "/app/payroll/config": {
       "chunks": 28,
-      "parsedBytes": 744179,
-      "gzipBytes": 232883,
+      "parsedBytes": 744923,
+      "gzipBytes": 233209,
       "forbidden": {},
       "locales": {}
     },
     "/app/payroll/penalties": {
       "chunks": 28,
-      "parsedBytes": 744196,
-      "gzipBytes": 232879,
+      "parsedBytes": 744938,
+      "gzipBytes": 233206,
       "forbidden": {},
       "locales": {}
     },
     "/app/renewals": {
       "chunks": 32,
-      "parsedBytes": 801527,
-      "gzipBytes": 250279,
+      "parsedBytes": 802271,
+      "gzipBytes": 250606,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center": {
       "chunks": 28,
-      "parsedBytes": 744192,
-      "gzipBytes": 232891,
+      "parsedBytes": 744936,
+      "gzipBytes": 233215,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/api-keys": {
       "chunks": 28,
-      "parsedBytes": 744183,
-      "gzipBytes": 232877,
+      "parsedBytes": 744927,
+      "gzipBytes": 233199,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/audit": {
       "chunks": 28,
-      "parsedBytes": 744161,
-      "gzipBytes": 232870,
+      "parsedBytes": 744905,
+      "gzipBytes": 233192,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/mobile-clients": {
       "chunks": 28,
-      "parsedBytes": 744141,
-      "gzipBytes": 232859,
+      "parsedBytes": 744885,
+      "gzipBytes": 233185,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/mobile-release": {
       "chunks": 28,
-      "parsedBytes": 744129,
-      "gzipBytes": 232858,
+      "parsedBytes": 744873,
+      "gzipBytes": 233183,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/roles": {
       "chunks": 28,
-      "parsedBytes": 744144,
-      "gzipBytes": 232863,
+      "parsedBytes": 744890,
+      "gzipBytes": 233188,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/status": {
       "chunks": 28,
-      "parsedBytes": 744097,
-      "gzipBytes": 232846,
+      "parsedBytes": 744843,
+      "gzipBytes": 233173,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/tenants": {
       "chunks": 32,
-      "parsedBytes": 820487,
-      "gzipBytes": 256653,
+      "parsedBytes": 821231,
+      "gzipBytes": 256982,
       "forbidden": {},
       "locales": {}
     },
     "/app/security-center/users": {
       "chunks": 33,
-      "parsedBytes": 834533,
-      "gzipBytes": 261413,
+      "parsedBytes": 835275,
+      "gzipBytes": 261739,
       "forbidden": {},
       "locales": {}
     },
     "/app/settings/company-profile": {
       "chunks": 35,
-      "parsedBytes": 969026,
-      "gzipBytes": 301903,
+      "parsedBytes": 969768,
+      "gzipBytes": 302228,
       "forbidden": {},
       "locales": {}
     },
     "/app/sources": {
       "chunks": 35,
-      "parsedBytes": 987660,
-      "gzipBytes": 306185,
+      "parsedBytes": 988404,
+      "gzipBytes": 306505,
       "forbidden": {},
       "locales": {}
     },
     "/app/standby-records": {
       "chunks": 28,
-      "parsedBytes": 744209,
-      "gzipBytes": 232885,
+      "parsedBytes": 744953,
+      "gzipBytes": 233213,
       "forbidden": {},
       "locales": {}
     },
     "/app/subcontractors": {
       "chunks": 30,
-      "parsedBytes": 802711,
-      "gzipBytes": 250182,
+      "parsedBytes": 803455,
+      "gzipBytes": 250514,
       "forbidden": {},
       "locales": {}
     },
     "/app/subcontractors/[id]": {
       "chunks": 31,
-      "parsedBytes": 795377,
-      "gzipBytes": 248677,
+      "parsedBytes": 796123,
+      "gzipBytes": 249000,
       "forbidden": {},
       "locales": {}
     },
     "/app/subcontractors/[id]/edit": {
       "chunks": 33,
-      "parsedBytes": 948919,
-      "gzipBytes": 294370,
+      "parsedBytes": 949663,
+      "gzipBytes": 294696,
       "forbidden": {},
       "locales": {}
     },
     "/app/subcontractors/new": {
       "chunks": 34,
-      "parsedBytes": 961677,
-      "gzipBytes": 297077,
+      "parsedBytes": 962421,
+      "gzipBytes": 297403,
       "forbidden": {},
       "locales": {}
     },
     "/app/truck-assignment": {
       "chunks": 34,
-      "parsedBytes": 911290,
-      "gzipBytes": 281062,
+      "parsedBytes": 912036,
+      "gzipBytes": 281389,
       "forbidden": {},
       "locales": {}
     },
     "/app/trucks": {
       "chunks": 32,
-      "parsedBytes": 832548,
-      "gzipBytes": 259464,
+      "parsedBytes": 833292,
+      "gzipBytes": 259790,
       "forbidden": {},
       "locales": {}
     },
     "/app/trucks/edit": {
       "chunks": 28,
-      "parsedBytes": 744159,
-      "gzipBytes": 232875,
+      "parsedBytes": 744901,
+      "gzipBytes": 233200,
       "forbidden": {},
       "locales": {}
     },
     "/app/trucks/maintenance": {
       "chunks": 28,
-      "parsedBytes": 744192,
-      "gzipBytes": 232882,
+      "parsedBytes": 744936,
+      "gzipBytes": 233208,
       "forbidden": {},
       "locales": {}
     },
     "/app/trucks/new": {
       "chunks": 28,
-      "parsedBytes": 744159,
-      "gzipBytes": 232876,
+      "parsedBytes": 744903,
+      "gzipBytes": 233202,
       "forbidden": {},
       "locales": {}
     },
     "/app/trucks/renew": {
       "chunks": 28,
-      "parsedBytes": 744119,
-      "gzipBytes": 232859,
+      "parsedBytes": 744863,
+      "gzipBytes": 233187,
       "forbidden": {},
       "locales": {}
     },
     "/app/trucks/view": {
       "chunks": 28,
-      "parsedBytes": 744050,
-      "gzipBytes": 232832,
+      "parsedBytes": 744794,
+      "gzipBytes": 233158,
       "forbidden": {},
       "locales": {}
     },
     "/app/unauthorized": {
       "chunks": 28,
-      "parsedBytes": 750356,
-      "gzipBytes": 235133,
+      "parsedBytes": 751100,
+      "gzipBytes": 235458,
       "forbidden": {},
       "locales": {}
     },
     "/app/users": {
       "chunks": 28,
-      "parsedBytes": 739626,
-      "gzipBytes": 231117,
+      "parsedBytes": 740370,
+      "gzipBytes": 231444,
       "forbidden": {},
       "locales": {}
     },
     "/app/utilities/backfill": {
       "chunks": 28,
-      "parsedBytes": 744214,
-      "gzipBytes": 232893,
+      "parsedBytes": 744958,
+      "gzipBytes": 233219,
       "forbidden": {},
       "locales": {}
     },
     "/app/utilities/billing-impact": {
       "chunks": 28,
-      "parsedBytes": 744201,
-      "gzipBytes": 232892,
+      "parsedBytes": 744945,
+      "gzipBytes": 233216,
       "forbidden": {},
       "locales": {}
     },
     "/app/waitlist": {
       "chunks": 28,
-      "parsedBytes": 744116,
-      "gzipBytes": 232849,
+      "parsedBytes": 744860,
+      "gzipBytes": 233174,
       "forbidden": {},
       "locales": {}
     },
     "/forgot-password": {
       "chunks": 25,
-      "parsedBytes": 687597,
-      "gzipBytes": 219458,
+      "parsedBytes": 688341,
+      "gzipBytes": 219774,
       "forbidden": {},
       "locales": {}
     },
     "/join-network": {
       "chunks": 21,
-      "parsedBytes": 660485,
-      "gzipBytes": 208713,
+      "parsedBytes": 661229,
+      "gzipBytes": 209032,
       "forbidden": {},
       "locales": {}
     },
     "/login": {
       "chunks": 27,
-      "parsedBytes": 713376,
-      "gzipBytes": 226711,
+      "parsedBytes": 714150,
+      "gzipBytes": 227075,
       "forbidden": {},
       "locales": {}
     },
     "/my-account": {
       "chunks": 24,
-      "parsedBytes": 678358,
-      "gzipBytes": 215555,
+      "parsedBytes": 679102,
+      "gzipBytes": 215874,
       "forbidden": {},
       "locales": {}
     },
     "/reset-password": {
       "chunks": 25,
-      "parsedBytes": 689382,
-      "gzipBytes": 220018,
+      "parsedBytes": 690126,
+      "gzipBytes": 220334,
       "forbidden": {},
       "locales": {}
     },
     "/support": {
       "chunks": 24,
-      "parsedBytes": 679456,
-      "gzipBytes": 216240,
+      "parsedBytes": 680200,
+      "gzipBytes": 216556,
       "forbidden": {},
       "locales": {}
     },
     "/waitlist": {
       "chunks": 26,
-      "parsedBytes": 698513,
-      "gzipBytes": 223269,
+      "parsedBytes": 699257,
+      "gzipBytes": 223588,
       "forbidden": {},
       "locales": {}
     }

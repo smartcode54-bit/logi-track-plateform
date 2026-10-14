@@ -25,9 +25,9 @@ import (
 // EventTypes is the catalogue of security_events.event_type values, in the order of Appendix C §C.4.13 (R85,
 // Appendix B §B.5.7): the in-transaction events of auth and IAM, the cross-tenant access row, the consumer-written
 // events, then the events of other domains. The four legacy Firestore types (role_matrix_saved, user_role_changed,
-// user_created, user_sessions_revoked, logitrack-web/lib/securityEventsConstants.ts) are all in it. The audit
-// page's type filter comes from here (GET /v1/security-events meta.types); a row of another type (a legacy
-// document) is still listed.
+// user_created, user_sessions_revoked, logitrack-web/lib/securityEventsConstants.ts, deleted in F87; last tree
+// 4fc3d70e) are all in it. The audit page's type filter comes from here (GET /v1/security-events meta.types); a
+// row of another type (a legacy document) is still listed.
 var EventTypes = []string{
 	"refresh_token_reuse", "device_token_moved", "user_created", "user_updated", "user_invited", "user_role_changed",
 	"membership_added", "membership_role_changed", "membership_removed", "tenant_switched", "user_scope_changed", "user_disabled", "user_enabled", "user_deleted", "user_sessions_revoked",

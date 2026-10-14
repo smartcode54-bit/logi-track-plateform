@@ -824,6 +824,8 @@ func TestLoadProfile(t *testing.T) {
 	if users <= 1000 {
 		t.Fatalf("%d users, want more than the legacy 1000-user listing cap", users)
 	}
+	// T61: the hot queries of the loaded volume are served by their indexes (planshape_integration_test.go).
+	t.Run("plan shapes", func(t *testing.T) { checkPlanShapes(t, s) })
 }
 
 // Upsert on an already seeded database inserts nothing and keeps the fingerprint; no load prints the temporary

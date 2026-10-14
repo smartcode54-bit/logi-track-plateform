@@ -100,7 +100,7 @@ WHERE s.user_id = sqlc.arg(user_id)
 ORDER BY s.kind, s.created_at, s.billing_party_id;
 
 -- name: LastActiveTenant :one
--- The tenant the user worked in most recently (users.last_tenant_id, 0024, T62): the default tenant of a new login.
+-- The tenant the user worked in most recently (users.last_tenant_id, 0025, T62): the default tenant of a new login.
 SELECT last_tenant_id FROM users WHERE id = sqlc.arg(user_id);
 
 -- name: SetLastTenant :exec

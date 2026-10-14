@@ -257,7 +257,8 @@ func ApplyDeductions(earningsTHB, ssoTHB float64, penalties []ScheduledPenalty) 
 	return d
 }
 
-// PenaltyInstallment is the scheduled deduction of one round (penaltyInstallmentThb, driverPenaltySchema.ts;
+// PenaltyInstallment is the scheduled deduction of one round (penaltyInstallmentThb,
+// logitrack-web/validate/driverPenaltySchema.ts, deleted in F87; last tree 4fc3d70e;
 // fn:driverCompensation.ts:265-269): total / installments rounded when split, else the whole remaining balance,
 // never more than the remaining balance nor below zero.
 func PenaltyInstallment(totalTHB, remainingTHB float64, installmentsTotal int) float64 {

@@ -9,10 +9,6 @@ import nextTs from "eslint-config-next/typescript";
 // `pnpm analyze && pnpm bundle:report --check` measures the same thing on the built output.
 const HEAVY_LIBRARIES = [
   "xlsx",
-  "xlsx-js-style",
-  "jspdf",
-  "jspdf-autotable",
-  "bahttext",
   "jszip",
   "fullcalendar",
   "leaflet",
@@ -23,10 +19,6 @@ const LAZY_MODULES = [
   "app/app/sources/pickup-import-dialog.tsx",
   "features/trucks/components/TruckImportDialog.tsx",
   "features/holidays/components/HolidayCalendar.tsx",
-  "lib/billingDocumentRender.ts",
-  // No page imports it since TW7: it stays as the source of the Go renderer's Shopee reference
-  // (logitrack-api/internal/billing/render/testdata/shopee_ts.mjs; Appendix E §E.7 row 15).
-  "lib/shopeeExpressReport.ts",
   "components/map/LocationPicker.tsx",
   "components/map/SourcesMap.tsx",
   // T54R: the Go dashboard's map client (leaflet), loaded by FleetMap through next/dynamic.
@@ -52,7 +44,14 @@ const HEAVY_LIBRARY_MESSAGE =
 // of the operator scripts under scripts/ (ignored here) and of functions/.
 const FIREBASE_MESSAGE =
   "The web has no Firebase SDK since TW7 (developer-spec.md §10.13, §10.14 #8): read and write through lib/goFetch.ts and the BFF (/api/go/v1/*).";
-const FIREBASE_PATHS = [{ name: "firebase", message: FIREBASE_MESSAGE }];
+// F87 (issue #87, R69, Appendix E §E.7 row 15): Go renders every billing document, so the browser
+// document stack is gone from package.json; any import of it, lazy modules included, is refused.
+const DOCUMENT_STACK_MESSAGE =
+  "The browser document stack was removed (F87): Go renders the statement documents and the Shopee report (R69, developer-spec.md §10.13).";
+const BANNED_PATHS = [
+  { name: "firebase", message: FIREBASE_MESSAGE },
+  ...["jspdf", "jspdf-autotable", "xlsx-js-style", "bahttext"].map((name) => ({ name, message: DOCUMENT_STACK_MESSAGE })),
+];
 const FIREBASE_PATTERNS = [{ group: ["firebase/*", "@firebase/*", "@/firebase", "@/firebase/*"], message: FIREBASE_MESSAGE }];
 
 const eslintConfig = defineConfig([
@@ -90,7 +89,7 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-restricted-imports": [
         "error",
         {
-          paths: [...HEAVY_LIBRARIES.map((name) => ({ name, allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE })), ...FIREBASE_PATHS],
+          paths: [...HEAVY_LIBRARIES.map((name) => ({ name, allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE })), ...BANNED_PATHS],
           patterns: [
             { group: ["@fullcalendar/*"], allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE },
             LAZY_MODULE_IMPORT,
@@ -104,7 +103,7 @@ const eslintConfig = defineConfig([
     // The lazily loaded modules themselves may import the heavy libraries.
     files: LAZY_MODULES,
     rules: {
-      "@typescript-eslint/no-restricted-imports": ["error", { paths: FIREBASE_PATHS, patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] }],
+      "@typescript-eslint/no-restricted-imports": ["error", { paths: BANNED_PATHS, patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] }],
     },
   },
 ]);
