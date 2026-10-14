@@ -88,6 +88,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  layout = "flex",
   className,
   style,
   children,
@@ -97,6 +98,8 @@ function SidebarProvider({
   defaultOpen?: boolean | (() => boolean)
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /** Grid gives the banner its first DOM slot while the sidebar spans both rows on the left. */
+  layout?: "flex" | "grid"
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
@@ -167,9 +170,13 @@ function SidebarProvider({
       <TooltipProvider delayDuration={0}>
         <div
           data-slot="sidebar-wrapper"
+          data-layout={layout}
           style={style}
           className={cn(
-            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full [--sidebar-width:16rem] [--sidebar-width-icon:3rem]",
+            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar min-h-svh w-full [--sidebar-width:16rem] [--sidebar-width-icon:3rem]",
+            layout === "grid"
+              ? "grid min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[4rem_minmax(0,1fr)] transition-[grid-template-columns] duration-200 ease-linear md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] md:has-[[data-collapsible=icon]]:grid-cols-[var(--sidebar-width-icon)_minmax(0,1fr)] md:has-[[data-collapsible=offcanvas]]:grid-cols-[0rem_minmax(0,1fr)]"
+              : "flex",
             className
           )}
           {...props}
@@ -255,7 +262,7 @@ function Sidebar({
 
   return (
     <div
-      className="group peer text-sidebar-foreground hidden md:block"
+      className="group peer text-sidebar-foreground hidden in-data-[layout=grid]:col-start-1 in-data-[layout=grid]:row-span-2 in-data-[layout=grid]:row-start-1 md:block"
       data-state={state}
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-variant={variant}
@@ -391,15 +398,15 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
 }
 
 /**
- * The column beside the sidebar. A plain `div` (UI3B): the caller puts the banner `<header>` and the `<main>`
- * landmark inside it, so the header is not nested in `main`.
+ * The page column beside the sidebar. In a grid shell the banner is its preceding sibling and this occupies
+ * the second row; inset peer selectors still read the preceding sidebar, independently of the banner.
  */
 function SidebarInset({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sidebar-inset"
       className={cn(
-        "bg-background relative flex w-full flex-1 flex-col",
+        "bg-background relative flex min-w-0 w-full flex-1 flex-col in-data-[layout=grid]:col-start-1 in-data-[layout=grid]:row-start-2 md:in-data-[layout=grid]:col-start-2",
         "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}

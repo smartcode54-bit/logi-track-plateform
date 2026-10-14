@@ -9,6 +9,7 @@ import { Building2, Loader2 } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/context/language";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { tenantName, type MeTenant } from "@/features/auth/api/me";
 
 export interface TenantSwitcherMenuProps {
@@ -20,17 +21,17 @@ export interface TenantSwitcherMenuProps {
 
 export default function TenantSwitcherMenu({ tenants, active, switching, onChoose }: TenantSwitcherMenuProps) {
     const { t, language } = useLanguage();
+    const isMobile = useIsMobile();
+    const current = tenants.find((tenant) => tenant.id === active);
+    const label = t("nav.switchTenantCurrent", { name: current ? tenantName(current, language) : active });
     return (
         <div className="flex items-center gap-2" data-testid="tenant-switcher">
-            {switching ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
-            ) : (
-                <Building2 className="hidden h-4 w-4 text-muted-foreground sm:block" aria-hidden />
-            )}
+            {switching ? <Loader2 className="hidden size-4 animate-spin text-muted-foreground md:block" aria-hidden /> : <Building2 className="hidden size-4 text-muted-foreground md:block" aria-hidden />}
             <Select value={active} onValueChange={onChoose} disabled={switching}>
-                {/* 44 px tall on phones (UI3: touch targets in the mobile header), 32 px from md. */}
-                <SelectTrigger className="h-11 w-[140px] md:h-8 md:w-[220px]" aria-label={t("nav.switchTenant")}>
-                    <SelectValue placeholder={t("nav.switchTenant")} />
+                {/* The phone keeps the same searchable picker behind a named 44 px building icon. */}
+                <SelectTrigger className="size-11 shrink-0 px-0 max-md:[&>span:first-child]:justify-center max-md:[&>span:last-child]:hidden md:h-8 md:w-[220px] md:px-3" aria-label={isMobile ? label : t("nav.switchTenant")}>
+                    {switching ? <Loader2 className="size-5 animate-spin text-muted-foreground md:hidden" aria-hidden /> : <Building2 className="size-5 text-muted-foreground md:hidden" aria-hidden />}
+                    <SelectValue className="hidden md:flex" placeholder={t("nav.switchTenant")} />
                 </SelectTrigger>
                 <SelectContent>
                     {tenants.map((tenant) => (

@@ -69,12 +69,12 @@ export function UserMenu() {
             <DropdownMenuTrigger asChild>
                 <Button
                     variant="ghost"
-                    className="h-11 gap-3 px-1 sm:px-2"
+                    className="h-11 min-w-11 shrink-0 gap-3 px-1 md:px-2"
                     // The name holds the visible text, scope line included (WCAG 2.5.3 label in name).
                     aria-label={scope ? t("shell.userMenuScoped", { name, scope }) : t("shell.userMenu", { name })}
                     data-testid="user-menu-trigger"
                 >
-                    <span className="hidden min-w-0 max-w-56 flex-col items-end text-right sm:flex">
+                    <span className="hidden min-w-0 max-w-56 flex-col items-end text-right lg:flex">
                         <span className="block max-w-full truncate text-sm leading-normal font-medium">{name}</span>
                         <ScopeLine className="max-w-full text-xs font-normal text-muted-foreground" />
                     </span>
