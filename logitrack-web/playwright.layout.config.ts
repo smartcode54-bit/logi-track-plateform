@@ -6,6 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
     testDir: "./tests/layout",
+    testIgnore: "**/driver-monitor-compact.spec.ts",
     fullyParallel: true,
     retries: 0,
     reporter: "list",

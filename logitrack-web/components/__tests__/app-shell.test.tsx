@@ -517,8 +517,8 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         const first = within(menu).getAllByRole("link")[0];
         expect(first).toHaveAttribute("href", "/app/driver-monitor");
         expect(first).toHaveAttribute("aria-current", "page");
-        // The dashboard is still there, inside Operations (closed: the driver monitor is a top-level entry).
-        expect(within(menu).getByRole("button", { name: "Operations" })).toHaveAttribute("aria-expanded", "false");
+        // UI3F: a customer's menu is the short flat list, so there is no Operations group to open.
+        expect(within(menu).queryByRole("button", { name: "Operations" })).toBeNull();
     });
 });
 

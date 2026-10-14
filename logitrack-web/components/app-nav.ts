@@ -1,19 +1,11 @@
 /**
- * The navigation of the `/app` shell, defined once (UI3, issue #143): the main sidebar, its system group, the
- * Security Center sidebar and the header breadcrumbs all read these entries, so a crumb is the menu's own
- * label in the active language (an i18n key of the base dictionary), never a URL slug. A page's H1 reads the same
- * key as its entry, so the menu, the crumb, the heading and the tab title name a page with one string (UI3B).
- *
- * The order follows the work loop (UI3B, owner's choice): Operations (assign, run, watch, resolve), Billing (the
- * revenue side: rate cards, trips to bill, documents, statements), Costs, Fleet & partners, then HR; the system
- * group (platform and tenant settings) sits at the foot. The principal's home (`homeRouteOf`) is the first entry, so
- * a customer, partner or dispatcher whose home is the driver monitor does not see a second "home" above it.
- *
- * Which entries a principal sees is still decided by the edge gate's table (lib/routeCapabilities.ts, TW4):
- * `menuFor` only filters, it never adds a route the gate would refuse.
+ * The shell's complete route catalog and profile menus (UI3F). Capability filtering preserves access; profile
+ * allowlists only shorten presentation. Sidebars, breadcrumbs and quick-jump share these labels and ordering.
  */
 import type { LucideIcon } from "lucide-react";
 import {
+    AlertTriangle,
+    ClipboardList,
     HelpCircle,
     IdCard,
     Inbox,
@@ -21,11 +13,13 @@ import {
     Landmark,
     Layers,
     LayoutDashboard,
+    MessageSquare,
     Radar,
     ReceiptText,
     Rocket,
     Route,
     Server,
+    Settings,
     Shield,
     Building2,
     Smartphone,
@@ -35,6 +29,7 @@ import {
     Wrench,
 } from "lucide-react";
 
+import { CUSTOMER_MENU_HREFS, PARTNER_MENU, profileRouteLabelKey, type NavigationProfile } from "@/features/auth/utils/navigationProfile";
 import { DASHBOARD_PATH, DRIVER_MONITOR_PATH, routeAllowed } from "@/lib/routeCapabilities";
 
 export interface NavLink {
@@ -67,28 +62,30 @@ const OPERATIONS: NavGroup = {
     labelKey: "nav.operations",
     icon: Route,
     items: [
-        { url: "/app/job-assign", labelKey: "nav.jobAssign" },
+        { url: "/app/job-assign", labelKey: "nav.jobAssign", icon: ClipboardList },
         { url: "/app/first-mile", labelKey: "nav.firstMileTasks" },
         { url: "/app/line-haul", labelKey: "nav.lineHaulTasks" },
         DRIVER_MONITOR,
-        { url: "/app/incident-reports", labelKey: "nav.incidentReports" },
+        { url: "/app/incident-reports", labelKey: "nav.incidentReports", icon: AlertTriangle },
         { url: "/app/standby-records", labelKey: "nav.standbyRecords" },
         // Dispatch's line to the drivers on the road (and its broadcasts).
-        { url: "/app/chat", labelKey: "nav.chat" },
+        { url: "/app/chat", labelKey: "nav.chat", icon: MessageSquare },
         { url: "/app/sources", labelKey: "nav.sourceManagement" },
     ],
 };
 
-/** The revenue side, in the order a period is billed: prices, the trips to bill, the documents, the statements. */
+/** Customer records, prices, trips, documents and statements, then the billing tools. */
 const BILLING: NavGroup = {
     labelKey: "nav.billing",
     icon: ReceiptText,
     items: [
+        { url: "/app/customers", labelKey: "nav.customers" },
         { url: "/app/accounting/rate-card", labelKey: "nav.rateCard" },
         { url: "/app/accounting/income", labelKey: "nav.income" },
-        { url: "/app/accounting/billing-document", labelKey: "nav.billingDocument" },
+        { url: "/app/accounting/billing-document", labelKey: "nav.billingDocument", icon: ReceiptText },
         { url: "/app/accounting/billing-result", labelKey: "nav.billingResult" },
         { url: "/app/accounting/shopee-express-report", labelKey: "nav.shopeeExpressReport" },
+        { url: "/app/utilities/backfill", labelKey: "nav.utilities", icon: Wrench, match: "/app/utilities" },
     ],
 };
 
@@ -105,8 +102,7 @@ const COSTS: NavGroup = {
 };
 
 /**
- * Master data of the operation: trucks and who drives them, their papers and upkeep, and the parties on either
- * side (customers billed, partners carrying). Maintenance is here, not under Costs: its work is booking and
+ * Fleet master data and carrying partners. Maintenance is here, not under Costs: its work is booking and
  * scheduling services (`fleet:manage_maintenance`, held by operators without any accounting capability), and its
  * cost cards summarise what those services cost.
  */
@@ -119,7 +115,6 @@ const FLEET: NavGroup = {
         { url: "/app/drivers", labelKey: "nav.drivers" },
         { url: "/app/renewals", labelKey: "nav.truckRenewals" },
         { url: "/app/maintenance", labelKey: "nav.maintenance" },
-        { url: "/app/customers", labelKey: "nav.customers" },
         { url: "/app/subcontractors", labelKey: "nav.partners" },
     ],
 };
@@ -134,13 +129,29 @@ const HR: NavGroup = {
     ],
 };
 
-/** The main menu of a principal whose home is the dashboard. */
-export const MAIN_NAV: readonly NavEntry[] = [DASHBOARD, OPERATIONS, BILLING, COSTS, FLEET, HR];
+export const SECURITY_CENTER_PATH = "/app/security-center";
 
-/**
- * The main menu of a principal whose home is the driver monitor (customers, partners, dispatchers, operators): the
- * monitor is the first entry, and the dashboard joins the operations it summarises.
- */
+const SETTINGS: NavGroup = {
+    labelKey: "nav.settings",
+    icon: Settings,
+    items: [
+        { url: "/app/companies", labelKey: "nav.companies", icon: Landmark },
+        { url: "/app/settings/company-profile", labelKey: "nav.companyProfile", icon: IdCard },
+    ],
+};
+
+const PLATFORM: NavGroup = {
+    labelKey: "nav.platform",
+    icon: Shield,
+    items: [
+        { url: SECURITY_CENTER_PATH, labelKey: "nav.securityCenter", icon: Shield },
+        { url: "/app/waitlist", labelKey: "nav.waitlist", icon: Inbox },
+    ],
+};
+
+/** The complete main catalog, before capability filtering or presentation allowlists. */
+export const MAIN_NAV: readonly NavEntry[] = [DASHBOARD, OPERATIONS, BILLING, COSTS, FLEET, HR, SETTINGS, PLATFORM];
+
 const MONITOR_HOME_NAV: readonly NavEntry[] = [
     DRIVER_MONITOR,
     { ...OPERATIONS, items: [...OPERATIONS.items.filter((link) => link.url !== DRIVER_MONITOR_PATH), DASHBOARD] },
@@ -148,32 +159,45 @@ const MONITOR_HOME_NAV: readonly NavEntry[] = [
     COSTS,
     FLEET,
     HR,
+    SETTINGS,
+    PLATFORM,
 ];
 
-/** The main menu for `home` (`homeRouteOf(me)`): the home is its first entry. */
+/** The main catalog for the computed home; the monitor occurs only once when it is home. */
 export function mainNavFor(home: string | null | undefined): readonly NavEntry[] {
     return home === DRIVER_MONITOR_PATH ? MONITOR_HOME_NAV : MAIN_NAV;
 }
 
-export const SECURITY_CENTER_PATH = "/app/security-center";
-
-/**
- * The system group at the foot of the main sidebar: the platform's own pages (the Security Center, GORATECH's SaaS
- * waitlist; UI3B moved the waitlist here from the tenant's menu) and the tenant's settings.
- */
-export const SYSTEM_NAV: readonly NavLink[] = [
-    { url: SECURITY_CENTER_PATH, labelKey: "nav.securityCenter", icon: Shield },
-    { url: "/app/waitlist", labelKey: "nav.waitlist", icon: Inbox },
-    { url: "/app/utilities/backfill", labelKey: "nav.utilities", icon: Wrench, match: "/app/utilities" },
-    { url: "/app/companies", labelKey: "nav.companies", icon: Landmark },
-    { url: "/app/settings/company-profile", labelKey: "nav.companyProfile", icon: IdCard },
-];
-
-/**
- * The footer entry of the main sidebar (UI3C): help inside the console, open to every console principal (the route
- * maps to no capability), so it is not filtered by `menuFor`. Its crumb is the page itself, like the dashboard.
- */
 export const SUPPORT_NAV: NavLink = { url: "/app/support", labelKey: "nav.supportCenter", icon: HelpCircle };
+
+/** Footer links still belong inside the sidebar's one navigation landmark. */
+export interface NavMenu {
+    main: readonly NavEntry[];
+    footer: readonly NavLink[];
+}
+
+export interface MenuLink {
+    href: string;
+    labelKey: string;
+    groupLabelKey?: string;
+}
+
+/** Actual destinations in display order, including footer links; the first occurrence of a URL wins. */
+export function menuLinksFor(menu: NavMenu): MenuLink[] {
+    const seen = new Set<string>();
+    const links: MenuLink[] = [];
+    const add = (link: NavLink, groupLabelKey?: string) => {
+        if (seen.has(link.url)) return;
+        seen.add(link.url);
+        links.push({ href: link.url, labelKey: link.labelKey, ...(groupLabelKey ? { groupLabelKey } : {}) });
+    };
+    for (const entry of menu.main) {
+        if (isNavGroup(entry)) for (const link of entry.items) add(link, entry.labelKey);
+        else add(entry);
+    }
+    for (const link of menu.footer) add(link);
+    return links;
+}
 
 /** The Security Center sidebar (it replaces the main one under `/app/security-center`). */
 export const SECURITY_NAV: readonly NavLink[] = [
@@ -188,18 +212,63 @@ export const SECURITY_NAV: readonly NavLink[] = [
     { url: "/app/security-center/mobile-release", labelKey: "securityCenter.mobileRelease", icon: Rocket },
 ];
 
-/** The menu a principal holding `held` sees: the entries (and groups with at least one entry) the gate would open. */
-export function menuFor(held: ReadonlySet<string>, home: string | null | undefined): { main: NavEntry[]; system: NavLink[] } {
-    const canOpen = (url: string) => routeAllowed(held, url);
+/** The complete capability-filtered menu, independently of a principal's presentation profile. */
+export function allowedMenuFor(held: ReadonlySet<string>, home: string | null | undefined): NavMenu {
     const main = mainNavFor(home).flatMap((entry): NavEntry[] => {
         if (isNavGroup(entry)) {
-            const visible = entry.items.filter((link) => canOpen(link.url));
-            return visible.length > 0 ? [{ ...entry, items: visible }] : [];
+            const items = entry.items.filter((link) => routeAllowed(held, link.url));
+            return items.length > 0 ? [{ ...entry, items }] : [];
         }
-        // `/app/dashboard` maps to no capability: every signed-in principal may open it.
-        return canOpen(entry.url) ? [entry] : [];
+        return routeAllowed(held, entry.url) ? [entry] : [];
     });
-    return { main, system: SYSTEM_NAV.filter((link) => canOpen(link.url)) };
+    return { main, footer: routeAllowed(held, SUPPORT_NAV.url) ? [SUPPORT_NAV] : [] };
+}
+
+function profileMenu(menu: NavMenu, home: string | null | undefined, profile: NavigationProfile): NavMenu {
+    if (profile === "staff") return menu;
+    const catalog = new Map<string, NavLink>();
+    for (const entry of [...menu.main, ...menu.footer]) {
+        for (const link of isNavGroup(entry) ? entry.items : [entry]) {
+            catalog.set(link.url, { ...link, labelKey: profileRouteLabelKey(link.url, profile) ?? link.labelKey });
+        }
+    }
+    const linksFor = (hrefs: readonly string[]) => hrefs.flatMap((href) => {
+        const link = catalog.get(href);
+        return link ? [link] : [];
+    });
+    const entries: NavEntry[] = profile === "customer"
+        ? linksFor(CUSTOMER_MENU_HREFS)
+        : PARTNER_MENU.flatMap((entry): NavEntry[] => {
+            if (!("items" in entry)) return linksFor([entry.href]);
+            const items = linksFor(entry.items.map((item) => item.href));
+            return items.length > 0 ? [{ labelKey: entry.labelKey, icon: Truck, items }] : [];
+        });
+    const homeLink = home ? catalog.get(home) : undefined;
+    const main = entries.flatMap((entry): NavEntry[] => {
+        if (isNavGroup(entry)) {
+            const items = entry.items.filter((link) => link.url !== homeLink?.url);
+            return items.length > 0 ? [{ ...entry, items }] : [];
+        }
+        return entry.url !== homeLink?.url && entry.url !== SUPPORT_NAV.url ? [entry] : [];
+    });
+    return { main: homeLink ? [homeLink, ...main] : main, footer: linksFor([SUPPORT_NAV.url]) };
+}
+
+/** Profile allowlists change presentation only, after intersecting the complete catalog with capabilities. */
+export function menuFor(held: ReadonlySet<string>, home: string | null | undefined, profile: NavigationProfile = "staff"): NavMenu {
+    return profileMenu(allowedMenuFor(held, home), home, profile);
+}
+
+/** Security Center's own allowed pages, followed by the return home and Support links. */
+export function securityMenuFor(held: ReadonlySet<string>, home: string | null | undefined): { main: NavLink[]; footer: NavLink[] } {
+    const homeHref = home ?? DASHBOARD_PATH;
+    return {
+        main: SECURITY_NAV.filter((link) => routeAllowed(held, link.url)),
+        footer: [
+            ...(routeAllowed(held, homeHref) ? [{ url: homeHref, labelKey: "securityCenter.backToAdmin", icon: LayoutDashboard }] : []),
+            ...(routeAllowed(held, SUPPORT_NAV.url) ? [SUPPORT_NAV] : []),
+        ],
+    };
 }
 
 /** The group of `entries` that holds the entry `url`, by its label key; undefined for a top-level entry. */
@@ -230,7 +299,7 @@ const PAGE_ONLY: readonly Located[] = [
     { link: { url: "/app/payroll/penalties", labelKey: "driverComp.penalty.title" }, parents: PAYROLL_PARENTS, menuUrl: "/app/payroll" },
     {
         link: { url: "/app/utilities/billing-impact", labelKey: "nav.billingImpact" },
-        parents: [{ labelKey: "nav.utilities", href: "/app/utilities/backfill" }],
+        parents: [{ labelKey: "nav.billing" }, { labelKey: "nav.utilities", href: "/app/utilities/backfill" }],
         menuUrl: "/app/utilities/backfill",
     },
     { link: { url: "/app/users", labelKey: "nav.users" }, parents: [] },
@@ -246,10 +315,9 @@ function locatedIn(main: readonly NavEntry[]): readonly Located[] {
         ...main.flatMap((entry): Located[] =>
             isNavGroup(entry) ? entry.items.map((link) => ({ link, parents: [{ labelKey: entry.labelKey }] })) : [{ link: entry, parents: [] }]
         ),
-        ...SYSTEM_NAV.map((link) => ({ link, parents: [] })),
         { link: SUPPORT_NAV, parents: [] },
-        // The overview is the Security Center itself (SYSTEM_NAV); its pages sit under it.
-        ...SECURITY_NAV.filter((link) => link.url !== SECURITY_CENTER_PATH).map((link) => ({ link, parents: [SECURITY_PARENT] })),
+        // The overview is the catalog's Security Center entry; its pages sit under it.
+        ...SECURITY_NAV.filter((link) => link.url !== SECURITY_CENTER_PATH).map((link) => ({ link, parents: [{ labelKey: "nav.platform" }, SECURITY_PARENT] })),
         ...PAGE_ONLY,
     ];
 }
@@ -306,15 +374,16 @@ function detailKeyOf(path: string): string {
     return "shell.crumb.detail";
 }
 
-/**
- * The breadcrumb of `pathname` from the menu's labels (the menu of a principal whose home is `home`, so the crumbs
- * follow the groups that principal sees); no crumbs for a page outside the menu.
- */
-export function breadcrumbTrail(pathname: string, home?: string | null): BreadcrumbTrail {
+/** Hidden routes keep their canonical trail; visible profile destinations follow their presented grouping. */
+export function breadcrumbTrail(pathname: string, home?: string | null, profile: NavigationProfile = "staff"): BreadcrumbTrail {
     const located = locate(pathname, home);
     if (!located) return { crumbs: [], detail: false };
     const path = stripTrailingSlash(pathname);
-    const crumbs = [...located.parents, { labelKey: located.link.labelKey, href: located.link.url }];
+    const menu = profileMenu({ main: mainNavFor(home), footer: [SUPPORT_NAV] }, home, profile);
+    const visible = menuLinksFor(menu).find((link) => link.href === located.link.url);
+    const parents = visible ? (visible.groupLabelKey ? [{ labelKey: visible.groupLabelKey }] : []) : located.parents;
+    const labelKey = profileRouteLabelKey(located.link.url, profile) ?? located.link.labelKey;
+    const crumbs = [...parents, { labelKey, href: located.link.url }];
     if (path === located.link.url) return { crumbs, detail: false };
     return { crumbs, detail: true, detailKey: detailKeyOf(path) };
 }

@@ -11,9 +11,11 @@
 import { useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, CalendarIcon, Clock, Navigation, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Clock, Navigation, RefreshCw, Search, X } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { useMe } from "@/features/auth/api/useMe";
+import { navigationProfileOf, profileRouteLabelKey } from "@/features/auth/utils/navigationProfile";
 import { PageHeader } from "@/components/page-header";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { IncidentLocationMap } from "@/features/incident-reports/components/IncidentLocationMap";
@@ -42,6 +44,8 @@ export function IncidentReportsPage() {
 
 function Reports() {
     const { t } = useLanguage();
+    const { data: profile = "staff" } = useMe(navigationProfileOf);
+    const titleKey = profileRouteLabelKey("/app/incident-reports", profile) ?? "nav.incidentReports";
     const [date, setDate] = useState<Date | undefined>(undefined);
     const [search, setSearch] = useState("");
     const [detail, setDetail] = useState<IncidentDTO | null>(null);
@@ -53,7 +57,7 @@ function Reports() {
     return (
         <div className="flex flex-col gap-section">
             <PageHeader
-                title={t("nav.incidentReports")}
+                title={t(titleKey)}
                 description={t("incidentReports.subtitle")}
                 actions={
                     <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("taskBoard.refresh")}>
@@ -72,9 +76,6 @@ function Reports() {
                                 {q.hasNextPage ? "+" : ""}
                             </h2>
                         </div>
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-500 dark:bg-red-900/30">
-                            <AlertTriangle className="h-6 w-6" />
-                        </div>
                     </CardContent>
                 </Card>
             </div>
@@ -92,8 +93,8 @@ function Reports() {
                     </PopoverContent>
                 </Popover>
                 {date ? (
-                    <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setDate(undefined)}>
-                        ✕
+                    <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={() => setDate(undefined)} aria-label={t("common.select.clear")}>
+                        <X className="size-4" aria-hidden />
                     </Button>
                 ) : null}
                 <div className="relative max-w-sm flex-1">
@@ -112,7 +113,7 @@ function Reports() {
                         <TableHeader className="bg-muted/50">
                             <TableRow>
                                 {["tripId", "createdAt", "driver", "plate", "description", "cause"].map((k) => (
-                                    <TableHead key={k} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t(`incidentReports.table.${k}`)}</TableHead>
+                                    <TableHead key={k} className="text-xs font-medium text-muted-foreground">{t(`incidentReports.table.${k}`)}</TableHead>
                                 ))}
                             </TableRow>
                         </TableHeader>
@@ -127,14 +128,14 @@ function Reports() {
                                 </TableRow>
                             ) : (
                                 shown.map((r) => (
-                                    <TableRow key={r.id} className="cursor-pointer border-b border-border/50 hover:bg-red-50/50 dark:hover:bg-red-900/10" onClick={() => setDetail(r)}>
+                                    <TableRow key={r.id} className="cursor-pointer border-b border-border/50 hover:bg-muted/50" onClick={() => setDetail(r)}>
                                         <TableCell className="font-mono text-xs">{r.tripNo ?? "—"}</TableCell>
                                         <TableCell className="text-sm">{formatDateTime(r.createdAt)}</TableCell>
                                         <TableCell className="text-sm font-medium">{r.driverName ?? "—"}</TableCell>
                                         <TableCell className="font-mono text-sm">{r.truckLicensePlate ?? "—"}</TableCell>
                                         <TableCell className="max-w-[300px] truncate text-sm">{r.description ?? "—"}</TableCell>
                                         <TableCell>
-                                            {r.delayCause ? <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">{incidentCause(r.delayCause)}</Badge> : "—"}
+                                            {r.delayCause ? <Badge variant="outline" className="border-destructive/20 bg-destructive/10 text-destructive">{incidentCause(r.delayCause)}</Badge> : "—"}
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -150,44 +151,44 @@ function Reports() {
                     <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
-                                <AlertTriangle className="h-5 w-5 text-red-500" />
+                                <AlertTriangle className="h-5 w-5 text-destructive" />
                                 {t("incidentReports.detail.title")}
                             </DialogTitle>
                             <DialogDescription>ID: {detail.id}</DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-2">
-                            <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/20">
-                                <p className="text-sm text-red-900 dark:text-red-100">{detail.description ?? "—"}</p>
+                            <div className="space-y-2 rounded-lg border border-border bg-muted p-4">
+                                <p className="text-sm text-foreground">{detail.description ?? "—"}</p>
                                 {detail.delayCause ? (
-                                    <p className="text-xs font-medium text-red-700">{t("incidentReports.detail.cause")}: {incidentCause(detail.delayCause)}</p>
+                                    <p className="text-xs font-medium text-muted-foreground">{t("incidentReports.detail.cause")}: {incidentCause(detail.delayCause)}</p>
                                 ) : null}
-                                <p className="flex items-center gap-1 text-xs text-red-700">
+                                <p className="flex items-center gap-1 text-xs text-muted-foreground">
                                     <Clock className="h-3.5 w-3.5" />
                                     {t("incidentReports.detail.reported")}: {formatDateTime(detail.createdAt)}
                                 </p>
                             </div>
                             <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/30 p-4 text-sm">
                                 <div>
-                                    <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("incidentReports.table.driver")}</p>
+                                    <p className="mb-1 text-xs text-muted-foreground">{t("incidentReports.table.driver")}</p>
                                     <p className="font-medium">{detail.driverName ?? "—"}</p>
                                 </div>
                                 <div>
-                                    <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("incidentReports.detail.licensePlate")}</p>
+                                    <p className="mb-1 text-xs text-muted-foreground">{t("incidentReports.detail.licensePlate")}</p>
                                     <p className="font-mono">{detail.truckLicensePlate ?? "—"}</p>
                                 </div>
                                 <div className="col-span-2">
-                                    <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("incidentReports.table.tripId")}</p>
+                                    <p className="mb-1 text-xs text-muted-foreground">{t("incidentReports.table.tripId")}</p>
                                     <p className="font-mono text-xs">{detail.tripNo ?? "—"}</p>
                                 </div>
                             </div>
                             {detail.lat != null && detail.lng != null ? (
                                 <div>
-                                    <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{t("incidentReports.detail.locationMap")}</p>
+                                    <p className="mb-2 text-xs text-muted-foreground">{t("incidentReports.detail.locationMap")}</p>
                                     <div className="h-[220px] overflow-hidden rounded-lg border">
                                         <IncidentLocationMap lat={detail.lat} lng={detail.lng} />
                                     </div>
                                     <a href={`https://www.google.com/maps?q=${detail.lat},${detail.lng}`} target="_blank" rel="noreferrer"
-                                        className="mt-1 flex items-center gap-1 text-xs text-blue-500 hover:underline">
+                                        className="mt-1 flex items-center gap-1 text-xs text-primary hover:underline">
                                         <Navigation className="h-3 w-3" />
                                         {detail.lat.toFixed(5)}, {detail.lng.toFixed(5)} ({t("incidentReports.detail.openInMaps")})
                                     </a>

@@ -4,6 +4,14 @@ export default {
     "driverMonitor.subtitle": "ติดตามสถานะเที่ยวงานและความคืบหน้าของคนขับแบบเรียลไทม์",
     "driverMonitor.refresh": "รีเฟรช",
 
+    "driverMonitor.scopedSubtitle": "เที่ยวขนส่งและหลักฐานการจัดส่งในขอบเขตข้อมูลของคุณ",
+    "driverMonitor.summary": "สรุปเที่ยวขนส่ง",
+    "driverMonitor.moreFilters": "ตัวกรองเพิ่มเติม",
+    "driverMonitor.filtersActive": "ตัวกรอง ({count})",
+    "driverMonitor.filter.searchLabel": "ค้นหาเที่ยวขนส่ง",
+    "driverMonitor.openTrip": "ดูเที่ยว {tripNo} และหลักฐาน",
+    "driverMonitor.photoCount": "รูปหลักฐาน {count} รูป",
+
     // Stats Cards
     "driverMonitor.stats.totalTrips": "เที่ยวงานทั้งหมด",
     "driverMonitor.stats.inTransit": "กำลังขนส่ง",
