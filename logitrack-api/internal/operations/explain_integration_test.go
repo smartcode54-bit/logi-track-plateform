@@ -517,7 +517,7 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 
 		// --- the monitor and the read joins of T30
 		{"MonitorTrips", staff, func(ctx context.Context, q *operationsdb.Queries) error {
-			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimSet, WithPrice: true, TenantIds: reachO, FromAt: from,
+			_, err := q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimSet, TenantIds: reachO, FromAt: from,
 				ToAt: to, OriginHubs: []uuid.UUID{}, DestinationHubs: []uuid.UUID{}, AfterCreated: &cursorAt, AfterID: trip,
 				RowLimit: 201})
 			return err

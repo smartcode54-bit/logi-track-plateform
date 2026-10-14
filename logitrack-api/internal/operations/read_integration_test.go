@@ -1042,3 +1042,75 @@ func TestReadRouteGuards(t *testing.T) {
 		t.Errorf("undocumented parameter: %d", status)
 	}
 }
+
+// AC (F59, issue #59): the Income page's source GET /v1/trips?axis=delivered and the monitor's price read one billing
+// projection, billing.TripBillingOf, in the request transaction: the own fleet that priced a trip its carrier ran reads
+// the price on both routes, and the carrier (whose admin holds accounting:view_income) reads the party but no price on
+// either (R61); an unpriced snapshot carries its reason on both.
+func TestIncomeBillingOneProjection(t *testing.T) {
+	r := newReadWorld(t)
+	created := time.Date(2026, 9, 3, 3, 0, 0, 0, time.UTC)
+	delivered := created.Add(4 * time.Hour)
+	day := clock.DateString(delivered)
+	runByA := r.trip(tripRow{tenant: r.A, no: "RUN-BY-A", status: "delivered", party: &r.partyX, createdAt: created})
+	unpriced := r.trip(tripRow{tenant: r.O, no: "UNPRICED", status: "delivered", party: &r.partyX, createdAt: created})
+	for _, id := range []uuid.UUID{runByA, unpriced} {
+		r.exec(`UPDATE trip_records SET delivered_at = $2 WHERE id = $1`, id, delivered)
+	}
+	r.exec(`INSERT INTO trip_billing_snapshots (trip_id, tenant_id, estimate_thb, manual_override, job_category_at_pricing,
+		computed_by) VALUES ($1, $2, 1160, true, 'SUPPLEMENTARY', 'scheduler')`, runByA, r.O)
+	r.exec(`INSERT INTO trip_billing_snapshots (trip_id, tenant_id, unpriced_reason, computed_by)
+		VALUES ($1, $2, 'no_rate', 'scheduler')`, unpriced, r.O)
+
+	byNo := func(data any) map[string]map[string]any {
+		out := map[string]map[string]any{}
+		for _, row := range rows(data) {
+			out[row["tripNo"].(string)] = row
+		}
+		return out
+	}
+	monitor := "/v1/trips/monitor?from=" + clock.DateString(created) + "&to=" + day + "&facets=false"
+	income := "/v1/trips?axis=delivered&from=" + day + "&to=" + day
+
+	// The own fleet: the price on both routes, the same values.
+	inc := byNo(r.ok2("staffO", income))
+	mon := byNo(r.ok2("staffO", monitor))
+	bill, _ := inc["RUN-BY-A"]["billing"].(map[string]any)
+	price, _ := mon["RUN-BY-A"]["price"].(map[string]any)
+	if bill == nil || bill["estimateThb"] != 1160.0 || bill["priced"] != true || bill["manualOverride"] != true ||
+		bill["jobCategoryAtPricing"] != "SUPPLEMENTARY" || bill["billingPartyId"] != r.partyX.String() {
+		t.Fatalf("own fleet Income billing %v", bill)
+	}
+	if price == nil || price["estimateThb"] != bill["estimateThb"] || price["manualOverride"] != true ||
+		price["jobCategoryAtPricing"] != "SUPPLEMENTARY" || price["computedAt"] != bill["computedAt"] {
+		t.Fatalf("own fleet monitor price %v (billing %v)", price, bill)
+	}
+	ub, _ := inc["UNPRICED"]["billing"].(map[string]any)
+	up, _ := mon["UNPRICED"]["price"].(map[string]any)
+	if ub == nil || ub["priced"] != false || ub["estimateThb"] != nil || ub["unpricedReason"] != "no_rate" ||
+		up == nil || up["estimateThb"] != nil || up["unpricedReason"] != "no_rate" {
+		t.Fatalf("unpriced: billing %v, price %v", ub, up)
+	}
+
+	// Carrier A ran the trip the own fleet priced: the billing block names the party, never the price (R61).
+	inc = byNo(r.ok2("staffA", income))
+	mon = byNo(r.ok2("staffA", monitor))
+	if _, ok := inc["UNPRICED"]; ok {
+		t.Fatal("carrier A lists the own fleet's trip")
+	}
+	bill, _ = inc["RUN-BY-A"]["billing"].(map[string]any)
+	if bill == nil || bill["estimateThb"] != nil || bill["priced"] != false || bill["computedAt"] != nil ||
+		bill["billingPartyId"] != r.partyX.String() {
+		t.Fatalf("carrier A Income billing %v", bill)
+	}
+	if p, has := mon["RUN-BY-A"]["price"]; mon["RUN-BY-A"] == nil || (has && p != nil) {
+		t.Fatalf("carrier A monitor row %v", mon["RUN-BY-A"])
+	}
+}
+
+// ok2 is ok without the cursor and the meta.
+func (r *readWorld) ok2(who, path string) any {
+	r.t.Helper()
+	data, _, _ := r.ok(who, path)
+	return data
+}
