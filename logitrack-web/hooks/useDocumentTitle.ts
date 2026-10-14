@@ -6,8 +6,8 @@ import { useEffect, useLayoutEffect } from "react";
 const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
- * Keeps `document.title` at `title` while the caller is mounted (UI3E, the public pages; the console's shell does the
- * same in components/app-breadcrumb.tsx and is to move onto this hook once UI3D and UI3E are both in). Next writes the
+ * Keeps `document.title` at `title` while the caller is mounted: the public pages (UI3E) and the console's breadcrumb
+ * (components/app-breadcrumb.tsx, whose title names a detail page's record, UI3D). Next writes the
  * route's metadata `<title>` back after a load and on some client navigations, so the title is put back whenever
  * anything in `<head>` changes, not only when `title` does.
  *
