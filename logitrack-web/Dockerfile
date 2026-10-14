@@ -30,6 +30,8 @@ FROM deps AS build
 # Public build-time values only (§16.1 web-public). TW7 (P6) removed the Firebase SDK, and with it the
 # seven NEXT_PUBLIC_FIREBASE_* and three NEXT_PUBLIC_APP_CHECK_* build arguments.
 ARG NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=""
+# The GORATECH support address shown on /app/support (UI3C); empty: the page shows no contact.
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=""
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY shared-docs shared-docs
 COPY logitrack-web logitrack-web

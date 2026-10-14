@@ -30,6 +30,11 @@ export const SECURITY_HEADERS = [
 export const PAGE_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 export const APP_CACHE_CONTROL = "private, no-cache";
 export const ASSET_CACHE_CONTROL = "public, max-age=3600";
+/**
+ * `/` renders per request from the session cookie (UI3C: a signed-in visitor gets the "opening your console" state,
+ * app/page.tsx), so no cache may keep one visitor's answer for another.
+ */
+export const LANDING_CACHE_CONTROL = "private, no-store";
 
 /** Every path except `/_next/*`, `/api/*` and `/app`, `/app/*` (path-to-regexp negative lookahead). */
 export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";
@@ -37,6 +42,10 @@ export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";
 /** Image and font files outside `/_next/*`, `/api/*` and `/app/*`: `public/` and metadata files. */
 export const ASSET_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "svg", "ico", "webp", "avif", "ttf", "otf", "woff", "woff2"];
 export const ASSET_SOURCE = `/:path((?!_next/|api/|app/).+\\.(?:${ASSET_EXTENSIONS.join("|")}))`;
+
+/** The former public support page and its place inside the console (UI3C). */
+export const SUPPORT_PUBLIC_PATH = "/support";
+export const SUPPORT_APP_PATH = "/app/support";
 
 /** The page of the password reset and invite links (`/reset-password#token=`, T18). */
 export const RESET_PASSWORD_PATH = "/reset-password";
@@ -90,6 +99,8 @@ const nextConfig: NextConfig = {
       { source: ASSET_SOURCE, headers: [{ key: "Cache-Control", value: ASSET_CACHE_CONTROL }] },
       // `/app/:path*` also matches `/app` itself.
       { source: "/app/:path*", headers: [{ key: "Cache-Control", value: APP_CACHE_CONTROL }] },
+      // A later rule wins: `/` depends on the session cookie (UI3C).
+      { source: "/", headers: [{ key: "Cache-Control", value: LANDING_CACHE_CONTROL }] },
       // The reset and invite links carry their token in the fragment; no Referer leaves the page either
       // (Appendix C §C.4.9). A later rule wins, so this replaces SECURITY_HEADERS' Referrer-Policy here.
       { source: RESET_PASSWORD_PATH, headers: [{ key: "Referrer-Policy", value: "no-referrer" }] },
@@ -100,6 +111,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/app/users", destination: "/app/security-center/users", permanent: true },
       { source: "/app/operations/roles", destination: "/app/security-center/roles", permanent: true },
+      // UI3C: support lives inside the console; a signed-out visitor passes the sign-in gate on the way. Not
+      // permanent, so browsers do not keep the move should a public help page come back.
+      { source: SUPPORT_PUBLIC_PATH, destination: SUPPORT_APP_PATH, permanent: false },
     ];
   },
   webpack: (config, { isServer }) => {

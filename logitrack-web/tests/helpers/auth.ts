@@ -17,7 +17,8 @@ export async function login(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: /login|เข้าสู่ระบบ/i }).click();
+  // The submit button of the shared sign-in panel (SignInPanel), whatever its label in either language.
+  await page.getByTestId("sign-in-submit").click();
 
   await page.waitForURL("**/app/**", { timeout: 60000 });
   await page.waitForTimeout(2000);

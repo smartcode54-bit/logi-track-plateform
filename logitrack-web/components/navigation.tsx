@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * The navigation bar of the public pages and the sign-in pages (about, support, my account, login, waitlist).
+ * The navigation bar of the public pages and the sign-in pages (landing, about, join network, my account, login,
+ * waitlist).
  * UI3 (issue #143): the brand is "LogiTrack Pro by GORATECH" (PRODUCT.md), colours come from the tokens (paper,
  * hairline, Route Blue for the sign-in action), every label goes through `t()`, and sign-out is the shared one
  * (`useSignOut`: the same landing page as the app shell's user menu).
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut, Moon, Sun, User } from "lucide-react";
+import { LayoutDashboard, LogOut, Moon, Smartphone, Sun, User } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,14 +24,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
+import { homeRouteOf, isDriverOnly } from "@/features/auth/api/homeRoute";
 import { useSignOut } from "@/features/auth/hooks/useSignOut";
 import { useHydrated } from "@/hooks/useHydrated";
 import { initialOf } from "@/lib/initials";
+import { APP_PATH } from "@/lib/sessionEnd";
 import { LanguageSwitcher } from "./language-switcher";
 
+/**
+ * The public pages that exist (UI3C): the landing's features section, the about page and the partner-carrier page.
+ * No pricing link: the offer's pricing is undecided (PRODUCT.md), and no page holds it.
+ */
 const MARKETING_LINKS = [
   { href: "/#solutions", labelKey: "landing.nav.solutions" },
-  { href: "/#pricing", labelKey: "landing.nav.pricing" },
   { href: "/about", labelKey: "landing.nav.about" },
   { href: "/join-network", labelKey: "nav.joinNetwork" },
 ] as const;
@@ -47,9 +53,13 @@ export default function Navigation() {
   const isDark = hydrated && resolvedTheme === "dark";
   const themeLabel = isDark ? t("shell.theme.toLight") : t("shell.theme.toDark");
   const userName = currentUser?.displayName || currentUser?.email || t("shell.unnamedUser");
+  const me = authContext?.me ?? null;
+  // A driver-only account has no console (the edge gate sends it to /app/unauthorized): it is pointed to the app.
+  const driverOnly = me ? isDriverOnly(me) : false;
+  const consoleHref = me ? homeRouteOf(me) : APP_PATH;
 
   return (
-    <nav className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
+    <nav aria-label={t("landing.nav.label")} className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
         {/* Brand */}
         <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
@@ -100,18 +110,24 @@ export default function Navigation() {
                     <span>{t("nav.myAccount")}</span>
                   </Link>
                 </DropdownMenuItem>
-                {!!authContext?.customClaims?.admin && (
+                {/* UI3C: the console is the role's home, as the shell's Home crumb; a driver is told to use the app. */}
+                {driverOnly ? (
+                  <DropdownMenuLabel className="flex items-center text-sm font-normal text-muted-foreground">
+                    <Smartphone className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+                    <span>{t("landing.driver.title")}</span>
+                  </DropdownMenuLabel>
+                ) : (
                   <DropdownMenuItem asChild>
-                    <Link href="/app/dashboard" className="flex items-center" prefetch={false}>
+                    <Link href={consoleHref} className="flex items-center" prefetch={false}>
                       <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
-                      <span>{t("nav.adminDashboard")}</span>
+                      <span>{t("landing.openConsole")}</span>
                     </Link>
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center">
                   <LogOut className="mr-2 h-4 w-4" aria-hidden />
-                  <span>{t("nav.logout")}</span>
+                  <span>{t("shell.signOut")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

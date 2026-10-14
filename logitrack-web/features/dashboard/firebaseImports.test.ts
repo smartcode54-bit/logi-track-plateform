@@ -25,7 +25,7 @@ describe("the Go dashboard and waitlist pages' import graph", () => {
         expect(firebaseImports(goPageModule(ROUTES[1]))).toEqual([]);
     });
 
-    it.each(["components/landing/WaitlistModal.tsx", "features/auth/components/WaitlistForm.tsx", "app/join-network/page.tsx"])(
+    it.each(["features/auth/components/WaitlistForm.tsx", "app/join-network/page.tsx"])(
         "the anonymous form %s imports no Firebase module (AC: it posts only to /api/forms/*)",
         (file) => {
             expect(firebaseImports(path.join(root, file))).toEqual([]);

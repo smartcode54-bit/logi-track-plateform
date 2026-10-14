@@ -1,6 +1,6 @@
-// T18 (Appendix C §C.4.10): GIS keeps one configuration per page (the last `initialize` wins), and the
-// landing page mounts several buttons (the Hero's and one per open login dialog). The fake GIS below
-// follows that rule: a click delivers a credential whose nonce is the configured one, to the configured
+// T18 (Appendix C §C.4.10): GIS keeps one configuration per page (the last `initialize` wins), and a page
+// may mount several buttons (until UI3C the landing had one in its hero and one per open login dialog). The
+// fake GIS below follows that rule: a click delivers a credential whose nonce is the configured one, to the configured
 // callback.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";

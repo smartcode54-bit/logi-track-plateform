@@ -92,8 +92,9 @@ root-only file handed to migrate and seed per run) is listed for the owner on th
 - On the operator's machine: git, Go 1.27, Docker with buildx (linux/amd64 builds; on Apple silicon through the
   Docker Desktop or OrbStack emulation), curl. Run the scripts from a checkout of `mv-go`.
 - The web's public build values in a gitignored file, e.g. `logitrack-api/deploy/vm/.env.web-build`
-  (`.env.*` is gitignored there): the `NEXT_PUBLIC_*` names of `logitrack-web/Dockerfile`, today only the
-  optional `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`. These end up in the browser bundle, so only public values
+  (`.env.*` is gitignored there): the `NEXT_PUBLIC_*` names of `logitrack-web/Dockerfile`, today the
+  optional `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID` and `NEXT_PUBLIC_SUPPORT_EMAIL` (the support address of
+  `/app/support`, UI3C). These end up in the browser bundle, so only public values
   belong there; deploy.sh refuses any other name and never prints a value. TW7 removed the Firebase SDK from
   the web: a file written earlier may still hold the `NEXT_PUBLIC_FIREBASE_*` / `NEXT_PUBLIC_APP_CHECK_*`
   lines, which deploy.sh skips with a notice naming them (never passed to docker); delete them from the file.

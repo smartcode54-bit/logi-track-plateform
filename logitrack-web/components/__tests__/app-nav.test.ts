@@ -111,6 +111,12 @@ describe("breadcrumbTrail", () => {
         expect(breadcrumbTrail("/app/waitlist").crumbs).toEqual([{ labelKey: "nav.waitlist", href: "/app/waitlist" }]);
     });
 
+    it("names Support (the sidebar's footer entry, UI3C) as a page of its own", () => {
+        expect(breadcrumbTrail("/app/support")).toEqual({ crumbs: [{ labelKey: "nav.supportCenter", href: "/app/support" }], detail: false });
+        expect(breadcrumbTrail("/app/support", DRIVER_MONITOR_PATH).crumbs).toEqual([{ labelKey: "nav.supportCenter", href: "/app/support" }]);
+        expect(activeNavUrl("/app/support")).toBe("/app/support");
+    });
+
     it("has no crumbs outside the menu", () => {
         expect(breadcrumbTrail("/app/nowhere")).toEqual({ crumbs: [], detail: false });
         expect(breadcrumbTrail("/about")).toEqual({ crumbs: [], detail: false });

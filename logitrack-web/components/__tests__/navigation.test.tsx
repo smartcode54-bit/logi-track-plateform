@@ -66,10 +66,13 @@ describe("Navigation", () => {
     expect(screen.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
   });
 
-  it("shows Solutions and Pricing links when not logged in", async () => {
+  it("links only pages that exist when not logged in: no Pricing (UI3C)", async () => {
     await renderWithProviders(<Navigation />);
-    expect(screen.getByRole("link", { name: /solutions/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /pricing/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Features" })).toHaveAttribute("href", "/#solutions");
+    expect(screen.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
+    expect(screen.getByRole("link", { name: "Join Network" })).toHaveAttribute("href", "/join-network");
+    expect(screen.queryByRole("link", { name: /pricing/i })).not.toBeInTheDocument();
+    for (const link of screen.getAllByRole("link")) expect(link.getAttribute("href")).not.toBe("#");
   });
 
   it("names the theme button by what it does", async () => {
@@ -77,20 +80,71 @@ describe("Navigation", () => {
     expect(screen.getByRole("button", { name: "Switch to the dark theme" })).toBeInTheDocument();
   });
 
-  it("shows admin dashboard link when user is admin, and signs out to the sign-in page", async () => {
+  it("has an accessible name in the active language", async () => {
+    await renderWithProviders(<Navigation />);
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+  });
+
+  it("points a driver-only account to the driver app instead of a console it cannot open (UI3C)", async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue({
+      currentUser: { uid: "d", email: "d@own.test", displayName: "Driver" },
+      me: {
+        id: "d",
+        email: "d@own.test",
+        displayName: "Driver",
+        photoUrl: null,
+        tenant: { id: "t", nameTh: "กองรถ", nameEn: null, kind: "own_fleet", role: "driver" },
+        tenants: [],
+        platformRoles: [],
+        dispatcher: false,
+        steward: false,
+        driver: { id: "drv" },
+        customerScopes: [],
+        capabilities: [],
+        mustChangePassword: false,
+      },
+      loading: false,
+      customClaims: { role: "driver" },
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    await renderWithProviders(<Navigation />);
+    await user.click(screen.getByRole("button", { name: "Account menu for Driver" }));
+    expect(screen.getByText("Use the LogiTrack driver app")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Open console" })).toBeNull();
+  });
+
+  it("offers every signed-in user their console (the role's home, UI3C), and signs out to the sign-in page", async () => {
     const user = userEvent.setup();
     const logout = vi.fn(async () => undefined);
     mockUseAuth.mockReturnValue({
-      currentUser: { uid: "1", email: "a@b.co", displayName: "Admin" },
+      currentUser: { uid: "1", email: "a@b.co", displayName: "Customer" },
+      // A customer-scope principal without a membership lands on the driver monitor (R89).
+      me: {
+        id: "1",
+        email: "a@b.co",
+        displayName: "Customer",
+        photoUrl: null,
+        tenant: null,
+        tenants: [],
+        platformRoles: [],
+        dispatcher: false,
+        steward: false,
+        driver: null,
+        customerScopes: [{ billingPartyId: "b1", name: "Shipper" }],
+        capabilities: ["operations:view_driver_monitor"],
+        mustChangePassword: false,
+      },
       loading: false,
-      customClaims: { admin: true },
+      customClaims: { role: "customer" },
       login: vi.fn(),
       logout,
     });
     await renderWithProviders(<Navigation />);
-    await user.click(screen.getByRole("button", { name: "Account menu for Admin" }));
-    expect(screen.getByRole("menuitem", { name: /admin dashboard/i })).toBeInTheDocument();
-    await user.click(screen.getByRole("menuitem", { name: "Logout" }));
+    await user.click(screen.getByRole("button", { name: "Account menu for Customer" }));
+    expect(screen.getByRole("menuitem", { name: "Open console" })).toHaveAttribute("href", "/app/driver-monitor");
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(navigated).toEqual(["/login"]));
     expect(logout).toHaveBeenCalledTimes(1);
     expect(mockPush).not.toHaveBeenCalled();

@@ -1,7 +1,7 @@
 // Package forms is the anonymous landing forms of T53 (R44, R77; Appendix A §A.2.7, Appendix B §B.2.19): POST
-// /v1/waitlist and POST /v1/partner-interest, which replace the anonymous Firestore writes of the landing page
-// (components/landing/WaitlistModal.tsx:75, features/auth/hooks/useWaitlist.ts:40) and the join-network page
-// (app/join-network/actions.client.ts:20), and the staff reads of the waitlist (GET /v1/waitlist, DELETE
+// /v1/waitlist and POST /v1/partner-interest, which replaced the anonymous Firestore writes of the waitlist (the
+// landing page's dialog, gone since UI3C, and features/auth/hooks/useWaitlist.ts) and the join-network page
+// (app/join-network/page.tsx), and the staff reads of the waitlist (GET /v1/waitlist, DELETE
 // /v1/waitlist/{id}, waitlist:view).
 //
 // The two form routes are on the internal listener only (404 on the public one): the browser posts to the

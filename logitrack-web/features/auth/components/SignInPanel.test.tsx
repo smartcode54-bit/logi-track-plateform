@@ -46,7 +46,7 @@ describe("SignInPanel", () => {
         const user = userEvent.setup();
         await user.type(await screen.findByLabelText("Email"), "admin@own.test");
         await user.type(screen.getByLabelText("Password"), "pw");
-        await user.click(screen.getByRole("button", { name: "Login" }));
+        await user.click(screen.getByRole("button", { name: "Sign in" }));
         await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1));
         expect(web.calls.find((c) => c.url === "/api/auth/login")?.body).toEqual({ email: "admin@own.test", password: "pw" });
     });
@@ -58,7 +58,7 @@ describe("SignInPanel", () => {
         const user = userEvent.setup();
         await user.type(await screen.findByLabelText("Email"), "a@b.test");
         await user.type(screen.getByLabelText("Password"), "nope");
-        await user.click(screen.getByRole("button", { name: "Login" }));
+        await user.click(screen.getByRole("button", { name: "Sign in" }));
         expect(await screen.findByRole("alert")).toHaveTextContent("Incorrect email or password.");
     });
 
@@ -83,7 +83,7 @@ describe("SignInPanel", () => {
         const user = userEvent.setup();
         await user.type(await screen.findByLabelText("Email"), "driver@own.test");
         await user.type(screen.getByLabelText("Password"), "Temp-Pass-1");
-        await user.click(screen.getByRole("button", { name: "Login" }));
+        await user.click(screen.getByRole("button", { name: "Sign in" }));
 
         expect(await screen.findByText("Set a new password")).toBeInTheDocument();
         expect(onSignedIn).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe("SignInPanel", () => {
         const user = userEvent.setup();
         await user.type(await screen.findByLabelText("Email"), "d@own.test");
         await user.type(screen.getByLabelText("Password"), "x");
-        await user.click(screen.getByRole("button", { name: "Login" }));
+        await user.click(screen.getByRole("button", { name: "Sign in" }));
         await user.type(await screen.findByLabelText("New password"), "A-Much-Better-Secret");
         await user.type(screen.getByLabelText("Confirm new password"), "A-Much-Better-Secret");
         await user.click(screen.getByRole("button", { name: "Set password and sign in" }));

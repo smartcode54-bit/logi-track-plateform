@@ -25,7 +25,7 @@ const sarabun = Sarabun({
 export const metadata: Metadata = {
   // The product name (PRODUCT.md, Brand Commitments): LogiTrack Pro by GORATECH.
   title: "LogiTrack Pro by GORATECH",
-  description: "Created by SmartCode",
+  description: "Dispatch, trip evidence, billing and driver pay for Thai first-mile and line-haul trucking.",
   icons: {
     icon: "/icon.jpg",
     apple: "/icon.jpg",

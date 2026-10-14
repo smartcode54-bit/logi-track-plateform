@@ -36,6 +36,7 @@ describe("routeFor / routeAllowed", () => {
         expect(routeAllowed(["fleet:view_trucks"], "/app/analytics")).toBe(false);
         expect(routeAllowed([], "/app/dashboard")).toBe(true);
         expect(routeAllowed([], "/app/unauthorized")).toBe(true);
+        expect(routeAllowed([], "/app/support")).toBe(true); // UI3C: help for every signed-in principal
         expect(routeAllowed(["fleet:view_trucks"], "/app/trucks")).toBe(true);
         expect(routeAllowed(new Set(["fleet:view_trucks"]), "/app/trucks/new")).toBe(false);
         expect(routeAllowed(["users:view"], "/app/security-center/users")).toBe(true);

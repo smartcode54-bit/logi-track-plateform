@@ -293,6 +293,7 @@ x-env-web: &env-web
 # TW7 (P6) removed the Firebase SDK and its NEXT_PUBLIC_FIREBASE_* / NEXT_PUBLIC_APP_CHECK_* values.
 x-web-build-args: &web-build-args
   NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID:-}
+  NEXT_PUBLIC_SUPPORT_EMAIL: ${NEXT_PUBLIC_SUPPORT_EMAIL:-}
 # caddy (TW2): exactly the §16.1 caddy names (API_PUBLIC_ADDR is the public listener's port).
 x-env-caddy: &env-caddy
   WEB_DOMAIN: ${WEB_DOMAIN:-}

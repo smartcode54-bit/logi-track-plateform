@@ -1,44 +1,35 @@
-import React, { useState } from "react";
-import { useLanguage } from "@/context/language";
-import { WaitlistModal } from "./WaitlistModal";
-import { LoginModal } from "./LoginModal";
+import Link from "next/link";
 
+import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/context/language";
+
+/**
+ * The closing section of the landing page (UI3C): who else this page is for. Accounts are by invitation, so the
+ * actions are the waitlist and the partner-carrier application, plus the origin story on /about. No demo, API docs or
+ * pricing are offered: none exist yet (PRODUCT.md, Evidence on Hand).
+ */
 export function CTA() {
     const { t } = useLanguage();
-    const [loginOpen, setLoginOpen] = useState(false);
-    const [waitlistOpen, setWaitlistOpen] = useState(false);
 
     return (
-        <section className="py-20 lg:px-40 relative overflow-hidden">
-            <div className="absolute inset-0 bg-primary/5 pointer-events-none"></div>
-            <div className="mx-auto max-w-[1280px] px-4 relative">
-                <div className="flex flex-col items-center justify-center gap-8 text-center bg-primary rounded-xl p-12 md:p-20">
-                    <div className="flex flex-col gap-4 max-w-2xl">
-                        <h2 className="text-primary-foreground text-3xl md:text-5xl font-black leading-tight">
-                            {t("landing.cta.title")}
-                        </h2>
-                        <p className="text-primary-foreground text-lg">
-                            {t("landing.cta.description")}
-                        </p>
-                    </div>
-                    <div className="flex flex-wrap justify-center gap-4">
-                        <WaitlistModal
-                            open={waitlistOpen}
-                            onOpenChange={setWaitlistOpen}
-                            onSwitchToLogin={() => {
-                                setWaitlistOpen(false);
-                                setLoginOpen(true);
-                            }}
-                        >
-                            <button className="flex items-center justify-center rounded-xl min-w-[220px] h-16 px-8 bg-background text-primary text-lg font-bold shadow-sm hover:bg-background/90 transition-colors">
-                                {t("landing.cta.requestDemo")}
-                            </button>
-                        </WaitlistModal>
-                        <LoginModal open={loginOpen} onOpenChange={setLoginOpen} />
-                        <button className="flex items-center justify-center rounded-xl min-w-[220px] h-16 px-8 border-2 border-primary-foreground/30 bg-transparent text-primary-foreground text-lg font-bold hover:bg-primary-foreground/10 transition-colors">
-                            {t("landing.cta.viewApi")}
-                        </button>
-                    </div>
+        <section aria-labelledby="cta-title" className="border-t border-border">
+            <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-16 sm:px-6 md:py-20 lg:px-8">
+                <div className="flex max-w-3xl flex-col gap-3">
+                    <h2 id="cta-title" className="text-2xl font-semibold tracking-tight text-balance md:text-3xl">
+                        {t("landing.cta.title")}
+                    </h2>
+                    <p className="max-w-prose leading-relaxed text-muted-foreground">{t("landing.cta.description")}</p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                    <Button asChild variant="outline">
+                        <Link href="/waitlist">{t("landing.cta.requestAccess")}</Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                        <Link href="/join-network">{t("landing.cta.joinNetwork")}</Link>
+                    </Button>
+                    <Link href="/about" className="text-sm font-medium text-primary underline-offset-4 hover:underline sm:ml-2">
+                        {t("landing.cta.readStory")}
+                    </Link>
                 </div>
             </div>
         </section>

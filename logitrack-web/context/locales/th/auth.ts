@@ -1,7 +1,7 @@
 export default {
     // Auth
     "auth.login.title": "เข้าสู่ระบบ",
-    "auth.login.subtitle": "กรอกอีเมลด้านล่างเพื่อเข้าสู่ระบบ",
+    "auth.login.subtitle": "ใช้บัญชีที่องค์กรของคุณสร้างให้",
     "auth.register.title": "เข้าร่วมรายการรอ",
     "auth.register.subtitle": "กรอกอีเมลเพื่อขอเข้าใช้งาน",
     "auth.email": "อีเมล",
@@ -65,4 +65,22 @@ export default {
     "auth.reset.done": "ตั้งรหัสผ่านเรียบร้อยแล้ว เข้าสู่ระบบได้เลย",
     "auth.reset.invalidLink": "ลิงก์นี้ไม่ถูกต้องหรือหมดอายุแล้ว",
     "auth.reset.requestNew": "ขอลิงก์ใหม่",
+    // The /waitlist page (UI3C, #143): every label in both languages, no flags in the country picker.
+    "auth.waitlist.fullName": "ชื่อ-นามสกุล",
+    "auth.waitlist.fullNamePlaceholder": "สมชาย ขนส่งดี",
+    "auth.waitlist.phone": "เบอร์โทรศัพท์",
+    "auth.waitlist.countryCode": "รหัสประเทศ",
+    "auth.waitlist.searchCountry": "ค้นหาประเทศ",
+    "auth.waitlist.nameRequired": "กรุณากรอกชื่อ",
+    "auth.waitlist.phoneRequired": "กรุณากรอกเบอร์โทรศัพท์",
+    "auth.waitlist.country.TH": "ไทย",
+    "auth.waitlist.country.US": "สหรัฐอเมริกา",
+    "auth.waitlist.country.SG": "สิงคโปร์",
+    "auth.waitlist.country.MY": "มาเลเซีย",
+    "auth.waitlist.country.VN": "เวียดนาม",
+    "auth.waitlist.country.ID": "อินโดนีเซีย",
+    "auth.waitlist.country.PH": "ฟิลิปปินส์",
+    "auth.waitlist.country.LA": "ลาว",
+    "auth.waitlist.country.KH": "กัมพูชา",
+    "auth.waitlist.country.MM": "เมียนมา",
 };

@@ -392,6 +392,13 @@
       "forbidden": {},
       "locales": {}
     },
+    "/app/support": {
+      "chunks": 26,
+      "parsedBytes": 770542,
+      "gzipBytes": 243398,
+      "forbidden": {},
+      "locales": {}
+    },
     "/app/truck-assignment": {
       "chunks": 37,
       "parsedBytes": 916780,
@@ -484,9 +491,9 @@
       "locales": {}
     },
     "/join-network": {
-      "chunks": 22,
-      "parsedBytes": 676787,
-      "gzipBytes": 216111,
+      "chunks": 26,
+      "parsedBytes": 746597,
+      "gzipBytes": 238877,
       "forbidden": {},
       "locales": {}
     },
@@ -508,13 +515,6 @@
       "chunks": 25,
       "parsedBytes": 691236,
       "gzipBytes": 221915,
-      "forbidden": {},
-      "locales": {}
-    },
-    "/support": {
-      "chunks": 24,
-      "parsedBytes": 683459,
-      "gzipBytes": 218923,
       "forbidden": {},
       "locales": {}
     },

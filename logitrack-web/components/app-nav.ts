@@ -14,6 +14,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import {
+    HelpCircle,
     IdCard,
     Inbox,
     Key,
@@ -168,6 +169,12 @@ export const SYSTEM_NAV: readonly NavLink[] = [
     { url: "/app/settings/company-profile", labelKey: "nav.companyProfile", icon: IdCard },
 ];
 
+/**
+ * The footer entry of the main sidebar (UI3C): help inside the console, open to every console principal (the route
+ * maps to no capability), so it is not filtered by `menuFor`. Its crumb is the page itself, like the dashboard.
+ */
+export const SUPPORT_NAV: NavLink = { url: "/app/support", labelKey: "nav.supportCenter", icon: HelpCircle };
+
 /** The Security Center sidebar (it replaces the main one under `/app/security-center`). */
 export const SECURITY_NAV: readonly NavLink[] = [
     { url: SECURITY_CENTER_PATH, labelKey: "securityCenter.overviewSoon", icon: LayoutDashboard },
@@ -240,6 +247,7 @@ function locatedIn(main: readonly NavEntry[]): readonly Located[] {
             isNavGroup(entry) ? entry.items.map((link) => ({ link, parents: [{ labelKey: entry.labelKey }] })) : [{ link: entry, parents: [] }]
         ),
         ...SYSTEM_NAV.map((link) => ({ link, parents: [] })),
+        { link: SUPPORT_NAV, parents: [] },
         // The overview is the Security Center itself (SYSTEM_NAV); its pages sit under it.
         ...SECURITY_NAV.filter((link) => link.url !== SECURITY_CENTER_PATH).map((link) => ({ link, parents: [SECURITY_PARENT] })),
         ...PAGE_ONLY,

@@ -9,9 +9,9 @@
  * shown. A failed attempt fetches a new nonce (each is single use) and renders the button again.
  *
  * GIS keeps one configuration per page: each `google.accounts.id.initialize` replaces the callback and
- * the nonce of the previous one. The landing page mounts several buttons (the Hero's, and the one in
- * each login dialog while it is open), so `initialize` is called only by the coordinator below: the
- * configuration always belongs to the most recently mounted button that has a nonce, its one callback
+ * the nonce of the previous one. A page may mount more than one button (since UI3C the landing has one, in
+ * its sign-in card; before, its login dialog added another), so `initialize` is called only by the
+ * coordinator below: the configuration always belongs to the most recently mounted button that has a nonce, its one callback
  * hands the credential to that button's handler with that button's nonce (the nonce the ID token
  * carries), and when that button unmounts the next one takes the configuration back and fetches a
  * fresh nonce. A failure refreshes the nonce of the button whose handler ran, never of an unmounted one.

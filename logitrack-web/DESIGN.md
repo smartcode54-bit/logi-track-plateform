@@ -400,6 +400,21 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
   targets are 44 px on phones. The page area takes `min-w-0`, so a wide page scrolls without pushing the header out.
 
+### Public pages
+- The landing `/`, `/join-network`, `/about` and the sign-in pages share `components/navigation.tsx` (logo, "LogiTrack
+  Pro", "by GORATECH", links only to pages that exist) and the landing footer (`components/landing/Footer.tsx`:
+  "© <current year> GORATECH").
+- One Display H1 per page (700, 36/48/60 px; `leading-[1.25]` in Thai so stacked marks never touch), then sections
+  on paper separated by hairlines, each with a Headline (600) and its points as a list under hairlines (`dl`), never
+  icon cards. No kicker, no stat chips, no coloured band.
+- The sign-in card is the same on `/` and `/login` (`LoginForm`): sign-in is the primary button, the waitlist a text
+  link under it; its title is the page's h1 on `/login` and an h2 under the landing's h1. A signed-in visitor of `/`
+  goes to the role's home (`homeRouteOf`); a driver-only account is told to use the driver app instead.
+- Forms: required labels carry the Signal Red star; errors sit under the field (`aria-invalid`, `aria-describedby`),
+  with a toast only as a summary.
+- Copy states only what PRODUCT.md has evidence for: no counts, testimonials, customer logos, pricing or "global"
+  claims (`components/landing/__tests__/landingCopy.test.ts`).
+
 ### Toasts
 - sonner on `z-toast`, in the popover colours and the app font, bottom-right, 5 s; typed toasts (success, error,
   warning, info) use sonner's rich colours. One toast per event; errors name what to do next.
