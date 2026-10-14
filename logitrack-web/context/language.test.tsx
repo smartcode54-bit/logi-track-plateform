@@ -101,6 +101,23 @@ describe("LanguageProvider", () => {
         expect(screen.getByTestId("text")).toHaveTextContent("สวัสดี Ann");
     });
 
+    it("sets <html lang> to the language on screen, only once its dictionary is in (UI3)", async () => {
+        document.documentElement.lang = "en"; // what app/layout.tsx renders on the server
+        stored = "th";
+        const user = userEvent.setup();
+        render(<LanguageProvider><Probe /></LanguageProvider>);
+        expect(document.documentElement.lang).toBe("en");
+
+        await settle("th");
+        expect(document.documentElement.lang).toBe("th");
+
+        await user.click(screen.getByRole("button", { name: "to en" }));
+        // The Thai text is still on screen while English loads, so lang stays Thai with it.
+        expect(document.documentElement.lang).toBe("th");
+        await settle("en");
+        expect(document.documentElement.lang).toBe("en");
+    });
+
     it("applies the last toggle when an earlier load finishes later", async () => {
         const user = userEvent.setup();
         render(<LanguageProvider><Probe /></LanguageProvider>);

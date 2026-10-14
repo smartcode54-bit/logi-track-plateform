@@ -21,6 +21,12 @@ const t = (key: string, fallbackOrParams?: string | Record<string, string | numb
         "users.tenantRole.manager": "Manager",
         "users.platformRole.platform_admin": "Platform admin",
         "users.scopeKind.customer": "Customer",
+        "users.tenantRole.tenant_admin": "Tenant admin",
+        "users.platformRole.support": "Support",
+        "users.scopeKind.dispatcher": "Dispatcher",
+        "shell.scope.customerView": "Customer view",
+        "shell.scope.partnerAdmin": "Partner admin",
+        "shell.scope.andMore": "{name} +{count}",
     };
     const text = texts[key] ?? (typeof fallbackOrParams === "string" ? fallbackOrParams : key);
     if (typeof fallbackOrParams === "object") return Object.entries(fallbackOrParams).reduce((s, [k, v]) => s.replace(`{${k}}`, String(v)), text);
@@ -42,12 +48,32 @@ describe("loginDestination (the login page's redirect of a signed-in visitor)", 
     });
 });
 
-describe("principalRoleLabel", () => {
-    it("names the platform role, else the tenant role and tenant, else the scope", () => {
-        expect(principalRoleLabel(makeMe({ platformRoles: ["platform_admin"] }), t, "en")).toBe("Platform admin");
-        expect(principalRoleLabel(makeMe({ tenant: { id: "o", nameTh: "กอง", nameEn: "Fleet", kind: "own_fleet", role: "manager" } }), t, "en")).toBe("Manager · Fleet");
-        expect(principalRoleLabel(makeMe({ tenant: null, customerScopes: [{ billingPartyId: "b", name: "x" }] }), t, "en")).toBe("Customer");
+describe("principalRoleLabel (the scope line, UI3)", () => {
+    const wrt = { id: "o", nameTh: "วันเพ็ญ", nameEn: "WRT", kind: "own_fleet", role: "tenant_admin" };
+    it("names the slice first, then the role: tenant, customer scope, platform", () => {
+        expect(principalRoleLabel(makeMe({ tenant: wrt }), t, "en")).toBe("WRT · Tenant admin");
+        expect(principalRoleLabel(makeMe({ tenant: { ...wrt, role: "manager" } }), t, "th")).toBe("วันเพ็ญ · Manager");
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], customerScopes: [{ billingPartyId: "b", name: "CJSF" }] }), t, "en")).toBe(
+            "CJSF · Customer view"
+        );
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], platformRoles: ["platform_admin"] }), t, "en")).toBe("Platform admin");
         expect(principalRoleLabel(null, t, "en")).toBe("");
+    });
+    it("keeps the tenant a platform admin works in, and names a carrier's admin as a partner", () => {
+        expect(principalRoleLabel(makeMe({ tenant: wrt, platformRoles: ["platform_admin"] }), t, "en")).toBe("WRT · Platform admin");
+        expect(principalRoleLabel(makeMe({ tenant: { ...wrt, nameEn: "Somchai Transport", kind: "carrier" } }), t, "en")).toBe(
+            "Somchai Transport · Partner admin"
+        );
+    });
+    it("shortens several customer scopes and covers support and dispatcher principals", () => {
+        const scopes = [
+            { billingPartyId: "a", name: "CJSF" },
+            { billingPartyId: "b", name: "TTP" },
+            { billingPartyId: "c", name: "SPX" },
+        ];
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], customerScopes: scopes }), t, "en")).toBe("CJSF +2 · Customer view");
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], platformRoles: ["support"] }), t, "en")).toBe("Support");
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], dispatcher: true }), t, "en")).toBe("Dispatcher");
     });
 });
 

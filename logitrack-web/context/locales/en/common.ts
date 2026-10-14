@@ -20,7 +20,7 @@ export default {
     "nav.packages": "Packages",
     "nav.analytics": "Analytics",
     "nav.settings": "Settings",
-    "nav.securityCenter": "SECURITY CENTER",
+    "nav.securityCenter": "Security Center",
     "nav.login": "Login",
     "nav.register": "Join Waitlist",
     "nav.logout": "Logout",
@@ -90,8 +90,8 @@ export default {
 
     "nav.subcontractors": "Subcontractors",
     "nav.customers": "Customers",
-    "nav.mainMenu": "MAIN MENU",
-    "nav.system": "SYSTEM",
+    "nav.mainMenu": "Main menu",
+    "nav.system": "System",
     "nav.companies": "Companies",
     "nav.companyProfile": "Company Profile",
 
@@ -403,7 +403,7 @@ export default {
     "unauthorized.description": "You don't have permission to view this page. Contact your administrator if you believe this is a mistake.",
     "unauthorized.goBack": "Go Back",
     "unauthorized.goHome": "Go to My Home Page",
-    "unauthorized.roleHint": "Logged in as: {role}",
+    "unauthorized.roleHint": "Signed in as {role}",
 
     // Tenant switcher (T18)
     "nav.switchTenant": "Switch organisation",
@@ -414,6 +414,31 @@ export default {
     "shell.retry": "Try again",
     "shell.namespaceLoadFailed": "Could not load the text of this page.",
     "shell.reload": "Reload",
+
+    // App shell (UI3, #143): the header, the user menu, the scope line and the sign-in brand.
+    "brand.name": "LogiTrack Pro",
+    "brand.byline": "by GORATECH",
+    "nav.utilities": "Utilities",
+    "nav.joinNetwork": "Join Network",
+    "shell.skipToContent": "Skip to main content",
+    "shell.toggleSidebar": "Show or hide the menu",
+    "shell.breadcrumb": "Breadcrumb",
+    "shell.userMenu": "Account menu for {name}",
+    "shell.unnamedUser": "Signed-in user",
+    "shell.language": "Language",
+    "shell.language.en": "English",
+    "shell.language.th": "ไทย",
+    "shell.theme": "Theme",
+    "shell.theme.light": "Light",
+    "shell.theme.dark": "Dark",
+    "shell.theme.system": "Same as device",
+    "shell.theme.toLight": "Switch to the light theme",
+    "shell.theme.toDark": "Switch to the dark theme",
+    "shell.scope.partnerAdmin": "Partner admin",
+    "shell.scope.customerView": "Customer view",
+    "shell.scope.andMore": "{name} +{count}",
+    "shell.mobileNav.title": "Menu",
+    "shell.mobileNav.description": "The pages you can open",
 
     // T42: the Go accounting / maintenance pages.
     "common.searchPlaceholder": "Search...",

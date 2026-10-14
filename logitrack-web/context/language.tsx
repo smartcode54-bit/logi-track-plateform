@@ -196,6 +196,13 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
     // Namespaces a route group needs that the current language has not merged yet.
     const language = state?.language;
+
+    // `<html lang>` follows the language on screen (UI3), so screen readers read Thai with a Thai voice and the
+    // browser picks Thai line breaking. app/layout.tsx renders `en` on the server; this runs after hydration, so
+    // the server HTML and the first client render still agree.
+    useEffect(() => {
+        if (language) document.documentElement.lang = language;
+    }, [language]);
     const missingKey = state ? active.filter((ns) => !state.namespaces[ns]).join(",") : "";
     useEffect(() => {
         if (!language || missingKey === "") return;

@@ -23,7 +23,8 @@ const sarabun = Sarabun({
 });
 
 export const metadata: Metadata = {
-  title: "Logi Track",
+  // The product name (PRODUCT.md, Brand Commitments): LogiTrack Pro by GORATECH.
+  title: "LogiTrack Pro by GORATECH",
   description: "Created by SmartCode",
   icons: {
     icon: "/icon.jpg",
@@ -38,6 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     // next-themes (app/providers.tsx) sets the `dark` class before paint, hence suppressHydrationWarning.
+    // `lang` starts as English and follows the chosen language once it loads (context/language.tsx).
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${sarabun.variable}`}

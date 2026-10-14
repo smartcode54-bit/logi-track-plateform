@@ -25,10 +25,11 @@ export default function TenantSwitcherMenu({ tenants, active, switching, onChoos
             {switching ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
             ) : (
-                <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <Building2 className="hidden h-4 w-4 text-muted-foreground sm:block" aria-hidden />
             )}
             <Select value={active} onValueChange={onChoose} disabled={switching}>
-                <SelectTrigger className="h-8 w-[140px] md:w-[220px]" aria-label={t("nav.switchTenant")}>
+                {/* 44 px tall on phones (UI3: touch targets in the mobile header), 32 px from md. */}
+                <SelectTrigger className="h-11 w-[140px] md:h-8 md:w-[220px]" aria-label={t("nav.switchTenant")}>
                     <SelectValue placeholder={t("nav.switchTenant")} />
                 </SelectTrigger>
                 <SelectContent>

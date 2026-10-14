@@ -1,4 +1,5 @@
 import Navigation from "@/components/navigation";
+import { AuthBackground } from "@/features/auth/components/AuthBackground";
 
 export default function AuthLayout({
   children,
@@ -6,21 +7,16 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex flex-col relative bg-background overflow-hidden">
-      {/* Top navigation bar */}
+    // `isolate`: the background's negative z-index stays inside this page, above its paper colour.
+    <div className="relative isolate flex min-h-screen flex-col overflow-hidden bg-background">
       <Navigation />
 
-      {/* Background image for auth pages */}
-      <div className="absolute inset-0 -z-10">
-        <div className="h-full w-full bg-[url('/driver-app-bg.png')] bg-cover bg-center opacity-60" />
-        <div className="absolute inset-0 bg-background/40" />
-      </div>
+      {/* The one background of the sign-in pages (UI3: the login page no longer paints its own copy). */}
+      <AuthBackground />
 
-      {/* Main auth content */}
-      <main className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 relative z-10">
+      <main className="flex flex-1 items-center justify-center px-4 py-8 sm:px-6 lg:px-8">
         {children}
       </main>
     </div>
   );
 }
-

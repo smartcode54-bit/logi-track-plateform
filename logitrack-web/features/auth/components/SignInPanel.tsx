@@ -148,7 +148,6 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         disabled={submitting}
-                        className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
                     />
                 </div>
                 <div className="space-y-2">
@@ -167,7 +166,6 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         disabled={submitting}
-                        className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
                     />
                 </div>
                 {error ? (
@@ -175,22 +173,16 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
                         {error}
                     </p>
                 ) : null}
-                <Button
-                    type="submit"
-                    className="w-full bg-foreground text-background hover:bg-foreground/90 font-semibold"
-                    disabled={submitting || !auth}
-                >
+                <Button type="submit" className="w-full" disabled={submitting || !auth} data-testid="sign-in-submit">
                     {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     {submitting ? t("auth.signingIn") : t("auth.login.title")}
                 </Button>
             </form>
-            <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-background/90 px-2 text-muted-foreground">{t("auth.or")}</span>
-                </div>
+            {/* Two hairlines around the word, so the divider needs no backing colour on a card or in a dialog. */}
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="h-px flex-1 bg-border" aria-hidden />
+                <span>{t("auth.or")}</span>
+                <span className="h-px flex-1 bg-border" aria-hidden />
             </div>
             <GoogleSignInButton onCredential={google} disabled={submitting} />
         </div>

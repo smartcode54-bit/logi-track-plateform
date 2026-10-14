@@ -1,18 +1,6 @@
 "use client"
 
-import {
-    LayoutDashboard,
-    Users,
-    Shield,
-    Key,
-    Server,
-    LogOut,
-    ShieldCheck,
-    Layers,
-    Smartphone,
-    Rocket,
-    Building2,
-} from "lucide-react"
+import { LayoutDashboard, ShieldCheck } from "lucide-react"
 
 import {
     Sidebar,
@@ -25,62 +13,60 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
-    useSidebar,
 } from "@/components/ui/sidebar"
 import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useAuth } from "@/context/auth"
 import { useMemo } from "react"
 import { routeAllowed } from "@/lib/routeCapabilities"
 import type { MeDTO } from "@/features/auth/api/me"
 import { useMe } from "@/features/auth/api/useMe"
-
-// Each item is shown when the edge gate would let the principal open it (lib/routeCapabilities.ts over
-// the Go capabilities of `['me']`, TW4, T18), so the menu and proxy.ts can never disagree.
-const securityItems = [
-    { titleKey: "securityCenter.overviewSoon", url: "/app/security-center", icon: LayoutDashboard },
-    { titleKey: "securityCenter.userManagement", url: "/app/security-center/users", icon: Users },
-    { titleKey: "securityCenter.tenants", url: "/app/security-center/tenants", icon: Building2 },
-    { titleKey: "securityCenter.rolePermissionMatrix", url: "/app/security-center/roles", icon: Layers },
-    { titleKey: "securityCenter.securityAudit", url: "/app/security-center/audit", icon: Shield },
-    { titleKey: "securityCenter.apiKeys", url: "/app/security-center/api-keys", icon: Key },
-    { titleKey: "securityCenter.systemStatus", url: "/app/security-center/status", icon: Server },
-    { titleKey: "securityCenter.mobileClients", url: "/app/security-center/mobile-clients", icon: Smartphone },
-    { titleKey: "securityCenter.mobileRelease", url: "/app/security-center/mobile-release", icon: Rocket },
-]
+import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
+import { activeNavUrl, SECURITY_CENTER_PATH, SECURITY_NAV } from "./app-nav"
 
 const NO_CAPABILITIES: readonly string[] = []
 const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES
 
+/**
+ * The Security Center sidebar. Each item (components/app-nav.ts) is shown when the edge gate would let the
+ * principal open it (lib/routeCapabilities.ts over the Go capabilities of `['me']`, TW4, T18), so the menu and
+ * proxy.ts can never disagree. Its header carries the same scope line as the main sidebar (UI3, issue #143);
+ * sign-out lives in the user menu only.
+ */
 export function SecurityCenterSidebar() {
     const { t } = useLanguage()
     const pathname = usePathname()
-    const auth = useAuth()
-    const logout = auth?.logout
-    // The pages the proxy.ts gate lets this principal open (lib/routeCapabilities.ts over `['me']`, TW4).
+    const scope = useScopeLabel()
+    const title = t("securityCenter.title")
+    const active = activeNavUrl(pathname)
     const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
     const filteredItems = useMemo(() => {
         const held = new Set(capabilities)
-        return securityItems.filter((item) => routeAllowed(held, item.url))
+        return SECURITY_NAV.filter((item) => routeAllowed(held, item.url))
     }, [capabilities])
 
     return (
         <Sidebar
             collapsible="icon"
             className="border-r-0"
+            sheetTitle={t("shell.mobileNav.title")}
+            sheetDescription={t("shell.mobileNav.description")}
         >
             <SidebarHeader>
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild>
-                            <Link href="/app/security-center" prefetch={false}>
-                                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-indigo-600 text-primary-foreground">
-                                    <ShieldCheck className="size-4 text-white" />
+                        <SidebarMenuButton size="lg" asChild tooltip={scope ? `${title} · ${scope}` : title}>
+                            <Link href={SECURITY_CENTER_PATH} prefetch={false}>
+                                <div className="flex aspect-square size-8 items-center justify-center rounded-md border border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground">
+                                    <ShieldCheck className="size-4" aria-hidden />
                                 </div>
-                                <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-semibold text-base">{t("securityCenter.title")}</span>
-                                    <span className="truncate text-xs text-muted-foreground">{t("securityCenter.subtitle")}</span>
+                                <div className="grid min-w-0 flex-1 text-left leading-tight">
+                                    <span className="truncate text-sm font-semibold">{title}</span>
+                                    {scope ? (
+                                        <span className="truncate text-xs text-muted-foreground" data-testid="sidebar-scope">
+                                            {scope}
+                                        </span>
+                                    ) : null}
                                 </div>
                             </Link>
                         </SidebarMenuButton>
@@ -89,19 +75,15 @@ export function SecurityCenterSidebar() {
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
-                    <SidebarGroupLabel>{t("securityCenter.title")}</SidebarGroupLabel>
+                    <SidebarGroupLabel>{title}</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
                             {filteredItems.map((item) => (
-                                <SidebarMenuItem key={item.titleKey}>
-                                    <SidebarMenuButton
-                                        asChild
-                                        tooltip={t(item.titleKey)}
-                                        isActive={pathname === item.url}
-                                    >
+                                <SidebarMenuItem key={item.url}>
+                                    <SidebarMenuButton asChild tooltip={t(item.labelKey)} isActive={active === item.url}>
                                         <Link href={item.url} prefetch={false}>
-                                            <item.icon />
-                                            <span>{t(item.titleKey)}</span>
+                                            {item.icon ? <item.icon /> : null}
+                                            <span>{t(item.labelKey)}</span>
                                         </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
@@ -118,18 +100,6 @@ export function SecurityCenterSidebar() {
                                 <LayoutDashboard />
                                 <span>{t("securityCenter.backToAdmin")}</span>
                             </Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                        <SidebarMenuButton
-                            className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
-                            onClick={async () => {
-                                await logout?.()
-                                window.location.href = "/login"
-                            }}
-                        >
-                            <LogOut />
-                            <span>{t("nav.logout")}</span>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
                 </SidebarMenu>

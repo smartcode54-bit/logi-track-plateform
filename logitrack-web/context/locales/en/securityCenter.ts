@@ -1,6 +1,5 @@
 export default {
-    "securityCenter.title": "SECURITY CENTER",
-    "securityCenter.subtitle": "Logistics Admin",
+    "securityCenter.title": "Security Center",
     "securityCenter.overview": "Overview",
     "securityCenter.overviewSoon": "Overview",
     "securityCenter.userManagement": "User Management",

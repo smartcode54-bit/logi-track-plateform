@@ -2,119 +2,47 @@
 
 import { useAuth } from "@/context/auth";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
+import { Loader2 } from "lucide-react";
 import { TenantSwitcher } from "@/components/tenant-switcher";
-import { meDisplayName } from "@/features/auth/api/me";
-import { principalRoleLabel } from "@/features/auth/utils/principalLabel";
+import { homeRouteOf } from "@/features/auth/api/homeRoute";
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SecurityCenterSidebar } from "@/components/security-center-sidebar";
+import { AppBreadcrumb } from "@/components/app-breadcrumb";
+import { UserMenu } from "@/components/user-menu";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-    Breadcrumb,
-    BreadcrumbItem,
-    BreadcrumbLink,
-    BreadcrumbList,
-    BreadcrumbPage,
-    BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { House, Sun, Moon, Loader2 } from "lucide-react";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language";
-import { BreadcrumbProvider, useBreadcrumb } from "@/context/breadcrumb";
-import Link from "next/link"; // Ensure Link is imported
+import { BreadcrumbProvider } from "@/context/breadcrumb";
+import { DASHBOARD_PATH } from "@/lib/routeCapabilities";
 
-function DynamicBreadcrumb({ pathname }: { pathname: string }) {
-    const { customLastItem } = useBreadcrumb();
-    const { t } = useLanguage();
+/** The id the skip link jumps to: the page area below the header (not exported: a layout exports only its component). */
+const MAIN_CONTENT_ID = "main-content";
 
-    // Split path and filter out empty strings and 'admin' (since Home covers it)
-    const segments = pathname.split('/').filter(Boolean).filter(seg => seg !== 'app');
-
-    return (
-        <Breadcrumb className="hidden md:flex">
-            <BreadcrumbList>
-                <BreadcrumbItem>
-                    <BreadcrumbLink asChild>
-                        <Link href="/app/dashboard" className="flex items-center gap-1" prefetch={false}>
-                            <House className="h-4 w-4" />
-                            Home
-                        </Link>
-                    </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-
-                {segments.map((segment, index) => {
-                    const isLast = index === segments.length - 1;
-                    const href = `/app/${segments.slice(0, index + 1).join('/')}`;
-
-                    // Format segment name: "maintenance-logs" -> "Maintenance Logs"
-                    const name = segment.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-                    const navLabel = segment === "income" ? t("nav.income") : name;
-
-                    // Use customLastItem if it's the last item and value is set
-                    const displayName = (isLast && customLastItem) ? customLastItem : navLabel;
-
-                    return (
-                        <div key={href} className="flex items-center">
-                            <BreadcrumbItem>
-                                {isLast ? (
-                                    <BreadcrumbPage className="font-semibold text-foreground">
-                                        {displayName}
-                                    </BreadcrumbPage>
-                                ) : (
-                                    <BreadcrumbLink asChild>
-                                        <Link href={href} prefetch={false}>{displayName}</Link>
-                                    </BreadcrumbLink>
-                                )}
-                            </BreadcrumbItem>
-                            {!isLast && <BreadcrumbSeparator className="ml-2" />}
-                        </div>
-                    );
-                })}
-            </BreadcrumbList>
-        </Breadcrumb>
-    );
-}
-
+/**
+ * The `/app` shell (UI3, issue #143): sidebar, a 64 px header (sidebar trigger, breadcrumb from the menu's labels,
+ * tenant switcher, user menu with the scope line, language, theme and sign-out) and the page. The header holds
+ * only working controls: the dead searches, the unwired report button and bell, and the "real-time" label over a
+ * 60 s poll were removed.
+ */
 export default function AdminLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
     const authContext = useAuth();
-    const pathname = usePathname();
-    const { language, setLanguage, t } = useLanguage();
+    const pathname = usePathname() ?? "";
+    const { t } = useLanguage();
     // `['me']` decides who is signed in: proxy.ts let this route through on a valid `lt_at`, and a
     // session that ends later is handled by goFetch (lib/sessionEnd.ts), which leaves for /login.
     const me = authContext?.me ?? null;
-    const userName = meDisplayName(me) || "User";
-    const userEmail = me?.email || "";
-    const userPhoto = me?.photoUrl || "";
 
-    const isDashboard = pathname === "/app/dashboard";
-    const isSecurityCenter = pathname?.startsWith("/app/security-center");
-    const isSecurityOverview = pathname === "/app/security-center";
-
-    // The theme lives in next-themes (app/providers.tsx, UI1): stored under `theme`, the system's until picked.
-    const { resolvedTheme, setTheme } = useTheme();
-    const isDark = resolvedTheme === "dark";
+    const isSecurityCenter = pathname.startsWith("/app/security-center");
 
     // Route access is decided before any page code runs, by the proxy.ts edge gate over the Go
     // capabilities (TW3, developer-spec.md §10.5). Who is signed in comes from `['me']` (TW4), so the
     // 500 ms wait for Firebase persistence before redirecting to /login is gone.
-
-    const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
     // A session that ends meanwhile is taken to /login by lib/sessionEnd.ts; an api that cannot be
     // reached shows a retry instead of a sign-out (T18).
@@ -122,20 +50,18 @@ export default function AdminLayout({
         return (
             <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6 text-center" role="alert">
                 <p className="text-muted-foreground">{t("shell.sessionLoadFailed")}</p>
-                <button type="button" className="rounded-md border px-4 py-2 text-sm hover:bg-accent" onClick={authContext.retry}>
+                <Button type="button" variant="outline" onClick={authContext.retry}>
                     {t("shell.retry")}
-                </button>
+                </Button>
             </div>
         );
     }
 
     if (!authContext || authContext.loading) {
         return (
-            <div className="min-h-screen bg-background flex flex-col items-center justify-center">
-                <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <div className="text-center text-muted-foreground">Loading / กำลังโหลด...</div>
-                </div>
+            <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4" role="status">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+                <p className="text-muted-foreground">{t("common.loading")}</p>
             </div>
         );
     }
@@ -144,164 +70,33 @@ export default function AdminLayout({
         return null; // The session ended: goFetch is already on its way to /login.
     }
 
+    const homeHref = homeRouteOf(me) || DASHBOARD_PATH;
+
     return (
         <BreadcrumbProvider>
+            {/* The first stop of the keyboard: past the sidebar and the header, straight to the page. */}
+            <a
+                href={`#${MAIN_CONTENT_ID}`}
+                className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-modal focus:rounded-md focus:border focus:border-ring focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-md focus:outline-none focus:ring-[3px] focus:ring-ring/50"
+            >
+                {t("shell.skipToContent")}
+            </a>
             <SidebarProvider defaultOpen={false}>
                 {isSecurityCenter ? <SecurityCenterSidebar /> : <AppSidebar />}
                 <SidebarInset>
-                    <header className="sticky top-0 z-sticky flex h-16 shrink-0 items-center justify-between gap-2 border-b border-b-zinc-700/50 dark:border-b-zinc-800 bg-background px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12 shadow-sm">
-                        <div className="flex items-center gap-4 flex-1">
-                            <SidebarTrigger className="-ml-1" />
-                            <Separator orientation="vertical" className="mr-2 h-4" />
-
-
-                            <div className="relative w-full max-w-md flex items-center">
-                                {isDashboard ? (
-                                    <div className="relative w-full hidden md:block">
-                                        <svg
-                                            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                                            />
-                                        </svg>
-                                        <input
-                                            type="text"
-                                            placeholder="Search data..."
-                                            className="h-9 w-full rounded-md border border-input bg-muted/50 px-9 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                        />
-                                    </div>
-                                ) : isSecurityOverview ? (
-                                    <div className="relative w-full hidden md:block">
-                                        <svg
-                                            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                                            />
-                                        </svg>
-                                        <input
-                                            type="text"
-                                            placeholder="Search security logs..."
-                                            className="h-9 w-full rounded-md border border-input bg-muted/50 px-9 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                        />
-                                    </div>
-                                ) : (
-                                    <DynamicBreadcrumb pathname={pathname} />
-                                )}
-                            </div>
+                    {/* One height whatever the sidebar does (UI3: it jumped 64/48 px on toggle). */}
+                    <header className="sticky top-0 z-sticky flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
+                        <SidebarTrigger className="-ml-2 size-11 md:size-9" aria-label={t("shell.toggleSidebar")} />
+                        <Separator orientation="vertical" className="mr-2 hidden data-[orientation=vertical]:h-4 md:block" />
+                        <div className="flex min-w-0 flex-1 items-center">
+                            <AppBreadcrumb pathname={pathname} homeHref={homeHref} />
                         </div>
-
-                        <div className="flex items-center gap-4 px-4">
+                        <div className="flex shrink-0 items-center gap-2">
                             <TenantSwitcher />
-
-                            {isDashboard && (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:inline-block">Real-Time Operations</span>
-                                </div>
-                            )}
-
-                            <div className="hidden sm:flex items-center bg-muted/50 rounded-full p-0.5 border border-border">
-                                <button
-                                    onClick={() => setLanguage("en")}
-                                    className={cn(
-                                        "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all",
-                                        language === "en"
-                                            ? "bg-primary text-primary-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    <img src="/usa_flag_v2.svg" alt="EN" className="h-3.5 w-3.5 rounded-full object-cover" /> EN
-                                </button>
-                                <button
-                                    onClick={() => setLanguage("th")}
-                                    className={cn(
-                                        "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all",
-                                        language === "th"
-                                            ? "bg-primary text-primary-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    <img src="/thailand_round_icon_64.png" alt="TH" className="h-3.5 w-3.5 rounded-full object-contain" /> TH
-                                </button>
-                            </div>
-
-                            <button
-                                onClick={toggleTheme}
-                                className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-accent transition-colors cursor-pointer"
-                                title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-                            >
-                                {isDark ? (
-                                    <Sun className="w-5 h-5 text-muted-foreground" />
-                                ) : (
-                                    <Moon className="w-5 h-5 text-muted-foreground" />
-                                )}
-                            </button>
-
-                            {isDashboard && (
-                                <>
-                                    <button className="hidden md:flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="M12 5v14" /></svg>
-                                        Generate Report
-                                    </button>
-
-                                    <button className="relative p-2 text-muted-foreground hover:text-foreground transition-colors">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
-                                        <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-red-500 border-2 border-background"></span>
-                                    </button>
-
-                                    <div className="h-8 w-[1px] bg-border mx-2"></div>
-                                </>
-                            )}
-
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button className="flex items-center gap-3 hover:bg-muted/50 p-2 rounded-lg transition-colors outline-none">
-                                        <div className="text-right hidden sm:block">
-                                            <p className="text-sm font-medium leading-none">{userName}</p>
-                                            <p className="text-xs text-muted-foreground mt-1 capitalize">
-                                                {principalRoleLabel(authContext.me, t, language)}
-                                            </p>
-                                        </div>
-                                        <Avatar className="h-9 w-9 border border-border">
-                                            <AvatarImage src={userPhoto} alt={userName} className="object-cover" />
-                                            <AvatarFallback className="bg-orange-200 text-orange-700 font-semibold">
-                                                {userName[0]?.toUpperCase() || "U"}
-                                            </AvatarFallback>
-                                        </Avatar>
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-56">
-                                    <div className="px-2 py-2">
-                                        <p className="text-sm font-medium leading-none">{userName}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">{userEmail}</p>
-                                    </div>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={async () => {
-                                        await authContext.logout();
-                                        window.location.href = "/login";
-                                    }}>
-                                        {t("nav.logout")}
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                            <UserMenu />
                         </div>
                     </header>
-                    <div className="flex flex-1 flex-col gap-4 p-4">
+                    <div id={MAIN_CONTENT_ID} tabIndex={-1} className="flex flex-1 flex-col gap-4 p-4 outline-none">
                         {/* The route group's lazily loaded translation namespaces (accounting, driverMonitor). */}
                         <RouteNamespaces pathname={pathname}>{children}</RouteNamespaces>
                     </div>

@@ -30,8 +30,10 @@ export function RouteNamespaces({ pathname, children }: { pathname: string | nul
         );
     }
     return (
-        <div className="flex h-[50vh] items-center justify-center" aria-busy="true">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="flex h-[50vh] items-center justify-center" role="status" aria-busy="true">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+            {/* The base dictionary is in: only the group's chunk is loading (UI3: a status in words too). */}
+            <span className="sr-only">{t("common.loading")}</span>
         </div>
     );
 }
