@@ -22,17 +22,21 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { routeAllowed } from "@/lib/routeCapabilities"
+import { DASHBOARD_PATH, routeAllowed } from "@/lib/routeCapabilities"
 import type { MeDTO } from "@/features/auth/api/me"
+import { homeRouteOf } from "@/features/auth/api/homeRoute"
 import { useMe } from "@/features/auth/api/useMe"
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
 import type { BadgesDTO } from "@/features/dashboard/api/badges"
 import { useBadges } from "@/features/dashboard/api/useBadges"
 import { WEB_APP_VERSION } from "@/lib/app-version"
 import { activeNavUrl, isNavGroup, MAIN_NAV, SYSTEM_NAV, type NavEntry, type NavLink } from "./app-nav"
+import { sidebarHeaderTooltip, useCloseSidebarOnPhone } from "./sidebar-shell"
 
 const NO_CAPABILITIES: readonly string[] = []
 const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES
+/** The principal's home, as the edge gate and the breadcrumb's Home pick it (R89). */
+const selectHome = (me: MeDTO | null) => (me ? homeRouteOf(me) : DASHBOARD_PATH)
 const selectWaitlistCount = (badges: BadgesDTO) => badges.waitlist ?? 0
 
 const WAITLIST_PATH = "/app/waitlist"
@@ -54,6 +58,8 @@ export function AppSidebar() {
     const canOpen = (url: string) => routeAllowed(held, url)
     const { data: waitlistCount = 0 } = useBadges(selectWaitlistCount)
     const scope = useScopeLabel()
+    const { data: homeHref = DASHBOARD_PATH } = useMe(selectHome)
+    const closeOnPhone = useCloseSidebarOnPhone()
     const brand = t("brand.name")
     const active = activeNavUrl(pathname)
 
@@ -82,8 +88,8 @@ export function AppSidebar() {
             <SidebarHeader>
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild tooltip={scope ? `${brand} · ${scope}` : brand}>
-                            <Link href="/app/dashboard" prefetch={false}>
+                        <SidebarMenuButton size="lg" asChild tooltip={sidebarHeaderTooltip(brand, scope)}>
+                            <Link href={homeHref} prefetch={false} onClick={closeOnPhone}>
                                 <div className="flex aspect-square size-8 items-center justify-center overflow-hidden rounded-md">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src="/Logitrack-logo.jpg" alt="" className="h-full w-full object-cover" />
@@ -124,7 +130,7 @@ export function AppSidebar() {
                                                         {item.items.map((sub) => (
                                                             <SidebarMenuSubItem key={sub.url}>
                                                                 <SidebarMenuSubButton asChild isActive={active === sub.url}>
-                                                                    <Link href={sub.url} prefetch={false}>
+                                                                    <Link href={sub.url} prefetch={false} onClick={closeOnPhone}>
                                                                         <span>{t(sub.labelKey)}</span>
                                                                     </Link>
                                                                 </SidebarMenuSubButton>
@@ -135,7 +141,7 @@ export function AppSidebar() {
                                             </Collapsible>
                                         ) : (
                                             <SidebarMenuButton asChild tooltip={linkLabel(item)} isActive={active === item.url}>
-                                                <Link href={item.url} prefetch={false}>
+                                                <Link href={item.url} prefetch={false} onClick={closeOnPhone}>
                                                     {item.icon ? <item.icon /> : null}
                                                     <span>{linkLabel(item)}</span>
                                                 </Link>
@@ -156,7 +162,7 @@ export function AppSidebar() {
                                 {system.map((link) => (
                                     <SidebarMenuItem key={link.url}>
                                         <SidebarMenuButton asChild tooltip={t(link.labelKey)} isActive={active === link.url}>
-                                            <Link href={link.url} prefetch={false}>
+                                            <Link href={link.url} prefetch={false} onClick={closeOnPhone}>
                                                 {link.icon ? <link.icon /> : null}
                                                 <span>{t(link.labelKey)}</span>
                                             </Link>
@@ -172,7 +178,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton asChild tooltip={t("nav.supportCenter")}>
-                            <Link href="/support" prefetch={false}>
+                            <Link href="/support" prefetch={false} onClick={closeOnPhone}>
                                 <HelpCircle />
                                 <span>{t("nav.supportCenter")}</span>
                             </Link>

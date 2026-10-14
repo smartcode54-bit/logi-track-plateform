@@ -75,6 +75,14 @@ describe("principalRoleLabel (the scope line, UI3)", () => {
         expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], platformRoles: ["support"] }), t, "en")).toBe("Support");
         expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], dispatcher: true }), t, "en")).toBe("Dispatcher");
     });
+    it("names the customer slice only for a customer view (Go authz.IsCustomerScope: no dispatcher, no platform role)", () => {
+        const scopes = [{ billingPartyId: "a", name: "CJSF" }];
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], dispatcher: true, customerScopes: scopes }), t, "en")).toBe("Dispatcher");
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], platformRoles: ["support"], customerScopes: scopes }), t, "en")).toBe("Support");
+        expect(principalRoleLabel(makeMe({ tenant: null, tenants: [], platformRoles: ["platform_admin"], customerScopes: scopes }), t, "en")).toBe(
+            "Platform admin"
+        );
+    });
 });
 
 describe("field errors", () => {

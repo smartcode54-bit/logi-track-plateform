@@ -62,7 +62,8 @@ export function UserMenu() {
                 <Button
                     variant="ghost"
                     className="h-11 gap-3 px-1 sm:px-2"
-                    aria-label={t("shell.userMenu", { name })}
+                    // The name holds the visible text, scope line included (WCAG 2.5.3 label in name).
+                    aria-label={scope ? t("shell.userMenuScoped", { name, scope }) : t("shell.userMenu", { name })}
                     data-testid="user-menu-trigger"
                 >
                     <span className="hidden min-w-0 max-w-56 text-right sm:block">

@@ -18,14 +18,18 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useMemo } from "react"
-import { routeAllowed } from "@/lib/routeCapabilities"
+import { DASHBOARD_PATH, routeAllowed } from "@/lib/routeCapabilities"
 import type { MeDTO } from "@/features/auth/api/me"
+import { homeRouteOf } from "@/features/auth/api/homeRoute"
 import { useMe } from "@/features/auth/api/useMe"
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
 import { activeNavUrl, SECURITY_CENTER_PATH, SECURITY_NAV } from "./app-nav"
+import { sidebarHeaderTooltip, useCloseSidebarOnPhone } from "./sidebar-shell"
 
 const NO_CAPABILITIES: readonly string[] = []
 const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES
+/** "Back to Admin" goes to the principal's home, as the edge gate and the breadcrumb's Home pick it (R89). */
+const selectHome = (me: MeDTO | null) => (me ? homeRouteOf(me) : DASHBOARD_PATH)
 
 /**
  * The Security Center sidebar. Each item (components/app-nav.ts) is shown when the edge gate would let the
@@ -37,6 +41,8 @@ export function SecurityCenterSidebar() {
     const { t } = useLanguage()
     const pathname = usePathname()
     const scope = useScopeLabel()
+    const { data: homeHref = DASHBOARD_PATH } = useMe(selectHome)
+    const closeOnPhone = useCloseSidebarOnPhone()
     const title = t("securityCenter.title")
     const active = activeNavUrl(pathname)
     const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
@@ -55,8 +61,8 @@ export function SecurityCenterSidebar() {
             <SidebarHeader>
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild tooltip={scope ? `${title} · ${scope}` : title}>
-                            <Link href={SECURITY_CENTER_PATH} prefetch={false}>
+                        <SidebarMenuButton size="lg" asChild tooltip={sidebarHeaderTooltip(title, scope)}>
+                            <Link href={SECURITY_CENTER_PATH} prefetch={false} onClick={closeOnPhone}>
                                 <div className="flex aspect-square size-8 items-center justify-center rounded-md border border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground">
                                     <ShieldCheck className="size-4" aria-hidden />
                                 </div>
@@ -81,7 +87,7 @@ export function SecurityCenterSidebar() {
                             {filteredItems.map((item) => (
                                 <SidebarMenuItem key={item.url}>
                                     <SidebarMenuButton asChild tooltip={t(item.labelKey)} isActive={active === item.url}>
-                                        <Link href={item.url} prefetch={false}>
+                                        <Link href={item.url} prefetch={false} onClick={closeOnPhone}>
                                             {item.icon ? <item.icon /> : null}
                                             <span>{t(item.labelKey)}</span>
                                         </Link>
@@ -96,7 +102,7 @@ export function SecurityCenterSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton asChild tooltip={t("securityCenter.backToAdmin")}>
-                            <Link href="/app/dashboard" prefetch={false}>
+                            <Link href={homeHref} prefetch={false} onClick={closeOnPhone}>
                                 <LayoutDashboard />
                                 <span>{t("securityCenter.backToAdmin")}</span>
                             </Link>

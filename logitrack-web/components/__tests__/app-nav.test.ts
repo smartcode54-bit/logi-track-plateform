@@ -36,16 +36,31 @@ describe("breadcrumbTrail", () => {
         expect(breadcrumbTrail("/app/dashboard/")).toEqual({ crumbs: [{ labelKey: "nav.dashboard", href: "/app/dashboard" }], detail: false });
     });
 
-    it("gives a detail page its entry's label (the page may add its own name after it)", () => {
+    it("keeps a detail page's entry as a link and names the page generically until it names itself", () => {
         expect(breadcrumbTrail("/app/trucks/view")).toEqual({
             crumbs: [{ labelKey: "nav.fleets" }, { labelKey: "nav.truckManagement", href: "/app/trucks" }],
             detail: true,
+            detailKey: "shell.crumb.detail",
         });
-        expect(breadcrumbTrail("/app/customers/abc/edit").crumbs.at(-1)).toEqual({ labelKey: "nav.customers", href: "/app/customers" });
+        expect(breadcrumbTrail("/app/customers/abc/edit")).toMatchObject({
+            crumbs: [{ labelKey: "nav.customers", href: "/app/customers" }],
+            detailKey: "shell.crumb.edit",
+        });
+        expect(breadcrumbTrail("/app/drivers/new").detailKey).toBe("shell.crumb.new");
+    });
+
+    it("names the pages opened from another page under their parent", () => {
         expect(breadcrumbTrail("/app/utilities/billing-impact")).toEqual({
-            crumbs: [{ labelKey: "nav.utilities", href: "/app/utilities/backfill" }],
-            detail: true,
+            crumbs: [{ labelKey: "nav.utilities", href: "/app/utilities/backfill" }, { labelKey: "nav.billingImpact", href: "/app/utilities/billing-impact" }],
+            detail: false,
         });
+        expect(breadcrumbTrail("/app/payroll/config").crumbs).toEqual([
+            { labelKey: "nav.hr" },
+            { labelKey: "nav.payroll", href: "/app/payroll" },
+            { labelKey: "driverComp.config.title", href: "/app/payroll/config" },
+        ]);
+        expect(activeNavUrl("/app/payroll/penalties")).toBe("/app/payroll");
+        expect(activeNavUrl("/app/utilities/billing-impact")).toBe("/app/utilities/backfill");
     });
 
     it("puts the Security Center pages under the Security Center", () => {
@@ -66,11 +81,11 @@ describe("breadcrumbTrail", () => {
         expect(routes.length).toBeGreaterThan(50);
         for (const route of routes) {
             if (route === "/app") continue; // redirects to the principal's home
-            const { crumbs } = breadcrumbTrail(route);
+            const { crumbs, detailKey } = breadcrumbTrail(route);
             expect(crumbs.length, route).toBeGreaterThan(0);
-            for (const crumb of crumbs) {
-                expect(en[crumb.labelKey], `${route} en ${crumb.labelKey}`).toBeTruthy();
-                expect(th[crumb.labelKey], `${route} th ${crumb.labelKey}`).toBeTruthy();
+            for (const key of [...crumbs.map((c) => c.labelKey), ...(detailKey ? [detailKey] : [])]) {
+                expect(en[key], `${route} en ${key}`).toBeTruthy();
+                expect(th[key], `${route} th ${key}`).toBeTruthy();
             }
         }
     });

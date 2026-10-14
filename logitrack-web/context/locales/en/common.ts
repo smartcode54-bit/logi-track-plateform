@@ -439,6 +439,12 @@ export default {
     "shell.scope.andMore": "{name} +{count}",
     "shell.mobileNav.title": "Menu",
     "shell.mobileNav.description": "The pages you can open",
+    "shell.userMenuScoped": "Account menu for {name}, {scope}",
+    "shell.crumb.new": "New",
+    "shell.crumb.edit": "Edit",
+    "shell.crumb.detail": "Details",
+    "nav.billingImpact": "Billing impact report",
+    "nav.signIn": "Sign in",
 
     // T42: the Go accounting / maintenance pages.
     "common.searchPlaceholder": "Search...",

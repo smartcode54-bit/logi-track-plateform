@@ -21,7 +21,10 @@ import { fakeWeb, goErr } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { WEB_ROOT } from "@/test-utils/importGraph";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+});
 
 async function renderSignIn() {
     const web = fakeWeb();
@@ -58,6 +61,7 @@ describe("the sign-in page", () => {
     });
 
     it("uses the primary button, the field token and a sentence-case divider", async () => {
+        vi.stubEnv("NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID", "test-client.apps.googleusercontent.com");
         await renderSignIn();
         const submit = screen.getByTestId("sign-in-submit");
         expect(submit).toHaveAccessibleName("Login");
@@ -70,6 +74,15 @@ describe("the sign-in page", () => {
         const or = screen.getByText("or");
         expect(or.className).not.toMatch(/uppercase/);
         expect(or.parentElement?.className ?? "").not.toMatch(/uppercase/);
+        expect(screen.getByTestId("gis-button")).toBeInTheDocument();
+    });
+
+    it("offers no 'or' when Google sign-in is not configured (the button would render nothing)", async () => {
+        vi.stubEnv("NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID", "");
+        await renderSignIn();
+        expect(screen.queryByTestId("sign-in-or")).toBeNull();
+        expect(screen.queryByText("or")).toBeNull();
+        expect(screen.queryByTestId("gis-button")).toBeNull();
     });
 
     it("names the product and says where the account link leads", async () => {

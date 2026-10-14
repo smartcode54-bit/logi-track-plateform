@@ -134,12 +134,23 @@ interface Located {
     link: NavLink;
     /** The crumbs above the entry (its menu group). */
     parents: readonly Crumb[];
+    /** The menu entry to highlight when it is not `link` itself (a page opened from that entry's page). */
+    menuUrl?: string;
 }
+
+const PAYROLL_PARENTS: readonly Crumb[] = [{ labelKey: "nav.hr" }, { labelKey: "nav.payroll", href: "/app/payroll" }];
 
 /** Pages opened from another page, not from the menu: named here for the breadcrumb only. */
 const PAGE_ONLY: readonly Located[] = [
     { link: { url: "/app/first-mile", labelKey: "nav.firstMileTasks" }, parents: [{ labelKey: "nav.operations" }] },
     { link: { url: "/app/line-haul", labelKey: "nav.lineHaulTasks" }, parents: [{ labelKey: "nav.operations" }] },
+    { link: { url: "/app/payroll/config", labelKey: "driverComp.config.title" }, parents: PAYROLL_PARENTS, menuUrl: "/app/payroll" },
+    { link: { url: "/app/payroll/penalties", labelKey: "driverComp.penalty.title" }, parents: PAYROLL_PARENTS, menuUrl: "/app/payroll" },
+    {
+        link: { url: "/app/utilities/billing-impact", labelKey: "nav.billingImpact" },
+        parents: [{ labelKey: "nav.utilities", href: "/app/utilities/backfill" }],
+        menuUrl: "/app/utilities/backfill",
+    },
     { link: { url: "/app/users", labelKey: "nav.users" }, parents: [] },
     // Redirects to the Security Center's matrix; named while the redirect runs.
     { link: { url: "/app/operations/roles", labelKey: "nav.rolePermission" }, parents: [] },
@@ -182,17 +193,29 @@ function locate(pathname: string): Located | undefined {
 
 /** The menu entry `pathname` belongs to (its `url`), so a detail page keeps its entry highlighted. */
 export function activeNavUrl(pathname: string | null | undefined): string | undefined {
-    return pathname ? locate(pathname)?.link.url : undefined;
+    if (!pathname) return undefined;
+    const located = locate(pathname);
+    return located ? (located.menuUrl ?? located.link.url) : undefined;
 }
 
 export interface BreadcrumbTrail {
-    /** Group and page crumbs, after Home; the last one is the page. */
+    /** Group and page crumbs, after Home. Without `detailKey` the last one is the page. */
     crumbs: Crumb[];
-    /**
-     * The path is below its entry (a truck's view, a customer's edit page): the entry's label stands for the page
-     * until the page names itself (`useBreadcrumb().setCustomLastItem`), then it becomes a link.
-     */
+    /** The path is below its entry (a truck's view, a customer's edit page): the entry stays a link above the page. */
     detail: boolean;
+    /**
+     * The generic name of a detail page ("New", "Edit", "Details"), shown until the page names itself
+     * (`useBreadcrumb().setCustomLastItem`, e.g. a truck's plate).
+     */
+    detailKey?: string;
+}
+
+/** "New", "Edit" or "Details" from the last segment of a detail path: words the menu does not hold. */
+function detailKeyOf(path: string): string {
+    const last = path.slice(path.lastIndexOf("/") + 1);
+    if (last === "new") return "shell.crumb.new";
+    if (last === "edit") return "shell.crumb.edit";
+    return "shell.crumb.detail";
 }
 
 /** The breadcrumb of `pathname` from the menu's labels; no crumbs for a page outside the menu. */
@@ -200,8 +223,7 @@ export function breadcrumbTrail(pathname: string): BreadcrumbTrail {
     const located = locate(pathname);
     if (!located) return { crumbs: [], detail: false };
     const path = stripTrailingSlash(pathname);
-    return {
-        crumbs: [...located.parents, { labelKey: located.link.labelKey, href: located.link.url }],
-        detail: path !== located.link.url,
-    };
+    const crumbs = [...located.parents, { labelKey: located.link.labelKey, href: located.link.url }];
+    if (path === located.link.url) return { crumbs, detail: false };
+    return { crumbs, detail: true, detailKey: detailKeyOf(path) };
 }

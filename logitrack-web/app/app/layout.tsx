@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/context/auth";
 import { usePathname } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { BootLoading } from "@/components/boot-loading";
 import { TenantSwitcher } from "@/components/tenant-switcher";
 import { homeRouteOf } from "@/features/auth/api/homeRoute";
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
@@ -58,12 +58,8 @@ export default function AdminLayout({
     }
 
     if (!authContext || authContext.loading) {
-        return (
-            <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4" role="status">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
-                <p className="text-muted-foreground">{t("common.loading")}</p>
-            </div>
-        );
+        // The same screen and words as the language load before it (components/boot-loading.tsx).
+        return <BootLoading />;
     }
 
     if (!me) {
@@ -83,7 +79,9 @@ export default function AdminLayout({
             </a>
             <SidebarProvider defaultOpen={false}>
                 {isSecurityCenter ? <SecurityCenterSidebar /> : <AppSidebar />}
-                <SidebarInset>
+                {/* min-w-0: a wide page scrolls inside the page area instead of pushing the header (and the user
+                    menu, the only home of sign-out, language and theme) past the viewport. */}
+                <SidebarInset className="min-w-0">
                     {/* One height whatever the sidebar does (UI3: it jumped 64/48 px on toggle). */}
                     <header className="sticky top-0 z-sticky flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
                         <SidebarTrigger className="-ml-2 size-11 md:size-9" aria-label={t("shell.toggleSidebar")} />
@@ -96,7 +94,8 @@ export default function AdminLayout({
                             <UserMenu />
                         </div>
                     </header>
-                    <div id={MAIN_CONTENT_ID} tabIndex={-1} className="flex flex-1 flex-col gap-4 p-4 outline-none">
+                    {/* scroll-mt-16: the skip link lands below the 64 px sticky header, not under it. */}
+                    <div id={MAIN_CONTENT_ID} tabIndex={-1} className="flex min-w-0 flex-1 scroll-mt-16 flex-col gap-4 p-4 outline-none">
                         {/* The route group's lazily loaded translation namespaces (accounting, driverMonitor). */}
                         <RouteNamespaces pathname={pathname}>{children}</RouteNamespaces>
                     </div>

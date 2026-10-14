@@ -54,12 +54,12 @@ export default function Navigation() {
         {/* Brand */}
         <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/Logitrack-logo.jpg" alt="" className="size-8 shrink-0 rounded-md object-cover" />
-          <span className="truncate text-base font-semibold tracking-tight">{t("brand.name")}</span>
+          <img src="/Logitrack-logo.jpg" alt="" className="size-7 shrink-0 rounded-md object-cover sm:size-8" />
+          <span className="truncate text-sm font-semibold tracking-tight sm:text-base">{t("brand.name")}</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">{t("brand.byline")}</span>
         </Link>
 
-        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
           {/* Marketing links when not logged in */}
           {!currentUser && (
             <ul className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
@@ -75,7 +75,9 @@ export default function Navigation() {
 
           <LanguageSwitcher />
 
-          <Button variant="ghost" size="icon" onClick={() => setTheme(isDark ? "light" : "dark")} aria-label={themeLabel} title={themeLabel}>
+          {/* From sm: at 360 px the brand, the language and Sign in take the row (in Thai too), and a phone follows
+              the device theme anyway (system by default). */}
+          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => setTheme(isDark ? "light" : "dark")} aria-label={themeLabel} title={themeLabel}>
             {isDark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
           </Button>
 
@@ -114,8 +116,8 @@ export default function Navigation() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : pathname === "/login" ? null : (
-            <Button asChild size="sm">
-              <Link href="/login">{t("auth.signIn")}</Link>
+            <Button asChild size="sm" className="px-2.5">
+              <Link href="/login">{t("nav.signIn")}</Link>
             </Button>
           )}
         </div>

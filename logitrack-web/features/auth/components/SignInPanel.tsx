@@ -18,7 +18,7 @@ import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
 import { passwordChangeTicket } from "@/lib/authClient";
 import { ChangePasswordForm } from "./ChangePasswordForm";
-import { GoogleSignInButton } from "./GoogleSignInButton";
+import { GoogleSignInButton, googleClientId } from "./GoogleSignInButton";
 
 export interface SignInPanelProps {
     /** The session cookies are set and `['me']` holds the principal. */
@@ -178,13 +178,19 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
                     {submitting ? t("auth.signingIn") : t("auth.login.title")}
                 </Button>
             </form>
-            {/* Two hairlines around the word, so the divider needs no backing colour on a card or in a dialog. */}
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="h-px flex-1 bg-border" aria-hidden />
-                <span>{t("auth.or")}</span>
-                <span className="h-px flex-1 bg-border" aria-hidden />
-            </div>
-            <GoogleSignInButton onCredential={google} disabled={submitting} />
+            {/* Google only where it is configured: GoogleSignInButton renders nothing without a client id, and an
+                "or" with nothing after it would offer a second way in that is not there. */}
+            {googleClientId() ? (
+                <>
+                    {/* Two hairlines around the word, so the divider needs no backing colour on a card or in a dialog. */}
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground" data-testid="sign-in-or">
+                        <span className="h-px flex-1 bg-border" aria-hidden />
+                        <span>{t("auth.or")}</span>
+                        <span className="h-px flex-1 bg-border" aria-hidden />
+                    </div>
+                    <GoogleSignInButton onCredential={google} disabled={submitting} />
+                </>
+            ) : null}
         </div>
     );
 }

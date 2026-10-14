@@ -439,6 +439,12 @@ export default {
     "shell.scope.andMore": "{name} และอีก {count}",
     "shell.mobileNav.title": "เมนู",
     "shell.mobileNav.description": "หน้าที่คุณเปิดได้",
+    "shell.userMenuScoped": "เมนูบัญชีของ {name}, {scope}",
+    "shell.crumb.new": "เพิ่มใหม่",
+    "shell.crumb.edit": "แก้ไข",
+    "shell.crumb.detail": "รายละเอียด",
+    "nav.billingImpact": "รายงานผลกระทบการวางบิล",
+    "nav.signIn": "เข้าสู่ระบบ",
 
     // T42: the Go accounting / maintenance pages.
     "common.searchPlaceholder": "ค้นหา...",

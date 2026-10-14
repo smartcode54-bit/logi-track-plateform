@@ -23,6 +23,14 @@ export interface PrincipalScope {
 /** Joins slice and role; the same separator in both languages. */
 const SEPARATOR = " · ";
 
+/**
+ * A customer view: customer scopes and nothing that outranks them (no tenant, no platform role, not a dispatcher;
+ * Go's `authz.IsCustomerScope` also requires `!Dispatcher`). Only then do the scopes name the slice.
+ */
+function isCustomerView(me: MeDTO): boolean {
+    return !me.tenant && me.platformRoles.length === 0 && !me.dispatcher && me.customerScopes.length > 0;
+}
+
 function roleOf(me: MeDTO, t: Translate): string {
     if (me.platformRoles.includes("platform_admin")) return t("users.platformRole.platform_admin");
     if (me.tenant) {
@@ -31,12 +39,14 @@ function roleOf(me: MeDTO, t: Translate): string {
     }
     if (me.platformRoles.includes("support")) return t("users.platformRole.support");
     if (me.dispatcher) return t("users.scopeKind.dispatcher");
-    if (me.customerScopes.length > 0) return t("shell.scope.customerView");
+    if (isCustomerView(me)) return t("shell.scope.customerView");
     return "";
 }
 
 function sliceOf(me: MeDTO, t: Translate, language: string): string | null {
     if (me.tenant) return tenantName(me.tenant, language) || null;
+    // A support, dispatcher or platform principal that also holds customer scopes is not a customer view.
+    if (!isCustomerView(me)) return null;
     const names = me.customerScopes.map((s) => s.name.trim()).filter(Boolean);
     if (names.length === 0) return null;
     if (names.length === 1) return names[0];
