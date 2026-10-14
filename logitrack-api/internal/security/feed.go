@@ -30,7 +30,7 @@ import (
 // row of another type (a legacy document) is still listed.
 var EventTypes = []string{
 	"refresh_token_reuse", "device_token_moved", "user_created", "user_updated", "user_invited", "user_role_changed",
-	"user_scope_changed", "user_disabled", "user_enabled", "user_deleted", "user_sessions_revoked",
+	"membership_added", "membership_role_changed", "membership_removed", "tenant_switched", "user_scope_changed", "user_disabled", "user_enabled", "user_deleted", "user_sessions_revoked",
 	"user_password_temporary_issued", "password_changed", "password_reset_completed", "google_identity_linked",
 	"driver_linked", "driver_unlinked", "driver_tenant_moved", "task_tenant_reassigned", "platform_role_granted",
 	"platform_role_revoked", "role_matrix_saved", "api_key_created", "api_key_revoked", "tenant_created",

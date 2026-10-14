@@ -51,6 +51,7 @@ var fkWithoutIndex = map[string]string{
 	"outbox_events.tenant_id":                   whyTenant,
 	"sessions.active_tenant_id":                 whyTenant,
 	"sessions.user_id":                          "sessions_user_active (user_id, last_seen_at) WHERE revoked_at IS NULL serves the reads; users are never deleted (ON DELETE CASCADE never fires)",
+	"users.last_tenant_id":                      whyNoDelete, // 0025 (T62): read by the user's own id only
 	"users.photo_file_id":                       whySmallFile,
 	"mobile_app_releases.apk_file_id":           whySmallFile,
 	"statement_documents.file_id":               whySmallFile,

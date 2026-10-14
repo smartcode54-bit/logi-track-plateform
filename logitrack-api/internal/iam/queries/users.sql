@@ -32,6 +32,18 @@ SELECT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = sqlc.arg(id
        EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = sqlc.arg(id)::uuid AND s.kind = 'dispatcher')::boolean AS dispatcher,
        EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = sqlc.arg(id)::uuid AND s.kind = 'customer')::boolean AS customer;
 
+-- name: TargetPrivilegesMany :many
+-- TargetPrivileges of several users at once: the manageAccount flag of GET /v1/users (T62).
+SELECT u.id AS user_id,
+       EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)::boolean AS platform_role,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = u.id ORDER BY m.tenant_id)::uuid[] AS tenant_ids,
+       array(SELECT m.tenant_id FROM memberships m WHERE m.user_id = u.id AND m.role = 'tenant_admin'
+             ORDER BY m.tenant_id)::uuid[] AS admin_tenant_ids,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = u.id AND s.kind = 'dispatcher')::boolean AS dispatcher,
+       EXISTS (SELECT 1 FROM user_scopes s WHERE s.user_id = u.id AND s.kind = 'customer')::boolean AS customer
+FROM users u
+WHERE u.id = ANY (sqlc.arg(ids)::uuid[]);
+
 -- name: ActiveTenantMembers :many
 -- The active members of a tenant whose claims a status change alters (PATCH /v1/tenants/{id} suspend or reactivate),
 -- in user id order (the users rows are locked in that order).
@@ -146,9 +158,17 @@ WHERE id = sqlc.arg(id);
 SELECT role, status FROM memberships WHERE user_id = sqlc.arg(user_id) AND tenant_id = sqlc.arg(tenant_id);
 
 -- name: UpsertMembership :exec
+-- status: active, or suspended (PUT /v1/tenants/{id}/members/{userId} {status}, T62).
 INSERT INTO memberships (user_id, tenant_id, role, status, created_by)
-VALUES (sqlc.arg(user_id), sqlc.arg(tenant_id), sqlc.arg(role), 'active', sqlc.narg(created_by))
-ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = EXCLUDED.role, status = 'active';
+VALUES (sqlc.arg(user_id), sqlc.arg(tenant_id), sqlc.arg(role), sqlc.arg(status), sqlc.narg(created_by))
+ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status;
+
+-- name: LockUserByEmail :one
+-- POST /v1/tenants/{id}/members {email} (T62): the account behind an address (a deleted account has left the
+-- address, users_email), locked as the first users row of the transaction.
+SELECT id, status FROM users
+WHERE email = sqlc.arg(email)::text::citext AND status <> 'deleted'
+FOR NO KEY UPDATE;
 
 -- name: DeleteMembership :one
 DELETE FROM memberships WHERE user_id = sqlc.arg(user_id) AND tenant_id = sqlc.arg(tenant_id) RETURNING role;

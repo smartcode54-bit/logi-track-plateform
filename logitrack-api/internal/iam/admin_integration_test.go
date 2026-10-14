@@ -229,7 +229,7 @@ func TestUserAdministration(t *testing.T) {
 	}
 
 	// A role change (claims_changed: signed in, new claims after the refresh).
-	w.oneEvent("user_role_changed", func() resp {
+	w.oneEvent("membership_role_changed", func() resp {
 		return w.send(http.MethodPut, "/v1/tenants/"+w.O+"/members/"+mgID, ta, map[string]any{"role": "operator"})
 	}, http.StatusOK)
 	if n := w.count(`SELECT count(*) FROM sessions WHERE user_id = $1 AND revoked_at IS NULL`, mgID); n == 0 {
@@ -242,7 +242,7 @@ func TestUserAdministration(t *testing.T) {
 	w.noEvent(func() resp { // the same role again changes nothing
 		return w.send(http.MethodPut, "/v1/tenants/"+w.O+"/members/"+mgID, ta, map[string]any{"role": "operator"})
 	})
-	w.oneEvent("user_role_changed", func() resp {
+	w.oneEvent("membership_role_changed", func() resp {
 		return w.send(http.MethodPut, "/v1/tenants/"+w.O+"/members/"+mgID, ta, map[string]any{"role": "manager"})
 	}, http.StatusOK)
 
@@ -392,7 +392,7 @@ func TestUserAdministration(t *testing.T) {
 	if r.status != http.StatusForbidden || reason(r) != "tenant_admin_only" {
 		t.Errorf("own-fleet admin grants tenant_admin in A: %d %s", r.status, r.raw)
 	}
-	w.oneEvent("user_role_changed", func() resp {
+	w.oneEvent("membership_role_changed", func() resp {
 		return w.send(http.MethodPut, "/v1/tenants/"+w.A+"/members/"+w.userID("op.a@example.test"), ta, map[string]any{"role": "manager"})
 	}, http.StatusOK)
 	// Outside the reach a user does not exist; a tenant outside it is refused.
@@ -521,7 +521,7 @@ func TestTenantOnboarding(t *testing.T) {
 	// Switching: only among memberships. The platform admin adds one in C (no header), then C works, O not.
 	ntaID := w.userID("admin@new.example.test")
 	expect(t, w.send(http.MethodPost, "/v1/auth/tenant", nta, map[string]any{"tenantId": w.O}), http.StatusForbidden, "permission_denied")
-	w.oneEvent("user_role_changed", func() resp {
+	w.oneEvent("membership_added", func() resp {
 		return w.send(http.MethodPut, "/v1/tenants/"+w.C+"/members/"+ntaID, pa, map[string]any{"role": "manager"})
 	}, http.StatusOK)
 	nta = w.login2("admin@new.example.test", newPw)
@@ -736,10 +736,15 @@ func TestAdminOutranksTarget(t *testing.T) {
 		{http.MethodPatch, "/v1/users/" + taoID, map[string]any{"email": "attacker@evil.test"}},
 		{http.MethodPost, "/v1/users/" + taoID + "/disable", map[string]any{}},
 		{http.MethodPost, "/v1/users/" + taoID + "/invite", map[string]any{}},
-		{http.MethodDelete, "/v1/tenants/" + w.A + "/members/" + taoID, nil},
 	} {
 		w.refusedFor("outside_reach", "ta.a "+c.method+" "+c.path, func() resp { return w.send(c.method, c.path, taa, c.body) })
 	}
+	// The A membership itself is A's to manage (T62): the write changes that membership only.
+	w.oneEvent("membership_removed", func() resp {
+		return w.send(http.MethodDelete, "/v1/tenants/"+w.A+"/members/"+taoID, taa, nil)
+	}, http.StatusNoContent)
+	w.member(taoID, w.A, "user")
+	tao = w.login("ta.o@example.test") // the removal bumped its claims (claims_changed)
 	if e := w.id(`SELECT email::text FROM users WHERE id = $1`, taoID); e != "ta.o@example.test" {
 		t.Fatalf("the own-fleet admin's email became %s", e)
 	}

@@ -122,22 +122,19 @@ func (q *Queries) GetUserForLogin(ctx context.Context, email string) (GetUserFor
 }
 
 const lastActiveTenant = `-- name: LastActiveTenant :one
-SELECT active_tenant_id FROM sessions
-WHERE user_id = $1 AND active_tenant_id IS NOT NULL
-ORDER BY created_at DESC, id DESC
-LIMIT 1
+SELECT last_tenant_id FROM users WHERE id = $1
 `
 
-// The tenant the user worked in most recently: the default tenant of a new login.
+// The tenant the user worked in most recently (users.last_tenant_id, 0025, T62): the default tenant of a new login.
 func (q *Queries) LastActiveTenant(ctx context.Context, userID uuid.UUID) (*uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lastActiveTenant, userID)
-	var active_tenant_id *uuid.UUID
-	err := row.Scan(&active_tenant_id)
-	return active_tenant_id, err
+	var last_tenant_id *uuid.UUID
+	err := row.Scan(&last_tenant_id)
+	return last_tenant_id, err
 }
 
 const listMemberships = `-- name: ListMemberships :many
-SELECT m.tenant_id, m.role, t.kind, t.name_th, t.name_en, t.status AS tenant_status
+SELECT m.tenant_id, m.role, t.kind, t.name_th, t.name_en, t.status AS tenant_status, m.created_at AS member_since
 FROM memberships m
 JOIN tenants t ON t.id = m.tenant_id
 WHERE m.user_id = $1 AND m.status = 'active' AND t.kind <> 'quarantine'
@@ -151,9 +148,11 @@ type ListMembershipsRow struct {
 	NameTh       string
 	NameEn       *string
 	TenantStatus string
+	MemberSince  time.Time
 }
 
-// Active memberships in non-quarantine tenants, own fleet first (the default-tenant order).
+// Active memberships in non-quarantine tenants, own fleet first, then by name (the order of the switcher);
+// member_since picks the fallback tenant of a sign-in (the earliest usable membership, T62).
 func (q *Queries) ListMemberships(ctx context.Context, userID uuid.UUID) ([]ListMembershipsRow, error) {
 	rows, err := q.db.Query(ctx, listMemberships, userID)
 	if err != nil {
@@ -170,6 +169,7 @@ func (q *Queries) ListMemberships(ctx context.Context, userID uuid.UUID) ([]List
 			&i.NameTh,
 			&i.NameEn,
 			&i.TenantStatus,
+			&i.MemberSince,
 		); err != nil {
 			return nil, err
 		}
@@ -296,6 +296,22 @@ type RehashPasswordParams struct {
 // unchanged, so password_changed_at and auth_version stay as they are.
 func (q *Queries) RehashPassword(ctx context.Context, arg RehashPasswordParams) error {
 	_, err := q.db.Exec(ctx, rehashPassword, arg.PasswordHash, arg.ID)
+	return err
+}
+
+const setLastTenant = `-- name: SetLastTenant :exec
+UPDATE users SET last_tenant_id = $1::uuid
+WHERE id = $2 AND last_tenant_id IS DISTINCT FROM $1::uuid
+`
+
+type SetLastTenantParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Remembers the tenant a sign-in opened or POST /v1/auth/tenant chose (T62); unchanged rows are not rewritten.
+func (q *Queries) SetLastTenant(ctx context.Context, arg SetLastTenantParams) error {
+	_, err := q.db.Exec(ctx, setLastTenant, arg.TenantID, arg.ID)
 	return err
 }
 

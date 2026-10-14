@@ -438,7 +438,8 @@ type grant struct {
 }
 
 // openSession creates the session and the first token pair in one transaction: the default tenant is
-// the one the user last worked in (else own fleet first), the new session stores it as
+// the one the user last worked in (users.last_tenant_id, when still usable; else the earliest usable membership,
+// T62), remembered again; the new session stores it as
 // active_tenant_id, last_login_* is written and user.logged_in queued. The cached auth_version is raised
 // to the issued one after COMMIT.
 func (s *Service) openSession(ctx context.Context, uid uuid.UUID, g grant, in LoginInput) (*LoginResult, error) {
@@ -480,6 +481,9 @@ func (s *Service) openSession(ctx context.Context, uid uuid.UUID, g grant, in Lo
 		var tid *uuid.UUID
 		if m != nil {
 			tid = &m.TenantID
+			if err := q.SetLastTenant(ctx, authdb.SetLastTenantParams{TenantID: m.TenantID, ID: uid}); err != nil {
+				return err
+			}
 		}
 		sid, refresh, err := s.createSession(ctx, q, newSessionInput{
 			UserID: uid, Platform: in.Platform, AMR: g.amr, TenantID: tid, InstallID: in.InstallID,

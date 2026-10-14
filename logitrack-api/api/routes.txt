@@ -206,6 +206,7 @@ POST /v1/tenants internal
 GET /v1/tenants/:id internal
 PATCH /v1/tenants/:id internal
 GET /v1/tenants/:id/members internal
+POST /v1/tenants/:id/members internal
 DELETE /v1/tenants/:id/members/:userId internal
 PUT /v1/tenants/:id/members/:userId internal
 GET /v1/tenants/quarantine/rows internal

@@ -86,10 +86,10 @@ func (a axes) usable() []authdb.ListMembershipsRow {
 	return out
 }
 
-// pickTenant returns the preferred tenant when it is still a usable membership, otherwise the first
-// usable one (own fleet first, then by name), or nil when the user is a member of nothing usable
-// (customer-scope and platform-only principals). A removed membership therefore falls back to another
-// active one on the next refresh (C.4.4).
+// pickTenant returns the preferred tenant when it is still a usable membership, otherwise the earliest usable
+// one (the membership created first, T62), or nil when the user is a member of nothing usable (customer-scope and
+// platform-only principals). A suspended membership (not listed) or a suspended tenant (not usable) is never
+// chosen, and a removed membership falls back to another active one on the next refresh (C.4.4).
 func (a axes) pickTenant(preferred *uuid.UUID) *authdb.ListMembershipsRow {
 	u := a.usable()
 	if preferred != nil {
@@ -102,7 +102,14 @@ func (a axes) pickTenant(preferred *uuid.UUID) *authdb.ListMembershipsRow {
 	if len(u) == 0 {
 		return nil
 	}
-	return &u[0]
+	first := 0
+	for i := range u {
+		if u[i].MemberSince.Before(u[first].MemberSince) ||
+			(u[i].MemberSince.Equal(u[first].MemberSince) && u[i].TenantID.String() < u[first].TenantID.String()) {
+			first = i
+		}
+	}
+	return &u[first]
 }
 
 func (a axes) tenants() []Tenant {
