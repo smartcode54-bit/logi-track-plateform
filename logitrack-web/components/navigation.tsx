@@ -6,6 +6,10 @@
  * UI3 (issue #143): the brand is "LogiTrack Pro by GORATECH" (PRODUCT.md), colours come from the tokens (paper,
  * hairline, Route Blue for the sign-in action), every label goes through `t()`, and sign-out is the shared one
  * (`useSignOut`: the same landing page as the app shell's user menu).
+ * UI3E: a signed-in visitor sees "Open console" (the role's home) as a button in the bar, not only inside the avatar
+ * menu; a driver-only account is pointed to the driver app instead. The language switch is text only. On a phone every
+ * control is a 44 px target, and with the console button in the bar the brand keeps its logo and gives up its words
+ * (they stay the link's accessible name) so the row fits 360 px in Thai and English.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -28,6 +32,7 @@ import { homeRouteOf, isDriverOnly } from "@/features/auth/api/homeRoute";
 import { useSignOut } from "@/features/auth/hooks/useSignOut";
 import { useHydrated } from "@/hooks/useHydrated";
 import { initialOf } from "@/lib/initials";
+import { cn } from "@/lib/utils";
 import { APP_PATH } from "@/lib/sessionEnd";
 import { LanguageSwitcher } from "./language-switcher";
 
@@ -57,15 +62,16 @@ export default function Navigation() {
   // A driver-only account has no console (the edge gate sends it to /app/unauthorized): it is pointed to the app.
   const driverOnly = me ? isDriverOnly(me) : false;
   const consoleHref = me ? homeRouteOf(me) : APP_PATH;
+  const consoleButton = Boolean(currentUser) && !driverOnly;
 
   return (
     <nav aria-label={t("landing.nav.label")} className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
         {/* Brand */}
-        <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+        <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 max-md:min-h-11 max-md:min-w-11">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/Logitrack-logo.jpg" alt="" className="size-7 shrink-0 rounded-md object-cover sm:size-8" />
-          <span className="truncate text-sm font-semibold tracking-tight sm:text-base">{t("brand.name")}</span>
+          <span className={cn("truncate text-sm font-semibold tracking-tight sm:text-base", consoleButton && "max-sm:sr-only")}>{t("brand.name")}</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">{t("brand.byline")}</span>
         </Link>
 
@@ -87,14 +93,23 @@ export default function Navigation() {
 
           {/* From sm: at 360 px the brand, the language and Sign in take the row (in Thai too), and a phone follows
               the device theme anyway (system by default). */}
-          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => setTheme(isDark ? "light" : "dark")} aria-label={themeLabel} title={themeLabel}>
+          <Button variant="ghost" size="icon" className="hidden sm:inline-flex max-md:size-11" onClick={() => setTheme(isDark ? "light" : "dark")} aria-label={themeLabel} title={themeLabel}>
             {isDark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
           </Button>
+
+          {/* UI3E: the console is one tap away for a signed-in visitor, in the bar itself. */}
+          {consoleButton ? (
+            <Button asChild size="sm" className="px-2.5 max-md:h-11">
+              <Link href={consoleHref} prefetch={false} data-testid="nav-open-console">
+                {t("landing.openConsole")}
+              </Link>
+            </Button>
+          ) : null}
 
           {currentUser ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full" aria-label={t("shell.userMenu", { name: userName })}>
+                <Button variant="ghost" size="icon" className="rounded-full max-md:size-11" aria-label={t("shell.userMenu", { name: userName })}>
                   <Avatar className="size-8">
                     {currentUser.photoURL ? <AvatarImage src={currentUser.photoURL} alt="" /> : null}
                     <AvatarFallback className="text-xs font-medium">{initialOf(userName)}</AvatarFallback>
@@ -105,7 +120,7 @@ export default function Navigation() {
                 <DropdownMenuLabel className="truncate">{userName}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/my-account" className="flex items-center">
+                  <Link href="/my-account" className="flex items-center max-md:min-h-11">
                     <User className="mr-2 h-4 w-4" aria-hidden />
                     <span>{t("nav.myAccount")}</span>
                   </Link>
@@ -118,21 +133,21 @@ export default function Navigation() {
                   </DropdownMenuLabel>
                 ) : (
                   <DropdownMenuItem asChild>
-                    <Link href={consoleHref} className="flex items-center" prefetch={false}>
+                    <Link href={consoleHref} className="flex items-center max-md:min-h-11" prefetch={false}>
                       <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
                       <span>{t("landing.openConsole")}</span>
                     </Link>
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center">
+                <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center max-md:min-h-11">
                   <LogOut className="mr-2 h-4 w-4" aria-hidden />
                   <span>{t("shell.signOut")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : pathname === "/login" ? null : (
-            <Button asChild size="sm" className="px-2.5">
+            <Button asChild size="sm" className="px-2.5 max-md:h-11">
               <Link href="/login">{t("nav.signIn")}</Link>
             </Button>
           )}

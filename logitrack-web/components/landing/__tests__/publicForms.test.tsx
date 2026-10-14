@@ -78,14 +78,14 @@ describe("the landing forms (AC: they post only to /api/forms/*)", () => {
         const sent = stubFetch();
         const user = userEvent.setup();
         render(<WaitlistForm />);
-        await user.type(await screen.findByLabelText("Full name"), "  Somchai  ");
-        await user.type(screen.getByLabelText("Email"), "somchai@example.test");
-        await user.type(screen.getByLabelText("Phone number"), "812345678");
-        await user.click(screen.getByRole("button", { name: "Request Access" }));
+        await user.type(await screen.findByLabelText(/^Full name/), "  Somchai  ");
+        await user.type(screen.getByLabelText(/^Email/), "somchai@example.test");
+        await user.type(screen.getByLabelText(/^Phone number/), "812345678");
+        await user.click(screen.getByRole("button", { name: "Request access" }));
         await waitFor(() => expect(sent).toHaveLength(1));
         expect(sent[0].url).toBe("/api/forms/waitlist");
         expect(JSON.parse(String(sent[0].init.body))).toEqual({ email: "somchai@example.test", name: "Somchai", countryCode: "+66", phone: "812345678", website: "" });
-        expect(await screen.findByText("You're on the list!")).toBeInTheDocument();
+        expect(await screen.findByText("You are on the waitlist")).toBeInTheDocument();
     });
 
     it("the waitlist page posts to /api/forms/waitlist and shows Go's refusal", async () => {
@@ -93,17 +93,16 @@ describe("the landing forms (AC: they post only to /api/forms/*)", () => {
         const error = vi.spyOn(toast, "error");
         const user = userEvent.setup();
         render(<WaitlistForm />);
-        await user.type(await screen.findByLabelText("Full name"), "Somchai");
-        await user.type(screen.getByLabelText("Email"), "somchai@example.test");
-        await user.type(screen.getByLabelText("Phone number"), "812345678");
-        await user.click(screen.getByRole("button", { name: "Request Access" }));
+        await user.type(await screen.findByLabelText(/^Full name/), "Somchai");
+        await user.type(screen.getByLabelText(/^Email/), "somchai@example.test");
+        await user.type(screen.getByLabelText(/^Phone number/), "812345678");
+        await user.click(screen.getByRole("button", { name: "Request access" }));
         await waitFor(() => expect(error).toHaveBeenCalledWith("Too many requests. Please wait and try again."));
         expect(sent.map((s) => s.url)).toEqual(["/api/forms/waitlist"]);
     });
 
     it("the join-network form posts to /api/forms/partner-interest", async () => {
         const sent = stubFetch();
-        const success = vi.spyOn(toast, "success");
         const user = userEvent.setup();
         render(<JoinNetworkPage />);
         await user.type(await screen.findByLabelText(/^Company name/), "Somchai Transport");
@@ -111,7 +110,7 @@ describe("the landing forms (AC: they post only to /api/forms/*)", () => {
         await user.type(screen.getByLabelText(/^Email/), "somchai@example.test");
         await user.type(screen.getByLabelText("Phone number"), "0812345678");
         await user.click(screen.getByRole("button", { name: "Send application" }));
-        await waitFor(() => expect(success).toHaveBeenCalled());
+        expect(await screen.findByTestId("join-success")).toBeInTheDocument();
         expect(sent).toHaveLength(1);
         expect(sent[0].url).toBe("/api/forms/partner-interest");
         expect(JSON.parse(String(sent[0].init.body))).toMatchObject({

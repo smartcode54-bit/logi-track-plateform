@@ -407,11 +407,22 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - One Display H1 per page (700, 36/48/60 px; `leading-[1.25]` in Thai so stacked marks never touch), then sections
   on paper separated by hairlines, each with a Headline (600) and its points as a list under hairlines (`dl`), never
   icon cards. No kicker, no stat chips, no coloured band.
-- The sign-in card is the same on `/` and `/login` (`LoginForm`): sign-in is the primary button, the waitlist a text
-  link under it; its title is the page's h1 on `/login` and an h2 under the landing's h1. A signed-in visitor of `/`
-  goes to the role's home (`homeRouteOf`); a driver-only account is told to use the driver app instead.
+- The language switch is text only, each language in its own words ("English", "ไทย"), with `aria-pressed`; no flags.
+- Each page has its own tab title, "<page> · LogiTrack Pro" in the active language (the route's `metadata` in
+  English, `PublicPageTitle` after a switch; `lib/publicPageTitle.ts`); the landing keeps "LogiTrack Pro by GORATECH".
+- The sign-in card is the same on `/` and `/login` (`LoginForm`): sign-in is the primary button; under it, "No
+  account? Ask the transport company or administrator who invited you", and on its own line the LogiTrack Pro waitlist,
+  labelled for transport companies (accounts are by invitation; the waitlist is GORATECH's, for new tenants). Its title
+  is the page's h1 on `/login` and an h2 under the landing's h1; `/waitlist`, `/forgot-password` and
+  `/reset-password` title their card as the h1 too. A signed-in visitor of `/` goes to the role's home
+  (`homeRouteOf`); a driver-only account is told to use the driver app instead.
+- Signed in, a public page shows "Open console" (the role's home) as a button in the navigation and as the footer's
+  last link in place of "Sign in"; a driver-only account sees the driver-app line instead.
 - Forms: required labels carry the Signal Red star; errors sit under the field (`aria-invalid`, `aria-describedby`),
-  with a toast only as a summary.
+  the shared `onInvalid` handler focuses the first, with a toast only as a summary. A sent form shows what happens next
+  in place of the form (the waitlist and partner cards), naming only the contact details the form collected.
+- On a phone every control of a public page is a 44 px target (`max-md:h-11` / `min-h-11`), and nothing scrolls
+  sideways at 360 px in either language.
 - Copy states only what PRODUCT.md has evidence for: no counts, testimonials, customer logos, pricing or "global"
   claims (`components/landing/__tests__/landingCopy.test.ts`).
 

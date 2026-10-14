@@ -4,23 +4,24 @@ import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useForgotPassword } from "../hooks/useForgotPassword";
+import { AuthCardTitle } from "./AuthCardTitle";
 
 export default function ForgotPasswordForm() {
   const { email, setEmail, loading, sent, error, handleSubmit, t } = useForgotPassword();
 
   return (
     <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>{t("auth.forgot.title")}</CardTitle>
+      <CardHeader className="gap-1">
+        <AuthCardTitle>{t("auth.forgot.title")}</AuthCardTitle>
         <CardDescription>{t("auth.forgot.subtitle")}</CardDescription>
       </CardHeader>
       <CardContent>
         {sent ? (
-          <p role="status" className="text-sm text-green-600">
+          <p role="status" className="text-sm text-success">
             {t("auth.forgot.sent")}
           </p>
         ) : (
@@ -36,6 +37,7 @@ export default function ForgotPasswordForm() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  className="max-md:h-11"
                 />
               </div>
               {error ? (
@@ -43,22 +45,20 @@ export default function ForgotPasswordForm() {
                   {error}
                 </p>
               ) : null}
-              <Button type="submit" className="w-full" disabled={loading || !email.trim()}>
+              <Button type="submit" className="w-full max-md:h-11" disabled={loading || !email.trim()}>
                 {loading ? t("auth.forgot.sending") : t("auth.forgot.submit")}
               </Button>
             </div>
           </form>
         )}
       </CardContent>
-      <CardAction>
-        <div className="flex justify-center">
-          <Button variant="link" asChild>
-            <Link className="text-sm hover:underline flex items-center gap-1" href="/login">
-              <ArrowLeftIcon className="w-4 h-4" /> {t("auth.backToLogin")}
-            </Link>
-          </Button>
-        </div>
-      </CardAction>
+      <CardFooter className="justify-center">
+        <Button variant="link" asChild className="max-md:h-11">
+          <Link href="/login">
+            <ArrowLeftIcon aria-hidden /> {t("auth.backToLogin")}
+          </Link>
+        </Button>
+      </CardFooter>
     </Card>
   );
 }

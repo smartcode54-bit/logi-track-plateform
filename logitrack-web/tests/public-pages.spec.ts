@@ -6,7 +6,8 @@ test.describe("Public pages", () => {
     await expect(page.getByText("LogiTrack Pro").first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     // The email/password form is on the landing itself: no dialog in between.
-    await expect(page.getByLabel(/^email$|^อีเมล$/i).first()).toBeVisible();
+    // The label carries the required star (UI3E), so only its start is matched.
+    await expect(page.getByLabel(/^(email|อีเมล)/i).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /waitlist|รายการรอ/i }).first()).toHaveAttribute("href", "/waitlist");
   });
 

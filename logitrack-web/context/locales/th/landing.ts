@@ -32,8 +32,8 @@ export default {
 
     "landing.cta.title": "ทำธุรกิจขนส่งหรือมีรถร่วม?",
     "landing.cta.description":
-        "GORATECH พัฒนา LogiTrack Pro ขึ้นเองและใช้งานกับกองรถของบริษัททุกวัน บัญชีใช้งานเปิดตามคำเชิญ ขอสิทธิ์ใช้งานผ่านรายการรอ หรือสมัครร่วมงานกับ GORATECH ในฐานะรถร่วม",
-    "landing.cta.requestAccess": "ขอสิทธิ์ใช้งาน",
+        "GORATECH พัฒนา LogiTrack Pro ขึ้นเองและใช้งานกับกองรถของบริษัททุกวัน พนักงาน ลูกค้า และรถร่วม จะได้รับบัญชีจากบริษัทที่เชิญเข้าใช้งาน บริษัทขนส่งลงชื่อในรายการรอได้ และผู้ประกอบการรถสมัครร่วมงานกับ GORATECH ในฐานะรถร่วมได้",
+    "landing.cta.requestAccess": "ลงชื่อในรายการรอ",
     "landing.cta.joinNetwork": "สมัครเป็นรถร่วม",
     "landing.cta.readStory": "ที่มาของ LogiTrack Pro",
 
@@ -80,5 +80,12 @@ export default {
     "landing.join.form.contactNameRequired": "กรอกชื่อผู้ที่ให้ติดต่อ",
     "landing.join.form.emailRequired": "กรอกอีเมล",
     "landing.join.form.emailInvalid": "กรอกอีเมลให้ถูกต้อง เช่น name@company.co.th",
-    "landing.join.form.sent": "ขอบคุณ ส่งใบสมัครแล้ว ทีมงานจะติดต่อกลับ",
+    // /join-network after sending (UI3E): what happens next, from what the form collected only; no timeline.
+    "landing.join.success.title": "ส่งใบสมัครแล้ว",
+    "landing.join.success.description": "ขอบคุณ คุณ{name} GORATECH ได้รับใบสมัครเป็นรถร่วมของ {company} แล้ว",
+    "landing.join.success.nextTitle": "ขั้นตอนถัดไป",
+    "landing.join.success.nextEmail": "ทีมงานจะติดต่อกลับทางอีเมลที่คุณให้ไว้:",
+    "landing.join.success.nextEmailPhone": "ทีมงานจะติดต่อกลับทางอีเมลหรือเบอร์โทรศัพท์ที่คุณให้ไว้:",
+    "landing.join.success.again": "ส่งใบสมัครอีกฉบับ",
+    "landing.join.success.home": "กลับหน้าแรก",
 };

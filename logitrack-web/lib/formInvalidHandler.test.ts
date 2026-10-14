@@ -94,4 +94,17 @@ describe("createInvalidHandler", () => {
         createInvalidHandler(makeForm(), t)({} as FieldErrors);
         expect(toastError).not.toHaveBeenCalled();
     });
+
+    it("words the summary for a form that does not save, and still focuses the first field (UI3E sign-in)", () => {
+        const errors = {
+            email: { type: "required", message: "Enter your email address." },
+            password: { type: "required", message: "Enter your password." },
+        } as unknown as FieldErrors;
+        const focused: string[] = [];
+
+        createInvalidHandler(makeForm((n) => focused.push(n)), t, { summaryKey: "auth.login.invalidSummary" })(errors);
+
+        expect(toastError).toHaveBeenCalledWith("auth.login.invalidSummary|count=2|field=Enter your email address.");
+        expect(focused).toEqual(["email"]);
+    });
 });

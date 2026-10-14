@@ -12,12 +12,13 @@ import Link from "next/link";
 import { ArrowLeftIcon, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLanguage } from "@/context/language";
 import { resetPassword } from "@/lib/authClient";
 import { passwordErrorText, violationFor } from "../utils/fieldErrors";
+import { AuthCardTitle } from "./AuthCardTitle";
 
 /** The `token` of a `#token=...` fragment, or "". */
 export function tokenFromHash(hash: string): string {
@@ -73,8 +74,8 @@ export default function ResetPasswordForm() {
 
     return (
         <Card className="w-full max-w-md">
-            <CardHeader>
-                <CardTitle>{t("auth.reset.title")}</CardTitle>
+            <CardHeader className="gap-1">
+                <AuthCardTitle>{t("auth.reset.title")}</AuthCardTitle>
                 <CardDescription>{t("auth.reset.subtitle")}</CardDescription>
             </CardHeader>
             <CardContent>
@@ -85,45 +86,43 @@ export default function ResetPasswordForm() {
                 ) : state === "missing" ? (
                     <p role="alert" className="text-sm text-destructive">
                         {t("auth.reset.invalidLink")}{" "}
-                        <Link href="/forgot-password" className="underline">
+                        <Link href="/forgot-password" className="underline max-md:inline-flex max-md:min-h-11 max-md:items-center">
                             {t("auth.reset.requestNew")}
                         </Link>
                     </p>
                 ) : state === "done" ? (
-                    <p role="status" className="text-sm text-green-600">
+                    <p role="status" className="text-sm text-success">
                         {t("auth.reset.done")}
                     </p>
                 ) : (
                     <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
                         <div className="grid gap-2">
                             <Label htmlFor="reset-new">{t("auth.changePassword.newPassword")}</Label>
-                            <Input id="reset-new" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} />
+                            <Input id="reset-new" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="max-md:h-11" />
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="reset-confirm">{t("auth.changePassword.confirm")}</Label>
-                            <Input id="reset-confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} disabled={submitting} />
+                            <Input id="reset-confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} disabled={submitting} className="max-md:h-11" />
                         </div>
                         {error ? (
                             <p role="alert" className="text-sm text-destructive">
                                 {error}
                             </p>
                         ) : null}
-                        <Button type="submit" className="w-full" disabled={submitting || !password || !confirm}>
-                            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        <Button type="submit" className="w-full max-md:h-11" disabled={submitting || !password || !confirm}>
+                            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
                             {t("auth.reset.submit")}
                         </Button>
                     </form>
                 )}
             </CardContent>
-            <CardAction>
-                <div className="flex justify-center">
-                    <Button variant="link" asChild>
-                        <Link className="text-sm hover:underline flex items-center gap-1" href="/login">
-                            <ArrowLeftIcon className="w-4 h-4" /> {t("auth.backToLogin")}
-                        </Link>
-                    </Button>
-                </div>
-            </CardAction>
+            <CardFooter className="justify-center">
+                <Button variant="link" asChild className="max-md:h-11">
+                    <Link href="/login">
+                        <ArrowLeftIcon aria-hidden /> {t("auth.backToLogin")}
+                    </Link>
+                </Button>
+            </CardFooter>
         </Card>
     );
 }
