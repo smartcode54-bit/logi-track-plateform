@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
@@ -106,7 +107,10 @@ func start(ctx context.Context) (*MinIO, error) {
 		testcontainers.WithEnv(map[string]string{"MINIO_ROOT_USER": m.user, "MINIO_ROOT_PASSWORD": m.pass,
 			"MINIO_API_CORS_ALLOW_ORIGIN": cors}),
 		testcontainers.WithExposedPorts("9000/tcp"),
-		testcontainers.WithWaitStrategy(wait.ForHTTP("/minio/health/live").WithPort("9000/tcp").WithStartupTimeout(3*time.Minute)),
+		// /minio/health/live answers 200 as soon as the HTTP listener is up; /ready answers 503 until the
+		// object layer is initialised. Neither covers the subsystems initialised after it (IAM, bucket
+		// metadata), which answer XMinioServerNotInitialized meanwhile: awaitS3 below waits for those.
+		testcontainers.WithWaitStrategy(wait.ForHTTP("/minio/health/ready").WithPort("9000/tcp").WithStartupTimeout(3*time.Minute)),
 	)
 	if err != nil {
 		if ctr != nil {
@@ -124,7 +128,44 @@ func start(ctx context.Context) (*MinIO, error) {
 		return nil, err
 	}
 	m.Endpoint = "http://" + net.JoinHostPort(host, port.Port())
+	if err := m.awaitS3(ctx); err != nil {
+		_ = testcontainers.TerminateContainer(ctr)
+		return nil, err
+	}
 	return m, nil
+}
+
+// readyTimeout bounds awaitS3; the first attempt usually succeeds within milliseconds.
+const readyTimeout = 2 * time.Minute
+
+// awaitS3 runs storage.S3.Bootstrap (buckets, both policies, CORS, lifecycle: every call a test's own
+// bootstrap makes) on a pair of probe buckets until it succeeds, with a bounded exponential backoff. A
+// MinIO starting on a loaded machine (the go-ci shards running in parallel on one host) answered the
+// first test's bootstrap with "Server not initialized yet" although its health check had passed; once
+// a whole bootstrap went through, the server is initialised for every later test of the binary.
+func (m *MinIO) awaitS3(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, readyTimeout)
+	defer cancel()
+	s, err := storage.NewS3(storage.S3Config{
+		Endpoint: m.Endpoint, PresignEndpoint: m.Endpoint, Region: "us-east-1", AccessKeyID: m.user, SecretAccessKey: m.pass,
+		PathStyle: true, Bucket: "ready-logitrack", PublicBucket: "ready-logitrack-public", CORSOrigins: m.CORSOrigins,
+	})
+	if err != nil {
+		return err
+	}
+	backoff := 50 * time.Millisecond
+	for attempt := 1; ; attempt++ {
+		err = s.Bootstrap(ctx, zerolog.Nop())
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("storagetest: MinIO not ready after %d bootstrap attempts in %s: %w", attempt, readyTimeout, err)
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, 2*time.Second)
+	}
 }
 
 // Config returns an S3 configuration on fresh bucket names (created by S3.Bootstrap) whose presigned URLs are

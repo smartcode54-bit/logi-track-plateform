@@ -187,10 +187,30 @@ func (s *Server) Client(tb testing.TB) (*redis.Client, cache.Keyspace) {
 		tb.Fatalf("cachetest: %v", err)
 	}
 	tb.Cleanup(func() { _ = rdb.Close() })
-	if err := rdb.FlushDB(context.Background()).Err(); err != nil {
+	if err := flush(rdb); err != nil {
 		tb.Fatalf("cachetest: flushdb: %v", err)
 	}
 	return rdb, ks
+}
+
+// flush empties the client's database. The client has the processes' one-second read timeout, which a
+// loaded machine (the go-ci shards running in parallel on one host) can exceed while the container is
+// busy; FLUSHDB is idempotent, so a timeout is retried with a bounded backoff (about 15 s in all).
+func flush(rdb *redis.Client) error {
+	var err error
+	backoff := 250 * time.Millisecond
+	for range 6 {
+		if err = rdb.FlushDB(context.Background()).Err(); err == nil {
+			return nil
+		}
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			return err
+		}
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+	return err
 }
 
 // NewClient is Shared(tb).Client(tb).
