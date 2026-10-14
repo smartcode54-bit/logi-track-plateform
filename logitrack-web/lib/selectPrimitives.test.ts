@@ -46,6 +46,12 @@ describe("one searchable select (UI2)", () => {
         expect(outsideUi.filter((f) => /from\s+["']cmdk["']|["']@\/components\/ui\/command["']/.test(f.src)).map((f) => f.rel)).toEqual([]);
     });
 
+    it("no hand-rolled result list (an Input over an absolute `top-full` list) outside components/ui", () => {
+        // The pattern the chat driver pickers used before the review panel of UI2 moved them onto the shared select.
+        const dropdown = /<(ul|ol|div)\b[^>]*className=["'`{][^>]*\babsolute\b[^>]*\btop-full\b/;
+        expect(outsideUi.filter((f) => /\.tsx$/.test(f.rel) && dropdown.test(f.src)).map((f) => f.rel)).toEqual([]);
+    });
+
     it("the removed one-off pickers stay removed", () => {
         for (const gone of ["components/ui/combobox.tsx", "components/ui/searchable-select.tsx", "components/filter-combobox-virtual-options.tsx"]) {
             expect(existsSync(path.join(root, gone)), gone).toBe(false);

@@ -13,7 +13,8 @@
  * - Options carry a label and secondary text (code + name, plate + type), may be disabled, and the list
  *   shows a loading state, an error, an empty state and an optional "create" row.
  * - Remote lists (`onSearchChange`): the caller fetches with the typed term (debounced, TanStack Query,
- *   a `q` parameter) and passes the page it got; the options are then shown as given. The selected value
+ *   a `q` parameter) and passes the page it got; the options are then shown as given, so the matching is
+ *   the server's (the Thai / diacritic folding above applies to local lists only). The selected value
  *   stays labelled when it is not in the current page (`selectedOption(s)`, else the last label seen).
  * - Above `VIRTUALIZE_ABOVE` matching options the list is virtualised (TanStack Virtual, in its own chunk
  *   `./search-select-virtual`, preloaded when such a select mounts, so short selects keep it out of the
@@ -118,13 +119,16 @@ function useOptionLookup(
         next.set(v, o);
     }
     if (next) setPicked(next);
+    // `known` is a fresh array (of fresh objects) on most renders, and its length follows the selection of a
+    // multi select: the memo keys on its text instead, so the deps keep a fixed size and the memo holds.
+    const knownKey = known.map((o) => (o ? `${o.value}\u0001${optionSearchText(o)}` : "")).join("\u0002");
     const lookup = React.useMemo(() => {
         const map = new Map(picked);
         for (const o of known) if (o) map.set(o.value, o);
         for (const o of options) map.set(o.value, o);
         return map;
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- `known` is a fresh array each render; its items are the deps
-    }, [options, picked, ...known]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `knownKey` stands for `known` (same text = same labels)
+    }, [options, picked, knownKey]);
     const remember = React.useCallback((o: SearchSelectOption) => {
         setPicked((prev) => (prev.get(o.value) === o ? prev : new Map(prev).set(o.value, o)));
     }, []);

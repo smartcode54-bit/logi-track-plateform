@@ -1,7 +1,8 @@
-// UI2 (issue #142) AC: the drivers, trucks, hubs and customers pickers search on the server and handle
-// 5,000 records with fewer than 100 rows in the DOM. A fake Go origin holds 5,000 of each and answers
-// `q` as Go does (a page of `limit` rows; hubs: every match, Go filters its cache). The typed term is
-// debounced into one request, the picked value keeps its label, and the user picker carries the reach.
+// UI2 (issue #142): the server-searched pickers (drivers, trucks, hubs, customers) handle 5,000 records with
+// fewer than 100 rows in the DOM. A fake Go origin holds 5,000 of each and answers `q` as Go does (a
+// case-insensitive substring; a page of `limit` rows; hubs: every match, Go filters its cache). The typed
+// term is debounced into one request and the picked value keeps its label. DriverSelect and TruckSelect are
+// the product's pickers; HubSelect and CustomerSearchSelect have no page caller yet (follow-up of #142).
 import * as React from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -10,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
-import { CustomerSearchSelect, DriverSelect, HubSelect, TruckSelect, UserSelect } from "./entity-pickers";
+import { CustomerSearchSelect, DriverSelect, HubSelect, TruckSelect } from "./entity-pickers";
 
 const N = 5000;
 const pad = (i: number) => String(i).padStart(4, "0");
@@ -43,7 +44,6 @@ function setup() {
     web.on("GET", "/api/go/v1/trucks", serve(TRUCKS, (t) => t.licensePlate, true));
     web.on("GET", "/api/go/v1/hubs", serve(HUBS, (h) => `${h.sourceId} ${h.sourceNameTh} ${h.sourceNameEn}`, false));
     web.on("GET", "/api/go/v1/customers", serve(CUSTOMERS, (c) => `${c.code} ${c.name}`, true));
-    web.on("GET", "/api/go/v1/users", () => json(200, { data: [{ id: "u-9", email: "a@b.test", displayName: "Somchai" }] }));
     return web;
 }
 
@@ -106,18 +106,6 @@ describe.each([
         await u.click(screen.getByRole("option", { name: new RegExp(label) }));
         expect(onChange).toHaveBeenCalledWith(value);
         expect(screen.getByRole("combobox", { name: kind })).toHaveTextContent(label);
-    });
-});
-
-describe("UserSelect", () => {
-    it("reads active users with the platform reach header", async () => {
-        const web = setup();
-        renderWithProviders(<UserSelect aria-label="User" value="" onValueChange={vi.fn()} reach="all" />);
-        await userEvent.setup().click(await screen.findByRole("combobox", { name: "User" }));
-        expect(await screen.findByRole("option", { name: /Somchai/ })).toBeInTheDocument();
-        const call = web.calls.find((c) => c.url.startsWith("/api/go/v1/users"))!;
-        expect(params(call).get("status")).toBe("active");
-        expect(call.headers["x-act-on-tenant"]).toBe("*");
     });
 });
 

@@ -18,7 +18,7 @@
  * carry it. Writes never do: `PUT/DELETE /v1/tenants/{id}/members/{userId}` and
  * `POST /v1/users {tenantId}` are authorised for platform admins without it.
  */
-import { queryOptions, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import { goFetch, goFetchEnvelope, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
@@ -153,25 +153,6 @@ export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach 
         gcTime: 5 * 60_000,
         ...pollWhileVisible(pollMs),
         enabled,
-    });
-}
-
-/**
- * The user picker's server search (UI2, `components/entity-pickers.tsx`): active users matching `q`, one
- * page of 50, `['users',{q,status:'active',view:'picker',reach}]` (a platform principal reads with
- * `X-Act-On-Tenant: *`, as the list does).
- */
-export function userSearchQuery(q: string, reach: UsersReach = "tenant") {
-    const term = q.trim();
-    return queryOptions({
-        queryKey: queryKeys.users.list({ q: term, status: "active", view: "picker", reach }),
-        queryFn: ({ signal }) =>
-            goFetch<UserDTO[]>(USERS_PATH, {
-                signal,
-                query: { q: term || undefined, status: "active", limit: USERS_PAGE_SIZE },
-                headers: usersReachHeaders(reach),
-            }),
-        staleTime: 60_000,
     });
 }
 

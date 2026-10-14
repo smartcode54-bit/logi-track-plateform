@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * The shared pickers of the master records (UI2, issue #142): drivers, trucks, hubs / SOCs, customers and
- * users, each a `SearchSelect` (or `MultiSearchSelect`) that searches on the server.
+ * The shared pickers of the master records (UI2, issue #142): drivers, trucks, hubs / SOCs and customers,
+ * each a `SearchSelect` (or `MultiSearchSelect`) that searches on the server.
  *
  * - The typed term is debounced (`PICKER_DEBOUNCE_MS`) and sent as `q`; the query runs only while the list
  *   is open, through TanStack Query (cached per term), so a picker never reads every record.
  * - The selected value keeps its label when the current page does not hold it: pass `selectedLabel` (or the
  *   picked option is remembered by `SearchSelect`).
  * - Errors show the API's message in the list (`apiErrorText`).
+ * - Matching is the Go endpoint's: a case-insensitive substring of `q` (no Thai tone-mark / diacritic
+ *   folding and no any-word-order match; those apply to local lists only, `lib/searchText.ts`).
+ * - `HubSelect` and `CustomerSearchSelect` have no product caller yet: the task, trip and accounting pages
+ *   still read the whole hub / customer master for their row lookups and filter it in the browser
+ *   (`HubCombobox`, `CustomerSelect`); moving them is the follow-up of #142.
  */
 import * as React from "react";
 import { useQuery, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
@@ -33,7 +38,6 @@ import {
     type HubPick,
     type TruckPick,
 } from "@/features/accounting/api/pickers.go";
-import { userSearchQuery, type UserDTO, type UsersReach } from "@/features/users/api/users";
 import { apiErrorText } from "@/lib/apiError";
 
 export const PICKER_DEBOUNCE_MS = 250;
@@ -165,24 +169,6 @@ export const CustomerPartyMultiSelect = React.forwardRef<
     const search = useServerSearch(customerSearchQuery, toOption);
     const selectedOptions = props.value.flatMap((v) => (selectedLabels?.[v] ? [{ value: v, label: selectedLabels[v] }] : []));
     return <MultiSearchSelect ref={ref} {...props} {...search} selectedOptions={selectedOptions} onOpenChange={(o) => {
-        search.onOpenChange(o);
-        props.onOpenChange?.(o);
-    }} />;
-});
-
-// --- users ------------------------------------------------------------------------------------------------
-
-export const userOption = (u: UserDTO): SearchSelectOption => ({
-    value: u.id,
-    label: u.displayName || u.email || u.id.slice(0, 8),
-    description: u.displayName && u.email ? u.email : undefined,
-});
-
-/** `GET /v1/users?q&status=active` (a platform principal passes `reach="all"`). */
-export const UserSelect = React.forwardRef<HTMLButtonElement, PickerProps & { reach?: UsersReach }>(function UserSelect({ selectedLabel, reach = "tenant", ...props }, ref) {
-    const make = React.useCallback((q: string) => userSearchQuery(q, reach), [reach]);
-    const search = useServerSearch(make, userOption);
-    return <SearchSelect ref={ref} {...props} {...search} selectedOption={selectedFrom(props.value, selectedLabel)} onOpenChange={(o) => {
         search.onOpenChange(o);
         props.onOpenChange?.(o);
     }} />;

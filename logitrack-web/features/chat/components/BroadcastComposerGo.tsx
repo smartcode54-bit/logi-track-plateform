@@ -3,26 +3,27 @@
 /**
  * The broadcast composer and history over Go (T50; Appendix E §E.2.1 `?view=broadcast`, §E.10 row 15). The
  * audience of a group is resolved by Go under the caller's reach when the broadcast is sent (no list of every
- * driver read in the browser, `BroadcastComposer.tsx:58`); single drivers are picked through the server
- * search `GET /v1/drivers?fields=minimal&q` and sent as their logins (`recipientUserIds`). The history is
+ * driver read in the browser, `BroadcastComposer.tsx:58`); single drivers are picked in the shared multi
+ * select (UI2) over the server search `GET /v1/drivers?fields=minimal&q` and sent as their logins
+ * (`recipientUserIds`). The history is
  * `['broadcasts']` in keyset pages (no cap of 50), with Go's read counts; "withdraw" voids a broadcast.
  */
-import { useState } from "react";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, Loader2, Megaphone, Search, Send, X } from "lucide-react";
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { Ban, Check, Loader2, Megaphone, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
-import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useCan, useMe } from "@/features/auth/api/useMe";
 import { driverPicksQuery } from "@/features/accounting/api/pickers.go";
 import { fieldViolations } from "@/features/auth/utils/fieldErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
 import { displayBroadcastTitle } from "@/lib/broadcastDisplay";
-import { Badge } from "@/components/ui/badge";
+import { driverOption, useServerSearch } from "@/components/entity-pickers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MultiSearchSelect, nodeText, type SearchSelectOption } from "@/components/ui/search-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -62,68 +63,51 @@ function sendErrorText(error: unknown, t: (key: string, fallback?: string) => st
 }
 
 
-function DriverPicker({ picked, onAdd }: { picked: readonly Picked[]; onAdd: (p: Picked) => void }) {
+/**
+ * The recipients of a "selected drivers" broadcast: the shared multi select over the driver server search
+ * (UI2), each newly picked driver resolved to its login (one request per pick, cached); a driver without a
+ * login is refused with a toast and never becomes a recipient.
+ */
+function DriverPicker({ picked, setPicked }: { picked: readonly Picked[]; setPicked: Dispatch<SetStateAction<Picked[]>> }) {
     const { t } = useLanguage();
     const client = useQueryClient();
-    const [q, setQ] = useState("");
-    const [resolving, setResolving] = useState<string | null>(null);
-    const term = useDebouncedValue(q.trim(), SEARCH_DEBOUNCE_MS);
-    const drivers = useQuery({ ...driverPicksQuery(term), enabled: term !== "" });
-    const add = async (id: string, name: string) => {
-        setResolving(id);
+    const search = useServerSearch(driverPicksQuery, driverOption);
+    const [resolving, setResolving] = useState(0);
+    const selectedOptions = useMemo<SearchSelectOption[]>(() => picked.map((p) => ({ value: p.driverId, label: p.name })), [picked]);
+    const add = async (o: SearchSelectOption) => {
+        const name = o.text ?? nodeText(o.label);
+        setResolving((n) => n + 1);
         try {
-            // The login a broadcast addresses: the driver's detail (one request per pick, cached).
-            const d = await client.fetchQuery(chatDriverQuery(id));
+            const d = await client.fetchQuery(chatDriverQuery(o.value));
             const userId = driverUserId(d);
             if (!userId) {
                 toast.error(t("chat.broadcast.noLogin", { name }));
                 return;
             }
-            onAdd({ driverId: id, userId, name });
-            setQ("");
+            setPicked((prev) => (prev.some((x) => x.driverId === o.value) ? prev : [...prev, { driverId: o.value, userId, name }]));
         } catch (e) {
             toast.error(apiErrorText(e, t));
         } finally {
-            setResolving(null);
+            setResolving((n) => n - 1);
         }
     };
-    const chosen = new Set(picked.map((p) => p.driverId));
     return (
-        <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("chat.broadcast.searchDriver")} className="pl-8" aria-label={t("chat.broadcast.searchDriver")} />
-            {q.trim() !== "" && (
-                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[240px] overflow-y-auto rounded-md border bg-popover shadow-md" data-testid="broadcast-driver-results">
-                    {term === "" || drivers.isPending ? (
-                        <li className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            {t("chat.panel.searching")}
-                        </li>
-                    ) : drivers.isError ? (
-                        <li className="p-3 text-sm text-destructive">{apiErrorText(drivers.error, t)}</li>
-                    ) : (drivers.data ?? []).length === 0 ? (
-                        <li className="p-3 text-sm text-muted-foreground">{t("chat.panel.noDriver")}</li>
-                    ) : (
-                        (drivers.data ?? []).map((d) => {
-                            const name = d.displayName || d.id.slice(0, 8);
-                            return (
-                                <li key={d.id}>
-                                    <button
-                                        type="button"
-                                        className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm hover:bg-muted/80 disabled:opacity-60"
-                                        disabled={chosen.has(d.id) || resolving !== null}
-                                        onClick={() => void add(d.id, name)}
-                                    >
-                                        <span className="truncate font-medium">{name}</span>
-                                        {resolving === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : chosen.has(d.id) ? <Check className="h-4 w-4 text-primary" /> : null}
-                                    </button>
-                                </li>
-                            );
-                        })
-                    )}
-                </ul>
-            )}
-        </div>
+        <MultiSearchSelect
+            {...search}
+            loading={search.loading || resolving > 0}
+            value={picked.map((p) => p.driverId)}
+            selectedOptions={selectedOptions}
+            onValueChange={(values, options) => {
+                const keep = new Set(values);
+                setPicked((prev) => prev.filter((p) => keep.has(p.driverId)));
+                for (const o of options) if (!picked.some((p) => p.driverId === o.value)) void add(o);
+            }}
+            placeholder={t("chat.broadcast.searchDriver")}
+            searchPlaceholder={t("chat.broadcast.searchDriver")}
+            emptyText={t("chat.panel.noDriver")}
+            aria-label={t("chat.broadcast.searchDriver")}
+            data-testid="broadcast-picked"
+        />
     );
 }
 
@@ -315,21 +299,7 @@ export function BroadcastComposerGo() {
                         </div>
                         {mode === "selected" && (
                             <div className="mt-3 space-y-2">
-                                <DriverPicker picked={picked} onAdd={(p) => setPicked((prev) => (prev.some((x) => x.driverId === p.driverId) ? prev : [...prev, p]))} />
-                                <div className="flex flex-wrap gap-2" data-testid="broadcast-picked">
-                                    {picked.map((p) => (
-                                        <Badge key={p.driverId} variant="secondary" className="gap-1">
-                                            {p.name}
-                                            <button
-                                                type="button"
-                                                aria-label={t("chat.broadcast.removeRecipient", { name: p.name })}
-                                                onClick={() => setPicked((prev) => prev.filter((x) => x.driverId !== p.driverId))}
-                                            >
-                                                <X className="h-3 w-3" />
-                                            </button>
-                                        </Badge>
-                                    ))}
-                                </div>
+                                <DriverPicker picked={picked} setPicked={setPicked} />
                                 {picked.length === 0 && <p className="text-sm text-amber-600 dark:text-amber-500">{t("chat.broadcast.pickDrivers")}</p>}
                             </div>
                         )}

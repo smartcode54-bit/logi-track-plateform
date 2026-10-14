@@ -191,6 +191,30 @@ describe("MultiSearchSelect", () => {
         expect(onChange).toHaveBeenCalledTimes(1);
         expect(screen.getByText("1 of 1 selected")).toBeInTheDocument();
     });
+
+    it("takes a selectedOptions list whose length changes without a hook-deps warning (review panel, UI2)", () => {
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const props = { "aria-label": "Parties", options: [] as SearchSelectOption[], onValueChange: vi.fn() };
+            const { rerender } = render(<MultiSearchSelect {...props} value={[]} selectedOptions={[]} />);
+            rerender(
+                <MultiSearchSelect
+                    {...props}
+                    value={["p-1", "p-2"]}
+                    selectedOptions={[
+                        { value: "p-1", label: "ลูกค้า 1" },
+                        { value: "p-2", label: "ลูกค้า 2" },
+                    ]}
+                />
+            );
+            rerender(<MultiSearchSelect {...props} value={["p-1"]} selectedOptions={[{ value: "p-1", label: "ลูกค้า 1" }]} />);
+            const chips = document.querySelector('[data-slot="search-select-chips"]') as HTMLElement;
+            expect(within(chips).getByText("ลูกค้า 1")).toBeInTheDocument();
+            expect(errors).not.toHaveBeenCalled();
+        } finally {
+            errors.mockRestore();
+        }
+    });
 });
 
 describe("Select (compound API on the same panel)", () => {
