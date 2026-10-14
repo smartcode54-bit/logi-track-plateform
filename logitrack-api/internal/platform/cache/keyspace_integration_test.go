@@ -28,9 +28,21 @@ import (
 // keys (read-through caches, hub maps, period locks, contractor reach, mirror ack, tickets, rate
 // limits, idempotency records and locks, invalidation) against one database, then SCANs it: every key
 // is under lt:{APP_ENV}: and in a namespace of Appendix B §B.6.1.
+//
+// No key may expire before the SCAN, however slow the machine: the database setup (which took over
+// three minutes with the three go-ci shards running in parallel on one host) comes before the first
+// write, and every key the test writes for the scan gets a lifetime of at least keyLife, far longer
+// than the test. A short-lived key (a one-minute ticket, a GCRA key of one emission interval, a 30 s
+// idempotency lock) made the scan depend on how fast the steps before it ran.
 func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
-	rdb, ks := cachetest.NewClient(t)
+	const keyLife = time.Hour
 	ctx := context.Background()
+	d := pgtest.NewDatabase(t)
+	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	rdb, ks := cachetest.NewClient(t)
 	c := cache.New(rdb, ks)
 
 	if _, err := cache.GetJSON(ctx, c, ks.RateCard("party-1"), time.Hour, func(context.Context) ([]int, error) { return []int{1}, nil }); err != nil {
@@ -53,20 +65,16 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 	if err := c.SetMirrorAck(ctx, "trip_records", "doc-1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.PutTicket(ctx, ks.AuthPasswordChange("ticket"), []byte(`{"userId":"u"}`), time.Minute); err != nil {
+	if _, err := c.PutTicket(ctx, ks.AuthPasswordChange("ticket"), []byte(`{"userId":"u"}`), keyLife); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.OnEvent(ctx, cache.Event{RoutingKey: "settings.changed", AggregateID: "mobile_app"}); err != nil {
 		t.Fatal(err)
 	}
 
-	d := pgtest.NewDatabase(t)
-	if _, err := migratetest.Runner(t, d, migrations.FS).Up(ctx); err != nil {
-		t.Fatal(err)
-	}
 	m, err := idempotency.New(idempotency.Options{
 		Redis: rdb, Keys: ks, Store: idempotency.NewPGStore(d.Pool(t, db.RoleApp)), TTL: 168 * time.Hour,
-		Scope: func(fiber.Ctx) string { return "user-1" }, Log: zerolog.Nop(),
+		Scope: func(fiber.Ctx) string { return "user-1" }, Log: zerolog.Nop(), LockTTL: keyLife,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +92,7 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 	send := func(key, body string) int {
 		req := httptest.NewRequest("POST", "/w", strings.NewReader(body))
 		req.Header.Set(idempotency.Header, key)
-		resp, err := app.Test(req, fiber.TestConfig{Timeout: 10 * time.Second})
+		resp, err := app.Test(req, fiber.TestConfig{Timeout: time.Minute})
 		if err != nil {
 			t.Error(err)
 			return 0
@@ -99,10 +107,10 @@ func TestKeyScanShowsOnlyThePrefixAndListedNamespaces(t *testing.T) {
 	go func() { done <- send("0192f1c2-7d3e-7a10-8b2c-000000000002", `{"hold":true}`) }()
 	<-held // the in-flight lock exists now
 
-	// A GCRA key lives only one emission interval (window / count, 3 s for login_ip), so write it
-	// right before the scan: the database setup above can take longer than that on CI.
+	// A GCRA key lives one emission interval (window / count, 6 s for login_ip's default): count the
+	// request under a limit whose interval is keyLife, so the key of the login_ip bucket outlives the scan.
 	l := ratelimit.New(rdb, ks, zerolog.Nop())
-	if _, err := l.Allow(ctx, ratelimit.LoginIP.Name, "203.0.113.9", ratelimit.LoginIP.Default); err != nil {
+	if _, err := l.Allow(ctx, ratelimit.LoginIP.Name, "203.0.113.9", ratelimit.Limit{Count: 1, Window: keyLife}); err != nil {
 		t.Fatal(err)
 	}
 	keys := cachetest.AssertKeyspace(t, rdb, ks)
