@@ -7,7 +7,8 @@ import { useLanguage } from "@/context/language";
 import type { LazyDialogControl } from "@/components/lazy-dialog";
 import type { CustomerLinkKind, StationType } from "@/validate/hubSchema";
 import { importHubs, invalidateHubs } from "@/features/hubs/api/hubs";
-import { fetchCustomerOptions, type CustomerMinimalDTO } from "@/features/customers/api/customers";
+import { fetchCustomersByCode } from "@/features/accounting/api/pickers.go";
+import { getQueryClient } from "@/lib/queryClient";
 import { fieldViolations } from "@/features/auth/utils/fieldErrors";
 import { apiErrorText, isApiError } from "@/lib/apiError";
 
@@ -143,24 +144,6 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                 return;
             }
 
-            // `['customers','options']` (T25): the customer codes of the active source (Go ids or Firestore ids).
-            let customers: CustomerMinimalDTO[];
-            try {
-                customers = await fetchCustomerOptions();
-            } catch (ce) {
-                console.error("[PickupImport] load customers", ce);
-                setData([]);
-                setError(t("firstMile.hub.loadCustomersFailed"));
-                return;
-            }
-            const codeToId = new Map<string, string>();
-            for (const c of customers) {
-                const k = String(c.code ?? "").trim().toUpperCase().replace(/\s+/g, " ").trim();
-                if (k && !codeToId.has(k)) codeToId.set(k, c.id);
-                const kns = k.replace(/\s/g, "");
-                if (kns && kns !== k && !codeToId.has(kns)) codeToId.set(kns, c.id);
-            }
-
             const headers = (jsonData[0] as unknown[]).map((h) => normalizeHeaderCell(h));
             const rows = jsonData.slice(1) as unknown[][];
 
@@ -227,6 +210,23 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                 "การผูก",
             ]);
 
+            // The sheet's customer codes, as written and without spaces: each resolved by the server search
+            // (`fetchCustomersByCode`, UI8), never a read of every customer.
+            const normCode = (v: unknown) => String(v ?? "").trim().toUpperCase().replace(/\s+/g, " ").trim();
+            const sheetCodes = colCustomerCode < 0 ? [] : rows.flatMap((row) => {
+                const code = normCode(row?.[colCustomerCode]);
+                return code ? [code, code.replace(/\s/g, "")] : [];
+            });
+            let codeToCustomer: Map<string, { id: string }>;
+            try {
+                codeToCustomer = await fetchCustomersByCode(getQueryClient(), sheetCodes);
+            } catch (ce) {
+                console.error("[PickupImport] load customers", ce);
+                setData([]);
+                setError(t("firstMile.hub.loadCustomersFailed"));
+                return;
+            }
+
             let displayIndex = 0;
             const parsed: ParsedRow[] = rows.flatMap((row) => {
                 if (!row || row.length === 0) return [];
@@ -246,13 +246,13 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                 const linkedRaw = colLinkedId >= 0 ? String(get(colLinkedId) ?? "").trim() : "";
                 const codeRaw = colCustomerCode >= 0 ? String(get(colCustomerCode) ?? "").trim() : "";
                 const customerCodeCell = colCustomerCode >= 0 ? codeRaw : "";
-                const codeNorm = codeRaw.toUpperCase().replace(/\s+/g, " ").trim();
+                const codeNorm = normCode(codeRaw);
                 const codeNoSpace = codeNorm.replace(/\s/g, "");
 
                 let linkedCustomerId: string | undefined;
                 if (linkedRaw) linkedCustomerId = linkedRaw;
                 else if (codeNorm) {
-                    linkedCustomerId = codeToId.get(codeNorm) ?? codeToId.get(codeNoSpace);
+                    linkedCustomerId = (codeToCustomer.get(codeNorm) ?? codeToCustomer.get(codeNoSpace))?.id;
                 }
 
                 const customerLinkKind =

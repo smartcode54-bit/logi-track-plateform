@@ -22,7 +22,8 @@ const (
 // Groups are the routes of T20 on the internal listener behind requireAuth (auth.Service.RequireAuth, which
 // resolves the principal through iam.RBAC.Authorize). s may be nil while the route table is only listed.
 //
-//	GET   /v1/customers          authenticated (fields=minimal) | fleet:manage_customers (full, checked inside)
+//	GET   /v1/customers          authenticated (fields=minimal) | fleet:manage_customers (full, checked inside);
+//	                             ?ids= looks up to 100 customers by customer or billing party id (UI8)
 //	POST  /v1/customers          fleet:manage_customers (a steward key, R60)
 //	GET   /v1/customers/{id}     fleet:manage_customers
 //	PATCH /v1/customers/{id}     fleet:manage_customers
@@ -96,15 +97,20 @@ func (h handlers) listCustomers(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := onlyQuery(c, "fields", "q", "limit", "cursor"); err != nil {
+	if err := onlyQuery(c, "fields", "q", "limit", "cursor", "ids"); err != nil {
 		return err
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
 		return err
 	}
+	// ?ids repeated or comma-separated (nil when absent, so a bare ids= is still a lookup that names no id).
+	var ids []string
+	for _, v := range c.RequestCtx().QueryArgs().PeekMulti("ids") {
+		ids = append(ids, string(v))
+	}
 	out, next, err := h.s.ListCustomers(c.Context(), p, ListCustomersInput{Fields: c.Query("fields"), Q: c.Query("q"),
-		Limit: limit, Cursor: c.Query("cursor")})
+		Limit: limit, Cursor: c.Query("cursor"), IDs: ids})
 	if err != nil {
 		return err
 	}

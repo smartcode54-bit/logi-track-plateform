@@ -6,6 +6,8 @@
 // - trucks: `TruckSelect` over `GET /v1/trucks?ownership=own&q`; a truck in maintenance is shown but cannot be picked;
 // - no list of every driver is read: "available drivers" is active + on_duty of a one-row page's
 //   `meta.statusCounts`, less the drivers holding a truck;
+// - no list of every truck is read either (UI8): "total trucks" is the own trucks not in maintenance, from
+//   `meta.statusCounts` of a one-row `GET /v1/trucks?ownership=own` page;
 // - the assignment posts the picked ids only, and the form resets.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -73,23 +75,29 @@ function setup() {
         const from = Number(p.get("cursor") ?? "0");
         const hits = TRUCKS.filter((tr) => (!p.get("ownership") || tr.ownershipType === p.get("ownership")) && (!q || tr.licensePlate.toLowerCase().includes(q)));
         const next = from + limit < hits.length ? String(from + limit) : undefined;
-        return json(200, { data: hits.slice(from, from + limit), ...(next ? { nextCursor: next } : {}) });
+        // Go counts every matching truck per status, whatever the page (UI8).
+        const statusCounts = { active: 0, inactive: 0, maintenance: 0, insurance_claim: 0, sold: 0 } as Record<string, number>;
+        for (const tr of hits) statusCounts[tr.status] += 1;
+        return json(200, { data: hits.slice(from, from + limit), ...(next ? { nextCursor: next } : {}), meta: { statusCounts } });
     });
     const driverCalls = () => web.calls.filter((c) => c.url.startsWith("/api/go/v1/drivers")).map(params);
     const truckPickerCalls = () => web.calls.filter((c) => c.url.startsWith("/api/go/v1/trucks") && params(c).get("limit") === "50").map(params);
-    return { web, driverCalls, truckPickerCalls };
+    const truckCalls = () => web.calls.filter((c) => c.url.startsWith("/api/go/v1/trucks")).map((c) => Object.fromEntries(params(c)));
+    return { web, driverCalls, truckPickerCalls, truckCalls };
 }
 
 const renderPage = () => renderWithProviders(<TruckAssignmentPage />, getQueryClient());
 
 describe("truck assignment: server pickers (UI2C)", () => {
     it("counts drivers from the status counts and lists drivers on the server, an assigned or inactive one not pickable", async () => {
-        const { driverCalls } = setup();
+        const { driverCalls, truckCalls } = setup();
         renderPage();
         // Available drivers = active 57 + on_duty 9 - 1 holding a truck; trucks = own trucks not in maintenance.
         await waitFor(() => expect(screen.getByText("65")).toBeInTheDocument());
         expect(screen.getByText("79")).toBeInTheDocument();
         expect(driverCalls().map((p) => Object.fromEntries(p))).toEqual([{ fields: "minimal", limit: "1" }]);
+        // Both counters from one-row pages: no truck list (80 trucks would be a page of 100) is read.
+        expect(truckCalls()).toEqual([{ ownership: "own", limit: "1" }]);
 
         const u = userEvent.setup();
         await u.click(screen.getByRole("combobox", { name: "1. Select Available Driver" }));

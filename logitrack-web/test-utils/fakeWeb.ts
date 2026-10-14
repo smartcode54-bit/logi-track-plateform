@@ -87,3 +87,56 @@ export function fakeWeb() {
         },
     };
 }
+
+/** A customer as `GET /v1/customers?fields=minimal` answers it. */
+export interface FakeCustomer {
+    id: string;
+    billingPartyId: string | null;
+    code: string;
+    name: string;
+}
+
+/**
+ * `GET /v1/customers?fields=minimal` as Go answers it (UI8): with `ids` the customers those customer or billing
+ * party ids name, by code, no page (more than 100 distinct ids is 422 `ids too_many`); else the code/name search
+ * `q` in keyset pages of `limit` (the cursor is the offset).
+ */
+export function customersReply(customers: readonly FakeCustomer[]): (call: FakeCall) => Response {
+    return (call) => {
+        const p = new URL(call.url, "http://web.test").searchParams;
+        if (p.has("ids")) {
+            const ids = new Set(p.getAll("ids").flatMap((v) => v.split(",")).filter(Boolean));
+            if (ids.size > 100) return goErr(422, "invalid_argument", { fields: [{ field: "ids", reason: "too_many", params: { max: 100 } }] });
+            const hits = customers.filter((c) => ids.has(c.id) || (c.billingPartyId !== null && ids.has(c.billingPartyId)));
+            return json(200, { data: [...hits].sort((a, b) => a.code.localeCompare(b.code)) });
+        }
+        const q = (p.get("q") ?? "").toLowerCase();
+        const limit = Number(p.get("limit") ?? "50");
+        const from = Number(p.get("cursor") ?? "0");
+        const hits = customers.filter((c) => !q || `${c.code} ${c.name}`.toLowerCase().includes(q));
+        const next = from + limit < hits.length ? String(from + limit) : undefined;
+        return json(200, { data: hits.slice(from, from + limit), ...(next ? { nextCursor: next } : {}) });
+    };
+}
+
+/**
+ * The `GET /v1/customers` calls that are neither a lookup (`ids`), a search (`q`) nor an open picker's first page
+ * (`limit=50`, no cursor): the pages of a read of every customer.
+ */
+export function customerDirectoryReads(calls: readonly FakeCall[]): FakeCall[] {
+    return calls.filter((c) => {
+        if (c.method !== "GET" || c.url.split("?")[0] !== "/api/go/v1/customers") return false;
+        const p = new URL(c.url, "http://web.test").searchParams;
+        const pickerPage = p.get("limit") === "50" && !p.has("cursor");
+        return !p.has("ids") && !(p.get("q") ?? "").trim() && !pickerPage;
+    });
+}
+
+/** The `ids` of each `GET /v1/customers?ids=` lookup a fake web answered, each sorted. */
+export function customerLookups(calls: readonly FakeCall[]): string[][] {
+    return calls
+        .filter((c) => c.method === "GET" && c.url.split("?")[0] === "/api/go/v1/customers")
+        .map((c) => new URL(c.url, "http://web.test").searchParams)
+        .filter((p) => p.has("ids"))
+        .map((p) => p.getAll("ids").flatMap((v) => v.split(",")).filter(Boolean).sort());
+}

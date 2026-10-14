@@ -37,7 +37,8 @@ import SimpleMap from "@/components/map/SimpleMap";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
 import { createHub, updateHub, type HubInput } from "@/features/hubs/api/hubs";
-import { useCustomerOptions } from "@/features/customers/api/useCustomers";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
+import { useCustomerLookup } from "@/features/accounting/api/useCustomerLookup";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
 import { isApiError } from "@/lib/apiError";
@@ -93,19 +94,14 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
 
     const isEditMode = Boolean(documentId && defaultValues);
 
-    // `['customers','options']` and `['subcontractors','options']` (T25): one request per stale time,
-    // shared by both dialog instances of Sources and the page's own filter.
-    const customersQuery = useCustomerOptions(isOpen);
+    // A customer link is picked with the server search (`CustomerSearchSelect`) and named by id
+    // (`['customers','ref',id]`, UI8), so the dialog reads no list of every customer; a carrier link lists
+    // `['subcontractors','options']` (T25), shared by both dialog instances of Sources.
     const partnersQuery = useSubcontractorOptions(isOpen);
-    useEffect(() => {
-        if (customersQuery.isError) toast.error(t("firstMile.hub.loadCustomersFailed"));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [customersQuery.isError]);
     const linkKind = form.watch("customerLinkKind") ?? "customer";
-    const linkOptions =
-        linkKind === "partner"
-            ? partnersQuery.options.map((p) => ({ id: p.id, code: p.code ?? "", name: carrierName(p) }))
-            : customersQuery.options.map((c) => ({ id: c.id, code: c.code, name: c.name }));
+    const linkedId = String(form.watch("linkedCustomerId") ?? "").trim();
+    const linkedCustomer = useCustomerLookup(isOpen && linkKind !== "partner" && linkedId ? [linkedId] : []).get(linkedId);
+    const partnerOptions = partnersQuery.options.map((p) => ({ id: p.id, code: p.code ?? "", name: carrierName(p) }));
 
     // Reset form when dialog opens (add vs edit)
     useEffect(() => {
@@ -150,7 +146,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
             toast.error(t("firstMile.hub.linkedCustomerRequired"));
             return;
         }
-        const selected = linkOptions.find((c) => c.id === linkedCustomerId);
+        const selected = linkKind === "partner" ? partnerOptions.find((c) => c.id === linkedCustomerId) : linkedCustomer;
         const input: HubInput = {
             sourceId,
             sourceNameTh: String(values.source_name_th ?? "").trim(),
@@ -266,7 +262,14 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.hub.linkType")}</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value}>
+                                        <Select
+                                            onValueChange={(kind) => {
+                                                // The linked id belongs to the old kind (a carrier tenant is no customer): pick again.
+                                                if (kind !== field.value) form.setValue("linkedCustomerId", "", { shouldDirty: true });
+                                                field.onChange(kind);
+                                            }}
+                                            value={field.value}
+                                        >
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={t("firstMile.hub.linkTypePlaceholder")} />
@@ -290,20 +293,31 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>{t("firstMile.hub.linkedCustomer")}</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                                        {linkKind === "partner" ? (
+                                            <Select onValueChange={field.onChange} value={field.value || ""}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder={t("firstMile.hub.linkedCustomerPlaceholder")} />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    {partnerOptions.map((option) => (
+                                                        <SelectItem key={option.id} value={option.id}>
+                                                            {[option.code, option.name].filter(Boolean).join(" - ")}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        ) : (
                                             <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={t("firstMile.hub.linkedCustomerPlaceholder")} />
-                                                </SelectTrigger>
+                                                <CustomerSearchSelect
+                                                    aria-label={t("firstMile.hub.linkedCustomer")}
+                                                    placeholder={t("firstMile.hub.linkedCustomerPlaceholder")}
+                                                    value={field.value || ""}
+                                                    onValueChange={(id) => field.onChange(id)}
+                                                />
                                             </FormControl>
-                                            <SelectContent>
-                                                {linkOptions.map((option) => (
-                                                    <SelectItem key={option.id} value={option.id}>
-                                                        {[option.code, option.name].filter(Boolean).join(" - ")}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        )}
                                         <FormMessage />
                                     </FormItem>
                                 )}

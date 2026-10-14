@@ -450,7 +450,7 @@ func TestFleetNeverNestsPoolConnections(t *testing.T) {
 		ExpiryDate: fleet.Field[string]{Set: true, V: "2027-10-11"}, ReceiptKey: fleet.Field[string]{Set: true, V: receipt}}); err != nil {
 		t.Fatalf("RecordRenewal on one connection: %v", err)
 	}
-	if _, _, err := fs.ListTrucks(ctx, p, fleet.ListTrucksInput{}); err != nil {
+	if _, _, _, err := fs.ListTrucks(ctx, p, fleet.ListTrucksInput{}); err != nil {
 		t.Fatalf("ListTrucks on one connection: %v", err)
 	}
 	if _, _, err := fs.ListRenewals(ctx, p, fleet.ListRenewalsInput{}); err != nil {

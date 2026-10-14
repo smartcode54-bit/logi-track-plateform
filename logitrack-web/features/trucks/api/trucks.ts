@@ -7,7 +7,8 @@
  *   a carrier's trucks, server-filtered keyset pages (`GET /v1/trucks`); no 100-row cap. Polled every
  *   60 s while the tab is visible and refetched on focus once older than that (row 30).
  * - `['trucks','fleetStats']`: every truck, for the fleet and PM counters above the list.
- * - `['trucks','options']`: own-fleet trucks for the truck-assignment picker.
+ * - `['trucks',{view:'statusCounts',ownership}]`: trucks per status from `meta.statusCounts` of a one-row page
+ *   (the truck-assignment counter, UI8).
  * - `['trucks','detail',id]`: `GET /v1/trucks/{id}` (status history, current assignments, files).
  * - `['renewals', {}]`: `GET /v1/trucks/renewals` (tax and insurance state per truck, Bangkok calendar).
  *
@@ -16,7 +17,7 @@
  */
 import { infiniteQueryOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { apiDate } from "@/lib/calendarDate";
-import { goFetch, goPath } from "@/lib/goFetch";
+import { goFetch, goFetchEnvelope, goPath, type GoEnvelope } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { uploadToGo, type UploadPurpose } from "@/lib/goUpload";
@@ -155,14 +156,8 @@ export interface RenewalDTO {
     insurance: RenewalState & { company: string | null; policyNumber: string | null; coverage: string | null };
 }
 
-/** A truck option of the truck-assignment picker. */
-export interface TruckOption {
-    id: string;
-    plate: string;
-    model: string;
-    type: string;
-    status: string;
-}
+/** `meta.statusCounts` of `GET /v1/trucks`: every truck status, over the rows matching the other filters (UI8). */
+export type TruckStatusCounts = Partial<Record<TruckStatus, number>>;
 
 export { apiDate, localDate } from "@/lib/calendarDate";
 
@@ -414,20 +409,28 @@ export const fleetStatsQuery = queryOptions({
 });
 
 /**
- * `['trucks','options']`: own-fleet trucks not in maintenance, for the truck-assignment page's "total trucks"
- * counter (its picker searches on the server since UI2C; `GET /v1/trucks` has no count to read instead).
+ * `['trucks',{view:'statusCounts',ownership}]`: the trucks per status in the caller's reach (`ownership` narrows
+ * on the server), from `meta.statusCounts` of a one-row page of `GET /v1/trucks` (UI8): the truck-assignment
+ * page's "total trucks" reads no truck list. Under `['trucks']`, so a fleet event or an assignment write refreshes it.
  */
-export const truckOptionsQuery = queryOptions({
-    queryKey: queryKeys.trucks.options(),
-    queryFn: async ({ signal }) =>
-        toOptions(await fetchAllPages<TruckDTO>(TRUCKS_PATH, { ownership: "own" }, { signal, maxPages: TRUCKS_MAX_PAGES })),
-    ...QUERY_POLICY.entity,
-});
+export function truckStatusCountsQuery(ownership?: Ownership) {
+    return queryOptions({
+        queryKey: queryKeys.trucks.list({ view: "statusCounts", ownership: ownership ?? "" }),
+        queryFn: async ({ signal }): Promise<TruckStatusCounts> => {
+            const page = (await goFetchEnvelope<unknown[]>(TRUCKS_PATH, { signal, query: { ownership, limit: 1 } })) as GoEnvelope<unknown[]> & {
+                meta?: { statusCounts?: TruckStatusCounts };
+            };
+            return page.meta?.statusCounts ?? {};
+        },
+        ...QUERY_POLICY.entity,
+    });
+}
 
-function toOptions(trucks: TruckDTO[]): TruckOption[] {
-    return trucks
-        .filter((t) => t.status !== "maintenance")
-        .map((t) => ({ id: t.id, plate: t.licensePlate, model: t.model, type: t.type, status: String(t.status) }));
+/** Trucks in service: every counted truck less those in maintenance (the truck-assignment page's total). */
+export function trucksInService(counts: TruckStatusCounts): number {
+    let total = 0;
+    for (const [status, n] of Object.entries(counts)) if (status !== "maintenance") total += n ?? 0;
+    return total;
 }
 
 /** `['trucks','detail',id]`. */

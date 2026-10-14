@@ -18,6 +18,20 @@ WHERE (sqlc.narg(q_words)::text[] IS NULL
 ORDER BY c.code, c.id
 LIMIT sqlc.arg(row_limit);
 
+-- name: ListCustomersByIDs :many
+-- GET /v1/customers?ids= (UI8): the customers ids names, each by its customer id or by its billing party id (a
+-- carrier's party names no customer), ordered by code; at most 100 ids (Go checks), so no page. party_ids narrows a
+-- customer-scope principal exactly as the list does (and RLS, 0012). Both ids resolve through a primary key.
+SELECT sqlc.embed(c), bp.id AS billing_party_id, bp.billing_date_basis
+FROM customers c
+LEFT JOIN billing_parties bp ON bp.customer_id = c.id
+WHERE c.id IN (SELECT unnest(sqlc.arg(ids)::uuid[])
+               UNION
+               SELECT p.customer_id FROM billing_parties p
+               WHERE p.id = ANY (sqlc.arg(ids)::uuid[]) AND p.customer_id IS NOT NULL)
+  AND (NOT sqlc.arg(scoped)::boolean OR bp.id = ANY (sqlc.arg(party_ids)::uuid[]))
+ORDER BY c.code, c.id;
+
 -- name: GetCustomer :one
 SELECT sqlc.embed(c), bp.id AS billing_party_id, bp.billing_date_basis
 FROM customers c

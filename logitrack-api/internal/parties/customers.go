@@ -60,11 +60,13 @@ type Customer struct {
 	UpdatedAt        time.Time      `json:"updatedAt"`
 }
 
-// ListCustomersInput are the query parameters of GET /v1/customers.
+// ListCustomersInput are the query parameters of GET /v1/customers. IDs holds the raw values of ?ids (each a
+// comma-separated list; nil when the parameter is absent, [""] for a bare ids=).
 type ListCustomersInput struct {
 	Fields, Q string
 	Limit     int
 	Cursor    string
+	IDs       []string
 }
 
 var (
@@ -79,16 +81,22 @@ var (
 // MaxDriverIDTypes bounds driverIdTypes[].
 const MaxDriverIDTypes = 20
 
+// MaxLookupIDs bounds ?ids of GET /v1/customers (distinct ids).
+const MaxLookupIDs = 100
+
 const billingBasisDelivered = "delivered"
 
 // ListCustomers is GET /v1/customers, ordered by code: []CustomerMinimal with fields=minimal (any authenticated
 // principal), else []Customer (fleet:manage_customers). A customer-scope principal sees only its own billing
-// parties (T20 acceptance), here and through RLS (0012).
+// parties (T20 acceptance), here and through RLS (0012). With ?ids it is the lookup of listByIDs instead of a page.
 func (s *Service) ListCustomers(ctx context.Context, p *authz.Principal, in ListCustomersInput) (any, string, error) {
 	var ck checker
 	minimal := in.Fields == "minimal"
 	if in.Fields != "" && !minimal {
 		ck.add("fields", "invalid")
+	}
+	if in.IDs != nil {
+		return s.listByIDs(ctx, p, &ck, minimal, in)
 	}
 	// q: its folded words, each in the code or the name (searchtext, the web's lib/searchText.ts); nil is no search.
 	var q []string
@@ -167,6 +175,100 @@ func (s *Service) ListCustomers(ctx context.Context, p *authz.Principal, in List
 		out = append(out, s.customerOf(ctx, r.Customer, r.BillingPartyID, r.BillingDateBasis, types[r.Customer.ID]))
 	}
 	return out, next, nil
+}
+
+// listByIDs is GET /v1/customers?ids= (UI8): the customers named by up to MaxLookupIDs distinct ids, each a customer
+// id or a billing party id (standby records and tasks hold the party, trips and rate rows the customer), ordered by
+// code, in one answer without nextCursor. The reach and the projection are the list's: fields=minimal for any
+// authenticated principal, the full record for fleet:manage_customers, a customer-scope principal only its own
+// parties. An unknown id, another tenant's party or one outside the reach is simply absent. ids is a lookup, not a
+// filter of a page: q, limit and cursor with it are 422 exclusive.
+func (s *Service) listByIDs(ctx context.Context, p *authz.Principal, ck *checker, minimal bool, in ListCustomersInput) (any, string, error) {
+	ids := parseLookupIDs(ck, in.IDs)
+	if strings.TrimSpace(in.Q) != "" {
+		ck.add("q", "exclusive")
+	}
+	if in.Limit != 0 {
+		ck.add("limit", "exclusive")
+	}
+	if in.Cursor != "" {
+		ck.add("cursor", "exclusive")
+	}
+	if err := ck.err(); err != nil {
+		return nil, "", err
+	}
+	if !minimal && !p.Can(authz.FleetManageCustomers) {
+		return nil, "", authz.ErrPermissionDenied("missing capability", authz.FleetManageCustomers)
+	}
+	scoped := p.IsCustomerScope()
+	parties := []uuid.UUID{}
+	if scoped {
+		parties = p.PartyIDs
+	}
+	var rows []partiesdb.ListCustomersByIDsRow
+	var types map[uuid.UUID][]DriverIDType
+	err := s.tx(ctx, p, func(_ pgx.Tx, qq *partiesdb.Queries) error {
+		var err error
+		rows, err = qq.ListCustomersByIDs(ctx, partiesdb.ListCustomersByIDsParams{Ids: ids, Scoped: scoped, PartyIds: parties})
+		if err != nil || minimal {
+			return err
+		}
+		found := make([]uuid.UUID, 0, len(rows))
+		for _, r := range rows {
+			found = append(found, r.Customer.ID)
+		}
+		types, err = driverIDTypes(ctx, qq, found)
+		return err
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if minimal {
+		out := make([]CustomerMinimal, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, CustomerMinimal{ID: r.Customer.ID, BillingPartyID: r.BillingPartyID, Code: r.Customer.Code, Name: r.Customer.Name})
+		}
+		return out, "", nil
+	}
+	out := make([]Customer, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, s.customerOf(ctx, r.Customer, r.BillingPartyID, r.BillingDateBasis, types[r.Customer.ID]))
+	}
+	return out, "", nil
+}
+
+// parseLookupIDs reads ?ids: comma-separated uuids, the parameter repeated or not; blanks are skipped and duplicates
+// dropped (order kept). No id at all is required, a value that is not a uuid invalid (params.value, the first one),
+// more than MaxLookupIDs distinct ids too_many (params.max).
+func parseLookupIDs(ck *checker, raw []string) []uuid.UUID {
+	var out []uuid.UUID
+	seen := map[uuid.UUID]bool{}
+	for _, r := range raw {
+		for v := range strings.SplitSeq(r, ",") {
+			if v = strings.TrimSpace(v); v == "" {
+				continue
+			}
+			id, err := uuid.Parse(v)
+			if err != nil {
+				if utf8.RuneCountInString(v) > 64 { // echo a bounded value
+					v = string([]rune(v)[:64])
+				}
+				ck.bad = append(ck.bad, httpx.FieldViolation{Field: "ids", Reason: "invalid", Params: map[string]any{"value": v}})
+				return nil
+			}
+			if seen[id] {
+				continue
+			}
+			if seen[id], out = true, append(out, id); len(out) > MaxLookupIDs {
+				ck.bad = append(ck.bad, httpx.FieldViolation{Field: "ids", Reason: "too_many", Params: map[string]any{"max": MaxLookupIDs}})
+				return nil
+			}
+		}
+	}
+	if len(out) == 0 {
+		ck.add("ids", "required")
+	}
+	return out
 }
 
 func driverIDTypes(ctx context.Context, q *partiesdb.Queries, ids []uuid.UUID) (map[uuid.UUID][]DriverIDType, error) {

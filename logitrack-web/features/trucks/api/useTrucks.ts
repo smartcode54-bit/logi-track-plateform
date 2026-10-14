@@ -10,14 +10,15 @@ import {
     importTrucks,
     renewalsQuery,
     renewTruck,
-    truckOptionsQuery,
     truckPagesQuery,
     truckQuery,
+    truckStatusCountsQuery,
     updateTruck,
+    type Ownership,
     type RenewalDTO,
     type TruckDTO,
     type TruckListFilter,
-    type TruckOption,
+    type TruckStatusCounts,
 } from "./trucks";
 import {
     activeAssignmentsQuery,
@@ -31,7 +32,7 @@ import {
 } from "./truckAssignments";
 
 const NO_TRUCKS: TruckDTO[] = [];
-const NO_OPTIONS: TruckOption[] = [];
+const NO_COUNTS: TruckStatusCounts = {};
 const NO_RENEWALS: RenewalDTO[] = [];
 const NO_ASSIGNMENTS: TruckAssignmentDTO[] = [];
 
@@ -56,10 +57,10 @@ export function useFleetStats() {
     return { ...query, trucks: query.data ?? NO_TRUCKS };
 }
 
-/** `['trucks','options']`: own trucks not in maintenance (the truck-assignment counter). */
-export function useTruckOptions(enabled = true) {
-    const query = useQuery({ ...truckOptionsQuery, enabled });
-    return { ...query, options: query.data ?? NO_OPTIONS };
+/** `['trucks',{view:'statusCounts',ownership}]`: trucks per status, no list (the truck-assignment counter, UI8). */
+export function useTruckStatusCounts(ownership?: Ownership, enabled = true) {
+    const query = useQuery({ ...truckStatusCountsQuery(ownership), enabled });
+    return { ...query, counts: query.data ?? NO_COUNTS };
 }
 
 /** `['trucks','detail',id]`. */

@@ -6,14 +6,13 @@ import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
 import { isDriverLoginOutOfReach } from "@/features/drivers/api/drivers";
 import { useCreateDriverLogin, useDriverWrites } from "@/features/drivers/api/useDrivers";
-import { useCustomerOptions } from "@/features/customers/api/useCustomers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import type { CreateUserResult } from "@/features/users/api/users";
 import { TemporaryPasswordNotice } from "./TemporaryPasswordNotice";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -91,11 +90,9 @@ export default function NewDriverForm() {
 
     const watchedEmail = form.watch("email");
     const employmentType = form.watch("employmentType");
-    // `['subcontractors','options']` once the employment type needs it; `['customers','options']` for
-    // the customer driver ids (T25).
+    // `['subcontractors','options']` once the employment type needs it (T25). The customer driver ids are
+    // keyed by customer code; the save resolves those codes by search (`createDriver`, UI8), no customer list.
     const { options: subcontractors, isError: subsError } = useSubcontractorOptions(employmentType === "SUBCONTRACTOR");
-    const { options: customerOptions } = useCustomerOptions();
-    const customerIdByCode = useMemo(() => new Map(customerOptions.map((c) => [c.code.toUpperCase(), c.id])), [customerOptions]);
     if (subsError) console.warn("[drivers] subcontractor options failed");
 
     // Handlers
@@ -126,7 +123,6 @@ export default function NewDriverForm() {
             driverId = await create.mutateAsync({
                 values: data,
                 files: { profile: selectedImage, idCard: idCardFile, license: truckLicenseFile },
-                customerIdByCode,
             });
         } catch (error) {
             if (applyServerFieldErrors(form, error, t, { licenseExpiredDate: "truckLicenseExpiredDate", tenantId: "subcontractorId" }) > 0) setCurrentStep(1);

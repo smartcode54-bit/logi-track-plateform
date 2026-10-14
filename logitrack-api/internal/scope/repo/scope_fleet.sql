@@ -38,6 +38,18 @@ WHERE (sqlc.narg(tenant_id)::uuid IS NULL OR tenant_id = sqlc.narg(tenant_id)::u
 ORDER BY license_plate, id
 LIMIT sqlc.arg(row_limit);
 
+-- name: CountScopeTrucksByStatus :many
+-- meta.statusCounts of a dispatcher's truck list (UI8): every projected row matching the other filters.
+SELECT status, count(*)::int AS n
+FROM scope_trucks
+WHERE (sqlc.narg(tenant_id)::uuid IS NULL OR tenant_id = sqlc.narg(tenant_id)::uuid)
+  AND (sqlc.narg(truck_type)::text IS NULL OR vehicle_class = upper(sqlc.narg(truck_type)::text)
+       OR lower(type_raw) = lower(sqlc.narg(truck_type)::text))
+  AND (sqlc.narg(q_words)::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
+GROUP BY status
+ORDER BY status;
+
 -- name: ListScopeDrivers :many
 -- The driver list of a dispatcher (T23): the projection only, by display name (the Thai full name, else first and
 -- last name); q matches the names and the mobile, folded as the staff list does (search_fold, 0026; q_words NULL is

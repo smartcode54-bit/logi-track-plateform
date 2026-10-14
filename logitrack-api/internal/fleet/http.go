@@ -117,13 +117,13 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	out, next, err := h.s.ListTrucks(c.Context(), p, ListTrucksInput{Ownership: c.Query("ownership"),
+	out, next, meta, err := h.s.ListTrucks(c.Context(), p, ListTrucksInput{Ownership: c.Query("ownership"),
 		TenantID: c.Query("tenantId"), Status: c.Query("status"), Type: c.Query("type"), Q: c.Query("q"),
 		Limit: limit, Cursor: c.Query("cursor")})
 	if err != nil {
 		return err
 	}
-	return httpx.Page(c, out, next, nil)
+	return httpx.Page(c, out, next, meta)
 }
 
 func (h handlers) get(c fiber.Ctx) error {

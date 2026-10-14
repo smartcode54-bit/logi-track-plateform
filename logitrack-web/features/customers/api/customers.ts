@@ -7,16 +7,18 @@
  * - `['customers', {q}]` (infinite): the customers page, `GET /v1/customers?q&cursor` (full record,
  *   `fleet:manage_customers`), server search, keyset by code.
  * - `['customers','detail',id]`: `GET /v1/customers/{id}`.
- * - `['customers','options']`: every customer as `{id, billingPartyId, code, name}`
- *   (`GET /v1/customers?fields=minimal`, all pages) for the master-data pickers (hub dialog, hub
- *   import, sources filter).
+ *
+ * No page reads every customer (UI8, issue #184): pickers search on the server and name values and rows
+ * by id (`features/accounting/api/pickers.go.ts`: `['customers',{fields:'minimal',q,view:'picker'}]`,
+ * `['customers','ref',id]` through `GET /v1/customers?fields=minimal&ids=`); a form or an import that
+ * holds customer codes resolves them by search (`fetchCustomersByCode`). The `['customers','options']`
+ * directory of T25 is gone.
  *
  * Go is the only source (TW7 removed the Firestore adapter, the legacy `['customers']` list of
  * `getCustomers()` that the Firestore pages read, and the `masterdata` flag switch of T25).
  */
 import { infiniteQueryOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath } from "@/lib/goFetch";
-import { fetchAllPages } from "@/lib/goPages";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { uploadToGo } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
@@ -190,19 +192,6 @@ export function customerQuery(id: string) {
         ...QUERY_POLICY.entity,
         enabled: id !== "",
     });
-}
-
-/** `['customers','options']`: every customer for a master-data picker. */
-export const customerOptionsQuery = queryOptions({
-    queryKey: queryKeys.customers.options(),
-    queryFn: ({ signal }) => fetchAllPages<CustomerMinimalDTO>(CUSTOMERS_PATH, { fields: "minimal" }, { signal, maxPages: 100 }),
-    ...QUERY_POLICY.masterData,
-    refetchOnWindowFocus: true,
-});
-
-/** The picker list from the tab's cache (async callers such as the hub import). */
-export function fetchCustomerOptions(client: QueryClient = getQueryClient()): Promise<CustomerMinimalDTO[]> {
-    return client.fetchQuery(customerOptionsQuery);
 }
 
 /** After a customer write: every `['customers', ...]` entry refetches where observed, the rest on next use. */

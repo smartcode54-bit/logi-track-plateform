@@ -3,6 +3,8 @@
 // (`useCustomerLookup`), so the page never reads every customer to show a filter:
 // - nothing about customers is read while the "all" view has no rows; a Thai term is one debounced search; the
 //   picked customer filters the entries on the server and keeps its name (from the search page, no lookup);
+// - the "all" view with rows names their customers in one `GET /v1/customers?ids=` lookup (UI8), never by reading
+//   every customer;
 // - a fee's customer off the picker's first page is named in its row and in the edit dialog's picker.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -11,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
-import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { customerDirectoryReads, customerLookups, customersReply, fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
@@ -44,14 +46,7 @@ function setup() {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities: ["accounting:view_rate_card", "accounting:edit_rate_card"] }) }));
     web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [{ id: "h1", sourceId: "SPX-A", sourceNameTh: "บางนา", sourceNameEn: "Bang Na", stationType: "HUB" }] }));
-    web.on("GET", "/api/go/v1/customers", (call) => {
-        const q = (params(call).get("q") ?? "").toLowerCase();
-        const limit = Number(params(call).get("limit") ?? "50");
-        const from = Number(params(call).get("cursor") ?? "0");
-        const hits = CUSTOMERS.filter((c) => !q || `${c.code} ${c.name}`.toLowerCase().includes(q));
-        const next = from + limit < hits.length ? String(from + limit) : undefined;
-        return json(200, { data: hits.slice(from, from + limit), ...(next ? { nextCursor: next } : {}) });
-    });
+    web.on("GET", "/api/go/v1/customers", customersReply(CUSTOMERS));
     // The "all" view has no rates yet; one customer has one.
     web.on("GET", "/api/go/v1/billing/rate-entries", (call) => {
         const cust = params(call).get("customerId");
@@ -72,7 +67,7 @@ const renderPage = () => {
 };
 
 describe("rate card: the customer picker searches on the server (UI2C)", () => {
-    it("reads no customer for the empty all view, searches a Thai term once and filters the entries by the pick", async () => {
+    it("an empty all view reads no customer; a Thai term is one search and the pick filters the entries", async () => {
         const { web, customerCalls } = setup();
         renderPage();
         const picker = await screen.findByRole("combobox", { name: "Customer" });
@@ -97,6 +92,23 @@ describe("rate card: the customer picker searches on the server (UI2C)", () => {
         expect(customerCalls()).toHaveLength(2);
     });
 
+    it("the all view with rows names their customers in one ids lookup, never by reading every customer (UI8)", async () => {
+        const { web, customerCalls } = setup();
+        // Twelve entries over five customers, three of them off the picker's first page.
+        const owners = ["c-0003", "c-0042", "c-0077", "c-0101", "c-0119"];
+        web.handlers.unshift((call) =>
+            call.method === "GET" && call.url.split("?")[0] === "/api/go/v1/billing/rate-entries" && !params(call).get("customerId")
+                ? json(200, { data: Array.from({ length: 12 }, (_, i) => ({ ...entry(owners[i % owners.length]), id: `e-${i}` })) })
+                : undefined
+        );
+        renderPage();
+        await waitFor(() => expect(screen.getAllByText("C0119 — ลูกค้า 0119").length).toBeGreaterThan(0));
+        for (const code of ["0003", "0042", "0077", "0101"]) expect(screen.getAllByText(`C${code} — ลูกค้า ${code}`).length).toBeGreaterThan(0);
+        expect(customerLookups(web.calls)).toEqual([owners]);
+        expect(customerDirectoryReads(web.calls)).toEqual([]);
+        expect(customerCalls()).toHaveLength(1);
+    });
+
     it("names a fee's customer that is not on the picker's first page, in the row and in the edit dialog", async () => {
         const { web, customerCalls } = setup();
         web.on("GET", "/api/go/v1/billing/service-fees", () =>
@@ -111,8 +123,9 @@ describe("rate card: the customer picker searches on the server (UI2C)", () => {
         await u.click(await screen.findByRole("tab", { name: "Service Fees" }));
         await waitFor(() => expect(screen.getAllByText("C0119 — ลูกค้า 0119")).toHaveLength(2));
         expect(screen.getByText("C0001 — ลูกค้า 0001")).toBeInTheDocument();
-        // Two customers on three rows: one lookup each; no picker page was asked for.
-        expect(getQueryClient().getQueryCache().findAll({ queryKey: ["customers", "ref"] })).toHaveLength(2);
+        // Two customers on three rows: one ids lookup for both; no picker page was asked for.
+        expect(customerLookups(web.calls)).toEqual([["c-0001", "c-0119"]]);
+        expect(getQueryClient().getQueryCache().findAll({ queryKey: ["customers", "ref"] }).length).toBeGreaterThanOrEqual(2);
         expect(customerCalls().filter((c) => params(c).get("limit") === "50")).toEqual([]);
 
         const row = screen.getAllByText("C0119 — ลูกค้า 0119")[0].closest("tr")!;

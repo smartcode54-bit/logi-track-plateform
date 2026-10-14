@@ -25,7 +25,8 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/context/auth";
 import type { DriverPick, TruckPick } from "@/features/accounting/api/pickers.go";
-import { useActiveAssignments, useAssignmentWrites, useTruckOptions } from "@/features/trucks/api/useTrucks";
+import { useActiveAssignments, useAssignmentWrites, useTruckStatusCounts } from "@/features/trucks/api/useTrucks";
+import { trucksInService } from "@/features/trucks/api/trucks";
 import type { TruckAssignmentDTO } from "@/features/trucks/api/truckAssignments";
 import { AssignmentHistory } from "@/features/trucks/components/AssignmentHistory";
 import { useDriverStatusCounts } from "@/features/drivers/api/useDrivers";
@@ -51,20 +52,20 @@ export default function TruckAssignmentPage() {
     // assignments, trucks and drivers. The pickers search on the server (UI2C): `DriverSelect` lists every
     // driver, an inactive one or one holding a truck shown but not pickable (Go refuses only those: an on_duty
     // driver without a truck, set on the driver form or loaded from the legacy app, is assignable),
-    // `TruckSelect` the own fleet's trucks, so no driver or truck list is read to pick. The counters: `meta.statusCounts` of the drivers list and the own
-    // trucks not in maintenance (`['trucks','options']`; Go has no truck count yet). The history
+    // `TruckSelect` the own fleet's trucks, so no driver or truck list is read to pick. The counters: `meta.statusCounts` of the drivers list and of
+    // the own trucks (UI8: "total trucks" is every own truck not in maintenance, from a one-row page). The history
     // (`['truckAssignments', {view:'history', status, q}]`) is its own virtualised, server-filtered list
     // (`AssignmentHistory`, TW8).
     const active = useActiveAssignments();
     const driverCounts = useDriverStatusCounts();
-    const truckOptions = useTruckOptions();
+    const truckCounts = useTruckStatusCounts("own");
     const { assign, revoke } = useAssignmentWrites();
-    const isLoading = active.isPending || driverCounts.isPending || truckOptions.isPending;
+    const isLoading = active.isPending || driverCounts.isPending || truckCounts.isPending;
     const isSubmitting = assign.isPending;
     const isRevoking = revoke.isPending;
 
     const stats = {
-        totalTrucks: truckOptions.options.length,
+        totalTrucks: trucksInService(truckCounts.counts),
         // Available = active or on_duty, less the drivers holding a truck (Go sets a holder on_duty).
         availableDrivers: Math.max(
             0,

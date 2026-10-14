@@ -19,7 +19,7 @@ vi.mock("xlsx", () => ({
 
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
-import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
+import { customerDirectoryReads, customerLookups, customersReply, fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
@@ -72,7 +72,7 @@ const CUSTOMERS = [
 function setup(capabilities: string[] = CAPS) {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities }) }));
-    web.on("GET", "/api/go/v1/customers", () => json(200, { data: CUSTOMERS }));
+    web.on("GET", "/api/go/v1/customers", customersReply(CUSTOMERS));
     web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [{ id: "h1", sourceId: "SPX-A", sourceNameTh: "บางนา", sourceNameEn: "Bang Na", stationType: "HUB" }] }));
     return web;
 }
@@ -193,6 +193,39 @@ describe("Go accounting pages (T42)", () => {
         expect(q).not.toHaveProperty("status");
         expect(q.from).toMatch(/^\d{4}-\d{2}-01$/);
         expect(q.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it("income: the all-customers view names its rows' customers in ONE ids lookup and reads no customer list (UI8)", async () => {
+        // An operator with view_income only (no fleet:manage_customers): trips name the customer, standby records
+        // their billing party; one customer is unknown to Go.
+        const web = setup(["accounting:view_income"]);
+        web.on("GET", "/api/go/v1/trips", () =>
+            json(200, {
+                data: [
+                    trip("t1", "SPXTH-001", { priced: true, estimateThb: 1000 }),
+                    trip("t2", "SPXTH-002", { priced: true, estimateThb: 2000, customerId: "c2", billingPartyId: "p2" }),
+                    trip("t3", "SPXTH-003", { priced: true, estimateThb: 3000 }),
+                    trip("t4", "SPXTH-004", { priced: true, estimateThb: 4000, customerId: "c-gone", billingPartyId: "p-gone" }),
+                ],
+            })
+        );
+        web.on("GET", "/api/go/v1/standby", () =>
+            json(200, {
+                data: [
+                    { id: "s1", tenantId: "t-own", driverId: null, driverName: "Driver S", taskId: null, tripId: null, jobCategory: null, startLocation: "SPX-A",
+                        endLocation: "SOCE", startedAt: "2026-10-04T01:00:00Z", endedAt: "2026-10-04T03:00:00Z", durationMinutes: 120, truckLicensePlate: null,
+                        status: "completed", customerPartyId: "p2", createdAt: "2026-10-04T01:00:00Z", billing: { estimateThb: 500, partyId: "p2", rateSource: "rate",
+                        rateEntryId: null, effectiveFromDate: null, unpricedReason: null, computedAt: null, billingTenantId: null } },
+                ],
+            })
+        );
+        renderPage("/app/accounting/income", <IncomePage />);
+        await named();
+        await named("TTP — TTP Co");
+        expect(await screen.findByText("SPXTH-004")).toBeInTheDocument();
+        expect(customerLookups(web.calls)).toEqual([["c-gone", "c1", "c2", "p2"]]);
+        expect(customerDirectoryReads(web.calls)).toEqual([]);
+        expect(web.count("GET", "/api/go/v1/customers")).toBe(1);
     });
 
     it("income: a user without billing_document gets the loaded unpriced rows on the missing-billing tab, never a 403", async () => {

@@ -12,6 +12,68 @@ import (
 	"github.com/google/uuid"
 )
 
+const countTrucksByStatus = `-- name: CountTrucksByStatus :many
+SELECT status, count(*)::int AS n
+FROM trucks
+WHERE ($1::boolean OR tenant_id = ANY ($2::uuid[]))
+  AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+  AND ($4::text IS NULL OR ownership_type = $4::text)
+  AND ($5::text IS NULL OR vehicle_class = upper($5::text)
+       OR lower(type_raw) = lower($5::text))
+  AND ($6::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '') || ' ' || coalesce(brand, '') || ' '
+                      || coalesce(model, '')) LIKE ALL ($6::text[])
+       OR lower(coalesce(gps_vehicle_id, '')) = lower($7::text)
+       OR lower(coalesce(vin, '')) = lower($7::text))
+GROUP BY status
+ORDER BY status
+`
+
+type CountTrucksByStatusParams struct {
+	AllTenants bool
+	TenantIds  []uuid.UUID
+	TenantID   *uuid.UUID
+	Ownership  *string
+	TruckType  *string
+	QWords     []string
+	Q          *string
+}
+
+type CountTrucksByStatusRow struct {
+	Status string
+	N      int32
+}
+
+// meta.statusCounts of GET /v1/trucks (UI8): every row matching the filters other than status (and the cursor), not
+// just the page, so a counter reads one row instead of every truck (the truck-assignment page's "total trucks").
+func (q *Queries) CountTrucksByStatus(ctx context.Context, arg CountTrucksByStatusParams) ([]CountTrucksByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countTrucksByStatus,
+		arg.AllTenants,
+		arg.TenantIds,
+		arg.TenantID,
+		arg.Ownership,
+		arg.TruckType,
+		arg.QWords,
+		arg.Q,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountTrucksByStatusRow{}
+	for rows.Next() {
+		var i CountTrucksByStatusRow
+		if err := rows.Scan(&i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteTruckFiles = `-- name: DeleteTruckFiles :exec
 DELETE FROM truck_files WHERE truck_id = $1 AND file_id = ANY ($2::uuid[])
 `

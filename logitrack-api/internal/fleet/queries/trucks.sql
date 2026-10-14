@@ -26,6 +26,24 @@ WHERE (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
+-- name: CountTrucksByStatus :many
+-- meta.statusCounts of GET /v1/trucks (UI8): every row matching the filters other than status (and the cursor), not
+-- just the page, so a counter reads one row instead of every truck (the truck-assignment page's "total trucks").
+SELECT status, count(*)::int AS n
+FROM trucks
+WHERE (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
+  AND (sqlc.narg(tenant_id)::uuid IS NULL OR tenant_id = sqlc.narg(tenant_id)::uuid)
+  AND (sqlc.narg(ownership)::text IS NULL OR ownership_type = sqlc.narg(ownership)::text)
+  AND (sqlc.narg(truck_type)::text IS NULL OR vehicle_class = upper(sqlc.narg(truck_type)::text)
+       OR lower(type_raw) = lower(sqlc.narg(truck_type)::text))
+  AND (sqlc.narg(q_words)::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '') || ' ' || coalesce(brand, '') || ' '
+                      || coalesce(model, '')) LIKE ALL (sqlc.narg(q_words)::text[])
+       OR lower(coalesce(gps_vehicle_id, '')) = lower(sqlc.narg(q)::text)
+       OR lower(coalesce(vin, '')) = lower(sqlc.narg(q)::text))
+GROUP BY status
+ORDER BY status;
+
 -- name: GetTruck :one
 -- GET /v1/trucks/{id} names the reach too: a dispatcher's scope branch (p_scope_read) opens in-scope trucks of other
 -- tenants to the scope_trucks projection only, never to this full row (Appendix C §C.3.7).

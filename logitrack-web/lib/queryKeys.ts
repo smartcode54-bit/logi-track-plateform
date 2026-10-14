@@ -97,8 +97,6 @@ export const queryKeys = {
         all: () => ["customers"] as const,
         list: <P extends Params>(params?: P) => listKey("customers", params),
         detail: (id: string) => ["customers", "detail", id] as const,
-        /** Every customer as a picker option (`fields=minimal`, flag `masterdata`, T25). */
-        options: () => ["customers", "options"] as const,
         /**
          * One customer `{id, billingPartyId, code, name}` by a customer id or a billing party id: the label of a
          * row or a picker's value (UI2C, `features/accounting/api/pickers.go.ts` `customerRefQuery`).
@@ -139,8 +137,6 @@ export const queryKeys = {
         all: () => ["trucks"] as const,
         list: <P extends Params>(params: P) => ["trucks", params] as const,
         detail: (id: string) => ["trucks", "detail", id] as const,
-        /** Every truck as a picker option of the truck assignment page (T25). */
-        options: () => ["trucks", "options"] as const,
         /** The fleet status and PM counters of the trucks page (every truck, T25). */
         fleetStats: () => ["trucks", "fleetStats"] as const,
     },

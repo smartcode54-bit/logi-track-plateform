@@ -53,6 +53,50 @@ func (q *Queries) CountScopeDriversByStatus(ctx context.Context, arg CountScopeD
 	return items, nil
 }
 
+const countScopeTrucksByStatus = `-- name: CountScopeTrucksByStatus :many
+SELECT status, count(*)::int AS n
+FROM scope_trucks
+WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+  AND ($2::text IS NULL OR vehicle_class = upper($2::text)
+       OR lower(type_raw) = lower($2::text))
+  AND ($3::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '')) LIKE ALL ($3::text[]))
+GROUP BY status
+ORDER BY status
+`
+
+type CountScopeTrucksByStatusParams struct {
+	TenantID  *uuid.UUID `json:"tenantId"`
+	TruckType *string    `json:"truckType"`
+	QWords    []string   `json:"qWords"`
+}
+
+type CountScopeTrucksByStatusRow struct {
+	Status string `json:"status"`
+	N      int32  `json:"n"`
+}
+
+// meta.statusCounts of a dispatcher's truck list (UI8): every projected row matching the other filters.
+func (q *Queries) CountScopeTrucksByStatus(ctx context.Context, arg CountScopeTrucksByStatusParams) ([]CountScopeTrucksByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countScopeTrucksByStatus, arg.TenantID, arg.TruckType, arg.QWords)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountScopeTrucksByStatusRow{}
+	for rows.Next() {
+		var i CountScopeTrucksByStatusRow
+		if err := rows.Scan(&i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listScopeCarriers = `-- name: ListScopeCarriers :many
 SELECT id, kind, code, name_th, name_en FROM scope_tenants
 WHERE kind = 'carrier'

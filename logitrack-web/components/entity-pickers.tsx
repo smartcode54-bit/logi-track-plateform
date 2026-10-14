@@ -265,25 +265,32 @@ export type CustomerPickerProps = PickerProps & {
     /** The value of an "every customer" row listed first (a filter's "all"); none = a customer is required. */
     allValue?: string;
     allLabel?: string;
+    /** Fixed rows listed after "all" and before the search page (a filter's "no customer"); keep it stable. */
+    fixedOptions?: readonly SearchSelectOption[];
 };
 
+const NO_FIXED: readonly SearchSelectOption[] = [];
+
 /**
- * The single customer pickers. The value's label: the "all" row, `selectedLabel`, the option SearchSelect
- * remembers once picked, else the customer looked up by the value (`useCustomerLookup`; `…` while it
- * resolves, the raw id when Go knows none).
+ * The single customer pickers. The value's label: the "all" row or a fixed row, `selectedLabel`, the option
+ * SearchSelect remembers once picked, else the customer looked up by the value (`useCustomerLookup`; `…` while
+ * it resolves, the raw id when Go knows none).
  */
 const CustomerPicker = React.forwardRef<HTMLButtonElement, CustomerPickerProps & { toOption: (c: CustomerPick) => SearchSelectOption }>(function CustomerPicker(
-    { selectedLabel, allValue, allLabel, toOption, ...props },
+    { selectedLabel, allValue, allLabel, fixedOptions = NO_FIXED, toOption, ...props },
     ref
 ) {
     const search = useServerSearch(customerSearchQuery, toOption);
     const value = props.value ?? "";
-    const all = React.useMemo(() => (allValue === undefined ? null : { value: allValue, label: allLabel ?? allValue }), [allValue, allLabel]);
-    const isAll = all !== null && value === all.value;
-    const lookup = useCustomerLookup(value && !isAll && !selectedLabel ? [value] : []);
+    const leading = React.useMemo(
+        () => (allValue === undefined ? fixedOptions : [{ value: allValue, label: allLabel ?? allValue }, ...fixedOptions]),
+        [allValue, allLabel, fixedOptions]
+    );
+    const fixed = leading.find((o) => o.value === value) ?? null;
+    const lookup = useCustomerLookup(value && !fixed && !selectedLabel ? [value] : []);
     const found = lookup.get(value);
-    const selected = isAll
-        ? all
+    const selected = fixed
+        ? fixed
         : selectedLabel
           ? selectedFrom(value, selectedLabel)
           : value
@@ -291,7 +298,7 @@ const CustomerPicker = React.forwardRef<HTMLButtonElement, CustomerPickerProps &
                 ? { ...toOption(found), value }
                 : { value, label: lookup.label(value) }
             : null;
-    const options = React.useMemo(() => (all ? [all, ...search.options] : search.options), [all, search.options]);
+    const options = React.useMemo(() => (leading.length > 0 ? [...leading, ...search.options] : search.options), [leading, search.options]);
     return <SearchSelect ref={ref} {...props} {...search} options={options} selectedOption={selected} onOpenChange={(o) => {
         search.onOpenChange(o);
         props.onOpenChange?.(o);

@@ -1,6 +1,6 @@
-// TW4 / T25 / TW7 (developer-spec.md §10.7; Appendix E §E.4): customer and carrier pickers and the owner
+// TW4 / T25 / TW7 (developer-spec.md §10.7; Appendix E §E.4): customer names, carrier pickers and the owner
 // company are read once per stale time for the whole tab, whichever page or dialog asks, and their writes
-// invalidate the cached copy. Since TW7 Go is the only source (the Firestore adapters and the `masterdata`
+// invalidate the cached copy (customers by id since UI8: `['customers','ref',id]`, no directory). Since TW7 Go is the only source (the Firestore adapters and the `masterdata`
 // flag are gone). The writes go through the save hooks the forms use (`useSaveCustomer`,
 // `useSaveSubcontractor`, `useSaveCompany`): the write functions themselves invalidate nothing, the
 // hooks' `meta.invalidates` does (T25 review), so these tests fail when a hook loses its meta.
@@ -9,7 +9,7 @@ import { act, renderHook } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchCustomerOptions } = await import("./customers");
+const { fetchCustomerLookup } = await import("@/features/accounting/api/useCustomerLookup");
 const { useSaveCustomer } = await import("./useCustomers");
 const { fetchSubcontractorOptions } = await import("@/features/subcontractors/api/subcontractors");
 const { useSaveSubcontractor } = await import("@/features/subcontractors/api/useSubcontractors");
@@ -58,10 +58,10 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("cached master data over Go", () => {
-    it("['customers','options']: shared by every caller, one read; a write through the form's hook refreshes it", async () => {
-        const lists = await Promise.all(Array.from({ length: 15 }, () => fetchCustomerOptions()));
-        expect(lists[14]).toEqual([{ id: "c1", billingPartyId: null, code: "CJ", name: "CJ Express" }]);
-        expect(lists[14]).toBe(lists[0]);
+    it("['customers','ref',id]: shared by every caller, one lookup; a write through the form's hook refreshes it", async () => {
+        const lookups = await Promise.all(Array.from({ length: 15 }, () => fetchCustomerLookup(getQueryClient(), ["c1"])));
+        expect(lookups[14].get("c1")).toEqual({ id: "c1", billingPartyId: null, code: "CJ", name: "CJ Express" });
+        expect(lookups[14].get("c1")).toBe(lookups[0].get("c1"));
         expect(reads("customers")).toHaveLength(1);
         const { result } = renderHook(() => useSaveCustomer(), { wrapper });
         await act(() =>
@@ -75,7 +75,7 @@ describe("cached master data over Go", () => {
             })
         );
         expect(writes()).toEqual(["PATCH /api/go/v1/customers/c1"]);
-        await fetchCustomerOptions();
+        await fetchCustomerLookup(getQueryClient(), ["c1"]);
         expect(reads("customers")).toHaveLength(2);
     });
 
