@@ -5,7 +5,8 @@
 // - trucks: 150 trucks (old cap 100), "load more" to the end, the last truck on the last table page;
 // - truck-assignment history: 5,000 rows, virtualised (< 100 DOM rows), paged by scrolling to the last
 //   row; the search and the status go to Go (`?q&status`), so a row that is not loaded yet is found.
-// The hub dropdown (old cap 50) is covered in features/hubs/components/HubFilterCombobox.test.tsx.
+// The hub dropdown (old cap 50) is covered in features/hubs/components/HubFilterCombobox.test.tsx and, over the Go hub
+// master, in ./silentCapsOps.test.tsx (with standby, incidents and income).
 import React from "react";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
