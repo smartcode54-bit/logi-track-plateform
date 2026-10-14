@@ -175,6 +175,15 @@ func checkPlanShapes(t *testing.T, s *stack) {
 				TenantIds: []uuid.UUID{}, RowLimit: page})
 			return err
 		}, []string{"users"}, []string{"users_last_login"}},
+		{"ListUsersByCreated", all, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := iamdb.New(x).ListUsersByCreated(ctx, iamdb.ListUsersByCreatedParams{AllUsers: true,
+				TenantIds: []uuid.UUID{}, RowLimit: page})
+			return err
+		}, []string{"users"}, []string{"users_created"}},
+		{"ListUsersByCreated own fleet", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := iamdb.New(x).ListUsersByCreated(ctx, iamdb.ListUsersByCreatedParams{TenantIds: reachOwn, RowLimit: page})
+			return err
+		}, []string{"users"}, []string{"users_created"}},
 		{"ListAdminSessions", all, func(ctx context.Context, x *pgtest.Explainer) error {
 			_, err := iamdb.New(x).ListAdminSessions(ctx, iamdb.ListAdminSessionsParams{UserID: ownAdmin, Now: time.Now()})
 			return err

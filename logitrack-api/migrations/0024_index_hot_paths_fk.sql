@@ -1,6 +1,8 @@
 -- 0024_index_hot_paths_fk.sql. Never edit this file once it is merged; follow-ups take the next number (R31).
 -- Appendix A §A.2.19 (issue T61, first pass: M1 master data and the load-scale M3 tables). Index-only file, built
 -- CONCURRENTLY so a large table keeps taking writes while it builds (R31); each statement runs on its own.
+--   * users_created: the default order of GET /v1/users (ListUsersByCreated, created_at DESC, id DESC), which had no
+--     index for its order and sorted every reachable user per page.
 --   * Keyset lists of the two largest tables of the load profile (T16): the own-fleet staff list reaches the own fleet
 --     and its subtenants (tenant_id = ANY(...)), which the tenant-leading indexes of 0005/0006 serve only as a bitmap
 --     scan plus a sort of every reachable row. A global index on the sort key lets the first page stop after LIMIT rows
@@ -18,6 +20,8 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS customer_rate_entries_keyset
   ON customer_rate_entries (effective_from_at DESC, import_id COLLATE "C" DESC, id DESC);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS vehicle_expenses_keyset
   ON vehicle_expenses (expense_at DESC, id DESC);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS users_created
+  ON users (created_at DESC, id DESC);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS vehicle_expenses_receipt_file
   ON vehicle_expenses (receipt_file_id) WHERE receipt_file_id IS NOT NULL;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS vehicle_expenses_odometer_file
@@ -53,8 +57,9 @@ DECLARE bad text;
 BEGIN
   SELECT string_agg(c.relname::text, ', ') INTO bad
     FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
-   WHERE c.relname IN ('customer_rate_entries_keyset', 'vehicle_expenses_keyset', 'vehicle_expenses_receipt_file',
-                       'vehicle_expenses_odometer_file', 'trip_photos_file', 'trip_photos_stop', 'standby_photos_file',
+   WHERE c.relname IN ('customer_rate_entries_keyset', 'vehicle_expenses_keyset', 'users_created',
+                       'vehicle_expenses_receipt_file', 'vehicle_expenses_odometer_file', 'trip_photos_file',
+                       'trip_photos_stop', 'standby_photos_file',
                        'tasks_check_in_photo_file', 'tasks_check_in_screenshot_file', 'incident_reports_map_photo_file',
                        'incident_reports_situation1_file', 'incident_reports_situation2_file', 'maintenance_files_file',
                        'transactions_receipt_file', 'chat_messages_image_file', 'refresh_tokens_replaced_by')
@@ -81,5 +86,6 @@ DROP INDEX CONCURRENTLY IF EXISTS trip_photos_stop;
 DROP INDEX CONCURRENTLY IF EXISTS trip_photos_file;
 DROP INDEX CONCURRENTLY IF EXISTS vehicle_expenses_odometer_file;
 DROP INDEX CONCURRENTLY IF EXISTS vehicle_expenses_receipt_file;
+DROP INDEX CONCURRENTLY IF EXISTS users_created;
 DROP INDEX CONCURRENTLY IF EXISTS vehicle_expenses_keyset;
 DROP INDEX CONCURRENTLY IF EXISTS customer_rate_entries_keyset;
