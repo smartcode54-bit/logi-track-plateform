@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { LoadMore } from "@/components/load-more";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,7 @@ import {
     type StatementDTO,
     type StatementStatus,
 } from "../../api/billing.go";
-import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
+import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, MONTHS, monthName, yearOptions } from "./shared";
 import { StatementDocumentsDialog } from "./StatementDocumentsDialog";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -92,7 +93,7 @@ export function statementStats(rows: StatementDTO[], now = new Date()) {
 export function BillingResultPage() {
     const { t, language } = useLanguage();
     const canManage = useCan("accounting:manage_statements").allowed;
-    const customers = useCustomerPicks();
+    // The statements carry their customer's name and code; the filter searches customers on the server.
     const [customerId, setCustomerId] = useState("all");
     const [status, setStatus] = useState("all");
     const [month, setMonth] = useState("all");
@@ -140,19 +141,14 @@ export function BillingResultPage() {
                     <div className="flex flex-wrap items-end gap-4">
                         <div className="space-y-1">
                             <Label className="text-xs">{t("accounting.billingResult.filters.customer")}</Label>
-                            <Select value={customerId} onValueChange={setCustomerId}>
-                                <SelectTrigger className="w-56">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">{t("accounting.billingResult.filters.allCustomers")}</SelectItem>
-                                    {customers.list.map((c) => (
-                                        <SelectItem key={c.id} value={c.id}>
-                                            {c.code} — {c.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <CustomerSearchSelect
+                                aria-label={t("accounting.billingResult.filters.customer")}
+                                value={customerId}
+                                onValueChange={(id) => setCustomerId(id || "all")}
+                                allValue="all"
+                                allLabel={t("accounting.billingResult.filters.allCustomers")}
+                                className="w-56"
+                            />
                         </div>
                         <div className="space-y-1">
                             <Label className="text-xs">{t("accounting.billingResult.filters.status")}</Label>

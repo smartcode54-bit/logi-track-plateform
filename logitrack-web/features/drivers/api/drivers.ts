@@ -18,7 +18,6 @@
  */
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { goFetch, goFetchEnvelope, goPath, type GoEnvelope } from "@/lib/goFetch";
-import { fetchAllPages } from "@/lib/goPages";
 import { goNextPageParam } from "@/lib/goQuery";
 import { uploadToGo } from "@/lib/goUpload";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
@@ -102,14 +101,6 @@ export interface DriverDetailDTO extends DriverDTO {
     idCardUrl?: string | null;
     licenseKey?: string | null;
     licenseUrl?: string | null;
-}
-
-/** A driver picker option. */
-export interface DriverOptionDTO {
-    id: string;
-    displayName: string;
-    truckLicenseId: string | null;
-    licenseType: string | null;
 }
 
 export type StatusCounts = Partial<Record<DriverStatus, number>>;
@@ -259,14 +250,15 @@ export function driverPagesQuery(filter: DriverListFilter) {
     });
 }
 
-/** `['drivers','options']`: active drivers for a picker (Go: the full list, every page). */
-export const driverOptionsQuery = queryOptions({
-    queryKey: queryKeys.drivers.options(),
-    queryFn: async ({ signal }): Promise<DriverOptionDTO[]> => {
-        const rows = await fetchAllPages<DriverDTO>(DRIVERS_PATH, {}, { signal, maxPages: 200 });
-        return rows
-            .filter((d) => d.status !== "inactive")
-            .map((d) => ({ id: d.id, displayName: driverName(d), truckLicenseId: d.truckLicenseId, licenseType: d.licenseType }));
+/**
+ * `['drivers',{view:'statusCounts'}]`: the drivers per status over the caller's reach, from `meta.statusCounts`
+ * of a one-row page (the truck-assignment counters, UI2C: no driver list is read for a count).
+ */
+export const driverStatusCountsQuery = queryOptions({
+    queryKey: queryKeys.drivers.list({ view: "statusCounts" }),
+    queryFn: async ({ signal }): Promise<StatusCounts> => {
+        const page = (await goFetchEnvelope<unknown[]>(DRIVERS_PATH, { signal, query: { fields: "minimal", limit: 1 } })) as DriverPage;
+        return page.meta?.statusCounts ?? {};
     },
     ...QUERY_POLICY.entity,
 });

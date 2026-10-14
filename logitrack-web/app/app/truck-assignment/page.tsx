@@ -11,7 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-import { SearchSelect } from "@/components/ui/search-select";
+import { DriverSelect, TruckSelect } from "@/components/entity-pickers";
+import { nodeText, type SearchSelectOption } from "@/components/ui/search-select";
 import {
     Dialog,
     DialogContent,
@@ -23,43 +24,75 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/context/auth";
+import type { DriverPick, TruckPick } from "@/features/accounting/api/pickers.go";
 import { useActiveAssignments, useAssignmentWrites, useTruckOptions } from "@/features/trucks/api/useTrucks";
 import type { TruckAssignmentDTO } from "@/features/trucks/api/truckAssignments";
 import { AssignmentHistory } from "@/features/trucks/components/AssignmentHistory";
-import { useDriverOptions } from "@/features/drivers/api/useDrivers";
+import { useDriverStatusCounts } from "@/features/drivers/api/useDrivers";
 import { toastSaveError } from "@/lib/formServerErrors";
 
 import { useLanguage } from "@/context/language";
+
+/** A picked driver or truck: its id and what the picker showed (name / plate, licence / truck type). */
+interface Picked {
+    id: string;
+    label: string;
+    detail: string;
+}
+
+const picked = (id: string, option: SearchSelectOption | null): Picked | null =>
+    id && option ? { id, label: option.text ?? nodeText(option.label), detail: nodeText(option.description) } : null;
 
 export default function TruckAssignmentPage() {
     const { t } = useLanguage();
     const auth = useAuth();
     const currentUser = auth?.currentUser;
-    // `['truckAssignments', …]`, `['drivers','options']`, `['trucks','options']` (T25): Go
-    // `GET /v1/truck-assignments` and the pickers, or Firestore by the `masterdata` flag; a write
-    // invalidates the assignments, trucks and drivers instead of reloading four collections.
-    // The history (`['truckAssignments', {view:'history', status, q}]`) is its own virtualised,
-    // server-filtered list (`AssignmentHistory`, TW8).
+    // `['truckAssignments', {status:'active'}]` (T25), Go `GET /v1/truck-assignments`; a write invalidates the
+    // assignments, trucks and drivers. The pickers search on the server (UI2C): `DriverSelect` lists active
+    // drivers (Go sets a driver on_duty while it holds a truck), `TruckSelect` the own fleet's trucks, so no
+    // driver or truck list is read to pick. The counters: `meta.statusCounts` of the drivers list and the own
+    // trucks not in maintenance (`['trucks','options']`; Go has no truck count yet). The history
+    // (`['truckAssignments', {view:'history', status, q}]`) is its own virtualised, server-filtered list
+    // (`AssignmentHistory`, TW8).
     const active = useActiveAssignments();
-    const driverOptions = useDriverOptions();
+    const driverCounts = useDriverStatusCounts();
     const truckOptions = useTruckOptions();
     const { assign, revoke } = useAssignmentWrites();
-    const isLoading = active.isPending || driverOptions.isPending || truckOptions.isPending;
+    const isLoading = active.isPending || driverCounts.isPending || truckOptions.isPending;
     const isSubmitting = assign.isPending;
     const isRevoking = revoke.isPending;
 
-    // A driver with an active assignment is not offered again (several drivers may share a truck).
-    const drivers = useMemo(() => {
-        const assigned = new Set(active.assignments.map((a) => a.driverId));
-        return driverOptions.options
-            .filter((d) => !assigned.has(d.id))
-            .map((d) => ({ id: d.id, name: d.displayName, licenseType: d.licenseType ?? undefined }));
-    }, [active.assignments, driverOptions.options]);
-    const trucks = truckOptions.options;
-    const stats = { totalTrucks: trucks.length, availableDrivers: drivers.length, activeAssignments: active.assignments.length };
+    const stats = {
+        totalTrucks: truckOptions.options.length,
+        // Active = neither inactive nor holding a truck (an assigned driver is on_duty).
+        availableDrivers: driverCounts.counts.active ?? 0,
+        activeAssignments: active.assignments.length,
+    };
 
-    const [selectedDriver, setSelectedDriver] = useState<string>("");
-    const [selectedTruck, setSelectedTruck] = useState<string>("");
+    // A driver who holds an active assignment cannot take another (Go: 409 driver_assigned): shown, not
+    // pickable, with the truck it holds. Several drivers may share a truck; a truck in maintenance is not offered.
+    const heldPlate = useMemo(() => new Map(active.assignments.map((a) => [a.driverId, a.truckPlate ?? ""])), [active.assignments]);
+    const describeDriver = useCallback(
+        (d: DriverPick): Partial<SearchSelectOption> | undefined => {
+            if (heldPlate.has(d.id) || d.currentAssignment) {
+                const plate = heldPlate.get(d.id) || d.currentAssignment?.truckPlate || "-";
+                return { disabled: true, description: t("assignments.hint.assigned", { plate }) };
+            }
+            return d.licenseType ? { description: d.licenseType } : undefined;
+        },
+        [heldPlate, t]
+    );
+    const describeTruck = useCallback(
+        (tr: TruckPick): Partial<SearchSelectOption> | undefined => {
+            if (tr.status === "maintenance") return { disabled: true, description: t("assignments.hint.maintenance") };
+            const kind = tr.type || tr.model;
+            return kind ? { description: kind } : undefined;
+        },
+        [t]
+    );
+
+    const [selectedDriver, setSelectedDriver] = useState<Picked | null>(null);
+    const [selectedTruck, setSelectedTruck] = useState<Picked | null>(null);
 
     const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
     const [assignmentToRevoke, setAssignmentToRevoke] = useState<TruckAssignmentDTO | null>(null);
@@ -69,23 +102,22 @@ export default function TruckAssignmentPage() {
             toast.error(t('assignments.toast.selectBoth'));
             return;
         }
-        const driver = drivers.find(d => d.id === selectedDriver);
-        const truck = trucks.find(t => t.id === selectedTruck);
-        if (!driver || !truck) return;
+        const driver = selectedDriver;
+        const truck = selectedTruck;
 
         try {
             // TODO: QA Insight - Block Dispatch if Insurance is OVERDUE
             await assign.mutateAsync({
                 truckId: truck.id,
                 driverId: driver.id,
-                driverName: driver.name,
-                truckPlate: truck.plate,
-                truckModel: truck.model,
+                driverName: driver.label,
+                truckPlate: truck.label,
+                truckModel: truck.detail,
                 adminName: currentUser?.displayName || "Admin",
             });
             toast.success(t('assignments.toast.deploySuccess'));
-            setSelectedDriver("");
-            setSelectedTruck("");
+            setSelectedDriver(null);
+            setSelectedTruck(null);
         } catch (error) {
             toastSaveError(error, t, 'assignments.toast.deployError');
         }
@@ -195,13 +227,14 @@ export default function TruckAssignmentPage() {
                         <div className="flex-1 space-y-4">
                             <label className="text-sm font-medium text-foreground">{t('assignments.selectDriver')}</label>
 
-                            <SearchSelect
-                                options={drivers.map(d => ({
-                                    value: d.id,
-                                    label: `${d.name} ${d.licenseType ? `- ${d.licenseType}` : ''}`
-                                }))}
-                                value={selectedDriver}
-                                onValueChange={(v) => setSelectedDriver(v)}
+                            <DriverSelect
+                                aria-label={t('assignments.selectDriver')}
+                                status="active"
+                                details
+                                describe={describeDriver}
+                                value={selectedDriver?.id ?? ""}
+                                selectedLabel={selectedDriver?.label}
+                                onValueChange={(v, option) => setSelectedDriver(picked(v, option))}
                                 placeholder={t('assignments.searchDriver')}
                                 searchPlaceholder={t('assignments.searchDriverPlaceholder')}
                                 emptyText={t('assignments.noDrivers')}
@@ -213,8 +246,8 @@ export default function TruckAssignmentPage() {
                                     <User className="h-5 w-5" />
                                 </div>
                                 <span className="text-sm text-muted-foreground italic">
-                                    {drivers.find(d => d.id === selectedDriver)
-                                        ? `${drivers.find(d => d.id === selectedDriver)?.name} ${drivers.find(d => d.id === selectedDriver)?.licenseType ? `- ${drivers.find(d => d.id === selectedDriver)?.licenseType}` : ''}`
+                                    {selectedDriver
+                                        ? `${selectedDriver.label}${selectedDriver.detail ? ` - ${selectedDriver.detail}` : ''}`
                                         : t('assignments.noDriverSelected')
                                     }
                                 </span>
@@ -232,13 +265,13 @@ export default function TruckAssignmentPage() {
                         <div className="flex-1 space-y-4">
                             <label className="text-sm font-medium text-foreground">{t('assignments.selectTruck')}</label>
 
-                            <SearchSelect
-                                options={trucks.map(t => ({
-                                    value: t.id,
-                                    label: `${t.type || t.model} - ${t.plate}`
-                                }))}
-                                value={selectedTruck}
-                                onValueChange={(v) => setSelectedTruck(v)}
+                            <TruckSelect
+                                aria-label={t('assignments.selectTruck')}
+                                ownership="own"
+                                describe={describeTruck}
+                                value={selectedTruck?.id ?? ""}
+                                selectedLabel={selectedTruck?.label}
+                                onValueChange={(v, option) => setSelectedTruck(picked(v, option))}
                                 placeholder={t('assignments.searchTruck')}
                                 searchPlaceholder={t('assignments.searchTruckPlaceholder')}
                                 emptyText={t('assignments.noTrucks')}
@@ -250,8 +283,8 @@ export default function TruckAssignmentPage() {
                                     <Truck className="h-5 w-5" />
                                 </div>
                                 <span className="text-sm text-muted-foreground italic">
-                                    {trucks.find(t => t.id === selectedTruck)
-                                        ? `${trucks.find(t => t.id === selectedTruck)?.type || trucks.find(t => t.id === selectedTruck)?.model} - ${trucks.find(t => t.id === selectedTruck)?.plate}`
+                                    {selectedTruck
+                                        ? `${selectedTruck.detail ? `${selectedTruck.detail} - ` : ''}${selectedTruck.label}`
                                         : t('assignments.noTruckSelected')
                                     }
                                 </span>
@@ -275,8 +308,8 @@ export default function TruckAssignmentPage() {
                                 size="lg"
                                 className="w-full sm:w-auto h-12 text-base border-border/50 bg-background/50 hover:bg-muted/50"
                                 onClick={() => {
-                                    setSelectedDriver("");
-                                    setSelectedTruck("");
+                                    setSelectedDriver(null);
+                                    setSelectedTruck(null);
                                 }}
                                 disabled={isSubmitting}
                             >

@@ -7,20 +7,19 @@ import { pollWhileVisible } from "@/lib/realtime/polling";
 import {
     createDriver,
     createDriverLogin,
-    driverOptionsQuery,
     driverPagesQuery,
     driverQuery,
+    driverStatusCountsQuery,
     updateDriver,
     type DriverDTO,
     type DriverListFilter,
     type DriverLoginInput,
-    type DriverOptionDTO,
     type StatusCounts,
 } from "./drivers";
 import type { CreateUserResult } from "@/features/users/api/users";
 
 const NO_DRIVERS: DriverDTO[] = [];
-const NO_OPTIONS: DriverOptionDTO[] = [];
+const NO_COUNTS: StatusCounts = {};
 
 /**
  * `['drivers', {status, q}]` (infinite): keyset pages of 100, polled every 60 s while the tab is
@@ -34,10 +33,10 @@ export function useDriverPages(filter: DriverListFilter) {
     return { ...query, drivers, statusCounts };
 }
 
-/** `['drivers','options']`: drivers for a picker. */
-export function useDriverOptions(enabled = true) {
-    const query = useQuery({ ...driverOptionsQuery, enabled });
-    return { ...query, options: query.data ?? NO_OPTIONS };
+/** `['drivers',{view:'statusCounts'}]`: drivers per status (counters; pickers search on the server). */
+export function useDriverStatusCounts(enabled = true) {
+    const query = useQuery({ ...driverStatusCountsQuery, enabled });
+    return { ...query, counts: query.data ?? NO_COUNTS };
 }
 
 /** `['drivers','detail',id]`. */

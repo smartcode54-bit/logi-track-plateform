@@ -13,14 +13,15 @@
  * `accounting:view_income` only (the default operation_staff) gets the unpriced rows of the loaded range
  * instead, as the Firestore page did, never a 403. Totals cover the loaded rows; "Load all" and the export
  * walk every page of the range (xlsx loads on the export click), and the export stops rather than write a
- * partial range.
+ * partial range. The customer filter is a billing party searched on the server (`CustomerPartySelect`), and
+ * the rows' customers are named by id (`useCustomerLookup`; the export resolves every walked row first).
  *
  * Writes call Go and invalidate `['income']` and the month's billing keys: recompute and manual price
  * (T38 routes), the plan date (`PATCH /v1/tasks/{id}`) and the delivered time (`PATCH /v1/trips/{id}`)
  * (T34 routes); `../../api/billingWrites.go.ts` names each route's owner.
  */
 import { useMemo, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { endOfMonth, format, parseISO, startOfMonth, subDays } from "date-fns";
 import { enUS, th as thDateLocale } from "date-fns/locale";
@@ -30,6 +31,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { CustomerPartySelect } from "@/components/entity-pickers";
 import { LoadMore } from "@/components/load-more";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +48,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ALL_PARTIES, billingRowsQuery, DEFAULT_ROWS_PARAMS, type UnpricedRowDTO } from "../../api/billing.go";
 import { computeTripBilling, patchTaskPlanDate, patchTripDeliveredAt, setTripManualPrice } from "../../api/billingWrites.go";
 import {
+    incomeCustomerRefs,
     incomeStandbyQuery,
     incomeSummary,
     incomeRows,
@@ -54,10 +57,10 @@ import {
     type IncomeRecordType,
     type IncomeRow,
 } from "../../api/income.go";
-import { customerLabel, customerMaps } from "../../api/pickers.go";
+import { fetchCustomerLookup, useCustomerLookup } from "../../api/useCustomerLookup";
 import { BackfillPanel } from "./BackfillPanel";
 import { JobCategoryBadge } from "./badges";
-import { ApiErrorAlert, CustomerSelect, formatDateTime, formatDay, formatThb, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
+import { ApiErrorAlert, formatDateTime, formatDay, formatThb, MONTHS, monthName, yearOptions } from "./shared";
 
 const col = createColumnHelper<IncomeRow>();
 
@@ -216,7 +219,7 @@ function LoadedMissingBillingTab({ rows, hasMore, customerName }: { rows: Income
     );
 }
 
-function MissingBillingTab({ canRecompute, customerName }: { canRecompute: boolean; customerName: (id: string | null) => string }) {
+function MissingBillingTab({ canRecompute }: { canRecompute: boolean }) {
     const { t, language } = useLanguage();
     const now = new Date();
     const [year, setYear] = useState(now.getFullYear());
@@ -226,6 +229,7 @@ function MissingBillingTab({ canRecompute, customerName }: { canRecompute: boole
     const canRows = useCan("accounting:billing_document").allowed;
     const rows = useQuery(billingRowsQuery(ALL_PARTIES, year, month, DEFAULT_ROWS_PARAMS, canRows));
     const unpriced = rows.data?.unpriced ?? [];
+    const customers = useCustomerLookup(unpriced.map((u) => u.customerId ?? u.billingPartyId));
     const recompute = async (u: UnpricedRowDTO) => {
         if (!u.tripId) return;
         setBusy(u.id);
@@ -307,7 +311,7 @@ function MissingBillingTab({ canRecompute, customerName }: { canRecompute: boole
                                             </Badge>
                                         ) : null}
                                     </TableCell>
-                                    <TableCell className="text-xs">{customerName(u.customerId)}</TableCell>
+                                    <TableCell className="text-xs">{customers.label(u.customerId ?? u.billingPartyId)}</TableCell>
                                     <TableCell className="text-xs">{u.hubDisplayName || u.lookupHubCode || u.sourceHub || "—"}</TableCell>
                                     <TableCell className="text-xs">{u.destinationDisplayName || u.lookupDestinationCode || u.destination || "—"}</TableCell>
                                     <TableCell className="text-xs">{u.vehicleClass ?? u.lookupVehicleClass ?? "—"}</TableCell>
@@ -344,12 +348,12 @@ export function IncomePage() {
     const canEditTrips = useCan("operations:edit_trip_details").allowed;
     const canEditTasks = useCan("operations:manage_tasks").allowed;
     const canBillingRows = useCan("accounting:billing_document").allowed;
-    const customers = useCustomerPicks();
-    const maps = useMemo(() => customerMaps(customers.list), [customers.list]);
+    const client = useQueryClient();
     const now = new Date();
     const [from, setFrom] = useState(format(startOfMonth(now), "yyyy-MM-dd"));
     const [to, setTo] = useState(format(endOfMonth(now), "yyyy-MM-dd"));
-    const [customerId, setCustomerId] = useState("all");
+    // The trip and standby filters match the billing party, so the customer picker's value is the party id.
+    const [party, setParty] = useState("all");
     const [recordType, setRecordType] = useState<"all" | IncomeRecordType>("all");
     const [tab, setTab] = useState("with-billing");
     const [showSummary, setShowSummary] = useState(true);
@@ -359,24 +363,26 @@ export function IncomePage() {
     const [exporting, setExporting] = useState(false);
     const [busyRow, setBusyRow] = useState<string | null>(null);
 
-    const party = customerId === "all" ? "all" : (maps.byId.get(customerId)?.billingPartyId ?? customerId);
     const filter = { from, to, party };
     const wantTrips = recordType !== "standby";
     const wantStandby = recordType === "all" || recordType === "standby";
     const trips = useInfiniteQuery(incomeTripsQuery(filter, wantTrips));
     const standby = useInfiniteQuery(incomeStandbyQuery(filter, wantStandby));
 
-    const customerOfParty = (p: string | null) => (p ? (maps.byParty.get(p)?.id ?? null) : null);
-    const rowOpts = { trips: wantTrips, standby: wantStandby, recordType, customerOfParty };
+    // The loaded rows' customers by id (a standby record names its billing party only), one cached query each.
+    const customers = useCustomerLookup(
+        incomeCustomerRefs(wantTrips ? trips.data?.pages : undefined, wantStandby ? standby.data?.pages : undefined)
+    );
+    const rowOpts = { trips: wantTrips, standby: wantStandby, recordType, customerOfParty: (p: string | null) => customers.get(p)?.id ?? null };
     const rows = useMemo(
         () => incomeRows(trips.data?.pages, standby.data?.pages, rowOpts),
         // rowOpts is rebuilt per render from these values.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [trips.data, standby.data, wantTrips, wantStandby, recordType, maps]
+        [trips.data, standby.data, wantTrips, wantStandby, recordType, customers]
     );
     const priced = useMemo(() => rows.filter((r) => r.estimateThb != null), [rows]);
     const summary = useMemo(() => incomeSummary(priced), [priced]);
-    const customerName = (id: string | null) => (id ? customerLabel(maps.byId.get(id)) || id : "—");
+    const customerName = (id: string | null) => customers.label(id);
 
     const hasMore = (wantTrips && trips.hasNextPage) || (wantStandby && standby.hasNextPage);
     const fetchingMore = trips.isFetchingNextPage || standby.isFetchingNextPage;
@@ -434,13 +440,15 @@ export function IncomePage() {
                 toast.error(t("accounting.go.income.exportIncomplete"));
                 return;
             }
-            const all = incomeRows(pages.trips, pages.standby, rowOpts);
+            // Every walked row's customer resolved before the file is written (pages past the screen too).
+            const names = await fetchCustomerLookup(client, incomeCustomerRefs(wantTrips ? pages.trips : undefined, wantStandby ? pages.standby : undefined));
+            const all = incomeRows(pages.trips, pages.standby, { ...rowOpts, customerOfParty: (p) => names.get(p)?.id ?? null });
             const XLSX = await import("xlsx");
             const sheet = XLSX.utils.json_to_sheet(
                 all.map((r) => ({
                     [t("accounting.income.table.tripId")]: r.label,
                     [t("accounting.income.filter.recordType")]: r.recordType,
-                    [t("accounting.income.table.customerName")]: customerName(r.customerId),
+                    [t("accounting.income.table.customerName")]: names.label(r.customerId),
                     [t("accounting.income.table.origin")]: r.origin,
                     [t("accounting.income.table.destination")]: r.destination,
                     [t("accounting.income.table.truckType")]: r.vehicleClass ?? "",
@@ -617,9 +625,9 @@ export function IncomePage() {
                     ),
             }),
         ],
-        // customerName reads maps; editing and busyRow drive the cells.
+        // customerName reads customers; editing and busyRow drive the cells.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [t, maps, editing, busyRow, canRecompute, canOverride, canEditTrips, canEditTasks]
+        [t, customers, editing, busyRow, canRecompute, canOverride, canEditTrips, canEditTasks]
     );
 
     const error = trips.error ?? standby.error;
@@ -763,7 +771,13 @@ export function IncomePage() {
                             <div className="flex flex-wrap items-end gap-4 rounded-lg border p-4">
                                 <div className="flex min-w-[200px] flex-col gap-1.5">
                                     <Label>{t("accounting.income.filter.customer")}</Label>
-                                    <CustomerSelect value={customerId} onChange={setCustomerId} customers={customers.list} allValue="all" allLabel={t("accounting.filter.all")} />
+                                    <CustomerPartySelect
+                                        aria-label={t("accounting.income.filter.customer")}
+                                        value={party}
+                                        onValueChange={(p) => setParty(p || "all")}
+                                        allValue="all"
+                                        allLabel={t("accounting.filter.all")}
+                                    />
                                 </div>
                                 <div className="flex min-w-[180px] flex-col gap-1.5">
                                     <Label>{t("accounting.income.filter.recordType")}</Label>
@@ -842,7 +856,7 @@ export function IncomePage() {
                         </TabsContent>
                         <TabsContent value="missing-billing" className="mt-4">
                             {canBillingRows ? (
-                                <MissingBillingTab canRecompute={canRecompute} customerName={customerName} />
+                                <MissingBillingTab canRecompute={canRecompute} />
                             ) : (
                                 <LoadedMissingBillingTab rows={rows} hasMore={Boolean(hasMore)} customerName={customerName} />
                             )}

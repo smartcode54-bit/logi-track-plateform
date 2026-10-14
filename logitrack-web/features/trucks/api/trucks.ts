@@ -413,7 +413,10 @@ export const fleetStatsQuery = queryOptions({
     ...QUERY_POLICY.entity,
 });
 
-/** `['trucks','options']`: own-fleet trucks not in maintenance, for the truck-assignment picker. */
+/**
+ * `['trucks','options']`: own-fleet trucks not in maintenance, for the truck-assignment page's "total trucks"
+ * counter (its picker searches on the server since UI2C; `GET /v1/trucks` has no count to read instead).
+ */
 export const truckOptionsQuery = queryOptions({
     queryKey: queryKeys.trucks.options(),
     queryFn: async ({ signal }) =>

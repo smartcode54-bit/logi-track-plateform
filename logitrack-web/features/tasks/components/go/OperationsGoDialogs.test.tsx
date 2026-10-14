@@ -337,11 +337,16 @@ describe("job-assign import: a later type's failure keeps the earlier type's res
                 dryRun: false } });
         });
         renderPage("/app/job-assign", <TaskImportDialog kind="all" onClose={vi.fn()} />);
-        await waitFor(() => expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/customers"))).toBe(true));
-        await act(async () => undefined);
         const u = userEvent.setup();
+        // Nothing about customers is read before the sheet is.
+        await screen.findByRole("button", { name: /Click to Upload/ });
+        expect(web.count("GET", "/api/go/v1/customers")).toBe(0);
         await u.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, new File(["x"], "jobs.xlsx"));
         expect(await screen.findByText(/4 records/i)).toBeInTheDocument();
+        // The one customer cell is one server search (UI2C), not a read of every customer; the rows' pickers
+        // are labelled from that page.
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/customers")).map((c) => params(c.url))).toEqual([{ fields: "minimal", q: "CJSF", limit: "50" }]);
+        expect(screen.getAllByRole("combobox", { name: /^Customer \d$/ }).map((b) => b.textContent)).toEqual(Array(4).fill("CJCJSF"));
 
         await u.click(screen.getByRole("button", { name: "Upload" }));
         expect(await screen.findByText(/2 task\(s\) were imported before the error/)).toBeInTheDocument();

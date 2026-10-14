@@ -15,6 +15,7 @@ import { Loader2, Wand2 } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
@@ -22,7 +23,6 @@ import { Label } from "@/components/ui/label";
 
 import type { BackfillResult } from "../../api/billingWrites.go";
 import { useBillingJob } from "../../api/useBillingJob";
-import { CustomerSelect, useCustomerPicks } from "./shared";
 
 function ResultLine({ label, result }: { label: string; result: BackfillResult }) {
     const { t } = useLanguage();
@@ -68,7 +68,6 @@ export function BackfillPanel({
 }) {
     const { t, language } = useLanguage();
     const canForce = useCan("accounting:recompute_force").allowed;
-    const customers = useCustomerPicks();
     const [from, setFrom] = useState(defaultFrom);
     const [to, setTo] = useState(defaultTo);
     const [customerId, setCustomerId] = useState("all");
@@ -109,7 +108,14 @@ export function BackfillPanel({
                 {withCustomer ? (
                     <div className="flex flex-col gap-1.5">
                         <Label>{t("accounting.income.filter.customer")}</Label>
-                        <CustomerSelect value={customerId} onChange={setCustomerId} customers={customers.list} allValue="all" allLabel={t("accounting.filter.all")} />
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.income.filter.customer")}
+                            value={customerId}
+                            onValueChange={(id) => setCustomerId(id || "all")}
+                            allValue="all"
+                            allLabel={t("accounting.filter.all")}
+                            className="min-w-[200px]"
+                        />
                     </div>
                 ) : null}
                 <Button type="button" variant="secondary" disabled={running || !from || !to || (!trips && !standby)} onClick={run}>

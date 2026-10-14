@@ -2,26 +2,26 @@
 
 /**
  * The task form over Go (T34): create, edit (re-assign) and duplicate of a first-mile or line-haul task. Mounted
- * on open only; its pickers are the cached Go hub master (`['hubs',{view:'go'}]`), the customer list
- * (`['customers',{fields:'minimal'}]`, which carries each customer's billing party) and server searches for the
- * truck, driver and helper. The task number, the run order, the truck's class and plate snapshot, the hub-derived
- * customer links and the assignment push are the server's (`POST /v1/tasks`, `PATCH /v1/tasks/{id}`; Appendix B
- * §B.2.11): the browser sends ids and codes only. An edit sends the changed fields only, so a task past `assigned`
- * is refused only for what really changed (`409 task_in_progress`).
+ * on open only; its pickers are the cached Go hub master (`['hubs',{view:'go'}]`) and server searches for the
+ * customer (its value is the billing party the task holds, UI2C), truck, driver and helper. The task number, the
+ * run order, the truck's class and plate snapshot, the hub-derived customer links and the assignment push are the
+ * server's (`POST /v1/tasks`, `PATCH /v1/tasks/{id}`; Appendix B §B.2.11): the browser sends ids and codes only.
+ * An edit sends the changed fields only, so a task past `assigned` is refused only for what really changed
+ * (`409 task_in_progress`).
  *
  * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop, not the
  * destination field (legacy tasks and the trip editor's mirror can hold a stop 1 that differs from the destination;
  * the legacy `DeliveryStopsEditor` edited each row freely). An edit sends `deliveryStops` only when the stops were
  * touched and differ (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { format } from "date-fns";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
-import { customerMaps } from "@/features/accounting/api/pickers.go";
-import { CustomerSelect, Field, SearchPicker, useCustomerPicks, type PickValue } from "@/features/accounting/components/go/shared";
+import { Field, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
+import { CustomerPartySelect } from "@/components/entity-pickers";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,7 +50,8 @@ interface Values {
     actualPickupAt: string;
     sourceHub: string;
     destination: string;
-    customerId: string;
+    /** The customer's billing party (what the task holds), picked with `CustomerPartySelect`. */
+    billingPartyId: string;
     jobCategory: JobCategory;
     truck: PickValue | null;
     truckType: string;
@@ -60,10 +61,10 @@ interface Values {
     stops: string[];
 }
 
-function initialValues(mode: TaskFormMode, taskType: TaskType, task: TaskDTO | undefined, customerOfParty: (p: string | null | undefined) => string): Values {
+function initialValues(mode: TaskFormMode, taskType: TaskType, task: TaskDTO | undefined): Values {
     const today = format(new Date(), "yyyy-MM-dd");
     if (!task) {
-        return { taskType, date: today, actualPickupAt: "", sourceHub: "", destination: "", customerId: "", jobCategory: "PRIMARY", truck: null,
+        return { taskType, date: today, actualPickupAt: "", sourceHub: "", destination: "", billingPartyId: "", jobCategory: "PRIMARY", truck: null,
             truckType: NO_CLASS, driver: null, helper: null, multi: false, stops: [] };
     }
     const edit = mode === "edit";
@@ -73,7 +74,7 @@ function initialValues(mode: TaskFormMode, taskType: TaskType, task: TaskDTO | u
         actualPickupAt: edit ? toLocalInput(task.actualPickupAt) : "",
         sourceHub: task.sourceHub,
         destination: task.destination,
-        customerId: customerOfParty(task.billingPartyId ?? task.sourceLinkedPartyId ?? task.destinationLinkedPartyId),
+        billingPartyId: task.billingPartyId ?? task.sourceLinkedPartyId ?? task.destinationLinkedPartyId ?? "",
         jobCategory: task.jobCategory ?? "PRIMARY",
         truck: task.truckId ? { id: task.truckId, label: task.licensePlate ?? task.truckId.slice(0, 8) } : null,
         truckType: task.truckType ?? NO_CLASS,
@@ -124,10 +125,7 @@ export function TaskFormDialog({
 }) {
     const { t } = useLanguage();
     const hubs = useGoHubs();
-    const customers = useCustomerPicks();
-    const maps = useMemo(() => customerMaps(customers.list), [customers.list]);
-    const customerOfParty = (p: string | null | undefined) => (p ? (maps.byParty.get(p)?.id ?? "") : "");
-    const [v, setV] = useState<Values>(() => initialValues(mode, taskType, task, customerOfParty));
+    const [v, setV] = useState<Values>(() => initialValues(mode, taskType, task));
     // The stop list was changed in this dialog (the multi-drop box, a row picked, added or removed).
     const [stopsTouched, setStopsTouched] = useState(false);
     const setStops = (f: (prev: Values) => Partial<Values>) => {
@@ -138,14 +136,6 @@ export function TaskFormDialog({
     const [local, setLocal] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
-    // The customer list may arrive after the form opened: prefill the billing customer once it is known.
-    useEffect(() => {
-        if (v.customerId || !task) return;
-        const id = customerOfParty(task.billingPartyId ?? task.sourceLinkedPartyId ?? task.destinationLinkedPartyId);
-        if (id) setV((prev) => (prev.customerId ? prev : { ...prev, customerId: id }));
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- once per customer list
-    }, [maps]);
-
     const set = <K extends keyof Values>(k: K, val: Values[K]) => setV((prev) => ({ ...prev, [k]: val }));
     const fm = v.taskType === "first_mile";
 
@@ -153,10 +143,7 @@ export function TaskFormDialog({
     const pickPlace = (field: "sourceHub" | "destination", code: string, partyId: string | null | undefined) => {
         setV((prev) => {
             const next = { ...prev, [field]: code };
-            if (!prev.customerId && partyId) {
-                const id = maps.byParty.get(partyId)?.id;
-                if (id) next.customerId = id;
-            }
+            if (!prev.billingPartyId && partyId) next.billingPartyId = partyId;
             return next;
         });
     };
@@ -164,9 +151,8 @@ export function TaskFormDialog({
     const submit = async () => {
         setError(null);
         setLocal(null);
-        const customer = maps.byId.get(v.customerId);
         if (!v.date || !v.sourceHub || !v.destination) return setLocal(t("taskBoard.form.required"));
-        if (!customer?.billingPartyId) return setLocal(t("firstMile.import.customerMissing"));
+        if (!v.billingPartyId) return setLocal(t("firstMile.import.customerMissing"));
         const stops = v.multi ? stopsOf(v) : [];
         const stopsPatch = mode === "edit" && task ? editStopsPatch(task, v, stopsTouched) : undefined;
         if (mode !== "edit" || stopsPatch) {
@@ -184,7 +170,7 @@ export function TaskFormDialog({
                 if (v.actualPickupAt !== toLocalInput(task.actualPickupAt)) patch.actualPickupAt = fromLocalInput(v.actualPickupAt);
                 if (v.sourceHub !== task.sourceHub) patch.sourceHub = v.sourceHub;
                 if (v.destination !== task.destination) patch.destination = v.destination;
-                if (customer.billingPartyId !== task.billingPartyId) patch.billingPartyId = customer.billingPartyId;
+                if (v.billingPartyId !== task.billingPartyId) patch.billingPartyId = v.billingPartyId;
                 if (v.jobCategory !== task.jobCategory) patch.jobCategory = v.jobCategory;
                 if ((v.truck?.id ?? null) !== task.truckId) patch.truckId = v.truck?.id ?? null;
                 if (!v.truck && (truckType ?? null) !== task.truckType) patch.truckType = truckType ?? null;
@@ -204,7 +190,7 @@ export function TaskFormDialog({
                     actualPickupAt: fromLocalInput(v.actualPickupAt),
                     sourceHub: v.sourceHub,
                     destination: v.destination,
-                    billingPartyId: customer.billingPartyId,
+                    billingPartyId: v.billingPartyId,
                     jobCategory: v.jobCategory,
                     truckId: v.truck?.id,
                     truckType: v.truck ? undefined : truckType,
@@ -265,7 +251,8 @@ export function TaskFormDialog({
                             onChange={(code, h) => pickPlace("destination", code, h?.linkedPartyId)} />
                     </Field>
                     <Field label={t("firstMile.task.customer")}>
-                        <CustomerSelect value={v.customerId} onChange={(id) => set("customerId", id)} customers={customers.list} placeholder={t("firstMile.task.selectCustomer")} />
+                        <CustomerPartySelect aria-label={t("firstMile.task.customer")} value={v.billingPartyId} onValueChange={(id) => set("billingPartyId", id)}
+                            placeholder={t("firstMile.task.selectCustomer")} className="min-w-[200px]" />
                     </Field>
                     <Field label={t("firstMile.task.jobCategory.label")}>
                         <Select value={v.jobCategory} onValueChange={(x) => set("jobCategory", x as JobCategory)}>

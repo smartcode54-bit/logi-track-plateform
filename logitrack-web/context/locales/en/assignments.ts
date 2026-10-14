@@ -21,6 +21,8 @@ export default {
     "assignments.searchTruckPlaceholder": "Search by plate or model...",
     "assignments.noTrucks": "No available trucks found.",
     "assignments.noTruckSelected": "No vehicle selected",
+    "assignments.hint.assigned": "Already assigned · {plate}",
+    "assignments.hint.maintenance": "In maintenance",
     "assignments.deploy": "Confirm and Assign",
     "assignments.deploying": "Assigning...",
     "assignments.resetForm": "Reset form",
