@@ -156,7 +156,7 @@ export function MobileReleasePage() {
     return (
         <div className="mx-auto max-w-4xl space-y-6 p-6">
             <div>
-                <h1 className="text-2xl font-bold">{t("securityCenter.mobileRelease.title")}</h1>
+                <h1 className="text-2xl font-bold">{t("securityCenter.mobileRelease")}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">{t("securityCenter.mobileRelease.subtitle")}</p>
             </div>
 

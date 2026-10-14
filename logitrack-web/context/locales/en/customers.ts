@@ -1,5 +1,4 @@
 export default {
-    "customers.title": "Customer Profiles",
     "customers.subtitle": "Manage LSP/customer configurations for billing and driver IDs",
     "customers.add": "Add Customer",
     "customers.search": "Search by code or name...",

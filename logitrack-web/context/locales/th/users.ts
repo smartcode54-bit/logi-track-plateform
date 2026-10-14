@@ -1,6 +1,5 @@
 export default {
     // User Management
-    "users.title": "จัดการผู้ใช้งาน",
     "users.subtitle": "จัดการผู้ใช้และสิทธิ์การใช้งาน",
     "users.sync": "ซิงค์ฐานข้อมูล",
     "users.add": "เพิ่มผู้ใช้งาน",
@@ -17,10 +16,10 @@ export default {
     "users.role.operation_staff": "เจ้าหน้าที่ปฏิบัติการ",
     "users.role.operator": "โอเปอเรเตอร์",
     "users.role.driver": "คนขับรถ",
-    "users.role.partner": "พาร์ทเนอร์",
+    "users.role.partner": "รถร่วม",
     "users.role.customer": "ลูกค้า",
     "users.role.user": "ผู้ใช้ทั่วไป",
-    "users.role.subcontractor": "ผู้รับเหมาช่วง",
+    "users.role.subcontractor": "รถร่วม",
     "users.editRole": "แก้ไขบทบาท",
     "users.createTitle": "สร้างผู้ใช้งานใหม่",
     "users.createDesc": "เพิ่มผู้ใช้และเลือกบทบาท ระบบจะแสดงรหัสผ่านชั่วคราวเพียงครั้งเดียว หรือส่งอีเมลเชิญ",

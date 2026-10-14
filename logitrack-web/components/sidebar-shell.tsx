@@ -1,12 +1,33 @@
 "use client";
 
 /**
- * Pieces both sidebars of the app shell share (UI3, issue #143): the header tooltip of the collapsed rail and the
- * phone behaviour of their links.
+ * Pieces both sidebars of the app shell share (UI3, issue #143; UI3B): the header tooltip of the collapsed rail, the
+ * phone behaviour of their links, the first state of the desktop sidebar and the reveal of the current page's entry.
  */
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
-import { useSidebar } from "@/components/ui/sidebar";
+import { isApplePlatform, sidebarStateFromCookie, useSidebar } from "@/components/ui/sidebar";
+
+/** Tailwind's `lg`: from here a sidebar the user never collapsed starts open (UI3B). */
+export const SIDEBAR_OPEN_FROM_PX = 1024;
+
+/**
+ * The desktop sidebar's first state: the user's stored choice (the `sidebar_state` cookie the sidebar writes on every
+ * toggle), else open from `lg` and the icon rail below it (UI3B: every load started as the rail and the cookie was
+ * never read). The shell renders only in the browser, after `['me']` (app/app/layout.tsx), so reading the cookie
+ * here causes no hydration mismatch and no flash; the `/app` pages stay static.
+ */
+export function initialSidebarOpen(): boolean {
+    if (typeof document === "undefined") return true;
+    const stored = sidebarStateFromCookie(document.cookie);
+    if (stored !== undefined) return stored;
+    return window.innerWidth >= SIDEBAR_OPEN_FROM_PX;
+}
+
+/** The sidebar's keyboard shortcut as this platform writes it (and accepts it): ⌘B on Apple devices, Ctrl+B elsewhere. */
+export function sidebarShortcutKeys(): string {
+    return isApplePlatform() ? "⌘B" : "Ctrl+B";
+}
 
 /** The collapsed rail's tooltip on the sidebar header: the title, and the scope line on its own line. */
 export function sidebarHeaderTooltip(title: string, scope: string) {
@@ -29,4 +50,22 @@ export function useCloseSidebarOnPhone(): () => void {
     return useCallback(() => {
         if (isMobile) setOpenMobile(false);
     }, [isMobile, setOpenMobile]);
+}
+
+/**
+ * A ref for the sidebar's menu: whenever the sidebar or the phone sheet opens, and on every change of page, the
+ * entry of the current page (`aria-current="page"`) is scrolled into view, nearest edge only (UI3B: the expanded
+ * list ran 1272 px in a 664 px window and the current entry could sit below the fold).
+ */
+export function useRevealCurrentEntry<T extends HTMLElement>(active: string | undefined) {
+    const { isMobile, open, openMobile } = useSidebar();
+    const ref = useRef<T | null>(null);
+    const shown = isMobile ? openMobile : open;
+    useEffect(() => {
+        if (!shown) return;
+        const current = ref.current?.querySelector<HTMLElement>('[aria-current="page"]');
+        // jsdom has no scrollIntoView.
+        current?.scrollIntoView?.({ block: "nearest" });
+    }, [shown, active, isMobile]);
+    return ref;
 }

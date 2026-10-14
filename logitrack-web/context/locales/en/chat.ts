@@ -9,8 +9,6 @@ export default {
     "chat.shell.expandConversations": "Expand conversations",
     "chat.shell.collapseDriver": "Collapse driver panel",
     "chat.shell.expandDriver": "Expand driver panel",
-
-    "chat.home.title": "Command Center",
     "chat.home.hint": "Select a conversation from the list to view messages, or use the driver panel on the right when a chat is selected.",
 
     "chat.panel.searchDriver": "Search a driver by name...",
@@ -69,12 +67,12 @@ export default {
     "chat.broadcast.recipients": "Recipients",
     "chat.broadcast.group.all_driver": "All Driver",
     "chat.broadcast.group.own_fleet": "Own Fleet",
-    "chat.broadcast.group.subcontractor": "Subcontractor",
+    "chat.broadcast.group.subcontractor": "Partners",
     "chat.broadcast.group.selected": "Selected drivers",
     "chat.broadcast.group.all_tenants": "All tenants",
     "chat.broadcast.groupHint.all_driver": "Every driver you reach",
     "chat.broadcast.groupHint.own_fleet": "Your own fleet's drivers",
-    "chat.broadcast.groupHint.subcontractor": "Subcontracted drivers",
+    "chat.broadcast.groupHint.subcontractor": "Partner drivers",
     "chat.broadcast.groupHint.selected": "Drivers you pick",
     "chat.broadcast.groupHint.all_tenants": "Drivers of every tenant (platform-wide)",
     "chat.broadcast.searchDriver": "Search a driver to add...",

@@ -39,7 +39,7 @@ export default function CustomersList() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">
-                        {t("customers.title")}
+                        {t("nav.customers")}
                     </h1>
                     <p className="text-muted-foreground mt-1">
                         {t("customers.subtitle")}

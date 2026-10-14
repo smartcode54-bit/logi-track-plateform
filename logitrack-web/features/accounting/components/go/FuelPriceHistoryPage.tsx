@@ -53,8 +53,8 @@ export function FuelPriceHistoryPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h1 className="flex items-center gap-2 text-2xl font-bold">
-                        <Fuel className="h-6 w-6 text-amber-500" />
-                        {t("accounting.fuelHistory.title")}
+                        <Fuel className="h-6 w-6 text-muted-foreground" aria-hidden />
+                        {t("nav.fuelPriceHistory")}
                     </h1>
                     <p className="mt-1 text-sm text-muted-foreground">{t("accounting.fuelHistory.subtitle")}</p>
                 </div>

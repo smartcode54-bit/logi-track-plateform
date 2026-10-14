@@ -14,7 +14,8 @@ export function ChatHomeGo() {
     return (
         <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
             <MessageCircle className="mb-4 h-16 w-16 text-muted-foreground/50" />
-            <h2 className="mb-1 text-lg font-semibold text-foreground">{t("chat.home.title")}</h2>
+            {/* The page's name is the menu entry's (UI3B: it read "Command Center" under the crumb "Chat"). */}
+            <h1 className="mb-1 text-lg font-semibold text-foreground">{t("nav.chat")}</h1>
             <p className="max-w-sm text-sm text-muted-foreground">{t("chat.home.hint")}</p>
         </div>
     );

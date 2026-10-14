@@ -97,7 +97,7 @@ export function SecurityOverviewPage() {
         <div className="p-6 space-y-6">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.overview.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.securityCenter")}</h1>
                     <p className="text-muted-foreground mt-1">{t("securityCenter.overview.subtitleGo")}</p>
                 </div>
                 {o ? (

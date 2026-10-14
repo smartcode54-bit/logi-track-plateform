@@ -10,11 +10,14 @@ import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/s
 import { AppSidebar } from "@/components/app-sidebar";
 import { SecurityCenterSidebar } from "@/components/security-center-sidebar";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
+import { ScopeLine } from "@/components/scope-line";
+import { initialSidebarOpen, sidebarShortcutKeys } from "@/components/sidebar-shell";
 import { UserMenu } from "@/components/user-menu";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/context/language";
 import { BreadcrumbProvider } from "@/context/breadcrumb";
+import { usePrincipalScope } from "@/features/auth/hooks/useScopeLabel";
 import { DASHBOARD_PATH } from "@/lib/routeCapabilities";
 
 /** The id the skip link jumps to: the page area below the header (not exported: a layout exports only its component). */
@@ -25,6 +28,10 @@ const MAIN_CONTENT_ID = "main-content";
  * tenant switcher, user menu with the scope line, language, theme and sign-out) and the page. The header holds
  * only working controls: the dead searches, the unwired report button and bell, and the "real-time" label over a
  * 60 s poll were removed.
+ *
+ * UI3B: the sidebar keeps the user's choice (open or icons) and starts open from `lg` when there is none; the
+ * header is the page's banner landmark beside `<main>` (not inside it); on a phone the header names the slice of
+ * the data (the scope line) where the breadcrumb would repeat the page's heading.
  */
 export default function AdminLayout({
     children,
@@ -34,6 +41,7 @@ export default function AdminLayout({
     const authContext = useAuth();
     const pathname = usePathname() ?? "";
     const { t } = useLanguage();
+    const scope = usePrincipalScope();
     // `['me']` decides who is signed in: proxy.ts let this route through on a valid `lt_at`, and a
     // session that ends later is handled by goFetch (lib/sessionEnd.ts), which leaves for /login.
     const me = authContext?.me ?? null;
@@ -67,6 +75,9 @@ export default function AdminLayout({
     }
 
     const homeHref = homeRouteOf(me) || DASHBOARD_PATH;
+    // On a phone the slice replaces the crumb, which there only repeats the page's heading; without a slice or a
+    // role to show, the crumb stays.
+    const phoneScope = Boolean(scope && (scope.slice || scope.role));
 
     return (
         <BreadcrumbProvider>
@@ -77,17 +88,24 @@ export default function AdminLayout({
             >
                 {t("shell.skipToContent")}
             </a>
-            <SidebarProvider defaultOpen={false}>
+            {/* The user's choice is kept (the `sidebar_state` cookie); without one the sidebar is open from lg. */}
+            <SidebarProvider defaultOpen={initialSidebarOpen}>
                 {isSecurityCenter ? <SecurityCenterSidebar /> : <AppSidebar />}
                 {/* min-w-0: a wide page scrolls inside the page area instead of pushing the header (and the user
                     menu, the only home of sign-out, language and theme) past the viewport. */}
                 <SidebarInset className="min-w-0">
-                    {/* One height whatever the sidebar does (UI3: it jumped 64/48 px on toggle). */}
+                    {/* The page's banner (outside <main>). One height whatever the sidebar does (UI3: it jumped
+                        64/48 px on toggle). */}
                     <header className="sticky top-0 z-sticky flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
-                        <SidebarTrigger className="-ml-2 size-11 md:size-9" aria-label={t("shell.toggleSidebar")} />
+                        <SidebarTrigger
+                            className="-ml-2 size-11 md:size-9"
+                            label={t("shell.toggleSidebar")}
+                            tooltip={t("shell.toggleSidebarHint", { keys: sidebarShortcutKeys() })}
+                        />
                         <Separator orientation="vertical" className="mr-2 hidden data-[orientation=vertical]:h-4 md:block" />
                         <div className="flex min-w-0 flex-1 items-center">
-                            <AppBreadcrumb pathname={pathname} homeHref={homeHref} />
+                            <AppBreadcrumb pathname={pathname} homeHref={homeHref} className={phoneScope ? "hidden sm:block" : undefined} />
+                            {phoneScope ? <ScopeLine className="text-sm text-muted-foreground sm:hidden" testId="header-scope" /> : null}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                             <TenantSwitcher />
@@ -95,10 +113,10 @@ export default function AdminLayout({
                         </div>
                     </header>
                     {/* scroll-mt-16: the skip link lands below the 64 px sticky header, not under it. */}
-                    <div id={MAIN_CONTENT_ID} tabIndex={-1} className="flex min-w-0 flex-1 scroll-mt-16 flex-col gap-4 p-4 outline-none">
+                    <main id={MAIN_CONTENT_ID} tabIndex={-1} className="flex min-w-0 flex-1 scroll-mt-16 flex-col gap-4 p-4 outline-none">
                         {/* The route group's lazily loaded translation namespaces (accounting, driverMonitor). */}
                         <RouteNamespaces pathname={pathname}>{children}</RouteNamespaces>
-                    </div>
+                    </main>
                 </SidebarInset>
             </SidebarProvider>
         </BreadcrumbProvider>

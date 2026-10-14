@@ -313,7 +313,7 @@ export default function SourcesPage() {
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-3xl font-bold tracking-tight">{t("firstMile.sources.title")}</h2>
+                <h1 className="text-3xl font-bold tracking-tight">{t("nav.sourceManagement")}</h1>
                 <div className="flex flex-col items-end gap-2">
                     <div className="flex flex-col items-end gap-1">
                         {lastCalculatedAt && (

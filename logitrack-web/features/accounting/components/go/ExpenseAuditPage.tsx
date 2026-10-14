@@ -205,7 +205,7 @@ export function ExpenseAuditPage() {
         <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
             <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("accounting.audit.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.auditExpense")}</h1>
                     <p className="mt-1 text-muted-foreground">{t("accounting.audit.subtitle")}</p>
                 </div>
                 <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>

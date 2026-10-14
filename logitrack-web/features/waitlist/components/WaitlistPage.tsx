@@ -57,7 +57,7 @@ export function WaitlistPage() {
         <div className="p-6 space-y-6">
             <div className="flex items-start justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("waitlist.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.waitlist")}</h1>
                     <p className="text-muted-foreground mt-2">{t("waitlist.description")}</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>

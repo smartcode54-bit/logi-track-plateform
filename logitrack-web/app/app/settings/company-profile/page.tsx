@@ -208,7 +208,7 @@ export default function CompanyProfilePage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">{t("company.profile.title")}</h1>
+            <h1 className="text-2xl font-bold">{t("nav.companyProfile")}</h1>
             <p className="text-muted-foreground text-sm mt-1">{t("company.profile.subtitle")}</p>
           </div>
           {companyId && (

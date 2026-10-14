@@ -347,9 +347,40 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   (the mobile sidebar is one).
 
 ### Navigation
-- The sidebar uses the sidebar tokens (paper-tinted, hairline border); the active item is a mist fill with medium
-  text, and a detail page keeps its entry active; icons are lucide at 16 px. The header is paper with a hairline
-  bottom border, sticky at `z-sticky`, 64 px at every width.
+- The sidebar uses the sidebar tokens (paper-tinted, hairline border); icons are lucide at 16 px, one distinct icon
+  per entry and per group. The header is paper with a hairline bottom border, sticky at `z-sticky`, 64 px at every
+  width; it is the page's banner, beside `<main>` (which holds the page, `#main-content`), and the menu is a
+  `<nav>` named "Main menu" / "เมนูหลัก" (the Security Center's: "Security center menu").
+- **You are here.** The current page's entry is Route Blue text (`sidebar-primary`, its icon too) in medium weight on
+  the mist fill, with `aria-current="page"`; sub-entries the same; a closed group that holds the page, and a rail
+  group, show it the same way and carry `aria-current="true"` (the current section, not only a colour). No side
+  stripe. A detail page keeps its entry current. When the sidebar or the phone sheet opens, the current entry is
+  scrolled into view (nearest edge).
+- **The order is the work loop** (owner, UI3B): the principal's home first (the dashboard, or for customers,
+  partners, dispatchers and operators the driver monitor, with the dashboard inside Operations), then Operations
+  (job assignment, first mile, line haul, driver monitor, incidents, standby, chat, pickup and delivery points),
+  Billing (rate cards, trips to bill, billing documents, statements, the Shopee report), Costs (fuel, fuel price
+  history, other expenses, expense audit), Fleet and partners (trucks, truck assignment, drivers, renewals,
+  maintenance, customers, partners), Payroll and HR; then System (security center, waitlist, billing utilities,
+  companies, company profile) and Support. Only the group of the current page starts open. Labels are sentence
+  case and say "and", never "&"; the four billing pages read four different names in both languages. The
+  subcontracted carriers are "Partners" / "รถร่วม" wherever the console names them (menu, page, forms, broadcasts,
+  company types), as in the scope line's "Partner admin" / "ผู้ดูแลรถร่วม".
+- **One name per page.** The menu label, the crumb, the page's H1 and the tab title are one i18n key ("Trips to
+  bill · LogiTrack Pro"; a detail page "<its name> · <entry> · LogiTrack Pro").
+- **The sidebar keeps its state.** Open or icons, as the user left it (`sidebar_state` cookie, a year); without a
+  choice it starts open from `lg` and as icons from `md`. The trigger names what it controls (`aria-controls`,
+  `aria-expanded`), its label is translated and its tooltip adds only the shortcut ("Shortcut: ⌘B" on Apple
+  platforms, "Shortcut: Ctrl+B" elsewhere; the other modifier does nothing, and neither does the shortcut while the
+  user types in a field or an editor).
+- **The icon rail** labels every icon with a tooltip, which stays hoverable (it is the only visible label) but never
+  takes a click (`pointer-events-none`, and its positioning wrapper through `[data-sidebar-tooltip]`); the sidebar's
+  tooltips and the trigger's are one group (`TooltipInGroup` under the sidebar's provider), so a pointer crossing the
+  trigger on its way onto the logo's tooltip does not swap one tooltip for the other. A group
+  opens its pages as a menu to the right (`DropdownMenu`, `side="right"`, on the popover layer, keyboard operable).
+- **On a phone** the sidebar is a sheet with a visible title and a labelled 44 px close button; every entry in it
+  is 44 px tall (`max-md:h-11`, desktop density unchanged), as are the user menu's items; when the sheet closes,
+  focus returns to the menu button. A page has one `<main>` (the shell's): a page component never adds another.
 - **One definition** (`components/app-nav.ts`): the sidebars and the breadcrumb read the same entries and i18n keys,
   so a crumb is the menu's label in the active language, never a URL slug. A detail page keeps its entry as a link
   back to the list and ends with its own name (a plate, a driver's name) or a generic New / Edit / Details. A crumb
@@ -359,10 +390,13 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - **The scope line** names the slice of the data the principal works in, as `slice · role` ("WRT · Tenant admin",
   "CJSF · Customer view", "Platform admin"): in the sidebar header (in the collapsed rail, the logo's tooltip with
   the title and the scope line on two lines), in the user menu and its trigger (and the trigger's accessible name),
-  and on the 403 page. One source: `principalRoleLabel` over `['me']`; customer scopes name the slice only for a
-  customer view (no tenant, platform role or dispatcher grant).
-- **The user menu** holds the name, email and scope line, the language and theme (radio items) and the one sign-out,
-  which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.
+  in the phone header (below `sm`, in place of the crumb that repeats the H1), and on the 403 page. One source:
+  `principalRoleLabel` / `principalScope` over `['me']` (`components/scope-line.tsx` renders it); customer scopes
+  name the slice only for a customer view (no tenant, platform role or dispatcher grant). When space runs out the
+  slice is shortened, never the role, and the line height is normal so Thai marks are not clipped.
+- **The user menu** holds the name, email and scope line, the language (in its own words, "ไทย" / "English", no
+  flags) and theme (radio items) and the one sign-out ("Sign out" / "ออกจากระบบ"), which lands on `/login`. The
+  header carries only controls that work: no placeholder search, bell or report button.
 - A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
   targets are 44 px on phones. The page area takes `min-w-0`, so a wide page scrolls without pushing the header out.
 

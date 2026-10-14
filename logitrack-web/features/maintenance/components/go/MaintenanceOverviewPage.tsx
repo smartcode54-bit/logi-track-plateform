@@ -290,7 +290,7 @@ export function MaintenanceOverviewPage() {
         <div className="container mx-auto max-w-[1400px] space-y-8 p-6">
             <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("maintenance.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.maintenance")}</h1>
                     <p className="mt-1 text-muted-foreground">{t("maintenance.subtitle")}</p>
                 </div>
                 <div className="flex gap-2">

@@ -1,6 +1,5 @@
 export default {
     // List Page - Header
-    "drivers.title": "จัดการพนักงานขับรถ",
     "drivers.subtitle": "จัดการและติดตามบุคลากรของฝูงรถอย่างมีประสิทธิภาพแบบเรียลไทม์",
     "drivers.export": "ส่งออก",
     "drivers.add": "เพิ่มพนักงานขับรถ",
@@ -107,8 +106,8 @@ export default {
     "drivers.form.type": "ประเภท",
     "drivers.form.type.fullTime": "เต็มเวลา",
     "drivers.form.type.partTime": "พาร์ทไทม์",
-    "drivers.form.type.subcontractor": "ผู้รับเหมาช่วง",
-    "drivers.form.subcontractorCompany": "บริษัทผู้รับเหมา",
+    "drivers.form.type.subcontractor": "รถร่วม",
+    "drivers.form.subcontractorCompany": "บริษัทรถร่วม",
     "drivers.form.subcontractorCompany.placeholder": "เลือก...",
     "drivers.form.contractDuration": "ระยะเวลาสัญญา (ปี)",
     "drivers.form.initialStatus": "สถานะเริ่มต้น",
@@ -138,7 +137,7 @@ export default {
     "drivers.toast.notFound": "ไม่พบพนักงานขับรถ",
     "drivers.toast.loadError": "ไม่สามารถโหลดข้อมูลพนักงานขับรถได้",
     "drivers.toast.noId": "ไม่ได้ระบุรหัสพนักงานขับรถ",
-    "drivers.toast.subLoadError": "ไม่สามารถโหลดข้อมูลผู้รับเหมาได้",
+    "drivers.toast.subLoadError": "ไม่สามารถโหลดข้อมูลรถร่วมได้",
 
     // Edit Page
     "drivers.edit.title": "แก้ไขพนักงานขับรถ",
@@ -164,7 +163,7 @@ export default {
     "drivers.detail.employmentType": "ประเภทการจ้างงาน",
     "drivers.detail.fullTime": "เต็มเวลา",
     "drivers.detail.partTime": "พาร์ทไทม์",
-    "drivers.detail.subcontractor": "ผู้รับเหมาช่วง",
+    "drivers.detail.subcontractor": "รถร่วม",
     "drivers.detail.contractDuration": "ระยะเวลาสัญญา",
     "drivers.detail.years": "ปี",
     "drivers.detail.customerDriverIds": "รหัสคนขับของลูกค้า",

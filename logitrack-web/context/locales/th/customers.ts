@@ -1,5 +1,4 @@
 export default {
-    "customers.title": "โปรไฟล์ลูกค้า",
     "customers.subtitle": "จัดการข้อมูลลูกค้า/LSP สำหรับวางบิลและรหัสคนขับ",
     "customers.add": "เพิ่มลูกค้า",
     "customers.search": "ค้นหาด้วยรหัสหรือชื่อ...",

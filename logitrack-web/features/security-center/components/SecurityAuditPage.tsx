@@ -104,7 +104,7 @@ export function SecurityAuditPage() {
         <div className="p-6 space-y-6">
             <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.audit.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.securityAudit")}</h1>
                     <p className="mt-1 text-muted-foreground">{t("securityCenter.audit.subtitle")}</p>
                 </div>
                 <div className="flex gap-2">

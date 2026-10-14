@@ -32,6 +32,16 @@ function Tooltip({
   )
 }
 
+/**
+ * A tooltip that joins the nearest `TooltipProvider` instead of opening its own (UI3B): tooltips of one provider are
+ * one group, so while the pointer travels from a trigger to its open tooltip it does not open another trigger's
+ * tooltip on the way (the sidebar rail's logo tooltip lies over the header's sidebar trigger). Needs a provider
+ * above it (SidebarProvider has one).
+ */
+function TooltipInGroup({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+}
+
 function TooltipTrigger({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
@@ -62,4 +72,4 @@ function TooltipContent({
   )
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+export { Tooltip, TooltipInGroup, TooltipTrigger, TooltipContent, TooltipProvider }

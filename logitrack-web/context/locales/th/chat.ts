@@ -9,8 +9,6 @@ export default {
     "chat.shell.expandConversations": "ขยายรายการบทสนทนา",
     "chat.shell.collapseDriver": "ย่อแผงคนขับ",
     "chat.shell.expandDriver": "ขยายแผงคนขับ",
-
-    "chat.home.title": "ศูนย์สั่งการ",
     "chat.home.hint": "เลือกบทสนทนาจากรายการเพื่อดูข้อความ หรือดูข้อมูลคนขับที่แผงด้านขวาเมื่อเลือกแชทแล้ว",
 
     "chat.panel.searchDriver": "ค้นหาคนขับตามชื่อ...",
@@ -69,12 +67,12 @@ export default {
     "chat.broadcast.recipients": "ผู้รับ",
     "chat.broadcast.group.all_driver": "คนขับทั้งหมด",
     "chat.broadcast.group.own_fleet": "กองรถของเรา",
-    "chat.broadcast.group.subcontractor": "ผู้รับเหมาช่วง",
+    "chat.broadcast.group.subcontractor": "รถร่วม",
     "chat.broadcast.group.selected": "เลือกคนขับเอง",
     "chat.broadcast.group.all_tenants": "ทุกบริษัท",
     "chat.broadcast.groupHint.all_driver": "คนขับทุกคนที่คุณดูแล",
     "chat.broadcast.groupHint.own_fleet": "คนขับของกองรถเราเอง",
-    "chat.broadcast.groupHint.subcontractor": "คนขับของผู้รับเหมาช่วง",
+    "chat.broadcast.groupHint.subcontractor": "คนขับของรถร่วม",
     "chat.broadcast.groupHint.selected": "คนขับที่คุณเลือก",
     "chat.broadcast.groupHint.all_tenants": "คนขับของทุกบริษัท (ทั้งแพลตฟอร์ม)",
     "chat.broadcast.searchDriver": "ค้นหาคนขับเพื่อเพิ่ม...",

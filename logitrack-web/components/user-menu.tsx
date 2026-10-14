@@ -8,6 +8,10 @@
  *
  * Inside a menu the switches are radio items (`menuitemradio` + `aria-checked`), the menu equivalent of a
  * pressed toggle button; the public navigation's EN/TH buttons carry `aria-pressed` (language-switcher.tsx).
+ *
+ * UI3B: the languages are named in their own words without flags (DESIGN.md keeps flags out of the chrome), the
+ * items are 44 px tall on a phone, sign-out reads "Sign out" / "ออกจากระบบ", and the scope line shortens the slice,
+ * never the role, with a line height that leaves Thai marks unclipped.
  */
 import { useId } from "react";
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
@@ -32,6 +36,7 @@ import { useMe } from "@/features/auth/api/useMe";
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel";
 import { useSignOut } from "@/features/auth/hooks/useSignOut";
 import { initialOf } from "@/lib/initials";
+import { ScopeLine } from "./scope-line";
 
 const THEMES = [
     { value: "light", labelKey: "shell.theme.light", icon: Sun },
@@ -40,9 +45,12 @@ const THEMES = [
 ] as const;
 
 const LANGUAGES = [
-    { value: "en", labelKey: "shell.language.en", flag: "/usa_flag_v2.svg" },
-    { value: "th", labelKey: "shell.language.th", flag: "/thailand_round_icon_64.png" },
+    { value: "en", labelKey: "shell.language.en" },
+    { value: "th", labelKey: "shell.language.th" },
 ] as const;
+
+/** Every item of the menu: 44 px tall on a phone (UI3B: they were 32 px), the desktop density otherwise. */
+const ITEM = "max-md:min-h-11";
 
 export function UserMenu() {
     const { language, setLanguage, t } = useLanguage();
@@ -66,9 +74,9 @@ export function UserMenu() {
                     aria-label={scope ? t("shell.userMenuScoped", { name, scope }) : t("shell.userMenu", { name })}
                     data-testid="user-menu-trigger"
                 >
-                    <span className="hidden min-w-0 max-w-56 text-right sm:block">
-                        <span className="block truncate text-sm font-medium leading-tight">{name}</span>
-                        {scope ? <span className="block truncate text-xs font-normal leading-tight text-muted-foreground">{scope}</span> : null}
+                    <span className="hidden min-w-0 max-w-56 flex-col items-end text-right sm:flex">
+                        <span className="block max-w-full truncate text-sm leading-normal font-medium">{name}</span>
+                        <ScopeLine className="max-w-full text-xs font-normal text-muted-foreground" />
                     </span>
                     <Avatar className="size-9 border border-border">
                         {me?.photoUrl ? <AvatarImage src={me.photoUrl} alt="" className="object-cover" /> : null}
@@ -78,13 +86,9 @@ export function UserMenu() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
-                    <span className="truncate text-sm font-medium">{name}</span>
-                    {email && email !== name ? <span className="truncate text-xs text-muted-foreground">{email}</span> : null}
-                    {scope ? (
-                        <span className="truncate text-xs text-muted-foreground" data-testid="user-menu-scope">
-                            {scope}
-                        </span>
-                    ) : null}
+                    <span className="truncate text-sm leading-normal font-medium">{name}</span>
+                    {email && email !== name ? <span className="truncate text-xs leading-normal text-muted-foreground">{email}</span> : null}
+                    <ScopeLine className="text-xs text-muted-foreground" testId="user-menu-scope" />
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel id={languageLabelId} className="text-xs font-normal text-muted-foreground">
@@ -98,10 +102,8 @@ export function UserMenu() {
                     }}
                 >
                     {LANGUAGES.map((option) => (
-                        <DropdownMenuRadioItem key={option.value} value={option.value} lang={option.value}>
-                            {/* Decoration: the item's text names the language. */}
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={option.flag} alt="" className="mr-2 size-4 rounded-full object-cover" />
+                        // Each language in its own words ("ไทย", "English"), so either reader finds theirs.
+                        <DropdownMenuRadioItem key={option.value} value={option.value} lang={option.value} className={ITEM}>
                             {t(option.labelKey)}
                         </DropdownMenuRadioItem>
                     ))}
@@ -112,16 +114,16 @@ export function UserMenu() {
                 </DropdownMenuLabel>
                 <DropdownMenuRadioGroup aria-labelledby={themeLabelId} value={theme ?? "system"} onValueChange={setTheme}>
                     {THEMES.map((option) => (
-                        <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        <DropdownMenuRadioItem key={option.value} value={option.value} className={ITEM}>
                             <option.icon className="mr-2 size-4" aria-hidden />
                             {t(option.labelKey)}
                         </DropdownMenuRadioItem>
                     ))}
                 </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => void signOut()}>
+                <DropdownMenuItem onSelect={() => void signOut()} className={ITEM}>
                     <LogOut className="mr-2 size-4" aria-hidden />
-                    {t("nav.logout")}
+                    {t("shell.signOut")}
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
