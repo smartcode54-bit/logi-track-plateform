@@ -99,6 +99,11 @@ func NewAPI(cfg *APIConfig, log zerolog.Logger, extra ...ingress.Group) (*API, e
 // DefaultBodyLimit is the API's request body limit (Appendix B §B.1.5: 413 payload_too_large above it).
 const DefaultBodyLimit = 4 << 20
 
+// ReadBufferSize bounds the request line and headers together (fasthttp answers 431 above it). fasthttp's 4 KiB
+// default is too small for an id lookup such as GET /v1/customers?ids= of 100 uuids (about 3.9 KiB of URI, UI8) next
+// to the bearer and trace headers; 16 KiB matches the BFF's Node header limit, and nginx allows an 8 KiB line.
+const ReadBufferSize = 16 << 10
+
 // UploadReadTimeout replaces the 30 s read timeout of a signed upload: a 10 MB photo over a slow mobile link
 // takes longer than that.
 const UploadReadTimeout = 5 * time.Minute
@@ -182,8 +187,9 @@ func (a *API) newFiber(listener string) *fiber.App {
 		ErrorHandler: httpx.ErrorHandler(a.log),
 		ReadTimeout:  30 * time.Second,
 		// No write timeout: SSE responses stream for minutes (main spec §8).
-		IdleTimeout: 120 * time.Second,
-		BodyLimit:   DefaultBodyLimit,
+		IdleTimeout:    120 * time.Second,
+		BodyLimit:      DefaultBodyLimit,
+		ReadBufferSize: ReadBufferSize,
 		// Header and path strings are copied, so values captured by logs and
 		// spans (exported after the request) never alias reused buffers.
 		Immutable: true,

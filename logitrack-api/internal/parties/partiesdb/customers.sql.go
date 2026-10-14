@@ -229,6 +229,74 @@ func (q *Queries) ListCustomers(ctx context.Context, arg ListCustomersParams) ([
 	return items, nil
 }
 
+const listCustomersByIDs = `-- name: ListCustomersByIDs :many
+SELECT c.id, c.legacy_doc_id, c.code, c.name, c.description, c.logo_file_id, c.address, c.tax_id, c.branch_type, c.branch_number, c.contact_name, c.contact_phone, c.billing_email, c.payment_terms_days, c.invoice_note, c.line_group_id, c.created_at, c.updated_at, bp.id AS billing_party_id, bp.billing_date_basis
+FROM customers c
+LEFT JOIN billing_parties bp ON bp.customer_id = c.id
+WHERE c.id IN (SELECT unnest($1::uuid[])
+               UNION
+               SELECT p.customer_id FROM billing_parties p
+               WHERE p.id = ANY ($1::uuid[]) AND p.customer_id IS NOT NULL)
+  AND (NOT $2::boolean OR bp.id = ANY ($3::uuid[]))
+ORDER BY c.code, c.id
+`
+
+type ListCustomersByIDsParams struct {
+	Ids      []uuid.UUID
+	Scoped   bool
+	PartyIds []uuid.UUID
+}
+
+type ListCustomersByIDsRow struct {
+	Customer         Customer
+	BillingPartyID   *uuid.UUID
+	BillingDateBasis *string
+}
+
+// GET /v1/customers?ids= (UI8): the customers ids names, each by its customer id or by its billing party id (a
+// carrier's party names no customer), ordered by code; at most 100 ids (Go checks), so no page. party_ids narrows a
+// customer-scope principal exactly as the list does (and RLS, 0012). Both ids resolve through a primary key.
+func (q *Queries) ListCustomersByIDs(ctx context.Context, arg ListCustomersByIDsParams) ([]ListCustomersByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listCustomersByIDs, arg.Ids, arg.Scoped, arg.PartyIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCustomersByIDsRow{}
+	for rows.Next() {
+		var i ListCustomersByIDsRow
+		if err := rows.Scan(
+			&i.Customer.ID,
+			&i.Customer.LegacyDocID,
+			&i.Customer.Code,
+			&i.Customer.Name,
+			&i.Customer.Description,
+			&i.Customer.LogoFileID,
+			&i.Customer.Address,
+			&i.Customer.TaxID,
+			&i.Customer.BranchType,
+			&i.Customer.BranchNumber,
+			&i.Customer.ContactName,
+			&i.Customer.ContactPhone,
+			&i.Customer.BillingEmail,
+			&i.Customer.PaymentTermsDays,
+			&i.Customer.InvoiceNote,
+			&i.Customer.LineGroupID,
+			&i.Customer.CreatedAt,
+			&i.Customer.UpdatedAt,
+			&i.BillingPartyID,
+			&i.BillingDateBasis,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDriverIDTypes = `-- name: ListDriverIDTypes :many
 SELECT customer_id, key, label, position
 FROM customer_driver_id_types

@@ -5,8 +5,8 @@
  * `GET /v1/customers` per page: one cached `['customers','ref',id]` query per distinct id (`customerRefQuery`,
  * 10 min), whatever the row count. An id is a customer id or a billing party id (standby records and tasks
  * hold the party), and either finds the customer. The picker pages seed the cache, so a customer picked on a
- * page is labelled without a request; see `customerRefQuery` for what an unseeded id costs until Go serves
- * an id lookup.
+ * page is labelled without a request; the ids no page seeded are resolved together, one
+ * `GET /v1/customers?fields=minimal&ids=` per 100 distinct ids (UI8, `loadCustomerRef`).
  */
 import { useCallback, useMemo } from "react";
 import { useQueries, type QueryClient, type UseQueryResult } from "@tanstack/react-query";

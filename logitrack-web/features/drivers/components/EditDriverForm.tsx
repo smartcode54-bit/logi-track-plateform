@@ -6,14 +6,13 @@ import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { driverSchema, Driver } from "@/validate/driverSchema";
 import { driverFormValues, isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
 import { useCreateDriverLogin, useDriver, useDriverWrites } from "@/features/drivers/api/useDrivers";
-import { useCustomerOptions } from "@/features/customers/api/useCustomers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import type { CreateUserResult } from "@/features/users/api/users";
 import { TemporaryPasswordNotice } from "./TemporaryPasswordNotice";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -95,10 +94,9 @@ export default function EditDriverForm() {
     const [existingIdCardImage, setExistingIdCardImage] = useState<string | null>(null);
     const [existingTruckLicenseImage, setExistingTruckLicenseImage] = useState<string | null>(null);
 
-    // `['subcontractors','options']` and `['customers','options']`: one cached list each.
+    // `['subcontractors','options']`: one cached list. The customer driver ids are keyed by customer code; the
+    // save resolves the codes the driver does not hold yet by search (`updateDriver`, UI8), no customer list.
     const { options: subcontractors } = useSubcontractorOptions();
-    const { options: customerOptions } = useCustomerOptions();
-    const customerIdByCode = useMemo(() => new Map(customerOptions.map((c) => [c.code.toUpperCase(), c.id])), [customerOptions]);
 
     const form = useForm<Driver>({
         resolver: zodResolver(driverSchema) as any,
@@ -189,7 +187,6 @@ export default function EditDriverForm() {
                 values: data,
                 files: { profile: selectedImage, idCard: idCardFile, license: truckLicenseFile },
                 removeProfile: profileRemoved,
-                customerIdByCode,
                 previous: loaded,
             });
             toast.success(t("drivers.toast.updateSuccess"));

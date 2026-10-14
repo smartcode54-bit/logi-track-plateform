@@ -13,12 +13,12 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryClient");
-const { useCustomerOptions } = await import("@/features/customers/api/useCustomers");
-const { fetchCustomerOptions, createCustomer } = await import("@/features/customers/api/customers");
+const { useCustomerLookup, fetchCustomerLookup } = await import("@/features/accounting/api/useCustomerLookup");
+const { createCustomer } = await import("@/features/customers/api/customers");
 const { fetchHubsCached, createHub, hubsQueryOptions } = await import("@/features/hubs/api/hubs");
 const useHubs = () => useQuery(hubsQueryOptions);
 const { useDriverPages, useCreateDriverLogin } = await import("@/features/drivers/api/useDrivers");
-const { createDriverLogin, updateDriver, driverFormValues } = await import("@/features/drivers/api/drivers");
+const { createDriver, createDriverLogin, updateDriver, driverFormValues } = await import("@/features/drivers/api/drivers");
 const { useTruckPages } = await import("@/features/trucks/api/useTrucks");
 const { createTruck, renewTruck, updateTruck, truckFormValues, storedFileKeys, truckFilePreviewUrls, previewOfRef } = await import(
     "@/features/trucks/api/trucks"
@@ -90,22 +90,23 @@ describe("master data reads through /api/go", () => {
         route("GET", (u) => u.startsWith("/api/go/v1/customers?"), () => json([{ id: "c-1", billingPartyId: "bp-1", code: "CJ", name: "CJ Express" }]));
         route("GET", "/api/go/v1/hubs", () => json([{ id: "h-1", sourceId: "ALANG-A", sourceNameTh: "อลัง", sourceNameEn: null, latitude: null, longitude: null, stationType: "HUB", linkedCustomerId: null, linkedCustomerName: null, linkedCustomerKind: null, createdByDriver: false }]));
 
-        const a = renderHook(() => useCustomerOptions(), { wrapper });
-        const b = renderHook(() => useCustomerOptions(), { wrapper });
+        // Customers by id (UI8): the observers and the async caller share one lookup.
+        const a = renderHook(() => useCustomerLookup(["c-1"]), { wrapper });
+        const b = renderHook(() => useCustomerLookup(["bp-1"]), { wrapper });
         const h1 = renderHook(() => useHubs(), { wrapper });
         const h2 = renderHook(() => useHubs(), { wrapper });
-        await waitFor(() => expect(a.result.current.options).toHaveLength(1));
+        await waitFor(() => expect(a.result.current.pending || b.result.current.pending).toBe(false));
         await waitFor(() => expect(h1.result.current.data).toHaveLength(1));
-        await fetchCustomerOptions();
+        await fetchCustomerLookup(getQueryClient(), ["c-1", "bp-1"]);
         await fetchHubsCached();
-        expect(b.result.current.options[0]).toMatchObject({ code: "CJ" });
+        expect(b.result.current.get("bp-1")).toMatchObject({ code: "CJ" });
         expect(h2.result.current.data?.[0]).toMatchObject({ sourceId: "ALANG-A" });
 
         // A later page mounting within the stale time reads the cache.
-        const c = renderHook(() => useCustomerOptions(), { wrapper });
-        expect(c.result.current.options).toHaveLength(1);
+        const c = renderHook(() => useCustomerLookup(["c-1"]), { wrapper });
+        expect(c.result.current.label("c-1")).toBe("CJ — CJ Express");
 
-        expect(goCalls("/api/go/v1/customers").map((x) => x.url)).toEqual(["/api/go/v1/customers?fields=minimal&limit=100"]);
+        expect(goCalls("/api/go/v1/customers").map((x) => x.url)).toEqual(["/api/go/v1/customers?fields=minimal&ids=bp-1%2Cc-1"]);
         expect(goCalls("/api/go/v1/hubs").map((x) => x.url)).toEqual(["/api/go/v1/hubs"]);
     });
 
@@ -232,11 +233,47 @@ describe("master data writes through /api/go", () => {
         const previous = { ...driver(7), profileKey: null, profileUrl: null, customerDriverIds: [], statusHistory: [], login: null, idCard: "1234567890123", birthDate: "1990-01-01" };
         const values = { ...driverFormValues(previous as never), mobile: "0899999999" };
         const profile = new File(["x"], "me.png", { type: "image/png" });
-        await updateDriver({ id: "d-7", values, files: { profile, idCard: null, license: null }, customerIdByCode: new Map(), previous: previous as never });
+        await updateDriver({ id: "d-7", values, files: { profile, idCard: null, license: null }, previous: previous as never });
         const patch = goCalls("/api/go/v1/drivers/d-7");
         expect(patch).toHaveLength(1);
         expect(patch[0].body).toEqual({ mobile: "0899999999", profileKey: "driver_profile/d-7" });
         expect(keys).toEqual(["driver_profile/d-7"]);
+        expect(goCalls("/api/go/v1/customers")).toEqual([]); // no customer driver id: no customer read
+    });
+
+    it("driver forms: customer driver ids by code, resolved by search (UI8), never a read of every customer", async () => {
+        route("GET", (u) => u.startsWith("/api/go/v1/customers?"), (u) => {
+            const q = new URL(u, "http://web.test").searchParams.get("q");
+            const all = [{ id: "c-spx", billingPartyId: "p-spx", code: "SPX", name: "Shopee" }, { id: "c-x", billingPartyId: "p-x", code: "SPXX", name: "X" }];
+            return json(all.filter((c) => q && c.code.includes(q)));
+        });
+        route("POST", "/api/go/v1/drivers", () => json({ id: "d-9" }, {}, 201));
+        route("PATCH", "/api/go/v1/drivers/d-7", () => json({}));
+        const base = driverFormValues({ ...driver(9), customerDriverIds: [], statusHistory: [], login: null } as never);
+        // NewDriverForm: the SPX ids go out with SPX's customer id; a code Go does not know is left out.
+        await createDriver({
+            values: { ...base, customerDriverIds: { SPX: { appId: "A-1", workId: "" }, NOPE: { appId: "Z" }, TTP: { appId: "" } } },
+            files: { profile: null, idCard: null, license: null },
+        });
+        expect(goCalls("/api/go/v1/drivers")[0].body).toMatchObject({ customerDriverIds: [{ customerId: "c-spx", idTypeKey: "appId", value: "A-1" }] });
+        // Only the codes holding a value are searched, each once with its code as q.
+        expect(goCalls("/api/go/v1/customers").map((c) => new URL(c.url, "http://web.test").searchParams.get("q")).sort()).toEqual(["NOPE", "SPX"]);
+
+        // EditDriverForm: a code the driver already holds comes with its detail, so nothing is searched.
+        calls = [];
+        const previous = {
+            ...driver(7), profileKey: null, profileUrl: null, statusHistory: [], login: null,
+            customerDriverIds: [{ customerId: "c-spx", customerCode: "SPX", customerName: "Shopee", idTypeKey: "appId", value: "A-1" }],
+        };
+        const values = driverFormValues(previous as never);
+        await updateDriver({
+            id: "d-7",
+            values: { ...values, customerDriverIds: { SPX: { appId: "A-2" } } },
+            files: { profile: null, idCard: null, license: null },
+            previous: previous as never,
+        });
+        expect(goCalls("/api/go/v1/drivers/d-7")[0].body).toEqual({ customerDriverIds: [{ customerId: "c-spx", idTypeKey: "appId", value: "A-2" }] });
+        expect(goCalls("/api/go/v1/customers")).toEqual([]);
     });
 
     it("customer create: POST, then the logo upload and PATCH logoKey (the key embeds the customer)", async () => {

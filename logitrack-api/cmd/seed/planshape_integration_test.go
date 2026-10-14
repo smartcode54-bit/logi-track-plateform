@@ -137,6 +137,10 @@ func checkPlanShapes(t *testing.T, s *stack) {
 	// A folded search (UI2B, search_fold of 0026): no index serves `search_fold(...) LIKE ALL (...)`, so a search keeps
 	// the keyset index of the plain list and filters the rows it walks (the masters are small; the page stops at LIMIT).
 	words, q := searchtext.LikePatterns("ส 1"), "ส 1"
+	// UI8: GET /v1/customers?ids= by customer ids and billing party ids together; GET /v1/trucks' statusCounts.
+	lookupIDs := append(ids(`SELECT id FROM customers ORDER BY code, id LIMIT 3`),
+		ids(`SELECT id FROM billing_parties WHERE customer_id IS NOT NULL ORDER BY id DESC LIMIT 3`)...)
+	ownTrucks := "own"
 	const page = 51 // the default page of 50 plus the look-ahead row
 
 	shapes := []planShape{
@@ -150,6 +154,13 @@ func checkPlanShapes(t *testing.T, s *stack) {
 				RowLimit: page})
 			return err
 		}, []string{"customers"}, []string{"customers_code", "customers_pkey"}},
+		// The party ids resolve through billing_parties_pkey; billing_parties is not listed because the customers
+		// policy of 0012 carries a hashed subplan over it for customer-scope principals (as for ListCustomers).
+		{"ListCustomersByIDs", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := partiesdb.New(x).ListCustomersByIDs(ctx, partiesdb.ListCustomersByIDsParams{Ids: lookupIDs,
+				PartyIds: []uuid.UUID{}})
+			return err
+		}, []string{"customers"}, []string{"customers_pkey"}},
 		{"ListDistances", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
 			_, err := hubsdb.New(x).ListDistances(ctx, hubsdb.ListDistancesParams{RowLimit: page})
 			return err
@@ -167,6 +178,11 @@ func checkPlanShapes(t *testing.T, s *stack) {
 				RowLimit: page})
 			return err
 		}, []string{"trucks"}, []string{"trucks_tenant_created", "trucks_tenant_status"}},
+		{"CountTrucksByStatus own trucks", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
+			_, err := fleetdb.New(x).CountTrucksByStatus(ctx, fleetdb.CountTrucksByStatusParams{TenantIds: reachOwn,
+				Ownership: &ownTrucks})
+			return err
+		}, []string{"trucks"}, []string{"trucks_tenant_status"}},
 		{"ListDrivers own fleet", staffOwn, func(ctx context.Context, x *pgtest.Explainer) error {
 			_, err := driversdb.New(x).ListDrivers(ctx, driversdb.ListDriversParams{TenantIds: reachOwn, RowLimit: page})
 			return err

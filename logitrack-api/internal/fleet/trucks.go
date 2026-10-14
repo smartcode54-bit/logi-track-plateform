@@ -181,10 +181,30 @@ type ListTrucksInput struct {
 	Cursor                               string
 }
 
+// TruckListMeta is the meta of GET /v1/trucks (UI8): statusCounts counts every row matching the filters other than
+// status (and the cursor), every status present with 0, so a counter (the truck-assignment page's "total trucks")
+// reads a one-row page instead of every truck.
+type TruckListMeta struct {
+	StatusCounts map[string]int32 `json:"statusCounts"`
+}
+
+func truckListMeta[R any](rows []R, of func(R) (string, int32)) *TruckListMeta {
+	m := &TruckListMeta{StatusCounts: make(map[string]int32, len(TruckStatuses))}
+	for _, st := range TruckStatuses {
+		m.StatusCounts[st] = 0
+	}
+	for _, r := range rows {
+		st, n := of(r)
+		m.StatusCounts[st] = n
+	}
+	return m
+}
+
 // ListTrucks is GET /v1/trucks (fleet:view_trucks | dispatch:view_operations), keyset, no cap (the web's silent cap of
-// 100, useTrucksList.ts:27-29, goes with it). Staff get []Truck, newest first; a dispatcher (or a customer-scope
-// principal) gets []TruckScope from the scope_trucks projection, ordered by plate (Appendix C §C.3.7, R85).
-func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTrucksInput) (any, string, error) {
+// 100, useTrucksList.ts:27-29, goes with it), with meta.statusCounts. Staff get []Truck, newest first; a dispatcher
+// (or a customer-scope principal) gets []TruckScope from the scope_trucks projection, ordered by plate (Appendix C
+// §C.3.7, R85), and the counts over that projection.
+func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTrucksInput) (any, string, *TruckListMeta, error) {
 	var ck checker
 	opt := func(field, v string, allowed []string) *string {
 		if v == "" {
@@ -220,7 +240,7 @@ func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTru
 		ck.add("ownership", "not_available")
 	}
 	if err := ck.err(); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	// q: its folded words, each somewhere in the row (searchtext, the web's lib/searchText.ts); nil is no search. The
 	// GPS id and the VIN still match the whole of q exactly.
@@ -234,15 +254,22 @@ func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTru
 	}
 	all, tenants := p.TenantReach()
 	var rows []fleetdb.Truck
+	var counts []fleetdb.CountTrucksByStatusRow
 	err := s.tx(ctx, p, func(_ pgx.Tx, qq *fleetdb.Queries) (err error) {
 		rows, err = qq.ListTrucks(ctx, fleetdb.ListTrucksParams{AllTenants: all, TenantIds: tenants, TenantID: tenant,
 			Ownership: ownership, Status: status, TruckType: typ, QWords: words, Q: q, AfterCreated: after.T,
 			AfterID: after.ID, RowLimit: int32(limit) + 1})
+		if err != nil {
+			return err
+		}
+		counts, err = qq.CountTrucksByStatus(ctx, fleetdb.CountTrucksByStatusParams{AllTenants: all, TenantIds: tenants,
+			TenantID: tenant, Ownership: ownership, TruckType: typ, QWords: words, Q: q})
 		return err
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
+	meta := truckListMeta(counts, func(r fleetdb.CountTrucksByStatusRow) (string, int32) { return r.Status, r.N })
 	next := ""
 	if len(rows) > limit { // one row more was asked for: there is a next page
 		rows = rows[:limit]
@@ -255,18 +282,25 @@ func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTru
 	for _, r := range rows {
 		out = append(out, truckOf(r, cost))
 	}
-	return out, next, nil
+	return out, next, meta, nil
 }
 
-func (s *Service) listScopeTrucks(ctx context.Context, p *authz.Principal, arg scopedb.ListScopeTrucksParams, limit int) (any, string, error) {
+func (s *Service) listScopeTrucks(ctx context.Context, p *authz.Principal, arg scopedb.ListScopeTrucksParams, limit int) (any, string, *TruckListMeta, error) {
 	var rows []scopedb.ScopeTruck
+	var counts []scopedb.CountScopeTrucksByStatusRow
 	err := mapDBError(db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) (err error) {
-		rows, err = scopedb.New(tx).ListScopeTrucks(ctx, arg)
+		sq := scopedb.New(tx)
+		if rows, err = sq.ListScopeTrucks(ctx, arg); err != nil {
+			return err
+		}
+		counts, err = sq.CountScopeTrucksByStatus(ctx, scopedb.CountScopeTrucksByStatusParams{TenantID: arg.TenantID,
+			TruckType: arg.TruckType, QWords: arg.QWords})
 		return err
 	}))
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
+	meta := truckListMeta(counts, func(r scopedb.CountScopeTrucksByStatusRow) (string, int32) { return r.Status, r.N })
 	next := ""
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -279,7 +313,7 @@ func (s *Service) listScopeTrucks(ctx context.Context, p *authz.Principal, arg s
 		out = append(out, TruckScope{ID: r.ID, TenantID: r.TenantID, LicensePlate: r.LicensePlate, Province: r.Province,
 			VehicleClass: r.VehicleClass, Type: r.TypeRaw, Status: r.Status})
 	}
-	return out, next, nil
+	return out, next, meta, nil
 }
 
 // --- detail ------------------------------------------------------------------------------------------------

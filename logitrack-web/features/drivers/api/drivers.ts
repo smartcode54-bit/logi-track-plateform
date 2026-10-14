@@ -22,6 +22,8 @@ import { goNextPageParam } from "@/lib/goQuery";
 import { uploadToGo } from "@/lib/goUpload";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { createUser, type CreateUserResult } from "@/features/users/api/users";
+import { fetchCustomersByCode } from "@/features/accounting/api/pickers.go";
+import { getQueryClient } from "@/lib/queryClient";
 import { fieldViolations } from "@/features/auth/utils/fieldErrors";
 import { isApiError } from "@/lib/apiError";
 import type { Driver } from "@/validate/driverSchema";
@@ -286,8 +288,27 @@ export interface DriverSave {
     files: DriverFiles;
     /** The profile photo was removed. */
     removeProfile?: boolean;
-    /** Customer code -> id (Go: `['customers','options']`). */
-    customerIdByCode: ReadonlyMap<string, string>;
+}
+
+/** The customer codes of the form's `customerDriverIds` (`{SPX: {appId}}`) that hold a value. */
+function formCustomerCodes(v: Driver): string[] {
+    return Object.entries(v.customerDriverIds ?? {}).flatMap(([code, map]) =>
+        map && Object.values(map).some((x) => x && String(x).trim()) ? [code.toUpperCase()] : []
+    );
+}
+
+/**
+ * Customer code -> id for the codes a save sends (UI8): the ones the driver already holds come with its detail,
+ * the others from the server search (`fetchCustomersByCode`), so the form reads no list of every customer.
+ */
+async function customerIdsByCode(v: Driver, previous?: DriverDetailDTO): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const c of previous?.customerDriverIds ?? []) out.set(c.customerCode.toUpperCase(), c.customerId);
+    const missing = formCustomerCodes(v).filter((code) => !out.has(code));
+    if (missing.length > 0) {
+        for (const [code, c] of await fetchCustomersByCode(getQueryClient(), missing)) out.set(code, c.id);
+    }
+    return out;
 }
 
 async function fileKeys(driverId: string, files: DriverFiles, removeProfile?: boolean): Promise<Record<string, string | null>> {
@@ -300,7 +321,7 @@ async function fileKeys(driverId: string, files: DriverFiles, removeProfile?: bo
 }
 
 async function createOnGo(save: DriverSave): Promise<string> {
-    const body: Record<string, unknown> = driverBodyFromForm(save.values, save.customerIdByCode);
+    const body: Record<string, unknown> = driverBodyFromForm(save.values, await customerIdsByCode(save.values));
     if (apiEmploymentType(save.values.employmentType) === "subcontractor" && save.values.subcontractorId) {
         body.tenantId = save.values.subcontractorId;
     }
@@ -311,8 +332,9 @@ async function createOnGo(save: DriverSave): Promise<string> {
 }
 
 async function updateOnGo(id: string, save: DriverSave & { previous: DriverDetailDTO }): Promise<void> {
-    const prev = driverBodyFromForm(driverFormValues(save.previous), save.customerIdByCode);
-    const next = driverBodyFromForm(save.values, save.customerIdByCode);
+    const byCode = await customerIdsByCode(save.values, save.previous);
+    const prev = driverBodyFromForm(driverFormValues(save.previous), byCode);
+    const next = driverBodyFromForm(save.values, byCode);
     const body = changedFields(next, prev);
     // An unchanged PII field is never sent: writing one needs drivers:view_pii.
     for (const f of PII_FIELDS) if (!(f in body)) delete body[f];

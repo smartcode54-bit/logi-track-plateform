@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +130,37 @@ func TestCompanyValidation(t *testing.T) {
 	}
 	if err := ownerOnlyInOwnFleet(CompanyOwner, "own_fleet"); err != nil {
 		t.Error(err)
+	}
+}
+
+// UI8: ?ids of GET /v1/customers, comma-separated or repeated; blanks skipped, duplicates once, at most
+// MaxLookupIDs distinct ids.
+func TestParseLookupIDs(t *testing.T) {
+	a, b := uuid.New(), uuid.New()
+	var ck checker
+	if got := parseLookupIDs(&ck, []string{a.String() + ", ," + b.String(), " " + a.String()}); !slices.Equal(got, []uuid.UUID{a, b}) || ck.err() != nil {
+		t.Fatalf("ids %v, err %v", got, ck.err())
+	}
+	many := make([]string, 0, MaxLookupIDs+1)
+	for range MaxLookupIDs {
+		many = append(many, uuid.NewString())
+	}
+	ck = checker{}
+	if got := parseLookupIDs(&ck, append(many, many[0], many[1])); len(got) != MaxLookupIDs || ck.err() != nil {
+		t.Fatalf("%d distinct ids: %d, %v", MaxLookupIDs, len(got), ck.err())
+	}
+	for raw, want := range map[string]string{
+		"":                   "required",
+		" , ":                "required",
+		"nope":               "invalid",
+		a.String() + ",nope": "invalid",
+		strings.Join(append(many, a.String()), ","): "too_many",
+	} {
+		ck = checker{}
+		_ = parseLookupIDs(&ck, []string{raw})
+		if f := fields(t, ck.err()); f["ids"] != want || len(f) != 1 {
+			t.Errorf("%.40q: %v, want ids %s", raw, f, want)
+		}
 	}
 }
 

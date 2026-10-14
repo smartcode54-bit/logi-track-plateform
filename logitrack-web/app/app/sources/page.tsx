@@ -26,7 +26,9 @@ import { HubDialog } from "../first-mile/hub-dialog";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
 import { useLanguage } from "@/context/language";
 import type { CustomerLinkKind, Hub, StationType } from "@/validate/hubSchema";
-import { useCustomerOptions } from "@/features/customers/api/useCustomers";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
+import type { SearchSelectOption } from "@/components/ui/search-select";
+import { useCustomerLookup } from "@/features/accounting/api/useCustomerLookup";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
 import { computeDistances, distancesMetaQuery, hubsQueryOptions, type HubDTO } from "@/features/hubs/api/hubs";
@@ -36,13 +38,6 @@ import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 
 const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
@@ -69,7 +64,7 @@ interface SourceRow extends Pick<Hub, "source_id" | "latitude" | "longitude" | "
     source_name_th?: string;
     linkedCustomerId?: string;
     customerLinkKind?: CustomerLinkKind;
-    /** Denormalized สำหรับ export Excel — จาก customers lookup */
+    /** Denormalized สำหรับ export Excel — จาก customers lookup (`useCustomerLookup`, by id) */
     linkedCustomerCode?: string;
     linkedCustomerName?: string;
     /** Driver เพิ่มจาก Mobile — Admin ควรกรอกพิกัดและข้อมูลให้ครบ */
@@ -117,6 +112,10 @@ function mapDocToSourceRow(doc: { id: string; data: Record<string, unknown> }): 
 
 const NO_SOURCES: SourceRow[] = [];
 
+/** The customer filter's values besides a customer id. */
+const ALL_CUSTOMERS = "all";
+const UNLINKED = "__unlinked__";
+
 /** `['hubs']` -> the table rows (customer code and name are joined in the component). */
 function selectSourceRowsBase(hubs: HubDTO[]): SourceRow[] {
     return hubs.map((hub) => mapDocToSourceRow({ id: hub.id, data: hubRecord(hub) }));
@@ -148,24 +147,30 @@ export default function SourcesPage() {
     /** true = แสดงเฉพาะ Driver เพิ่มจาก Mobile ที่รอ Admin กรอกพิกัด */
     const [showOnlyNew, setShowOnlyNew] = useState(false);
     /** ลูกค้าใน Dropdown — "all" = ไม่กรอง | "__unlinked__" = ยังไม่ผูกลูกค้า */
-    const [customerFilterId, setCustomerFilterId] = useState<string>("all");
+    const [customerFilterId, setCustomerFilterId] = useState<string>(ALL_CUSTOMERS);
+    const unlinkedOption = useMemo<SearchSelectOption[]>(() => [{ value: UNLINKED, label: t("firstMile.sources.filterCustomerUnlinked") }], [t]);
     // `['hubs']` and `['customers']` (TW4). This page edits hubs, so it refetches the list whenever it
     // opens instead of trusting a copy up to 10 minutes old; each save invalidates `['hubs']`.
     const hubsQuery = useQuery({ ...hubsQueryOptions, select: selectSourceRowsBase, refetchOnMount: "always" });
-    // `['customers','options']` / `['subcontractors','options']` (T25): one request each, shared with the
-    // hub dialogs; a hub links a customer or a carrier (`customerLinkKind`).
-    const { options: customerOptions } = useCustomerOptions();
+    // A hub links a customer or a carrier (`customerLinkKind`). Carriers: `['subcontractors','options']` (T25),
+    // shared with the hub dialogs. Customers: by id (`['customers','ref',id]`, UI8), the distinct linked
+    // customers of the master in one `GET /v1/customers?ids=` lookup; no list of every customer is read.
     const { options: partnerOptions } = useSubcontractorOptions();
     const loading = hubsQuery.isFetching;
+    const hubRows = hubsQuery.data ?? NO_SOURCES;
+    const linkedCustomerIds = useMemo(
+        () => hubRows.flatMap((row) => (row.linkedCustomerId && row.customerLinkKind !== "partner" ? [row.linkedCustomerId] : [])),
+        [hubRows]
+    );
+    const customers = useCustomerLookup(linkedCustomerIds);
     const sources = useMemo<SourceRow[]>(() => {
-        const customerById = new Map(customerOptions.map((c) => [c.id, { code: c.code, name: c.name }]));
         const partnerById = new Map(partnerOptions.map((p) => [p.id, { code: p.code ?? "", name: carrierName(p) }]));
-        return (hubsQuery.data ?? NO_SOURCES).map((row) => {
+        return hubRows.map((row) => {
             const id = row.linkedCustomerId;
-            const c = id ? (row.customerLinkKind === "partner" ? partnerById.get(id) : customerById.get(id)) ?? customerById.get(id) : undefined;
+            const c = !id ? undefined : row.customerLinkKind === "partner" ? partnerById.get(id) : customers.get(id);
             return { ...row, linkedCustomerCode: c?.code, linkedCustomerName: c?.name };
         });
-    }, [hubsQuery.data, customerOptions, partnerOptions]);
+    }, [hubRows, customers, partnerOptions]);
     // Manual refresh; the hub and import dialogs invalidate `['hubs']` themselves after a save.
     const refreshHubs = () => void hubsQuery.refetch();
 
@@ -195,9 +200,9 @@ export default function SourcesPage() {
 
     const filteredSources = useMemo(() => {
         let list = sources;
-        if (customerFilterId === "__unlinked__") {
+        if (customerFilterId === UNLINKED) {
             list = list.filter((row) => !row.linkedCustomerId);
-        } else if (customerFilterId !== "all") {
+        } else if (customerFilterId !== ALL_CUSTOMERS) {
             list = list.filter((row) => row.linkedCustomerId === customerFilterId);
         }
 
@@ -495,22 +500,17 @@ export default function SourcesPage() {
                                         className="h-8 w-full min-w-0 sm:w-[200px]"
                                     />
                                 </div>
-                                <Select value={customerFilterId} onValueChange={setCustomerFilterId}>
-                                    <SelectTrigger className="h-8 w-full min-w-0 sm:w-[220px]">
-                                        <SelectValue placeholder={t("firstMile.sources.filterCustomer")} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">{t("firstMile.sources.filterCustomerAll")}</SelectItem>
-                                        <SelectItem value="__unlinked__">
-                                            {t("firstMile.sources.filterCustomerUnlinked")}
-                                        </SelectItem>
-                                        {customerOptions.map((c) => (
-                                            <SelectItem key={c.id} value={c.id}>
-                                                {(c.code ?? "").trim() || c.id} — {c.name ?? ""}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                {/* The server-searched picker (UI8): no list of every customer to filter by one. */}
+                                <CustomerSearchSelect
+                                    aria-label={t("firstMile.sources.filterCustomer")}
+                                    placeholder={t("firstMile.sources.filterCustomer")}
+                                    value={customerFilterId}
+                                    onValueChange={(id) => setCustomerFilterId(id || ALL_CUSTOMERS)}
+                                    allValue={ALL_CUSTOMERS}
+                                    allLabel={t("firstMile.sources.filterCustomerAll")}
+                                    fixedOptions={unlinkedOption}
+                                    className="h-8 w-full min-w-0 sm:w-[220px]"
+                                />
                             </div>
                         </div>
                     </CardHeader>

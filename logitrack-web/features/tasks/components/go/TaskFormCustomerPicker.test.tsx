@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
-import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { customerDirectoryReads, customerLookups, customersReply, fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
@@ -48,15 +48,9 @@ function setup() {
             { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB" },
             { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC" },
         ] }));
-    // Go's minimal list: `q` a case-insensitive substring of the code or the name, keyset pages of `limit`.
-    web.on("GET", "/api/go/v1/customers", (call) => {
-        const q = (params(call).get("q") ?? "").toLowerCase();
-        const limit = Number(params(call).get("limit") ?? "50");
-        const from = Number(params(call).get("cursor") ?? "0");
-        const hits = CUSTOMERS.filter((c) => !q || `${c.code} ${c.name}`.toLowerCase().includes(q));
-        const next = from + limit < hits.length ? String(from + limit) : undefined;
-        return json(200, { data: hits.slice(from, from + limit), ...(next ? { nextCursor: next } : {}) });
-    });
+    // Go's minimal list: `q` a case-insensitive substring of the code or the name, keyset pages of `limit`; `ids`
+    // the label lookup by customer or billing party id (UI8).
+    web.on("GET", "/api/go/v1/customers", customersReply(CUSTOMERS));
     // The picker's pages (`limit=50`), as opposed to the label lookups.
     const searches = () => web.calls.filter((c) => c.url.startsWith("/api/go/v1/customers") && params(c).get("limit") === "50").map((c) => params(c).get("q"));
     return { web, searches };
@@ -91,9 +85,10 @@ describe("task form: the customer picker searches on the server (UI2C)", () => {
         web.on("PATCH", "/api/go/v1/tasks/t1", () => json(200, { data: task({ billingPartyId: "p-0100" }) }));
         const onClose = renderForm(task());
         const picker = await screen.findByRole("combobox", { name: "Customer" });
-        // The task holds party p-0099: the picker names it without opening (and without a picker page).
+        // The task holds party p-0099: the picker names it without opening (and without a picker page), by id.
         await waitFor(() => expect(picker).toHaveTextContent("ลูกค้า 0099"));
         expect(searches()).toEqual([]);
+        expect(customerLookups(web.calls)).toEqual([["p-0099"]]);
 
         const u = userEvent.setup();
         await u.click(picker);
@@ -112,6 +107,7 @@ describe("task form: the customer picker searches on the server (UI2C)", () => {
         await u.click(screen.getByRole("button", { name: "Save Changes" }));
         await waitFor(() => expect(onClose).toHaveBeenCalled());
         expect(web.calls.filter((c) => c.method === "PATCH").map((c) => c.body)).toEqual([{ billingPartyId: "p-0100" }]);
+        expect(customerDirectoryReads(web.calls)).toEqual([]);
     });
 
     it("prefills a task without a party from its hub only when that party is a customer's, never a carrier's", async () => {
