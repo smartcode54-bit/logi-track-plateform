@@ -78,7 +78,6 @@ export default {
     "nav.lineHaulTasks": "Line haul tasks",
     "nav.holidays": "Holidays",
     "nav.customers": "Customers",
-    "nav.system": "System",
     "nav.companies": "Companies",
     "nav.companyProfile": "Company profile",
     "nav.billing": "Billing",

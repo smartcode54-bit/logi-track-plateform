@@ -31,6 +31,7 @@ import {
 import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
 import type { MeDTO } from "@/features/auth/api/me";
+import { navigationProfileOf } from "@/features/auth/utils/navigationProfile";
 import { useMe } from "@/features/auth/api/useMe";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { routeAllowed } from "@/lib/routeCapabilities";
@@ -55,9 +56,10 @@ export function AppBreadcrumb({ pathname, homeHref, className }: { pathname: str
     const { customLastItem } = useBreadcrumb();
     const { t } = useLanguage();
     const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities);
+    const { data: profile = "staff" } = useMe(navigationProfileOf);
     const held = useMemo(() => new Set(capabilities), [capabilities]);
     // The groups of this principal's menu (its home is the first entry, components/app-nav.ts).
-    const { crumbs, detailKey } = breadcrumbTrail(pathname, homeHref);
+    const { crumbs, detailKey } = breadcrumbTrail(pathname, homeHref, profile);
 
     const items: Item[] = [
         { label: t("nav.home"), href: homeHref, home: true },

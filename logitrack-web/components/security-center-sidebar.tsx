@@ -1,6 +1,6 @@
 "use client"
 
-import { LayoutDashboard, ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react"
 
 import {
     Sidebar,
@@ -18,12 +18,12 @@ import { useLanguage } from "@/context/language"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useMemo } from "react"
-import { DASHBOARD_PATH, routeAllowed } from "@/lib/routeCapabilities"
+import { DASHBOARD_PATH } from "@/lib/routeCapabilities"
 import type { MeDTO } from "@/features/auth/api/me"
 import { homeRouteOf } from "@/features/auth/api/homeRoute"
 import { useMe } from "@/features/auth/api/useMe"
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
-import { activeNavUrl, SECURITY_CENTER_PATH, SECURITY_NAV } from "./app-nav"
+import { activeNavUrl, SECURITY_CENTER_PATH, securityMenuFor } from "./app-nav"
 import { ScopeLine } from "./scope-line"
 import { sidebarHeaderTooltip, useCloseSidebarOnPhone, useRevealCurrentEntry } from "./sidebar-shell"
 
@@ -49,10 +49,7 @@ export function SecurityCenterSidebar() {
     const active = activeNavUrl(pathname)
     const navRef = useRevealCurrentEntry<HTMLElement>(active)
     const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
-    const filteredItems = useMemo(() => {
-        const held = new Set(capabilities)
-        return SECURITY_NAV.filter((item) => routeAllowed(held, item.url))
-    }, [capabilities])
+    const { main, footer } = useMemo(() => securityMenuFor(new Set(capabilities), homeHref), [capabilities, homeHref])
 
     return (
         <Sidebar
@@ -79,39 +76,43 @@ export function SecurityCenterSidebar() {
                     </SidebarMenuItem>
                 </SidebarMenu>
             </SidebarHeader>
-            <SidebarContent asChild>
+            <SidebarContent asChild className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <nav aria-label={t("shell.nav.security")} ref={navRef}>
-                    <SidebarGroup>
-                        <SidebarGroupLabel>{title}</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu>
-                                {filteredItems.map((item) => (
-                                    <SidebarMenuItem key={item.url}>
-                                        <SidebarMenuButton asChild tooltip={t(item.labelKey)} isActive={active === item.url}>
-                                            <Link href={item.url} prefetch={false} onClick={closeOnPhone}>
-                                                {item.icon ? <item.icon /> : null}
-                                                <span>{t(item.labelKey)}</span>
-                                            </Link>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ))}
-                            </SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
+                    <div className="min-h-0 flex-1 overflow-auto" data-sidebar-scroll>
+                        <SidebarGroup>
+                            <SidebarGroupLabel>{title}</SidebarGroupLabel>
+                            <SidebarGroupContent>
+                                <SidebarMenu>
+                                    {main.map((item) => (
+                                        <SidebarMenuItem key={item.url}>
+                                            <SidebarMenuButton asChild tooltip={t(item.labelKey)} isActive={active === item.url}>
+                                                <Link href={item.url} prefetch={false} onClick={closeOnPhone}>
+                                                    {item.icon ? <item.icon /> : null}
+                                                    <span>{t(item.labelKey)}</span>
+                                                </Link>
+                                            </SidebarMenuButton>
+                                        </SidebarMenuItem>
+                                    ))}
+                                </SidebarMenu>
+                            </SidebarGroupContent>
+                        </SidebarGroup>
+                    </div>
+                    <SidebarFooter className="mt-auto">
+                        <SidebarMenu>
+                            {footer.map((link) => (
+                                <SidebarMenuItem key={link.url}>
+                                    <SidebarMenuButton asChild tooltip={t(link.labelKey)} isActive={active === link.url}>
+                                        <Link href={link.url} prefetch={false} onClick={closeOnPhone}>
+                                            {link.icon ? <link.icon /> : null}
+                                            <span>{t(link.labelKey)}</span>
+                                        </Link>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                            ))}
+                        </SidebarMenu>
+                    </SidebarFooter>
                 </nav>
             </SidebarContent>
-            <SidebarFooter>
-                <SidebarMenu>
-                    <SidebarMenuItem>
-                        <SidebarMenuButton asChild tooltip={t("securityCenter.backToAdmin")}>
-                            <Link href={homeHref} prefetch={false} onClick={closeOnPhone}>
-                                <LayoutDashboard />
-                                <span>{t("securityCenter.backToAdmin")}</span>
-                            </Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                </SidebarMenu>
-            </SidebarFooter>
         </Sidebar>
     )
 }
