@@ -71,7 +71,7 @@ WHERE (sqlc.arg(all_users)::boolean
     OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND (sqlc.narg(q_words)::text[] IS NULL
-    OR search_fold(u.email::text || ' ' || coalesce(u.display_name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
+    OR search_fold(coalesce(u.email::text, '') || ' ' || coalesce(u.display_name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
   AND ((sqlc.narg(status)::text IS NULL AND u.status <> 'deleted') OR u.status = sqlc.narg(status))
   AND (sqlc.narg(member_role)::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = sqlc.narg(member_role)
@@ -96,7 +96,7 @@ WHERE (sqlc.arg(all_users)::boolean
     OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND (sqlc.narg(q_words)::text[] IS NULL
-    OR search_fold(u.email::text || ' ' || coalesce(u.display_name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
+    OR search_fold(coalesce(u.email::text, '') || ' ' || coalesce(u.display_name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
   AND ((sqlc.narg(status)::text IS NULL AND u.status <> 'deleted') OR u.status = sqlc.narg(status))
   AND (sqlc.narg(member_role)::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = sqlc.narg(member_role)

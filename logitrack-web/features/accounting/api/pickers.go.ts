@@ -132,7 +132,9 @@ export function hubByCodeQuery(code: string) {
                 return null;
             }
             try {
-                return await goFetch<HubPick>(path, { signal });
+                const hub = await goFetch<HubPick>(path, { signal });
+                // A code that collides with a static route (`/v1/hubs/maps`) answers another payload: no hub.
+                return typeof hub?.sourceId === "string" ? hub : null;
             } catch (e) {
                 if (isApiError(e) && e.status === 404) return null;
                 throw e;

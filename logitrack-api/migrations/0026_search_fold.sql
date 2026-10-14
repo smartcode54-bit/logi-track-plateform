@@ -16,7 +16,10 @@
 --
 -- IMMUTABLE (it may back an index or a generated column later): normalize(), regexp_replace(), translate() and
 -- lower() are. lower() follows the database's LC_CTYPE (en_US.utf8 under the postgres:18-alpine initdb defaults);
--- Latin letters are decomposed before it, so a C ctype would still fold them, and Thai has no case.
+-- a C ctype would not lower letters without a decomposition (Ø, Æ, Đ, Ł, Œ), and Thai has no case. The output
+-- still depends on PostgreSQL's Unicode tables and the image's libc (musl) case tables, which differ from Go's on a
+-- few rare scripts (Glagolitic, Latin Ext-D, Vithkuqi); an index or generated column built on it needs a REINDEX
+-- after a PostgreSQL major or base-image upgrade.
 -- No GRANT: EXECUTE on a plain function is PUBLIC by default (as bkk_date, 0001).
 
 -- +goose Up

@@ -797,7 +797,7 @@ WHERE ($1::boolean
     OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND ($4::text[] IS NULL
-    OR search_fold(u.email::text || ' ' || coalesce(u.display_name, '')) LIKE ALL ($4::text[]))
+    OR search_fold(coalesce(u.email::text, '') || ' ' || coalesce(u.display_name, '')) LIKE ALL ($4::text[]))
   AND (($5::text IS NULL AND u.status <> 'deleted') OR u.status = $5)
   AND ($6::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = $6
@@ -892,7 +892,7 @@ WHERE ($1::boolean
     OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
   AND ($4::text[] IS NULL
-    OR search_fold(u.email::text || ' ' || coalesce(u.display_name, '')) LIKE ALL ($4::text[]))
+    OR search_fold(coalesce(u.email::text, '') || ' ' || coalesce(u.display_name, '')) LIKE ALL ($4::text[]))
   AND (($5::text IS NULL AND u.status <> 'deleted') OR u.status = $5)
   AND ($6::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = $6

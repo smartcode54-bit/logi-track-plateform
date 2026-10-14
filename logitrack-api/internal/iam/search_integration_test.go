@@ -22,6 +22,9 @@ func TestUsersFoldedSearch(t *testing.T) {
 	jose := add("jose.dupont@example.test", "José Dépôt")
 	thai := add("somchai@example.test", "สมศักดิ์ ห้วยขวาง ๑๒")
 	under := add("a_b@example.test", "Under Score")
+	// users.email is nullable (0002: Firebase accounts without one); the name alone must still be searchable.
+	noMail := w.id(`INSERT INTO users (email, display_name) VALUES (NULL, 'Nomail Person') RETURNING id::text`)
+	w.member(noMail, w.O, "operator")
 	outside := w.id(`INSERT INTO users (email, display_name) VALUES ('jose.c@example.test', 'José Outside') RETURNING id::text`)
 	w.member(outside, w.C, "operator")
 	ta := w.login("ta.o@example.test")
@@ -37,12 +40,13 @@ func TestUsersFoldedSearch(t *testing.T) {
 		return out
 	}
 	for q, want := range map[string][]string{
-		"jose depot":     {jose},  // Latin accents, two words (not C's José: outside the reach)
-		"DÉPÔT josé":     {jose},  // any order, any case
-		"หวยขวาง สมศกด":  nil,     // a vowel sign (mai han-akat) stays: สมศกด is not สมศักด
-		"หวยขวาง สมศักด": {thai},  // tone marks and thanthakhat fold away
-		"12 somchai":     {thai},  // Thai digits in the display name, the e-mail
-		"a_b":            {under}, // _ is a plain character, not a LIKE wildcard
+		"jose depot":     {jose},   // Latin accents, two words (not C's José: outside the reach)
+		"DÉPÔT josé":     {jose},   // any order, any case
+		"หวยขวาง สมศกด":  nil,      // a vowel sign (mai han-akat) stays: สมศกด is not สมศักด
+		"หวยขวาง สมศักด": {thai},   // tone marks and thanthakhat fold away
+		"12 somchai":     {thai},   // Thai digits in the display name, the e-mail
+		"a_b":            {under},  // _ is a plain character, not a LIKE wildcard
+		"nomail person":  {noMail}, // a NULL e-mail does not hide the display name
 		"%":              nil,
 		"jose nowhere":   nil, // every word must match
 	} {
