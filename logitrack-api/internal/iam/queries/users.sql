@@ -61,7 +61,8 @@ WHERE u.id = sqlc.arg(id)
 
 -- name: ListUsersByCreated :many
 -- GET /v1/users, default order created_at DESC, id DESC (Appendix B §B.1.5). q matches email or display name
--- (the caller escapes LIKE wildcards); member_role, scope_kind and platform_role filter by the role axis.
+-- folded (search_fold, 0026: q_words are its folded words as LIKE patterns with the wildcards escaped, each somewhere
+-- in the row, in any order; NULL is no search); member_role, scope_kind and platform_role filter by the role axis.
 SELECT u.id, u.email, u.display_name, u.photo_file_id, u.status, u.must_change_password, u.last_login_at,
        u.created_at, u.legacy_auth_uid
 FROM users u
@@ -69,7 +70,8 @@ WHERE (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
     OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
-  AND (sqlc.narg(q)::text IS NULL OR u.email::text ILIKE sqlc.narg(q) ESCAPE '\' OR u.display_name ILIKE sqlc.narg(q) ESCAPE '\')
+  AND (sqlc.narg(q_words)::text[] IS NULL
+    OR search_fold(coalesce(u.email::text, '') || ' ' || coalesce(u.display_name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
   AND ((sqlc.narg(status)::text IS NULL AND u.status <> 'deleted') OR u.status = sqlc.narg(status))
   AND (sqlc.narg(member_role)::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = sqlc.narg(member_role)
@@ -93,7 +95,8 @@ WHERE (sqlc.arg(all_users)::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
     OR (sqlc.arg(scope_only)::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
-  AND (sqlc.narg(q)::text IS NULL OR u.email::text ILIKE sqlc.narg(q) ESCAPE '\' OR u.display_name ILIKE sqlc.narg(q) ESCAPE '\')
+  AND (sqlc.narg(q_words)::text[] IS NULL
+    OR search_fold(coalesce(u.email::text, '') || ' ' || coalesce(u.display_name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
   AND ((sqlc.narg(status)::text IS NULL AND u.status <> 'deleted') OR u.status = sqlc.narg(status))
   AND (sqlc.narg(member_role)::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = sqlc.narg(member_role)

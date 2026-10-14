@@ -18,6 +18,7 @@ import { Calculator } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { format, startOfMonth } from "date-fns";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -29,7 +30,6 @@ import { BackfillPanel } from "./BackfillPanel";
 import { EntriesTab } from "./rateCard/EntriesTab";
 import { FuelAdjustmentsTab } from "./rateCard/FuelAdjustmentsTab";
 import { FuelMonthlyTab, ServiceFeesTab, StandbyRatesTab } from "./rateCard/OtherTabs";
-import { CustomerSelect, useCustomerPicks } from "./shared";
 
 type Tab = "entries" | "fuelAdj" | "serviceFees" | "standby" | "fuelMonthly";
 
@@ -37,7 +37,7 @@ export function RateCardPage() {
     const { t } = useLanguage();
     const canEdit = useCan("accounting:edit_rate_card").allowed;
     const canRecompute = useCan("accounting:recompute_force").allowed;
-    const customers = useCustomerPicks();
+    // A customer searched on the server (`CustomerSearchSelect`); each tab names its rows' customers by id.
     const [customerId, setCustomerId] = useState<string>(ALL_CUSTOMERS);
     const [tab, setTab] = useState<Tab>("entries");
     const [recompute, setRecompute] = useState(false);
@@ -62,10 +62,10 @@ export function RateCardPage() {
                 <CardContent className="flex flex-wrap items-end gap-4 pt-4">
                     <div className="space-y-1">
                         <Label>{t("accounting.rateCard.filterCustomer")}</Label>
-                        <CustomerSelect
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.rateCard.filterCustomer")}
                             value={customerId}
-                            onChange={setCustomerId}
-                            customers={customers.list}
+                            onValueChange={(id) => setCustomerId(id || ALL_CUSTOMERS)}
                             allValue={ALL_CUSTOMERS}
                             allLabel={t("accounting.rateCard.filterCustomerAll")}
                             className="w-72"
@@ -87,16 +87,16 @@ export function RateCardPage() {
                     <CardContent className="pt-4">
                         {/* Each tab mounts (and so reads its key) only while it is shown. */}
                         <TabsContent value="entries" className="mt-0">
-                            {tab === "entries" ? <EntriesTab customerId={customerId} customers={customers.list} canEdit={canEdit} /> : null}
+                            {tab === "entries" ? <EntriesTab customerId={customerId} canEdit={canEdit} /> : null}
                         </TabsContent>
                         <TabsContent value="fuelAdj" className="mt-0">
-                            {tab === "fuelAdj" ? <FuelAdjustmentsTab customerId={customerId} customers={customers.list} canEdit={canEdit} /> : null}
+                            {tab === "fuelAdj" ? <FuelAdjustmentsTab customerId={customerId} canEdit={canEdit} /> : null}
                         </TabsContent>
                         <TabsContent value="serviceFees" className="mt-0">
-                            {tab === "serviceFees" ? <ServiceFeesTab customerId={customerId} customers={customers.list} canEdit={canEdit} /> : null}
+                            {tab === "serviceFees" ? <ServiceFeesTab customerId={customerId} canEdit={canEdit} /> : null}
                         </TabsContent>
                         <TabsContent value="standby" className="mt-0">
-                            {tab === "standby" ? <StandbyRatesTab customerId={customerId} customers={customers.list} canEdit={canEdit} /> : null}
+                            {tab === "standby" ? <StandbyRatesTab customerId={customerId} canEdit={canEdit} /> : null}
                         </TabsContent>
                         <TabsContent value="fuelMonthly" className="mt-0">
                             {tab === "fuelMonthly" ? <FuelMonthlyTab /> : null}

@@ -99,6 +99,11 @@ export const queryKeys = {
         detail: (id: string) => ["customers", "detail", id] as const,
         /** Every customer as a picker option (`fields=minimal`, flag `masterdata`, T25). */
         options: () => ["customers", "options"] as const,
+        /**
+         * One customer `{id, billingPartyId, code, name}` by a customer id or a billing party id: the label of a
+         * row or a picker's value (UI2C, `features/accounting/api/pickers.go.ts` `customerRefQuery`).
+         */
+        ref: (ref: string) => ["customers", "ref", ref] as const,
     },
     subcontractors: {
         all: () => ["subcontractors"] as const,

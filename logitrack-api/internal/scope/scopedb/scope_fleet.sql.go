@@ -15,17 +15,16 @@ const countScopeDriversByStatus = `-- name: CountScopeDriversByStatus :many
 SELECT status, count(*)::int AS n
 FROM scope_drivers
 WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
-  AND ($2::text IS NULL
-       OR strpos(lower(coalesce(full_name_th, '')), lower($2::text)) > 0
-       OR strpos(lower(first_name || ' ' || last_name), lower($2::text)) > 0
-       OR strpos(lower(mobile), lower($2::text)) > 0)
+  AND ($2::text[] IS NULL
+       OR search_fold(coalesce(full_name_th, '') || ' ' || coalesce(first_name, '') || ' ' || coalesce(last_name, '')
+                      || ' ' || coalesce(mobile, '')) LIKE ALL ($2::text[]))
 GROUP BY status
 ORDER BY status
 `
 
 type CountScopeDriversByStatusParams struct {
 	TenantID *uuid.UUID `json:"tenantId"`
-	Q        *string    `json:"q"`
+	QWords   []string   `json:"qWords"`
 }
 
 type CountScopeDriversByStatusRow struct {
@@ -35,7 +34,7 @@ type CountScopeDriversByStatusRow struct {
 
 // meta.statusCounts of a dispatcher's driver list: every projected row matching the other filters.
 func (q *Queries) CountScopeDriversByStatus(ctx context.Context, arg CountScopeDriversByStatusParams) ([]CountScopeDriversByStatusRow, error) {
-	rows, err := q.db.Query(ctx, countScopeDriversByStatus, arg.TenantID, arg.Q)
+	rows, err := q.db.Query(ctx, countScopeDriversByStatus, arg.TenantID, arg.QWords)
 	if err != nil {
 		return nil, err
 	}
@@ -110,10 +109,9 @@ SELECT id, tenant_id, full_name_th, first_name, last_name, mobile, status, activ
 FROM scope_drivers
 WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND ($2::text IS NULL OR status = $2::text)
-  AND ($3::text IS NULL
-       OR strpos(lower(coalesce(full_name_th, '')), lower($3::text)) > 0
-       OR strpos(lower(first_name || ' ' || last_name), lower($3::text)) > 0
-       OR strpos(lower(mobile), lower($3::text)) > 0)
+  AND ($3::text[] IS NULL
+       OR search_fold(coalesce(full_name_th, '') || ' ' || coalesce(first_name, '') || ' ' || coalesce(last_name, '')
+                      || ' ' || coalesce(mobile, '')) LIKE ALL ($3::text[]))
   AND ($4::text IS NULL
        OR (coalesce(nullif(btrim(full_name_th), ''), btrim(first_name || ' ' || last_name)), id)
           > ($4::text, $5::uuid))
@@ -124,19 +122,20 @@ LIMIT $6
 type ListScopeDriversParams struct {
 	TenantID  *uuid.UUID `json:"tenantId"`
 	Status    *string    `json:"status"`
-	Q         *string    `json:"q"`
+	QWords    []string   `json:"qWords"`
 	AfterName *string    `json:"afterName"`
 	AfterID   uuid.UUID  `json:"afterId"`
 	RowLimit  int32      `json:"rowLimit"`
 }
 
 // The driver list of a dispatcher (T23): the projection only, by display name (the Thai full name, else first and
-// last name); q matches the names and the mobile.
+// last name); q matches the names and the mobile, folded as the staff list does (search_fold, 0026; q_words NULL is
+// no search).
 func (q *Queries) ListScopeDrivers(ctx context.Context, arg ListScopeDriversParams) ([]ScopeDriver, error) {
 	rows, err := q.db.Query(ctx, listScopeDrivers,
 		arg.TenantID,
 		arg.Status,
-		arg.Q,
+		arg.QWords,
 		arg.AfterName,
 		arg.AfterID,
 		arg.RowLimit,
@@ -174,9 +173,8 @@ WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR vehicle_class = upper($3::text)
        OR lower(type_raw) = lower($3::text))
-  AND ($4::text IS NULL
-       OR strpos(lower(license_plate), lower($4::text)) > 0
-       OR strpos(lower(province), lower($4::text)) > 0)
+  AND ($4::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '')) LIKE ALL ($4::text[]))
   AND ($5::text IS NULL
        OR (license_plate, id) > ($5::text, $6::uuid))
 ORDER BY license_plate, id
@@ -187,19 +185,20 @@ type ListScopeTrucksParams struct {
 	TenantID   *uuid.UUID `json:"tenantId"`
 	Status     *string    `json:"status"`
 	TruckType  *string    `json:"truckType"`
-	Q          *string    `json:"q"`
+	QWords     []string   `json:"qWords"`
 	AfterPlate *string    `json:"afterPlate"`
 	AfterID    uuid.UUID  `json:"afterId"`
 	RowLimit   int32      `json:"rowLimit"`
 }
 
-// The truck list of a dispatcher (T22): the projection only, by plate; type matches the class or the master word.
+// The truck list of a dispatcher (T22): the projection only, by plate; type matches the class or the master word. q
+// matches the plate and the province, folded as the staff list does (search_fold, 0026; q_words NULL is no search).
 func (q *Queries) ListScopeTrucks(ctx context.Context, arg ListScopeTrucksParams) ([]ScopeTruck, error) {
 	rows, err := q.db.Query(ctx, listScopeTrucks,
 		arg.TenantID,
 		arg.Status,
 		arg.TruckType,
-		arg.Q,
+		arg.QWords,
 		arg.AfterPlate,
 		arg.AfterID,
 		arg.RowLimit,

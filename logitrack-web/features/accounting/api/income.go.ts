@@ -271,6 +271,17 @@ export function standbyIncomeRow(s: IncomeStandbyDTO, customerIdOfParty: (party:
 }
 
 /**
+ * The customer ids the loaded pages name, to look up before the rows are built (`useCustomerLookup`): a
+ * trip's billing customer (else its party), a standby record's billing party (it carries no customer id).
+ */
+export function incomeCustomerRefs(tripPages: GoPage<IncomeTripDTO>[] | undefined, standbyPages: GoPage<IncomeStandbyDTO>[] | undefined): (string | null)[] {
+    return [
+        ...pageItems(tripPages).map((t) => t.billing?.customerId ?? t.billing?.billingPartyId ?? null),
+        ...pageItems(standbyPages).map((s) => s.billing?.partyId ?? s.customerPartyId),
+    ];
+}
+
+/**
  * The income table's rows: the loaded trips and standby records of the wanted kinds, narrowed to one
  * record type when asked, newest delivery first. Standby rows name their customer through its billing party.
  */

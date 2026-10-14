@@ -132,6 +132,12 @@ function billingDocumentSetup() {
     return web;
 }
 
+/**
+ * The rows' customers are named by id once the rows are there (`useCustomerLookup`, UI2C); the table's cells
+ * re-render then, so a test takes its row elements after the names.
+ */
+const named = (label = "CJSF — CJ Super Fresh") => waitFor(() => expect(screen.getAllByText(label).length).toBeGreaterThan(0));
+
 async function loadCJSF(u: ReturnType<typeof userEvent.setup>) {
     await u.click((await screen.findAllByRole("combobox"))[2]);
     await u.click(await screen.findByRole("option", { name: /CJSF/ }));
@@ -178,6 +184,7 @@ describe("Go accounting pages (T42)", () => {
         });
         web.on("GET", "/api/go/v1/standby", () => json(200, { data: [] }));
         renderPage("/app/accounting/income", <IncomePage />);
+        await named();
         expect(await screen.findByText("SPXTH-001")).toBeInTheDocument();
         expect(screen.getAllByText("฿1,234").length).toBeGreaterThan(0);
         const trips = web.calls.find((c) => c.url.startsWith("/api/go/v1/trips"))!;
@@ -196,6 +203,7 @@ describe("Go accounting pages (T42)", () => {
         web.on("GET", "/api/go/v1/standby", () => json(200, { data: [] }));
         web.on("GET", "/api/go/v1/billing/rows", () => goErr(403, "permission_denied"));
         renderPage("/app/accounting/income", <IncomePage />);
+        await named();
         expect(await screen.findByText("SPXTH-001")).toBeInTheDocument();
         const u = userEvent.setup();
         await u.click(screen.getByTestId("missing-billing-tab"));
@@ -211,6 +219,7 @@ describe("Go accounting pages (T42)", () => {
         web.on("GET", "/api/go/v1/standby", () => json(200, { data: [] }));
         web.on("GET", "/api/go/v1/billing/rows", () => json(200, { data: billingRows({}) }));
         renderPage("/app/accounting/income", <IncomePage />);
+        await named();
         expect(await screen.findByText("SPXTH-001")).toBeInTheDocument();
         const u = userEvent.setup();
         await u.click(screen.getByTestId("missing-billing-tab"));
@@ -226,6 +235,7 @@ describe("Go accounting pages (T42)", () => {
         web.on("GET", "/api/go/v1/standby", () => json(200, { data: [] }));
         const error = vi.spyOn(toast, "error");
         renderPage("/app/accounting/income", <IncomePage />);
+        await named();
         expect(await screen.findByText("SPXTH-001")).toBeInTheDocument();
         const u = userEvent.setup();
         await u.click(screen.getByRole("button", { name: /Export Excel/ }));
@@ -262,6 +272,7 @@ describe("Go accounting pages (T42)", () => {
         });
         renderPage("/app/accounting/rate-card", <RateCardPage />);
         const u = userEvent.setup();
+        await named();
         await u.click(await screen.findByRole("button", { name: /Void this round/ }));
         const dialog = await screen.findByRole("dialog");
         await u.type(within(dialog).getByRole("textbox"), "wrong price");

@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ import {
 import { assignStandbyCustomer, computeStandbyBilling, repairTrips } from "../../api/billingWrites.go";
 
 import { JobCategoryBadge } from "./badges";
-import { ApiErrorAlert, CustomerSelect, formatDateTime, formatDay, formatThb, MONTHS, monthName, useCustomerPicks, yearOptions } from "./shared";
+import { ApiErrorAlert, formatDateTime, formatDay, formatThb, MONTHS, monthName, yearOptions } from "./shared";
 import { StatementDocumentsDialog } from "./StatementDocumentsDialog";
 
 interface LoadedPeriod {
@@ -78,17 +79,7 @@ function toggle(list: readonly string[], value: string, on: boolean): string[] {
     return on ? [...new Set([...list, value])] : list.filter((v) => v !== value);
 }
 
-function StandbyIssuesPanel({
-    issues,
-    customers,
-    period,
-    canRepair,
-}: {
-    issues: StandbyIssueDTO[];
-    customers: { id: string; code: string; name: string }[];
-    period: LoadedPeriod;
-    canRepair: boolean;
-}) {
+function StandbyIssuesPanel({ issues, period, canRepair }: { issues: StandbyIssueDTO[]; period: LoadedPeriod; canRepair: boolean }) {
     const { t } = useLanguage();
     const [open, setOpen] = useState(false);
     const [pick, setPick] = useState<Record<string, string>>({});
@@ -168,18 +159,14 @@ function StandbyIssuesPanel({
                                             ) : (
                                                 <div className="flex items-center gap-2">
                                                     {i.reason === "no_customer" ? (
-                                                        <Select value={pick[i.id] ?? ""} onValueChange={(v) => setPick((p) => ({ ...p, [i.id]: v }))}>
-                                                            <SelectTrigger className="h-8 w-44">
-                                                                <SelectValue placeholder={t("accounting.billingDocument.standbyIssues.pickCustomer")} />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {customers.map((c) => (
-                                                                    <SelectItem key={c.id} value={c.id}>
-                                                                        {c.code} — {c.name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
+                                                        <CustomerSearchSelect
+                                                            aria-label={t("accounting.billingDocument.standbyIssues.pickCustomer")}
+                                                            value={pick[i.id] ?? ""}
+                                                            onValueChange={(v) => setPick((p) => ({ ...p, [i.id]: v }))}
+                                                            placeholder={t("accounting.billingDocument.standbyIssues.pickCustomer")}
+                                                            size="sm"
+                                                            className="w-44"
+                                                        />
                                                     ) : null}
                                                     <Button
                                                         size="sm"
@@ -337,7 +324,6 @@ export function BillingDocumentPage() {
     const { t, language } = useLanguage();
     const canRecompute = useCan("accounting:recompute_force").allowed;
     const canEditRates = useCan("accounting:edit_rate_card").allowed;
-    const customers = useCustomerPicks();
     const now = new Date();
     const [month, setMonth] = useState(now.getMonth() + 1);
     const [year, setYear] = useState(now.getFullYear());
@@ -379,7 +365,6 @@ export function BillingDocumentPage() {
     const reviewActive = params.plate !== "" || params.vehicleClass !== "" || params.reviewMonth !== "";
     const stale = loaded !== null && (loaded.customerId !== customerId || loaded.year !== year || loaded.month !== month);
     const previewRows = useMemo(() => (data?.rows ?? []).filter((r) => r.inPreview), [data]);
-    const selectedCustomer = customers.list.find((c) => c.id === customerId);
     const basisLabel =
         loaded?.customerId === ALL_PARTIES || data?.basis == null
             ? "all"
@@ -583,12 +568,13 @@ export function BillingDocumentPage() {
                     </div>
                     <div className="space-y-1">
                         <Label>{t("accounting.billingDocument.filters.customer")}</Label>
-                        <CustomerSelect
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.billingDocument.filters.customer")}
                             value={customerId}
-                            onChange={setCustomerId}
-                            customers={customers.list}
+                            onValueChange={(id) => setCustomerId(id || ALL_PARTIES)}
                             allValue={ALL_PARTIES}
                             allLabel={t("accounting.billingDocument.filters.allCustomers")}
+                            className="min-w-[200px]"
                         />
                     </div>
                     <div className="space-y-1">
@@ -720,7 +706,6 @@ export function BillingDocumentPage() {
             {loaded && diag.data ? (
                 <StandbyIssuesPanel
                     issues={[...diag.data.unpriced, ...diag.data.missingEndedAt]}
-                    customers={customers.list}
                     period={loaded}
                     canRepair={canEditRates}
                 />
@@ -828,7 +813,7 @@ export function BillingDocumentPage() {
                             <p className="text-xs text-amber-600">{t("accounting.billingDocument.statement.outsideReach", { count: data.outsideReach })}</p>
                         </CardContent>
                     ) : null}
-                    {selectedCustomer && !data.documentable && data.outsideReach === 0 && loaded?.customerId !== ALL_PARTIES ? (
+                    {!data.documentable && data.outsideReach === 0 && loaded?.customerId !== ALL_PARTIES ? (
                         <CardContent className="pt-0">
                             <p className="text-xs text-amber-600">{t("accounting.billingDocument.statement.nothingToBill")}</p>
                         </CardContent>

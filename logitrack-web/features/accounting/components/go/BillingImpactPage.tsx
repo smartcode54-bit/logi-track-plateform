@@ -20,9 +20,8 @@ import { DateOnlyRangePicker } from "@/components/ui/date-range-picker";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-import { customerMaps } from "../../api/pickers.go";
 import { useBillingJob } from "../../api/useBillingJob";
-import { useCustomerPicks } from "./shared";
+import { useCustomerLookup } from "../../api/useCustomerLookup";
 
 interface BandImpactRow {
     adjustmentId: string;
@@ -62,12 +61,9 @@ export function BillingImpactPage() {
     const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
     const job = useBillingJob<ImpactReportResponse>();
     const result = job.result ?? null;
-    const customers = useCustomerPicks();
-    const byId = customerMaps(customers.list).byId;
-    const customerName = (id: string) => {
-        const c = byId.get(id);
-        return c ? `${c.code} — ${c.name}` : id;
-    };
+    // The report's customers only, once it has rows (no customer is read before a report runs).
+    const customers = useCustomerLookup([...(result?.bandImpacts ?? []), ...(result?.boundaryImpacts ?? [])].map((r) => r.customerId));
+    const customerName = (id: string) => customers.label(id);
 
     const run = () => job.start("billing.impact-report", { fromDateStr: fromDate, toDateStr: toDate });
 

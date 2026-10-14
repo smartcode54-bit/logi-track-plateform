@@ -2,7 +2,8 @@
 
 /**
  * The boards' spreadsheet import over Go (T34; `POST /v1/tasks/import`, Appendix B §B.2.11). The browser reads the
- * sheet (xlsx loaded on the file pick, never with the page) and lets the user pick each row's customer; Go
+ * sheet (xlsx loaded on the file pick, never with the page) and lets the user pick each row's customer (each
+ * distinct customer cell is one server search, UI2C; the picker's value is the row's billing party); Go
  * validates every row as the legacy dialog did (the job-category cell, the plate against the fleet, the required
  * places and customer), numbers the tasks server-side (no `countTasksForDay` + 1, R10) and creates the valid ones.
  * "Check" is a dry run; "Import" writes. Job-assign reads an FM/LH column per row and sends one request per type:
@@ -10,14 +11,15 @@
  * later type's failure never hides tasks already created and Import again never sends them twice; each type group
  * keeps its Idempotency-Key while its rows are unchanged, so a retry after a lost answer replays Go's stored one.
  */
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Check, Download, FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
-import { customerLabel, customerMaps, type CustomerPick } from "@/features/accounting/api/pickers.go";
-import { CustomerSelect, useCustomerPicks } from "@/features/accounting/components/go/shared";
+import { customerSearchQuery, type CustomerPick } from "@/features/accounting/api/pickers.go";
+import { CustomerPartySelect } from "@/components/entity-pickers";
 import { fieldReasonText } from "@/lib/formServerErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { newIdempotencyKey } from "@/lib/goFetch";
@@ -37,7 +39,8 @@ interface SheetRow {
     sourceHub: string;
     destination: string;
     customerCell: string;
-    customerId: string;
+    /** The customer's billing party (resolved from the cell, or picked); "" = none. */
+    billingPartyId: string;
     jobCategory: string;
     truckType: string;
     plate: string;
@@ -94,12 +97,27 @@ export function resolveCustomer(cell: string, list: CustomerPick[]): CustomerPic
     );
 }
 
+/**
+ * The billing party of each distinct customer cell: one picker search per cell (`q` = the cell; Go matches it
+ * in the code or the name, the candidates `resolveCustomer` ranks), cached and shared with the pickers. A cell
+ * that finds no customer, or one without a billing party, resolves to "" (the row's picker asks for one).
+ */
+export async function resolveCustomerCells(client: QueryClient, cells: Iterable<string>): Promise<Map<string, string>> {
+    const distinct = [...new Set([...cells].map((c) => c.trim()).filter(Boolean))];
+    const found = await Promise.all(
+        distinct.map(async (cell) => {
+            const page = await client.fetchQuery(customerSearchQuery(cell)).catch(() => [] as CustomerPick[]);
+            return [cell, resolveCustomer(cell, page)?.billingPartyId ?? ""] as const;
+        })
+    );
+    return new Map(found);
+}
+
 const isExampleNote = (note: string) => /ตัวอย่าง|example|ลบ|delete/i.test(note);
 
 export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClose: () => void }) {
     const { t } = useLanguage();
-    const customers = useCustomerPicks();
-    const maps = useMemo(() => customerMaps(customers.list), [customers.list]);
+    const client = useQueryClient();
     const fileRef = useRef<HTMLInputElement>(null);
     const [fileName, setFileName] = useState("");
     const [rows, setRows] = useState<SheetRow[]>([]);
@@ -164,7 +182,7 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
                     sourceHub: text(r, idx.source),
                     destination: text(r, idx.dest),
                     customerCell,
-                    customerId: resolveCustomer(customerCell, customers.list)?.id ?? "",
+                    billingPartyId: "",
                     jobCategory: text(r, idx.category),
                     truckType: text(r, idx.truckType).toUpperCase(),
                     plate: text(r, idx.plate),
@@ -172,8 +190,11 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
                     note,
                 });
             });
+            const kept = out.slice(0, IMPORT_MAX_ROWS);
+            const parties = await resolveCustomerCells(client, kept.map((r) => r.customerCell));
+            for (const r of kept) r.billingPartyId = parties.get(r.customerCell.trim()) ?? "";
             if (out.length > IMPORT_MAX_ROWS) setError(t("taskBoard.import.tooMany", { max: IMPORT_MAX_ROWS }));
-            setRows(out.slice(0, IMPORT_MAX_ROWS));
+            setRows(kept);
             setFileName(file.name);
         } catch {
             setError(t("firstMile.import.parseError"));
@@ -231,7 +252,7 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
                     time: r.time || undefined,
                     sourceHub: r.sourceHub,
                     destination: r.destination,
-                    billingPartyId: maps.byId.get(r.customerId)?.billingPartyId ?? "",
+                    billingPartyId: r.billingPartyId,
                     jobCategory: r.jobCategory || undefined,
                     truckType: r.truckType || undefined,
                     plate: r.plate || undefined,
@@ -270,8 +291,8 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
     };
 
     const invalid = Object.values(results).filter((r) => !r.ok).length;
-    const setCustomer = (line: number, id: string) => {
-        setRows((prev) => prev.map((r) => (r.line === line ? { ...r, customerId: id } : r)));
+    const setCustomer = (line: number, partyId: string) => {
+        setRows((prev) => prev.map((r) => (r.line === line ? { ...r, billingPartyId: partyId } : r)));
         setChecked(false);
     };
 
@@ -338,9 +359,9 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
                                             <TableCell>{r.sourceHub || "—"}</TableCell>
                                             <TableCell>{r.destination || "—"}</TableCell>
                                             <TableCell className="min-w-[200px]">
-                                                <CustomerSelect value={r.customerId} onChange={(id) => setCustomer(r.line, id)} customers={customers.list}
-                                                    placeholder={r.customerCell || t("firstMile.import.customerMissing")} className="h-8" />
-                                                {r.customerId ? <span className="sr-only">{customerLabel(maps.byId.get(r.customerId))}</span> : null}
+                                                <CustomerPartySelect aria-label={`${t("firstMile.task.customer")} ${r.line}`} value={r.billingPartyId}
+                                                    onValueChange={(p) => setCustomer(r.line, p)} placeholder={r.customerCell || t("firstMile.import.customerMissing")}
+                                                    size="sm" className="min-w-[200px]" />
                                             </TableCell>
                                             <TableCell>{r.jobCategory || "—"}</TableCell>
                                             <TableCell>{r.truckType || "—"}</TableCell>

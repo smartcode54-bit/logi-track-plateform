@@ -150,9 +150,8 @@ const listCustomers = `-- name: ListCustomers :many
 SELECT c.id, c.legacy_doc_id, c.code, c.name, c.description, c.logo_file_id, c.address, c.tax_id, c.branch_type, c.branch_number, c.contact_name, c.contact_phone, c.billing_email, c.payment_terms_days, c.invoice_note, c.line_group_id, c.created_at, c.updated_at, bp.id AS billing_party_id, bp.billing_date_basis
 FROM customers c
 LEFT JOIN billing_parties bp ON bp.customer_id = c.id
-WHERE ($1::text IS NULL
-       OR strpos(lower(c.code::text), lower($1::text)) > 0
-       OR strpos(lower(c.name), lower($1::text)) > 0)
+WHERE ($1::text[] IS NULL
+       OR search_fold(c.code::text || ' ' || coalesce(c.name, '')) LIKE ALL ($1::text[]))
   AND (NOT $2::boolean OR bp.id = ANY ($3::uuid[]))
   AND ($4::text IS NULL
        OR (c.code, c.id) > ($4::text::citext, $5::uuid))
@@ -161,7 +160,7 @@ LIMIT $6
 `
 
 type ListCustomersParams struct {
-	Q         *string
+	QWords    []string
 	Scoped    bool
 	PartyIds  []uuid.UUID
 	AfterCode *string
@@ -179,10 +178,12 @@ type ListCustomersRow struct {
 // principal and written by stewards only (RLS G-global, R60; a customer-scope principal reads only its own parties,
 // 0012). Every statement runs in db.WithPrincipal: RLS decides, and the repository still names the scope reach.
 // GET /v1/customers, ordered by code (unique case-insensitively, so the keyset (code, id) is total). party_ids
-// narrows a customer-scope principal to its own parties (RLS narrows it too, 0012).
+// narrows a customer-scope principal to its own parties (RLS narrows it too, 0012). q matches the code and the name
+// folded (search_fold, 0026: q_words are its folded words as LIKE patterns, each somewhere in the row, in any order;
+// NULL is no search).
 func (q *Queries) ListCustomers(ctx context.Context, arg ListCustomersParams) ([]ListCustomersRow, error) {
 	rows, err := q.db.Query(ctx, listCustomers,
-		arg.Q,
+		arg.QWords,
 		arg.Scoped,
 		arg.PartyIds,
 		arg.AfterCode,

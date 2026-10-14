@@ -296,17 +296,15 @@ WHERE ($1::boolean OR tenant_id = ANY ($2::uuid[]))
   AND ($5::text IS NULL OR status = $5::text)
   AND ($6::text IS NULL OR vehicle_class = upper($6::text)
        OR lower(type_raw) = lower($6::text))
-  AND ($7::text IS NULL
-       OR strpos(lower(license_plate), lower($7::text)) > 0
-       OR strpos(lower(province), lower($7::text)) > 0
-       OR strpos(lower(brand), lower($7::text)) > 0
-       OR strpos(lower(model), lower($7::text)) > 0
-       OR lower(coalesce(gps_vehicle_id, '')) = lower($7::text)
-       OR lower(coalesce(vin, '')) = lower($7::text))
-  AND ($8::timestamptz IS NULL
-       OR (created_at, id) < ($8::timestamptz, $9::uuid))
+  AND ($7::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '') || ' ' || coalesce(brand, '') || ' '
+                      || coalesce(model, '')) LIKE ALL ($7::text[])
+       OR lower(coalesce(gps_vehicle_id, '')) = lower($8::text)
+       OR lower(coalesce(vin, '')) = lower($8::text))
+  AND ($9::timestamptz IS NULL
+       OR (created_at, id) < ($9::timestamptz, $10::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $10
+LIMIT $11
 `
 
 type ListTrucksParams struct {
@@ -316,6 +314,7 @@ type ListTrucksParams struct {
 	Ownership    *string
 	Status       *string
 	TruckType    *string
+	QWords       []string
 	Q            *string
 	AfterCreated *time.Time
 	AfterID      uuid.UUID
@@ -327,7 +326,9 @@ type ListTrucksParams struct {
 // read and write the trucks of their tenant reach (own tenant and the carriers working for it), never the quarantine
 // tenant's. Every statement runs in db.WithPrincipal. The list names the reach as well (main spec §4.7, Appendix C
 // §C.3.8; authz.Principal.TenantReach): all_tenants under X-Act-On-Tenant: *, else tenant_ids.
-// GET /v1/trucks, newest first; keyset (created_at, id). type matches the vehicle class or the master type word.
+// GET /v1/trucks, newest first; keyset (created_at, id). type matches the vehicle class or the master type word. q
+// matches the plate, province, brand and model folded (search_fold, 0026: q_words are its folded words as LIKE
+// patterns, each somewhere in the row, in any order; NULL is no search), or the whole of q equals the GPS id or the VIN.
 func (q *Queries) ListTrucks(ctx context.Context, arg ListTrucksParams) ([]Truck, error) {
 	rows, err := q.db.Query(ctx, listTrucks,
 		arg.AllTenants,
@@ -336,6 +337,7 @@ func (q *Queries) ListTrucks(ctx context.Context, arg ListTrucksParams) ([]Truck
 		arg.Ownership,
 		arg.Status,
 		arg.TruckType,
+		arg.QWords,
 		arg.Q,
 		arg.AfterCreated,
 		arg.AfterID,

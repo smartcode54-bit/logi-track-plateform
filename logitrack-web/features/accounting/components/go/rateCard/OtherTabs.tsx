@@ -4,9 +4,10 @@
  * The rate card's small tables (T42): service fees (`['rateCard','serviceFees']`, edit and delete),
  * standby rates (`['rateCard','standby']`, edit and void) and the monthly Bangchak record
  * (`['fuel','monthly']`, plus the steward-only `bangchak.snapshot` job). Each list is read once for every
- * customer in reach and narrowed to the selected customer here; a write refetches only its own key.
+ * customer in reach and narrowed to the selected customer here; a write refetches only its own key. The
+ * customer column names the shown rows' customers by id (`useCustomerLookup`).
  */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +16,7 @@ import { useLanguage } from "@/context/language";
 import { isJobFinished, useJob } from "@/features/jobs/api/jobs";
 import { apiErrorText } from "@/lib/apiError";
 import { pickFleetBangchakDieselReference } from "@/lib/bangchakFleetReferenceFuel";
+import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -24,7 +26,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { fuelMonthlyQuery, startBangchakSnapshot } from "../../../api/fuel.go";
-import { customerLabel, type CustomerPick } from "../../../api/pickers.go";
 import {
     ALL_CUSTOMERS,
     createServiceFee,
@@ -38,13 +39,14 @@ import {
     type ServiceFeeDTO,
     type StandbyRateDTO,
 } from "../../../api/rateCard.go";
-import { ApiErrorAlert, CenteredSpinner, CustomerSelect, formatDateTime, formatDay, formatThb, todayKey } from "../shared";
+import { useCustomerLookup } from "../../../api/useCustomerLookup";
+import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, formatThb, todayKey } from "../shared";
 import { VoidDialog } from "./VoidDialog";
 
 const FEE_TYPES = ["extra_stop", "waiting_time", "special_handling", "service_charge", "standby", "custom"] as const;
 const FEE_UNITS = ["per_trip", "per_stop"] as const;
 
-function ServiceFeeDialog({ fee, customerId, customers, onClose }: { fee: ServiceFeeDTO | null; customerId: string; customers: CustomerPick[]; onClose: () => void }) {
+function ServiceFeeDialog({ fee, customerId, onClose }: { fee: ServiceFeeDTO | null; customerId: string; onClose: () => void }) {
     const { t } = useLanguage();
     const [cust, setCust] = useState(fee?.customerId ?? (customerId === ALL_CUSTOMERS ? "" : customerId));
     const [feeType, setFeeType] = useState<string>(fee?.feeType ?? "extra_stop");
@@ -77,7 +79,7 @@ function ServiceFeeDialog({ fee, customerId, customers, onClose }: { fee: Servic
                 <div className="space-y-3">
                     <div className="space-y-1">
                         <Label>{t("accounting.serviceFees.form.customer")}</Label>
-                        <CustomerSelect value={cust} onChange={setCust} customers={customers} disabled={!!fee} className="w-full" />
+                        <CustomerSearchSelect aria-label={t("accounting.serviceFees.form.customer")} value={cust} onValueChange={setCust} disabled={!!fee} className="w-full" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
@@ -141,13 +143,13 @@ function ServiceFeeDialog({ fee, customerId, customers, onClose }: { fee: Servic
     );
 }
 
-export function ServiceFeesTab({ customerId, customers, canEdit }: { customerId: string; customers: CustomerPick[]; canEdit: boolean }) {
+export function ServiceFeesTab({ customerId, canEdit }: { customerId: string; canEdit: boolean }) {
     const { t } = useLanguage();
     const list = useQuery(serviceFeesQuery());
-    const byId = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
     const [editing, setEditing] = useState<ServiceFeeDTO | "new" | null>(null);
     const [deleting, setDeleting] = useState<string | null>(null);
     const rows = (list.data ?? []).filter((f) => customerId === ALL_CUSTOMERS || f.customerId === customerId);
+    const customers = useCustomerLookup(rows.map((f) => f.customerId));
     const remove = async (f: ServiceFeeDTO) => {
         if (!window.confirm(t("accounting.serviceFees.confirmDelete"))) return;
         setDeleting(f.id);
@@ -191,7 +193,7 @@ export function ServiceFeesTab({ customerId, customers, canEdit }: { customerId:
                         <TableBody>
                             {rows.map((f) => (
                                 <TableRow key={f.id}>
-                                    <TableCell className="text-xs">{customerLabel(byId.get(f.customerId)) || f.customerId}</TableCell>
+                                    <TableCell className="text-xs">{customers.label(f.customerId)}</TableCell>
                                     <TableCell className="text-xs">{f.feeType === "custom" ? f.customTypeName : t(`accounting.serviceFees.type.${f.feeType}`, f.feeType)}</TableCell>
                                     <TableCell className="text-xs">{t(`accounting.serviceFees.unit.${f.unit}`, f.unit)}</TableCell>
                                     <TableCell className="text-right font-mono">{formatThb(f.amountThb)}</TableCell>
@@ -214,12 +216,12 @@ export function ServiceFeesTab({ customerId, customers, canEdit }: { customerId:
                     </Table>
                 </div>
             )}
-            {editing ? <ServiceFeeDialog fee={editing === "new" ? null : editing} customerId={customerId} customers={customers} onClose={() => setEditing(null)} /> : null}
+            {editing ? <ServiceFeeDialog fee={editing === "new" ? null : editing} customerId={customerId} onClose={() => setEditing(null)} /> : null}
         </div>
     );
 }
 
-function StandbyRateDialog({ rate, customerId, customers, onClose }: { rate: StandbyRateDTO | null; customerId: string; customers: CustomerPick[]; onClose: () => void }) {
+function StandbyRateDialog({ rate, customerId, onClose }: { rate: StandbyRateDTO | null; customerId: string; onClose: () => void }) {
     const { t } = useLanguage();
     const [cust, setCust] = useState(rate?.customerId ?? (customerId === ALL_CUSTOMERS ? "" : customerId));
     const [amount, setAmount] = useState(rate ? String(rate.rateThb) : "");
@@ -251,7 +253,14 @@ function StandbyRateDialog({ rate, customerId, customers, onClose }: { rate: Sta
                 <div className="space-y-3">
                     <div className="space-y-1">
                         <Label>{t("accounting.standbyRates.form.customer")}</Label>
-                        <CustomerSelect value={cust} onChange={setCust} customers={customers} disabled={!!rate} placeholder={t("accounting.standbyRates.form.customerPlaceholder")} className="w-full" />
+                        <CustomerSearchSelect
+                            aria-label={t("accounting.standbyRates.form.customer")}
+                            value={cust}
+                            onValueChange={setCust}
+                            disabled={!!rate}
+                            placeholder={t("accounting.standbyRates.form.customerPlaceholder")}
+                            className="w-full"
+                        />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
@@ -282,15 +291,15 @@ function StandbyRateDialog({ rate, customerId, customers, onClose }: { rate: Sta
     );
 }
 
-export function StandbyRatesTab({ customerId, customers, canEdit }: { customerId: string; customers: CustomerPick[]; canEdit: boolean }) {
+export function StandbyRatesTab({ customerId, canEdit }: { customerId: string; canEdit: boolean }) {
     const { t } = useLanguage();
     const list = useQuery(standbyRatesQuery());
-    const byId = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
     const [editing, setEditing] = useState<StandbyRateDTO | "new" | null>(null);
     const [voiding, setVoiding] = useState<StandbyRateDTO | null>(null);
     const rows = (list.data ?? [])
         .filter((r) => customerId === ALL_CUSTOMERS || r.customerId === customerId)
         .sort((a, b) => b.effectiveFromDateStr.localeCompare(a.effectiveFromDateStr));
+    const customers = useCustomerLookup(rows.map((r) => r.customerId));
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
@@ -322,7 +331,7 @@ export function StandbyRatesTab({ customerId, customers, canEdit }: { customerId
                         <TableBody>
                             {rows.map((r) => (
                                 <TableRow key={r.id} className={r.voided ? "opacity-60" : undefined}>
-                                    <TableCell className="text-xs">{customerLabel(byId.get(r.customerId)) || r.customerId}</TableCell>
+                                    <TableCell className="text-xs">{customers.label(r.customerId)}</TableCell>
                                     <TableCell className="text-right font-mono">{formatThb(r.rateThb)}</TableCell>
                                     <TableCell className="text-xs">{formatDay(r.effectiveFromDateStr)}</TableCell>
                                     <TableCell className="max-w-[220px] truncate text-xs">{r.note ?? "—"}</TableCell>
@@ -349,10 +358,10 @@ export function StandbyRatesTab({ customerId, customers, canEdit }: { customerId
                     </Table>
                 </div>
             )}
-            {editing ? <StandbyRateDialog rate={editing === "new" ? null : editing} customerId={customerId} customers={customers} onClose={() => setEditing(null)} /> : null}
+            {editing ? <StandbyRateDialog rate={editing === "new" ? null : editing} customerId={customerId} onClose={() => setEditing(null)} /> : null}
             {voiding ? (
                 <VoidDialog
-                    label={`${customerLabel(byId.get(voiding.customerId))} · ${formatThb(voiding.rateThb)} · ${voiding.effectiveFromDateStr}`}
+                    label={`${customers.label(voiding.customerId)} · ${formatThb(voiding.rateThb)} · ${voiding.effectiveFromDateStr}`}
                     onVoid={(reason) => voidStandbyRate(voiding, reason)}
                     onClose={() => setVoiding(null)}
                 />
