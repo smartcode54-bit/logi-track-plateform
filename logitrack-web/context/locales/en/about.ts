@@ -1,22 +1,17 @@
 export default {
-    // /about (UI3E): the origin story in sentence case, with only what PRODUCT.md has evidence for (built in-house from
-    // January 2026 instead of off-the-shelf tools such as AppSheet); no certification, security-product or scale claims.
-    "about.hero.title": "How GORATECH built LogiTrack Pro",
-    "about.hero.quote": "We did not start by looking for software to use. We started by building the system we needed with our own hands.",
-    "about.story.date": "It started on 26 January 2026",
+    // /about: the owner's origin story. UI3E kept the owner's words (in sentence case) and removed only the claims
+    // PRODUCT.md has no evidence for: App Check, international-grade RBAC, "Enterprise", low latency / every line
+    // refined, "a new standard", "without limits" and "a tangible technology ecosystem".
+    "about.hero.title": "The journey of GORATECH: from challenge to building innovation",
+    "about.hero.quote": "We didn't start by finding software to use—we started by building with our own hands.",
+    "about.story.date": "Going back to January 26, 2026",
     "about.story.p1":
-        "Off-the-shelf tools such as AppSheet were the easy choice. We asked ourselves: is “good enough to work” really enough for a business that needs precision down to the second?",
+        "Amid the wave of using off-the-shelf tools like AppSheet, we asked ourselves: \"Is 'good enough to work' really enough for a business that needs second-level precision?\"",
     "about.story.answer":
-        "The answer was no. GORATECH left the convenience of ready-made tools and took the harder, more valuable path: writing its own platform from scratch, so the software fits the way logistics and fleet work is really done.",
+        "The answer was \"No.\" That was the turning point when GORATECH chose to leave the convenience of ready-made systems and take the harder but more valuable path—building an entirely new custom-coded platform so we could have software that truly meets the needs of logistics & fleet management.",
     "about.why.title": "Why GORATECH?",
-    "about.why.origin":
-        "Our name comes from the Thai word “ก่อร่าง” (gor rang), to lay a strong foundation, joined with “tech”, the technology we build on it:",
-    "about.why.precision.title": "Precise records",
-    "about.why.precision.desc": "Each trip keeps its time, place and photos at every step, so it can be answered for.",
-    "about.why.security.title": "Each party sees its own data",
-    "about.why.security.desc": "Staff, customers and partner carriers sign in to their own scope, and roles decide what each can open.",
-    "about.why.scale.title": "Ready to grow",
-    "about.why.scale.desc": "One system for several transport companies, each working in its own data.",
-    "about.closing":
-        "From that day on, GORATECH has been more than a name: it is the work of moving from manual systems to technology we can stand behind.",
+    "about.why.origin": "Our name comes from the Thai word \"ก่อร่าง\" (Gor Rang), meaning to lay a strong foundation, combined with \"Tech\" that we develop:",
+    "about.why.scale.title": "Scalability",
+    "about.why.scale.desc": "Ready to grow and support your business expansion.",
+    "about.closing": "From that day to this, GORATECH is not just a domain name—it is a symbol of the effort to move on from \"manual systems\".",
 };

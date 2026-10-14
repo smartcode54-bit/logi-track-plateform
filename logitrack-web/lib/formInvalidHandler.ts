@@ -48,19 +48,18 @@ function countLeafErrors(errors: FieldErrors): number {
  * on a driver doc predating the required `fullNameTh` field vanished with no error (ADR 0003).
  * The failing field is often off-screen, so the inline FormMessage alone is not enough.
  *
- * `summaryKey` names the toast's text for a form that does not save (UI3E: the sign-in form says "Cannot sign in
- * yet", not "Cannot save"); it takes the same `{count}` and `{field}`. Every form still goes through this one handler.
+ * One message for every form (`common.toast.validationError`, ADR 0004): its text is neutral (UI3E: "Check the
+ * highlighted fields"), so it fits a form that signs in as well as one that saves.
  */
 export function createInvalidHandler<T extends FieldValues>(
     form: UseFormReturn<T>,
     t: Translate,
-    { summaryKey = "common.toast.validationError" }: { summaryKey?: string } = {},
 ): (errors: FieldErrors<T>) => void {
     return (errors) => {
         const first = firstLeafError(errors as FieldErrors);
         if (!first) return;
         toast.error(
-            t(summaryKey, {
+            t("common.toast.validationError", {
                 count: countLeafErrors(errors as FieldErrors),
                 field: first.message || first.name,
             })

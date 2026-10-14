@@ -172,7 +172,7 @@ describe("SignInPanel field errors (UI3E, DESIGN.md form style)", () => {
         expect(password).toHaveAttribute("aria-invalid", "true");
         expect(password).toHaveAccessibleDescription("Enter your password.");
         await waitFor(() => expect(email).toHaveFocus());
-        expect(summary).toHaveBeenCalledWith("Cannot sign in yet: 2 field(s) need attention. First problem: Enter your email address.");
+        expect(summary).toHaveBeenCalledWith("Check the highlighted fields (2). First: Enter your email address.");
         expect(web.count("POST", "/api/auth/login")).toBe(0);
 
         // A malformed address says what is expected; a fixed field loses its error as the user types.

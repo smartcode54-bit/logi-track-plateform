@@ -7,8 +7,11 @@
  *
  * UI3E: the waitlist is for transport companies interested in LogiTrack Pro (the sign-in card says so; staff,
  * customers and partners get their accounts from the company that invites them). The card's title is the page's h1,
- * the required labels carry the Signal Red star, and on a phone every control is a 44 px target.
+ * the required labels carry the Signal Red star, a missing or malformed value shows its error under its field
+ * (`aria-invalid`, `aria-describedby`; no browser popup), and on a phone every control is a 44 px target. Once sent,
+ * the success card takes the focus; it is the one confirmation.
  */
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
@@ -19,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { SearchSelect, type SearchSelectOption } from "@/components/ui/search-select";
 import { HoneypotField } from "@/components/landing/HoneypotField";
-import { useWaitlist } from "../hooks/useWaitlist";
+import { useWaitlist, type WaitlistField } from "../hooks/useWaitlist";
 import { AuthCardTitle } from "./AuthCardTitle";
 
 /** Calling codes offered, Thailand first; the label is the country in the active language. */
@@ -48,20 +51,46 @@ function RequiredLabel({ htmlFor, children }: { htmlFor: string; children: React
     );
 }
 
+/** The error under a field, which the field names as its description. */
+function FieldError({ field, message }: { field: WaitlistField; message?: string }) {
+    if (!message) return null;
+    return (
+        <p id={`${field}-error`} className="text-sm text-destructive">
+            {message}
+        </p>
+    );
+}
+
 export default function WaitlistForm() {
-    const { email, setEmail, fullName, setFullName, countryCode, setCountryCode, phone, setPhone, website, setWebsite, loading, submitted, handleSubmit, t } =
+    const { email, setEmail, fullName, setFullName, countryCode, setCountryCode, phone, setPhone, website, setWebsite, loading, submitted, errors, handleSubmit, t } =
         useWaitlist();
+    const successRef = useRef<HTMLHeadingElement>(null);
+
+    // The success card replaces the form: its heading takes the focus, so the change is announced.
+    useEffect(() => {
+        if (submitted) successRef.current?.focus();
+    }, [submitted]);
 
     const countryOptions: SearchSelectOption[] = COUNTRIES.map(([value, code]) => ({
         value,
         label: `${t(`auth.waitlist.country.${code}`)} (${value})`,
     }));
 
+    /** The required-field attributes of an input: required, invalid while it has an error, described by it. */
+    const a11y = (field: WaitlistField) => ({
+        "aria-required": true,
+        "aria-invalid": errors[field] ? true : undefined,
+        "aria-describedby": errors[field] ? `${field}-error` : undefined,
+    });
+    const message = (field: WaitlistField) => (errors[field] ? t(errors[field]) : undefined);
+
     if (submitted) {
         return (
             <Card className="w-full max-w-md shadow-lg" data-testid="waitlist-card">
                 <CardHeader className="gap-1">
-                    <AuthCardTitle>{t("auth.waitlist.successTitle")}</AuthCardTitle>
+                    <AuthCardTitle ref={successRef} tabIndex={-1}>
+                        {t("auth.waitlist.successTitle")}
+                    </AuthCardTitle>
                     <CardDescription>{t("auth.waitlist.successDesc")}</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -80,7 +109,7 @@ export default function WaitlistForm() {
                 <CardDescription>{t("auth.waitlist.description")}</CardDescription>
             </CardHeader>
             <CardContent>
-                <form onSubmit={handleSubmit} className="relative space-y-4">
+                <form onSubmit={handleSubmit} noValidate className="relative space-y-4">
                     <HoneypotField id="waitlist-page-website" value={website} onChange={setWebsite} />
                     <div className="space-y-2">
                         <RequiredLabel htmlFor="fullName">{t("auth.waitlist.fullName")}</RequiredLabel>
@@ -91,9 +120,10 @@ export default function WaitlistForm() {
                             placeholder={t("auth.waitlist.fullNamePlaceholder")}
                             value={fullName}
                             onChange={(e) => setFullName(e.target.value)}
-                            required
                             className="max-md:h-11"
+                            {...a11y("fullName")}
                         />
+                        <FieldError field="fullName" message={message("fullName")} />
                     </div>
                     <div className="space-y-2">
                         <RequiredLabel htmlFor="email">{t("auth.email")}</RequiredLabel>
@@ -104,9 +134,10 @@ export default function WaitlistForm() {
                             placeholder="name@company.co.th"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            required
                             className="max-md:h-11"
+                            {...a11y("email")}
                         />
+                        <FieldError field="email" message={message("email")} />
                     </div>
                     <div className="space-y-2">
                         <RequiredLabel htmlFor="phone">{t("auth.waitlist.phone")}</RequiredLabel>
@@ -126,10 +157,11 @@ export default function WaitlistForm() {
                                 placeholder="812345678"
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
-                                required
                                 className="min-w-0 flex-1 max-md:h-11"
+                                {...a11y("phone")}
                             />
                         </div>
+                        <FieldError field="phone" message={message("phone")} />
                     </div>
                     <Button type="submit" className="w-full max-md:h-11" disabled={loading}>
                         {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}

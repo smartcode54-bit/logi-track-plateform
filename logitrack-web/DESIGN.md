@@ -419,7 +419,8 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - Signed in, a public page shows "Open console" (the role's home) as a button in the navigation and as the footer's
   last link in place of "Sign in"; a driver-only account sees the driver-app line instead.
 - Forms: required labels carry the Signal Red star; errors sit under the field (`aria-invalid`, `aria-describedby`),
-  the shared `onInvalid` handler focuses the first, with a toast only as a summary. A sent form shows what happens next
+  never a browser popup (`noValidate`); the first invalid field takes the focus (the shared `onInvalid` handler in a
+  react-hook-form form such as sign-in), with one toast only as a summary (`common.toast.validationError`). A sent form shows what happens next
   in place of the form (the waitlist and partner cards), naming only the contact details the form collected.
 - On a phone every control of a public page is a 44 px target (`max-md:h-11` / `min-h-11`), and nothing scrolls
   sideways at 360 px in either language.

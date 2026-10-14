@@ -158,6 +158,16 @@ describe("a signed-in visitor of a public page", () => {
         expect(screen.queryByRole("link", { name: /^sign in$/i })).toBeNull();
     });
 
+    it("while the session is still loading, shows neither Sign in nor Open console (no flash)", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => new Promise<Response>(() => undefined));
+        renderWithProviders(<AboutPage />);
+        const footer = await screen.findByRole("navigation", { name: "Site links" });
+        expect(within(footer).getByRole("link", { name: "About" })).toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: /^sign in$/i })).toBeNull();
+        expect(screen.queryByRole("link", { name: "Open console" })).toBeNull();
+    });
+
     it("signed out, the footer offers Sign in", async () => {
         signedOut();
         renderWithProviders(<Footer />);
@@ -209,9 +219,57 @@ describe("the partner application, once sent", () => {
     });
 });
 
+describe("the waitlist form (DESIGN.md form style, UI3E review)", () => {
+    it("shows each missing or malformed field's error under it, focuses the first, and posts nothing", async () => {
+        const web = signedOut();
+        const summary = vi.spyOn(toast, "error");
+        const user = userEvent.setup();
+        renderWithProviders(<WaitlistPage />);
+        const name = await screen.findByLabelText(/^Full name/);
+        const email = screen.getByLabelText(/^Email/);
+        const phone = screen.getByLabelText(/^Phone number/);
+        for (const input of [name, email, phone]) {
+            // No browser popup: the form validates itself.
+            expect(input).not.toHaveAttribute("required");
+            expect(input).toHaveAttribute("aria-required", "true");
+        }
+        expect(name.closest("form")).toHaveAttribute("novalidate");
+        await user.type(email, "not-an-address");
+        await user.click(screen.getByRole("button", { name: "Request access" }));
+
+        expect(name).toHaveAttribute("aria-invalid", "true");
+        expect(name).toHaveAccessibleDescription("Enter your full name.");
+        expect(email).toHaveAccessibleDescription("Enter an email address such as name@company.co.th.");
+        expect(phone).toHaveAccessibleDescription("Enter your phone number.");
+        await waitFor(() => expect(name).toHaveFocus());
+        expect(summary).toHaveBeenCalledWith("Check the highlighted fields (3). First: Enter your full name.");
+        expect(web.count("POST", "/api/forms/waitlist")).toBe(0);
+
+        // Editing a field clears its error.
+        await user.type(name, "Somchai");
+        expect(name).not.toHaveAttribute("aria-invalid");
+        expect(name).not.toHaveAccessibleDescription();
+    });
+
+    it("once sent, the success card is the one confirmation and takes the focus (no toast as well)", async () => {
+        const web = signedOut();
+        web.on("POST", "/api/forms/waitlist", () => json(201, { data: { received: true } }));
+        const success = vi.spyOn(toast, "success");
+        const user = userEvent.setup();
+        renderWithProviders(<WaitlistPage />);
+        await user.type(await screen.findByLabelText(/^Full name/), "Somchai");
+        await user.type(screen.getByLabelText(/^Email/), "somchai@example.test");
+        await user.type(screen.getByLabelText(/^Phone number/), "812345678");
+        await user.click(screen.getByRole("button", { name: "Request access" }));
+        const heading = await screen.findByRole("heading", { level: 1, name: "You are on the waitlist" });
+        await waitFor(() => expect(heading).toHaveFocus());
+        expect(success).not.toHaveBeenCalled();
+    });
+});
+
 describe("the public copy is in sentence case (DESIGN.md, UI3E)", () => {
     /** Words that keep their capital inside a sentence: names, the product, codes, the Thai word glossed. */
-    const PROPER = /^(LogiTrack|Pro|GORATECH|AppSheet|Thailand|Thai|Bangkok|Chon|Buri|Somchai|Khonsongdee|Google|SOCs?|I|(?:\d+)?W[HJ]?|SPX|SPK|[A-Z]{2,})$/;
+    const PROPER = /^(LogiTrack|Pro|GORATECH|AppSheet|Thailand|Thai|Bangkok|Chon|Buri|Somchai|Khonsongdee|Google|January|SOCs?|I|(?:\d+)?W[HJ]?|SPX|SPK|[A-Z]{2,})$/;
     const LABEL_KEYS = [
         ...Object.keys(enAuth).filter((k) => /title|submit|backToLogin|companiesWaitlist|alreadyHaveAccount|forgotPassword/.test(k)),
         ...Object.keys(enLanding).filter((k) => /\.title$|nav\.|cta\.(requestAccess|joinNetwork|readStory)|apply$|success\.(again|home)|form\.submit$/.test(k)),
@@ -235,11 +293,21 @@ describe("the public copy is in sentence case (DESIGN.md, UI3E)", () => {
         }
     });
 
-    it("about: the same keys in both languages, and no claim the product has no evidence for", () => {
+    it("about: the owner's words, the same keys in both languages, and no claim the product has no evidence for", () => {
+        // The owner's origin story stays in the owner's words (UI3E review round).
+        expect(enAbout["about.hero.title"]).toBe("The journey of GORATECH: from challenge to building innovation");
+        expect(thAbout["about.hero.title"]).toBe("The Journey of GORATECH: จากความท้าทาย สู่การก่อร่างนวัตกรรม");
+        expect(enAbout["about.closing"]).toContain("not just a domain name");
+        expect(thAbout["about.closing"]).toContain("ไม่ใช่เพียงแค่ชื่อโดเมน");
+        expect(enAbout["about.story.p1"]).toContain("Amid the wave of using off-the-shelf tools like AppSheet");
+        expect(enAbout["about.story.answer"]).toContain("custom-coded platform");
+        expect(thAbout["about.story.answer"]).toContain("Custom-coded Platform");
         expect(Object.keys(thAbout).sort()).toEqual(Object.keys(enAbout).sort());
         for (const dict of [enAbout, thAbout]) {
             for (const [key, value] of Object.entries(dict)) {
-                expect(value, key).not.toMatch(/App Check|RBAC|international|ระดับสากล|without limits|ไร้ขีดจำกัด|Low Latency|Enterprise/i);
+                expect(value, key).not.toMatch(
+                    /App Check|RBAC|international|ระดับสากล|without limits|ไร้ขีดจำกัด|Low Latency|every line|ทุกบรรทัด|Enterprise|new standard|มาตรฐานใหม่|ecosystem|อาณาจักรเทคโนโลยี|several transport companies|หลายบริษัทขนส่ง/i
+                );
             }
         }
     });

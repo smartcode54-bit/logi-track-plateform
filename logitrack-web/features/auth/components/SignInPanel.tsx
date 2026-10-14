@@ -9,7 +9,8 @@
  * UI3E (DESIGN.md form style): both fields are required, with the Signal Red star on their labels; a missing or
  * malformed value shows its error under its field (`aria-invalid`, `aria-describedby` through `FormControl`), and the
  * shared `onInvalid` handler (ADR 0004) focuses the first invalid field with a summary toast. Nothing is posted until
- * both pass. On a phone the fields, the button and the links are 44 px targets.
+ * both pass. On a phone the fields, the button and the links are 44 px targets. The fields' ids come from
+ * `FormItem` (`useId`), so the panel needs no id prefix of its own; the password-change step keeps "login-chg".
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -41,7 +42,6 @@ export interface SignInPanelProps {
     onSignedIn?: () => void;
     /** An informational line above the form (e.g. why the user was signed out). */
     notice?: string;
-    idPrefix?: string;
 }
 
 interface ChangeStep {
@@ -50,7 +50,7 @@ interface ChangeStep {
     email?: string;
 }
 
-export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPanelProps) {
+export function SignInPanel({ onSignedIn, notice }: SignInPanelProps) {
     const auth = useAuth();
     const { t, language } = useLanguage();
     const form = useForm<SignInValues>({ defaultValues: { email: "", password: "" }, mode: "onSubmit", reValidateMode: "onChange" });
@@ -141,7 +141,7 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
             <ChangePasswordForm
                 ticket={change.ticket}
                 email={change.email}
-                idPrefix={`${idPrefix}-chg`}
+                idPrefix="login-chg"
                 onChanged={changed}
                 onCancel={(messageKey) => {
                     setChange(null);
@@ -161,7 +161,7 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
             ) : null}
             <Form {...form}>
                 <form
-                    onSubmit={form.handleSubmit(submit, createInvalidHandler(form, t, { summaryKey: "auth.login.invalidSummary" }))}
+                    onSubmit={form.handleSubmit(submit, createInvalidHandler(form, t))}
                     noValidate
                     className="space-y-4"
                 >
@@ -171,8 +171,8 @@ export function SignInPanel({ onSignedIn, notice, idPrefix = "login" }: SignInPa
                         rules={{
                             validate: (value) => {
                                 const email = value.trim();
-                                if (!email) return t("auth.login.emailRequired");
-                                return EMAIL_SHAPE.test(email) || t("auth.login.emailInvalid");
+                                if (!email) return t("auth.emailRequired");
+                                return EMAIL_SHAPE.test(email) || t("auth.emailInvalid");
                             },
                         }}
                         render={({ field }) => (

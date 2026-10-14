@@ -85,7 +85,7 @@ describe("Thai mode", () => {
         );
         expect(await screen.findByTestId("sign-in-no-account")).toHaveTextContent("ยังไม่มีบัญชี? สอบถามบริษัทขนส่งหรือผู้ดูแลระบบที่เชิญคุณเข้าใช้งาน");
         expect(screen.getByText(/^ทำธุรกิจขนส่ง\?/)).toBeInTheDocument();
-        expect(screen.getByRole("link", { name: "ลงชื่อรอใช้ LogiTrack Pro" })).toHaveAttribute("href", "/waitlist");
+        expect(screen.getByRole("link", { name: "เข้าร่วมรายการรอ LogiTrack Pro" })).toHaveAttribute("href", "/waitlist");
         expect(screen.getByRole("heading", { level: 1, name: "เข้าสู่ระบบ" })).toBeInTheDocument();
         expect(screen.getByLabelText(/^อีเมล/)).toHaveAttribute("aria-required", "true");
     });

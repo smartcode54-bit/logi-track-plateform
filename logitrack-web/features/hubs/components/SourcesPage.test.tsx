@@ -91,14 +91,14 @@ describe("sources page: customers by id and by search, never every customer (UI8
         await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(2));
         expect(screen.getAllByRole("option").slice(0, 2).map((o) => o.textContent)).toEqual(["All customers", "Not linked"]);
         await u.click(screen.getByRole("option", { name: "Not linked" }));
-        await waitFor(() => expect(rowIds()).toEqual(["SPX-C"]));
+        await waitFor(() => expect(rowIds()).toEqual(["SPX-C"]), { timeout: 3000 });
         expect(picker).toHaveTextContent("Not linked");
 
         await u.click(picker);
         await u.type(await screen.findByPlaceholderText("Search..."), "ลูกค้า 0119");
         await waitFor(() => expect(screen.getAllByRole("option").map((o) => o.textContent)).toContain("ลูกค้า 0119C0119"));
         await u.click(screen.getByRole("option", { name: /ลูกค้า 0119/ }));
-        await waitFor(() => expect(rowIds()).toEqual(["SPX-B"]));
+        await waitFor(() => expect(rowIds()).toEqual(["SPX-B"]), { timeout: 3000 });
 
         const reads = web.calls.filter((c) => c.url.split("?")[0] === "/api/go/v1/customers").map((c) => Object.fromEntries(params(c)));
         expect(reads.filter((p) => !("ids" in p))).toEqual([

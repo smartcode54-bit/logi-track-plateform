@@ -9,7 +9,8 @@
  * UI3E: a signed-in visitor sees "Open console" (the role's home) as a button in the bar, not only inside the avatar
  * menu; a driver-only account is pointed to the driver app instead. The language switch is text only. On a phone every
  * control is a 44 px target, and with the console button in the bar the brand keeps its logo and gives up its words
- * (they stay the link's accessible name) so the row fits 360 px in Thai and English.
+ * (they stay the link's accessible name) so the row fits 360 px in Thai and English. While `['me']` loads, the account
+ * slot is empty, so neither "Sign in" nor the console flashes before the session is known.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -63,6 +64,8 @@ export default function Navigation() {
   const driverOnly = me ? isDriverOnly(me) : false;
   const consoleHref = me ? homeRouteOf(me) : APP_PATH;
   const consoleButton = Boolean(currentUser) && !driverOnly;
+  // Until ['me'] answers, the account slot stays empty: a signed-in visitor never sees "Sign in" flash first.
+  const sessionPending = authContext?.loading ?? false;
 
   return (
     <nav aria-label={t("landing.nav.label")} className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
@@ -146,7 +149,7 @@ export default function Navigation() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : pathname === "/login" ? null : (
+          ) : sessionPending || pathname === "/login" ? null : (
             <Button asChild size="sm" className="px-2.5 max-md:h-11">
               <Link href="/login">{t("nav.signIn")}</Link>
             </Button>

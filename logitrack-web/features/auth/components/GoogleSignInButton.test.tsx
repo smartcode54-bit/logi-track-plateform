@@ -62,6 +62,14 @@ afterEach(() => {
 });
 
 describe("GoogleSignInButton", () => {
+    it("stretches GIS's 40 px button to a 44 px target on a phone (UI3E)", async () => {
+        fakeGis();
+        const { findByTestId } = render(<Button onCredential={async () => undefined} />);
+        const wrap = await findByTestId("gis-button");
+        expect(wrap.className).toContain("max-md:[&_[role=button]]:h-11!");
+        expect(wrap.className).toContain("min-h-[44px]");
+    });
+
     it("hands the credential to the button still on screen after a dialog's button unmounts, with a fresh nonce", async () => {
         const gis = fakeGis();
         const hero = vi.fn(async () => undefined);

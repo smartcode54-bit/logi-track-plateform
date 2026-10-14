@@ -1,17 +1,19 @@
 "use client";
 
 /**
- * `/about` (UI3E): the origin story of LogiTrack Pro, on the public-page pattern of DESIGN.md (the landing and
+ * `/about` (UI3E): the owner's origin story of GORATECH, on the public-page pattern of DESIGN.md (the landing and
  * `/join-network`): one Display h1, sections on paper separated by hairlines, each with a Headline, the points as a
- * list under hairlines. The stock photographs (one of them shown as "the platform") and the claims the product has no
- * evidence for are gone (PRODUCT.md, Evidence on Hand: built in-house from January 2026 instead of AppSheet). The page
- * ends with the shared footer, which also says where to go next.
+ * list under hairlines. The words are the owner's; only the claims PRODUCT.md has no evidence for are gone, with the
+ * two points that had nothing else to say (context/locales/{en,th}/about.ts). The stock photographs are gone too: the
+ * dashboard picture was a stock photo shown as "the platform"; a real console screenshot without customer data is the
+ * owner's to supply. The page ends with the shared footer, which also says where to go next.
  */
 import { Footer } from "@/components/landing/Footer";
 import Navigation from "@/components/navigation";
 import { useLanguage } from "@/context/language";
 
-const POINTS = ["precision", "security", "scale"] as const;
+/** The points of "Why GORATECH?" that hold without an unsupported claim. */
+const POINTS = ["scale"] as const;
 
 export default function AboutPage() {
     const { t } = useLanguage();
