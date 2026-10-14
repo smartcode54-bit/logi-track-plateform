@@ -4,13 +4,14 @@
 
 -- name: ListCustomers :many
 -- GET /v1/customers, ordered by code (unique case-insensitively, so the keyset (code, id) is total). party_ids
--- narrows a customer-scope principal to its own parties (RLS narrows it too, 0012).
+-- narrows a customer-scope principal to its own parties (RLS narrows it too, 0012). q matches the code and the name
+-- folded (search_fold, 0026: q_words are its folded words as LIKE patterns, each somewhere in the row, in any order;
+-- NULL is no search).
 SELECT sqlc.embed(c), bp.id AS billing_party_id, bp.billing_date_basis
 FROM customers c
 LEFT JOIN billing_parties bp ON bp.customer_id = c.id
-WHERE (sqlc.narg(q)::text IS NULL
-       OR strpos(lower(c.code::text), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(c.name), lower(sqlc.narg(q)::text)) > 0)
+WHERE (sqlc.narg(q_words)::text[] IS NULL
+       OR search_fold(c.code::text || ' ' || coalesce(c.name, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
   AND (NOT sqlc.arg(scoped)::boolean OR bp.id = ANY (sqlc.arg(party_ids)::uuid[]))
   AND (sqlc.narg(after_code)::text IS NULL
        OR (c.code, c.id) > (sqlc.narg(after_code)::text::citext, sqlc.arg(after_id)::uuid))

@@ -16,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/iamdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 )
 
 // User is a user of GET /v1/users and GET /v1/users/{id} (Appendix B §B.2.5 web contract, T18): the account,
@@ -204,25 +205,19 @@ type ListUsersInput struct {
 // User statuses (users.status).
 var userStatuses = []string{"active", "disabled", "reset_required", "deleted"}
 
-// likePattern is a substring ILIKE pattern of s with its wildcards escaped.
-func likePattern(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return "%" + r.Replace(s) + "%"
-}
-
 // ListUsers is GET /v1/users: a keyset page inside the caller's reach (every user under X-Act-On-Tenant: *),
 // past the legacy listUsers(1000) cap (W9). role filters by a tenant role (inside the reach), a scope kind
 // (customer, dispatcher) or a platform role.
 func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersInput) ([]User, string, error) {
 	var bad []httpx.FieldViolation
 	r := readReach(p)
-	var q, status, memberRole, scopeKind, platformRole *string
+	var status, memberRole, scopeKind, platformRole *string
+	var q []string // the folded words of q as LIKE patterns (searchtext, the web's lib/searchText.ts); nil: no search
 	if s := strings.TrimSpace(in.Q); s != "" {
 		if utf8.RuneCountInString(s) > 200 {
 			bad = append(bad, violation("q", "too_long"))
 		}
-		pat := likePattern(s)
-		q = &pat
+		q = searchtext.LikePatterns(s)
 	}
 	if in.Status != "" {
 		if !slices.Contains(userStatuses, in.Status) {
@@ -272,7 +267,7 @@ func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersI
 		var rows []userRow
 		if sort == "last_login_at" {
 			rs, err := qq.ListUsersByLastLogin(ctx, iamdb.ListUsersByLastLoginParams{
-				AllUsers: r.all, TenantIds: r.tenants, ScopeOnly: r.scopeOnly, Q: q, Status: status, MemberRole: memberRole,
+				AllUsers: r.all, TenantIds: r.tenants, ScopeOnly: r.scopeOnly, QWords: q, Status: status, MemberRole: memberRole,
 				ScopeKind: scopeKind, PlatformRole: platformRole, HasCursor: hasCursor, AfterLogin: cur.T, AfterID: cur.ID,
 				RowLimit: int32(limit) + 1,
 			})
@@ -284,7 +279,7 @@ func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersI
 			}
 		} else {
 			rs, err := qq.ListUsersByCreated(ctx, iamdb.ListUsersByCreatedParams{
-				AllUsers: r.all, TenantIds: r.tenants, ScopeOnly: r.scopeOnly, Q: q, Status: status, MemberRole: memberRole,
+				AllUsers: r.all, TenantIds: r.tenants, ScopeOnly: r.scopeOnly, QWords: q, Status: status, MemberRole: memberRole,
 				ScopeKind: scopeKind, PlatformRole: platformRole, AfterCreated: cur.T, AfterID: cur.ID, RowLimit: int32(limit) + 1,
 			})
 			if err != nil {

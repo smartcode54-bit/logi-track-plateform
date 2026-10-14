@@ -16,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties/partiesdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 )
 
 // CustomerMinimal is one item of GET /v1/customers?fields=minimal (pickers, customer scopes): Appendix B §B.2.10.
@@ -89,12 +90,13 @@ func (s *Service) ListCustomers(ctx context.Context, p *authz.Principal, in List
 	if in.Fields != "" && !minimal {
 		ck.add("fields", "invalid")
 	}
-	var q *string
+	// q: its folded words, each in the code or the name (searchtext, the web's lib/searchText.ts); nil is no search.
+	var q []string
 	if v := strings.TrimSpace(in.Q); v != "" {
-		if utf8.RuneCountInString(v) > 100 {
+		if utf8.RuneCountInString(v) > searchtext.MaxQueryLen {
 			ck.add("q", "too_long")
 		}
-		q = &v
+		q = searchtext.LikePatterns(v)
 	}
 	limit := in.Limit
 	if limit == 0 {
@@ -126,7 +128,7 @@ func (s *Service) ListCustomers(ctx context.Context, p *authz.Principal, in List
 	more := false
 	err := s.tx(ctx, p, func(_ pgx.Tx, qq *partiesdb.Queries) error {
 		var err error
-		rows, err = qq.ListCustomers(ctx, partiesdb.ListCustomersParams{Q: q, Scoped: scoped, PartyIds: parties,
+		rows, err = qq.ListCustomers(ctx, partiesdb.ListCustomersParams{QWords: q, Scoped: scoped, PartyIds: parties,
 			AfterCode: after.S, AfterID: after.ID, RowLimit: int32(limit) + 1})
 		if err != nil {
 			return err

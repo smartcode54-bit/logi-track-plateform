@@ -12,9 +12,10 @@
 
 -- name: ListDrivers :many
 -- GET /v1/drivers, newest first; keyset (created_at, id). q matches the names, the licence number, the mobile and
--- the e-mail. The joins read under the caller's RLS: a tenant, assignment or truck the caller cannot see stays NULL.
--- assignment_status tells a home truck apart from a pointer at a revoked or cancelled row (loaded data), which the
--- payload does not show.
+-- the e-mail, folded (search_fold, 0026): q_words are its folded words as LIKE patterns (searchtext.LikePatterns),
+-- each somewhere in the row, in any order; NULL is no search. The joins read under the caller's RLS: a tenant,
+-- assignment or truck the caller cannot see stays NULL. assignment_status tells a home truck apart from a pointer at
+-- a revoked or cancelled row (loaded data), which the payload does not show.
 SELECT sqlc.embed(d),
        t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
@@ -26,12 +27,10 @@ LEFT JOIN trucks tr ON tr.id = a.truck_id
 WHERE (sqlc.arg(all_tenants)::boolean OR d.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.narg(tenant_id)::uuid IS NULL OR d.tenant_id = sqlc.narg(tenant_id)::uuid)
   AND (sqlc.narg(status)::text IS NULL OR d.status = sqlc.narg(status)::text)
-  AND (sqlc.narg(q)::text IS NULL
-       OR strpos(lower(coalesce(d.full_name_th, '')), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(d.first_name || ' ' || d.last_name), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(coalesce(d.truck_license_id, '')), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(d.mobile), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(coalesce(d.email::text, '')), lower(sqlc.narg(q)::text)) > 0)
+  AND (sqlc.narg(q_words)::text[] IS NULL
+       OR search_fold(coalesce(d.full_name_th, '') || ' ' || coalesce(d.first_name, '') || ' ' || coalesce(d.last_name, '')
+                      || ' ' || coalesce(d.truck_license_id, '') || ' ' || coalesce(d.mobile, '') || ' '
+                      || coalesce(d.email::text, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
   AND (sqlc.narg(after_created)::timestamptz IS NULL
        OR (d.created_at, d.id) < (sqlc.narg(after_created)::timestamptz, sqlc.arg(after_id)::uuid))
 ORDER BY d.created_at DESC, d.id DESC
@@ -44,12 +43,10 @@ SELECT d.status, count(*)::int AS n
 FROM drivers d
 WHERE (sqlc.arg(all_tenants)::boolean OR d.tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
   AND (sqlc.narg(tenant_id)::uuid IS NULL OR d.tenant_id = sqlc.narg(tenant_id)::uuid)
-  AND (sqlc.narg(q)::text IS NULL
-       OR strpos(lower(coalesce(d.full_name_th, '')), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(d.first_name || ' ' || d.last_name), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(coalesce(d.truck_license_id, '')), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(d.mobile), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(coalesce(d.email::text, '')), lower(sqlc.narg(q)::text)) > 0)
+  AND (sqlc.narg(q_words)::text[] IS NULL
+       OR search_fold(coalesce(d.full_name_th, '') || ' ' || coalesce(d.first_name, '') || ' ' || coalesce(d.last_name, '')
+                      || ' ' || coalesce(d.truck_license_id, '') || ' ' || coalesce(d.mobile, '') || ' '
+                      || coalesce(d.email::text, '')) LIKE ALL (sqlc.narg(q_words)::text[]))
 GROUP BY d.status
 ORDER BY d.status;
 

@@ -796,7 +796,8 @@ WHERE ($1::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($2::uuid[]))
     OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
-  AND ($4::text IS NULL OR u.email::text ILIKE $4 ESCAPE '\' OR u.display_name ILIKE $4 ESCAPE '\')
+  AND ($4::text[] IS NULL
+    OR search_fold(u.email::text || ' ' || coalesce(u.display_name, '')) LIKE ALL ($4::text[]))
   AND (($5::text IS NULL AND u.status <> 'deleted') OR u.status = $5)
   AND ($6::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = $6
@@ -815,7 +816,7 @@ type ListUsersByCreatedParams struct {
 	AllUsers     bool
 	TenantIds    []uuid.UUID
 	ScopeOnly    bool
-	Q            *string
+	QWords       []string
 	Status       *string
 	MemberRole   *string
 	ScopeKind    *string
@@ -838,13 +839,14 @@ type ListUsersByCreatedRow struct {
 }
 
 // GET /v1/users, default order created_at DESC, id DESC (Appendix B §B.1.5). q matches email or display name
-// (the caller escapes LIKE wildcards); member_role, scope_kind and platform_role filter by the role axis.
+// folded (search_fold, 0026: q_words are its folded words as LIKE patterns with the wildcards escaped, each somewhere
+// in the row, in any order; NULL is no search); member_role, scope_kind and platform_role filter by the role axis.
 func (q *Queries) ListUsersByCreated(ctx context.Context, arg ListUsersByCreatedParams) ([]ListUsersByCreatedRow, error) {
 	rows, err := q.db.Query(ctx, listUsersByCreated,
 		arg.AllUsers,
 		arg.TenantIds,
 		arg.ScopeOnly,
-		arg.Q,
+		arg.QWords,
 		arg.Status,
 		arg.MemberRole,
 		arg.ScopeKind,
@@ -889,7 +891,8 @@ WHERE ($1::boolean
     OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = ANY ($2::uuid[]))
     OR ($3::boolean AND u.status <> 'deleted' AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_platform_roles r WHERE r.user_id = u.id)))
-  AND ($4::text IS NULL OR u.email::text ILIKE $4 ESCAPE '\' OR u.display_name ILIKE $4 ESCAPE '\')
+  AND ($4::text[] IS NULL
+    OR search_fold(u.email::text || ' ' || coalesce(u.display_name, '')) LIKE ALL ($4::text[]))
   AND (($5::text IS NULL AND u.status <> 'deleted') OR u.status = $5)
   AND ($6::text IS NULL OR EXISTS (
         SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.role = $6
@@ -912,7 +915,7 @@ type ListUsersByLastLoginParams struct {
 	AllUsers     bool
 	TenantIds    []uuid.UUID
 	ScopeOnly    bool
-	Q            *string
+	QWords       []string
 	Status       *string
 	MemberRole   *string
 	ScopeKind    *string
@@ -942,7 +945,7 @@ func (q *Queries) ListUsersByLastLogin(ctx context.Context, arg ListUsersByLastL
 		arg.AllUsers,
 		arg.TenantIds,
 		arg.ScopeOnly,
-		arg.Q,
+		arg.QWords,
 		arg.Status,
 		arg.MemberRole,
 		arg.ScopeKind,

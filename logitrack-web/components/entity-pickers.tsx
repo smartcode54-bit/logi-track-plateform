@@ -9,14 +9,15 @@
  * - The selected value keeps its label when the current page does not hold it: pass `selectedLabel` (or the
  *   picked option is remembered by `SearchSelect`).
  * - Errors show the API's message in the list (`apiErrorText`).
- * - Matching is the Go endpoint's: a case-insensitive substring of `q` (no Thai tone-mark / diacritic
- *   folding and no any-word-order match; those apply to local lists only, `lib/searchText.ts`).
- * - `HubSelect` and `CustomerSearchSelect` have no product caller yet: the task, trip and accounting pages
- *   still read the whole hub / customer master for their row lookups and filter it in the browser
- *   (`HubCombobox`, `CustomerSelect`); moving them is the follow-up of #142.
+ * - Matching is the Go endpoint's, folded as `lib/searchText.ts` folds the local lists (UI2B: Go's
+ *   `internal/platform/searchtext` and SQL `search_fold`): case, Latin accents, Thai tone marks and
+ *   thanthakhat, Thai digits; every word of the term in any order. The page keeps the server's order.
+ * - `HubSelect` searches one page per term (both kinds, the preferred kind first) and labels its value with
+ *   a single-record lookup (`GET /v1/hubs/{code}`), never with a map of the whole master: the task form and
+ *   the trip editor use it. `CustomerSearchSelect` has no product caller yet (the follow-up of #142).
  */
 import * as React from "react";
-import { useQuery, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
 
 import {
     MultiSearchSelect,
@@ -30,8 +31,10 @@ import {
     customerLabel,
     customerSearchQuery,
     driverPicksQuery,
-    hubLabel,
+    hubByCodeQuery,
+    hubDisplay,
     hubSearchQuery,
+    isSocStation,
     truckPicksQuery,
     type CustomerPick,
     type DriverPick,
@@ -115,25 +118,97 @@ export const TruckSelect = React.forwardRef<HTMLButtonElement, PickerProps>(func
 
 // --- hubs and SOCs ----------------------------------------------------------------------------------------
 
+/** A hub or SOC as the task and trip forms list it: "CODE — name", "SOC" beside a SOC, searchable by both names. */
 export const hubOption = (h: HubPick): SearchSelectOption => ({
     value: h.sourceId,
-    label: hubLabel(h),
-    description: h.sourceId !== hubLabel(h) ? h.sourceId : undefined,
-    keywords: [h.sourceId, h.sourceNameEn ?? "", h.sourceNameTh ?? ""],
+    label: hubDisplay(h),
+    description: isSocStation(h) ? "SOC" : undefined,
+    keywords: [h.sourceNameEn ?? "", h.sourceNameTh ?? ""],
 });
 
+/** One hub or SOC by code (`GET /v1/hubs/{code}`, cached per code): `null` when the master has no such code. */
+export function useHubByCode(code: string | null | undefined, enabled = true) {
+    const ref = (code ?? "").trim();
+    return useQuery({ ...hubByCodeQuery(ref), enabled: enabled && ref !== "" });
+}
+
+type HubKind = "HUB" | "SOC";
+
+/** The pages of a hub search as one list, in page order, each code once (module level: TanStack keeps the result). */
+function combineHubPages(results: { data?: HubPick[]; isFetching: boolean; error: Error | null }[]) {
+    const seen = new Set<string>();
+    const hubs: HubPick[] = [];
+    for (const r of results) {
+        for (const h of r.data ?? []) {
+            if (seen.has(h.sourceId)) continue;
+            seen.add(h.sourceId);
+            hubs.push(h);
+        }
+    }
+    return { hubs, fetching: results.some((r) => r.isFetching), error: results.find((r) => r.error)?.error ?? null };
+}
+
 /**
- * `GET /v1/hubs?q&stationType`; the value is the hub's code (`sourceId`), what tasks and rate cards hold.
- * A code that is not in the master (a legacy task) stays shown as the code.
+ * The hub search of a `HubSelect`: one page of `GET /v1/hubs?q&limit` per debounced term, or, with `prefer`,
+ * a page of each kind with the preferred kind first (the legacy dropdowns listed every station, the
+ * preferred kind first: a SOC stays selectable where a hub comes first, and the other way round).
  */
-export const HubSelect = React.forwardRef<HTMLButtonElement, PickerProps & { stationType?: string; selectedHub?: HubPick | null }>(function HubSelect(
-    { selectedLabel, stationType, selectedHub, ...props },
+function useHubSearch(stationType: string | undefined, prefer: HubKind | undefined) {
+    const { t } = useLanguage();
+    const [open, setOpen] = React.useState(false);
+    const [term, setTerm] = React.useState("");
+    const q = useDebouncedValue(term);
+    const kinds: (string | undefined)[] = !stationType && prefer ? [prefer, prefer === "SOC" ? "HUB" : "SOC"] : [stationType];
+    const result = useQueries({ queries: kinds.map((k) => ({ ...hubSearchQuery(q, k), enabled: open })), combine: combineHubPages });
+    const hubs = result.hubs;
+    const options = React.useMemo(() => hubs.map(hubOption), [hubs]);
+    return {
+        hubs,
+        search: {
+            options,
+            loading: open && (result.fetching || term !== q),
+            error: result.error ? apiErrorText(result.error, t) : undefined,
+            onSearchChange: setTerm,
+            onOpenChange: setOpen,
+        },
+    };
+}
+
+type HubSelectProps = Omit<PickerProps, "onValueChange"> & {
+    /** Narrows the list to one kind (`HUB` | `SOC`). */
+    stationType?: string;
+    /** Lists both kinds, this one first (ignored with `stationType`). */
+    prefer?: HubKind;
+    /** The hub of `value` when the caller holds it (no lookup then). */
+    selectedHub?: HubPick | null;
+    onValueChange?: (code: string, option: SearchSelectOption | null) => void;
+    /** The picked code with its hub (the page's record; `null` when cleared). */
+    onHubChange?: (code: string, hub: HubPick | null) => void;
+};
+
+/**
+ * `GET /v1/hubs?q&stationType&limit` per term; the value is the hub's code (`sourceId`), what tasks, trips
+ * and rate cards hold. The value is labelled by `selectedHub`, else `selectedLabel`, else a single-record
+ * lookup of its code; a code that is not in the master (a legacy task) stays shown as the code.
+ */
+export const HubSelect = React.forwardRef<HTMLButtonElement, HubSelectProps>(function HubSelect(
+    { selectedLabel, stationType, prefer, selectedHub, onValueChange, onHubChange, ...props },
     ref
 ) {
-    const make = React.useCallback((q: string) => hubSearchQuery(q, stationType), [stationType]);
-    const search = useServerSearch(make, hubOption);
-    const selected = selectedHub ? hubOption(selectedHub) : selectedFrom(props.value, selectedLabel);
-    return <SearchSelect ref={ref} {...props} {...search} selectedOption={selected} onOpenChange={(o) => {
+    const client = useQueryClient();
+    const { hubs, search } = useHubSearch(stationType, prefer);
+    const lookup = useHubByCode(props.value, !selectedHub && !selectedLabel);
+    const valueHub = selectedHub ?? lookup.data ?? null;
+    // Labels the value as held: the lookup may answer a SOC key (SOCE) or another spelling with the master's code.
+    const selected = valueHub && props.value ? { ...hubOption(valueHub), value: props.value } : selectedFrom(props.value, selectedLabel);
+    const pick = (code: string, option: SearchSelectOption | null) => {
+        const hub = code ? (hubs.find((h) => h.sourceId === code) ?? (valueHub?.sourceId === code ? valueHub : null)) : null;
+        // The picked record is the lookup's answer for its code: the new value is labelled without a request.
+        if (hub) client.setQueryData(hubByCodeQuery(code).queryKey, hub);
+        onValueChange?.(code, option);
+        onHubChange?.(code, hub);
+    };
+    return <SearchSelect ref={ref} {...props} {...search} onValueChange={pick} selectedOption={selected} onOpenChange={(o) => {
         search.onOpenChange(o);
         props.onOpenChange?.(o);
     }} />;

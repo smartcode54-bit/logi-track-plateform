@@ -117,6 +117,7 @@ PATCH /v1/holidays/:id internal
 PUT /v1/holidays/generate internal
 GET /v1/hubs internal
 POST /v1/hubs internal
+GET /v1/hubs/:id internal
 PATCH /v1/hubs/:id internal
 POST /v1/hubs/import internal
 GET /v1/hubs/maps internal

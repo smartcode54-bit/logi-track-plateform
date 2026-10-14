@@ -14,6 +14,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers/driversdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scope/scopedb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
@@ -216,18 +217,20 @@ const FieldsMinimal = "minimal"
 // name ([]DriverScope, or []DriverMinimal), never the PII columns (Appendix C §C.3.7, R85).
 func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) (any, string, *ListMeta, error) {
 	var ck checker
-	var status, q *string
+	var status *string
 	if in.Status != "" {
 		if !statusOK(in.Status) {
 			ck.add("status", "invalid")
 		}
 		status = &in.Status
 	}
+	// q: its folded words, each somewhere in the row (searchtext, the web's lib/searchText.ts); nil is no search.
+	var q []string
 	if v := strings.TrimSpace(in.Q); v != "" {
-		if utf8.RuneCountInString(v) > 100 {
+		if utf8.RuneCountInString(v) > searchtext.MaxQueryLen {
 			ck.add("q", "too_long")
 		}
-		q = &v
+		q = searchtext.LikePatterns(v)
 	}
 	minimal := false
 	switch in.Fields {
@@ -266,12 +269,12 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) (a
 	var counts []driversdb.CountDriversByStatusRow
 	err := s.tx(ctx, p, func(_ pgx.Tx, qq *driversdb.Queries) (err error) {
 		rows, err = qq.ListDrivers(ctx, driversdb.ListDriversParams{AllTenants: all, TenantIds: tenants, TenantID: tenant,
-			Status: status, Q: q, AfterCreated: after.T, AfterID: after.ID, RowLimit: int32(limit) + 1})
+			Status: status, QWords: q, AfterCreated: after.T, AfterID: after.ID, RowLimit: int32(limit) + 1})
 		if err != nil {
 			return err
 		}
 		counts, err = qq.CountDriversByStatus(ctx, driversdb.CountDriversByStatusParams{AllTenants: all, TenantIds: tenants,
-			TenantID: tenant, Q: q})
+			TenantID: tenant, QWords: q})
 		return err
 	})
 	if err != nil {
@@ -319,18 +322,18 @@ func minimalOf(id uuid.UUID, name string) DriverMinimal {
 	return m
 }
 
-func (s *Service) listScope(ctx context.Context, p *authz.Principal, tenant *uuid.UUID, status, q *string, after cursor,
+func (s *Service) listScope(ctx context.Context, p *authz.Principal, tenant *uuid.UUID, status *string, q []string, after cursor,
 	limit int, minimal bool) (any, string, *ListMeta, error) {
 	var rows []scopedb.ScopeDriver
 	var counts []scopedb.CountScopeDriversByStatusRow
 	err := mapDBError(db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) (err error) {
 		sq := scopedb.New(tx)
-		rows, err = sq.ListScopeDrivers(ctx, scopedb.ListScopeDriversParams{TenantID: tenant, Status: status, Q: q,
+		rows, err = sq.ListScopeDrivers(ctx, scopedb.ListScopeDriversParams{TenantID: tenant, Status: status, QWords: q,
 			AfterName: after.S, AfterID: after.ID, RowLimit: int32(limit) + 1})
 		if err != nil {
 			return err
 		}
-		counts, err = sq.CountScopeDriversByStatus(ctx, scopedb.CountScopeDriversByStatusParams{TenantID: tenant, Q: q})
+		counts, err = sq.CountScopeDriversByStatus(ctx, scopedb.CountScopeDriversByStatusParams{TenantID: tenant, QWords: q})
 		return err
 	}))
 	if err != nil {

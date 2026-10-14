@@ -29,6 +29,7 @@ vi.mock("xlsx", () => ({
 
 import { RouteNamespaces } from "@/context/locales/RouteNamespaces";
 import { getQueryClient, resetQueryClientForTests } from "@/lib/queryClient";
+import { foldSearchText, matchesTerms, searchTerms } from "@/lib/searchText";
 import { fakeWeb, goErr, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { scrollViewport, stubVirtualLayout } from "@/test-utils/virtualLayout";
@@ -71,16 +72,42 @@ const ALL_CAPS = [
     "operations:edit_trip_details",
 ];
 
+const HUBS = [
+    { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1" },
+    { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC" },
+    { id: "h3", sourceId: "SPK890174", sourceNameTh: "ห้วยขวาง10", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1" },
+    { id: "h4", sourceId: "RC-01", sourceNameTh: "ศูนย์คืนสินค้า", sourceNameEn: null, stationType: "SOC" },
+    ...Array.from({ length: 60 }, (_, i) => ({ id: `hx${i}`, sourceId: `HUB-${String(i).padStart(3, "0")}`, sourceNameTh: `ฮับ ${i}`,
+        sourceNameEn: null, stationType: "HUB" })),
+];
+
+/**
+ * `GET /v1/hubs` as Go answers it (UI2B): `q` folded as lib/searchText.ts folds (Go's searchtext mirrors it), every
+ * word in the code or a name; `stationType`; ordered by code; one page with `limit`, else the whole master.
+ */
+function goHubs(call: FakeCall) {
+    const q = params(call.url);
+    const terms = searchTerms(q.q);
+    const rows = HUBS.filter((h) => (!q.stationType || h.stationType === q.stationType) &&
+        matchesTerms(foldSearchText(`${h.sourceId} ${h.sourceNameTh} ${h.sourceNameEn ?? ""}`), terms))
+        .sort((a, b) => (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
+    if (!q.limit) return json(200, { data: rows });
+    const limit = Number(q.limit);
+    return json(200, { data: rows.slice(0, limit), ...(rows.length > limit ? { nextCursor: "next" } : {}) });
+}
+
+/** `GET /v1/hubs/{code}`: one hub by its code (case-insensitive), else 404. */
+function goHub(call: FakeCall) {
+    const code = decodeURIComponent(call.url.split("?")[0].slice("/api/go/v1/hubs/".length)).toUpperCase();
+    const hub = HUBS.find((h) => h.sourceId.toUpperCase() === code);
+    return hub ? json(200, { data: hub }) : goErr(404, "not_found");
+}
+
 function setup(caps = ALL_CAPS) {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({ capabilities: caps }) }));
-    web.on("GET", "/api/go/v1/hubs", () =>
-        json(200, { data: [
-            { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1" },
-            { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC" },
-            ...Array.from({ length: 60 }, (_, i) => ({ id: `hx${i}`, sourceId: `HUB-${String(i).padStart(3, "0")}`, sourceNameTh: `ฮับ ${i}`,
-                sourceNameEn: null, stationType: "HUB" })),
-        ] }));
+    web.on("GET", "/api/go/v1/hubs", goHubs);
+    web.on("GET", /^\/api\/go\/v1\/hubs\/[^/]+$/, goHub);
     web.on("GET", "/api/go/v1/customers", () => json(200, { data: [{ id: "c1", billingPartyId: "p1", code: "CJSF", name: "CJ" }] }));
     return web;
 }
@@ -318,6 +345,86 @@ describe("task form: the stops as stored, sent only when touched", () => {
             deliveryStops: [{ destination: "SPK2" }, { destination: "SOCE" }] });
         expect(editStopsPatch(t, { multi: false, stops: ["SOCE", "SPK2"] }, true)).toEqual({ isMultiDelivery: false, deliveryStops: [] });
         expect(editStopsPatch(task(), { multi: false, stops: [] }, true)).toBeUndefined();
+    });
+});
+
+describe("hub pickers: a server search per term, each value labelled by a single-record lookup (UI2B)", () => {
+    const hubCalls = (web: ReturnType<typeof setup>) => web.calls.filter((c) => c.url.split("?")[0] === "/api/go/v1/hubs");
+    const lookups = (web: ReturnType<typeof setup>) => web.calls.filter((c) => c.url.startsWith("/api/go/v1/hubs/")).map((c) => c.url);
+
+    it("task form: no whole-master read; a Thai term without its tone mark finds the hub; the pick prefills the customer and posts its code", async () => {
+        const web = setup();
+        web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskNo: "FM-NEW-1" }) }));
+        const onClose = vi.fn();
+        renderPage("/app/first-mile", <TaskFormDialog mode="create" taskType="first_mile" allowTypeSwitch={false} onClose={onClose} />);
+        await waitFor(() => expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/customers"))).toBe(true));
+        const source = await screen.findByRole("combobox", { name: "Pickup Point" });
+        expect(hubCalls(web)).toEqual([]); // nothing is read before a list opens: no whole master
+
+        const u = userEvent.setup();
+        await u.click(source);
+        // Both kinds stay selectable, the preferred one (HUB for a first-mile source) first: one page of each.
+        await waitFor(() => expect(hubCalls(web).map((c) => params(c.url))).toEqual([{ stationType: "HUB", limit: "50" }, { stationType: "SOC", limit: "50" }]));
+        await u.type(screen.getByPlaceholderText("Search..."), "หวยขวาง");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        expect(hubCalls(web).filter((c) => params(c.url).q).map((c) => params(c.url))).toEqual([
+            { q: "หวยขวาง", stationType: "HUB", limit: "50" },
+            { q: "หวยขวาง", stationType: "SOC", limit: "50" },
+        ]);
+        expect(source).toHaveTextContent("SPK890174 — ห้วยขวาง10");
+
+        await u.click(screen.getByRole("combobox", { name: "Destination (SOC)" }));
+        await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
+        await u.click(screen.getByRole("button", { name: "Create Assignment" }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        // No customer was picked: the hub's billing party (p1) prefilled it.
+        expect(web.calls.find((c) => c.method === "POST")!.body).toMatchObject({ sourceHub: "SPK890174", destination: "SOCE", billingPartyId: "p1" });
+        // A picked record labels its own code: no lookup request.
+        expect(lookups(web)).toEqual([]);
+    });
+
+    it("task form: a value outside the current page keeps its label (a lookup by code); a code not in the master shows as is", async () => {
+        const web = setup();
+        const t = task({ sourceHub: "HUB-059", isMultiDelivery: true, stops: [stop(1, "SOCE"), stop(2, "LEGACY-9")] });
+        renderPage("/app/first-mile", <TaskFormDialog mode="edit" taskType="first_mile" task={t} allowTypeSwitch={false} onClose={vi.fn()} />);
+        const source = await screen.findByRole("combobox", { name: "Pickup Point" });
+        await waitFor(() => expect(source).toHaveTextContent("HUB-059 — ฮับ 59"));
+        expect(screen.getByRole("combobox", { name: "Destination (SOC)" })).toHaveTextContent("SOCE — บัวโรย");
+        expect(screen.getByRole("combobox", { name: "Stop 2" })).toHaveTextContent("LEGACY-9");
+        // One lookup per code (the destination and stop 1 share SOCE's).
+        expect(lookups(web).sort()).toEqual(["/api/go/v1/hubs/HUB-059", "/api/go/v1/hubs/LEGACY-9", "/api/go/v1/hubs/SOCE"]);
+        expect(hubCalls(web)).toEqual([]);
+
+        // The first page by code (ALANG-A, HUB-000 ... HUB-048) does not hold HUB-059; the trigger still names it.
+        const u = userEvent.setup();
+        await u.click(source);
+        expect(await screen.findByRole("option", { name: /HUB-048 — ฮับ 48/ })).toBeInTheDocument();
+        expect(screen.queryByRole("option", { name: /HUB-059/ })).toBeNull();
+        expect(source).toHaveTextContent("HUB-059 — ฮับ 59");
+    });
+
+    it("trip editor: the origin's lookup labels it and gives the job type; the destination searches on the server, SOCs first", async () => {
+        const web = setup();
+        web.on("GET", "/api/go/v1/trips/r1", () =>
+            json(200, { data: tripDetail({ origin: "RC-01", originHubId: "h4", originPlace: place("RC-01"), destination: "ALANG-A",
+                destinationHubId: "h1", destinationPlace: place("ALANG-A") }) }));
+        web.on("PATCH", "/api/go/v1/trips/r1", () => json(200, { data: tripDetail() }));
+        const onClose = vi.fn();
+        renderPage("/app/driver-monitor", <TripEditDialog tripId="r1" onClose={onClose} />);
+        const origin = await screen.findByRole("combobox", { name: "Origin" });
+        await waitFor(() => expect(origin).toHaveTextContent("RC-01 — ศูนย์คืนสินค้า"));
+        // RC-01 is a SOC by its master record only (no SOCE/SOCN/SOCW code): line haul, from the lookup.
+        expect(await screen.findByText("Line Haul")).toBeInTheDocument();
+        expect(lookups(web).filter((u) => u.endsWith("/RC-01"))).toHaveLength(1);
+
+        const u = userEvent.setup();
+        await u.click(screen.getByRole("combobox", { name: "Destination" }));
+        await waitFor(() => expect(hubCalls(web).map((c) => params(c.url).stationType)).toEqual(["SOC", "HUB"]));
+        await u.type(screen.getByPlaceholderText("Search..."), "หวยขวาง๑๐");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        await u.click(screen.getByRole("button", { name: "Save Changes" }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(web.calls.find((c) => c.method === "PATCH")!.body).toEqual({ destination: "SPK890174" });
     });
 });
 

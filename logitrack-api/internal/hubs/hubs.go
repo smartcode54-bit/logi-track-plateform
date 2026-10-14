@@ -1,5 +1,6 @@
 // Package hubs is the hub and SOC master data and the Hub <-> SOC distance matrix (T21, Appendix B §B.2.9):
-// GET /v1/hubs (one DTO for every page, W8), GET /v1/hubs/maps (nameToCode and codeToName, never merged), the
+// GET /v1/hubs (one DTO for every page, W8; the whole master, or keyset pages of a folded search for the pickers,
+// UI2B), GET /v1/hubs/{id} (one hub by uuid or code), GET /v1/hubs/maps (nameToCode and codeToName, never merged), the
 // steward writes POST /v1/hubs, PATCH /v1/hubs/{id} and POST /v1/hubs/import, the driver's hub (mobile:create_hub,
 // route POST /v1/mobile/hubs at P7a), the distance reads GET /v1/distances[/{originId}/{destinationId}|/meta], and
 // the distances.compute job: POST /v1/jobs/distances.compute in the api, the Google Distance Matrix consumer in the
@@ -20,13 +21,16 @@
 package hubs
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,6 +44,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/outbox"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 )
 
 // Outbox routing keys (Appendix B §B.5.2) and the realtime topic of hubs.changed (§B.4.2: every staff principal).
@@ -273,49 +278,154 @@ func linkVisible(p *authz.Principal, h cachedHub) (link, party bool) {
 
 // --- reads --------------------------------------------------------------------------------------------------
 
-// ListInput are the filters of GET /v1/hubs.
+// ListInput are the filters and the page of GET /v1/hubs.
 type ListInput struct {
 	StationType string // HUB | SOC (legacy spellings accepted)
-	Q           string // substring of code or names, case-insensitive
+	// Q: every folded word of it is in the code or a name, in any order (searchtext, the web's lib/searchText.ts).
+	Q string
+	// Page asks for one keyset page (?limit or ?cursor given): Limit rows (0 = DefaultLimit) after Cursor. Without it
+	// the whole master answers in one response.
+	Page   bool
+	Limit  int
+	Cursor string
 }
 
-// List is GET /v1/hubs: every hub and SOC ordered by code, from cache:hubs:all (Appendix B §B.6.2), filtered and masked
-// for p. The whole master in one response (a few hundred rows; no pagination, as the single DTO of W8).
-func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) ([]Hub, error) {
+// hubCursor is the opaque cursor of a GET /v1/hubs page: the code and id of its last row.
+type hubCursor struct {
+	Code string    `json:"c"`
+	ID   uuid.UUID `json:"id"`
+}
+
+func (c hubCursor) encode() string {
+	b, _ := json.Marshal(c)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeHubCursor(s string) (hubCursor, bool) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return hubCursor{}, false
+	}
+	var c hubCursor
+	if json.Unmarshal(b, &c) != nil || c.Code == "" || c.ID == uuid.Nil {
+		return hubCursor{}, false
+	}
+	return c, true
+}
+
+// compareHubKeys is the order of GET /v1/hubs: the stored (upper-case) code in byte order, then the id. It is total
+// and computed here, not taken from the database's collation, so a keyset cursor resumes exactly.
+func compareHubKeys(codeA string, idA uuid.UUID, codeB string, idB uuid.UUID) int {
+	if c := strings.Compare(codeA, codeB); c != 0 {
+		return c
+	}
+	return bytes.Compare(idA[:], idB[:])
+}
+
+// List is GET /v1/hubs: the hubs and SOCs ordered by code (compareHubKeys) from cache:hubs:all (Appendix B §B.6.2),
+// filtered and masked for p. Without in.Page it answers the whole master (a few hundred rows) and no cursor: the
+// master-data pages, the maps and the distance panels read it so. With in.Page it answers one keyset page and the
+// cursor of the next ("" on the last page): the pickers search with q one page at a time (UI2B).
+func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) ([]Hub, string, error) {
+	var ck checker
 	var station string
 	if v := strings.TrimSpace(in.StationType); v != "" {
 		st, ok := ParseStationType(v)
 		if !ok {
-			return nil, httpx.ErrInvalidArgument(violation("stationType", "invalid"))
+			ck.add("stationType", "invalid")
 		}
 		station = st
 	}
-	q := strings.ToLower(strings.TrimSpace(in.Q))
-	if len([]rune(q)) > 100 {
-		return nil, httpx.ErrInvalidArgument(violation("q", "too_long"))
+	q := strings.TrimSpace(in.Q)
+	if utf8.RuneCountInString(q) > searchtext.MaxQueryLen {
+		ck.add("q", "too_long")
+	}
+	limit := in.Limit
+	if limit == 0 {
+		limit = DefaultLimit
+	}
+	if in.Page && (limit < 1 || limit > MaxLimit) {
+		ck.add("limit", "out_of_range")
+	}
+	var after *hubCursor
+	if in.Cursor != "" {
+		c, ok := decodeHubCursor(in.Cursor)
+		if !ok {
+			ck.add("cursor", "invalid")
+		}
+		after = &c
+	}
+	if err := ck.err(); err != nil {
+		return nil, "", err
 	}
 	all, err := s.allHubs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	terms := searchtext.Terms(q)
 	out := make([]Hub, 0, len(all))
 	for _, h := range all {
 		if station != "" && h.StationType != station {
 			continue
 		}
-		if q != "" && !matches(h.Hub, q) {
+		if len(terms) > 0 && !matches(h.Hub, terms) {
+			continue
+		}
+		if after != nil && compareHubKeys(h.SourceID, h.ID, after.Code, after.ID) <= 0 {
 			continue
 		}
 		out = append(out, h.forPrincipal(p))
 	}
-	return out, nil
+	slices.SortFunc(out, func(a, b Hub) int { return compareHubKeys(a.SourceID, a.ID, b.SourceID, b.ID) })
+	if !in.Page || len(out) <= limit {
+		return out, "", nil
+	}
+	out = out[:limit]
+	last := out[limit-1]
+	return out, hubCursor{Code: last.SourceID, ID: last.ID}.encode(), nil
 }
 
-func matches(h Hub, q string) bool {
-	if strings.Contains(strings.ToLower(h.SourceID), q) || strings.Contains(strings.ToLower(h.SourceNameTh), q) {
-		return true
+// matches says whether every term is in the hub's folded code and names.
+func matches(h Hub, terms []string) bool {
+	text := h.SourceID + " " + h.SourceNameTh
+	if h.SourceNameEn != nil {
+		text += " " + *h.SourceNameEn
 	}
-	return h.SourceNameEn != nil && strings.Contains(strings.ToLower(*h.SourceNameEn), q)
+	return searchtext.Matches(searchtext.Fold(text), terms)
+}
+
+// Lookup is GET /v1/hubs/{ref}: one hub or SOC by its uuid or its code (case-insensitive), else the SOC whose
+// normalised key the reference names (SOCE for "SOCE (บัวโรย)", normalizeSocIdToKey; the first in code order), from
+// cache:hubs:all and masked for p as the list is. A picker labels the value it holds with it when the current page
+// does not hold it (UI2B). Nothing matching is 404.
+func (s *Service) Lookup(ctx context.Context, p *authz.Principal, ref string) (*Hub, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || utf8.RuneCountInString(ref) > MaxSourceIDLen {
+		return nil, httpx.ErrNotFound()
+	}
+	all, err := s.allHubs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, idErr := uuid.Parse(ref)
+	code := NormalizeSourceID(ref)
+	var soc *cachedHub
+	for i := range all {
+		h := &all[i]
+		if (idErr == nil && h.ID == id) || strings.EqualFold(h.SourceID, code) {
+			out := h.forPrincipal(p)
+			return &out, nil
+		}
+		if h.StationType == StationSOC && NormalizeSocKey(h.SourceID) == NormalizeSocKey(ref) &&
+			(soc == nil || compareHubKeys(h.SourceID, h.ID, soc.SourceID, soc.ID) < 0) {
+			soc = h
+		}
+	}
+	if soc == nil {
+		return nil, httpx.ErrNotFound()
+	}
+	out := soc.forPrincipal(p)
+	return &out, nil
 }
 
 // allHubs reads the master through cache:hubs:all (TTL CACHE_TTL_HUBS).
