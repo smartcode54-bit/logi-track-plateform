@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
     Loader2, Building2, User, Phone, Mail, MapPin, Truck,
-    Plus, Edit, LayoutDashboard, FileText, Activity, Clock, MessageSquare,
+    Plus, Edit, LayoutDashboard, FileText, Activity, Clock,
     CheckCircle2, AlertTriangle, Calendar, ArrowLeft
 } from "lucide-react";
 import Link from "next/link";
@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { formatLicensePlate, cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 function NavItem({ icon: Icon, label, active = false }: { icon: React.ElementType; label: string; active?: boolean }) {
     return (
@@ -44,37 +46,39 @@ export default function SubcontractorDetail() {
     const truckPages = useTruckPages({ tenantId: id ?? "" }, { enabled: Boolean(id) });
     const trucks = truckPages.trucks;
 
-    if (query.isPending && id) {
-        return (
-            <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
-        );
+    // No id, no partner, or the read failed: not found or outside the reader's scope, or a load error with a retry
+    // (UI3D).
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!id || recordUnavailable(query)) {
+        return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 
-    if (!subcontractor) {
+    if (query.isPending || !subcontractor) {
         return (
-            <div className="container mx-auto py-12 text-center">
-                <h2 className="text-xl font-semibold mb-4 text-slate-800">{t("subcontractors.detail.notFound")}</h2>
-                <Button asChild variant="outline">
-                    <Link href="/app/subcontractors" prefetch={false}>{t("subcontractors.detail.backToList")}</Link>
-                </Button>
+            <div className="flex items-center justify-center min-h-[400px]" role="status" aria-busy="true">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+                <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950/50 p-6 md:p-8">
-            <div className="max-w-7xl mx-auto space-y-6">
-                {/* Breadcrumbs */}
-                <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
-                    <Link href="/app/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.partners")}</Link>
-                    <span>/</span>
-                    <Link href="/app/subcontractors" className="hover:text-slate-900 transition-colors" prefetch={false}>{t("subcontractors.detail.subcontractors")}</Link>
-                    <span>/</span>
-                    <span className="font-medium text-slate-900 dark:text-slate-100">{subcontractor.nameTh}</span>
-                </div>
-
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.partners")}
+                recordName={subcontractor.nameTh}
+                back={{ href: "/app/subcontractors" }}
+                status={<Badge variant="secondary">{t("subcontractors.status.activePartner")}</Badge>}
+                description={<span className="font-mono">ID: SUB-{subcontractor.id.substring(0, 6).toUpperCase()}</span>}
+                actions={
+                    <Button asChild>
+                        <Link href={`/app/subcontractors/${subcontractor.id}/edit`} prefetch={false}>
+                            <Edit className="h-4 w-4" aria-hidden /> {t("subcontractors.detail.editProfile")}
+                        </Link>
+                    </Button>
+                }
+            />
+            <div className="space-y-6">
                 {/* Main Content Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                     {/* Left Sidebar - Partner Portal */}
@@ -93,18 +97,6 @@ export default function SubcontractorDetail() {
                             </div>
                         </Card>
 
-                        {/* Quick Stats Card */}
-                        <div className="bg-blue-600 rounded-xl p-6 text-white shadow-lg shadow-blue-600/20">
-                            <h4 className="text-xs font-semibold uppercase opacity-80 mb-1">{t("subcontractors.detail.totalDeliveries")}</h4>
-                            <div className="flex items-baseline gap-2 mb-4">
-                                <span className="text-3xl font-bold">1,284</span>
-                                <span className="text-sm font-medium bg-white/20 px-1.5 py-0.5 rounded text-white">+12%</span>
-                            </div>
-                            <div className="h-1 bg-blue-500 rounded-full overflow-hidden">
-                                <div className="h-full bg-white w-[85%]" />
-                            </div>
-                            <p className="text-xs mt-2 opacity-80">{t("subcontractors.detail.monthlyTarget")}: 1,500</p>
-                        </div>
                     </div>
 
                     {/* Right Content Area */}
@@ -114,42 +106,21 @@ export default function SubcontractorDetail() {
                             <div className="p-6 md:p-8">
                                 <div className="flex flex-col md:flex-row gap-6 items-start justify-between">
                                     <div className="flex items-start gap-6">
-                                        <div className="h-24 w-24 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 text-2xl font-serif">
-                                            {subcontractor.nameTh.substring(0, 2).toUpperCase()}
-                                        </div>
                                         <div>
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{subcontractor.nameTh}</h1>
-                                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none px-2 py-0.5 h-auto">{t("subcontractors.status.activePartner")}</Badge>
-                                            </div>
                                             <div className="space-y-1 text-sm text-slate-500 dark:text-slate-400">
-                                                <p className="flex items-center gap-2">
-                                                    <span className="font-mono text-slate-400">ID: SUB-{subcontractor.id.substring(0, 6).toUpperCase()}</span>
-                                                    <span>•</span>
-                                                    <span className="text-blue-600 font-medium">{t("subcontractors.detail.masterSubcontractor")}</span>
-                                                </p>
+                                                <p className="font-medium text-foreground">{t("subcontractors.detail.masterSubcontractor")}</p>
                                                 <div className="flex items-center gap-4 mt-2">
                                                     <div className="flex items-center gap-1.5">
                                                         <Calendar className="h-4 w-4" />
-                                                        <span>{t("subcontractors.detail.joined")} {subcontractor.createdAt ? new Date(subcontractor.createdAt).toLocaleDateString() : 'Jan 2024'}</span>
+                                                        <span>{t("subcontractors.detail.joined")} {subcontractor.createdAt ? new Date(subcontractor.createdAt).toLocaleDateString() : "-"}</span>
                                                     </div>
                                                     <div className="flex items-center gap-1.5">
                                                         <MapPin className="h-4 w-4" />
-                                                        <span>{subcontractor.address ? subcontractor.address.split(',')[0] : 'Chicago, IL'}</span>
+                                                        <span>{subcontractor.address ? subcontractor.address.split(',')[0] : "-"}</span>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 w-full md:w-auto mt-4 md:mt-0">
-                                        <Button variant="outline" className="flex-1 md:flex-none gap-2">
-                                            <MessageSquare className="h-4 w-4" /> {t("subcontractors.detail.message")}
-                                        </Button>
-                                        <Button className="flex-1 md:flex-none gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                                            <Link href={`/app/subcontractors/${subcontractor.id}/edit`} prefetch={false}>
-                                                <Edit className="h-4 w-4" /> {t("subcontractors.detail.editProfile")}
-                                            </Link>
-                                        </Button>
                                     </div>
                                 </div>
                             </div>

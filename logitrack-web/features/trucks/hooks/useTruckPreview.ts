@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
+import { recordUnavailable } from "@/components/record-state";
 import { useAssignmentsOf, useTruck } from "../api/useTrucks";
 import { fileUrl } from "../api/trucks";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
@@ -10,12 +10,12 @@ import { carrierName } from "@/features/subcontractors/api/subcontractors";
 /**
  * The truck page (T25): `['trucks','detail',id]` with the truck's assignments
  * (`['truckAssignments',{truckId}]`, fetched in parallel instead of after the truck) and the carrier
- * name from `['subcontractors','options']`.
+ * name from `['subcontractors','options']`. The page names itself with the plate through its `PageHeader` (UI3D);
+ * without a truck it shows `RecordState` (not found, or a load error with a retry).
  */
 export function useTruckPreview() {
     const searchParams = useSearchParams();
     const truckId = searchParams.get("id") ?? "";
-    const { setCustomLastItem } = useBreadcrumb();
     const { t, language } = useLanguage();
 
     const truckQuery = useTruck(truckId);
@@ -26,18 +26,9 @@ export function useTruckPreview() {
     const [isViewerOpen, setIsViewerOpen] = useState(false);
     const [viewerIndex, setViewerIndex] = useState(0);
 
-    useEffect(() => {
-        if (truck) setCustomLastItem(truck.licensePlate); // the plate names the truck in both languages (UI3)
-        return () => setCustomLastItem(null);
-    }, [truck, setCustomLastItem]);
-
-    const error = !truckId
-        ? t("trucks.detail.noId")
-        : truckQuery.isError
-          ? t("trucks.detail.error")
-          : truckQuery.isSuccess && !truck
-            ? t("trucks.detail.notFound")
-            : null;
+    // No id, no truck (not found), or the read failed: the page shows RecordState instead of the truck.
+    // A failed background refetch keeps the loaded truck (recordUnavailable); only a missing one is "missing".
+    const missing = !truckId || recordUnavailable(truckQuery);
 
     const documentTax = truck ? fileUrl(truck.files, "documentTax") : "";
     const insuranceDocuments = truck ? (truck.files.insuranceDocument ?? []).map((f) => f.url ?? "").filter(Boolean) : [];
@@ -71,7 +62,10 @@ export function useTruckPreview() {
         truck,
         assignmentHistory: assignments.assignments,
         isLoading: truckQuery.isPending && Boolean(truckId),
-        error,
+        missing,
+        loadError: truckQuery.error,
+        retry: () => void truckQuery.refetch(),
+        retrying: truckQuery.isFetching,
         isViewerOpen,
         setIsViewerOpen,
         viewerIndex,

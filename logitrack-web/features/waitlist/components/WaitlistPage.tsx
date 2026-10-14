@@ -14,6 +14,7 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -54,17 +55,17 @@ export function WaitlistPage() {
     }
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.waitlist")}</h1>
-                    <p className="text-muted-foreground mt-2">{t("waitlist.description")}</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>
-                    <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
-                    {t("waitlist.refresh")}
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.waitlist")}
+                description={t("waitlist.description")}
+                actions={
+                    <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                        {t("waitlist.refresh")}
+                    </Button>
+                }
+            />
 
             {list.isError && (
                 <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert">

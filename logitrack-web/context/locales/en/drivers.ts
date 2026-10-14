@@ -134,13 +134,9 @@ export default {
     "drivers.toast.registerError": "Failed to register driver",
     "drivers.toast.updateSuccess": "Driver updated successfully",
     "drivers.toast.updateError": "Failed to update driver",
-    "drivers.toast.notFound": "Driver not found",
-    "drivers.toast.loadError": "Failed to load driver data",
-    "drivers.toast.noId": "No driver ID provided",
     "drivers.toast.subLoadError": "Failed to load partners",
 
     // Edit Page
-    "drivers.edit.title": "Edit Driver",
     "drivers.edit.subtitle": "Update driver information",
     "drivers.edit.backToDetails": "Back to Details",
     "drivers.edit.changePhoto": "Change Photo",
@@ -187,7 +183,6 @@ export default {
     "drivers.detail.current": "Current",
     "drivers.detail.revoked": "Revoked",
     "drivers.detail.noHistory": "No assignment history found.",
-    "drivers.detail.notFound": "Driver not found",
     "drivers.detail.backToDrivers": "Back to Drivers",
     "drivers.detail.loadingData": "Loading driver data...",
 

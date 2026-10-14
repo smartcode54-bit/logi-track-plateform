@@ -19,6 +19,7 @@ import { Check, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { LoadMore } from "@/components/load-more";
@@ -202,17 +203,17 @@ export function ExpenseAuditPage() {
     );
 
     return (
-        <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.auditExpense")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("accounting.audit.subtitle")}</p>
-                </div>
-                <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
-                    <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
-                    {t("common.refresh")}
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.auditExpense")}
+                description={t("accounting.audit.subtitle")}
+                actions={
+                    <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
+                        <RefreshCw aria-hidden className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
+                        {t("common.refresh")}
+                    </Button>
+                }
+            />
 
             <Card>
                 <CardContent className="flex flex-wrap items-end gap-4 pt-4">

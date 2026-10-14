@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { format } from "date-fns";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 
 export default function RenewalsPage() {
     const { t } = useLanguage();
@@ -67,31 +68,28 @@ export default function RenewalsPage() {
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-8 max-w-[1400px]">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.truckRenewals")}</h1>
-                    <p className="text-muted-foreground mt-1">{t("renewals.subtitle")}</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setFilter("all")} className={filter === "all" ? "bg-accent" : ""}>
-                        {t("renewals.filter.all")}
-                    </Button>
-                    <Button variant="outline" onClick={() => setFilter("critical")} className={`gap-2 ${filter === "critical" ? "bg-red-100 text-red-900 border-red-200 hover:bg-red-200" : ""}`}>
-                        <AlertTriangle className="h-4 w-4 text-red-600" />
-                        {t("renewals.filter.critical")}
-                        {/* If we want to translate the badge content or context, we might need a key, 
-                            but numbers are universal. The user's goal is translations. */}
-                        <Badge variant="secondary" className="ml-1 bg-red-200 text-red-800">{taxOverdue + insuranceOverdue}</Badge>
-                    </Button>
-                    <Button variant="outline" onClick={() => setFilter("warning")} className={`gap-2 ${filter === "warning" ? "bg-yellow-100 text-yellow-900 border-yellow-200 hover:bg-yellow-200" : ""}`}>
-                        <Calendar className="h-4 w-4 text-yellow-600" />
-                        {t("renewals.filter.warning")}
-                        <Badge variant="secondary" className="ml-1 bg-yellow-200 text-yellow-800">{taxExpiring + insuranceExpiring}</Badge>
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.truckRenewals")}
+                description={t("renewals.subtitle")}
+                actions={
+                    <>
+                        <Button variant={filter === "all" ? "secondary" : "outline"} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
+                            {t("renewals.filter.all")}
+                        </Button>
+                        <Button variant={filter === "critical" ? "secondary" : "outline"} aria-pressed={filter === "critical"} onClick={() => setFilter("critical")} className="gap-2">
+                            <AlertTriangle className="h-4 w-4 text-destructive" aria-hidden />
+                            {t("renewals.filter.critical")}
+                            <Badge variant={filter === "critical" ? "outline" : "secondary"} className="ml-1 bg-background">{taxOverdue + insuranceOverdue}</Badge>
+                        </Button>
+                        <Button variant={filter === "warning" ? "secondary" : "outline"} aria-pressed={filter === "warning"} onClick={() => setFilter("warning")} className="gap-2">
+                            <Calendar className="h-4 w-4 text-warning" aria-hidden />
+                            {t("renewals.filter.warning")}
+                            <Badge variant={filter === "warning" ? "outline" : "secondary"} className="ml-1 bg-background">{taxExpiring + insuranceExpiring}</Badge>
+                        </Button>
+                    </>
+                }
+            />
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

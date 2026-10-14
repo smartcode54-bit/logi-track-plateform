@@ -393,11 +393,21 @@ export default {
     "common.ok": "OK",
     "common.close": "Close",
 
-    // Unauthorized page
-    "unauthorized.title": "Access Denied",
-    "unauthorized.description": "You don't have permission to view this page. Contact your administrator if you believe this is a mistake.",
-    "unauthorized.goBack": "Go Back",
-    "unauthorized.goHome": "Go to My Home Page",
+    // Unauthorized page (UI3D): a mapped page the principal's role does not open (an unmapped path is "Page not
+    // found" instead). The page names the page from the menu and says who can change that, by kind of principal.
+    "unauthorized.title": "No access to this page",
+    "unauthorized.description": "Your current role does not include this page.",
+    "unauthorized.page": "Your current role does not include “{page}”.",
+    "unauthorized.guide.tenantAdmin":
+        "The tenant admin role cannot be extended inside a tenant. This page belongs to the team at GORATECH that runs LogiTrack Pro; contact them if your work needs it.",
+    "unauthorized.guide.staff":
+        "Ask your organisation's administrator. A tenant admin can change which pages your role opens, under Security center › Roles and permissions.",
+    "unauthorized.guide.ownFleet":
+        "This page is the transport company's own work (customers, partners, pickup points, platform settings). No role of a partner carrier's account can open it.",
+    "unauthorized.guide.external": "Ask the transport company that invited you to LogiTrack Pro. They decide what you can see here.",
+    "unauthorized.guide.platform": "Platform roles open the platform's own pages, such as the Security center, not a company's daily work.",
+    "unauthorized.guide.driver": "Drivers work in the LogiTrack driver app. This console is for office staff, customers and partners.",
+    "unauthorized.goBack": "Go back",
     "unauthorized.roleHint": "Signed in as {role}",
 
     // Tenant switcher (T18)

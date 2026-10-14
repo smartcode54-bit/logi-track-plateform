@@ -29,11 +29,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowLeft, Check, Upload, Building, Phone, Truck, FileText, Globe, Smartphone, Mail, MapPin, CheckCircle2 } from "lucide-react";
-import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 
 export default function NewSubcontractorWizard() {
     const router = useRouter();
@@ -90,18 +90,15 @@ export default function NewSubcontractorWizard() {
     };
 
     return (
-        <div className="min-h-screen bg-background text-foreground flex flex-col">
+        <div className="flex flex-col gap-section">
             {/* Sticky Header */}
-            <div className="flex items-center px-8 py-6 border-b bg-background sticky top-0 z-10">
-                <Button variant="ghost" size="icon" asChild className="mr-4">
-                    <Link href="/app/subcontractors" prefetch={false}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Link>
-                </Button>
-                <div>
-                    <h1 className="text-2xl font-bold">{t("subcontractors.new.title")}</h1>
-                    <p className="text-muted-foreground text-sm">{t("subcontractors.new.step")} {currentStep} {t("subcontractors.new.of")} {STEPS.length}: {STEPS[currentStep - 1].title}</p>
-                </div>
+            <div className="sticky top-16 z-raised border-b bg-background pb-4">
+                <PageHeader
+                    title={t("nav.partners")}
+                    recordName={t("subcontractors.new.title")}
+                    description={`${t("subcontractors.new.step")} ${currentStep} ${t("subcontractors.new.of")} ${STEPS.length}: ${STEPS[currentStep - 1].title}`}
+                    back={{ href: "/app/subcontractors" }}
+                />
             </div>
 
             <div className="flex flex-1 overflow-hidden">

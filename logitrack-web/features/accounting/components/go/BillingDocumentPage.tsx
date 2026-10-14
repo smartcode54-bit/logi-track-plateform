@@ -25,6 +25,7 @@ import { AlertTriangle, FileText, Loader2, RefreshCw, Wrench, X } from "lucide-r
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
@@ -519,11 +520,8 @@ export function BillingDocumentPage() {
     };
 
     return (
-        <div className="space-y-6 p-6">
-            <div>
-                <h1 className="text-2xl font-bold">{t("nav.billingDocument")}</h1>
-                <p className="mt-1 text-sm text-muted-foreground">{t("accounting.billingDocument.subtitle")}</p>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("nav.billingDocument")} description={t("accounting.billingDocument.subtitle")} />
 
             <Card>
                 <CardHeader>

@@ -408,7 +408,7 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                                     </p>
                                 </div>
                             </div>
-                            <Button
+                            <Button aria-label={t("common.removeFile")}
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => {

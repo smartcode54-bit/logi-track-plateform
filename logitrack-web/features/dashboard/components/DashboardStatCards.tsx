@@ -30,8 +30,8 @@ function StatCard({ title, value, hint, icon: Icon, iconBgColor, iconColor, test
                     <Icon className="w-6 h-6" />
                 </div>
             </div>
-            <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider mb-1">{title}</p>
-            <h3 className="text-3xl font-bold text-foreground tabular-nums">{value}</h3>
+            <p className="text-muted-foreground text-xs font-medium mb-1">{title}</p>
+            <p className="text-3xl font-semibold text-foreground tabular-nums">{value}</p>
             {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
         </div>
     );
@@ -39,7 +39,7 @@ function StatCard({ title, value, hint, icon: Icon, iconBgColor, iconColor, test
 
 export function StatCardsSkeleton() {
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6" aria-busy="true">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" aria-busy="true">
             {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="bg-card border border-border rounded-xl p-6 shadow-sm animate-pulse flex items-center gap-4">
                     <div className="h-12 w-12 rounded-lg bg-muted" />
@@ -60,7 +60,7 @@ export function DashboardStatCards({ usersByRole, drivers, trips }: { usersByRol
     if (!usersByRole && !drivers && !trips) return null;
     const people = usersByRole ? roleDistribution(usersByRole) : undefined;
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {people && (
                 <StatCard
                     testId="stat-users"

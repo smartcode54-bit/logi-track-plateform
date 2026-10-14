@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
-    Loader2, ArrowLeft, CheckCircle2, Upload, User,
+    Loader2, CheckCircle2, Upload, User,
     FileText, Truck, Save, X, Building2, KeyRound, ShieldCheck, ShieldOff,
 } from "lucide-react";
 import Link from "next/link";
@@ -41,6 +41,8 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 /**
  * Reset() replaces every value, so a key absent from the Firestore doc becomes `undefined`
@@ -129,19 +131,6 @@ export default function EditDriverForm() {
         setLoaded(driver);
     }, [driverQuery.data, loaded, form]);
 
-    useEffect(() => {
-        if (!driverId) {
-            toast.error(t("drivers.toast.noId"));
-            router.push('/app/drivers');
-        } else if (driverQuery.isSuccess && !driverQuery.data) {
-            toast.error(t("drivers.toast.notFound"));
-            router.push('/app/drivers');
-        } else if (driverQuery.isError) {
-            toast.error(t("drivers.toast.loadError"));
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [driverId, driverQuery.isSuccess, driverQuery.isError, driverQuery.data]);
-
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -201,35 +190,32 @@ export default function EditDriverForm() {
 
     const employmentType = form.watch("employmentType");
 
+    // No id, no driver, or the read failed: not found, or a load error with a retry (UI3D), never an empty form.
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!driverId || recordUnavailable(driverQuery)) {
+        return <RecordState error={driverQuery.error} onRetry={() => void driverQuery.refetch()} retrying={driverQuery.isFetching} />;
+    }
+
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center min-h-[50vh]" role="status" aria-busy="true">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
                 <span className="ml-2 text-muted-foreground">{t("drivers.edit.loading")}</span>
             </div>
         );
     }
 
-    return (
-        <div className="container mx-auto px-4 py-8">
-            <div className="max-w-4xl mx-auto space-y-6">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold text-foreground">
-                            {t("drivers.edit.title")}
-                        </h1>
-                        <p className="text-muted-foreground mt-1">
-                            {t("drivers.edit.subtitle")}
-                        </p>
-                    </div>
-                    <Button variant="outline" asChild>
-                        <Link href={`/app/drivers/view?id=${driverId}`} prefetch={false} className="flex items-center gap-2">
-                            <ArrowLeft className="h-4 w-4" />
-                            {t("drivers.edit.backToDetails")}
-                        </Link>
-                    </Button>
-                </div>
+    const driverName = driverQuery.data ? `${driverQuery.data.firstName} ${driverQuery.data.lastName}` : "";
 
+    return (
+        <div className="flex max-w-4xl flex-col gap-section">
+            <PageHeader
+                title={t("nav.drivers")}
+                recordName={driverName}
+                description={t("drivers.edit.subtitle")}
+                back={{ href: `/app/drivers/view?id=${driverId}`, label: t("drivers.edit.backToDetails") }}
+            />
+            <div className="space-y-6">
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
                         <Card>
@@ -254,7 +240,7 @@ export default function EditDriverForm() {
                                             <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                                         </div>
                                         {imagePreview && (
-                                            <button type="button" onClick={removeImage} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-sm">
+                                            <button aria-label={t("common.removePhoto")} type="button" onClick={removeImage} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-sm">
                                                 <X className="h-4 w-4" />
                                             </button>
                                         )}

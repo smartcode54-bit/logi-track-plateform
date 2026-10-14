@@ -29,6 +29,7 @@ import imagePreview from "./imagePreview";
 import hr from "./hr";
 import chat from "./chat";
 import support from "./support";
+import pageStates from "./pageStates";
 
 const dictionary: Dictionary = {
     ...common,
@@ -57,6 +58,7 @@ const dictionary: Dictionary = {
     ...hr,
     ...chat,
     ...support,
+    ...pageStates,
 };
 
 export default dictionary;

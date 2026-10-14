@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Calculator } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { format, startOfMonth } from "date-fns";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
@@ -44,19 +45,19 @@ export function RateCardPage() {
     const now = new Date();
 
     return (
-        <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.rateCard")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("accounting.rateCard.subtitle")}</p>
-                </div>
-                {canEdit || canRecompute ? (
-                    <Button variant="outline" onClick={() => setRecompute(true)}>
-                        <Calculator className="mr-2 h-4 w-4" />
-                        {t("accounting.go.rateCard.recompute")}
-                    </Button>
-                ) : null}
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.rateCard")}
+                description={t("accounting.rateCard.subtitle")}
+                actions={
+                    canEdit || canRecompute ? (
+                        <Button variant="outline" onClick={() => setRecompute(true)}>
+                            <Calculator aria-hidden className="mr-2 h-4 w-4" />
+                            {t("accounting.go.rateCard.recompute")}
+                        </Button>
+                    ) : null
+                }
+            />
 
             <Card>
                 <CardContent className="flex flex-wrap items-end gap-4 pt-4">

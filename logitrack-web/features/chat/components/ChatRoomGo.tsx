@@ -13,10 +13,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle, Hand, Loader2, RotateCcw, Send, User } from "lucide-react";
+import { CheckCircle, Hand, Loader2, RotateCcw, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import { useCan, useMe } from "@/features/auth/api/useMe";
 import { apiErrorText, isApiError } from "@/lib/apiError";
 import { newIdempotencyKey } from "@/lib/goFetch";
@@ -96,13 +98,15 @@ export function ChatRoomGo() {
     if (!chatId) return null;
     if (!isGoId(chatId)) {
         return (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground" data-testid="chat-legacy-link">
-                <p>{t("chat.room.legacyLink")}</p>
-                <Button variant="outline" size="sm" asChild>
-                    <Link href="/app/chat" prefetch={false}>
-                        {t("chat.room.backToConsole")}
-                    </Link>
-                </Button>
+            <div className="flex flex-1 flex-col gap-section p-4" data-testid="chat-legacy-link">
+                <PageHeader title={t("nav.chat")} description={t("chat.room.legacyLink")} />
+                <div>
+                    <Button variant="outline" asChild>
+                        <Link href="/app/chat" prefetch={false}>
+                            {t("chat.room.backToConsole")}
+                        </Link>
+                    </Button>
+                </div>
             </div>
         );
     }
@@ -126,11 +130,6 @@ function Room({ chatId }: { chatId: string }) {
 
     // Join chat:{id} once Go has shown the chat to the caller (an unreadable id is never put on the stream).
     useRealtimeTopic(chat.isSuccess ? chatTopic(chatId) : null);
-
-    const gone = chat.isError && isApiError(chat.error) && (chat.error.status === 404 || chat.error.status === 403);
-    useEffect(() => {
-        if (gone) router.replace("/app/chat");
-    }, [gone, router]);
 
     const list = useMemo(() => messagesOldestFirst(messages.data), [messages.data]);
     const newest = useMemo(() => [...list].reverse().find((m) => m.local === undefined), [list]);
@@ -184,15 +183,22 @@ function Room({ chatId }: { chatId: string }) {
             }
         );
 
-    if (chat.isPending || (chat.isError && gone)) {
+    if (chat.isPending) {
         return (
             <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-busy="true">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+                <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
-    if (chat.isError) {
-        return <p className="p-6 text-sm text-destructive">{apiErrorText(chat.error, t)}</p>;
+    // A chat that does not exist or is outside the reader's scope (404), or a load error with a retry (UI3D): said on
+    // the page, with the way back to the chat console, instead of a silent bounce or a bare red line.
+    if (recordUnavailable(chat) || !chat.data) {
+        return (
+            <div className="p-4">
+                <RecordState error={chat.error} onRetry={() => void chat.refetch()} retrying={chat.isFetching} />
+            </div>
+        );
     }
 
     const c = chat.data;
@@ -205,48 +211,42 @@ function Room({ chatId }: { chatId: string }) {
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex shrink-0 items-center gap-4 border-b p-4">
-                <Button variant="ghost" size="icon" asChild>
-                    <Link href="/app/chat" prefetch={false} aria-label={t("chat.room.backToConsole")}>
-                        <ArrowLeft className="h-4 w-4" />
-                    </Link>
-                </Button>
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                    <h1 className="truncate font-semibold">{driverName}</h1>
-                    <p className="text-sm text-muted-foreground" data-testid="chat-status">
-                        {t(`chat.status.${c.status}`, c.status)}
-                        {c.assignedAdminUserId && !mine && c.assignedAdminName ? ` · ${t("chat.room.assignedTo", { name: c.assignedAdminName })}` : ""}
-                    </p>
-                </div>
-                {canSend && (
-                    <div className="flex gap-2">
-                        {closed ? (
+            <div className="shrink-0 border-b p-4">
+                <PageHeader
+                    title={t("nav.chat")}
+                    recordName={driverName}
+                    back={{ href: "/app/chat", label: t("chat.room.backToConsole") }}
+                    description={
+                        <span data-testid="chat-status">
+                            {t(`chat.status.${c.status}`, c.status)}
+                            {c.assignedAdminUserId && !mine && c.assignedAdminName ? ` · ${t("chat.room.assignedTo", { name: c.assignedAdminName })}` : ""}
+                        </span>
+                    }
+                    actions={
+                        !canSend ? null : closed ? (
                             <Button variant="outline" size="sm" onClick={() => run("reopen")} disabled={busy} className="gap-1">
-                                <RotateCcw className="h-4 w-4" />
+                                <RotateCcw className="h-4 w-4" aria-hidden />
                                 {t("chat.room.reopen")}
                             </Button>
                         ) : c.assignedAdminUserId === null ? (
                             <Button variant="outline" size="sm" onClick={() => run("take")} disabled={busy} className="gap-1">
-                                <Hand className="h-4 w-4" />
+                                <Hand className="h-4 w-4" aria-hidden />
                                 {t("chat.room.take")}
                             </Button>
                         ) : mine ? (
                             <>
                                 <Button variant="outline" size="sm" onClick={() => run("return")} disabled={busy} className="gap-1">
-                                    <RotateCcw className="h-4 w-4" />
+                                    <RotateCcw className="h-4 w-4" aria-hidden />
                                     {t("chat.room.returnToQueue")}
                                 </Button>
                                 <Button variant="default" size="sm" onClick={() => run("close")} disabled={busy} className="gap-1">
-                                    <CheckCircle className="h-4 w-4" />
+                                    <CheckCircle className="h-4 w-4" aria-hidden />
                                     {t("chat.room.close")}
                                 </Button>
                             </>
-                        ) : null}
-                    </div>
-                )}
+                        ) : null
+                    }
+                />
             </div>
 
             <Card className="mx-4 mb-4 flex min-h-0 flex-1 flex-col rounded-lg">

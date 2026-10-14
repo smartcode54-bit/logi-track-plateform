@@ -14,6 +14,7 @@ import { format } from "date-fns";
 import { AlertTriangle, CalendarIcon, Clock, Navigation, RefreshCw, Search } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { ImagePreviewGallery } from "@/components/accounting/ImagePreviewGallery";
 import { IncidentLocationMap } from "@/features/incident-reports/components/IncidentLocationMap";
 import { ApiErrorAlert, formatDateTime } from "@/features/accounting/components/go/shared";
@@ -50,16 +51,16 @@ function Reports() {
     const shown = useMemo(() => rows.filter((r) => matchesIncident(r, search)), [rows, search]);
 
     return (
-        <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-            <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.incidentReports")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("incidentReports.subtitle")}</p>
-                </div>
-                <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("taskBoard.refresh")}>
-                    <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} />
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.incidentReports")}
+                description={t("incidentReports.subtitle")}
+                actions={
+                    <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("taskBoard.refresh")}>
+                        <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} aria-hidden />
+                    </Button>
+                }
+            />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="bg-card">

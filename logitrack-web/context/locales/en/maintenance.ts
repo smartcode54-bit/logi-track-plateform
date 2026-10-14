@@ -134,7 +134,6 @@ export default {
     "maintenance.preview.print": "Print",
 
     // Error / Status
-    "maintenance.truckNotFound": "Truck not found",
     "maintenance.saveFailed": "Failed to save record. Please check inputs.",
 
     // Service Types

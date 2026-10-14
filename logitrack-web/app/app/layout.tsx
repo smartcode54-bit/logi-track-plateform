@@ -112,8 +112,10 @@ export default function AdminLayout({
                             <UserMenu />
                         </div>
                     </header>
-                    {/* scroll-mt-16: the skip link lands below the 64 px sticky header, not under it. */}
-                    <main id={MAIN_CONTENT_ID} tabIndex={-1} className="flex min-w-0 flex-1 scroll-mt-16 flex-col gap-4 p-4 outline-none">
+                    {/* scroll-mt-16: the skip link lands below the 64 px sticky header, not under it. The shell owns the
+                        page's 16 px gutter (UI3D, DESIGN.md `gutter`): pages never pad themselves, so every page starts at
+                        the same left edge and keeps the full width at 360 px. */}
+                    <main id={MAIN_CONTENT_ID} tabIndex={-1} className="flex min-w-0 flex-1 scroll-mt-16 flex-col gap-section p-gutter outline-none">
                         {/* The route group's lazily loaded translation namespaces (accounting, driverMonitor). */}
                         <RouteNamespaces pathname={pathname}>{children}</RouteNamespaces>
                     </main>

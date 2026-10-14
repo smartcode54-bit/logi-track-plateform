@@ -166,14 +166,11 @@ export default {
     "subcontractors.toast.registerError": "ไม่สามารถลงทะเบียนรถร่วมได้",
     "subcontractors.toast.updateSuccess": "อัปเดตรถร่วมสำเร็จ",
     "subcontractors.toast.updateError": "ไม่สามารถอัปเดตรถร่วมได้",
-    "subcontractors.toast.notFound": "ไม่พบรถร่วม",
     "subcontractors.toast.loadError": "ไม่สามารถโหลดข้อมูลรถร่วมได้",
     "subcontractors.toast.uploadSuccess": "อัปโหลดไฟล์สำเร็จ",
     "subcontractors.toast.uploadError": "ไม่สามารถอัปโหลดไฟล์ได้",
 
     // Detail Page
-    "subcontractors.detail.partners": "รถร่วม",
-    "subcontractors.detail.subcontractors": "รถร่วม",
     "subcontractors.detail.partnerPortal": "พอร์ทัลรถร่วม",
     "subcontractors.detail.subcontractorManagement": "รถร่วม",
     "subcontractors.detail.overview": "ภาพรวม",
@@ -181,11 +178,8 @@ export default {
     "subcontractors.detail.contractsDocs": "สัญญาและเอกสาร",
     "subcontractors.detail.performance": "ประสิทธิภาพ",
     "subcontractors.detail.activityLog": "บันทึกกิจกรรม",
-    "subcontractors.detail.totalDeliveries": "จำนวนการจัดส่งทั้งหมด",
-    "subcontractors.detail.monthlyTarget": "เป้าหมายรายเดือน",
     "subcontractors.detail.masterSubcontractor": "รถร่วมหลัก",
     "subcontractors.detail.joined": "เข้าร่วม",
-    "subcontractors.detail.message": "ข้อความ",
     "subcontractors.detail.editProfile": "แก้ไขโปรไฟล์",
     "subcontractors.detail.companyDetails": "รายละเอียดบริษัท",
     "subcontractors.detail.legalName": "ชื่อตามกฎหมาย",
@@ -198,8 +192,6 @@ export default {
     "subcontractors.detail.dispatchManager": "ผู้จัดการจัดส่ง",
     "subcontractors.detail.available": "พร้อมให้บริการ",
     "subcontractors.detail.viewAllFleet": "ดูฝูงรถทั้งหมด",
-    "subcontractors.detail.notFound": "ไม่พบรถร่วม",
-    "subcontractors.detail.backToList": "กลับสู่รายการ",
     "subcontractors.detail.noTrucks": "ยังไม่มีรถที่ได้รับมอบหมาย",
 
     // Detail - Truck Table

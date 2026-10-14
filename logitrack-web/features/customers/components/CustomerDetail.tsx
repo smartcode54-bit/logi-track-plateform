@@ -4,9 +4,11 @@ import { useParams } from "next/navigation";
 import { useCustomer } from "@/features/customers/api/useCustomers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Building2, Loader2, Edit, Mail, Phone, User, MapPin, CreditCard, Clock, FileText } from "lucide-react";
+import { Loader2, Edit, Mail, Phone, User, MapPin, CreditCard, Clock, FileText } from "lucide-react";
 import Link from "next/link";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
     if (!value && value !== 0) return null;
@@ -26,21 +28,18 @@ export default function CustomerDetail() {
     const query = useCustomer(id);
     const customer = query.data ?? null;
 
-    if (query.isPending && id) {
-        return (
-            <div className="flex justify-center py-24">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-        );
+    // No id, no customer, or the read failed: not found or outside the reader's scope (Go answers 404 for both), or a
+    // load error with a retry (UI3D).
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!id || recordUnavailable(query)) {
+        return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 
-    if (!customer) {
+    if (query.isPending || !customer) {
         return (
-            <div className="container py-12 text-center">
-                <h2 className="text-xl font-semibold mb-4">{t("customers.detail.notFound")}</h2>
-                <Button asChild variant="outline">
-                    <Link href="/app/customers" prefetch={false}>{t("customers.detail.backToList")}</Link>
-                </Button>
+            <div className="flex justify-center py-24" role="status" aria-busy="true">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+                <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
@@ -56,33 +55,28 @@ export default function CustomerDetail() {
         : undefined;
 
     return (
-        <div className="container max-w-3xl py-8 space-y-6">
-            <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" asChild>
-                        <Link href="/app/customers" prefetch={false}>
-                            <ArrowLeft className="h-5 w-5" />
+        <div className="flex max-w-3xl flex-col gap-section">
+            <PageHeader
+                title={t("nav.customers")}
+                recordName={customer.name}
+                back={{ href: "/app/customers" }}
+                description={
+                    <span className="flex items-center gap-2">
+                        {customer.logoUrl ? (
+                            <img src={customer.logoUrl} alt="" className="h-6 w-6 rounded-full border object-cover" />
+                        ) : null}
+                        <span className="font-mono">{customer.code}</span>
+                    </span>
+                }
+                actions={
+                    <Button asChild>
+                        <Link href={`/app/customers/${customer.id}/edit`} prefetch={false}>
+                            <Edit className="h-4 w-4" aria-hidden />
+                            {t("customers.action.edit")}
                         </Link>
                     </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold flex items-center gap-3">
-                            {customer.logoUrl ? (
-                                <img src={customer.logoUrl} alt={customer.name} className="h-10 w-10 rounded-full object-cover border shadow-sm" />
-                            ) : (
-                                <Building2 className="h-6 w-6" />
-                            )}
-                            {customer.name}
-                        </h1>
-                        <p className="text-muted-foreground font-mono">{customer.code}</p>
-                    </div>
-                </div>
-                <Button asChild>
-                    <Link href={`/app/customers/${customer.id}/edit`} prefetch={false} className="gap-2">
-                        <Edit className="h-4 w-4" />
-                        {t("customers.action.edit")}
-                    </Link>
-                </Button>
-            </div>
+                }
+            />
 
             {customer.description && (
                 <Card>

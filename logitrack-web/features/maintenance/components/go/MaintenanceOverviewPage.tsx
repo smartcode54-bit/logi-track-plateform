@@ -26,6 +26,7 @@ import { Activity, BellRing, CalendarClock, DollarSign, FileText, Loader2, MapPi
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { apiErrorText } from "@/lib/apiError";
 import { LoadMore } from "@/components/load-more";
 import { VirtualTable } from "@/components/virtual-table";
@@ -287,27 +288,27 @@ export function MaintenanceOverviewPage() {
     );
 
     return (
-        <div className="container mx-auto max-w-[1400px] space-y-8 p-6">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.maintenance")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("maintenance.subtitle")}</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            void list.refetch();
-                            void all.refetch();
-                        }}
-                    >
-                        <RotateCw className="mr-1 h-4 w-4" /> {t("maintenance.refresh")}
-                    </Button>
-                    <Button onClick={() => setAdding(true)} className="bg-blue-600 text-white hover:bg-blue-700">
-                        <Wrench className="mr-1 h-4 w-4" /> {t("maintenance.form.addRecord")}
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.maintenance")}
+                description={t("maintenance.subtitle")}
+                actions={
+                    <>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                void list.refetch();
+                                void all.refetch();
+                            }}
+                        >
+                            <RotateCw className="mr-1 h-4 w-4" aria-hidden /> {t("maintenance.refresh")}
+                        </Button>
+                        <Button onClick={() => setAdding(true)}>
+                            <Wrench className="mr-1 h-4 w-4" aria-hidden /> {t("maintenance.form.addRecord")}
+                        </Button>
+                    </>
+                }
+            />
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>

@@ -159,7 +159,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                         </Select>
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <Button 
+                                        <Button aria-label={t("common.removeRow")} 
                                             variant="ghost" 
                                             size="icon" 
                                             onClick={() => handleRemove(index)}

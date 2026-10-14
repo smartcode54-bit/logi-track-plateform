@@ -29,6 +29,7 @@ import { AlertTriangle, DollarSign, Download, Hash, Loader2, Pencil, RefreshCw, 
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerPartySelect } from "@/components/entity-pickers";
@@ -277,7 +278,7 @@ function MissingBillingTab({ canRecompute }: { canRecompute: boolean }) {
                         </SelectContent>
                     </Select>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => void rows.refetch()} disabled={rows.isFetching}>
+                <Button aria-label={t("common.refresh")} variant="outline" size="sm" onClick={() => void rows.refetch()} disabled={rows.isFetching}>
                     <RefreshCw className={`h-4 w-4 ${rows.isFetching ? "animate-spin" : ""}`} />
                 </Button>
             </div>
@@ -324,8 +325,8 @@ function MissingBillingTab({ canRecompute }: { canRecompute: boolean }) {
                                     {canRecompute ? (
                                         <TableCell>
                                             {u.tripId ? (
-                                                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void recompute(u)}>
-                                                    {busy === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                                                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void recompute(u)} aria-label={t("accounting.go.income.recompute")}>
+                                                    {busy === u.id ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Wand2 className="h-3 w-3" aria-hidden />}
                                                 </Button>
                                             ) : null}
                                         </TableCell>
@@ -633,29 +634,29 @@ export function IncomePage() {
     const error = trips.error ?? standby.error;
 
     return (
-        <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.income")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("accounting.income.subtitle")}</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => void exportExcel()} disabled={exporting || rows.length === 0}>
-                        {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                        {t("accounting.income.export")}
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            void trips.refetch();
-                            void standby.refetch();
-                        }}
-                    >
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        {t("common.refresh")}
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.income")}
+                description={t("accounting.income.subtitle")}
+                actions={
+                    <>
+                        <Button variant="outline" onClick={() => void exportExcel()} disabled={exporting || rows.length === 0}>
+                            {exporting ? <Loader2 aria-hidden className="mr-2 h-4 w-4 animate-spin" /> : <Download aria-hidden className="mr-2 h-4 w-4" />}
+                            {t("accounting.income.export")}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                void trips.refetch();
+                                void standby.refetch();
+                            }}
+                        >
+                            <RefreshCw aria-hidden className="mr-2 h-4 w-4" />
+                            {t("common.refresh")}
+                        </Button>
+                    </>
+                }
+            />
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <Card>

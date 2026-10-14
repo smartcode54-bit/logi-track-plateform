@@ -37,10 +37,10 @@ export function VehiclePositionList({ vehicles, loading, error, onRetry }: { veh
         <Card className="bg-card border border-border" data-testid="vehicle-positions">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
                         <Truck className="h-4 w-4 text-muted-foreground" />
                         {t("dashboard.vehiclePosition.title")}
-                    </h3>
+                    </h2>
                     <Link href="/app/driver-monitor" className="text-xs font-medium text-primary hover:underline">
                         {t("dashboard.vehiclePosition.viewAll")}
                     </Link>
@@ -145,7 +145,7 @@ export function ChatStatusCard({ unassigned, urgent }: { unassigned: number; urg
         <Card className="bg-card border border-border" data-testid="chat-status">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-foreground">{t("dashboard.chats.title")}</h3>
+                    <h2 className="text-sm font-semibold text-foreground">{t("dashboard.chats.title")}</h2>
                     <Link href="/app/chat" className="text-xs font-medium text-primary hover:underline">
                         {t("dashboard.chats.viewAll")}
                     </Link>
@@ -187,7 +187,7 @@ export function RecentUpdatesFeed({ items }: { items: readonly RecentItemDTO[] }
     const { t } = useLanguage();
     return (
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm" data-testid="recent-updates">
-            <h3 className="text-lg font-semibold text-foreground mb-1">{t("dashboard.updates.title")}</h3>
+            <h2 className="text-lg font-semibold text-foreground mb-1">{t("dashboard.updates.title")}</h2>
             <p className="text-sm text-muted-foreground mb-6">{t("dashboard.updates.subtitle")}</p>
             {items.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4">{t("dashboard.updates.noActivity")}</p>
@@ -204,7 +204,7 @@ export function RecentUpdatesFeed({ items }: { items: readonly RecentItemDTO[] }
                                         <Icon className="w-5 h-5" />
                                     </div>
                                     <div>
-                                        <h4 className="font-medium text-sm text-foreground">{title}</h4>
+                                        <h3 className="font-medium text-sm text-foreground">{title}</h3>
                                         <p className="text-xs text-muted-foreground mt-0.5">{[timeAgo(item.at, t), detail].filter(Boolean).join(" · ")}</p>
                                     </div>
                                 </div>
@@ -259,25 +259,25 @@ export function ComplianceCard({ compliance }: { compliance: ComplianceBlockDTO 
     const { t } = useLanguage();
     if (compliance.itemsTotal === 0) {
         return (
-            <Card className="bg-green-50/50 border-green-100" data-testid="compliance">
+            <Card className="border-success/30" data-testid="compliance">
                 <CardHeader className="pb-2">
-                    <CardTitle className="text-lg font-medium flex items-center gap-2 text-green-700">
-                        <CheckCircle2 className="h-5 w-5" />
+                    <CardTitle className="text-base font-semibold flex items-center gap-2 text-success">
+                        <CheckCircle2 className="h-5 w-5" aria-hidden />
                         {t("dashboard.compliance.statusTitle")}
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-green-600">{t("dashboard.compliance.allClear")}</p>
+                    <p className="text-sm text-muted-foreground">{t("dashboard.compliance.allClear")}</p>
                 </CardContent>
             </Card>
         );
     }
     const hidden = compliance.itemsTotal - compliance.items.length;
     return (
-        <Card className="border-red-100 shadow-sm" data-testid="compliance">
-            <CardHeader className="pb-3 border-b border-red-50 bg-red-50/30">
-                <CardTitle className="text-lg font-medium flex items-center gap-2 text-red-700">
-                    <ShieldAlert className="h-5 w-5" />
+        <Card className="border-destructive/30 shadow-sm" data-testid="compliance">
+            <CardHeader className="pb-3 border-b border-border">
+                <CardTitle className="text-base font-semibold flex items-center gap-2 text-destructive">
+                    <ShieldAlert className="h-5 w-5" aria-hidden />
                     {t("dashboard.compliance.actionRequired")}
                     <Badge variant="destructive" className="ml-auto">
                         {t("dashboard.compliance.alerts", { count: compliance.itemsTotal })}
@@ -285,7 +285,7 @@ export function ComplianceCard({ compliance }: { compliance: ComplianceBlockDTO 
                 </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-                <div className="divide-y divide-red-50 max-h-[400px] overflow-y-auto">
+                <div className="divide-y divide-border max-h-[400px] overflow-y-auto">
                     {compliance.items.map((item) => {
                         const style = KIND_STYLE[item.kind] ?? KIND_STYLE.tax;
                         const Icon = style.icon;

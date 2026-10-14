@@ -12,6 +12,7 @@ import { AlertTriangle, CheckCircle2, Clock, Database, Loader2, RefreshCw, Serve
 
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,17 +49,17 @@ export function SystemStatusPage() {
     const s = status.data;
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.systemStatus")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("securityCenter.status.subtitle")}</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => void status.refetch()} disabled={status.isFetching}>
-                    <RefreshCw className={`mr-2 h-4 w-4 ${status.isFetching ? "animate-spin" : ""}`} />
-                    {t("securityCenter.status.refresh")}
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("securityCenter.systemStatus")}
+                description={t("securityCenter.status.subtitle")}
+                actions={
+                    <Button variant="outline" size="sm" onClick={() => void status.refetch()} disabled={status.isFetching}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${status.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                        {t("securityCenter.status.refresh")}
+                    </Button>
+                }
+            />
 
             {status.error ? (
                 <Alert variant="destructive">

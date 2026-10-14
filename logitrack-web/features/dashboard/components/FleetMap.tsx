@@ -32,7 +32,7 @@ export function FleetMap({ vehicles, loading, error, onRetry, incidentTruckIds, 
     return (
         <div className="rounded-lg border border-border bg-card overflow-hidden" data-testid="fleet-map">
             <div className="px-3 py-2 border-b border-border">
-                <h3 className="text-sm font-semibold text-foreground">{t("dashboard.vehicleMap.title")}</h3>
+                <h2 className="text-sm font-semibold text-foreground">{t("dashboard.vehicleMap.title")}</h2>
                 {incidentCount !== undefined && incidentCount > 0 && (
                     <p className="text-xs text-muted-foreground">{t("dashboard.vehicleMap.incidentLegend", { count: incidentCount })}</p>
                 )}

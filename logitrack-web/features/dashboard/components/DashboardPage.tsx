@@ -18,6 +18,7 @@
 import { useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
+import { PageHeader } from "@/components/page-header";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { useUsersByRole } from "@/features/security-center/api/overview";
@@ -55,7 +56,7 @@ function PeriodSwitch({ value, onChange }: { value: DashboardPeriodName; onChang
 }
 
 export function DashboardPage() {
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
     const [period, setPeriod] = useState<DashboardPeriodName>("week");
     // Recomputed on every render: past midnight the key moves to the new day by itself.
     const range = periodRange(period);
@@ -78,28 +79,28 @@ export function DashboardPage() {
     const vehicles = locations.data ?? [];
 
     const s = summary.data;
+    // The period is the page's subject: every figure below follows it (no "real-time" claim over a 60 s poll, no
+    // language chip, no uppercase kicker; UI3D).
     const header = (
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-            <div>
-                <h1 className="text-2xl font-bold text-foreground tracking-tight">{t("nav.dashboard")}</h1>
-                <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t("dashboard.realTimeOperations")}</span>
-                    <span className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-bold text-muted-foreground">{language.toUpperCase()}</span>
-                </div>
-            </div>
-            <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground" data-testid="dashboard-period">
+        <PageHeader
+            title={t("nav.dashboard")}
+            description={
+                <span data-testid="dashboard-period">
                     {t(period === "week" ? "dashboard.period.week" : "dashboard.period.month")} · {t("dashboard.period.range", { from: range.from, to: range.to })}
                 </span>
-                {summary.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />}
-                <PeriodSwitch value={period} onChange={setPeriod} />
-            </div>
-        </div>
+            }
+            actions={
+                <div className="flex items-center gap-3">
+                    {summary.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />}
+                    <PeriodSwitch value={period} onChange={setPeriod} />
+                </div>
+            }
+        />
     );
 
     if (summary.isError && !s) {
         return (
-            <div className="container mx-auto px-4 py-6 max-w-[1600px]">
+            <div className="flex flex-col gap-section">
                 {header}
                 <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3" role="alert">
                     <p className="text-sm text-foreground">{t("dashboard.loadError")}</p>
@@ -122,7 +123,7 @@ export function DashboardPage() {
     const nothing = s !== undefined && !left && !right && !s.trips && !s.drivers && !canUsers;
 
     return (
-        <div className="container mx-auto px-4 py-6 max-w-[1600px]">
+        <div className="flex flex-col gap-section">
             {header}
 
             {!s ? <StatCardsSkeleton /> : <DashboardStatCards usersByRole={canUsers ? byRole.data : undefined} drivers={s.drivers} trips={s.trips} />}

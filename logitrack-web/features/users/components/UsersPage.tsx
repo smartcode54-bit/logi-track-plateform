@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Edit, KeyRound, Loader2, LogOut, Mail, MoreHorizontal, Plus, RefreshCw, Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
+import { PageHeader } from "@/components/page-header";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -150,32 +151,32 @@ export function UsersPage() {
     };
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.userManagement")}</h1>
-                    <p className="text-muted-foreground mt-2">{t("users.subtitle")}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="gap-2" onClick={() => void users.refetch()} disabled={users.isFetching}>
-                        {users.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        {t("users.refresh")}
-                    </Button>
-                    {actions.manage && actions.assignRole && (me?.tenant || actions.platform) ? (
-                        <Button variant="outline" className="gap-2" onClick={() => setAddOpen(true)}>
-                            <UserPlus className="h-4 w-4" />
-                            {t("users.addMember.action")}
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("securityCenter.userManagement")}
+                description={t("users.subtitle")}
+                actions={
+                    <>
+                        <Button variant="outline" className="gap-2" onClick={() => void users.refetch()} disabled={users.isFetching}>
+                            {users.isFetching ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
+                            {t("users.refresh")}
                         </Button>
-                    ) : null}
-                    {actions.manage ? (
-                        <Button onClick={() => setCreateOpen(true)}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            <span className="hidden sm:inline">{t("users.add")}</span>
-                            <span className="sm:hidden">{t("users.addShort")}</span>
-                        </Button>
-                    ) : null}
-                </div>
-            </div>
+                        {actions.manage && actions.assignRole && (me?.tenant || actions.platform) ? (
+                            <Button variant="outline" className="gap-2" onClick={() => setAddOpen(true)}>
+                                <UserPlus className="h-4 w-4" aria-hidden />
+                                {t("users.addMember.action")}
+                            </Button>
+                        ) : null}
+                        {actions.manage ? (
+                            <Button onClick={() => setCreateOpen(true)}>
+                                <Plus className="mr-2 h-4 w-4" aria-hidden />
+                                <span className="hidden sm:inline">{t("users.add")}</span>
+                                <span className="sm:hidden">{t("users.addShort")}</span>
+                            </Button>
+                        ) : null}
+                    </>
+                }
+            />
 
             <div className="flex flex-wrap items-center gap-3 border-b border-border/40 pb-3">
                 <Select value={role || "all"} onValueChange={(v) => setRole(v === "all" ? "" : v)}>

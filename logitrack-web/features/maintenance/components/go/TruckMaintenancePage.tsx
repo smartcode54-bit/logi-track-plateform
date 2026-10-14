@@ -12,9 +12,9 @@
  * attaches the photo (never a second record for the truck).
  */
 import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Loader2, Wrench } from "lucide-react";
+import { CheckCircle2, Loader2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
@@ -26,6 +26,8 @@ import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { formatLicensePlate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
 
 import { createMaintenance, maintenanceCostTotals, maintenanceQuery, maintenanceRows, updateMaintenance, type MaintenanceRecordDTO } from "../../api/maintenance.go";
@@ -87,7 +89,6 @@ function formOf(r: MaintenanceData): MaintenanceFormValuesGo {
 
 export function TruckMaintenancePage() {
     const { t } = useLanguage();
-    const router = useRouter();
     const truckId = useSearchParams().get("id") ?? "";
     const truck = useQuery({
         queryKey: [...queryKeys.trucks.detail(truckId), { view: "go" }] as const,
@@ -155,43 +156,43 @@ export function TruckMaintenancePage() {
         }
     };
 
-    if (!truckId || truck.isPending) {
+    // No id, no truck, or the read failed: not found, or a load error with a retry (UI3D).
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!truckId || recordUnavailable(truck)) {
+        return <RecordState error={truck.error} onRetry={() => void truck.refetch()} retrying={truck.isFetching} />;
+    }
+    if (!truck.data) {
         return (
-            <div className="flex h-[50vh] items-center justify-center">
-                <Loader2 className="animate-spin" />
+            <div className="flex h-[50vh] items-center justify-center" role="status" aria-busy="true">
+                <Loader2 className="animate-spin" aria-hidden />
+                <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
-    if (truck.error || !truck.data) return <div className="p-6">{truck.error ? apiErrorText(truck.error, t) : t("maintenance.truckNotFound")}</div>;
     const tr = truck.data;
     const editing = selected ? toMaintenanceData(selected) : null;
 
     return (
-        <div className="container mx-auto max-w-5xl space-y-6 p-6">
-            <div className="flex items-center gap-4">
-                <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label={t("common.close")}>
-                    <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">{t("maintenance.title")}</h1>
-                    <p className="text-muted-foreground">
-                        {tr.brand} {tr.model} - <span className="font-mono font-medium text-foreground">{formatLicensePlate(tr.licensePlate)}</span>
-                    </p>
-                </div>
-                <div className="ml-auto">
-                    <Badge variant={tr.status === "maintenance" ? "destructive" : "secondary"} className="px-3 py-1 text-base">
+        <div className="flex max-w-5xl flex-col gap-section">
+            <PageHeader
+                title={t("nav.trucks")}
+                recordName={formatLicensePlate(tr.licensePlate)}
+                back={{ href: `/app/trucks/view?id=${tr.id}`, label: t("trucks.edit.backToDetails"), history: true }}
+                description={`${t("maintenance.title")} · ${[tr.brand, tr.model].filter(Boolean).join(" ")}`}
+                status={
+                    <Badge variant={tr.status === "maintenance" ? "destructive" : "secondary"}>
                         {tr.status === "maintenance" ? (
-                            <span className="flex items-center gap-2">
-                                <Wrench className="h-4 w-4" /> {t("maintenance.form.underMaintenance")}
+                            <span className="flex items-center gap-1.5">
+                                <Wrench className="h-3.5 w-3.5" aria-hidden /> {t("maintenance.form.underMaintenance")}
                             </span>
                         ) : (
-                            <span className="flex items-center gap-2">
-                                <CheckCircle2 className="h-4 w-4" /> {t(tr.status || "active")}
+                            <span className="flex items-center gap-1.5">
+                                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> {t(tr.status || "active")}
                             </span>
                         )}
                     </Badge>
-                </div>
-            </div>
+                }
+            />
 
             {view === "list" ? (
                 <div className="space-y-6">

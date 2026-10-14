@@ -15,18 +15,36 @@
  *    `session_revoked`); a 403 -> `/app/unauthorized`; Go unreachable -> 503.
  * 5. `/app` exactly -> 307 to the role's home route (lib/routeCapabilities.ts `homeRouteFor`); the
  *    page's own `redirect()` stays as a fallback.
- * 6. lib/routeCapabilities.ts decides; an unmapped path is denied -> 307 `/app/unauthorized?from=`.
+ * 0. The path is decided as Next routes it: each segment percent-decoded once (`canonicalAppPath`), so
+ *    `/app/%70ayroll` is the payroll page, not an unmapped path. A path that cannot be decoded into one route (a
+ *    malformed escape; a segment decoding to `/`, `\`, a control character, `.` or `..`) -> 307
+ *    `/app/unauthorized`. An admitted path spelled otherwise than its canonical encoding -> 308 to it, so the gate
+ *    decides again on exactly the string Next will route.
+ * 6. lib/routeCapabilities.ts decides (UI3D: not found is not forbidden):
+ *    - an unmapped path names no page -> through with HTTP 404 (`notFoundThrough`): the shell's catch-all
+ *      (`app/app/[...missing]/page.tsx`) calls `notFound()`, so "Page not found" renders inside the shell and the
+ *      address stays as typed;
+ *    - a mapped path the principal's capabilities do not open -> 307 `/app/unauthorized?from=` (the 403 page),
+ *      also when no page answers below a forbidden prefix (`/app/payroll/x`: the entry decides);
+ *    - a path below an admitted prefix that no page answers (`/app/drivers/x`) goes through like any admitted path;
+ *      Next renders the shell's not-found for it with status 200 (the gate cannot know there is no page).
+ *    SAFE ONLY BECAUSE every page under app/app is mapped: lib/routeCapabilities.test.ts ("maps every page under
+ *    app/app") and Go's TestEveryWebPageIsMapped fail on a page without a mapping. An unmapped path is let through
+ *    without a capability check, so a page added without a mapping would be served to every signed-in principal
+ *    (with a 404 status); those two tests are what keep that from happening. Go authorises every data call anyway.
  *
  * Redirects are absolute on `WEB_PUBLIC_ORIGIN` (Next requires an absolute Location from proxy.ts, and
  * the internal host of the standalone server must never leak). Go authorises every request anyway.
  */
 import "server-only";
 
+import { NextResponse } from "next/server";
+
 import { verifyAccessToken, type AccessClaims } from "./accessToken";
 import { bffConfig, type BffConfig } from "./config";
 import { callUpstream, cookie, forwardedFor, HEADER_REQUEST_ID, loginLocation, requestIdFor } from "./http";
 import { ACCESS_COOKIE, clearAccessCookie } from "./session";
-import { homeRouteFor, normalizeAppPath, routeAllowed, APP_ROOT, UNAUTHORIZED_PATH } from "../routeCapabilities";
+import { canonicalAppPath, homeRouteFor, normalizeAppPath, routeAllowed, routeFor, APP_ROOT, UNAUTHORIZED_PATH } from "../routeCapabilities";
 
 export const ME_CACHE_TTL_MS = 60_000;
 export const ME_CACHE_MAX_ENTRIES = 5_000;
@@ -138,14 +156,26 @@ async function principalFor(req: Request, token: string, claims: AccessClaims, c
     return result;
 }
 
-function redirect(cfg: BffConfig, location: string, requestId: string, setCookie?: string): Response {
+function redirect(cfg: BffConfig, location: string, requestId: string, setCookie?: string, status: 307 | 308 = 307): Response {
     const headers = new Headers({
         Location: new URL(location, cfg.webPublicOrigin).toString(),
         "Cache-Control": "no-store",
         [HEADER_REQUEST_ID]: requestId,
     });
     if (setCookie) headers.append("Set-Cookie", setCookie);
-    return new Response(null, { status: 307, headers });
+    return new Response(null, { status, headers });
+}
+
+/**
+ * An unmapped path (UI3D): let through to the shell's catch-all, which renders "Page not found", with the response's
+ * status set to 404 here. The status has to come from the gate: the `/app` shell renders its page on the client
+ * (after `['me']`), so a `notFound()` in the page never reaches the server render that would set it. Not a rewrite:
+ * Next proxies a middleware rewrite as an external request when its own hostname and the request's differ (HOSTNAME
+ * in the standalone container), and it drops a rewrite's status anyway. A client navigation that gets this 404 for
+ * its RSC payload falls back to a full page load of the same address, which gets the same answer.
+ */
+function notFoundThrough(requestId: string): Response {
+    return NextResponse.next({ status: 404, headers: { "Cache-Control": "no-store", [HEADER_REQUEST_ID]: requestId } });
 }
 
 function unavailable(requestId: string): Response {
@@ -175,8 +205,15 @@ export async function edgeGate(req: Request, deps: GateDeps = {}): Promise<Respo
         });
     }
     const url = new URL(req.url);
-    const pathname = normalizeAppPath(url.pathname);
-    if (pathname !== APP_ROOT && !pathname.startsWith(`${APP_ROOT}/`)) return undefined;
+    const rawPath = normalizeAppPath(url.pathname);
+    if (rawPath !== APP_ROOT && !rawPath.startsWith(`${APP_ROOT}/`)) return undefined;
+    // Decide on the path as Next routes it, segments decoded (`/app/%70ayroll` is the payroll page), never on the raw
+    // string; a path that cannot be decoded into one route is refused before anything else.
+    const canonical = canonicalAppPath(rawPath);
+    if (!canonical) return redirect(cfg, UNAUTHORIZED_PATH, requestId);
+    const pathname = canonical.path;
+    // A path the gate admits reaches Next in its one canonical spelling, so Next routes exactly what was decided.
+    const canonicalHref = canonical.href === rawPath ? null : canonical.href + url.search;
     url.searchParams.delete("_rsc");
     const next = pathname + (url.searchParams.size > 0 ? `?${url.searchParams.toString()}` : "");
     const bounce = () => redirect(cfg, `${REFRESH_BOUNCE_PATH}?${new URLSearchParams({ next }).toString()}`, requestId);
@@ -211,8 +248,12 @@ export async function edgeGate(req: Request, deps: GateDeps = {}): Promise<Respo
     }
 
     if (pathname === APP_ROOT) return redirect(cfg, homeRouteFor(me.me), requestId);
-    if (!routeAllowed(me.me.capabilities, pathname)) {
+    if (routeFor(pathname) && !routeAllowed(me.me.capabilities, pathname)) {
         return redirect(cfg, `${UNAUTHORIZED_PATH}?${new URLSearchParams({ from: pathname })}`, requestId);
     }
+    // Admitted (or no page at all): a non-canonical spelling goes once to the canonical one, where the gate decides again.
+    if (canonicalHref) return redirect(cfg, canonicalHref, requestId, undefined, 308);
+    // No mapping, no page (the invariant tests above): "Page not found", not the 403 page.
+    if (!routeFor(pathname)) return notFoundThrough(requestId);
     return undefined;
 }

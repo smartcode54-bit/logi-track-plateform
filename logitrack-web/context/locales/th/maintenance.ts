@@ -134,7 +134,6 @@ export default {
     "maintenance.preview.print": "พิมพ์",
 
     // Error / Status
-    "maintenance.truckNotFound": "ไม่พบรถบรรทุก",
     "maintenance.saveFailed": "ไม่สามารถบันทึกข้อมูลได้ กรุณาตรวจสอบข้อมูลอีกครั้ง",
 
     // Service Types

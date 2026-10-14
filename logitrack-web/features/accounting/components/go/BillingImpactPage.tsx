@@ -11,6 +11,7 @@ import { enUS, th as thDateLocale } from "date-fns/locale";
 import { AlertCircle, FileSearch, Loader2 } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { apiErrorText } from "@/lib/apiError";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -68,11 +69,8 @@ export function BillingImpactPage() {
     const run = () => job.start("billing.impact-report", { fromDateStr: fromDate, toDateStr: toDate });
 
     return (
-        <div className="space-y-6 p-6">
-            <div>
-                <h1 className="text-2xl font-semibold">{t("nav.billingImpact")}</h1>
-                <p className="text-sm text-muted-foreground mt-1">{t("accounting.impact.subtitle")}</p>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader title={t("nav.billingImpact")} description={t("accounting.impact.subtitle")} />
 
             <Alert>
                 <FileSearch className="h-4 w-4" />

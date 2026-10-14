@@ -134,13 +134,9 @@ export default {
     "drivers.toast.registerError": "ไม่สามารถลงทะเบียนพนักงานขับรถได้",
     "drivers.toast.updateSuccess": "อัปเดตพนักงานขับรถสำเร็จ",
     "drivers.toast.updateError": "ไม่สามารถอัปเดตพนักงานขับรถได้",
-    "drivers.toast.notFound": "ไม่พบพนักงานขับรถ",
-    "drivers.toast.loadError": "ไม่สามารถโหลดข้อมูลพนักงานขับรถได้",
-    "drivers.toast.noId": "ไม่ได้ระบุรหัสพนักงานขับรถ",
     "drivers.toast.subLoadError": "ไม่สามารถโหลดข้อมูลรถร่วมได้",
 
     // Edit Page
-    "drivers.edit.title": "แก้ไขพนักงานขับรถ",
     "drivers.edit.subtitle": "อัปเดตข้อมูลพนักงานขับรถ",
     "drivers.edit.backToDetails": "กลับสู่รายละเอียด",
     "drivers.edit.changePhoto": "เปลี่ยนรูปภาพ",
@@ -187,7 +183,6 @@ export default {
     "drivers.detail.current": "ปัจจุบัน",
     "drivers.detail.revoked": "ถูกเพิกถอน",
     "drivers.detail.noHistory": "ไม่พบประวัติการมอบหมาย",
-    "drivers.detail.notFound": "ไม่พบพนักงานขับรถ",
     "drivers.detail.backToDrivers": "กลับสู่รายการพนักงานขับรถ",
     "drivers.detail.loadingData": "กำลังโหลดข้อมูลพนักงานขับรถ...",
 

@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -72,29 +73,29 @@ export function PayrollPage() {
     const actions = usePayrollActions();
 
     return (
-        <div className="container mx-auto max-w-[1400px] space-y-6 p-6">
-            <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.payroll")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("payroll.subtitle")}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    {canManage ? (
-                        <>
-                            <Button variant="outline" asChild>
-                                <Link href="/app/payroll/config">{t("driverComp.config.title")}</Link>
-                            </Button>
-                            <Button variant="outline" asChild>
-                                <Link href="/app/payroll/penalties">{t("driverComp.penalty.title")}</Link>
-                            </Button>
-                        </>
-                    ) : null}
-                    <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
-                        {t("hr.refresh")}
-                    </Button>
-                </div>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.payroll")}
+                description={t("payroll.subtitle")}
+                actions={
+                    <>
+                        {canManage ? (
+                            <>
+                                <Button variant="outline" asChild>
+                                    <Link href="/app/payroll/config">{t("driverComp.config.title")}</Link>
+                                </Button>
+                                <Button variant="outline" asChild>
+                                    <Link href="/app/payroll/penalties">{t("driverComp.penalty.title")}</Link>
+                                </Button>
+                            </>
+                        ) : null}
+                        <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>
+                            <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                            {t("hr.refresh")}
+                        </Button>
+                    </>
+                }
+            />
 
             {canManage ? <GeneratePanel /> : null}
 

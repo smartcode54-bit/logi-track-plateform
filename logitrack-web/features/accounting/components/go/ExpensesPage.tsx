@@ -20,6 +20,7 @@ import { enUS, th as thDateLocale } from "date-fns/locale";
 import { Fuel, Plus, RefreshCw, Upload } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { LoadMore } from "@/components/load-more";
 import { VirtualTable } from "@/components/virtual-table";
@@ -190,31 +191,31 @@ function ExpensesPage({ type }: { type: ExpenseType }) {
     );
 
     return (
-        <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t(isFuel ? "nav.fuel" : "nav.otherExpenses")}</h1>
-                    <p className="mt-1 text-muted-foreground">{isFuel ? t("accounting.fuel.subtitle") : t("accounting.other.subtitle")}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {!isFuel && canEdit ? (
-                        <Button variant="outline" onClick={() => setImporting(true)}>
-                            <Upload className="mr-2 h-4 w-4" />
-                            {t("accounting.tollImport.button")}
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t(isFuel ? "nav.fuel" : "nav.otherExpenses")}
+                description={isFuel ? t("accounting.fuel.subtitle") : t("accounting.other.subtitle")}
+                actions={
+                    <>
+                        {!isFuel && canEdit ? (
+                            <Button variant="outline" onClick={() => setImporting(true)}>
+                                <Upload aria-hidden className="mr-2 h-4 w-4" />
+                                {t("accounting.tollImport.button")}
+                            </Button>
+                        ) : null}
+                        <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
+                            <RefreshCw aria-hidden className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
+                            {t("common.refresh")}
                         </Button>
-                    ) : null}
-                    {canEdit ? (
-                        <Button onClick={() => setAdding(true)}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            {isFuel ? t("accounting.fuel.addButton") : t("accounting.other.addButton")}
-                        </Button>
-                    ) : null}
-                    <Button variant="outline" onClick={() => void list.refetch()} disabled={list.isFetching}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
-                        {t("common.refresh")}
-                    </Button>
-                </div>
-            </div>
+                        {canEdit ? (
+                            <Button onClick={() => setAdding(true)}>
+                                <Plus aria-hidden className="mr-2 h-4 w-4" />
+                                {isFuel ? t("accounting.fuel.addButton") : t("accounting.other.addButton")}
+                            </Button>
+                        ) : null}
+                    </>
+                }
+            />
 
             {isFuel ? <BangchakCard /> : null}
 

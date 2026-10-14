@@ -25,6 +25,7 @@ import { useAllTenants } from "@/features/tenants/api/tenants";
 import { apiErrorText } from "@/lib/apiError";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -120,36 +121,36 @@ export function RoleMatrixPage() {
     };
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.rolePermissionMatrix")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("securityCenter.roles.subtitleGo")}</p>
-                </div>
-                {platformAdmin ? (
-                    <div className="w-full max-w-xs space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">{t("securityCenter.roles.layer")}</p>
-                        <Select value={layerValue} onValueChange={switchLayer}>
-                            <SelectTrigger aria-label={t("securityCenter.roles.layer")}>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={PLATFORM_VALUE}>{t("securityCenter.roles.layerPlatform")}</SelectItem>
-                                {(tenants.data ?? [])
-                                    .filter((tn) => tn.kind !== "quarantine")
-                                    .map((tn) => (
-                                        <SelectItem key={tn.id} value={tn.id}>
-                                            {(language === "en" && tn.nameEn) || tn.nameTh}
-                                        </SelectItem>
-                                    ))}
-                                {ownTenant && !(tenants.data ?? []).some((tn) => tn.id === ownTenant) ? (
-                                    <SelectItem value={ownTenant}>{me?.tenant?.nameTh ?? ownTenant}</SelectItem>
-                                ) : null}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                ) : null}
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("securityCenter.rolePermissionMatrix")}
+                description={t("securityCenter.roles.subtitleGo")}
+                actions={
+                    platformAdmin ? (
+                        <div className="w-full space-y-1 md:w-72">
+                            <p className="text-xs font-medium text-muted-foreground">{t("securityCenter.roles.layer")}</p>
+                            <Select value={layerValue} onValueChange={switchLayer}>
+                                <SelectTrigger aria-label={t("securityCenter.roles.layer")}>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={PLATFORM_VALUE}>{t("securityCenter.roles.layerPlatform")}</SelectItem>
+                                    {(tenants.data ?? [])
+                                        .filter((tn) => tn.kind !== "quarantine")
+                                        .map((tn) => (
+                                            <SelectItem key={tn.id} value={tn.id}>
+                                                {(language === "en" && tn.nameEn) || tn.nameTh}
+                                            </SelectItem>
+                                        ))}
+                                    {ownTenant && !(tenants.data ?? []).some((tn) => tn.id === ownTenant) ? (
+                                        <SelectItem value={ownTenant}>{me?.tenant?.nameTh ?? ownTenant}</SelectItem>
+                                    ) : null}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    ) : null
+                }
+            />
 
             {canViewOverview && counts.data ? (
                 <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6" data-testid="role-counts">

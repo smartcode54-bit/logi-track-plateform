@@ -21,6 +21,7 @@ import { Calendar as CalendarIcon, Copy, FileSpreadsheet, MoreHorizontal, Plus, 
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { ApiErrorAlert, formatDateTime, formatDay } from "@/features/accounting/components/go/shared";
 import { apiErrorText } from "@/lib/apiError";
@@ -165,45 +166,45 @@ function Board({ kind }: { kind: BoardKind }) {
 
     const colSpan = kind === "all" ? 13 : 12;
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t(keys.title)}</h1>
-                    <p className="text-muted-foreground">{t(keys.subtitle)}</p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                    <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("firstMile.sources.refresh")}>
-                        <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} />
-                    </Button>
-                    {canManage ? (
-                        <>
-                            <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)}>
-                                <FileSpreadsheet className="h-4 w-4" />
-                                {t("firstMile.import.button")}
-                            </Button>
-                            {kind === "all" ? (
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button>
-                                            <Plus className="mr-2 h-4 w-4" />
-                                            {t("jobAssign.addJob")}
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => setForm({ mode: "create", taskType: "first_mile" })}>{t("jobAssign.addFirstMile")}</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setForm({ mode: "create", taskType: "line_haul" })}>{t("jobAssign.addLineHaul")}</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            ) : (
-                                <Button onClick={() => setForm({ mode: "create", taskType: defaultType })}>
-                                    <Plus className="mr-2 h-4 w-4" />
-                                    {t(keys.add)}
+        <div className="flex flex-1 flex-col gap-section">
+            <PageHeader
+                title={t(keys.title)}
+                description={t(keys.subtitle)}
+                actions={
+                    <>
+                        <Button variant="outline" size="icon" onClick={() => void q.refetch()} aria-label={t("firstMile.sources.refresh")}>
+                            <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} aria-hidden />
+                        </Button>
+                        {canManage ? (
+                            <>
+                                <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)}>
+                                    <FileSpreadsheet className="h-4 w-4" aria-hidden />
+                                    {t("firstMile.import.button")}
                                 </Button>
-                            )}
-                        </>
-                    ) : null}
-                </div>
-            </div>
+                                {kind === "all" ? (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button>
+                                                <Plus className="mr-2 h-4 w-4" aria-hidden />
+                                                {t("jobAssign.addJob")}
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => setForm({ mode: "create", taskType: "first_mile" })}>{t("jobAssign.addFirstMile")}</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setForm({ mode: "create", taskType: "line_haul" })}>{t("jobAssign.addLineHaul")}</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                ) : (
+                                    <Button onClick={() => setForm({ mode: "create", taskType: defaultType })}>
+                                        <Plus className="mr-2 h-4 w-4" aria-hidden />
+                                        {t(keys.add)}
+                                    </Button>
+                                )}
+                            </>
+                        ) : null}
+                    </>
+                }
+            />
 
             <Card>
                 <CardHeader className="pb-3">

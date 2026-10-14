@@ -77,7 +77,9 @@ func render() ([]byte, error) {
 
 	routes := authz.WebRoutes()
 	p("/**\n * The web edge gate (proxy.ts, R39): exact path, else the longest mapped prefix; an unmapped path is\n")
-	p(" * denied; an empty list admits every signed-in principal; otherwise any-of. Go authorises every\n * request again.\n */\n")
+	p(" * no page and opens for nobody (the gate answers it with \"Page not found\", HTTP 404; a mapped path the\n")
+	p(" * principal lacks gets the 403 page); an empty list admits every signed-in principal; otherwise any-of.\n")
+	p(" * Go authorises every request again.\n */\n")
 	p("export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[]>> = {\n")
 	for _, path := range authz.WebRoutePaths() {
 		caps := routes[path]

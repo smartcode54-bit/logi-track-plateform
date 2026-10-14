@@ -5,7 +5,8 @@
  * The table itself is `ROUTE_CAPABILITIES` of `shared-docs/schemas/capabilities.ts`, generated from the
  * Go catalog (`logitrack-api/internal/authz/webroutes.go`, `go generate ./internal/authz`) with colon
  * keys; it replaces the legacy table that `lib/capabilities.ts:340-394` held until TW3. Rules:
- * exact path, else the longest mapped prefix at a segment boundary; an unmapped path is denied; an
+ * exact path, else the longest mapped prefix at a segment boundary; an unmapped path is no page (the
+ * gate answers it with "Page not found", HTTP 404; UI3D) and opens for nobody; an
  * empty list (`/app/dashboard`, `/app/unauthorized`, `/app/support`) admits every signed-in principal that is not
  * driver-only (the gate sends those to `/app/unauthorized` first); otherwise any
  * one of the listed keys. It is a necessary-condition filter: Go authorises every request again.
@@ -26,6 +27,43 @@ export const UNAUTHORIZED_PATH = "/app/unauthorized";
 export function normalizeAppPath(pathname: string): string {
     const p = pathname.replace(/\/+$/, "");
     return p === "" ? "/" : p;
+}
+
+/** A path as the gate decides on it: the decoded path, and the one encoding of it the gate lets reach Next. */
+export interface CanonicalPath {
+    /** Every segment percent-decoded once, as Next routes it (`/app/%70ayroll` -> `/app/payroll`). */
+    path: string;
+    /** The canonical spelling of `path` in a URL: each segment `encodeURIComponent`-ed, no empty segment. */
+    href: string;
+}
+
+// C0 controls and DEL: no route segment holds one.
+const CONTROL_RX = /[\u0000-\u001f\u007f]/;
+
+/**
+ * The decoded and canonical forms of a raw (still percent-encoded) URL pathname (UI3D review, a P0 of §10.14 row 3).
+ * Next decodes each segment before it routes, so a gate that matched the raw string would let `/app/%70ayroll` through
+ * as "unmapped" while Next serves the payroll page. Returns null for a path that cannot be decided: a malformed escape,
+ * or a segment that decodes to a `/` or `\`, a control character, `.` or `..` (one path that could name two). Empty
+ * segments are dropped from `href` (Next redirects `//` itself).
+ */
+export function canonicalAppPath(rawPathname: string): CanonicalPath | null {
+    const segments: string[] = [];
+    for (const raw of normalizeAppPath(rawPathname).split("/")) {
+        if (raw === "") continue;
+        let segment: string;
+        try {
+            segment = decodeURIComponent(raw);
+        } catch {
+            return null;
+        }
+        if (segment === "." || segment === ".." || /[/\\]/.test(segment) || CONTROL_RX.test(segment)) return null;
+        segments.push(segment);
+    }
+    return {
+        path: `/${segments.join("/")}`,
+        href: `/${segments.map(encodeURIComponent).join("/")}`,
+    };
 }
 
 /** The entry that governs `pathname`: exact, else the longest mapped prefix; undefined when unmapped. */

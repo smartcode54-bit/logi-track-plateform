@@ -12,9 +12,11 @@
  * instead (app/app/layout.tsx, UI3B).
  *
  * The tab's title (UI3B, WCAG 2.4.2) comes from the same trail: "<page> · LogiTrack Pro", a detail page
- * "<its name> · <entry> · LogiTrack Pro", in the active language. It was "LogiTrack Pro by GORATECH" on every route.
+ * "<its name> · <entry> · LogiTrack Pro" (the record name a page's PageHeader sets, UI3D), in the active language. It
+ * was "LogiTrack Pro by GORATECH" on every route. One title behaviour for the console and the public pages: the shared
+ * `useDocumentTitle` (hooks/useDocumentTitle.ts, UI3E).
  */
-import { Fragment, useEffect, useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import Link from "next/link";
 import { House } from "lucide-react";
 
@@ -30,6 +32,7 @@ import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
 import type { MeDTO } from "@/features/auth/api/me";
 import { useMe } from "@/features/auth/api/useMe";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { routeAllowed } from "@/lib/routeCapabilities";
 import { cn } from "@/lib/utils";
 import { breadcrumbTrail } from "./app-nav";
@@ -46,28 +49,6 @@ const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILI
 /** The tab's title from the page's names, most specific first: "Edit · Customers · LogiTrack Pro". */
 export function documentTitle(names: readonly string[], brand: string): string {
     return [...names, brand].filter(Boolean).join(" · ");
-}
-
-/**
- * Keeps `document.title` at `title` while the shell is mounted. Next writes its metadata `<title>` back after a
- * load and on navigations that change only the query string (seen under `next dev` about 0.6 s after a full load),
- * so the title is put back whenever anything in `<head>` changes, not only when `title` does (UI3B review).
- */
-function useDocumentTitle(title: string): void {
-    useEffect(() => {
-        const previous = document.title;
-        const apply = () => {
-            if (document.title !== title) document.title = title;
-        };
-        apply();
-        // Setting the title is itself a mutation; `apply` only writes when the text differs, so this settles.
-        const observer = new MutationObserver(apply);
-        observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-        return () => {
-            observer.disconnect();
-            document.title = previous;
-        };
-    }, [title]);
 }
 
 export function AppBreadcrumb({ pathname, homeHref, className }: { pathname: string; homeHref: string; className?: string }) {

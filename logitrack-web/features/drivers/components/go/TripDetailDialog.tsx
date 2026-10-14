@@ -77,7 +77,7 @@ export function TripDetailDialog({ row, onClose }: { row: MonitorRowDTO; onClose
                     <ApiErrorAlert error={detail.error} />
                     {(incidents.data ?? []).map((inc) => (
                         <div key={inc.id} className="space-y-1 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/20">
-                            <h4 className="text-sm font-semibold text-red-800 dark:text-red-400">{t("driverMonitor.detail.incidentReport", "Incident Report")}</h4>
+                            <h4 className="text-sm font-semibold text-red-800 dark:text-red-400">{t("driverMonitor.detail.incidentReport")}</h4>
                             <p className="text-xs text-red-700 dark:text-red-300">{inc.description ?? "—"}</p>
                             <p className="text-xs font-medium text-red-800 dark:text-red-400">{incidentCause(inc.delayCause)} · {formatDateTime(inc.createdAt)}</p>
                             <ImagePreviewGallery compact items={[inc.mapPhoto, inc.situation1Photo, inc.situation2Photo]

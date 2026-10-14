@@ -1,6 +1,5 @@
 export default {
     // Renewals
-    "renewals.title": "Fleet Compliance & Renewals",
     "renewals.subtitle": "Manage Tax and Insurance expiration across the fleet.",
     "renewals.filter.all": "All Vehicles",
     "renewals.filter.critical": "Critical Action",

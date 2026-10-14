@@ -9,9 +9,10 @@
 import { useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { format, subDays } from "date-fns";
-import { Fuel, Loader2, Minus, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+import { Loader2, Minus, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 import { LoadMore } from "@/components/load-more";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,20 +50,17 @@ export function FuelPriceHistoryPage() {
     const dieselNow = latest?.items.filter((i) => isDieselName(i.nameTh)) ?? [];
 
     return (
-        <div className="container space-y-6 py-8">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="flex items-center gap-2 text-2xl font-bold">
-                        <Fuel className="h-6 w-6 text-muted-foreground" aria-hidden />
-                        {t("nav.fuelPriceHistory")}
-                    </h1>
-                    <p className="mt-1 text-sm text-muted-foreground">{t("accounting.fuelHistory.subtitle")}</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => void days.refetch()} disabled={days.isFetching}>
-                    {days.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                    <span className="ml-1">{t("common.refresh")}</span>
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.fuelPriceHistory")}
+                description={t("accounting.fuelHistory.subtitle")}
+                actions={
+                    <Button variant="outline" size="sm" onClick={() => void days.refetch()} disabled={days.isFetching}>
+                        {days.isFetching ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : <RefreshCw aria-hidden className="h-4 w-4" />}
+                        <span className="ml-1">{t("common.refresh")}</span>
+                    </Button>
+                }
+            />
 
             {dieselNow.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

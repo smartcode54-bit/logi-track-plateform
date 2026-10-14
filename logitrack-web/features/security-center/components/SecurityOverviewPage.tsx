@@ -21,6 +21,7 @@ import { Activity, AlertTriangle, Check, Loader2, LogIn, Smartphone, Users } fro
 import { useLanguage } from "@/context/language";
 import { useCan, useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,20 +95,22 @@ export function SecurityOverviewPage() {
     const recentRows = recentVisible.rows.slice(0, RECENT_EVENTS_LIMIT);
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.securityCenter")}</h1>
-                    <p className="text-muted-foreground mt-1">{t("securityCenter.overview.subtitleGo")}</p>
-                </div>
-                {o ? (
-                    <p className="text-xs text-muted-foreground" data-testid="overview-scope">
-                        {o.scope.all ? t("securityCenter.overview.scopeAll") : t("securityCenter.overview.scopeTenant")}
-                        {" · "}
-                        {t("securityCenter.overview.generatedAt", { time: new Date(o.generatedAt).toLocaleTimeString() })}
-                    </p>
-                ) : null}
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.securityCenter")}
+                description={
+                    <>
+                        <p>{t("securityCenter.overview.subtitleGo")}</p>
+                        {o ? (
+                            <p className="mt-1 text-xs" data-testid="overview-scope">
+                                {o.scope.all ? t("securityCenter.overview.scopeAll") : t("securityCenter.overview.scopeTenant")}
+                                {" · "}
+                                {t("securityCenter.overview.generatedAt", { time: new Date(o.generatedAt).toLocaleTimeString() })}
+                            </p>
+                        ) : null}
+                    </>
+                }
+            />
 
             {overview.error ? (
                 <Alert variant="destructive">

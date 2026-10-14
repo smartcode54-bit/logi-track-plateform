@@ -10,9 +10,10 @@
  */
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, Loader2, Megaphone, Send } from "lucide-react";
+import { Ban, Check, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 
+import { PageHeader } from "@/components/page-header";
 import { useLanguage } from "@/context/language";
 import { useCan, useMe } from "@/features/auth/api/useMe";
 import { driverPicksQuery } from "@/features/accounting/api/pickers.go";
@@ -258,14 +259,8 @@ export function BroadcastComposerGo() {
     };
 
     return (
-        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-y-auto p-6">
-            <div className="mb-6 flex items-center gap-2">
-                <Megaphone className="h-6 w-6 text-primary" />
-                <div>
-                    <h1 className="text-lg font-semibold">{t("chat.broadcast.title")}</h1>
-                    <p className="text-sm text-muted-foreground">{t("chat.broadcast.subtitle")}</p>
-                </div>
-            </div>
+        <div className="flex w-full max-w-4xl flex-1 flex-col gap-section overflow-y-auto p-4">
+            <PageHeader title={t("nav.chat")} recordName={t("chat.broadcast.title")} description={t("chat.broadcast.subtitle")} />
 
             {canSend && (
                 <form

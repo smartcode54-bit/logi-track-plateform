@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Save, ArrowLeft, Loader2 } from "lucide-react";
+import { Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
 import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
+import { formatLicensePlate } from "@/lib/utils";
 
 import { IdentificationSection } from "./IdentificationSection";
 import { VehicleDetailsSection } from "./VehicleDetailsSection";
@@ -44,6 +45,8 @@ import { carrierName } from "@/features/subcontractors/api/subcontractors";
 import { applyServerFieldErrors } from "@/lib/formServerErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
+import { RecordState, recordUnavailable } from "@/components/record-state";
 
 function SubcontractorSelector({ value, onChange, disabled }: { value?: string, onChange: (val: string) => void, disabled?: boolean }) {
     const { t } = useLanguage();
@@ -105,12 +108,6 @@ export default function EditTruckForm() {
         setLoadedId(truckData.id);
     }, [truckQuery.data, loadedId, form]);
 
-    useEffect(() => {
-        if (truckQuery.isError) setError(t("trucks.detail.error"));
-        else if (truckQuery.isSuccess && !truckQuery.data) setError(t("trucks.detail.notFound"));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [truckQuery.isError, truckQuery.isSuccess, truckQuery.data]);
-
     const isLoading = truckQuery.isPending && Boolean(truckId);
 
     const handleFileSelect = (fieldOrFile: string | File, fileOrBlob: File | string, blobUrl?: string) => {
@@ -136,6 +133,12 @@ export default function EditTruckForm() {
         }
     };
 
+    // No id, no truck, or the read failed: not found, or a load error with a retry (UI3D), never an empty form.
+    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
+    if (!truckId || recordUnavailable(truckQuery)) {
+        return <RecordState error={truckQuery.error} onRetry={() => void truckQuery.refetch()} retrying={truckQuery.isFetching} />;
+    }
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -146,20 +149,14 @@ export default function EditTruckForm() {
     }
 
     return (
-        <div className="container mx-auto px-4 py-8">
-            <div className="max-w-4xl mx-auto">
-                <div className="flex items-center justify-between mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold text-foreground">{t("trucks.edit.title")}</h1>
-                        <p className="text-muted-foreground mt-1">{t("trucks.edit.subtitle")}</p>
-                    </div>
-                    <Button variant="outline" asChild>
-                        <Link href={`/app/trucks/view?id=${truckId}`} prefetch={false} className="flex items-center gap-2">
-                            <ArrowLeft className="h-4 w-4" />
-                            {t("trucks.edit.backToDetails")}
-                        </Link>
-                    </Button>
-                </div>
+        <div className="flex max-w-4xl flex-col gap-section">
+            <PageHeader
+                title={t("nav.trucks")}
+                recordName={truckQuery.data ? formatLicensePlate(truckQuery.data.licensePlate) : undefined}
+                description={t("trucks.edit.subtitle")}
+                back={{ href: `/app/trucks/view?id=${truckId}`, label: t("trucks.edit.backToDetails") }}
+            />
+            <div>
 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">

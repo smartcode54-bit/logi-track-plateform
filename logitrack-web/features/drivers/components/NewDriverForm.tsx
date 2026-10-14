@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
-    Loader2, ArrowLeft, CheckCircle2, Upload, User,
+    Loader2, CheckCircle2, Upload, User,
     FileText, Truck, X, KeyRound,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
+import { PageHeader } from "@/components/page-header";
 
 export default function NewDriverForm() {
     const router = useRouter();
@@ -170,8 +171,8 @@ export default function NewDriverForm() {
 
     if (created) {
         return (
-            <div className="container max-w-xl mx-auto py-12 space-y-6">
-                <h1 className="text-2xl font-bold">{t("drivers.new.title")}</h1>
+            <div className="flex max-w-xl flex-col gap-section">
+                <PageHeader title={t("nav.drivers")} recordName={t("drivers.new.title")} />
                 {created.login ? (
                     <TemporaryPasswordNotice email={created.login.user.email ?? form.getValues("email") ?? ""} temporaryPassword={created.login.temporaryPassword} />
                 ) : (
@@ -190,18 +191,15 @@ export default function NewDriverForm() {
     }
 
     return (
-        <div className="min-h-screen bg-background text-foreground flex flex-col">
+        <div className="flex flex-col gap-section">
             {/* Header */}
-            <div className="flex items-center px-8 py-6 border-b bg-background sticky top-0 z-10">
-                <Button variant="ghost" size="icon" asChild className="mr-4">
-                    <Link href="/app/drivers" prefetch={false}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Link>
-                </Button>
-                <div>
-                    <h1 className="text-2xl font-bold">{t("drivers.new.title")}</h1>
-                    <p className="text-muted-foreground text-sm">{t("drivers.new.step")} {currentStep} {t("drivers.new.of")} {STEPS.length}: {STEPS[currentStep - 1].title}</p>
-                </div>
+            <div className="sticky top-16 z-raised border-b bg-background pb-4">
+                <PageHeader
+                    title={t("nav.drivers")}
+                    recordName={t("drivers.new.title")}
+                    description={`${t("drivers.new.step")} ${currentStep} ${t("drivers.new.of")} ${STEPS.length}: ${STEPS[currentStep - 1].title}`}
+                    back={{ href: "/app/drivers" }}
+                />
             </div>
 
             <div className="flex flex-1 overflow-hidden">
@@ -260,7 +258,7 @@ export default function NewDriverForm() {
                                                             <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                                                         </div>
                                                         {imagePreview && (
-                                                            <button type="button" onClick={removeImage} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-sm">
+                                                            <button aria-label={t("common.removePhoto")} type="button" onClick={removeImage} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-sm">
                                                                 <X className="h-4 w-4" />
                                                             </button>
                                                         )}

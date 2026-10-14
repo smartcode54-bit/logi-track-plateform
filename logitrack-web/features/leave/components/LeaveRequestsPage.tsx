@@ -17,6 +17,7 @@ import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
 import { HrErrorAlert, LoadMoreFooter, StatusBadge, dayLabel } from "@/features/driver-compensation/components/go/hrShared";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -62,17 +63,17 @@ export function LeaveRequestsPage() {
     const [selected, setSelected] = useState<{ request: LeaveRequestDTO; action?: LeaveAction } | null>(null);
 
     return (
-        <div className="container mx-auto max-w-[1400px] space-y-6 p-6">
-            <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.leaveRequests")}</h1>
-                    <p className="mt-1 text-muted-foreground">{t("leaveRequests.subtitle")}</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>
-                    <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
-                    {t("hr.refresh")}
-                </Button>
-            </div>
+        <div className="flex flex-col gap-section">
+            <PageHeader
+                title={t("nav.leaveRequests")}
+                description={t("leaveRequests.subtitle")}
+                actions={
+                    <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                        {t("hr.refresh")}
+                    </Button>
+                }
+            />
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <Card>
