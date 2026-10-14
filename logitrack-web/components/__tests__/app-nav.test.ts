@@ -2,7 +2,7 @@
 // from its i18n keys, never from URL slugs. Every page under app/app gets a crumb whose text exists in the base
 // dictionary of both languages (the header renders it on every route, before any split namespace loads).
 //
-// UI3B: the menu follows the work loop (Operations, Billing, Costs, Fleet and partners, HR; System at the foot), the
+// UI3F: the complete catalog follows the work loop, then Settings and Platform. The
 // principal's home is its first entry, the per-role sets of destinations are those of the gate (unchanged: the only
 // additions are First mile and Line haul, which became menu entries for whoever could already open them), and every
 // page's H1 reads the key of its menu entry.
@@ -13,14 +13,16 @@ import { describe, expect, it } from "vitest";
 
 import {
     activeNavUrl,
+    allowedMenuFor,
     breadcrumbTrail,
     groupOf,
     isNavGroup,
     MAIN_NAV,
     mainNavFor,
     menuFor,
+    menuLinksFor,
+    securityMenuFor,
     SECURITY_NAV,
-    SYSTEM_NAV,
     type NavEntry,
 } from "../app-nav";
 import en from "@/context/locales/en";
@@ -83,7 +85,7 @@ describe("breadcrumbTrail", () => {
             detailKey: "shell.crumb.detail",
         });
         expect(breadcrumbTrail("/app/customers/abc/edit")).toMatchObject({
-            crumbs: [{ labelKey: "nav.fleetPartners" }, { labelKey: "nav.customers", href: "/app/customers" }],
+            crumbs: [{ labelKey: "nav.billing" }, { labelKey: "nav.customers", href: "/app/customers" }],
             detailKey: "shell.crumb.edit",
         });
         expect(breadcrumbTrail("/app/drivers/new").detailKey).toBe("shell.crumb.new");
@@ -91,7 +93,7 @@ describe("breadcrumbTrail", () => {
 
     it("names the pages opened from another page under their parent", () => {
         expect(breadcrumbTrail("/app/utilities/billing-impact")).toEqual({
-            crumbs: [{ labelKey: "nav.utilities", href: "/app/utilities/backfill" }, { labelKey: "nav.billingImpact", href: "/app/utilities/billing-impact" }],
+            crumbs: [{ labelKey: "nav.billing" }, { labelKey: "nav.utilities", href: "/app/utilities/backfill" }, { labelKey: "nav.billingImpact", href: "/app/utilities/billing-impact" }],
             detail: false,
         });
         expect(breadcrumbTrail("/app/payroll/config").crumbs).toEqual([
@@ -105,12 +107,13 @@ describe("breadcrumbTrail", () => {
 
     it("puts the Security Center pages under the Security Center", () => {
         expect(breadcrumbTrail("/app/security-center/users").crumbs).toEqual([
+            { labelKey: "nav.platform" },
             { labelKey: "nav.securityCenter", href: "/app/security-center" },
             { labelKey: "securityCenter.userManagement", href: "/app/security-center/users" },
         ]);
-        expect(breadcrumbTrail("/app/security-center").crumbs).toEqual([{ labelKey: "nav.securityCenter", href: "/app/security-center" }]);
-        // The waitlist is the platform's: in the system group, not among the tenant's menu groups.
-        expect(breadcrumbTrail("/app/waitlist").crumbs).toEqual([{ labelKey: "nav.waitlist", href: "/app/waitlist" }]);
+        expect(breadcrumbTrail("/app/security-center").crumbs).toEqual([{ labelKey: "nav.platform" }, { labelKey: "nav.securityCenter", href: "/app/security-center" }]);
+        // Platform administration is separate from tenant settings.
+        expect(breadcrumbTrail("/app/waitlist").crumbs).toEqual([{ labelKey: "nav.platform" }, { labelKey: "nav.waitlist", href: "/app/waitlist" }]);
     });
 
     it("names Support (the sidebar's footer entry, UI3C) as a page of its own", () => {
@@ -147,11 +150,16 @@ describe("menu entries", () => {
             ...[MAIN_NAV, mainNavFor(DRIVER_MONITOR_PATH)].flatMap((nav) =>
                 nav.flatMap((entry) => (isNavGroup(entry) ? [entry.labelKey, ...entry.items.map((i) => i.labelKey)] : [entry.labelKey]))
             ),
-            ...SYSTEM_NAV.map((l) => l.labelKey),
             ...SECURITY_NAV.map((l) => l.labelKey),
             // The sidebars' group label and footers (app-sidebar.tsx, security-center-sidebar.tsx).
-            "nav.system",
+            "nav.settings",
+            "nav.platform",
             "nav.supportCenter",
+            "nav.customerTrips",
+            "nav.partnerTrips",
+            "nav.scopedTasks",
+            "nav.deliveryIssues",
+            "nav.partnerFleet",
             "securityCenter.title",
             "securityCenter.backToAdmin",
         ];
@@ -175,14 +183,16 @@ describe("menu entries", () => {
     });
 
     it("follow the work loop: Operations, Billing, Costs, Fleet and partners, HR, after the home", () => {
-        expect(MAIN_NAV.map((e) => e.labelKey)).toEqual(["nav.dashboard", "nav.operations", "nav.billing", "nav.costs", "nav.fleetPartners", "nav.hr"]);
+        expect(MAIN_NAV.map((e) => e.labelKey)).toEqual(["nav.dashboard", "nav.operations", "nav.billing", "nav.costs", "nav.fleetPartners", "nav.hr", "nav.settings", "nav.platform"]);
         const billing = MAIN_NAV.find((e) => e.labelKey === "nav.billing");
         expect(billing && isNavGroup(billing) ? billing.items.map((i) => i.url) : []).toEqual([
+            "/app/customers",
             "/app/accounting/rate-card",
             "/app/accounting/income",
             "/app/accounting/billing-document",
             "/app/accounting/billing-result",
             "/app/accounting/shopee-express-report",
+            "/app/utilities/backfill",
         ]);
         // The four billing pages read four different names in both languages.
         const names = (dict: Record<string, string>) => ["nav.rateCard", "nav.income", "nav.billingDocument", "nav.billingResult"].map((k) => dict[k]);
@@ -201,9 +211,9 @@ describe("menu entries", () => {
     });
 
     it("give Customers, Companies and Company profile different icons", () => {
-        const all = [...urlsOf(MAIN_NAV), ...SYSTEM_NAV.map((l) => l.url)];
+        const all = urlsOf(MAIN_NAV);
         expect(all).toContain("/app/customers");
-        const icons = SYSTEM_NAV.filter((l) => ["/app/companies", "/app/settings/company-profile"].includes(l.url)).map((l) => l.icon);
+        const icons = MAIN_NAV.flatMap((entry) => isNavGroup(entry) ? entry.items : [entry]).filter((l) => ["/app/companies", "/app/settings/company-profile"].includes(l.url)).map((l) => l.icon);
         expect(new Set(icons).size).toBe(2);
         const groupIcons = MAIN_NAV.filter(isNavGroup).map((g) => g.icon);
         expect(new Set(groupIcons).size).toBe(groupIcons.length);
@@ -266,15 +276,15 @@ describe("the menu of each kind of principal (UI3B: only grouping, order, names 
     for (const [who, principal] of Object.entries(PRINCIPALS)) {
         it(`${who}: the same destinations as before, plus First mile and Line haul where the gate opens them`, () => {
             const held = new Set(principal.capabilities);
-            const { main, system } = menuFor(held, principal.home);
-            const now = [...urlsOf(main), ...system.map((l) => l.url)].sort();
+            const { main } = allowedMenuFor(held, principal.home);
+            const now = urlsOf(main).sort();
             const boards = ["/app/first-mile", "/app/line-haul"].filter((u) => routeAllowed(held, u));
             expect(now).toEqual([...BEFORE[who].main, ...boards].sort());
             // Every entry is one the gate opens, and no group is empty.
             for (const url of now) expect(routeAllowed(held, url), url).toBe(true);
             for (const entry of main) if (isNavGroup(entry)) expect(entry.items.length).toBeGreaterThan(0);
-            // The Security Center sidebar is untouched.
-            expect(SECURITY_NAV.filter((l) => routeAllowed(held, l.url)).map((l) => l.url).sort()).toEqual(BEFORE[who].security);
+            // The Security Center retains its allowed destinations.
+            expect(urlsOf(securityMenuFor(held, principal.home).main).sort()).toEqual(BEFORE[who].security);
             // The home is the first entry.
             expect(main[0]).toMatchObject({ url: principal.home });
         });
@@ -364,7 +374,7 @@ function primaryHeading(file: string, component: string): { markup?: string; pro
 describe("one name per page (UI3B)", () => {
     // Redirects only (no heading of their own).
     const REDIRECTS = new Set(["/app/users", "/app/operations/roles"]);
-    const pages = [...new Set([...urlsOf(MAIN_NAV), ...SYSTEM_NAV.map((l) => l.url), ...SECURITY_NAV.map((l) => l.url), "/app/payroll/config", "/app/payroll/penalties", "/app/utilities/billing-impact"])];
+    const pages = [...new Set([...urlsOf(MAIN_NAV), ...SECURITY_NAV.map((l) => l.url), "/app/payroll/config", "/app/payroll/penalties", "/app/utilities/billing-impact"])];
 
     it("every menu page's primary H1, its PageHeader's title, reads the key of its menu entry (= its crumb and its tab title)", () => {
         expect(pages.length).toBe(44);
@@ -419,5 +429,76 @@ describe("one name per page (UI3B)", () => {
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+describe("profile presentation (UI3F)", () => {
+    const customerHrefs = ["/app/driver-monitor", "/app/job-assign", "/app/incident-reports", "/app/support"];
+    const partnerHrefs = ["/app/driver-monitor", "/app/job-assign", "/app/incident-reports", "/app/chat", "/app/trucks", "/app/drivers", "/app/maintenance", "/app/accounting/billing-document", "/app/support"];
+
+    it.each(["customer", "partner"] as const)("%s has its exact ordered default destinations and labels", (profile) => {
+        const principal = PRINCIPALS[profile];
+        const menu = menuFor(new Set(principal.capabilities), principal.home, profile);
+        const links = menuLinksFor(menu);
+        expect(links.map((link) => link.href)).toEqual(profile === "customer" ? customerHrefs : partnerHrefs);
+        expect(links.slice(0, 3).map((link) => link.labelKey)).toEqual([profile === "customer" ? "nav.customerTrips" : "nav.partnerTrips", "nav.scopedTasks", "nav.deliveryIssues"]);
+        expect(links.slice(0, 3).every((link) => link.groupLabelKey === undefined)).toBe(true);
+        expect(menu.main.filter(isNavGroup).map((group) => group.labelKey)).toEqual(profile === "customer" ? [] : ["nav.partnerFleet"]);
+        for (const link of links) expect(routeAllowed(new Set(principal.capabilities), link.href), link.href).toBe(true);
+    });
+
+    it.each(["customer", "partner"] as const)("%s intersects capabilities, retains the computed fallback and removes empty groups", (profile) => {
+        const held = new Set(["operations:view_first_mile"]);
+        const menu = menuFor(held, DASHBOARD_PATH, profile);
+        const links = menuLinksFor(menu);
+        expect(links.map((link) => link.href)).toEqual([DASHBOARD_PATH, "/app/job-assign", "/app/support"]);
+        expect(menu.main.filter(isNavGroup)).toHaveLength(0);
+        expect(menuLinksFor(menuFor(new Set(), DRIVER_MONITOR_PATH, profile)).map((link) => link.href)).toEqual(["/app/support"]);
+    });
+
+    it("keeps staff destinations and canonical labels, without mutating the catalog", () => {
+        for (const principal of Object.values(PRINCIPALS)) {
+            const held = new Set(principal.capabilities);
+            expect(menuFor(held, principal.home, "staff")).toEqual(allowedMenuFor(held, principal.home));
+        }
+        menuFor(new Set(PRINCIPALS.partner.capabilities), DRIVER_MONITOR_PATH, "partner");
+        expect(breadcrumbTrail(DRIVER_MONITOR_PATH).crumbs.at(-1)?.labelKey).toBe("nav.driverMonitor");
+    });
+
+    it("flattens collapsed groups and footer links in order, deduplicating by first URL", () => {
+        const home = { url: DASHBOARD_PATH, labelKey: "nav.dashboard" };
+        const support = { url: "/app/support", labelKey: "nav.supportCenter" };
+        const group = MAIN_NAV.find(isNavGroup)!;
+        expect(menuLinksFor({ main: [home, { ...group, items: [home, support] }], footer: [support, home] })).toEqual([
+            { href: DASHBOARD_PATH, labelKey: "nav.dashboard" },
+            { href: "/app/support", labelKey: "nav.supportCenter", groupLabelKey: group.labelKey },
+        ]);
+        const partner = menuLinksFor(menuFor(new Set(PRINCIPALS.partner.capabilities), DRIVER_MONITOR_PATH, "partner"));
+        expect(partner.filter((link) => link.groupLabelKey === "nav.partnerFleet").map((link) => link.href)).toEqual(["/app/trucks", "/app/drivers", "/app/maintenance"]);
+    });
+
+    it("shares Security Center filtering and includes the allowed return home and Support", () => {
+        const links = menuLinksFor(securityMenuFor(new Set(["users:view"]), DRIVER_MONITOR_PATH));
+        expect(links.map((link) => link.href)).toEqual(["/app/security-center/users", "/app/support"]);
+        const principal = PRINCIPALS.partner;
+        const partnerLinks = menuLinksFor(securityMenuFor(new Set(principal.capabilities), principal.home));
+        expect(partnerLinks.slice(-2)).toEqual([
+            { href: DRIVER_MONITOR_PATH, labelKey: "securityCenter.backToAdmin" },
+            { href: "/app/support", labelKey: "nav.supportCenter" },
+        ]);
+    });
+
+    it("resolves profile grouping and labels while retaining hidden direct-route trails", () => {
+        for (const profile of ["customer", "partner"] as const) {
+            expect(breadcrumbTrail("/app/job-assign", DRIVER_MONITOR_PATH, profile).crumbs).toEqual([{ labelKey: "nav.scopedTasks", href: "/app/job-assign" }]);
+            expect(breadcrumbTrail("/app/incident-reports", DRIVER_MONITOR_PATH, profile).crumbs).toEqual([{ labelKey: "nav.deliveryIssues", href: "/app/incident-reports" }]);
+            expect(breadcrumbTrail("/app/standby-records", DRIVER_MONITOR_PATH, profile).crumbs).toEqual([{ labelKey: "nav.operations" }, { labelKey: "nav.standbyRecords", href: "/app/standby-records" }]);
+        }
+        expect(breadcrumbTrail("/app/trucks/x1/edit", DRIVER_MONITOR_PATH, "partner")).toEqual({ crumbs: [{ labelKey: "nav.partnerFleet" }, { labelKey: "nav.trucks", href: "/app/trucks" }], detail: true, detailKey: "shell.crumb.edit" });
+        expect(breadcrumbTrail("/app/payroll/config", DRIVER_MONITOR_PATH, "partner").crumbs[0]).toEqual({ labelKey: "nav.hr" });
+        expect(breadcrumbTrail("/app/customers", DRIVER_MONITOR_PATH, "customer").crumbs[0]).toEqual({ labelKey: "nav.billing" });
+        expect(breadcrumbTrail("/app/companies").crumbs[0]).toEqual({ labelKey: "nav.settings" });
+        expect(breadcrumbTrail("/app/settings/company-profile").crumbs[0]).toEqual({ labelKey: "nav.settings" });
+        expect(breadcrumbTrail("/app/utilities/backfill").crumbs[0]).toEqual({ labelKey: "nav.billing" });
     });
 });

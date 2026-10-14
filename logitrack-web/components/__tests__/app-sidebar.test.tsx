@@ -9,6 +9,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import React from "react";
+import type { MeDTO } from "@/features/auth/api/me";
+import { navigationProfileOf } from "@/features/auth/utils/navigationProfile";
+import { homeRouteOf } from "@/features/auth/api/homeRoute";
+import { makeMe } from "@/test-utils/fakeWeb";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -17,8 +21,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let mockPathname = "/app/dashboard";
 vi.mock("next/navigation", () => ({ usePathname: () => mockPathname, useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
+const { SecurityCenterSidebar } = await import("../security-center-sidebar");
 const { AppSidebar } = await import("../app-sidebar");
-const { menuFor, isNavGroup, SUPPORT_NAV } = await import("../app-nav");
+const { menuFor, menuLinksFor } = await import("../app-nav");
 const { initialSidebarOpen, SIDEBAR_OPEN_FROM_PX } = await import("../sidebar-shell");
 const { SidebarProvider, sidebarStateFromCookie, useSidebar } = await import("@/components/ui/sidebar");
 const { LanguageProvider } = await import("@/context/language");
@@ -79,20 +84,20 @@ function Toggle() {
     );
 }
 
-async function renderSidebar(capabilities: string[], { open = true }: { open?: boolean } = {}) {
+async function renderSidebar(capabilities: string[], { open = true, me, security = false }: { open?: boolean; me?: MeDTO; security?: boolean } = {}) {
     const client = createQueryClient();
-    client.setQueryData(["me"], principal(capabilities));
+    client.setQueryData(["me"], me ?? principal(capabilities));
     render(
         <QueryClientProvider client={client}>
             <LanguageProvider>
                 <SidebarProvider defaultOpen={open}>
-                    <AppSidebar />
+                    {security ? <SecurityCenterSidebar /> : <AppSidebar />}
                     <Toggle />
                 </SidebarProvider>
             </LanguageProvider>
         </QueryClientProvider>
     );
-    await screen.findByText("LogiTrack Pro");
+    await screen.findByRole("navigation", { name: security ? "Security center menu" : "Main menu" });
     return client;
 }
 
@@ -109,6 +114,7 @@ describe("AppSidebar", () => {
         const user = userEvent.setup();
         // Open the closed groups to see every entry.
         for (const name of ["Billing", "Fleet and partners"]) await user.click(screen.getByRole("button", { name }));
+        await user.click(screen.getByRole("button", { name: /^Platform/ }));
         const links = hrefs();
         expect(links).toEqual(expect.arrayContaining(["/app/dashboard", "/app/trucks", "/app/accounting/income", "/app/waitlist"]));
         for (const hidden of ["/app/drivers", "/app/accounting/fuel", "/app/security-center", "/app/utilities/backfill", "/app/companies"]) {
@@ -123,10 +129,10 @@ describe("AppSidebar", () => {
         for (const button of screen.getAllByRole("button", { expanded: false })) {
             if (button.closest("[data-sidebar=menu-item]")) await user.click(button);
         }
-        const { main, system } = menuFor(new Set(ALL_GROUPS), "/app/dashboard");
-        const expected = [...main.flatMap((e) => (isNavGroup(e) ? e.items.map((i) => i.url) : [e.url])), ...system.map((l) => l.url)];
-        // The footer's Support entry (SUPPORT_NAV, UI3C) is outside menuFor: every console principal has it.
-        expect(hrefs().filter((h) => h !== SUPPORT_NAV.url && h !== "/app/dashboard").sort()).toEqual(expected.filter((u) => u !== "/app/dashboard").sort());
+        const expected = menuLinksFor(menuFor(new Set(ALL_GROUPS), "/app/dashboard")).map((link) => link.href);
+        const nav = screen.getByRole("navigation", { name: "Main menu" });
+        expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(expected);
+        expect(nav.querySelector("nav")).toBeNull();
     });
 
     it("names the slice in its header from ['me'] and leaves sign-out to the user menu (UI3)", async () => {
@@ -142,8 +148,24 @@ describe("AppSidebar", () => {
 
     it("counts the waitlist from one GET /v1/badges, with no web flags request (TW7)", async () => {
         await renderSidebar(["waitlist:view"]);
+        await userEvent.setup().click(screen.getByRole("button", { name: /^Platform/ }));
         await waitFor(() => expect(screen.getByText("Waitlist (12)")).toBeInTheDocument());
         expect(fetched).toEqual(["/api/go/v1/badges"]);
+    });
+
+    it("shows the waitlist count on the closed Platform group", async () => {
+        await renderSidebar(["waitlist:view"]);
+        const platform = await screen.findByRole("button", { name: "Platform, Waitlist (12)" });
+        expect(platform).toHaveAttribute("aria-expanded", "false");
+        expect(within(platform).getByText("12")).toBeInTheDocument();
+    });
+
+    it("keeps the waitlist count on the rail group and its menu link", async () => {
+        await renderSidebar(["waitlist:view"], { open: false });
+        const railPlatform = await screen.findByRole("button", { name: "Platform, Waitlist (12)" });
+        expect(within(railPlatform).getByText("12")).toBeInTheDocument();
+        await userEvent.setup().click(railPlatform);
+        expect(await screen.findByRole("menuitem", { name: "Waitlist (12)" })).toHaveAttribute("href", "/app/waitlist");
     });
 
     it("keys the shortened slice and the full role apart, so only the slice is cut", async () => {
@@ -198,6 +220,14 @@ describe("where am I (UI3B)", () => {
         await renderSidebar(["fleet:view_trucks"]);
         const support = screen.getByRole("link", { name: "Support" });
         expect(support).toHaveAttribute("href", "/app/support");
+        expect(screen.getByRole("navigation", { name: "Main menu" })).toContainElement(support);
+        const nav = screen.getByRole("navigation", { name: "Main menu" });
+        const scrollArea = nav.querySelector("[data-sidebar-scroll]");
+        expect(scrollArea).not.toBeNull();
+        expect(nav).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
+        expect(scrollArea).toHaveClass("min-h-0", "flex-1", "overflow-auto");
+        expect(nav.contains(support)).toBe(true);
+        expect(scrollArea?.contains(support)).toBe(false);
         expect(support).toHaveAttribute("aria-current", "page");
         expect(support).toHaveAttribute("data-active", "true");
         expect(document.querySelectorAll("[aria-current=page]")).toHaveLength(1);
@@ -329,5 +359,44 @@ describe("['badges']", () => {
         expect(badgesQueryOptions.refetchInterval).toBe(BADGES_POLL_MS);
         expect(BADGES_POLL_MS).toBe(60_000);
         expect(badgesQueryOptions.refetchIntervalInBackground).toBe(false);
+    });
+});
+
+describe("profile menus and navigation landmarks (UI3F)", () => {
+    it.each(["customer", "partner"] as const)("renders the %s's resolved destinations and names", async (profile) => {
+        const capabilities = ["operations:view_driver_monitor", "operations:view_first_mile", "operations:view_incidents", "chat:view", "fleet:view_trucks", "drivers:view", "fleet:manage_maintenance", "accounting:billing_document", "hr:view_payroll"];
+        const me = makeMe({ capabilities, tenant: profile === "customer" ? null : { id: "carrier", nameTh: "รถร่วม", nameEn: "Carrier", kind: "carrier", role: "tenant_admin" }, customerScopes: profile === "customer" ? [{ billingPartyId: "customer", name: "Customer" }] : [] });
+        mockPathname = "/app/driver-monitor";
+        await renderSidebar(capabilities, { me });
+        for (const button of screen.queryAllByRole("button", { expanded: false })) await userEvent.setup().click(button);
+        const nav = screen.getByRole("navigation", { name: "Main menu" });
+        const expected = menuLinksFor(menuFor(new Set(capabilities), homeRouteOf(me), navigationProfileOf(me)));
+        expect(expected).toHaveLength(profile === "customer" ? 4 : 9);
+        expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(expected.map((link) => link.href));
+        expect(within(nav).getByRole("link", { name: profile === "customer" ? "Your trips" : "Fleet trips" })).toHaveAttribute("aria-current", "page");
+        expect(within(nav).getByRole("link", { name: "Transport tasks" })).toHaveAttribute("href", "/app/job-assign");
+        expect(within(nav).getByRole("link", { name: "Delivery issues" })).toHaveAttribute("href", "/app/incident-reports");
+        expect(within(nav).queryByRole("link", { name: "Payroll" })).toBeNull();
+        expect(nav.querySelector("nav")).toBeNull();
+        expect(nav).not.toContainElement(screen.getByText(/Version/));
+    });
+
+    it("keeps Security Center's return home and Support inside its existing nav", async () => {
+        const capabilities = ["users:view"];
+        await renderSidebar(capabilities, { security: true });
+        const nav = screen.getByRole("navigation", { name: "Security center menu" });
+        const back = within(nav).getByRole("link", { name: "Back to the main menu" });
+        const support = within(nav).getByRole("link", { name: "Support" });
+        expect(back).toHaveAttribute("href", "/app/dashboard");
+        expect(support).toHaveAttribute("href", "/app/support");
+        const scrollArea = nav.querySelector("[data-sidebar-scroll]");
+        expect(scrollArea).not.toBeNull();
+        expect(nav).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
+        expect(scrollArea).toHaveClass("min-h-0", "flex-1", "overflow-auto");
+        expect(nav.contains(back)).toBe(true);
+        expect(nav.contains(support)).toBe(true);
+        expect(scrollArea?.contains(back)).toBe(false);
+        expect(scrollArea?.contains(support)).toBe(false);
+        expect(nav.querySelector("nav")).toBeNull();
     });
 });
