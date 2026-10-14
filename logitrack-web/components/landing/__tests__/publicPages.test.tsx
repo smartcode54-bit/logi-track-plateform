@@ -16,6 +16,7 @@ vi.mock("next/navigation", () => ({
 import Home from "@/app/page";
 import JoinNetworkPage from "@/app/join-network/page";
 import WaitlistForm from "@/features/auth/components/WaitlistForm";
+import LoginForm from "@/features/auth/components/LoginForm";
 import { LandingPage } from "../LandingPage";
 import { useLanguage } from "@/context/language";
 import { fakeWeb, goErr } from "@/test-utils/fakeWeb";
@@ -68,11 +69,25 @@ describe("Thai mode", () => {
             </Thai>
         );
         expect(await screen.findByText("เข้าร่วมรายการรอ")).toBeInTheDocument();
-        expect(screen.getByLabelText("ชื่อ-นามสกุล")).toBeInTheDocument();
-        expect(screen.getByLabelText("เบอร์โทรศัพท์")).toBeInTheDocument();
+        expect(screen.getByLabelText(/^ชื่อ-นามสกุล/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/^เบอร์โทรศัพท์/)).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "ขอสิทธิ์เข้าใช้งาน" })).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" })).toHaveAttribute("href", "/login");
-        expect(document.body.textContent).not.toMatch(/Full name|Phone number|Request Access|🇹🇭/);
+        expect(document.body.textContent).not.toMatch(/Full name|Phone number|Request access|🇹🇭/i);
+    });
+
+    it("the sign-in card says who to ask for an account, and offers the waitlist to transport companies, in Thai (UI3E)", async () => {
+        signedOut();
+        renderWithProviders(
+            <Thai>
+                <LoginForm />
+            </Thai>
+        );
+        expect(await screen.findByTestId("sign-in-no-account")).toHaveTextContent("ยังไม่มีบัญชี? สอบถามบริษัทขนส่งหรือผู้ดูแลระบบที่เชิญคุณเข้าใช้งาน");
+        expect(screen.getByText(/^ทำธุรกิจขนส่ง\?/)).toBeInTheDocument();
+        expect(screen.getByRole("link", { name: "เข้าร่วมรายการรอ LogiTrack Pro" })).toHaveAttribute("href", "/waitlist");
+        expect(screen.getByRole("heading", { level: 1, name: "เข้าสู่ระบบ" })).toBeInTheDocument();
+        expect(screen.getByLabelText(/^อีเมล/)).toHaveAttribute("aria-required", "true");
     });
 
     it("/join-network reads in Thai", async () => {

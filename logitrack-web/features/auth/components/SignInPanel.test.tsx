@@ -7,6 +7,9 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/loginGeo", () => ({ resolveLoginGeoForClient: async () => null }));
 
+import { toast } from "sonner";
+
+import { useLanguage } from "@/context/language";
 import { SignInPanel } from "./SignInPanel";
 import { tokenFromHash } from "./ResetPasswordForm";
 import { fakeWeb, goErr, json, makeMe } from "@/test-utils/fakeWeb";
@@ -44,8 +47,8 @@ describe("SignInPanel", () => {
         const onSignedIn = vi.fn();
         renderWithProviders(<SignInPanel onSignedIn={onSignedIn} />);
         const user = userEvent.setup();
-        await user.type(await screen.findByLabelText("Email"), "admin@own.test");
-        await user.type(screen.getByLabelText("Password"), "pw");
+        await user.type(await screen.findByLabelText(/^Email/), "admin@own.test");
+        await user.type(screen.getByLabelText(/^Password/), "pw");
         await user.click(screen.getByRole("button", { name: "Sign in" }));
         await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1));
         expect(web.calls.find((c) => c.url === "/api/auth/login")?.body).toEqual({ email: "admin@own.test", password: "pw" });
@@ -56,8 +59,8 @@ describe("SignInPanel", () => {
         web.on("POST", "/api/auth/login", () => goErr(401, "invalid_credentials"));
         renderWithProviders(<SignInPanel />);
         const user = userEvent.setup();
-        await user.type(await screen.findByLabelText("Email"), "a@b.test");
-        await user.type(screen.getByLabelText("Password"), "nope");
+        await user.type(await screen.findByLabelText(/^Email/), "a@b.test");
+        await user.type(screen.getByLabelText(/^Password/), "nope");
         await user.click(screen.getByRole("button", { name: "Sign in" }));
         expect(await screen.findByRole("alert")).toHaveTextContent("Incorrect email or password.");
     });
@@ -81,8 +84,8 @@ describe("SignInPanel", () => {
         const onSignedIn = vi.fn();
         renderWithProviders(<SignInPanel onSignedIn={onSignedIn} />);
         const user = userEvent.setup();
-        await user.type(await screen.findByLabelText("Email"), "driver@own.test");
-        await user.type(screen.getByLabelText("Password"), "Temp-Pass-1");
+        await user.type(await screen.findByLabelText(/^Email/), "driver@own.test");
+        await user.type(screen.getByLabelText(/^Password/), "Temp-Pass-1");
         await user.click(screen.getByRole("button", { name: "Sign in" }));
 
         expect(await screen.findByText("Set a new password")).toBeInTheDocument();
@@ -114,14 +117,89 @@ describe("SignInPanel", () => {
         web.on("POST", "/api/go/v1/auth/password/change", () => goErr(422, "invalid_argument", { fields: [{ field: "passwordChangeTicket", reason: "invalid_or_expired" }] }));
         renderWithProviders(<SignInPanel />);
         const user = userEvent.setup();
-        await user.type(await screen.findByLabelText("Email"), "d@own.test");
-        await user.type(screen.getByLabelText("Password"), "x");
+        await user.type(await screen.findByLabelText(/^Email/), "d@own.test");
+        await user.type(screen.getByLabelText(/^Password/), "x");
         await user.click(screen.getByRole("button", { name: "Sign in" }));
         await user.type(await screen.findByLabelText("New password"), "A-Much-Better-Secret");
         await user.type(screen.getByLabelText("Confirm new password"), "A-Much-Better-Secret");
         await user.click(screen.getByRole("button", { name: "Set password and sign in" }));
         expect(await screen.findByRole("status")).toHaveTextContent("This step has expired. Sign in again to continue.");
-        expect(screen.getByLabelText("Password")).toBeInTheDocument();
+        expect(screen.getByLabelText(/^Password/)).toBeInTheDocument();
+    });
+});
+
+/** A button that switches the interface to Thai, as the navigation's language switch does. */
+function ToThai() {
+    const { setLanguage } = useLanguage();
+    return (
+        <button type="button" onClick={() => setLanguage("th")}>
+            to-thai
+        </button>
+    );
+}
+
+describe("SignInPanel field errors (UI3E, DESIGN.md form style)", () => {
+    it("marks both fields required with the Signal Red star, which is not part of their names", async () => {
+        signedOutWeb();
+        renderWithProviders(<SignInPanel />);
+        const email = await screen.findByLabelText(/^Email/);
+        const password = screen.getByLabelText(/^Password/);
+        for (const [input, name] of [
+            [email, "Email"],
+            [password, "Password"],
+        ] as const) {
+            expect(input).toHaveAttribute("aria-required", "true");
+            expect(input).toHaveAccessibleName(name);
+            const star = document.querySelector(`label[for="${input.id}"] [aria-hidden="true"]`);
+            expect(star).toHaveTextContent("*");
+            expect(star?.className).toContain("text-destructive");
+            // A 44 px target on a phone.
+            expect(input.className).toContain("max-md:h-11");
+        }
+    });
+
+    it("ties each error to its field, focuses the first through the shared onInvalid handler and posts nothing", async () => {
+        const { web } = signedOutWeb();
+        const summary = vi.spyOn(toast, "error");
+        renderWithProviders(<SignInPanel />);
+        const user = userEvent.setup();
+        const email = await screen.findByLabelText(/^Email/);
+        const password = screen.getByLabelText(/^Password/);
+        await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+        expect(email).toHaveAttribute("aria-invalid", "true");
+        expect(email).toHaveAccessibleDescription("Enter your email address.");
+        expect(password).toHaveAttribute("aria-invalid", "true");
+        expect(password).toHaveAccessibleDescription("Enter your password.");
+        await waitFor(() => expect(email).toHaveFocus());
+        expect(summary).toHaveBeenCalledWith("Check the highlighted fields (2). First: Enter your email address.");
+        expect(web.count("POST", "/api/auth/login")).toBe(0);
+
+        // A malformed address says what is expected; a fixed field loses its error as the user types.
+        await user.type(email, "not-an-address");
+        expect(email).toHaveAccessibleDescription("Enter an email address such as name@company.co.th.");
+        await user.clear(email);
+        await user.type(email, "somchai@own.test");
+        expect(email).toHaveAttribute("aria-invalid", "false");
+        expect(email).not.toHaveAccessibleDescription();
+        expect(password).toHaveAttribute("aria-invalid", "true");
+        summary.mockRestore();
+    });
+
+    it("says a shown error again in Thai when the language changes", async () => {
+        signedOutWeb();
+        renderWithProviders(
+            <>
+                <ToThai />
+                <SignInPanel />
+            </>
+        );
+        const user = userEvent.setup();
+        await user.click(await screen.findByRole("button", { name: "Sign in" }));
+        expect(screen.getByLabelText(/^Email/)).toHaveAccessibleDescription("Enter your email address.");
+        await user.click(screen.getByRole("button", { name: "to-thai" }));
+        await waitFor(() => expect(screen.getByLabelText(/^อีเมล/)).toHaveAccessibleDescription("กรอกอีเมลของคุณ"));
+        expect(screen.getByLabelText(/^รหัสผ่าน/)).toHaveAccessibleDescription("กรอกรหัสผ่านของคุณ");
     });
 });
 

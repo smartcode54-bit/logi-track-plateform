@@ -47,6 +47,9 @@ function countLeafErrors(errors: FieldErrors): number {
  * becomes a silent no-op, which is indistinguishable from a broken save. That is how an email edit
  * on a driver doc predating the required `fullNameTh` field vanished with no error (ADR 0003).
  * The failing field is often off-screen, so the inline FormMessage alone is not enough.
+ *
+ * One message for every form (`common.toast.validationError`, ADR 0004): its text is neutral (UI3E: "Check the
+ * highlighted fields"), so it fits a form that signs in as well as one that saves.
  */
 export function createInvalidHandler<T extends FieldValues>(
     form: UseFormReturn<T>,

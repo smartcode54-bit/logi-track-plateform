@@ -42,8 +42,8 @@ describe("the landing page, signed out", () => {
         expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
         expect(screen.getAllByText("LogiTrack Pro").length).toBeGreaterThan(0);
         expect(screen.getAllByText("by GORATECH").length).toBeGreaterThan(0);
-        expect(within(card).getByLabelText("Email")).toBeInTheDocument();
-        expect(within(card).getByLabelText("Password")).toBeInTheDocument();
+        expect(within(card).getByLabelText(/^Email/)).toBeInTheDocument();
+        expect(within(card).getByLabelText(/^Password/)).toBeInTheDocument();
         expect(screen.queryByRole("dialog")).toBeNull();
         expect(screen.queryByText(/Logi-Track|LogisticsPro|Logistics Pro/)).toBeNull();
     });
@@ -55,7 +55,7 @@ describe("the landing page, signed out", () => {
         const submit = within(card).getByTestId("sign-in-submit");
         expect(submit).toHaveAccessibleName("Sign in");
         expect(submit.className).toContain("bg-primary");
-        const waitlist = within(card).getByRole("link", { name: "Request access on the waitlist" });
+        const waitlist = within(card).getByRole("link", { name: "Join the LogiTrack Pro waitlist" });
         expect(waitlist).toHaveAttribute("href", "/waitlist");
         expect(waitlist.className).not.toMatch(/bg-primary|bg-/);
         // Below the submit button in reading order.
@@ -93,7 +93,7 @@ describe("the landing page, signed in", () => {
         await waitFor(() => expect(replace).toHaveBeenCalledWith("/app/dashboard"));
         expect(screen.getByRole("link", { name: "Open console" })).toHaveAttribute("href", homeRouteOf(me));
         expect(screen.queryByTestId("sign-in-card")).toBeNull();
-        expect(screen.queryByLabelText("Password")).toBeNull();
+        expect(screen.queryByLabelText(/^Password/)).toBeNull();
     });
 
     it("sends a customer to the driver monitor, as the shell's Home crumb does", async () => {

@@ -10,6 +10,8 @@ import enLanding from "@/context/locales/en/landing";
 import thLanding from "@/context/locales/th/landing";
 import enSupport from "@/context/locales/en/support";
 import thSupport from "@/context/locales/th/support";
+import enAbout from "@/context/locales/en/about";
+import thAbout from "@/context/locales/th/about";
 import en from "@/context/locales/en";
 import th from "@/context/locales/th";
 import { WEB_ROOT } from "@/test-utils/importGraph";
@@ -25,8 +27,8 @@ const CHOICES = /^landing\.join\.form\.(fleet|vehicle)\./;
 
 describe("the public copy (en + th)", () => {
     for (const [lang, dict] of [
-        ["en", { ...enLanding, ...enSupport }],
-        ["th", { ...thLanding, ...thSupport }],
+        ["en", { ...enLanding, ...enSupport, ...enAbout }],
+        ["th", { ...thLanding, ...thSupport, ...thAbout }],
     ] as const) {
         it(`${lang}: one brand, no fabricated claims, no "global" positioning`, () => {
             for (const [key, value] of Object.entries(dict)) {
@@ -41,6 +43,7 @@ describe("the public copy (en + th)", () => {
     it("has the same keys in both languages", () => {
         expect(Object.keys(thLanding).sort()).toEqual(Object.keys(enLanding).sort());
         expect(Object.keys(thSupport).sort()).toEqual(Object.keys(enSupport).sort());
+        expect(Object.keys(thAbout).sort()).toEqual(Object.keys(enAbout).sort());
     });
 
     it("leaves no brand variant in any translation of the web", () => {
@@ -56,6 +59,7 @@ describe("the public copy (en + th)", () => {
         const files = [
             "app/page.tsx",
             "app/join-network/page.tsx",
+            "app/about/page.tsx",
             "app/app/support/page.tsx",
             "app/layout.tsx",
             "components/navigation.tsx",

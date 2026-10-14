@@ -70,9 +70,16 @@ describe("Navigation", () => {
     await renderWithProviders(<Navigation />);
     expect(screen.getByRole("link", { name: "Features" })).toHaveAttribute("href", "/#solutions");
     expect(screen.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
-    expect(screen.getByRole("link", { name: "Join Network" })).toHaveAttribute("href", "/join-network");
+    expect(screen.getByRole("link", { name: "Join as a partner" })).toHaveAttribute("href", "/join-network");
     expect(screen.queryByRole("link", { name: /pricing/i })).not.toBeInTheDocument();
     for (const link of screen.getAllByRole("link")) expect(link.getAttribute("href")).not.toBe("#");
+  });
+
+  it("makes the sign-in button and the brand 44 px targets on a phone, and keeps the brand's words signed out (UI3E)", async () => {
+    await renderWithProviders(<Navigation />);
+    expect(screen.getByRole("link", { name: /^sign in$/i }).className).toContain("max-md:h-11");
+    expect(screen.getByRole("link", { name: /LogiTrack Pro/ }).className).toContain("max-md:min-h-11");
+    expect(screen.getByText("LogiTrack Pro").className).not.toContain("sr-only");
   });
 
   it("names the theme button by what it does", async () => {
@@ -110,6 +117,8 @@ describe("Navigation", () => {
       logout: vi.fn(),
     });
     await renderWithProviders(<Navigation />);
+    // No console button in the bar either (UI3E).
+    expect(screen.queryByRole("link", { name: "Open console" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Account menu for Driver" }));
     expect(screen.getByText("Use the LogiTrack driver app")).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Open console" })).toBeNull();
@@ -142,6 +151,15 @@ describe("Navigation", () => {
       logout,
     });
     await renderWithProviders(<Navigation />);
+    // UI3E: the console is a visible button in the bar, not only inside the avatar menu; no Sign in link.
+    const open = screen.getByTestId("nav-open-console");
+    expect(open).toHaveAccessibleName("Open console");
+    expect(open).toHaveAttribute("href", "/app/driver-monitor");
+    expect(open.className).toContain("max-md:h-11");
+    expect(screen.queryByRole("link", { name: /^sign in$/i })).toBeNull();
+    // On a phone the brand keeps its logo and gives up its words, which stay the link's name.
+    expect(screen.getByText("LogiTrack Pro").className).toContain("max-sm:sr-only");
+    expect(screen.getByRole("link", { name: /LogiTrack Pro/ })).toHaveAttribute("href", "/");
     await user.click(screen.getByRole("button", { name: "Account menu for Customer" }));
     expect(screen.getByRole("menuitem", { name: "Open console" })).toHaveAttribute("href", "/app/driver-monitor");
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));

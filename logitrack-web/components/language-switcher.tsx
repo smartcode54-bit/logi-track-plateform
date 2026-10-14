@@ -1,19 +1,20 @@
 "use client";
 
-import Image from "next/image";
 import { useLanguage } from "@/context/language";
 import { Button } from "@/components/ui/button";
 import type { Language } from "@/context/locales/load";
 
-const OPTIONS: readonly { value: Language; code: string; nameKey: string; flag: string }[] = [
-    { value: "en", code: "EN", nameKey: "shell.language.en", flag: "/usa_flag_v2.svg" },
-    { value: "th", code: "TH", nameKey: "shell.language.th", flag: "/thailand_round_icon_64.png" },
+/** Each language in its own words, as the console's user menu names them (components/user-menu.tsx). */
+const OPTIONS: readonly { value: Language; nameKey: string }[] = [
+    { value: "en", nameKey: "shell.language.en" },
+    { value: "th", nameKey: "shell.language.th" },
 ];
 
 /**
- * The EN/TH toggle of the public navigation. Each button says whether it is on (`aria-pressed`, UI3) and names
- * its language in that language (`title`, `lang`); the flags are decoration (`alt=""`). Inside `/app` the same
- * choice is in the user menu (components/user-menu.tsx).
+ * The language toggle of the public navigation. Text only, "English" and "ไทย" (UI3E: DESIGN.md keeps flags out of
+ * the chrome, and the console's user menu already names the languages this way). Each button says whether it is on
+ * (`aria-pressed`, UI3) and carries its language (`lang`), so a screen reader speaks "ไทย" in Thai. On a phone each
+ * button is a 44 px target. Inside `/app` the same choice is in the user menu.
  */
 export function LanguageSwitcher() {
     const { language, setLanguage, t } = useLanguage();
@@ -30,13 +31,10 @@ export function LanguageSwitcher() {
                         size="sm"
                         aria-pressed={on}
                         lang={option.value}
-                        title={t(option.nameKey)}
                         onClick={() => setLanguage(option.value)}
-                        className="h-8 gap-1.5 px-2.5 text-xs"
+                        className="h-8 px-2.5 text-xs max-md:h-11 max-md:min-w-11 max-md:px-2"
                     >
-                        {/* Flags give way to the codes on a phone, where the navigation needs the room for the brand. */}
-                        <Image src={option.flag} alt="" width={16} height={16} className="hidden size-4 rounded-full object-cover sm:block" />
-                        {option.code}
+                        {t(option.nameKey)}
                     </Button>
                 );
             })}

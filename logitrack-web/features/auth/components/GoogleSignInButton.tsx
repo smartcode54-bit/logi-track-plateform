@@ -215,7 +215,13 @@ export function GoogleSignInButton({ onCredential, disabled = false }: GoogleSig
     if (!clientId) return null;
     return (
         <div className="relative w-full">
-            <div ref={container} className="flex w-full justify-center min-h-[44px]" data-testid="gis-button" />
+            {/* GIS draws its "large" button 40 px tall; on a phone it is stretched to a 44 px target (UI3E), over the
+                stylesheet GIS injects after ours. */}
+            <div
+                ref={container}
+                className="flex w-full justify-center min-h-[44px] max-md:[&_[role=button]]:h-11!"
+                data-testid="gis-button"
+            />
             {disabled ? <div className="absolute inset-0 cursor-not-allowed bg-background/50" aria-hidden /> : null}
             {unavailable ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("auth.google.unavailable")}</p> : null}
         </div>

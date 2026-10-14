@@ -34,8 +34,8 @@ export default {
 
     "landing.cta.title": "Run a transport company or a partner fleet?",
     "landing.cta.description":
-        "GORATECH builds LogiTrack Pro in-house and runs its own fleet on it every day. Accounts are by invitation: request access, or apply to work with GORATECH as a partner carrier.",
-    "landing.cta.requestAccess": "Request access",
+        "GORATECH builds LogiTrack Pro in-house and runs its own fleet on it every day. Staff, customers and partners get their accounts from the company that invites them; a transport company can join the waitlist, and a carrier can apply to work with GORATECH as a partner.",
+    "landing.cta.requestAccess": "Join the waitlist",
     "landing.cta.joinNetwork": "Apply as a partner carrier",
     "landing.cta.readStory": "How LogiTrack Pro started",
 
@@ -82,5 +82,12 @@ export default {
     "landing.join.form.contactNameRequired": "Enter the name of the person to contact.",
     "landing.join.form.emailRequired": "Enter an email address.",
     "landing.join.form.emailInvalid": "Enter an email address such as name@company.co.th.",
-    "landing.join.form.sent": "Thank you. Your application was sent; our team will contact you.",
+    // /join-network after sending (UI3E): what happens next, from what the form collected only; no timeline.
+    "landing.join.success.title": "Application sent",
+    "landing.join.success.description": "Thank you, {name}. The application from {company} to work as a partner carrier has reached GORATECH.",
+    "landing.join.success.nextTitle": "What happens next",
+    "landing.join.success.nextEmail": "Our team will contact you at the email address you gave:",
+    "landing.join.success.nextEmailPhone": "Our team will contact you at the email address or phone number you gave:",
+    "landing.join.success.again": "Send another application",
+    "landing.join.success.home": "Back to home",
 };

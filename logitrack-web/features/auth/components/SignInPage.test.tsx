@@ -67,7 +67,7 @@ describe("the sign-in page", () => {
         expect(submit).toHaveAccessibleName("Sign in");
         expect(submit.className).toContain("bg-primary");
         expect(submit.className).not.toMatch(/bg-foreground|text-background/);
-        for (const input of [screen.getByLabelText("Email"), screen.getByLabelText("Password")]) {
+        for (const input of [screen.getByLabelText(/^Email/), screen.getByLabelText(/^Password/)]) {
             expect(input.className).toContain("border-input");
             expect(input.className).not.toMatch(/border-muted-foreground/);
         }
@@ -89,8 +89,12 @@ describe("the sign-in page", () => {
         await renderSignIn();
         expect(screen.getByText("LogiTrack Pro")).toBeInTheDocument();
         expect(screen.getByText("by GORATECH")).toBeInTheDocument();
-        expect(screen.getByText(/No account yet\?/)).toBeInTheDocument();
-        expect(screen.getByRole("link", { name: "Request access on the waitlist" })).toHaveAttribute("href", "/waitlist");
+        // UI3E: an invited user asks whoever invited them; the waitlist is offered to transport companies only.
+        expect(screen.getByTestId("sign-in-no-account")).toHaveTextContent("No account? Ask the transport company or administrator who invited you.");
+        expect(screen.getByTestId("sign-in-no-account").querySelector("a")).toBeNull();
+        expect(screen.getByText(/^Run a transport company\?/)).toBeInTheDocument();
+        expect(screen.getByRole("link", { name: "Join the LogiTrack Pro waitlist" })).toHaveAttribute("href", "/waitlist");
+        expect(screen.queryByRole("link", { name: /request access/i })).toBeNull();
         // The navigation's own "Sign In" link is not repeated on the sign-in page.
         expect(screen.queryByRole("link", { name: /^sign in$/i })).toBeNull();
     });

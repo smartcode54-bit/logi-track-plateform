@@ -75,7 +75,7 @@ describe("next.config (standalone)", () => {
     // Unhashed public/ and metadata files keep Hosting's default one-hour cache.
     ["/icon.jpg", ASSET_CACHE_CONTROL],
     ["/Logitrack-logo.jpg", ASSET_CACHE_CONTROL],
-    ["/usa_flag_v2.svg", ASSET_CACHE_CONTROL],
+    ["/auth/sign-in-bg.webp", ASSET_CACHE_CONTROL],
     ["/fonts/Sarabun-Regular.ttf", ASSET_CACHE_CONTROL],
     ["/about.html", PAGE_CACHE_CONTROL],
     ["/app/logo.png", APP_CACHE_CONTROL],

@@ -38,8 +38,7 @@ test.describe("Auth", () => {
   test.describe("Waitlist", () => {
     test("waitlist page loads", async ({ page }) => {
       await page.goto("/waitlist");
-      // CardTitle "Join Waitlist" may render as div, not heading
-      await expect(page.getByText(/join waitlist|registration is currently/i).first()).toBeVisible({ timeout: 5000 });
+      await expect(page.getByRole("heading", { level: 1, name: /join the waitlist|เข้าร่วมรายการรอ/i })).toBeVisible({ timeout: 5000 });
     });
   });
 

@@ -94,4 +94,17 @@ describe("createInvalidHandler", () => {
         createInvalidHandler(makeForm(), t)({} as FieldErrors);
         expect(toastError).not.toHaveBeenCalled();
     });
+
+    it("uses the one shared key for a sign-in form too, and focuses its first field (UI3E)", () => {
+        const errors = {
+            email: { type: "required", message: "Enter your email address." },
+            password: { type: "required", message: "Enter your password." },
+        } as unknown as FieldErrors;
+        const focused: string[] = [];
+
+        createInvalidHandler(makeForm((n) => focused.push(n)), t)(errors);
+
+        expect(toastError).toHaveBeenCalledWith("common.toast.validationError|count=2|field=Enter your email address.");
+        expect(focused).toEqual(["email"]);
+    });
 });
