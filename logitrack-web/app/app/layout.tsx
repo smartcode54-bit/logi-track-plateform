@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/context/auth";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 import { TenantSwitcher } from "@/components/tenant-switcher";
 import { meDisplayName } from "@/features/auth/api/me";
 import { principalRoleLabel } from "@/features/auth/utils/principalLabel";
@@ -106,34 +106,15 @@ export default function AdminLayout({
     const isSecurityCenter = pathname?.startsWith("/app/security-center");
     const isSecurityOverview = pathname === "/app/security-center";
 
-    const [isDark, setIsDark] = useState(false);
-
-    // Theme toggle logic
-    useEffect(() => {
-        const savedTheme = localStorage.getItem('theme');
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const shouldBeDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
-        setIsDark(shouldBeDark);
-        if (shouldBeDark) document.documentElement.classList.add('dark');
-        else document.documentElement.classList.remove('dark');
-    }, []);
+    // The theme lives in next-themes (app/providers.tsx, UI1): stored under `theme`, the system's until picked.
+    const { resolvedTheme, setTheme } = useTheme();
+    const isDark = resolvedTheme === "dark";
 
     // Route access is decided before any page code runs, by the proxy.ts edge gate over the Go
     // capabilities (TW3, developer-spec.md §10.5). Who is signed in comes from `['me']` (TW4), so the
     // 500 ms wait for Firebase persistence before redirecting to /login is gone.
 
-    const toggleTheme = () => {
-        const newIsDark = !isDark;
-        setIsDark(newIsDark);
-        if (newIsDark) {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('theme', 'dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('theme', 'light');
-        }
-        window.dispatchEvent(new Event('themechange'));
-    };
+    const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
     // A session that ends meanwhile is taken to /login by lib/sessionEnd.ts; an api that cannot be
     // reached shows a retry instead of a sign-out (T18).
@@ -168,7 +149,7 @@ export default function AdminLayout({
             <SidebarProvider defaultOpen={false}>
                 {isSecurityCenter ? <SecurityCenterSidebar /> : <AppSidebar />}
                 <SidebarInset>
-                    <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-b-zinc-700/50 dark:border-b-zinc-800 bg-background px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12 shadow-sm">
+                    <header className="sticky top-0 z-sticky flex h-16 shrink-0 items-center justify-between gap-2 border-b border-b-zinc-700/50 dark:border-b-zinc-800 bg-background px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12 shadow-sm">
                         <div className="flex items-center gap-4 flex-1">
                             <SidebarTrigger className="-ml-1" />
                             <Separator orientation="vertical" className="mr-2 h-4" />
@@ -240,7 +221,7 @@ export default function AdminLayout({
                                     className={cn(
                                         "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all",
                                         language === "en"
-                                            ? "bg-primary text-white shadow-sm"
+                                            ? "bg-primary text-primary-foreground shadow-sm"
                                             : "text-muted-foreground hover:text-foreground"
                                     )}
                                 >
@@ -251,7 +232,7 @@ export default function AdminLayout({
                                     className={cn(
                                         "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all",
                                         language === "th"
-                                            ? "bg-primary text-white shadow-sm"
+                                            ? "bg-primary text-primary-foreground shadow-sm"
                                             : "text-muted-foreground hover:text-foreground"
                                     )}
                                 >

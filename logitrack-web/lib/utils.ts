@@ -1,5 +1,16 @@
 import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { extendTailwindMerge } from "tailwind-merge"
+
+/**
+ * tailwind-merge with the design tokens of app/globals.css (UI1, DESIGN.md): the layering scale is a z-index group
+ * and the named spacing steps are spacing, so `cn("z-raised", "z-0")` or `cn("px-6", "p-gutter")` keeps the later class.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: { z: [{ z: ["base", "raised", "sticky", "modal", "popover", "toast", "tooltip"] }] },
+    theme: { spacing: ["gutter", "stack", "section"] },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

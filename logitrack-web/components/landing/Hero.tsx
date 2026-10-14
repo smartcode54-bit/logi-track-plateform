@@ -51,8 +51,7 @@ export function Hero() {
                         </div>
                     </div>
                     <div className="relative">
-                        <div className="absolute -inset-4 bg-primary/10 blur-3xl rounded-full"></div>
-                        <div className="relative bg-white dark:bg-[#1c2127] border border-slate-200 dark:border-[#3b4754] rounded-2xl p-8 shadow-2xl">
+                        <div className="relative bg-white dark:bg-[#1c2127] border border-slate-200 dark:border-[#3b4754] rounded-xl p-8 shadow-lg">
                             <div className="flex flex-col gap-8">
                                 <div className="text-center flex flex-col gap-2">
                                     <h2 className="text-2xl font-bold dark:text-white">

@@ -22,8 +22,9 @@
  *   scroll and search (no silent caps, Appendix E §E.10).
  * - Single (`SearchSelect`, optional clear button) and multi (`MultiSearchSelect`, chips). The
  *   react-hook-form binding is `./form-search-select`.
- * - The popover is modal and portalled above every dialog layer (`PopoverContent` z-index), so it opens,
- *   scrolls and picks inside a Dialog, Sheet or Popover with no z-index or `position` props.
+ * - The popover is modal and portalled on the `popover` layer of the layering scale (UI1, app/globals.css),
+ *   above every Dialog and Sheet, so it opens, scrolls and picks inside a Dialog, Sheet or Popover with no
+ *   z-index or `position` props.
  *
  * Rule (UI2): a fixed list of five options or fewer (a status filter, yes/no) may use a segmented control
  * or a radio group instead; every other pick-from-a-list control uses this component.

@@ -19,7 +19,7 @@ export function BroadcastVoidConfirmDialog({ open, onOpenChange, onConfirm, load
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
-                className="z-[1003] sm:max-w-md"
+                className="sm:max-w-md"
                 onPointerDownOutside={(e) => loading && e.preventDefault()}
                 onEscapeKeyDown={(e) => loading && e.preventDefault()}
             >
@@ -30,7 +30,7 @@ export function BroadcastVoidConfirmDialog({ open, onOpenChange, onConfirm, load
                         <span className="block text-sm text-amber-600 dark:text-amber-500">{t("chat.broadcast.voidPushNote")}</span>
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="gap-2 sm:gap-0">
+                <DialogFooter>
                     <Button type="button" variant="outline" disabled={loading} onClick={() => onOpenChange(false)}>
                         {t("chat.broadcast.back")}
                     </Button>

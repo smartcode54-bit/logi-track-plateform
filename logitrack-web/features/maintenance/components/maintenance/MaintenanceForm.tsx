@@ -455,7 +455,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             <DialogTitle>{t("maintenance.form.completeConfirmTitle")}</DialogTitle>
                             <DialogDescription>{t("maintenance.form.completeConfirmDescription")}</DialogDescription>
                         </DialogHeader>
-                        <DialogFooter className="gap-2 sm:gap-0">
+                        <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setCompleteConfirmOpen(false)}>
                                 {t("maintenance.form.completeConfirmCancel")}
                             </Button>

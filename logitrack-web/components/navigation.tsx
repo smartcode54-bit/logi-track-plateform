@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/auth";
 import { Sun, Moon, Package, User, LayoutDashboard, LogOut } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
+import { useHydrated } from "@/hooks/useHydrated";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -21,41 +22,12 @@ export default function Navigation() {
   const authContext = useAuth();
   const router = useRouter();
   const currentUser = authContext?.currentUser;
-  const [isDark, setIsDark] = useState(false);
   const { t } = useLanguage();
-
-  useEffect(() => {
-    // Check localStorage for saved theme preference
-    const savedTheme = localStorage.getItem('theme');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const shouldBeDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
-
-    setIsDark(shouldBeDark);
-    // Apply theme immediately
-    const html = document.documentElement;
-    if (shouldBeDark) {
-      html.classList.add('dark');
-    } else {
-      html.classList.remove('dark');
-    }
-  }, []);
-
-  const toggleTheme = () => {
-    const newIsDark = !isDark;
-    setIsDark(newIsDark);
-
-    const html = document.documentElement;
-    if (newIsDark) {
-      html.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      html.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-
-    // Force re-render to update all components
-    window.dispatchEvent(new Event('themechange'));
-  };
+  // The theme lives in next-themes (app/providers.tsx, UI1). The icon follows it once hydrated.
+  const { resolvedTheme, setTheme } = useTheme();
+  const hydrated = useHydrated();
+  const isDark = hydrated && resolvedTheme === "dark";
+  const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
   // 🔓 Logout Function - ใช้ logout จาก Context
   const handleLogout = async () => {
@@ -75,7 +47,7 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border/60 bg-[#020817] text-white">
+    <nav className="sticky top-0 z-sticky border-b border-border/60 bg-[#020817] text-white">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Brand */}
         <Link href="/" className="flex items-center gap-2">

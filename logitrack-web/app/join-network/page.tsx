@@ -72,7 +72,7 @@ export default function JoinNetworkPage() {
     return (
         <div className="min-h-screen bg-white text-slate-900 font-sans">
             {/* Header */}
-            <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white/80 backdrop-blur-md">
+            <header className="sticky top-0 z-sticky w-full border-b border-slate-200 bg-white/80 backdrop-blur-md">
                 <div className="container mx-auto px-4 h-16 flex items-center justify-between">
                     <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                         <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">

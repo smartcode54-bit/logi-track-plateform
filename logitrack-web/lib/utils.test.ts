@@ -44,3 +44,18 @@ describe("utils", () => {
     });
   });
 });
+
+// UI1 (issue #141): `cn` merges the design tokens of app/globals.css like Tailwind's own scales, so a caller's
+// override of a layer or a named spacing step wins instead of both classes surviving and CSS order deciding.
+describe("cn knows the design tokens (UI1)", () => {
+  it("treats the layering scale as one z-index group", () => {
+    expect(cn("sticky top-0 z-raised bg-card", "z-0")).toBe("sticky top-0 bg-card z-0");
+    expect(cn("z-modal", "z-popover")).toBe("z-popover");
+  });
+
+  it("treats the named spacing steps as spacing", () => {
+    expect(cn("px-6", "p-gutter")).toBe("p-gutter");
+    expect(cn("gap-2", "gap-section")).toBe("gap-section");
+    expect(cn("space-y-4", "space-y-stack")).toBe("space-y-stack");
+  });
+});

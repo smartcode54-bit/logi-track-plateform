@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * The client providers of every page (developer-spec.md §10.6; TW4, T18, TW7):
+ * The client providers of every page (developer-spec.md §10.6; TW4, T18, TW7; UI1):
  *
- *   QueryClientProvider > LanguageProvider > AuthProvider (`['me']`, T18)
+ *   ThemeProvider (next-themes: the `dark` class on <html>, stored under `theme`, following the system
+ *   until the user picks one; UI1)
+ *   > QueryClientProvider > LanguageProvider > AuthProvider (`['me']`, T18)
  *     > RealtimeProvider (the tab's event stream: session.revoked, T18; the event -> cache map, TW5)
  *     > children + Toaster
  *
@@ -18,6 +20,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
+import { ThemeProvider } from "next-themes";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AuthProvider } from "@/context/auth";
@@ -65,18 +68,20 @@ function ForbiddenToasts() {
 export function Providers({ children }: { children: ReactNode }) {
     const [client] = useState(getQueryClient);
     return (
-        <QueryClientProvider client={client}>
-            <QueryRuntime />
-            <LanguageProvider>
-                <ForbiddenToasts />
-                <AuthProvider>
-                    <RealtimeProvider>
-                        {children}
-                        <Toaster duration={5000} closeButton richColors />
-                    </RealtimeProvider>
-                </AuthProvider>
-            </LanguageProvider>
-            <QueryDevtools />
-        </QueryClientProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="theme" disableTransitionOnChange>
+            <QueryClientProvider client={client}>
+                <QueryRuntime />
+                <LanguageProvider>
+                    <ForbiddenToasts />
+                    <AuthProvider>
+                        <RealtimeProvider>
+                            {children}
+                            <Toaster duration={5000} closeButton richColors />
+                        </RealtimeProvider>
+                    </AuthProvider>
+                </LanguageProvider>
+                <QueryDevtools />
+            </QueryClientProvider>
+        </ThemeProvider>
     );
 }

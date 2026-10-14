@@ -231,7 +231,7 @@ describe("Select (compound API on the same panel)", () => {
                 <SelectTrigger aria-label="Status" className="w-[160px]">
                     <SelectValue placeholder="Status" />
                 </SelectTrigger>
-                <SelectContent position="popper" className="z-[1005]">
+                <SelectContent position="popper">
                     <SelectItem value="open">เปิด</SelectItem>
                     <>
                         {["done", "void"].map((s) => (

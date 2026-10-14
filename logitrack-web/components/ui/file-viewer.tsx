@@ -109,9 +109,9 @@ export function FileViewer({ isOpen, onClose, files, initialIndex = 0 }: FileVie
     const currentFile = files[currentIndex];
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-modal bg-black/95 flex flex-col animate-in fade-in duration-200">
             {/* Header/Controls */}
-            <div className="flex items-center justify-between p-4 text-white bg-black/50 backdrop-blur-sm z-50">
+            <div className="flex items-center justify-between p-4 text-white bg-black/80">
                 <div className="flex items-center gap-4">
                     <span className="text-sm font-medium">
                         {currentIndex + 1} / {files.length}
@@ -174,12 +174,7 @@ export function FileViewer({ isOpen, onClose, files, initialIndex = 0 }: FileVie
                         <img
                             src={currentFile.url}
                             alt={currentFile.label}
-                            style={{
-                                maxWidth: '90vw',
-                                maxHeight: '85vh',
-                                objectFit: 'contain'
-                            }}
-                            className="pointer-events-none"
+                            className="pointer-events-none max-h-[85vh] max-w-[90vw] object-contain"
                             draggable={false}
                         />
                     </div>
