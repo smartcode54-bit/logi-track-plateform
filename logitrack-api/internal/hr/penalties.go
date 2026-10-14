@@ -17,7 +17,8 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
-// Bounds of a penalty (validate/driverPenaltySchema.ts): at most MaxInstallments rounds.
+// Bounds of a penalty (logitrack-web/validate/driverPenaltySchema.ts, deleted in F87; last tree 4fc3d70e):
+// at most MaxInstallments rounds.
 const (
 	MaxInstallments       = 1000
 	maxPenaltyReasonChars = 2000
@@ -118,7 +119,8 @@ func (s *Service) Penalties(ctx context.Context, p *authz.Principal, in PenaltyQ
 	return out, next, nil
 }
 
-// PenaltyInput is the body of POST /v1/penalties (validate/driverPenaltySchema.ts, whole baht).
+// PenaltyInput is the body of POST /v1/penalties (whole baht; logitrack-web/validate/driverPenaltySchema.ts,
+// deleted in F87; last tree 4fc3d70e).
 type PenaltyInput struct {
 	DriverID string `json:"driverId"`
 	TypeCode string `json:"typeCode"`
