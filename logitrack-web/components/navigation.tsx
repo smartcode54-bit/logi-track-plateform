@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The navigation bar of the public pages and the sign-in pages (about, support, my account, login, waitlist).
+ * The navigation bar of the public pages and the sign-in pages (landing, about, join network, my account, login,
+ * waitlist).
  * UI3 (issue #143): the brand is "LogiTrack Pro by GORATECH" (PRODUCT.md), colours come from the tokens (paper,
  * hairline, Route Blue for the sign-in action), every label goes through `t()`, and sign-out is the shared one
  * (`useSignOut`: the same landing page as the app shell's user menu).
@@ -23,14 +24,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
+import { homeRouteOf } from "@/features/auth/api/homeRoute";
 import { useSignOut } from "@/features/auth/hooks/useSignOut";
 import { useHydrated } from "@/hooks/useHydrated";
 import { initialOf } from "@/lib/initials";
+import { APP_PATH } from "@/lib/sessionEnd";
 import { LanguageSwitcher } from "./language-switcher";
 
+/**
+ * The public pages that exist (UI3C): the landing's features section, the about page and the partner-carrier page.
+ * No pricing link: the offer's pricing is undecided (PRODUCT.md), and no page holds it.
+ */
 const MARKETING_LINKS = [
   { href: "/#solutions", labelKey: "landing.nav.solutions" },
-  { href: "/#pricing", labelKey: "landing.nav.pricing" },
   { href: "/about", labelKey: "landing.nav.about" },
   { href: "/join-network", labelKey: "nav.joinNetwork" },
 ] as const;
@@ -47,6 +53,7 @@ export default function Navigation() {
   const isDark = hydrated && resolvedTheme === "dark";
   const themeLabel = isDark ? t("shell.theme.toLight") : t("shell.theme.toDark");
   const userName = currentUser?.displayName || currentUser?.email || t("shell.unnamedUser");
+  const consoleHref = authContext?.me ? homeRouteOf(authContext.me) : APP_PATH;
 
   return (
     <nav className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
@@ -100,14 +107,13 @@ export default function Navigation() {
                     <span>{t("nav.myAccount")}</span>
                   </Link>
                 </DropdownMenuItem>
-                {!!authContext?.customClaims?.admin && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/app/dashboard" className="flex items-center" prefetch={false}>
-                      <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
-                      <span>{t("nav.adminDashboard")}</span>
-                    </Link>
-                  </DropdownMenuItem>
-                )}
+                {/* Every signed-in principal has a console (UI3C): the role's home, as the shell's Home crumb. */}
+                <DropdownMenuItem asChild>
+                  <Link href={consoleHref} className="flex items-center" prefetch={false}>
+                    <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
+                    <span>{t("landing.openConsole")}</span>
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center">
                   <LogOut className="mr-2 h-4 w-4" aria-hidden />

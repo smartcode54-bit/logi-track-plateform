@@ -170,7 +170,7 @@ export default {
     "securityCenter.status.health": "System Health",
     "securityCenter.status.comingSoon": "Coming soon",
     "securityCenter.status.description": "This feature is under development. You will be able to view real-time system status and incident history.",
-    "securityCenter.roles.subtitle": "Configure fine-grained access control across the entire Logi-Track ecosystem. Assign capabilities to organizational roles and manage user reach effectively.",
+    "securityCenter.roles.subtitle": "Configure fine-grained access control across LogiTrack Pro. Assign capabilities to organizational roles and manage user reach effectively.",
     "securityCenter.roles.admins": "Admins",
     "securityCenter.roles.managers": "Managers",
     "securityCenter.roles.operationStaff": "Operation Staff",

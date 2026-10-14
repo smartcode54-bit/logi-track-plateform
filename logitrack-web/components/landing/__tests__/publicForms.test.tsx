@@ -1,6 +1,7 @@
-// T54R (issue #74; R44, R77): the landing waitlist forms and the join-network form post only to the
-// anonymous BFF forms (/api/forms/*), with no cookie, and import no Firebase module (the web has none since TW7;
-// features/dashboard/firebaseImports.test.ts walks the import graph).
+// T54R (issue #74; R44, R77): the waitlist form and the join-network form post only to the anonymous BFF forms
+// (/api/forms/*), with no cookie, and import no Firebase module (the web has none since TW7;
+// features/dashboard/firebaseImports.test.ts walks the import graph). UI3C: the landing's waitlist dialog is gone (the
+// landing links to /waitlist), and both forms speak Thai as well as English.
 import React from "react";
 import { readFileSync } from "fs";
 import path from "path";
@@ -11,7 +12,6 @@ import { toast } from "sonner";
 import { render, screen, waitFor } from "@/components/__tests__/test-utils";
 import { ApiError } from "@/lib/apiError";
 import { postPublicForm, PUBLIC_FORM_PATHS, submitPartnerInterest, submitWaitlist } from "@/lib/publicForms";
-import { WaitlistModal } from "../WaitlistModal";
 import WaitlistForm from "@/features/auth/components/WaitlistForm";
 import JoinNetworkPage from "@/app/join-network/page";
 
@@ -74,10 +74,10 @@ describe("lib/publicForms", () => {
 });
 
 describe("the landing forms (AC: they post only to /api/forms/*)", () => {
-    it("the waitlist dialog posts to /api/forms/waitlist with the honeypot left empty", async () => {
+    it("the waitlist page posts to /api/forms/waitlist with the honeypot left empty", async () => {
         const sent = stubFetch();
         const user = userEvent.setup();
-        render(<WaitlistModal open onOpenChange={() => undefined} />);
+        render(<WaitlistForm />);
         await user.type(await screen.findByLabelText("Full name"), "  Somchai  ");
         await user.type(screen.getByLabelText("Email"), "somchai@example.test");
         await user.type(screen.getByLabelText("Phone number"), "812345678");
@@ -106,18 +106,25 @@ describe("the landing forms (AC: they post only to /api/forms/*)", () => {
         const success = vi.spyOn(toast, "success");
         const user = userEvent.setup();
         render(<JoinNetworkPage />);
-        await user.type(await screen.findByLabelText("Company Name *"), "Global Logistics");
-        await user.type(screen.getByLabelText("Contact Name *"), "John");
-        await user.type(screen.getByLabelText("Email Address *"), "john@example.test");
-        await user.click(screen.getByRole("button", { name: "Submit Application" }));
+        await user.type(await screen.findByLabelText(/^Company name/), "Somchai Transport");
+        await user.type(screen.getByLabelText(/^Contact name/), "Somchai");
+        await user.type(screen.getByLabelText(/^Email/), "somchai@example.test");
+        await user.type(screen.getByLabelText("Phone number"), "0812345678");
+        await user.click(screen.getByRole("button", { name: "Send application" }));
         await waitFor(() => expect(success).toHaveBeenCalled());
         expect(sent).toHaveLength(1);
         expect(sent[0].url).toBe("/api/forms/partner-interest");
-        expect(JSON.parse(String(sent[0].init.body))).toMatchObject({ companyName: "Global Logistics", contactName: "John", email: "john@example.test", website: "" });
+        expect(JSON.parse(String(sent[0].init.body))).toMatchObject({
+            companyName: "Somchai Transport",
+            contactName: "Somchai",
+            email: "somchai@example.test",
+            contractNumber: "0812345678",
+            website: "",
+        });
     });
 
     it("no former Firestore writer imports Firebase any more", () => {
-        for (const file of ["components/landing/WaitlistModal.tsx", "features/auth/hooks/useWaitlist.ts", "app/join-network/page.tsx"]) {
+        for (const file of ["features/auth/components/WaitlistForm.tsx", "features/auth/hooks/useWaitlist.ts", "app/join-network/page.tsx"]) {
             const src = readFileSync(path.join(root, file), "utf8");
             expect(src, file).not.toMatch(/from ["'](firebase\/|@\/firebase\/)/);
             expect(src, file).not.toMatch(/addDoc|collection\(/);

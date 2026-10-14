@@ -25,19 +25,19 @@ export function useWaitlist() {
 
     try {
       if (!email) {
-        toast.error("Please enter your email address");
+        toast.error(t("auth.emailRequired"));
         setLoading(false);
         return;
       }
 
       if (!fullName.trim()) {
-        toast.error("Please enter your name");
+        toast.error(t("auth.waitlist.nameRequired"));
         setLoading(false);
         return;
       }
 
       if (!phone.trim()) {
-        toast.error("Please enter your phone number");
+        toast.error(t("auth.waitlist.phoneRequired"));
         setLoading(false);
         return;
       }
@@ -51,7 +51,7 @@ export function useWaitlist() {
       });
 
       setSubmitted(true);
-      toast.success("Successfully joined the waitlist!");
+      toast.success(t("auth.waitlist.successToast"));
     } catch (error) {
       toastSaveError(error, t, "auth.waitlist.errorToast");
     } finally {

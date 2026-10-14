@@ -4,18 +4,20 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { useLogin } from "../hooks/useLogin";
 import { SignInPanel } from "./SignInPanel";
 
 /**
  * The login page card: the shared sign-in panel; the page leaves once `['me']` is signed in. A solid card on the
- * paper token (UI3): no blur, no translucency, `shadow-lg` at most, so it reads the same over any background.
+ * paper token (UI3): no blur, no translucency, `shadow-lg` at most, so it reads the same over any background. The landing
+ * page `/` shows the same card (UI3C) with `className="shadow-sm"`, as it sits on plain paper.
  */
-export default function LoginForm() {
+export default function LoginForm({ className }: { className?: string }) {
     const { t, notice, signedIn } = useLogin();
 
     return (
-        <Card className="w-full max-w-md shadow-lg" data-testid="sign-in-card">
+        <Card className={cn("w-full max-w-md shadow-lg", className)} data-testid="sign-in-card">
             <CardHeader className="gap-1">
                 <CardTitle className="text-2xl font-semibold tracking-tight">{t("auth.login.title")}</CardTitle>
                 <CardDescription>{t("auth.login.subtitle")}</CardDescription>

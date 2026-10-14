@@ -1,149 +1,127 @@
 "use client";
 
-import { useWaitlist } from "../hooks/useWaitlist";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+/**
+ * The `/waitlist` card (UI3C, #143): the secondary path of the sign-in pages ("No account yet?"), in both languages,
+ * with the primary button in the primary token and no flags in the country picker (DESIGN.md). It posts through
+ * `useWaitlist` to the anonymous BFF form `POST /api/forms/waitlist`.
+ */
 import Link from "next/link";
-import { Loader2, Mail } from "lucide-react";
+import { Loader2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SearchSelect, type SearchSelectOption } from "@/components/ui/search-select";
 import { HoneypotField } from "@/components/landing/HoneypotField";
+import { useWaitlist } from "../hooks/useWaitlist";
 
-const COUNTRY_OPTIONS: SearchSelectOption[] = [
-  { value: "+66", label: "🇹🇭 Thailand (+66)" },
-  { value: "+1", label: "🇺🇸 United States (+1)" },
-  { value: "+65", label: "🇸🇬 Singapore (+65)" },
-  { value: "+60", label: "🇲🇾 Malaysia (+60)" },
-  { value: "+84", label: "🇻🇳 Vietnam (+84)" },
-  { value: "+62", label: "🇮🇩 Indonesia (+62)" },
-  { value: "+63", label: "🇵🇭 Philippines (+63)" },
-  { value: "+856", label: "🇱🇦 Laos (+856)" },
-  { value: "+855", label: "🇰🇭 Cambodia (+855)" },
-  { value: "+95", label: "🇲🇲 Myanmar (+95)" },
-];
+/** Calling codes offered, Thailand first; the label is the country in the active language. */
+const COUNTRIES = [
+    ["+66", "TH"],
+    ["+1", "US"],
+    ["+65", "SG"],
+    ["+60", "MY"],
+    ["+84", "VN"],
+    ["+62", "ID"],
+    ["+63", "PH"],
+    ["+856", "LA"],
+    ["+855", "KH"],
+    ["+95", "MM"],
+] as const;
 
 export default function WaitlistForm() {
-  const {
-    email,
-    setEmail,
-    fullName,
-    setFullName,
-    countryCode,
-    setCountryCode,
-    phone,
-    setPhone,
-    website,
-    setWebsite,
-    loading,
-    submitted,
-    handleSubmit,
-    t
-  } = useWaitlist();
+    const { email, setEmail, fullName, setFullName, countryCode, setCountryCode, phone, setPhone, website, setWebsite, loading, submitted, handleSubmit, t } =
+        useWaitlist();
 
-  if (submitted) {
+    const countryOptions: SearchSelectOption[] = COUNTRIES.map(([value, code]) => ({
+        value,
+        label: `${t(`auth.waitlist.country.${code}`)} (${value})`,
+    }));
+
+    if (submitted) {
+        return (
+            <Card className="w-full max-w-md shadow-lg" data-testid="waitlist-card">
+                <CardHeader className="gap-1">
+                    <CardTitle className="text-2xl font-semibold tracking-tight">{t("auth.waitlist.successTitle")}</CardTitle>
+                    <CardDescription>{t("auth.waitlist.successDesc")}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Button asChild className="w-full">
+                        <Link href="/login">{t("auth.backToLogin")}</Link>
+                    </Button>
+                </CardContent>
+            </Card>
+        );
+    }
+
     return (
-      <Card className="w-full max-w-md text-center">
-        <CardHeader>
-          <div className="mx-auto w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mb-4">
-            <Mail className="w-6 h-6 text-green-600 dark:text-green-300" />
-          </div>
-          <CardTitle className="text-2xl">You&apos;re on the list!</CardTitle>
-          <CardDescription>
-            Thank you for your interest. We&apos;ll verify your information and contact you at <strong>{email}</strong> when your account is ready.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild className="w-full">
-            <Link href="/login">Back to Login</Link>
-          </Button>
-        </CardContent>
-      </Card>
+        <Card className="w-full max-w-md shadow-lg" data-testid="waitlist-card">
+            <CardHeader className="gap-1">
+                <CardTitle className="text-2xl font-semibold tracking-tight">{t("auth.register.title")}</CardTitle>
+                <CardDescription>{t("auth.waitlist.description")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={handleSubmit} className="relative space-y-4">
+                    <HoneypotField id="waitlist-page-website" value={website} onChange={setWebsite} />
+                    <div className="space-y-2">
+                        <Label htmlFor="fullName">{t("auth.waitlist.fullName")}</Label>
+                        <Input
+                            id="fullName"
+                            type="text"
+                            autoComplete="name"
+                            placeholder={t("auth.waitlist.fullNamePlaceholder")}
+                            value={fullName}
+                            onChange={(e) => setFullName(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="email">{t("auth.email")}</Label>
+                        <Input
+                            id="email"
+                            type="email"
+                            autoComplete="email"
+                            placeholder="name@company.co.th"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="phone">{t("auth.waitlist.phone")}</Label>
+                        <div className="flex gap-2">
+                            <SearchSelect
+                                options={countryOptions}
+                                value={countryCode}
+                                onValueChange={(v) => setCountryCode(v)}
+                                aria-label={t("auth.waitlist.countryCode")}
+                                searchPlaceholder={t("auth.waitlist.searchCountry")}
+                                className="w-40 shrink-0"
+                            />
+                            <Input
+                                id="phone"
+                                type="tel"
+                                autoComplete="tel-national"
+                                placeholder="812345678"
+                                value={phone}
+                                onChange={(e) => setPhone(e.target.value)}
+                                required
+                                className="min-w-0 flex-1"
+                            />
+                        </div>
+                    </div>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                        {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+                        {t("auth.waitlist.submit")}
+                    </Button>
+                </form>
+            </CardContent>
+            <CardFooter className="justify-center">
+                <Link href="/login" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+                    {t("auth.alreadyHaveAccount")}
+                </Link>
+            </CardFooter>
+        </Card>
     );
-  }
-
-  return (
-    <Card className="w-full max-w-md shadow-lg border-muted/20">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">Join Waitlist</CardTitle>
-        <CardDescription>
-          Registration is currently by invitation only. Join the waitlist to request access.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="relative space-y-4">
-          <HoneypotField id="waitlist-page-website" value={website} onChange={setWebsite} />
-          <div className="space-y-2">
-            <Label htmlFor="fullName">Full name</Label>
-            <Input
-              id="fullName"
-              type="text"
-              placeholder="สมชาย ขนส่งดี / John Doe"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="email">{t("auth.email") || "Email"}</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="name@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="phone">Phone number</Label>
-            <div className="flex gap-2">
-              <SearchSelect
-                options={COUNTRY_OPTIONS}
-                value={countryCode}
-                onValueChange={(v) => setCountryCode(v)}
-                placeholder="🇹🇭 Thailand (+66)"
-                searchPlaceholder="Search country..."
-                className="w-[180px] bg-muted/10 border-muted-foreground/20"
-              />
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="812345678"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-                className="flex-1 bg-muted/5 border-muted-foreground/20 focus-visible:ring-primary"
-              />
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90 font-semibold" disabled={loading}>
-            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Request Access
-          </Button>
-        </form>
-      </CardContent>
-      <CardAction>
-        <div className="flex justify-center p-6 pt-0">
-          <Button variant="link" asChild>
-            <Link className="text-sm hover:underline text-muted-foreground" href="/login">
-              Already have an account? Login
-            </Link>
-          </Button>
-        </div>
-      </CardAction>
-    </Card>
-  );
 }

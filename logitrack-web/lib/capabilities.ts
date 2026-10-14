@@ -1,5 +1,5 @@
 /**
- * Logi-Track Capability Definitions
+ * LogiTrack Pro Capability Definitions
  * Used for Role & Permission Matrix and access control.
  *
  * Format: module:action_resource

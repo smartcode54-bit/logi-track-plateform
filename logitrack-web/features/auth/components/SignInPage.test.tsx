@@ -64,7 +64,7 @@ describe("the sign-in page", () => {
         vi.stubEnv("NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID", "test-client.apps.googleusercontent.com");
         await renderSignIn();
         const submit = screen.getByTestId("sign-in-submit");
-        expect(submit).toHaveAccessibleName("Login");
+        expect(submit).toHaveAccessibleName("Sign in");
         expect(submit.className).toContain("bg-primary");
         expect(submit.className).not.toMatch(/bg-foreground|text-background/);
         for (const input of [screen.getByLabelText("Email"), screen.getByLabelText("Password")]) {

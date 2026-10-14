@@ -1,19 +1,15 @@
-"use client";
+import { cookies } from "next/headers";
 
-import { Header } from "@/components/landing/Header";
-import { Hero } from "@/components/landing/Hero";
-import { Features } from "@/components/landing/Features";
-import { CTA } from "@/components/landing/CTA";
-import { Footer } from "@/components/landing/Footer";
+import { LandingPage } from "@/components/landing/LandingPage";
+import { ACCESS_COOKIE } from "@/lib/bff/session";
 
-export default function Home() {
-  return (
-    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden transition-colors duration-300">
-      <Header />
-      <Hero />
-      <Features />
-      <CTA />
-      <Footer />
-    </div>
-  );
+/**
+ * `/` (UI3C, #143): the landing page for a signed-out visitor, the console for a signed-in one. Whether the request
+ * carries the `lt_at` session cookie (path `/`, HttpOnly, so only the server sees it) decides what shows while
+ * `['me']` loads: the "opening your console" state, or the landing at once. Only the cookie's presence is read here;
+ * `['me']` decides, and the edge gate verifies the session on `/app`.
+ */
+export default async function Home() {
+    const sessionHint = (await cookies()).has(ACCESS_COOKIE);
+    return <LandingPage sessionHint={sessionHint} />;
 }

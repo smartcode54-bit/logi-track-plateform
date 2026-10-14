@@ -181,7 +181,7 @@ export default {
     "securityCenter.status.description": "ฟีเจอร์นี้อยู่ระหว่างการพัฒนา คุณจะสามารถดูสถานะระบบแบบเรียลไทม์และประวัติเหตุการณ์ได้",
 
     // Roles page
-    "securityCenter.roles.subtitle": "กำหนดการควบคุมการเข้าถึงแบบละเอียดทั่วทั้งระบบ Logi-Track มอบความสามารถให้บทบาทขององค์กรและจัดการการเข้าถึงผู้ใช้อย่างมีประสิทธิภาพ",
+    "securityCenter.roles.subtitle": "กำหนดการควบคุมการเข้าถึงแบบละเอียดทั่วทั้งระบบ LogiTrack Pro มอบความสามารถให้บทบาทขององค์กรและจัดการการเข้าถึงผู้ใช้อย่างมีประสิทธิภาพ",
     "securityCenter.roles.admins": "ผู้ดูแลระบบ",
     "securityCenter.roles.managers": "ผู้จัดการ",
     "securityCenter.roles.operationStaff": "เจ้าหน้าที่ปฏิบัติการ",
