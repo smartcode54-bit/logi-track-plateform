@@ -45,7 +45,16 @@ beforeEach(() => {
     vi.stubGlobal("innerWidth", 375);
     resizeListeners = new Set();
     vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
-        matches: window.innerWidth < 768, media: query, onchange: null,
+        get matches() {
+            const maxWidth = query.match(/max-width:\s*(\d+)px/);
+            if (maxWidth) return window.innerWidth <= Number(maxWidth[1]);
+
+            const minWidth = query.match(/min-width:\s*(\d+)px/);
+            if (minWidth) return window.innerWidth >= Number(minWidth[1]);
+
+            return false;
+        },
+        media: query, onchange: null,
         addEventListener: (_type: string, listener: () => void) => { resizeListeners.add(listener); },
         removeEventListener: (_type: string, listener: () => void) => { resizeListeners.delete(listener); },
         addListener: () => {}, removeListener: () => {}, dispatchEvent: () => true,

@@ -11,7 +11,15 @@ if (typeof window !== "undefined") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({
-      matches: false,
+      get matches() {
+        const maxWidth = query.match(/max-width:\s*(\d+)px/);
+        if (maxWidth) return window.innerWidth <= Number(maxWidth[1]);
+
+        const minWidth = query.match(/min-width:\s*(\d+)px/);
+        if (minWidth) return window.innerWidth >= Number(minWidth[1]);
+
+        return false;
+      },
       media: query,
       onchange: null,
       addListener: () => {},
