@@ -1,10 +1,11 @@
 // Writes text_vectors.json: what V8 prints for the two texts the billing documents compute in Go (T39, main spec §6.2
 // "Display"): new Intl.NumberFormat("th-TH", {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(n) (formatThb,
-// logitrack-web/lib/billingDocumentRender.ts) and bahttext(n) of npm bahttext@2.4.0 (the version of pnpm-lock.yaml).
+// of the browser's billing documents, deleted in F87) and bahttext(n) of npm bahttext@2.4.0.
 //
-//   node internal/billing/documents/testdata/text_vectors.mjs [path/to/bahttext/src/index.js]
+//   node internal/billing/documents/testdata/text_vectors.mjs path/to/bahttext/src/index.js
 //
-// Run from logitrack-api/ after `pnpm install` in logitrack-web (the default path is its node_modules). The output is
+// The web no longer depends on bahttext (F87, issue #87), so install bahttext@2.4.0 in a scratch directory
+// (`npm install --prefix <dir> bahttext@2.4.0`) and pass <dir>/node_modules/bahttext/src/index.js. The output is
 // deterministic for one ICU version; the file records the Node and ICU versions it was produced with.
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
@@ -13,7 +14,8 @@ import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const bahtPath = process.argv[2] ?? path.resolve(here, "../../../../../logitrack-web/node_modules/bahttext/src/index.js");
+const bahtPath = process.argv[2];
+if (!bahtPath) throw new Error("usage: node text_vectors.mjs path/to/bahttext/src/index.js (bahttext@2.4.0)");
 const { bahttext } = require(bahtPath);
 const pkg = require(path.join(path.dirname(bahtPath), "..", "package.json"));
 if (pkg.version !== "2.4.0") throw new Error(`bahttext ${pkg.version}, want 2.4.0`);

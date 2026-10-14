@@ -2,10 +2,10 @@
  * Billing document model: the row, customer and period types of a billing statement and the pure
  * helpers that group and date its rows (ADR 0009, ADR 0027).
  *
- * Nothing here imports a PDF, XLSX or ZIP library, so pages, `features/accounting/api/billing.ts`
- * and tests use these types and helpers without pulling the document renderers into their bundle.
- * The renderers are in `./billingDocumentRender.ts`, which callers load with `await import()` in
- * their download handlers (developer-spec.md §10.11, Appendix E §E.7 rows 3-5).
+ * Nothing here imports a PDF, XLSX or ZIP library. Go renders the documents (R69,
+ * `logitrack-api/internal/billing/render`); the browser renderers (`lib/billingDocumentRender.ts`)
+ * were deleted in F87. The module stays because `lib/billingGolden.test.ts` checks the Go golden
+ * vectors (`testdata/golden/billing/billingDocument.json`) against it.
  */
 
 // ─── Provider type (extends BILLING_PROVIDER with optional stamp/signature) ──
