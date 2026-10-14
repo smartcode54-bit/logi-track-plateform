@@ -24,6 +24,19 @@ describe("LanguageSwitcher", () => {
     expect(screen.getByRole("button", { name: /th/i })).toBeInTheDocument();
   });
 
+  it("says which language is on (aria-pressed) and keeps the flags decorative (UI3)", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockReturnValue("th");
+    const { container } = render(
+      <LanguageProvider>
+        <LanguageSwitcher />
+      </LanguageProvider>
+    );
+    expect(await screen.findByRole("button", { name: "TH" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "EN" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("group", { name: "ภาษา" })).toBeInTheDocument();
+    for (const img of container.querySelectorAll("img")) expect(img).toHaveAttribute("alt", "");
+  });
+
   it("calls setLanguage when TH is clicked", async () => {
     const user = userEvent.setup();
     const setItem = vi.spyOn(Storage.prototype, "setItem");

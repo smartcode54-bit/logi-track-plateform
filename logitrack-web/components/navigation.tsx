@@ -1,12 +1,18 @@
 "use client";
 
+/**
+ * The navigation bar of the public pages and the sign-in pages (about, support, my account, login, waitlist).
+ * UI3 (issue #143): the brand is "LogiTrack Pro by GORATECH" (PRODUCT.md), colours come from the tokens (paper,
+ * hairline, Route Blue for the sign-in action), every label goes through `t()`, and sign-out is the shared one
+ * (`useSignOut`: the same landing page as the app shell's user menu).
+ */
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/context/auth";
-import { Sun, Moon, Package, User, LayoutDashboard, LogOut } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { LayoutDashboard, LogOut, Moon, Sun, User } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useHydrated } from "@/hooks/useHydrated";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,157 +21,104 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LanguageSwitcher } from "./language-switcher";
+import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
+import { useSignOut } from "@/features/auth/hooks/useSignOut";
+import { useHydrated } from "@/hooks/useHydrated";
+import { initialOf } from "@/lib/initials";
+import { LanguageSwitcher } from "./language-switcher";
+
+const MARKETING_LINKS = [
+  { href: "/#solutions", labelKey: "landing.nav.solutions" },
+  { href: "/#pricing", labelKey: "landing.nav.pricing" },
+  { href: "/about", labelKey: "landing.nav.about" },
+  { href: "/join-network", labelKey: "nav.joinNetwork" },
+] as const;
 
 export default function Navigation() {
   const authContext = useAuth();
-  const router = useRouter();
+  const pathname = usePathname();
   const currentUser = authContext?.currentUser;
   const { t } = useLanguage();
+  const signOut = useSignOut();
   // The theme lives in next-themes (app/providers.tsx, UI1). The icon follows it once hydrated.
   const { resolvedTheme, setTheme } = useTheme();
   const hydrated = useHydrated();
   const isDark = hydrated && resolvedTheme === "dark";
-  const toggleTheme = () => setTheme(isDark ? "light" : "dark");
-
-  // 🔓 Logout Function - ใช้ logout จาก Context
-  const handleLogout = async () => {
-    try {
-      // ใช้ logout function จาก Context
-      await authContext?.logout();
-
-      // Redirect ไปหน้า home
-      router.push("/");
-
-      // Navigation bar จะแสดง "Login | Register" แทน
-      // (currentUser จะเป็น null อัตโนมัติจาก onAuthStateChanged)
-    } catch (error) {
-      console.error("Error signing out:", error);
-      // Handle error (optional: show error message to user)
-    }
-  };
+  const themeLabel = isDark ? t("shell.theme.toLight") : t("shell.theme.toDark");
+  const userName = currentUser?.displayName || currentUser?.email || t("shell.unnamedUser");
 
   return (
-    <nav className="sticky top-0 z-sticky border-b border-border/60 bg-[#020817] text-white">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+    <nav className="sticky top-0 z-sticky border-b border-border bg-background text-foreground">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
         {/* Brand */}
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
-            <Package className="h-4 w-4 text-white" />
-          </div>
-          <span className="font-semibold tracking-tight text-lg">Logi-Track</span>
+        <Link href="/" className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/Logitrack-logo.jpg" alt="" className="size-7 shrink-0 rounded-md object-cover sm:size-8" />
+          <span className="truncate text-sm font-semibold tracking-tight sm:text-base">{t("brand.name")}</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">{t("brand.byline")}</span>
         </Link>
 
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
           {/* Marketing links when not logged in */}
           {!currentUser && (
-            <ul className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
-              <li>
-                <Link href="/#solutions" className="hover:text-white transition-colors">
-                  Solutions
-                </Link>
-              </li>
-              <li>
-                <Link href="/#pricing" className="hover:text-white transition-colors">
-                  Pricing
-                </Link>
-              </li>
-              <li>
-                <Link href="/about" className="hover:text-white transition-colors" prefetch={false}>
-                  About Us
-                </Link>
-              </li>
-              <li>
-                <Link href="/join-network" className="hover:text-white transition-colors">
-                  Join Network
-                </Link>
-              </li>
+            <ul className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+              {MARKETING_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className="transition-colors hover:text-foreground" prefetch={false}>
+                    {t(link.labelKey)}
+                  </Link>
+                </li>
+              ))}
             </ul>
           )}
 
-          {/* Language switcher */}
           <LanguageSwitcher />
 
-          {/* Dark/Light Mode Toggle */}
-          <button
-            onClick={toggleTheme}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {isDark ? (
-              <Sun className="w-4 h-4 text-white" />
-            ) : (
-              <Moon className="w-4 h-4 text-white" />
-            )}
-          </button>
+          {/* From sm: at 360 px the brand, the language and Sign in take the row (in Thai too), and a phone follows
+              the device theme anyway (system by default). */}
+          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={() => setTheme(isDark ? "light" : "dark")} aria-label={themeLabel} title={themeLabel}>
+            {isDark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
+          </Button>
 
           {currentUser ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
-                  <Avatar className="w-8 h-8">
-                    <AvatarImage
-                      src={currentUser.photoURL || undefined}
-                      alt={currentUser.displayName || currentUser.email || "User"}
-                    />
-                    <AvatarFallback className="bg-white/20 text-white text-xs">
-                      {currentUser.displayName
-                        ? currentUser.displayName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
-                        : currentUser.email?.[0].toUpperCase() || "U"
-                      }
-                    </AvatarFallback>
+                <Button variant="ghost" size="icon" className="rounded-full" aria-label={t("shell.userMenu", { name: userName })}>
+                  <Avatar className="size-8">
+                    {currentUser.photoURL ? <AvatarImage src={currentUser.photoURL} alt="" /> : null}
+                    <AvatarFallback className="text-xs font-medium">{initialOf(userName)}</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm">
-                    {/* Hi, {currentUser.displayName || currentUser.email} */}
-                  </span>
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>
-                  {currentUser.displayName || currentUser.email}
-                </DropdownMenuLabel>
+                <DropdownMenuLabel className="truncate">{userName}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/my-account" className="flex items-center cursor-pointer">
-                    <User className="mr-2 h-4 w-4" />
-                    <span>{t('nav.myAccount')}</span>
+                  <Link href="/my-account" className="flex items-center">
+                    <User className="mr-2 h-4 w-4" aria-hidden />
+                    <span>{t("nav.myAccount")}</span>
                   </Link>
                 </DropdownMenuItem>
-
                 {!!authContext?.customClaims?.admin && (
-
                   <DropdownMenuItem asChild>
-                    <Link href="/app/dashboard" className="flex items-center cursor-pointer" prefetch={false}>
-                      <LayoutDashboard className="mr-2 h-4 w-4" />
-                      <span>{t('nav.adminDashboard')}</span>
+                    <Link href="/app/dashboard" className="flex items-center" prefetch={false}>
+                      <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden />
+                      <span>{t("nav.adminDashboard")}</span>
                     </Link>
                   </DropdownMenuItem>
                 )}
-
-                <DropdownMenuItem asChild>
-                  <Link href="/my-account" className="flex items-center cursor-pointer">
-                    <User className="mr-2 h-4 w-4" />
-                    <span>{t('nav.myFavorite')}</span>
-                  </Link>
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleLogout}
-                  className="flex items-center cursor-pointer text-red-600 focus:text-red-600"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>{t('nav.logout')}</span>
+                <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center">
+                  <LogOut className="mr-2 h-4 w-4" aria-hidden />
+                  <span>{t("nav.logout")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
-            <Link
-              href="/login"
-              className="hidden sm:inline-flex items-center rounded-full bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white shadow hover:bg-blue-500 transition-colors"
-            >
-              {t("auth.signIn") || "เข้าสู่ระบบ"}
-            </Link>
+          ) : pathname === "/login" ? null : (
+            <Button asChild size="sm" className="px-2.5">
+              <Link href="/login">{t("nav.signIn")}</Link>
+            </Button>
           )}
         </div>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { BootLoading } from "@/components/boot-loading";
 import {
     DEFAULT_LANGUAGE,
     isLanguage,
@@ -66,17 +66,11 @@ function translate(dictionary: Dictionary, key: string, fallbackOrParams?: strin
     return str;
 }
 
-/** Same screen as the /app layout's auth wait, so /app routes show one continuous loader. */
-function LanguageLoading() {
-    return (
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center" aria-busy="true">
-            <div className="flex flex-col items-center gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <div className="text-center text-muted-foreground">Loading / กำลังโหลด...</div>
-            </div>
-        </div>
-    );
-}
+/**
+ * The language load shows `BootLoading` (components/boot-loading.tsx), the same component the `/app` layout shows
+ * while `['me']` answers, so an `/app` page load is one continuous loader with the same words throughout.
+ */
+const LanguageLoading = BootLoading;
 
 function LanguageLoadError() {
     return (
@@ -196,6 +190,13 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
     // Namespaces a route group needs that the current language has not merged yet.
     const language = state?.language;
+
+    // `<html lang>` follows the language on screen (UI3), so screen readers read Thai with a Thai voice and the
+    // browser picks Thai line breaking. app/layout.tsx renders `en` on the server; this runs after hydration, so
+    // the server HTML and the first client render still agree.
+    useEffect(() => {
+        if (language) document.documentElement.lang = language;
+    }, [language]);
     const missingKey = state ? active.filter((ns) => !state.namespaces[ns]).join(",") : "";
     useEffect(() => {
         if (!language || missingKey === "") return;

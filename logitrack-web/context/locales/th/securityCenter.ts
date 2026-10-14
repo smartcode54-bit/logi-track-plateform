@@ -1,7 +1,6 @@
 export default {
     // Sidebar
     "securityCenter.title": "ศูนย์ความปลอดภัย",
-    "securityCenter.subtitle": "ผู้ดูแลระบบโลจิสติกส์",
     "securityCenter.overview": "ภาพรวม",
     "securityCenter.overviewSoon": "ภาพรวม",
     "securityCenter.userManagement": "จัดการผู้ใช้งาน",

@@ -8,9 +8,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/app/dashboard", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
-vi.mock("@/context/auth", () => ({
-    useAuth: () => ({ logout: vi.fn(), customClaims: { role: "manager", admin: false } }),
-}));
 
 const { AppSidebar } = await import("../app-sidebar");
 const { SidebarProvider } = await import("@/components/ui/sidebar");
@@ -84,6 +81,15 @@ describe("AppSidebar", () => {
             expect(links).not.toContain(hidden);
         }
         expect(await screen.findByText("Waitlist (12)")).toBeInTheDocument();
+    });
+
+    it("names the slice in its header from ['me'] and leaves sign-out to the user menu (UI3)", async () => {
+        await renderSidebar(["fleet:view_trucks"]);
+        // The tenant has no English name, so the Thai one stands in; the role is the label of principalRoleLabel.
+        expect(screen.getByTestId("sidebar-scope")).toHaveTextContent("ท · Manager");
+        expect(screen.queryByText("Logout")).toBeNull();
+        expect(screen.getByText("Main menu")).toBeInTheDocument();
+        expect(screen.queryByText("MAIN MENU")).toBeNull();
     });
 
     it("counts the waitlist from one GET /v1/badges, with no web flags request (TW7)", async () => {

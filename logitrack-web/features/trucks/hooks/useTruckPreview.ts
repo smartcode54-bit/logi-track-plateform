@@ -27,7 +27,7 @@ export function useTruckPreview() {
     const [viewerIndex, setViewerIndex] = useState(0);
 
     useEffect(() => {
-        if (truck) setCustomLastItem(`Truck ${truck.licensePlate}`);
+        if (truck) setCustomLastItem(truck.licensePlate); // the plate names the truck in both languages (UI3)
         return () => setCustomLastItem(null);
     }, [truck, setCustomLastItem]);
 

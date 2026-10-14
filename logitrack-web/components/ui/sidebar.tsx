@@ -147,6 +147,8 @@ function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  sheetTitle = "Sidebar",
+  sheetDescription = "Displays the mobile sidebar.",
   className,
   children,
   ...props
@@ -154,6 +156,9 @@ function Sidebar({
   side?: "left" | "right"
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
+  /** The mobile sheet's title and description, for screen readers (UI3: callers pass translated text). */
+  sheetTitle?: string
+  sheetDescription?: string
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
@@ -183,8 +188,8 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>{sheetTitle}</SheetTitle>
+            <SheetDescription>{sheetDescription}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>

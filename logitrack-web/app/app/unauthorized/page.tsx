@@ -5,7 +5,7 @@ import { ShieldX, ArrowLeft, Home, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from "@/context/language"
 import { useAuth } from "@/context/auth"
-import { getRole } from "@/lib/permissions"
+import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
 import { homeRouteOf } from "@/features/auth/api/homeRoute"
 import { DASHBOARD_PATH } from "@/lib/routeCapabilities"
 import { Suspense } from "react"
@@ -17,7 +17,8 @@ function UnauthorizedContent() {
     const authContext = useAuth()
 
     const attemptedPath = searchParams.get("from") ?? ""
-    const role = getRole(authContext?.customClaims ?? null)
+    // The scope line of the shell (UI3): the same label as the sidebar and the user menu.
+    const scope = useScopeLabel()
     // The same home as the proxy.ts gate (R89), over `['me']`.
     const homeRoute = authContext?.me ? homeRouteOf(authContext.me) : DASHBOARD_PATH
 
@@ -27,13 +28,13 @@ function UnauthorizedContent() {
                 <div className="flex items-center justify-center w-28 h-28 rounded-full bg-destructive/10 ring-1 ring-destructive/20">
                     <Lock className="h-12 w-12 text-destructive/70" />
                 </div>
-                <div className="absolute -top-2 -right-2 flex items-center justify-center w-9 h-9 rounded-full bg-destructive text-white text-xs font-bold shadow-md">
+                <div className="absolute -top-2 -right-2 flex items-center justify-center w-9 h-9 rounded-full bg-destructive text-white text-xs font-medium dark:bg-destructive/60">
                     403
                 </div>
             </div>
 
             <div className="space-y-3 max-w-md">
-                <h1 className="text-2xl font-bold text-foreground">
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                     {t("unauthorized.title")}
                 </h1>
                 <p className="text-muted-foreground">
@@ -65,9 +66,7 @@ function UnauthorizedContent() {
                 </Button>
             </div>
 
-            <p className="text-xs text-muted-foreground/60">
-                {t("unauthorized.roleHint", { role: role.replace(/_/g, " ") })}
-            </p>
+            {scope ? <p className="text-xs text-muted-foreground">{t("unauthorized.roleHint", { role: scope })}</p> : null}
         </div>
     )
 }
