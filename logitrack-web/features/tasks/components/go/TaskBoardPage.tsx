@@ -22,7 +22,8 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { useCan } from "@/features/auth/api/useMe";
+import { useCan, useMe } from "@/features/auth/api/useMe";
+import { navigationProfileOf, profileRouteLabelKey, type NavigationProfile } from "@/features/auth/utils/navigationProfile";
 import { ApiErrorAlert, formatDateTime, formatDay } from "@/features/accounting/components/go/shared";
 import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
@@ -97,26 +98,13 @@ export function JobAssignBoardPage() {
     );
 }
 
-function socColor(key: string | null | undefined): string {
-    switch (key) {
-        case "SOCE":
-            return "bg-emerald-600 hover:bg-emerald-700 text-white";
-        case "SOCN":
-            return "bg-blue-600 hover:bg-blue-700 text-white";
-        case "SOCW":
-            return "bg-orange-600 hover:bg-orange-700 text-white";
-        default:
-            return "bg-slate-600 text-white";
-    }
-}
-
 /** The board's words; its title is the menu entry's label (UI3B: one name in the menu, the crumb and the H1). */
-function titleKeys(kind: BoardKind): { title: string; subtitle: string; add: string } {
+function titleKeys(kind: BoardKind, profile: NavigationProfile): { title: string; subtitle: string; add: string } {
     switch (kind) {
         case "line_haul":
             return { title: "nav.lineHaulTasks", subtitle: "lineHaul.subtitle", add: "lineHaul.newAssignment" };
         case "all":
-            return { title: "nav.jobAssign", subtitle: "jobAssign.subtitle", add: "jobAssign.addJob" };
+            return { title: profileRouteLabelKey("/app/job-assign", profile) ?? "nav.jobAssign", subtitle: profile === "staff" ? "jobAssign.subtitle" : "nav.scopedTasksDescription", add: "jobAssign.addJob" };
         default:
             return { title: "nav.firstMileTasks", subtitle: "firstMile.subtitle", add: "firstMile.newAssignment" };
     }
@@ -130,6 +118,7 @@ interface FormState {
 
 function Board({ kind }: { kind: BoardKind }) {
     const { t } = useLanguage();
+    const { data: profile = "staff" } = useMe(navigationProfileOf);
     const canManage = useCan("operations:manage_tasks").allowed;
     const [date, setDate] = useState<Date | undefined>(() => new Date());
     const [typeFilter, setTypeFilter] = useState<TaskBoardType>("all");
@@ -147,7 +136,7 @@ function Board({ kind }: { kind: BoardKind }) {
     const shown = useMemo(() => pageItems(q.data?.pages), [q.data]);
     const hubs = useGoHubs();
     const hubOptions = useMemo(() => goHubFilterOptions(hubs.list), [hubs.list]);
-    const keys = titleKeys(kind);
+    const keys = titleKeys(kind, profile);
     const defaultType: TaskType = kind === "line_haul" ? "line_haul" : "first_mile";
 
     const confirmCancel = async () => {
@@ -318,7 +307,7 @@ function Board({ kind }: { kind: BoardKind }) {
                                             <span className="block font-medium leading-tight">{task.source?.label || task.sourceHub}</span>
                                         </TableCell>
                                         <TableCell>
-                                            <Badge className={cn("border-0 font-normal", socColor(task.destinationSocKey ?? task.destination))}>
+                                            <Badge variant="outline" className="font-normal">
                                                 {task.destinationPlace?.label || task.destination}
                                             </Badge>
                                             {task.isMultiDelivery && task.stops.length > 1 ? (

@@ -78,7 +78,6 @@ export default {
     "nav.lineHaulTasks": "งาน Line Haul",
     "nav.holidays": "วันหยุด",
     "nav.customers": "ลูกค้า",
-    "nav.system": "ระบบ",
     "nav.companies": "บริษัท",
     "nav.companyProfile": "โปรไฟล์บริษัท",
     "nav.billing": "การวางบิล",

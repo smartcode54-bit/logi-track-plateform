@@ -123,51 +123,117 @@ func TestWebRoutesTranslateTheLegacyTable(t *testing.T) {
 	}
 }
 
-// TestEveryWebPageIsMapped: the edge gate answers an unmapped path with "Page not found" (UI3D: let
-// through with HTTP 404 and no capability check to the shell's catch-all), so every page under
-// app/app/** needs a mapping (Appendix C §C.2.7) except the pages proxy.ts or next.config redirects (main
-// spec §10.5, §10.12). This test, with the web's "maps every page under app/app", is what makes that 404
-// safe: a page without a mapping would be served unchecked. Pages count in every extension Next accepts,
-// and a route handler under app/app fails the test (the gate would let it through unchecked too). Only
-// the shell's root catch-all (`app/app/[...missing]`, which only calls notFound()) is skipped; the web
-// test asserts it is the one catch-all.
-func TestEveryWebPageIsMapped(t *testing.T) {
-	root := filepath.Join(moduleRoot(t), "..", "logitrack-web", "app")
-	redirected := []string{"/app", "/app/users", "/app/operations/roles"}
-	notFoundCatchAll := filepath.Join(root, "app", "[...missing]")
-	pageFile := regexp.MustCompile(`^page\.(tsx|ts|jsx|js|mdx)$`)
-	routeFile := regexp.MustCompile(`^route\.(tsx|ts|jsx|js)$`)
-	n := 0
-	err := filepath.WalkDir(filepath.Join(root, "app"), func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() && path == notFoundCatchAll {
-			return filepath.SkipDir
+// webAppFiles enumerates every page.* and route.* under app/app. Only the root not-found page is
+// skipped; its handlers and children still count. Route groups do not add URL segments.
+func webAppFiles(root string) (pages, handlers []string, err error) {
+	notFoundCatchAll := filepath.Join(root, "[...missing]")
+	// Include future/custom pageExtensions too; never silently omit a page.* or route.*.
+	pageFile := regexp.MustCompile(`^page\..+$`)
+	routeFile := regexp.MustCompile(`^route\..+$`)
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
 		}
-		if err == nil && !d.IsDir() && routeFile.MatchString(d.Name()) {
-			t.Errorf("route handler %s under app/app: the edge gate lets an unmapped path through, so it would be reachable unchecked", path)
+		if routeFile.MatchString(d.Name()) {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			handlers = append(handlers, filepath.ToSlash(rel))
 			return nil
 		}
-		if err != nil || d.IsDir() || !pageFile.MatchString(d.Name()) {
-			return err
+		if !pageFile.MatchString(d.Name()) || filepath.Dir(path) == notFoundCatchAll {
+			return nil
 		}
 		rel, err := filepath.Rel(root, filepath.Dir(path))
 		if err != nil {
 			return err
 		}
-		route := "/" + filepath.ToSlash(rel)
-		n++
-		if slices.Contains(redirected, route) {
-			return nil
+		route := "/app"
+		for _, segment := range strings.Split(filepath.ToSlash(rel), "/") {
+			if segment != "." && !strings.HasPrefix(segment, "(") {
+				route += "/" + segment
+			}
 		}
-		if _, _, ok := RouteFor(route); !ok {
-			t.Errorf("page %s has no mapping: the edge gate would deny it", route)
-		}
+		pages = append(pages, route)
 		return nil
 	})
+	return pages, handlers, err
+}
+
+// TestEveryWebPageIsMapped: the edge gate answers an unmapped path with "Page not found" (UI3D: let
+// through with HTTP 404 and no capability check to the shell's catch-all), so every page under
+// app/app/** needs a mapping (Appendix C §C.2.7) except the pages proxy.ts or next.config redirects (main
+// spec §10.5, §10.12). This test, with the web's "maps every page under app/app", is what makes that 404
+// safe: a page without a mapping would be served unchecked. Pages count in every extension,
+// and a route handler anywhere under app/app fails the test (it would be reachable unchecked too).
+// Only the shell's root catch-all page (`app/app/[...missing]`, which only calls notFound()) is skipped;
+// the web test asserts it is the one catch-all.
+func TestEveryWebPageIsMapped(t *testing.T) {
+	root := filepath.Join(moduleRoot(t), "..", "logitrack-web", "app", "app")
+	redirected := []string{"/app", "/app/users", "/app/operations/roles"}
+	pages, handlers, err := webAppFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n < 50 {
-		t.Fatalf("found %d pages under logitrack-web/app/app, expected the whole app", n)
+	for _, handler := range handlers {
+		t.Errorf("route handler %s under app/app: the edge gate lets an unmapped path through, so it would be reachable unchecked", handler)
+	}
+	for _, route := range pages {
+		if slices.Contains(redirected, route) {
+			continue
+		}
+		if _, _, ok := RouteFor(route); !ok {
+			t.Errorf("page %s has no mapping: the edge gate would serve it unchecked with HTTP 404", route)
+		}
+	}
+	if len(pages) < 50 {
+		t.Fatalf("found %d pages under logitrack-web/app/app, expected the whole app", len(pages))
+	}
+}
+
+func TestWebAppFilesIncludesEveryExtensionAndOnlySkipsTheNotFoundPage(t *testing.T) {
+	root := t.TempDir()
+	extensions := []string{"tsx", "ts", "jsx", "js", "mdx", "custom"}
+	fixtures := []string{
+		"[...missing]/page.tsx", "[...missing]/route.custom", "[...missing]/child/page.tsx",
+		"nested/[...missing]/page.tsx", "[...other]/page.tsx", "[[...optional]]/page.tsx",
+		"(group)/grouped/page.tsx", "ignored/not-page.tsx",
+	}
+	wantPages := []string{"/app/[...missing]/child", "/app/nested/[...missing]", "/app/[...other]", "/app/[[...optional]]", "/app/grouped"}
+	wantHandlers := []string{"[...missing]/route.custom"}
+	for _, ext := range extensions {
+		fixtures = append(fixtures, "unmapped-"+ext+"/page."+ext, "handlers-"+ext+"/route."+ext)
+		wantPages = append(wantPages, "/app/unmapped-"+ext)
+		wantHandlers = append(wantHandlers, "handlers-"+ext+"/route."+ext)
+	}
+	for _, fixture := range fixtures {
+		file := filepath.Join(root, filepath.FromSlash(fixture))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pages, handlers, err := webAppFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(pages)
+	slices.Sort(handlers)
+	slices.Sort(wantPages)
+	slices.Sort(wantHandlers)
+	if !slices.Equal(pages, wantPages) {
+		t.Errorf("pages = %v, want %v", pages, wantPages)
+	}
+	if !slices.Equal(handlers, wantHandlers) {
+		t.Errorf("handlers = %v, want %v", handlers, wantHandlers)
+	}
+	for _, route := range pages {
+		if _, _, ok := RouteFor(route); ok {
+			t.Errorf("fixture %s should fail the mapping invariant", route)
+		}
 	}
 }
 
