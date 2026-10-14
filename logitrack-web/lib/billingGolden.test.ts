@@ -119,7 +119,7 @@ const CALL: Record<string, (...a: any[]) => unknown> = {
     "Math.round": (x) => Math.round(x),
     round2: (x) => Math.round(x * 100) / 100,
     toFixed: (x: number, digits: number) => x.toFixed(digits),
-    withholdingThb: (total, rate) => Math.round(total * rate * 100) / 100, // lib/billingDocumentRender.ts:85 (lib/billingDocument.ts:365 at 4f552099)
+    withholdingThb: (total, rate) => Math.round(total * rate * 100) / 100, // lib/billingDocumentRender.ts:85 before F87 (lib/billingDocument.ts:365 at 4f552099)
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

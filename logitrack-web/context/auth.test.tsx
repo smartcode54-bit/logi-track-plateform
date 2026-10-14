@@ -534,8 +534,8 @@ describe("source guards", () => {
             .flatMap((d) => walk(path.join(root, d)))
             .filter((f) => /PERMISSIONS_CONFIG|["']permissions_config["']/.test(readFileSync(f, "utf8")))
             .map((f) => path.relative(root, f));
-        // lib/collections.ts names the collection; TW7 removed the Firestore matrix page that edited it.
-        expect(users.sort()).toEqual(["lib/collections.ts"]);
+        // TW7 removed the Firestore matrix page that edited it; F87 removed lib/collections.ts, which named it.
+        expect(users.sort()).toEqual([]);
     });
 
     it("the auth context no longer calls setAdminClaims, listens to forceLogoutAt or to the Firebase auth state (T18), nor bridges (TW7)", async () => {

@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations/operationsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/clock"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scope/scopedb"
@@ -321,10 +323,12 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 		rows   []operationsdb.MonitorTripsRow
 		stops  []TripStop
 		facets []operationsdb.MonitorFacetsRow
+		bill   map[uuid.UUID]billing.TripBilling
 	)
-	err := s.read(ctx, p, func(q *operationsdb.Queries) error {
+	err := s.Tx(ctx, p, func(tx pgx.Tx) error {
+		q := operationsdb.New(tx)
 		var err error
-		rows, err = q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimChars, WithPrice: income, AllTenants: r.All,
+		rows, err = q.MonitorTrips(ctx, operationsdb.MonitorTripsParams{TrimChars: trimChars, AllTenants: r.All,
 			TenantIds: r.tenants(), FromAt: m.from, ToAt: m.to, Statuses: m.statuses, IncidentStatus: m.incident,
 			JobType: m.jobType, DriverID: m.driverID, BillingPartyID: m.partyID, Partner: m.partner,
 			PartnerNone: m.partnerNone, PlateTruck: m.plateTruck, PlateRaw: m.plateRaw, PlateNone: m.plateNone,
@@ -343,6 +347,13 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 		}
 		if len(pageIDs) > 0 {
 			if stops, err = q.TripStopsOf(ctx, pageIDs); err != nil {
+				return err
+			}
+		}
+		// The price: billing.TripBillingOf, the one billing projection of a trip (F59), in this transaction, so RLS
+		// decides which snapshots it reads (R61: a carrier reads no price of a trip the own fleet priced).
+		if income {
+			if bill, err = billing.TripBillingOf(ctx, tx, pageIDs); err != nil {
 				return err
 			}
 		}
@@ -375,12 +386,8 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 			first: row.DriverFirstName, last: row.DriverLastName, incidents: row.IncidentCount, photos: row.PhotoCount},
 			byTrip[t.ID])
 		mr.DeliveredVia, mr.NeedsAdminReview, mr.ReviewStatus = t.DeliveredVia, &t.NeedsAdminReview, t.ReviewStatus
-		if income && row.PriceComputedAt != nil {
-			mr.Price = &PricePreview{EstimateThb: row.PriceEstimateThb, UnpricedReason: row.PriceUnpricedReason,
-				ManualOverride:       row.PriceManualOverride != nil && *row.PriceManualOverride,
-				JobCategoryAtPricing: row.PriceJobCategory,
-				IsMultiDelivery:      row.PriceIsMultiDelivery != nil && *row.PriceIsMultiDelivery,
-				ComputedAt:           *row.PriceComputedAt}
+		if b, ok := bill[t.ID]; ok {
+			mr.Price = pricePreview(b)
 		}
 		out = append(out, mr)
 	}
