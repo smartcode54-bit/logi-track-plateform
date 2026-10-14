@@ -5,7 +5,9 @@
 -- §C.3.8; authz.Principal.TenantReach): all_tenants under X-Act-On-Tenant: *, else tenant_ids.
 
 -- name: ListTrucks :many
--- GET /v1/trucks, newest first; keyset (created_at, id). type matches the vehicle class or the master type word.
+-- GET /v1/trucks, newest first; keyset (created_at, id). type matches the vehicle class or the master type word. q
+-- matches the plate, province, brand and model folded (search_fold, 0026: q_words are its folded words as LIKE
+-- patterns, each somewhere in the row, in any order; NULL is no search), or the whole of q equals the GPS id or the VIN.
 SELECT *
 FROM trucks
 WHERE (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::uuid[]))
@@ -14,11 +16,9 @@ WHERE (sqlc.arg(all_tenants)::boolean OR tenant_id = ANY (sqlc.arg(tenant_ids)::
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(truck_type)::text IS NULL OR vehicle_class = upper(sqlc.narg(truck_type)::text)
        OR lower(type_raw) = lower(sqlc.narg(truck_type)::text))
-  AND (sqlc.narg(q)::text IS NULL
-       OR strpos(lower(license_plate), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(province), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(brand), lower(sqlc.narg(q)::text)) > 0
-       OR strpos(lower(model), lower(sqlc.narg(q)::text)) > 0
+  AND (sqlc.narg(q_words)::text[] IS NULL
+       OR search_fold(coalesce(license_plate, '') || ' ' || coalesce(province, '') || ' ' || coalesce(brand, '') || ' '
+                      || coalesce(model, '')) LIKE ALL (sqlc.narg(q_words)::text[])
        OR lower(coalesce(gps_vehicle_id, '')) = lower(sqlc.narg(q)::text)
        OR lower(coalesce(vin, '')) = lower(sqlc.narg(q)::text))
   AND (sqlc.narg(after_created)::timestamptz IS NULL

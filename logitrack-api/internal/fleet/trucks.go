@@ -16,6 +16,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/vehicleclass"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scope/scopedb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
@@ -221,16 +222,22 @@ func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTru
 	if err := ck.err(); err != nil {
 		return nil, "", err
 	}
+	// q: its folded words, each somewhere in the row (searchtext, the web's lib/searchText.ts); nil is no search. The
+	// GPS id and the VIN still match the whole of q exactly.
+	var words []string
+	if q != nil {
+		words = searchtext.LikePatterns(*q)
+	}
 	if scoped {
 		return s.listScopeTrucks(ctx, p, scopedb.ListScopeTrucksParams{TenantID: tenant, Status: status, TruckType: typ,
-			Q: q, AfterPlate: after.S, AfterID: after.ID, RowLimit: int32(limit) + 1}, limit)
+			QWords: words, AfterPlate: after.S, AfterID: after.ID, RowLimit: int32(limit) + 1}, limit)
 	}
 	all, tenants := p.TenantReach()
 	var rows []fleetdb.Truck
 	err := s.tx(ctx, p, func(_ pgx.Tx, qq *fleetdb.Queries) (err error) {
 		rows, err = qq.ListTrucks(ctx, fleetdb.ListTrucksParams{AllTenants: all, TenantIds: tenants, TenantID: tenant,
-			Ownership: ownership, Status: status, TruckType: typ, Q: q, AfterCreated: after.T, AfterID: after.ID,
-			RowLimit: int32(limit) + 1})
+			Ownership: ownership, Status: status, TruckType: typ, QWords: words, Q: q, AfterCreated: after.T,
+			AfterID: after.ID, RowLimit: int32(limit) + 1})
 		return err
 	})
 	if err != nil {

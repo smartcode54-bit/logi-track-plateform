@@ -12,7 +12,8 @@
  */
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { customerOptionsQuery } from "@/features/customers/api/customers";
-import { goFetch } from "@/lib/goFetch";
+import { isApiError } from "@/lib/apiError";
+import { goFetch, goPath, goUrl } from "@/lib/goFetch";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 
 /** `GET /v1/customers?fields=minimal` item. */
@@ -36,8 +37,8 @@ export function customerLabel(c: Pick<CustomerPick, "code" | "name"> | undefined
  *
  * Go has no id lookup the pages' users may call yet: `GET /v1/customers/{id}` needs the steward-only
  * `fleet:manage_customers`, knows customer ids only and answers the full record, and the minimal list filters
- * by `q` (code or name) only. Until Go serves one (for example `GET /v1/customers?fields=minimal&ids=` matching
- * a customer id or a billing party id), an id no picker page seeded resolves through the master-data directory
+ * by `q` (code or name) only. Until Go serves one (`GET /v1/customers?fields=minimal&ids=` matching a customer id
+ * or a billing party id, issue #184 UI8), an id no picker page seeded resolves through the master-data directory
  * `['customers','options']` (every page of the minimal list, one request per stale time, the key the
  * master-data pickers already read). This query function is its only reader outside the master-data pages:
  * moving it to an id lookup changes no caller.
@@ -132,11 +133,15 @@ export interface HubPick {
     stationType: string | null;
     /** The hub's billing party (the task forms' customer prefill, T34). */
     linkedPartyId?: string | null;
+    /** Who that party bills: `customer` or `partner` (a carrier); null when the caller may not read the party. */
+    linkedCustomerKind?: string | null;
 }
 
 /**
- * `['hubs',{view:'go'}]`: every hub and SOC from Go (one request, 10 min); `hubs.changed` reaches it
- * through the `['hubs']` prefix. Not the `masterdata`-flagged `['hubs']` of the master-data pages.
+ * `['hubs',{view:'go'}]`: every hub and SOC from Go (`GET /v1/hubs` without `limit`: the whole master in
+ * one request, 10 min); `hubs.changed` reaches it through the `['hubs']` prefix. For readers that need the
+ * whole master (the rate card's table, the boards' source-hub filter); a picker searches a page instead
+ * (`hubSearchQuery`) and labels its value with `hubByCodeQuery`.
  */
 export const hubPicksQuery = queryOptions({
     queryKey: [...queryKeys.hubs.all(), { view: "go" }] as const,
@@ -149,12 +154,55 @@ export function hubLabel(h: Pick<HubPick, "sourceId" | "sourceNameTh" | "sourceN
     return h.sourceNameTh?.trim() || h.sourceNameEn?.trim() || h.sourceId;
 }
 
+/** Whether a station is a SOC (`SOC`, or a legacy spelling starting with it). */
+export function isSocStation(h: Pick<HubPick, "stationType">): boolean {
+    return String(h.stationType ?? "").trim().toUpperCase().startsWith("SOC");
+}
+
+/** A hub as the task and trip forms show it: "CODE — name", or the code alone. */
+export function hubDisplay(h: Pick<HubPick, "sourceId" | "sourceNameTh" | "sourceNameEn">): string {
+    const name = h.sourceNameTh?.trim() || h.sourceNameEn?.trim();
+    return name && name !== h.sourceId ? `${h.sourceId} — ${name}` : h.sourceId;
+}
+
+/**
+ * `['hubs',{view:'one',code}]`: one hub or SOC by its code (`GET /v1/hubs/{code}`; Go also resolves a uuid
+ * and a SOC key such as `SOCE`), the label of a value a picker holds that its current page may not (UI2B).
+ * A code that is not in the master (a legacy task's free text) is `null`, not an error: the picker shows it
+ * as it is. 10 min, like the master; `hubs.changed` reaches it through the `['hubs']` prefix.
+ */
+export function hubByCodeQuery(code: string) {
+    const ref = code.trim();
+    return queryOptions({
+        queryKey: [...queryKeys.hubs.all(), { view: "one", code: ref.toUpperCase() }] as const,
+        queryFn: async ({ signal }): Promise<HubPick | null> => {
+            let path: string;
+            try {
+                path = goPath`/v1/hubs/${ref}`;
+                goUrl(path); // a code no path can carry (a "/", a dot segment) names no hub
+            } catch {
+                return null;
+            }
+            try {
+                const hub = await goFetch<HubPick>(path, { signal });
+                // A code that collides with a static route (`/v1/hubs/maps`) answers another payload: no hub.
+                return typeof hub?.sourceId === "string" ? hub : null;
+            } catch (e) {
+                if (isApiError(e) && e.status === 404) return null;
+                throw e;
+            }
+        },
+        enabled: ref !== "",
+        ...QUERY_POLICY.masterData,
+    });
+}
+
 /**
  * Server searches of the shared pickers (UI2, `components/entity-pickers.tsx`): one page per typed term
- * (debounced by the picker), so no list of every customer or hub is read for a picker.
+ * (debounced by the picker), so no list of every customer or hub is read for a picker. Go folds `q` as
+ * `lib/searchText.ts` does (UI2B): Thai tone marks, Latin accents and Thai digits, every word in any order.
  * - `['customers',{fields:'minimal',q,view:'picker'}]`: `GET /v1/customers?fields=minimal&q&limit=50`;
- * - `['hubs',{view:'picker',q,stationType}]`: `GET /v1/hubs?q&stationType` (the master is a few hundred
- *   rows: Go filters its cache, no page).
+ * - `['hubs',{view:'picker',q,stationType}]`: `GET /v1/hubs?q&stationType&limit=50` (one keyset page by code).
  */
 export const PICKER_PAGE_SIZE = 50;
 
@@ -176,7 +224,8 @@ export function hubSearchQuery(q: string, stationType?: string) {
     const term = q.trim();
     return queryOptions({
         queryKey: [...queryKeys.hubs.all(), { view: "picker", q: term, stationType: stationType ?? "" }] as const,
-        queryFn: ({ signal }) => goFetch<HubPick[]>("/v1/hubs", { signal, query: { q: term || undefined, stationType: stationType || undefined } }),
+        queryFn: ({ signal }) =>
+            goFetch<HubPick[]>("/v1/hubs", { signal, query: { q: term || undefined, stationType: stationType || undefined, limit: PICKER_PAGE_SIZE } }),
         staleTime: 5 * 60_000,
     });
 }

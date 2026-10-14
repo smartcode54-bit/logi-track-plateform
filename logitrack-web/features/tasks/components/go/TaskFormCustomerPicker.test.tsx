@@ -114,6 +114,23 @@ describe("task form: the customer picker searches on the server (UI2C)", () => {
         expect(web.calls.filter((c) => c.method === "PATCH").map((c) => c.body)).toEqual([{ billingPartyId: "p-0100" }]);
     });
 
+    it("prefills a task without a party from its hub only when that party is a customer's, never a carrier's", async () => {
+        const { web } = setup();
+        // The source hub's party is a carrier's (no customer holds it): the field stays empty, no raw UUID.
+        renderForm(task({ billingPartyId: null, sourceLinkedPartyId: "pp-carrier" }));
+        const picker = await screen.findByRole("combobox", { name: "Customer" });
+        await waitFor(() => expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/customers"))).toBe(true));
+        await new Promise((r) => setTimeout(r, 50));
+        expect(picker).not.toHaveTextContent("pp-carrier");
+    });
+
+    it("prefills a task without a party from its customer-linked hub", async () => {
+        setup();
+        renderForm(task({ billingPartyId: null, sourceLinkedPartyId: "p-0005" }));
+        const picker = await screen.findByRole("combobox", { name: "Customer" });
+        await waitFor(() => expect(picker).toHaveTextContent("ลูกค้า 0005"));
+    });
+
     it("lists a customer without a billing party but does not let it be picked", async () => {
         setup();
         renderForm(task({ billingPartyId: null }));

@@ -48,9 +48,10 @@ export default function TruckAssignmentPage() {
     const auth = useAuth();
     const currentUser = auth?.currentUser;
     // `['truckAssignments', {status:'active'}]` (T25), Go `GET /v1/truck-assignments`; a write invalidates the
-    // assignments, trucks and drivers. The pickers search on the server (UI2C): `DriverSelect` lists active
-    // drivers (Go sets a driver on_duty while it holds a truck), `TruckSelect` the own fleet's trucks, so no
-    // driver or truck list is read to pick. The counters: `meta.statusCounts` of the drivers list and the own
+    // assignments, trucks and drivers. The pickers search on the server (UI2C): `DriverSelect` lists every
+    // driver, an inactive one or one holding a truck shown but not pickable (Go refuses only those: an on_duty
+    // driver without a truck, set on the driver form or loaded from the legacy app, is assignable),
+    // `TruckSelect` the own fleet's trucks, so no driver or truck list is read to pick. The counters: `meta.statusCounts` of the drivers list and the own
     // trucks not in maintenance (`['trucks','options']`; Go has no truck count yet). The history
     // (`['truckAssignments', {view:'history', status, q}]`) is its own virtualised, server-filtered list
     // (`AssignmentHistory`, TW8).
@@ -64,8 +65,11 @@ export default function TruckAssignmentPage() {
 
     const stats = {
         totalTrucks: truckOptions.options.length,
-        // Active = neither inactive nor holding a truck (an assigned driver is on_duty).
-        availableDrivers: driverCounts.counts.active ?? 0,
+        // Available = active or on_duty, less the drivers holding a truck (Go sets a holder on_duty).
+        availableDrivers: Math.max(
+            0,
+            (driverCounts.counts.active ?? 0) + (driverCounts.counts.on_duty ?? 0) - new Set(active.assignments.map((a) => a.driverId)).size
+        ),
         activeAssignments: active.assignments.length,
     };
 
@@ -78,6 +82,7 @@ export default function TruckAssignmentPage() {
                 const plate = heldPlate.get(d.id) || d.currentAssignment?.truckPlate || "-";
                 return { disabled: true, description: t("assignments.hint.assigned", { plate }) };
             }
+            if (d.status === "inactive") return { disabled: true, description: t("assignments.hint.inactive") };
             return d.licenseType ? { description: d.licenseType } : undefined;
         },
         [heldPlate, t]
@@ -229,7 +234,6 @@ export default function TruckAssignmentPage() {
 
                             <DriverSelect
                                 aria-label={t('assignments.selectDriver')}
-                                status="active"
                                 details
                                 describe={describeDriver}
                                 value={selectedDriver?.id ?? ""}

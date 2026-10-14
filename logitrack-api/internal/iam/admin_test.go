@@ -32,12 +32,6 @@ func TestParseEmails(t *testing.T) {
 	}
 }
 
-func TestLikePattern(t *testing.T) {
-	if got := likePattern(`50%_off\x`); got != `%50\%\_off\\x%` {
-		t.Fatalf("likePattern = %q", got)
-	}
-}
-
 func TestCursorRoundTrip(t *testing.T) {
 	id := uuid.New()
 	at := time.Date(2026, 10, 1, 1, 2, 3, 456000, time.UTC)

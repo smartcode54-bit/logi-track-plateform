@@ -13,9 +13,10 @@ import (
 // operations package names its own Hub and this adapter joins them.
 type OperationsHubs struct{ Service *hubs.Service }
 
-// Hubs is every hub and SOC of the master as p sees it (hubs.Service.List: the shared cache, the per-principal mask).
+// Hubs is every hub and SOC of the master as p sees it (hubs.Service.List without a page: the shared cache, the
+// per-principal mask).
 func (a OperationsHubs) Hubs(ctx context.Context, p *authz.Principal) ([]operations.Hub, error) {
-	list, err := a.Service.List(ctx, p, hubs.ListInput{})
+	list, _, err := a.Service.List(ctx, p, hubs.ListInput{})
 	if err != nil {
 		return nil, err
 	}

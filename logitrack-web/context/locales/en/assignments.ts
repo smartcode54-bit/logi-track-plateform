@@ -23,6 +23,7 @@ export default {
     "assignments.noTruckSelected": "No vehicle selected",
     "assignments.hint.assigned": "Already assigned · {plate}",
     "assignments.hint.maintenance": "In maintenance",
+    "assignments.hint.inactive": "Inactive",
     "assignments.deploy": "Confirm and Assign",
     "assignments.deploying": "Assigning...",
     "assignments.resetForm": "Reset form",

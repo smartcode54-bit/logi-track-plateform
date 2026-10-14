@@ -1,9 +1,11 @@
 // UI2C (follow-up of issue #142): the truck-assignment page picks with the shared server pickers instead of
 // filtering its own full driver and truck lists:
-// - drivers: `DriverSelect` over `GET /v1/drivers?status=active&q` (Go sets a driver on_duty while it holds a truck),
-//   full rows for the licence type; a driver that still holds an active assignment is shown but cannot be picked;
+// - drivers: `DriverSelect` over `GET /v1/drivers?q` (every status), full rows for the licence type; a driver that
+//   still holds an active assignment or is inactive is shown but cannot be picked; an on_duty driver without a
+//   truck (set on the driver form, or loaded from the legacy app) can be (Go refuses only the other two);
 // - trucks: `TruckSelect` over `GET /v1/trucks?ownership=own&q`; a truck in maintenance is shown but cannot be picked;
-// - no list of every driver is read: "available drivers" is `meta.statusCounts.active` of a one-row page;
+// - no list of every driver is read: "available drivers" is active + on_duty of a one-row page's
+//   `meta.statusCounts`, less the drivers holding a truck;
 // - the assignment posts the picked ids only, and the form resets.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -17,11 +19,11 @@ import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
 const pad = (i: number) => String(i).padStart(4, "0");
-// Active drivers (Go's `status=active` answer); d-0001 still holds a truck on a legacy row.
+// d-0001 still holds a truck on a legacy row; d-0002 is on_duty without a truck; d-0003 is inactive.
 const DRIVERS = Array.from({ length: 60 }, (_, i) => ({
     id: `d-${pad(i)}`,
     displayName: `สมชาย ${pad(i)}`,
-    status: "active",
+    status: i === 2 ? "on_duty" : i === 3 ? "inactive" : "active",
     licenseType: i % 2 ? "ท.2" : "ท.3",
     currentAssignment: null,
 }));
@@ -81,23 +83,27 @@ function setup() {
 const renderPage = () => renderWithProviders(<TruckAssignmentPage />, getQueryClient());
 
 describe("truck assignment: server pickers (UI2C)", () => {
-    it("counts drivers from the status counts and lists active drivers on the server, an assigned one not pickable", async () => {
+    it("counts drivers from the status counts and lists drivers on the server, an assigned or inactive one not pickable", async () => {
         const { driverCalls } = setup();
         renderPage();
-        // Available drivers = the active count of a one-row page; trucks = own trucks not in maintenance.
-        await waitFor(() => expect(screen.getByText("57")).toBeInTheDocument());
+        // Available drivers = active 57 + on_duty 9 - 1 holding a truck; trucks = own trucks not in maintenance.
+        await waitFor(() => expect(screen.getByText("65")).toBeInTheDocument());
         expect(screen.getByText("79")).toBeInTheDocument();
         expect(driverCalls().map((p) => Object.fromEntries(p))).toEqual([{ fields: "minimal", limit: "1" }]);
 
         const u = userEvent.setup();
         await u.click(screen.getByRole("combobox", { name: "1. Select Available Driver" }));
         await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(20));
-        // Active drivers only, full rows (no fields=minimal) for the licence type; one page of 20.
-        expect(Object.fromEntries(driverCalls()[1])).toEqual({ status: "active", limit: "20" });
+        // Every status, full rows (no fields=minimal) for the licence type; one page of 20.
+        expect(Object.fromEntries(driverCalls()[1])).toEqual({ limit: "20" });
         expect(screen.getByRole("option", { name: /สมชาย 0000/ })).toHaveTextContent("ท.3");
         const held = screen.getByRole("option", { name: /สมชาย 0001/ });
         expect(held).toHaveAttribute("aria-disabled", "true");
         expect(held).toHaveTextContent("Already assigned · กข-0050");
+        expect(screen.getByRole("option", { name: /สมชาย 0002/ })).not.toHaveAttribute("aria-disabled", "true");
+        const inactive = screen.getByRole("option", { name: /สมชาย 0003/ });
+        expect(inactive).toHaveAttribute("aria-disabled", "true");
+        expect(inactive).toHaveTextContent("Inactive");
 
         await u.type(screen.getByPlaceholderText("Search by name..."), "สมชาย 0042");
         await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));

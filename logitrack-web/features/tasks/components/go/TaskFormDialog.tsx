@@ -2,26 +2,28 @@
 
 /**
  * The task form over Go (T34): create, edit (re-assign) and duplicate of a first-mile or line-haul task. Mounted
- * on open only; its pickers are the cached Go hub master (`['hubs',{view:'go'}]`) and server searches for the
- * customer (its value is the billing party the task holds, UI2C), truck, driver and helper. The task number, the
- * run order, the truck's class and plate snapshot, the hub-derived customer links and the assignment push are the
- * server's (`POST /v1/tasks`, `PATCH /v1/tasks/{id}`; Appendix B §B.2.11): the browser sends ids and codes only.
- * An edit sends the changed fields only, so a task past `assigned` is refused only for what really changed
- * (`409 task_in_progress`).
+ * on open only; its pickers are server searches of the hubs and SOCs (`HubSelect`: a page per term, each value
+ * labelled by a single-record lookup, UI2B) and server searches for the customer (its value is the billing party
+ * the task holds, UI2C), truck, driver and helper. The task number, the run order, the truck's class and plate
+ * snapshot, the hub-derived customer links and the assignment push are the server's (`POST /v1/tasks`,
+ * `PATCH /v1/tasks/{id}`; Appendix B §B.2.11): the browser sends ids and codes only. An edit sends the changed
+ * fields only, so a task past `assigned` is refused only for what really changed (`409 task_in_progress`).
  *
  * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop, not the
  * destination field (legacy tasks and the trip editor's mirror can hold a stop 1 that differs from the destination;
  * the legacy `DeliveryStopsEditor` edited each row freely). An edit sends `deliveryStops` only when the stops were
  * touched and differ (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { Field, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
-import { CustomerPartySelect } from "@/components/entity-pickers";
+import { CustomerPartySelect, HubSelect } from "@/components/entity-pickers";
+import type { HubPick } from "@/features/accounting/api/pickers.go";
+import { useCustomerLookup } from "@/features/accounting/api/useCustomerLookup";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -38,7 +40,7 @@ import {
     type TaskPatch,
     type TaskType,
 } from "../../api/tasks.go";
-import { fromLocalInput, HubCombobox, toLocalInput, useGoHubs, WriteErrorAlert } from "./opsShared";
+import { fromLocalInput, toLocalInput, WriteErrorAlert } from "./opsShared";
 
 export type TaskFormMode = "create" | "edit" | "duplicate";
 
@@ -74,7 +76,7 @@ function initialValues(mode: TaskFormMode, taskType: TaskType, task: TaskDTO | u
         actualPickupAt: edit ? toLocalInput(task.actualPickupAt) : "",
         sourceHub: task.sourceHub,
         destination: task.destination,
-        billingPartyId: task.billingPartyId ?? task.sourceLinkedPartyId ?? task.destinationLinkedPartyId ?? "",
+        billingPartyId: task.billingPartyId ?? "",
         jobCategory: task.jobCategory ?? "PRIMARY",
         truck: task.truckId ? { id: task.truckId, label: task.licensePlate ?? task.truckId.slice(0, 8) } : null,
         truckType: task.truckType ?? NO_CLASS,
@@ -124,7 +126,6 @@ export function TaskFormDialog({
     onClose: () => void;
 }) {
     const { t } = useLanguage();
-    const hubs = useGoHubs();
     const [v, setV] = useState<Values>(() => initialValues(mode, taskType, task));
     // The stop list was changed in this dialog (the multi-drop box, a row picked, added or removed).
     const [stopsTouched, setStopsTouched] = useState(false);
@@ -139,8 +140,21 @@ export function TaskFormDialog({
     const set = <K extends keyof Values>(k: K, val: Values[K]) => setV((prev) => ({ ...prev, [k]: val }));
     const fm = v.taskType === "first_mile";
 
-    // A picked hub's billing party prefills the customer when none is chosen (ADR 0027 convenience, as the legacy form).
-    const pickPlace = (field: "sourceHub" | "destination", code: string, partyId: string | null | undefined) => {
+    // A task without a billing party takes its hubs' linked party, but only one that is a customer's (a carrier's
+    // party is no pick of the customer field): the lookup says which, then the empty field is filled once.
+    const linkedParty = task && !task.billingPartyId ? (task.sourceLinkedPartyId ?? task.destinationLinkedPartyId ?? null) : null;
+    const linked = useCustomerLookup([linkedParty]);
+    const linkedCustomer = linkedParty ? linked.get(linkedParty) : undefined;
+    useEffect(() => {
+        if (linkedParty && linkedCustomer?.billingPartyId === linkedParty) {
+            setV((prev) => (prev.billingPartyId ? prev : { ...prev, billingPartyId: linkedParty }));
+        }
+    }, [linkedParty, linkedCustomer]);
+
+    // A picked hub linked to a customer prefills the customer when none is chosen (ADR 0027 convenience, as the
+    // legacy form); a hub linked to a carrier (partner) leaves the field to the user.
+    const pickPlace = (field: "sourceHub" | "destination", code: string, hub: HubPick | null | undefined) => {
+        const partyId = hub?.linkedCustomerKind === "customer" ? hub.linkedPartyId : null;
         setV((prev) => {
             const next = { ...prev, [field]: code };
             if (!prev.billingPartyId && partyId) next.billingPartyId = partyId;
@@ -243,12 +257,12 @@ export function TaskFormDialog({
                         <Input id="task-pickup" type="datetime-local" value={v.actualPickupAt} onChange={(e) => set("actualPickupAt", e.target.value)} />
                     </Field>
                     <Field label={t("firstMile.task.sourceHub")}>
-                        <HubCombobox hubs={hubs.list} value={v.sourceHub} prefer={fm ? "hub" : "soc"} placeholder={t("firstMile.task.selectHub")}
-                            onChange={(code, h) => pickPlace("sourceHub", code, h?.linkedPartyId)} />
+                        <HubSelect value={v.sourceHub} prefer={fm ? "HUB" : "SOC"} placeholder={t("firstMile.task.selectHub")} className="w-full"
+                            aria-label={t("firstMile.task.sourceHub")} onHubChange={(code, h) => pickPlace("sourceHub", code, h)} />
                     </Field>
                     <Field label={t("firstMile.task.destination")}>
-                        <HubCombobox hubs={hubs.list} value={v.destination} prefer={fm ? "soc" : "hub"} placeholder={t("firstMile.task.selectSOC")}
-                            onChange={(code, h) => pickPlace("destination", code, h?.linkedPartyId)} />
+                        <HubSelect value={v.destination} prefer={fm ? "SOC" : "HUB"} placeholder={t("firstMile.task.selectSOC")} className="w-full"
+                            aria-label={t("firstMile.task.destination")} onHubChange={(code, h) => pickPlace("destination", code, h)} />
                     </Field>
                     <Field label={t("firstMile.task.customer")}>
                         <CustomerPartySelect aria-label={t("firstMile.task.customer")} value={v.billingPartyId} onValueChange={(id) => set("billingPartyId", id)}
@@ -306,8 +320,9 @@ export function TaskFormDialog({
                             {v.stops.map((s, i) => (
                                 <div key={i} className="flex items-center gap-2">
                                     <span className="w-16 text-xs text-muted-foreground">{t("firstMile.task.stopIndex")} {i + 1}</span>
-                                    <HubCombobox hubs={hubs.list} value={s} prefer={fm ? "soc" : "hub"} placeholder={t("firstMile.task.stopDestination")} className="flex-1"
-                                        onChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
+                                    <HubSelect value={s} prefer={fm ? "SOC" : "HUB"} placeholder={t("firstMile.task.stopDestination")} className="w-full flex-1"
+                                        aria-label={t("firstMile.task.stopIndex", { index: i + 1 })}
+                                        onValueChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
                                     {i === 0 && s.trim().toUpperCase() === v.destination.trim().toUpperCase() ? (
                                         <span className="text-xs text-muted-foreground">({t("firstMile.task.primaryDestination")})</span>
                                     ) : null}

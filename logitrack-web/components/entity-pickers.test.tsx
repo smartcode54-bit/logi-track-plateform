@@ -1,9 +1,9 @@
 // UI2 (issue #142): the server-searched pickers (drivers, trucks, hubs, customers) handle 5,000 records with
-// fewer than 100 rows in the DOM. A fake Go origin holds 5,000 of each and answers `q` as Go does (a
-// case-insensitive substring; a page of `limit` rows; hubs: every match, Go filters its cache). The typed
-// term is debounced into one request and the picked value keeps its label. DriverSelect, TruckSelect and the
-// customer pickers are the product's pickers (the pages' tests: UI2C); HubSelect has no page caller yet
-// (follow-up of #142).
+// fewer than 100 rows in the DOM. A fake Go origin holds 5,000 of each and answers `q` with a page of `limit`
+// rows (the folding of `q` is Go's, pinned by its integration tests and lib/searchText.test.ts; UI2B). The typed
+// term is debounced into one request and the picked value keeps its label. DriverSelect, TruckSelect, HubSelect
+// and the customer pickers are the product's pickers (HubSelect in the task form and the trip editor, the
+// customer pickers in the pages' tests: UI2C).
 import * as React from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -29,22 +29,22 @@ const CUSTOMERS = Array.from({ length: N }, (_, i) => ({ id: `c-${i}`, billingPa
 
 const params = (call: FakeCall) => new URL(call.url, "http://web.test").searchParams;
 
-function serve<T>(rows: T[], text: (r: T) => string, paged: boolean) {
+function serve<T>(rows: T[], text: (r: T) => string) {
     return (call: FakeCall) => {
         const q = (params(call).get("q") ?? "").toLowerCase();
         const limit = Number(params(call).get("limit") ?? "50");
         const hits = rows.filter((r) => !q || text(r).toLowerCase().includes(q));
-        return json(200, { data: paged ? hits.slice(0, limit) : hits });
+        return json(200, { data: hits.slice(0, limit) });
     };
 }
 
 function setup() {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe() }));
-    web.on("GET", "/api/go/v1/drivers", serve(DRIVERS, (d) => d.displayName, true));
-    web.on("GET", "/api/go/v1/trucks", serve(TRUCKS, (t) => t.licensePlate, true));
-    web.on("GET", "/api/go/v1/hubs", serve(HUBS, (h) => `${h.sourceId} ${h.sourceNameTh} ${h.sourceNameEn}`, false));
-    web.on("GET", "/api/go/v1/customers", serve(CUSTOMERS, (c) => `${c.code} ${c.name}`, true));
+    web.on("GET", "/api/go/v1/drivers", serve(DRIVERS, (d) => d.displayName));
+    web.on("GET", "/api/go/v1/trucks", serve(TRUCKS, (t) => t.licensePlate));
+    web.on("GET", "/api/go/v1/hubs", serve(HUBS, (h) => `${h.sourceId} ${h.sourceNameTh} ${h.sourceNameEn}`));
+    web.on("GET", "/api/go/v1/customers", serve(CUSTOMERS, (c) => `${c.code} ${c.name}`));
     return web;
 }
 

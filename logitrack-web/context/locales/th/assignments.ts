@@ -23,6 +23,7 @@ export default {
     "assignments.noTruckSelected": "ไม่ได้เลือกรถ",
     "assignments.hint.assigned": "มอบหมายรถแล้ว · {plate}",
     "assignments.hint.maintenance": "อยู่ระหว่างซ่อมบำรุง",
+    "assignments.hint.inactive": "ไม่ได้ใช้งาน",
     "assignments.deploy": "ยืนยันและมอบหมายรถ",
     "assignments.deploying": "กำลังมอบหมาย...",
     "assignments.resetForm": "ล้างฟอร์ม",

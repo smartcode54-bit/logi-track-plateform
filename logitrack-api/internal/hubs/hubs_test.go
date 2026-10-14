@@ -11,6 +11,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs/hubsdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/gmaps"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/searchtext"
 )
 
 // The network rule of validate/hubSchema.ts:36-49 and fn:core/distances.ts.
@@ -309,6 +310,49 @@ func TestETagMatching(t *testing.T) {
 	for h, want := range map[string]bool{`"abc"`: true, `W/"abc"`: true, `"x", "abc"`: true, `*`: true, `"abd"`: false, ``: false} {
 		if etagMatches(h, tag) != want {
 			t.Errorf("If-None-Match %q", h)
+		}
+	}
+}
+
+// UI2B: q is folded as the web's lib/searchText.ts (searchtext): every word in the code or a name, in any order.
+func TestMatchesFoldedWords(t *testing.T) {
+	en := "Café Dépôt"
+	h := Hub{SourceID: "SPK890174", SourceNameTh: "ห้วยขวาง10", SourceNameEn: &en}
+	for q, want := range map[string]bool{
+		"หวยขวาง": true, "spk ห้วยขวาง": true, "ขวาง๑๐": true, "depot cafe": true, "spk nowhere": false, "spk-gw": false,
+	} {
+		if got := matches(h, searchtext.Terms(q)); got != want {
+			t.Errorf("matches(%q) = %v", q, got)
+		}
+	}
+	if !matches(Hub{SourceID: "SOCE", SourceNameTh: "x"}, searchtext.Terms("soce")) {
+		t.Error("a hub without an English name")
+	}
+}
+
+// The order of a GET /v1/hubs page: the stored code in byte order, then the id; the cursor carries both.
+func TestHubKeysAndCursor(t *testing.T) {
+	a, b := uuid.MustParse("00000000-0000-7000-8000-000000000001"), uuid.MustParse("00000000-0000-7000-8000-000000000002")
+	for _, c := range []struct {
+		codeA string
+		idA   uuid.UUID
+		codeB string
+		idB   uuid.UUID
+		want  int
+	}{
+		{"SPK-GW", b, "SPK890174", a, -1}, {"SOCE", a, "SOCE", b, -1}, {"SOCE", b, "SOCE", b, 0}, {"XSPK", a, "SPK", b, 1},
+	} {
+		if got := compareHubKeys(c.codeA, c.idA, c.codeB, c.idB); got != c.want {
+			t.Errorf("compareHubKeys(%s %s, %s %s) = %d", c.codeA, c.idA, c.codeB, c.idB, got)
+		}
+	}
+	cur := hubCursor{Code: "SOCE (บัวโรย)", ID: a}
+	if got, ok := decodeHubCursor(cur.encode()); !ok || got != cur {
+		t.Fatalf("round trip: %+v %v", got, ok)
+	}
+	for _, bad := range []string{"", "!", hubCursor{Code: "X"}.encode(), hubCursor{ID: a}.encode()} {
+		if _, ok := decodeHubCursor(bad); ok {
+			t.Errorf("decodeHubCursor(%q) accepted", bad)
 		}
 	}
 }
