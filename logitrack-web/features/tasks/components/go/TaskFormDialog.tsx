@@ -243,7 +243,7 @@ export function TaskFormDialog({
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     <SelectItem value="first_mile">{t("jobAssign.addFirstMile")}</SelectItem>
                                     <SelectItem value="line_haul">{t("jobAssign.addLineHaul")}</SelectItem>
                                 </SelectContent>
@@ -272,7 +272,7 @@ export function TaskFormDialog({
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value="PRIMARY">{t("firstMile.task.jobCategory.primary")}</SelectItem>
                                 <SelectItem value="SUPPLEMENTARY">{t("firstMile.task.jobCategory.supplementary")}</SelectItem>
                             </SelectContent>
@@ -287,7 +287,7 @@ export function TaskFormDialog({
                             <SelectTrigger>
                                 <SelectValue placeholder={t("firstMile.task.selectTruckType")} />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value={NO_CLASS}>{t("taskBoard.form.classFromTruck")}</SelectItem>
                                 {VEHICLE_CLASSES.map((c) => (
                                     <SelectItem key={c} value={c}>

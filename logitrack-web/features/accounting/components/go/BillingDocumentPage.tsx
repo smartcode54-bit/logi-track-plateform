@@ -172,7 +172,7 @@ function StandbyIssuesPanel({
                                                             <SelectTrigger className="h-8 w-44">
                                                                 <SelectValue placeholder={t("accounting.billingDocument.standbyIssues.pickCustomer")} />
                                                             </SelectTrigger>
-                                                            <SelectContent className="z-[1005]" position="popper">
+                                                            <SelectContent>
                                                                 {customers.map((c) => (
                                                                     <SelectItem key={c.id} value={c.id}>
                                                                         {c.code} — {c.name}

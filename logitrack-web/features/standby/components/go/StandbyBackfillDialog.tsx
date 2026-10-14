@@ -108,7 +108,7 @@ export function StandbyBackfillDialog({ onClose }: { onClose: () => void }) {
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value={NONE}>{t("taskBoard.standby.noTask")}</SelectItem>
                                 {(tasks.data ?? []).map((x) => (
                                     <SelectItem key={x.id} value={x.id}>
@@ -123,7 +123,7 @@ export function StandbyBackfillDialog({ onClose }: { onClose: () => void }) {
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value={NONE}>{t("taskBoard.standby.noTrip")}</SelectItem>
                                 {tripOptions.map((r) => (
                                     <SelectItem key={r.id} value={r.id}>
@@ -150,7 +150,7 @@ export function StandbyBackfillDialog({ onClose }: { onClose: () => void }) {
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value="PRIMARY">{t("firstMile.task.jobCategory.primary")}</SelectItem>
                                 <SelectItem value="SUPPLEMENTARY">{t("firstMile.task.jobCategory.supplementary")}</SelectItem>
                             </SelectContent>

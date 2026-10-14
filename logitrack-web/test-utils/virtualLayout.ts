@@ -1,14 +1,15 @@
 /**
  * Layout for the virtualised lists in jsdom (TW8). jsdom lays nothing out, so every `offsetHeight` is
  * 0; TanStack Virtual reads the viewport's and the rows' `offsetHeight`. `stubVirtualLayout` gives the
- * scroll viewports of `components/virtual-table.tsx` and `components/filter-combobox.tsx` a height, and
+ * scroll viewports of `components/virtual-table.tsx` and `components/ui/search-select.tsx` (`FilterCombobox` among its
+ * users) a height, and
  * every virtual row (`[data-index]`) its row height, until the returned function restores jsdom.
  *
  * Scrolling: set the viewport's `scrollTop` and fire `scroll` on it (`scrollViewport`).
  */
 import { act, fireEvent } from "@testing-library/react";
 
-const VIEWPORT_SLOTS = new Set(["virtual-table-viewport", "filter-combobox-virtual-list"]);
+const VIEWPORT_SLOTS = new Set(["virtual-table-viewport", "search-select-list"]);
 
 export interface VirtualLayout {
     /** Height of every viewport, px. */

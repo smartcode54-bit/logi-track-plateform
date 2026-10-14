@@ -98,3 +98,31 @@ export const hubPicksQuery = queryOptions({
 export function hubLabel(h: Pick<HubPick, "sourceId" | "sourceNameTh" | "sourceNameEn">): string {
     return h.sourceNameTh?.trim() || h.sourceNameEn?.trim() || h.sourceId;
 }
+
+/**
+ * Server searches of the shared pickers (UI2, `components/entity-pickers.tsx`): one page per typed term
+ * (debounced by the picker), so no list of every customer or hub is read for a picker.
+ * - `['customers',{fields:'minimal',q,view:'picker'}]`: `GET /v1/customers?fields=minimal&q&limit=50`;
+ * - `['hubs',{view:'picker',q,stationType}]`: `GET /v1/hubs?q&stationType` (the master is a few hundred
+ *   rows: Go filters its cache, no page).
+ */
+export const PICKER_PAGE_SIZE = 50;
+
+export function customerSearchQuery(q: string) {
+    const term = q.trim();
+    return queryOptions({
+        queryKey: queryKeys.customers.list({ fields: "minimal", q: term, view: "picker" }),
+        queryFn: ({ signal }) =>
+            goFetch<CustomerPick[]>("/v1/customers", { signal, query: { fields: "minimal", q: term || undefined, limit: PICKER_PAGE_SIZE } }),
+        staleTime: 5 * 60_000,
+    });
+}
+
+export function hubSearchQuery(q: string, stationType?: string) {
+    const term = q.trim();
+    return queryOptions({
+        queryKey: [...queryKeys.hubs.all(), { view: "picker", q: term, stationType: stationType ?? "" }] as const,
+        queryFn: ({ signal }) => goFetch<HubPick[]>("/v1/hubs", { signal, query: { q: term || undefined, stationType: stationType || undefined } }),
+        staleTime: 5 * 60_000,
+    });
+}

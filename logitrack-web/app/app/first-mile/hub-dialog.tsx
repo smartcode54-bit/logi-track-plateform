@@ -246,7 +246,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                 <SelectValue placeholder={t("firstMile.hub.stationTypePlaceholder")} />
                                             </SelectTrigger>
                                         </FormControl>
-                                        <SelectContent className="z-[1005]" position="popper">
+                                        <SelectContent>
                                             {STATION_TYPE_ENUM.map((type) => (
                                                 <SelectItem key={type} value={type}>
                                                     {t(`firstMile.hub.stationType.${type}`)}
@@ -272,7 +272,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                     <SelectValue placeholder={t("firstMile.hub.linkTypePlaceholder")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent className="z-[1005]" position="popper">
+                                            <SelectContent>
                                                 {CUSTOMER_LINK_KIND_ENUM.map((kind) => (
                                                     <SelectItem key={kind} value={kind}>
                                                         {kind === "customer" ? t("firstMile.hub.linkType.customer") : t("firstMile.hub.linkType.partner")}
@@ -296,7 +296,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                                                     <SelectValue placeholder={t("firstMile.hub.linkedCustomerPlaceholder")} />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent className="z-[1005]" position="popper">
+                                            <SelectContent>
                                                 {linkOptions.map((option) => (
                                                     <SelectItem key={option.id} value={option.id}>
                                                         {[option.code, option.name].filter(Boolean).join(" - ")}

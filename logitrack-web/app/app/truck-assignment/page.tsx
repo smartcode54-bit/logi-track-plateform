@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-import { Combobox } from "@/components/ui/combobox";
+import { SearchSelect } from "@/components/ui/search-select";
 import {
     Dialog,
     DialogContent,
@@ -195,13 +195,13 @@ export default function TruckAssignmentPage() {
                         <div className="flex-1 space-y-4">
                             <label className="text-sm font-medium text-foreground">{t('assignments.selectDriver')}</label>
 
-                            <Combobox
+                            <SearchSelect
                                 options={drivers.map(d => ({
                                     value: d.id,
                                     label: `${d.name} ${d.licenseType ? `- ${d.licenseType}` : ''}`
                                 }))}
                                 value={selectedDriver}
-                                onSelect={setSelectedDriver}
+                                onValueChange={(v) => setSelectedDriver(v)}
                                 placeholder={t('assignments.searchDriver')}
                                 searchPlaceholder={t('assignments.searchDriverPlaceholder')}
                                 emptyText={t('assignments.noDrivers')}
@@ -232,13 +232,13 @@ export default function TruckAssignmentPage() {
                         <div className="flex-1 space-y-4">
                             <label className="text-sm font-medium text-foreground">{t('assignments.selectTruck')}</label>
 
-                            <Combobox
+                            <SearchSelect
                                 options={trucks.map(t => ({
                                     value: t.id,
                                     label: `${t.type || t.model} - ${t.plate}`
                                 }))}
                                 value={selectedTruck}
-                                onSelect={setSelectedTruck}
+                                onValueChange={(v) => setSelectedTruck(v)}
                                 placeholder={t('assignments.searchTruck')}
                                 searchPlaceholder={t('assignments.searchTruckPlaceholder')}
                                 emptyText={t('assignments.noTrucks')}

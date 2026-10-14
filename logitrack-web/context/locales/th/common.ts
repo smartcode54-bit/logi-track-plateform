@@ -418,4 +418,15 @@ export default {
     // T42: the Go accounting / maintenance pages.
     "common.searchPlaceholder": "ค้นหา...",
     "common.noResults": "ไม่พบรายการ",
+
+    // UI2: the shared searchable select (components/ui/search-select.tsx).
+    "common.select.placeholder": "เลือก...",
+    "common.select.search": "ค้นหา...",
+    "common.select.empty": "ไม่พบรายการ",
+    "common.select.loading": "กำลังโหลด...",
+    "common.select.clear": "ล้าง",
+    "common.select.create": "เพิ่ม “{term}”",
+    "common.select.remove": "นำ {label} ออก",
+    "common.select.partial": "แสดง {shown} จาก {total} รายการ พิมพ์เพื่อค้นหาเพิ่ม",
+    "common.select.count": "เลือกแล้ว {count} จาก {max}",
 };

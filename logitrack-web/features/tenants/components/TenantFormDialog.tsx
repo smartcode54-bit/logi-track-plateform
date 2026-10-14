@@ -114,7 +114,7 @@ export function TenantFormDialog({
                                 <SelectTrigger id="tenant-legal">
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent position="popper" className="z-[1005]">
+                                <SelectContent>
                                     <SelectItem value="company">{t("tenants.legalType.company")}</SelectItem>
                                     <SelectItem value="individual">{t("tenants.legalType.individual")}</SelectItem>
                                 </SelectContent>
@@ -133,7 +133,7 @@ export function TenantFormDialog({
                                 <SelectTrigger id="tenant-status">
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent position="popper" className="z-[1005]">
+                                <SelectContent>
                                     {TENANT_STATUSES.map((s) => (
                                         <SelectItem key={s} value={s}>
                                             {t(`tenants.status.${s}`)}

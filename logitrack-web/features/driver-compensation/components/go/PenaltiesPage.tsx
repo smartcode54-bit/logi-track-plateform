@@ -68,7 +68,7 @@ export function PenaltiesPage() {
                         <SelectTrigger className="w-[200px]" aria-label={t("driverComp.penalty.status")}>
                             <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="z-[1005]" position="popper">
+                        <SelectContent>
                             <SelectItem value={ALL}>{t("payroll.filter.all")}</SelectItem>
                             <SelectItem value="open">{t("hr.penalty.status.open")}</SelectItem>
                             {PENALTY_STATUSES.map((s) => (
@@ -216,7 +216,7 @@ function AddPenaltyForm() {
                         <SelectTrigger aria-label={t("driverComp.penalty.type")}>
                             <SelectValue placeholder={t("driverComp.penalty.type")} />
                         </SelectTrigger>
-                        <SelectContent className="z-[1005]" position="popper">
+                        <SelectContent>
                             {types.map((x) => (
                                 <SelectItem key={x.code} value={x.code}>
                                     {language === "th" ? x.nameTh || x.nameEn : x.nameEn || x.nameTh}

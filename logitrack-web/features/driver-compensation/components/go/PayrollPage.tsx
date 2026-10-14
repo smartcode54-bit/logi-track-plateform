@@ -146,7 +146,7 @@ export function PayrollPage() {
                             <SelectTrigger className="w-[150px]" aria-label={t("hr.payroll.round")}>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value={ALL}>{t("payroll.filter.all")}</SelectItem>
                                 {PAYROLL_ROUNDS.map((r) => (
                                     <SelectItem key={r} value={r}>
@@ -349,7 +349,7 @@ function GeneratePanel() {
                             <SelectTrigger className="w-[150px]" aria-label={t("hr.payroll.generateRound")}>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 {PAYROLL_ROUNDS.map((r) => (
                                     <SelectItem key={r} value={r}>
                                         {t(`hr.payroll.round.${r}`)}

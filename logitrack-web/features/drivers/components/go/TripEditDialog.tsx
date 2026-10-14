@@ -281,7 +281,7 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                                 <SelectTrigger className="w-[220px]">
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     <SelectItem value="PRIMARY">{t("driverMonitor.editTrip.jobCategoryPrimary")}</SelectItem>
                                     <SelectItem value="SUPPLEMENTARY">{t("driverMonitor.editTrip.jobCategorySupplementary")}</SelectItem>
                                 </SelectContent>
@@ -328,7 +328,7 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
                                     <SelectTrigger className="h-8 w-[130px]">
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent className="z-[1005]" position="popper">
+                                    <SelectContent>
                                         {(["pending", "delivered", "failed"] as const).map((st) => (
                                             <SelectItem key={st} value={st}>{t(`taskBoard.stopStatus.${st}`)}</SelectItem>
                                         ))}
@@ -568,7 +568,7 @@ function IncidentDialog({ trip, onBack }: { trip: TripDetailDTO; onBack: () => v
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 {INCIDENT_CAUSES.map((c) => (
                                     <SelectItem key={c} value={c}>{t(`taskBoard.incident.cause.${c}`, c)}</SelectItem>
                                 ))}

@@ -6,9 +6,9 @@
  * keyset list. Nothing here imports Firebase, and nothing renders a key of a split namespace (`driverMonitor`,
  * `accounting`), so the standby and incident routes (outside the driver-monitor group) can use it.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Loader2, ShieldX } from "lucide-react";
+import { Loader2, ShieldX } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
@@ -20,8 +20,7 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SearchSelect, type SearchSelectOption } from "@/components/ui/search-select";
 
 import type { TaskStatus } from "../../api/tasks.go";
 
@@ -107,48 +106,31 @@ interface HubComboboxProps {
 /**
  * A searchable hub / SOC picker over the Go hub master: every station, the preferred kind first, no slice (the
  * legacy dropdowns showed the first 50, TW8). A code that is not in the master (a legacy task) stays shown.
+ * The shared searchable select (UI2): Thai / English search on the code and both names, virtualised when long.
  */
 export function HubCombobox({ hubs, value, onChange, prefer = "hub", placeholder, className, disabled, id }: HubComboboxProps) {
-    const { t } = useLanguage();
-    const [open, setOpen] = useState(false);
-    const [term, setTerm] = useState("");
-    const ordered = useMemo(() => {
+    const options = useMemo<SearchSelectOption[]>(() => {
         const first = hubs.filter((h) => (prefer === "soc" ? isSocStation(h) : !isSocStation(h)));
         const rest = hubs.filter((h) => !first.includes(h));
-        return [...first, ...rest];
+        return [...first, ...rest].map((h) => ({
+            value: h.sourceId,
+            label: hubDisplay(h),
+            keywords: [h.sourceNameEn ?? "", h.sourceNameTh ?? ""],
+            description: isSocStation(h) ? "SOC" : undefined,
+        }));
     }, [hubs, prefer]);
-    const q = term.trim().toLowerCase();
-    const shown = q ? ordered.filter((h) => hubDisplay(h).toLowerCase().includes(q)) : ordered;
-    const current = hubs.find((h) => h.sourceId === value);
+    const byCode = useMemo(() => new Map(hubs.map((h) => [h.sourceId, h])), [hubs]);
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} disabled={disabled}
-                    className={cn("w-full justify-between font-normal", className)}>
-                    <span className={cn("truncate", !value && "text-muted-foreground")}>{current ? hubDisplay(current) : value || placeholder}</span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="z-[1005] w-[320px] p-2" align="start">
-                <Input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder={t("common.searchPlaceholder")} className="mb-2 h-8" />
-                <div className="max-h-72 overflow-y-auto" role="listbox">
-                    {shown.length === 0 ? <p className="px-2 py-1.5 text-xs text-muted-foreground">{t("common.noResults")}</p> : null}
-                    {shown.map((h) => (
-                        <button key={h.id} type="button" role="option" aria-selected={h.sourceId === value}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                            onClick={() => {
-                                onChange(h.sourceId, h);
-                                setOpen(false);
-                                setTerm("");
-                            }}>
-                            <Check className={cn("h-4 w-4 shrink-0", h.sourceId === value ? "opacity-100" : "opacity-0")} />
-                            <span className="truncate">{hubDisplay(h)}</span>
-                            {isSocStation(h) ? <Badge variant="outline" className="ml-auto text-[10px]">SOC</Badge> : null}
-                        </button>
-                    ))}
-                </div>
-            </PopoverContent>
-        </Popover>
+        <SearchSelect
+            id={id}
+            value={value}
+            onValueChange={(code) => onChange(code, byCode.get(code) ?? null)}
+            options={options}
+            searchable
+            placeholder={placeholder}
+            disabled={disabled}
+            className={cn("w-full", className)}
+        />
     );
 }
 

@@ -14,10 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { Loader2, Mail } from "lucide-react";
-import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { SearchSelect, type SearchSelectOption } from "@/components/ui/search-select";
 import { HoneypotField } from "@/components/landing/HoneypotField";
 
-const COUNTRY_OPTIONS: ComboboxOption[] = [
+const COUNTRY_OPTIONS: SearchSelectOption[] = [
   { value: "+66", label: "🇹🇭 Thailand (+66)" },
   { value: "+1", label: "🇺🇸 United States (+1)" },
   { value: "+65", label: "🇸🇬 Singapore (+65)" },
@@ -109,10 +109,10 @@ export default function WaitlistForm() {
           <div className="space-y-2">
             <Label htmlFor="phone">Phone number</Label>
             <div className="flex gap-2">
-              <Combobox
+              <SearchSelect
                 options={COUNTRY_OPTIONS}
                 value={countryCode}
-                onSelect={setCountryCode}
+                onValueChange={(v) => setCountryCode(v)}
                 placeholder="🇹🇭 Thailand (+66)"
                 searchPlaceholder="Search country..."
                 className="w-[180px] bg-muted/10 border-muted-foreground/20"

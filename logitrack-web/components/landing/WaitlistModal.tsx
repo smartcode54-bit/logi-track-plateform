@@ -15,12 +15,12 @@ import { useState } from "react";
 import { useLanguage } from "@/context/language";
 import { toast } from "sonner";
 import { Loader2, Mail } from "lucide-react";
-import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { SearchSelect, type SearchSelectOption } from "@/components/ui/search-select";
 import { submitWaitlist } from "@/lib/publicForms";
 import { toastSaveError } from "@/lib/formServerErrors";
 import { HoneypotField } from "./HoneypotField";
 
-const COUNTRY_OPTIONS: ComboboxOption[] = [
+const COUNTRY_OPTIONS: SearchSelectOption[] = [
     { value: "+66", label: "🇹🇭 Thailand (+66)" },
     { value: "+1", label: "🇺🇸 United States (+1)" },
     { value: "+65", label: "🇸🇬 Singapore (+65)" },
@@ -171,10 +171,10 @@ export function WaitlistModal({ children, open, onOpenChange, onSwitchToLogin }:
                                 <div className="space-y-2">
                                     <Label htmlFor="waitlist-phone">Phone number</Label>
                                     <div className="flex gap-2">
-                                        <Combobox
+                                        <SearchSelect
                                             options={COUNTRY_OPTIONS}
                                             value={countryCode}
-                                            onSelect={setCountryCode}
+                                            onValueChange={(v) => setCountryCode(v)}
                                             placeholder="🇹🇭 Thailand (+66)"
                                             searchPlaceholder="Search country..."
                                             className="w-[180px] bg-muted/5 border-muted-foreground/20"

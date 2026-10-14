@@ -101,7 +101,7 @@ function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { custom
                             <SelectTrigger>
                                 <SelectValue placeholder={t("accounting.rateCard.filterSourceSearchPlaceholder")} />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005] max-h-72" position="popper">
+                            <SelectContent>
                                 {hubs.map((h) => (
                                     <SelectItem key={h.code} value={h.code}>
                                         {h.code} - {h.label}
@@ -116,7 +116,7 @@ function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { custom
                             <SelectTrigger>
                                 <SelectValue placeholder={t("accounting.rateCard.filterDestinationSearchPlaceholder")} />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005] max-h-72" position="popper">
+                            <SelectContent>
                                 {destinations.map((d) => (
                                     <SelectItem key={d.code} value={d.code}>
                                         {d.label}
@@ -131,7 +131,7 @@ function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { custom
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 {TASK_TRUCK_TYPE_ENUM.map((v) => (
                                     <SelectItem key={v} value={v}>
                                         {v}
@@ -146,7 +146,7 @@ function AddRateDialog({ customers, hubs, initialCustomerId, onClose }: { custom
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value="PRIMARY">{t("accounting.rateCard.jobCategory.primary")}</SelectItem>
                                 <SelectItem value="SUPPLEMENTARY">{t("accounting.rateCard.jobCategory.supplementary")}</SelectItem>
                             </SelectContent>
@@ -296,7 +296,7 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
                         <SelectTrigger className="w-48">
                             <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="max-h-72">
+                        <SelectContent>
                             <SelectItem value={ALL}>{t("accounting.filter.all")}</SelectItem>
                             {options((r) => r.hubId).map((h) => (
                                 <SelectItem key={h} value={h}>
@@ -312,7 +312,7 @@ export function EntriesTab({ customerId, customers, canEdit }: { customerId: str
                         <SelectTrigger className="w-48">
                             <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="max-h-72">
+                        <SelectContent>
                             <SelectItem value={ALL}>{t("accounting.filter.all")}</SelectItem>
                             {options((r) => r.destinationCode).map((d) => (
                                 <SelectItem key={d} value={d}>

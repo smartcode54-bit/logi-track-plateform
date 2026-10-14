@@ -1,6 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 
 if (typeof window !== "undefined") {
+  // jsdom ships neither; Radix (Popover, Dialog) and cmdk (the searchable select's list, UI2) use them.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  Element.prototype.scrollIntoView ??= () => {};
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({

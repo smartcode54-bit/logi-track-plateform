@@ -130,7 +130,7 @@ export function CreateUserDialog({
                                 <SelectTrigger id="create-role">
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent position="popper" className="z-[1005]">
+                                <SelectContent>
                                     {roles.map((r) => (
                                         <SelectItem key={r} value={r}>
                                             {r === "customer" ? t("users.scopeKind.customer") : t(`users.tenantRole.${r}`)}
@@ -158,6 +158,7 @@ export function CreateUserDialog({
                             <p className="text-xs text-muted-foreground">{t("users.driverLinkHint")}</p>
                             <DriverPicker
                                 value={driverId}
+                                selectedLabel={driverLabel}
                                 onChange={(id, label) => {
                                     setDriverId(id);
                                     setDriverLabel(label);

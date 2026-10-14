@@ -162,7 +162,7 @@ export function CreateApiKeyDialog({
                                     <SelectTrigger id="api-key-scope" aria-label={t("securityCenter.apiKeys.scope")}>
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent className="z-[1005]" position="popper">
+                                    <SelectContent>
                                         {API_KEY_SCOPES.filter((s) => platformAdmin || !PLATFORM_ONLY_SCOPES.includes(s)).map((s) => (
                                             <SelectItem key={s} value={s}>
                                                 {t(`securityCenter.apiKeys.scopes.${s}`)}
@@ -194,7 +194,7 @@ export function CreateApiKeyDialog({
                                         <SelectTrigger aria-label={t("securityCenter.apiKeys.tenant")}>
                                             <SelectValue placeholder={t("securityCenter.apiKeys.pickTenant")} />
                                         </SelectTrigger>
-                                        <SelectContent className="z-[1005]" position="popper">
+                                        <SelectContent>
                                             {(tenants.data ?? [])
                                                 .filter((tn) => tn.kind !== "quarantine" && tn.status === "active")
                                                 .map((tn) => (

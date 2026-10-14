@@ -32,8 +32,9 @@ const LAZY_MODULES = [
   // T54R: the Go dashboard's map client (leaflet), loaded by FleetMap through next/dynamic.
   "features/dashboard/components/FleetMapClient.tsx",
   "features/incident-reports/components/IncidentLocationMapClient.tsx",
-  // TW8: the virtualised list of a long FilterCombobox (@tanstack/react-virtual) loads on demand.
-  "components/filter-combobox-virtual-options.tsx",
+  // TW8 / UI2: the virtualised list of a long searchable select (@tanstack/react-virtual) loads on demand
+  // (FilterCombobox is a SearchSelect since UI2).
+  "components/ui/search-select-virtual.tsx",
 ];
 const lazyModuleName = (file) => file.split("/").pop().replace(/\.tsx?$/, "");
 const LAZY_MODULE_IMPORT = {
@@ -54,6 +55,14 @@ const FIREBASE_MESSAGE =
   "The web has no Firebase SDK since TW7 (developer-spec.md §10.13, §10.14 #8): read and write through lib/goFetch.ts and the BFF (/api/go/v1/*).";
 const FIREBASE_PATHS = [{ name: "firebase", message: FIREBASE_MESSAGE }];
 const FIREBASE_PATTERNS = [{ group: ["firebase/*", "@firebase/*", "@/firebase", "@/firebase/*"], message: FIREBASE_MESSAGE }];
+
+// UI2 (issue #142): every pick-from-a-list control is the shared searchable select
+// (components/ui/search-select.tsx, or its compound API components/ui/select.tsx). Radix Select is not a
+// dependency any more, and a native <select> is refused outside components/ui (lib/selectPrimitives.test.ts
+// checks the same on the source tree).
+const SELECT_MESSAGE =
+  "Use the shared searchable select (components/ui/search-select.tsx, or the compound Select of components/ui/select.tsx), UI2.";
+const SELECT_PATHS = [{ name: "@radix-ui/react-select", message: SELECT_MESSAGE }];
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -90,7 +99,11 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-restricted-imports": [
         "error",
         {
-          paths: [...HEAVY_LIBRARIES.map((name) => ({ name, allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE })), ...FIREBASE_PATHS],
+          paths: [
+            ...HEAVY_LIBRARIES.map((name) => ({ name, allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE })),
+            ...FIREBASE_PATHS,
+            ...SELECT_PATHS,
+          ],
           patterns: [
             { group: ["@fullcalendar/*"], allowTypeImports: true, message: HEAVY_LIBRARY_MESSAGE },
             LAZY_MODULE_IMPORT,
@@ -104,7 +117,17 @@ const eslintConfig = defineConfig([
     // The lazily loaded modules themselves may import the heavy libraries.
     files: LAZY_MODULES,
     rules: {
-      "@typescript-eslint/no-restricted-imports": ["error", { paths: FIREBASE_PATHS, patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] }],
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { paths: [...FIREBASE_PATHS, ...SELECT_PATHS], patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] },
+      ],
+    },
+  },
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    ignores: ["components/ui/**"],
+    rules: {
+      "react/forbid-elements": ["error", { forbid: [{ element: "select", message: SELECT_MESSAGE }] }],
     },
   },
 ]);

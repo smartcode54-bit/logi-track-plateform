@@ -499,7 +499,7 @@ export default function SourcesPage() {
                                     <SelectTrigger className="h-8 w-full min-w-0 sm:w-[220px]">
                                         <SelectValue placeholder={t("firstMile.sources.filterCustomer")} />
                                     </SelectTrigger>
-                                    <SelectContent position="popper" className="max-h-[280px]">
+                                    <SelectContent>
                                         <SelectItem value="all">{t("firstMile.sources.filterCustomerAll")}</SelectItem>
                                         <SelectItem value="__unlinked__">
                                             {t("firstMile.sources.filterCustomerUnlinked")}
