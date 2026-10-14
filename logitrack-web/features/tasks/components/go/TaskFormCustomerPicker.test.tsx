@@ -102,7 +102,7 @@ describe("task form: the customer picker searches on the server (UI2C)", () => {
         // One request for the whole Thai term (debounced), never a filter over a full list.
         expect(searches()).toEqual([null, "ลูกค้า 0100"]);
         await u.click(screen.getByRole("option", { name: /ลูกค้า 0100/ }));
-        expect(picker).toHaveTextContent("ลูกค้า 0100");
+        await waitFor(() => expect(picker).toHaveTextContent("ลูกค้า 0100")); // named by the lookup, a render later
 
         await u.click(screen.getByRole("button", { name: "Save Changes" }));
         await waitFor(() => expect(onClose).toHaveBeenCalled());

@@ -60,7 +60,9 @@ describe("hub dialog: the customer link by search and by id (UI8)", () => {
         await u.click(picker);
         await u.type(await screen.findByPlaceholderText("Search..."), "C0005");
         await u.click(await screen.findByRole("option", { name: /ลูกค้า 0005/ }));
-        expect(picker).toHaveTextContent("ลูกค้า 0005");
+        // The trigger names the pick through the label lookup (a render after the pick), so wait for it: a slow CI
+        // runner saw the previous label at this point (mv-go c9e044f4).
+        await waitFor(() => expect(picker).toHaveTextContent("ลูกค้า 0005"));
         await u.click(screen.getByRole("button", { name: "Save Source" }));
         await waitFor(() => expect(onSuccess).toHaveBeenCalled());
         expect(web.calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ sourceId: "SPX-B", linkedCustomerId: "c-0005", linkedCustomerKind: "customer" });
