@@ -23,7 +23,7 @@ export function BackfillUtilitiesPage() {
     return (
         <div className="container mx-auto max-w-5xl space-y-6 p-6">
             <div>
-                <h1 className="text-3xl font-bold">{t("accounting.go.utilities.title")}</h1>
+                <h1 className="text-3xl font-bold">{t("nav.utilities")}</h1>
                 <p className="mt-2 text-muted-foreground">{t("accounting.go.utilities.subtitle")}</p>
             </div>
             <Card>

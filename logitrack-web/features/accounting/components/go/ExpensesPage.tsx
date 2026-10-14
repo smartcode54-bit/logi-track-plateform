@@ -193,7 +193,7 @@ function ExpensesPage({ type }: { type: ExpenseType }) {
         <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
             <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{isFuel ? t("accounting.fuel.title") : t("accounting.other.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t(isFuel ? "nav.fuel" : "nav.otherExpenses")}</h1>
                     <p className="mt-1 text-muted-foreground">{isFuel ? t("accounting.fuel.subtitle") : t("accounting.other.subtitle")}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">

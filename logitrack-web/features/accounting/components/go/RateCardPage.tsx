@@ -47,7 +47,7 @@ export function RateCardPage() {
         <div className="container mx-auto max-w-[1600px] space-y-6 p-6">
             <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("accounting.rateCard.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("nav.rateCard")}</h1>
                     <p className="mt-1 text-muted-foreground">{t("accounting.rateCard.subtitle")}</p>
                 </div>
                 {canEdit || canRecompute ? (

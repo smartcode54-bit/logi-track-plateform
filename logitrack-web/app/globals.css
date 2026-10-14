@@ -206,6 +206,13 @@
   .leaflet-container {
     isolation: isolate;
   }
+
+  /* The sidebar rail's tooltips only label (UI3B): neither the tooltip nor Radix's positioning wrapper around it
+     takes a pointer, so the logo's tooltip, which lies over the header's sidebar trigger, never swallows its click
+     (components/ui/sidebar.tsx, SidebarMenuButton). */
+  [data-radix-popper-content-wrapper]:has(> [data-sidebar-tooltip]) {
+    pointer-events: none;
+  }
 }
 
 /* Toasts (components/ui/sonner.tsx) on the layering scale, in the app's colours and font. Sonner appends

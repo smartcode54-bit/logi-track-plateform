@@ -5,12 +5,12 @@ export default {
     "securityCenter.overviewSoon": "ภาพรวม",
     "securityCenter.userManagement": "จัดการผู้ใช้งาน",
     "securityCenter.rolePermissionMatrix": "บทบาทและสิทธิ์",
-    "securityCenter.securityAudit": "บันทึกการตรวจสอบ",
+    "securityCenter.securityAudit": "บันทึกการตรวจสอบความปลอดภัย",
     "securityCenter.apiKeys": "คีย์ API",
     "securityCenter.systemStatus": "สถานะระบบ",
-    "securityCenter.mobileClients": "ไคลเอนต์มือถือ",
-    "securityCenter.mobileRelease": "ปล่อยเวอร์ชันแอป",
-    "securityCenter.backToAdmin": "กลับไปหน้าแอดมิน",
+    "securityCenter.mobileClients": "ไคลเอนต์แอปมือถือ",
+    "securityCenter.mobileRelease": "ปล่อยเวอร์ชันแอปคนขับ",
+    "securityCenter.backToAdmin": "กลับสู่เมนูหลัก",
 
     // Overview page
     "securityCenter.overview.title": "ภาพรวมความปลอดภัย",

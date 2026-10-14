@@ -109,14 +109,15 @@ function socColor(key: string | null | undefined): string {
     }
 }
 
+/** The board's words; its title is the menu entry's label (UI3B: one name in the menu, the crumb and the H1). */
 function titleKeys(kind: BoardKind): { title: string; subtitle: string; add: string } {
     switch (kind) {
         case "line_haul":
-            return { title: "lineHaul.title", subtitle: "lineHaul.subtitle", add: "lineHaul.newAssignment" };
+            return { title: "nav.lineHaulTasks", subtitle: "lineHaul.subtitle", add: "lineHaul.newAssignment" };
         case "all":
-            return { title: "jobAssign.title", subtitle: "jobAssign.subtitle", add: "jobAssign.addJob" };
+            return { title: "nav.jobAssign", subtitle: "jobAssign.subtitle", add: "jobAssign.addJob" };
         default:
-            return { title: "firstMile.title", subtitle: "firstMile.subtitle", add: "firstMile.newAssignment" };
+            return { title: "nav.firstMileTasks", subtitle: "firstMile.subtitle", add: "firstMile.newAssignment" };
     }
 }
 
@@ -167,7 +168,7 @@ function Board({ kind }: { kind: BoardKind }) {
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">{t(keys.title)}</h2>
+                    <h1 className="text-3xl font-bold tracking-tight">{t(keys.title)}</h1>
                     <p className="text-muted-foreground">{t(keys.subtitle)}</p>
                 </div>
                 <div className="flex flex-wrap gap-3">

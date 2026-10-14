@@ -51,7 +51,7 @@ export function SystemStatusPage() {
         <div className="p-6 space-y-6">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.status.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.systemStatus")}</h1>
                     <p className="mt-1 text-muted-foreground">{t("securityCenter.status.subtitle")}</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => void status.refetch()} disabled={status.isFetching}>

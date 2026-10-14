@@ -81,7 +81,7 @@ export function DashboardPage() {
     const header = (
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
             <div>
-                <h1 className="text-2xl font-bold text-foreground tracking-tight">{t("dashboard.overview")}</h1>
+                <h1 className="text-2xl font-bold text-foreground tracking-tight">{t("nav.dashboard")}</h1>
                 <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t("dashboard.realTimeOperations")}</span>
                     <span className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-bold text-muted-foreground">{language.toUpperCase()}</span>

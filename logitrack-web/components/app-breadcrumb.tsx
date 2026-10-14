@@ -8,9 +8,13 @@
  * (lib/routeCapabilities.ts, as the sidebar filters); otherwise it is plain text.
  *
  * Width: the current page always shows (truncated); Home joins from `md` and the group and entry crumbs from `lg`,
- * so the trail never runs under the tenant switcher or the user menu.
+ * so the trail never runs under the tenant switcher or the user menu. Below `sm` the header shows the scope line
+ * instead (app/app/layout.tsx, UI3B).
+ *
+ * The tab's title (UI3B, WCAG 2.4.2) comes from the same trail: "<page> · LogiTrack Pro", a detail page
+ * "<its name> · <entry> · LogiTrack Pro", in the active language. It was "LogiTrack Pro by GORATECH" on every route.
  */
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { House } from "lucide-react";
 
@@ -39,23 +43,39 @@ interface Item {
 const NO_CAPABILITIES: readonly string[] = [];
 const selectCapabilities = (me: MeDTO | null) => me?.capabilities ?? NO_CAPABILITIES;
 
-export function AppBreadcrumb({ pathname, homeHref }: { pathname: string; homeHref: string }) {
+/** The tab's title from the page's names, most specific first: "Edit · Customers · LogiTrack Pro". */
+export function documentTitle(names: readonly string[], brand: string): string {
+    return [...names, brand].filter(Boolean).join(" · ");
+}
+
+export function AppBreadcrumb({ pathname, homeHref, className }: { pathname: string; homeHref: string; className?: string }) {
     const { customLastItem } = useBreadcrumb();
     const { t } = useLanguage();
     const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities);
     const held = useMemo(() => new Set(capabilities), [capabilities]);
-    const { crumbs, detailKey } = breadcrumbTrail(pathname);
+    // The groups of this principal's menu (its home is the first entry, components/app-nav.ts).
+    const { crumbs, detailKey } = breadcrumbTrail(pathname, homeHref);
 
     const items: Item[] = [
         { label: t("nav.home"), href: homeHref, home: true },
         ...crumbs.map((crumb) => ({ label: t(crumb.labelKey), href: crumb.href && routeAllowed(held, crumb.href) ? crumb.href : undefined })),
     ];
     // The page's own name, else the generic name of a detail page; either way the entry above stays a link.
-    if (customLastItem) items.push({ label: customLastItem });
-    else if (detailKey) items.push({ label: t(detailKey) });
+    const detailName = customLastItem || (detailKey ? t(detailKey) : "");
+    if (detailName) items.push({ label: detailName });
+
+    const entry = crumbs.length > 0 ? t(crumbs[crumbs.length - 1].labelKey) : "";
+    const title = documentTitle([detailName, entry], t("brand.name"));
+    useEffect(() => {
+        const previous = document.title;
+        document.title = title;
+        return () => {
+            document.title = previous;
+        };
+    }, [title]);
 
     return (
-        <Breadcrumb aria-label={t("shell.breadcrumb")} className="min-w-0 overflow-hidden">
+        <Breadcrumb aria-label={t("shell.breadcrumb")} className={cn("min-w-0 overflow-hidden", className)}>
             <BreadcrumbList className="flex-nowrap">
                 {items.map((item, index) => {
                     const last = index === items.length - 1;

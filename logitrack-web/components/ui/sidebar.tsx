@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
-import { PanelLeftIcon } from "lucide-react"
+import { PanelLeftIcon, XIcon } from "lucide-react"
 
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -25,10 +26,27 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state"
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+/** The cookie that keeps the desktop sidebar's open or collapsed state (UI3B: it is read back, see below). */
+export const SIDEBAR_COOKIE_NAME = "sidebar_state"
+// A year: the choice is a preference, not a session detail.
+const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 // Widths (UI1): set as classes, not inline styles: 16rem expanded, 3rem as icons, 18rem in the mobile sheet.
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+
+/**
+ * The stored choice in a `document.cookie` string: true (open), false (icons only), undefined when the user
+ * never chose (UI3B: shadcn wrote the cookie and nothing read it, so every load started as the icon rail).
+ */
+export function sidebarStateFromCookie(cookie: string): boolean | undefined {
+  for (const part of cookie.split(";")) {
+    const [name, value] = part.trim().split("=")
+    if (name === SIDEBAR_COOKIE_NAME) {
+      if (value === "true") return true
+      if (value === "false") return false
+    }
+  }
+  return undefined
+}
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -38,6 +56,8 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  /** The id of the sidebar panel (the desktop container or the phone sheet), for the trigger's `aria-controls`. */
+  sidebarId: string
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -60,12 +80,14 @@ function SidebarProvider({
   children,
   ...props
 }: React.ComponentProps<"div"> & {
-  defaultOpen?: boolean
+  /** The first state; a function is called once, on mount (e.g. to read the stored choice). */
+  defaultOpen?: boolean | (() => boolean)
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const sidebarId = React.useId()
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -80,8 +102,8 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      // This sets the cookie to keep the sidebar state (read back by the caller's `defaultOpen`).
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; samesite=lax`
     },
     [setOpenProp, open]
   )
@@ -120,8 +142,9 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      sidebarId,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, sidebarId]
   )
 
   return (
@@ -149,6 +172,7 @@ function Sidebar({
   collapsible = "offcanvas",
   sheetTitle = "Sidebar",
   sheetDescription = "Displays the mobile sidebar.",
+  sheetCloseLabel = "Close",
   className,
   children,
   ...props
@@ -156,11 +180,13 @@ function Sidebar({
   side?: "left" | "right"
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
-  /** The mobile sheet's title and description, for screen readers (UI3: callers pass translated text). */
+  /** The mobile sheet's title (shown above the menu) and description (for screen readers); callers pass translated text. */
   sheetTitle?: string
   sheetDescription?: string
+  /** The accessible name of the sheet's close button (UI3B: it was hidden, 0×0). */
+  sheetCloseLabel?: string
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, sidebarId } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -181,17 +207,26 @@ function Sidebar({
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          id={sidebarId}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [--sidebar-width:18rem] [&>button]:hidden"
+          className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) gap-0 p-0 [--sidebar-width:18rem]"
           side={side}
+          closeButton={false}
         >
-          <SheetHeader className="sr-only">
-            <SheetTitle>{sheetTitle}</SheetTitle>
-            <SheetDescription>{sheetDescription}</SheetDescription>
+          {/* A visible title and a labelled 44 px close button (UI3B: the sheet's own close rendered 0×0). */}
+          <SheetHeader className="flex-row items-center justify-between gap-2 border-b border-sidebar-border py-1 pr-1 pl-4">
+            <SheetTitle className="text-base">{sheetTitle}</SheetTitle>
+            <SheetDescription className="sr-only">{sheetDescription}</SheetDescription>
+            <SheetClose asChild>
+              <Button type="button" variant="ghost" size="icon" className="size-11" data-testid="sidebar-sheet-close">
+                <XIcon aria-hidden />
+                <span className="sr-only">{sheetCloseLabel}</span>
+              </Button>
+            </SheetClose>
           </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
+          <div className="flex min-h-0 w-full flex-1 flex-col">{children}</div>
         </SheetContent>
       </Sheet>
     )
@@ -219,6 +254,7 @@ function Sidebar({
         )}
       />
       <div
+        id={sidebarId}
         data-slot="sidebar-container"
         className={cn(
           "fixed inset-y-0 z-sticky hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
@@ -245,29 +281,54 @@ function Sidebar({
   )
 }
 
+/**
+ * The button that shows or hides the sidebar (the sheet on a phone). It states what it controls and whether it is
+ * open (`aria-controls`, `aria-expanded`) and names its keyboard shortcut (UI3B). `label` is its accessible name and
+ * `tooltip` the visible hint (callers pass translated text; the shortcut belongs in the hint).
+ */
 function SidebarTrigger({
   className,
   onClick,
+  label = "Toggle Sidebar",
+  tooltip,
   ...props
-}: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar()
+}: React.ComponentProps<typeof Button> & {
+  label?: string
+  tooltip?: React.ReactNode
+}) {
+  const { toggleSidebar, isMobile, open, openMobile, sidebarId } = useSidebar()
+  const expanded = isMobile ? openMobile : open
 
-  return (
+  const button = (
     <Button
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
       variant="ghost"
       size="icon"
       className={cn("size-7", className)}
+      aria-expanded={expanded}
+      // The phone sheet is in the document only while it is open.
+      aria-controls={isMobile && !openMobile ? undefined : sidebarId}
+      aria-keyshortcuts="Meta+B Control+B"
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
       }}
       {...props}
     >
-      <PanelLeftIcon />
-      <span className="sr-only">Toggle Sidebar</span>
+      <PanelLeftIcon aria-hidden />
+      <span className="sr-only">{label}</span>
     </Button>
+  )
+
+  if (!tooltip) return button
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="bottom" align="start" hidden={isMobile}>
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -296,9 +357,13 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   )
 }
 
-function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
+/**
+ * The column beside the sidebar. A plain `div` (UI3B): the caller puts the banner `<header>` and the `<main>`
+ * landmark inside it, so the header is not nested in `main`.
+ */
+function SidebarInset({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <main
+    <div
       data-slot="sidebar-inset"
       className={cn(
         "bg-background relative flex w-full flex-1 flex-col",
@@ -360,9 +425,15 @@ function SidebarSeparator({
   )
 }
 
-function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+/** The scrolling middle of the sidebar; `asChild` renders it as the caller's element (a labelled `<nav>`, UI3B). */
+function SidebarContent({
+  className,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"div"> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot : "div"
   return (
-    <div
+    <Comp
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
@@ -465,8 +536,16 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   )
 }
 
+// "You are here" (UI3B): the active entry is Route Blue (`sidebar-primary`) and medium on the mist fill, its icon too,
+// and hover keeps it blue. Below md the sidebar is only the phone sheet, where every target is 44 px tall.
+const ACTIVE_ITEM =
+  "data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-primary data-[active=true]:hover:text-sidebar-primary"
+
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+  cn(
+    "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+    ACTIVE_ITEM
+  ),
   {
     variants: {
       variant: {
@@ -475,8 +554,8 @@ const sidebarMenuButtonVariants = cva(
           "bg-background shadow-[0_0_0_1px_var(--sidebar-border)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_var(--sidebar-accent)]",
       },
       size: {
-        default: "h-8 text-sm",
-        sm: "h-7 text-xs",
+        default: "h-8 text-sm max-md:h-11",
+        sm: "h-7 text-xs max-md:h-11",
         lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
       },
     },
@@ -509,6 +588,8 @@ function SidebarMenuButton({
       data-sidebar="menu-button"
       data-size={size}
       data-active={isActive}
+      // A link (`asChild`) to the current page says so (UI3B); a button that opens a group never does.
+      aria-current={isActive && asChild ? "page" : undefined}
       className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
       {...props}
     />
@@ -518,20 +599,21 @@ function SidebarMenuButton({
     return button
   }
 
-  if (typeof tooltip === "string") {
-    tooltip = {
-      children: tooltip,
-    }
-  }
+  const content = typeof tooltip === "string" ? { children: tooltip } : tooltip
 
+  // The rail's tooltips only label: they close as soon as the pointer leaves the button and never take a click,
+  // nor does their positioning wrapper (`data-sidebar-tooltip`, app/globals.css) (UI3B: the logo's two-line tooltip
+  // lay over the header's sidebar trigger and swallowed its clicks).
   return (
-    <Tooltip>
+    <Tooltip disableHoverableContent>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent
         side="right"
         align="center"
         hidden={state !== "collapsed" || isMobile}
-        {...tooltip}
+        data-sidebar-tooltip=""
+        {...content}
+        className={cn("pointer-events-none", content.className)}
       />
     </Tooltip>
   )
@@ -675,9 +757,10 @@ function SidebarMenuSubButton({
       data-sidebar="menu-sub-button"
       data-size={size}
       data-active={isActive}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
-        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground [&>svg]:text-sidebar-accent-foreground flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 outline-hidden focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
-        "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground [&>svg]:text-sidebar-accent-foreground flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 outline-hidden focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 max-md:h-11 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+        ACTIVE_ITEM,
         size === "sm" && "text-xs",
         size === "md" && "text-sm",
         "group-data-[collapsible=icon]:hidden",

@@ -123,7 +123,7 @@ export function RoleMatrixPage() {
         <div className="p-6 space-y-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.roles.title")}</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{t("securityCenter.rolePermissionMatrix")}</h1>
                     <p className="mt-1 text-muted-foreground">{t("securityCenter.roles.subtitleGo")}</p>
                 </div>
                 {platformAdmin ? (

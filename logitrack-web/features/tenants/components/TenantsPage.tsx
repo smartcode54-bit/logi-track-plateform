@@ -51,8 +51,8 @@ export function TenantsPage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-                        <Building2 className="h-7 w-7" />
-                        {t("tenants.title")}
+                        <Building2 className="h-7 w-7" aria-hidden />
+                        {t("securityCenter.tenants")}
                     </h1>
                     <p className="text-muted-foreground mt-2">{t("tenants.subtitle")}</p>
                 </div>

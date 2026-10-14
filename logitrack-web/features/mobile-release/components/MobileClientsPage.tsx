@@ -48,8 +48,8 @@ export function MobileClientsPage() {
         <div className="p-6 space-y-6">
             <div>
                 <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-                    <Smartphone className="h-8 w-8" />
-                    {t("securityCenter.mobileClients.title")}
+                    <Smartphone className="h-8 w-8" aria-hidden />
+                    {t("securityCenter.mobileClients")}
                 </h1>
                 <p className="mt-2 text-muted-foreground">{t("securityCenter.mobileClients.subtitle")}</p>
             </div>

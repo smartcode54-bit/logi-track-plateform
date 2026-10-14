@@ -34,7 +34,7 @@ export default function CompaniesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">{t("company.title")}</h1>
+            <h1 className="text-2xl font-bold">{t("nav.companies")}</h1>
             <p className="text-muted-foreground text-sm mt-1">{t("company.subtitle")}</p>
           </div>
           <Button asChild>
