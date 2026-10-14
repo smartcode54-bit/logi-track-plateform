@@ -6,6 +6,22 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "logitrack-web"],
       "port": 3000
+    },
+    {
+      "name": "logitrack-web-local-go",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "GO_API_INTERNAL_URL=http://127.0.0.1:8080",
+        "WEB_PUBLIC_ORIGIN=http://localhost:3000",
+        "SESSION_COOKIE_SECURE=false",
+        "SESSION_COOKIE_DOMAIN=",
+        "JWT_ISSUER=http://localhost:8080",
+        "JWT_AUDIENCE=logitrack-local",
+        "JWT_ACCESS_TTL=15m",
+        "REFRESH_TOKEN_TTL_WEB=168h",
+        "npm", "run", "dev", "--prefix", "logitrack-web"
+      ],
+      "port": 3000
     }
   ]
 }
