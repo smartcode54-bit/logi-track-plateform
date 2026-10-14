@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronDown, HelpCircle } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 
 import {
     Sidebar,
@@ -40,7 +40,7 @@ import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
 import type { BadgesDTO } from "@/features/dashboard/api/badges"
 import { useBadges } from "@/features/dashboard/api/useBadges"
 import { WEB_APP_VERSION } from "@/lib/app-version"
-import { activeNavUrl, groupOf, isNavGroup, menuFor, type NavGroup, type NavLink } from "./app-nav"
+import { activeNavUrl, groupOf, isNavGroup, menuFor, SUPPORT_NAV, type NavGroup, type NavLink } from "./app-nav"
 import { ScopeLine } from "./scope-line"
 import { sidebarHeaderTooltip, useCloseSidebarOnPhone, useRevealCurrentEntry } from "./sidebar-shell"
 
@@ -217,11 +217,12 @@ export function AppSidebar() {
             </SidebarContent>
             <SidebarFooter>
                 <SidebarMenu>
+                    {/* Support inside the console (UI3C): Route Blue and aria-current="page" on /app/support. */}
                     <SidebarMenuItem>
-                        <SidebarMenuButton asChild tooltip={t("nav.supportCenter")}>
-                            <Link href="/support" prefetch={false} onClick={closeOnPhone}>
-                                <HelpCircle />
-                                <span>{t("nav.supportCenter")}</span>
+                        <SidebarMenuButton asChild tooltip={t(SUPPORT_NAV.labelKey)} isActive={active === SUPPORT_NAV.url}>
+                            <Link href={SUPPORT_NAV.url} prefetch={false} onClick={closeOnPhone}>
+                                {SUPPORT_NAV.icon ? <SUPPORT_NAV.icon /> : null}
+                                <span>{t(SUPPORT_NAV.labelKey)}</span>
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>

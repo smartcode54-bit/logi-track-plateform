@@ -116,7 +116,7 @@ describe("the landing page, signed in", () => {
         web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
         renderWithProviders(<LandingPage sessionHint />);
         expect(await screen.findByRole("heading", { level: 1, name: "Use the LogiTrack driver app" })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Logout" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
         expect(screen.queryByRole("link", { name: "Open console" })).toBeNull();
         expect(screen.queryByTestId("sign-in-card")).toBeNull();
         expect(replace).not.toHaveBeenCalled();

@@ -18,7 +18,7 @@ let mockPathname = "/app/dashboard";
 vi.mock("next/navigation", () => ({ usePathname: () => mockPathname, useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
 const { AppSidebar } = await import("../app-sidebar");
-const { menuFor, isNavGroup } = await import("../app-nav");
+const { menuFor, isNavGroup, SUPPORT_NAV } = await import("../app-nav");
 const { initialSidebarOpen, SIDEBAR_OPEN_FROM_PX } = await import("../sidebar-shell");
 const { SidebarProvider, sidebarStateFromCookie, useSidebar } = await import("@/components/ui/sidebar");
 const { LanguageProvider } = await import("@/context/language");
@@ -125,7 +125,8 @@ describe("AppSidebar", () => {
         }
         const { main, system } = menuFor(new Set(ALL_GROUPS), "/app/dashboard");
         const expected = [...main.flatMap((e) => (isNavGroup(e) ? e.items.map((i) => i.url) : [e.url])), ...system.map((l) => l.url)];
-        expect(hrefs().filter((h) => h !== "/support" && h !== "/app/dashboard").sort()).toEqual(expected.filter((u) => u !== "/app/dashboard").sort());
+        // The footer's Support entry (SUPPORT_NAV, UI3C) is outside menuFor: every console principal has it.
+        expect(hrefs().filter((h) => h !== SUPPORT_NAV.url && h !== "/app/dashboard").sort()).toEqual(expected.filter((u) => u !== "/app/dashboard").sort());
     });
 
     it("names the slice in its header from ['me'] and leaves sign-out to the user menu (UI3)", async () => {
@@ -190,6 +191,17 @@ describe("where am I (UI3B)", () => {
         expect(fleet).toHaveAttribute("aria-current", "true");
         expect(fleet).toHaveAttribute("data-active", "true");
         expect(screen.getByRole("button", { name: "Billing" })).not.toHaveAttribute("aria-current");
+    });
+
+    it("links Support inside the console and marks it current there (UI3C)", async () => {
+        mockPathname = "/app/support";
+        await renderSidebar(["fleet:view_trucks"]);
+        const support = screen.getByRole("link", { name: "Support" });
+        expect(support).toHaveAttribute("href", "/app/support");
+        expect(support).toHaveAttribute("aria-current", "page");
+        expect(support).toHaveAttribute("data-active", "true");
+        expect(document.querySelectorAll("[aria-current=page]")).toHaveLength(1);
+        expect(hrefs()).not.toContain("/support");
     });
 
     it("scrolls the current entry into view when the sidebar opens", async () => {

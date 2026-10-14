@@ -4,7 +4,8 @@
  * `/app/support` (UI3C, #143): help inside the console, so the sidebar, the breadcrumb and sign-out stay in reach.
  * Open to every console principal, customers and partners included (`"/app/support": []` in the Go route map,
  * logitrack-api/internal/authz/webroutes.go); a driver-only account never reaches it (the edge gate sends it to
- * `/app/unauthorized`, and drivers use the mobile app). The old public `/support` redirects here (next.config.ts).
+ * `/app/unauthorized`, and drivers use the mobile app). The old public `/support` redirects here (next.config.ts). The
+ * sidebar's footer entry and the header crumb come from `SUPPORT_NAV` (components/app-nav.ts).
  *
  * Only true content, and always a destination:
  * - `NEXT_PUBLIC_SUPPORT_EMAIL` set (lib/supportContact.ts): the GORATECH address, who manages accounts, and what to
@@ -13,20 +14,15 @@
  *   administrator for staff, the transport company for customers and partners). No report checklist then: there is
  *   no address to send it to.
  */
-import { useEffect } from "react";
-import { usePathname } from "next/navigation";
 import { Mail } from "lucide-react";
 
-import { breadcrumbTrail } from "@/components/app-nav";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
 import type { MeDTO } from "@/features/auth/api/me";
 import { useMe } from "@/features/auth/api/useMe";
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel";
 import { supportEmail, supportMailto } from "@/lib/supportContact";
 
-const SUPPORT_PATH = "/app/support";
 const REPORT_ITEMS = ["page", "steps", "time", "screenshot"] as const;
 
 const selectName = (me: MeDTO | null) => me?.displayName || me?.email || "";
@@ -46,21 +42,10 @@ function Section({ id, title, children, testId }: { id: string; title: string; c
 
 export default function SupportPage() {
     const { t } = useLanguage();
-    const pathname = usePathname() ?? SUPPORT_PATH;
-    const { setCustomLastItem } = useBreadcrumb();
     const { data: name = "" } = useMe(selectName);
     const scope = useScopeLabel();
     const email = supportEmail();
     const title = t("nav.supportCenter");
-
-    // Until the shell's menu definition (components/app-nav.ts) names this page, the header crumb comes from here;
-    // once it does, the trail has the page and this stays out of the way.
-    const named = breadcrumbTrail(pathname).crumbs.length > 0;
-    useEffect(() => {
-        if (named) return;
-        setCustomLastItem(title);
-        return () => setCustomLastItem(null);
-    }, [named, title, setCustomLastItem]);
 
     const who = [name, scope].filter(Boolean).join(" · ");
     const signedInAs = who ? <p>{t("support.account.signedInAs", { name: who })}</p> : null;

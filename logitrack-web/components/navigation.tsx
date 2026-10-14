@@ -127,7 +127,7 @@ export default function Navigation() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => void signOut()} className="flex items-center">
                   <LogOut className="mr-2 h-4 w-4" aria-hidden />
-                  <span>{t("nav.logout")}</span>
+                  <span>{t("shell.signOut")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

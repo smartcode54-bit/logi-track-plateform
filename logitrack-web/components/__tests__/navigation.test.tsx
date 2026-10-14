@@ -144,7 +144,7 @@ describe("Navigation", () => {
     await renderWithProviders(<Navigation />);
     await user.click(screen.getByRole("button", { name: "Account menu for Customer" }));
     expect(screen.getByRole("menuitem", { name: "Open console" })).toHaveAttribute("href", "/app/driver-monitor");
-    await user.click(screen.getByRole("menuitem", { name: "Logout" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(navigated).toEqual(["/login"]));
     expect(logout).toHaveBeenCalledTimes(1);
     expect(mockPush).not.toHaveBeenCalled();

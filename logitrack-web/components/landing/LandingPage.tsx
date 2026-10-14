@@ -51,7 +51,7 @@ export function LandingPage({ sessionHint = false }: { sessionHint?: boolean }) 
                     <p className="max-w-prose leading-relaxed text-muted-foreground">{t("landing.driver.body")}</p>
                     <Button type="button" variant="outline" onClick={() => void signOut()}>
                         <LogOut aria-hidden />
-                        {t("nav.logout")}
+                        {t("shell.signOut")}
                     </Button>
                 </main>
             </div>

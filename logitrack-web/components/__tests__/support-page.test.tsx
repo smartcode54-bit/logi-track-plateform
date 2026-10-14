@@ -12,7 +12,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 import SupportPage from "@/app/app/support/page";
-import { BreadcrumbProvider, useBreadcrumb } from "@/context/breadcrumb";
 import { useLanguage } from "@/context/language";
 import { routeAllowed } from "@/lib/routeCapabilities";
 import { supportEmail, supportMailto } from "@/lib/supportContact";
@@ -24,11 +23,6 @@ afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
 });
-
-function Crumb() {
-    const { customLastItem } = useBreadcrumb();
-    return <output data-testid="crumb">{customLastItem ?? ""}</output>;
-}
 
 function Thai({ children }: { children: React.ReactNode }) {
     const { language, setLanguage } = useLanguage();
@@ -48,12 +42,7 @@ const customer = makeMe({
 function renderSupport(thai = false) {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: customer }));
-    const page = (
-        <BreadcrumbProvider>
-            <Crumb />
-            <SupportPage />
-        </BreadcrumbProvider>
-    );
+    const page = <SupportPage />;
     return renderWithProviders(thai ? <Thai>{page}</Thai> : page);
 }
 
@@ -70,7 +59,7 @@ describe("/app/support", () => {
     it("with NEXT_PUBLIC_SUPPORT_EMAIL unset (en): no contact, no report checklist, and who to ask instead", async () => {
         vi.stubEnv("NEXT_PUBLIC_SUPPORT_EMAIL", "");
         renderSupport();
-        expect(await screen.findByRole("heading", { level: 1, name: "Support Center" })).toBeInTheDocument();
+        expect(await screen.findByRole("heading", { level: 1, name: "Support" })).toBeInTheDocument();
         const ask = screen.getByRole("region", { name: "Who to ask for help" });
         expect(ask).toHaveTextContent("your company's administrator");
         expect(ask).toHaveTextContent("the transport company you work with");
@@ -89,11 +78,6 @@ describe("/app/support", () => {
         expect(screen.getByRole("region", { name: "ขอความช่วยเหลือจากใคร" })).toHaveTextContent("ผู้ดูแลระบบของบริษัทคุณ");
         expect(screen.queryByRole("heading", { name: "เมื่อแจ้งปัญหา" })).toBeNull();
         expect(screen.queryByTestId("support-contact")).toBeNull();
-    });
-
-    it("names itself in the header breadcrumb until the menu definition holds it", async () => {
-        renderSupport();
-        await waitFor(() => expect(screen.getByTestId("crumb")).toHaveTextContent("Support Center"));
     });
 
     it("with an address set (en): the mailto link, the account card and what to put in a report", async () => {
