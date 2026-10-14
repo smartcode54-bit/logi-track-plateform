@@ -27,7 +27,7 @@ const SEPARATOR = " · ";
  * A customer view: customer scopes and nothing that outranks them (no tenant, no platform role, not a dispatcher;
  * Go's `authz.IsCustomerScope` also requires `!Dispatcher`). Only then do the scopes name the slice.
  */
-function isCustomerView(me: MeDTO): boolean {
+export function isCustomerView(me: MeDTO): boolean {
     return !me.tenant && me.platformRoles.length === 0 && !me.dispatcher && me.customerScopes.length > 0;
 }
 
