@@ -244,7 +244,8 @@ case, so the pattern makes the two languages look different.
 ## Layout
 
 The app shell is a collapsible icon sidebar (16 rem open, 3 rem as icons, an 18 rem sheet on mobile) beside a sticky
-64 px header with breadcrumbs, the tenant switcher, language and theme toggles and the user menu. Content sits in a
+64 px header (one height whatever the sidebar does) with the sidebar trigger, the breadcrumb, the tenant switcher and
+the user menu; the language and theme live in the user menu, so they are there at every width. Content sits in a
 single column with a 16 px gutter (`gutter`), sections 24 px apart (`section`), fields and cards 16 px apart
 (`stack`), inline controls 8 px apart. All spacing is on Tailwind's 4 px step; the named steps are tokens
 (`p-gutter`, `gap-section`, `space-y-stack`).
@@ -347,7 +348,17 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 
 ### Navigation
 - The sidebar uses the sidebar tokens (paper-tinted, hairline border); the active item is a mist fill with medium
-  text; icons are lucide at 16 px. The header is paper with a hairline bottom border, sticky at `z-sticky`.
+  text, and a detail page keeps its entry active; icons are lucide at 16 px. The header is paper with a hairline
+  bottom border, sticky at `z-sticky`, 64 px at every width.
+- **One definition** (`components/app-nav.ts`): the sidebars and the breadcrumb read the same entries and i18n keys,
+  so a crumb is the menu's label in the active language, never a URL slug; a detail page shows its entry's label
+  until the page names itself (a plate, a driver's name). Below `md` the breadcrumb shows only the current page.
+- **The scope line** names the slice of the data the principal works in, as `slice · role` ("WRT · Tenant admin",
+  "CJSF · Customer view", "Platform admin"): in the sidebar header (the logo's tooltip in the collapsed rail), in the
+  user menu and its trigger, and on the 403 page. One source: `principalRoleLabel` over `['me']`.
+- **The user menu** holds the name, email and scope line, the language and theme (radio items) and the one sign-out,
+  which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.
+- A skip link ("Skip to main content") is the first stop of the keyboard; header targets are 44 px on phones.
 
 ### Toasts
 - sonner on `z-toast`, in the popover colours and the app font, bottom-right, 5 s; typed toasts (success, error,
