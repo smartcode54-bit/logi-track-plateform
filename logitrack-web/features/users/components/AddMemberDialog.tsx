@@ -40,7 +40,10 @@ export function AddMemberDialog({
     const [email, setEmail] = useState("");
     const [displayName, setDisplayName] = useState("");
     const [role, setRole] = useState<TenantRole>("user");
-    const [tenantId, setTenantId] = useState(me?.tenant?.id ?? "");
+    // Only a platform admin picks the tenant; tenant staff always add to the tenant active now (read at use time, so a
+    // tenant switch while the page stays mounted never sends the add to the tenant left).
+    const [pickedTenant, setTenantId] = useState(me?.tenant?.id ?? "");
+    const tenantId = actions.platform ? pickedTenant : (me?.tenant?.id ?? "");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
 
@@ -69,7 +72,10 @@ export function AddMemberDialog({
             onOpenChange(false);
         } catch (err) {
             const already = isApiError(err) && err.code === "already_exists" && err.details.reason === "already_member";
-            setError(already ? t("users.addMember.alreadyMember") : apiErrorText(err, t));
+            const platformTarget = isApiError(err) && err.code === "permission_denied" && err.details.reason === "platform_target";
+            setError(
+                already ? t("users.addMember.alreadyMember") : platformTarget ? t("users.account.locked.platform_target") : apiErrorText(err, t),
+            );
         } finally {
             setSaving(false);
         }

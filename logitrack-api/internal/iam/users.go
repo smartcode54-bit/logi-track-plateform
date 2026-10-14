@@ -305,8 +305,11 @@ func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersI
 			}
 		}
 		var err error
-		users, err = a.enrich(ctx, qq, r, rows)
-		return err
+		if users, err = a.enrich(ctx, qq, r, rows); err != nil {
+			return err
+		}
+		// One TargetPrivilegesMany for the page (T62): every row says whether its account-wide actions apply.
+		return a.markAccountActions(ctx, qq, p, users)
 	})
 	if err != nil {
 		return nil, "", err
@@ -695,12 +698,25 @@ func (a *Admin) markAccountActions(ctx context.Context, q *iamdb.Queries, p *aut
 				if errors.As(err, &he) {
 					u.AccountReason, _ = he.Details["reason"].(string)
 				}
+				redactForeignAccount(u)
 			} else {
 				u.ManageAccount = true
 			}
 		}
 	}
 	return nil
+}
+
+// redactForeignAccount drops what a read would say about an account the caller cannot manage beyond its own reach
+// (T62, Appendix C §C.8): the customer or dispatcher scopes (their billing parties belong to other organisations)
+// and the legacy Firebase uid. The memberships are already limited to the caller's reach; tenant_admin_only is a
+// rank inside the reach and keeps everything.
+func redactForeignAccount(u *User) {
+	switch u.AccountReason {
+	case ReasonOutsideReach, ReasonStewardOnly, ReasonPlatformTarget:
+		u.Scopes = []Scope{}
+		u.LegacyAuthUID = nil
+	}
 }
 
 // visible checks that a route without a lock (a read, or the pre-check of a write) may act on user id inside r:

@@ -183,9 +183,13 @@ export function createUser(input: CreateUserInput): Promise<CreateUserResult> {
     return goFetch<CreateUserResult>(USERS_PATH, { method: "POST", body });
 }
 
-/** `PUT /v1/tenants/{tenantId}/members/{userId} {role}`: adds the membership or changes its role (and reactivates it). */
-export function setMemberRole(tenantId: string, userId: string, role: TenantRole | string): Promise<unknown> {
-    return goFetch(goPath`/v1/tenants/${tenantId}/members/${userId}`, { method: "PUT", body: { role } });
+/**
+ * `PUT /v1/tenants/{tenantId}/members/{userId} {role, status?}`: adds the membership or changes its role. Go reads an
+ * absent status as `active` (a role PUT reactivates), so a role change of an existing membership passes its current
+ * status to keep a suspended membership suspended.
+ */
+export function setMemberRole(tenantId: string, userId: string, role: TenantRole | string, status?: "active" | "suspended"): Promise<unknown> {
+    return goFetch(goPath`/v1/tenants/${tenantId}/members/${userId}`, { method: "PUT", body: status ? { role, status } : { role } });
 }
 
 /** `PUT /v1/tenants/{tenantId}/members/{userId} {status}`: suspends or reactivates one membership (T62). */

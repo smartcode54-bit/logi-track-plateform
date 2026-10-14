@@ -258,6 +258,47 @@ func TestMultiOrgAddMemberByEmail(t *testing.T) {
 	if n := w.count(`SELECT count(*) FROM users WHERE email IN ('x@example.test','y@example.test','z@example.test','w@example.test')`); n != 0 {
 		t.Fatalf("a refused add created %d accounts", n)
 	}
+
+	// Review panel: a platform role or a dispatcher grant is a platform admin's to place (403 platform_target, as
+	// PUT/DELETE): nothing is written; a human platform admin adds the same account.
+	pa, ds := w.userID("pa@example.test"), w.userID("ds@example.test")
+	for _, c := range []struct{ email, id string }{{"pa@example.test", pa}, {"ds@example.test", ds}} {
+		w.refusedFor("platform_target", "ta.b adds "+c.email+" to B", func() resp {
+			return w.send(http.MethodPost, path, taB, map[string]any{"email": c.email, "role": "tenant_admin"})
+		})
+		if n := w.count(`SELECT count(*) FROM memberships WHERE user_id = $1 AND tenant_id = $2`, c.id, w.B); n != 0 {
+			t.Fatalf("a refused add gave %s a B membership", c.email)
+		}
+	}
+	expect(t, w.send(http.MethodPost, path, w.login("pa@example.test"), map[string]any{"email": "ds@example.test", "role": "user"}),
+		http.StatusCreated, "")
+	// B now reaches ds but does not manage it, and reads nothing of its grant over another organisation's party.
+	r = w.get("/v1/users/"+ds, taB)
+	expect(t, r, http.StatusOK, "")
+	if u := r.data().(map[string]any); u["manageAccount"] != false || u["accountReason"] != "platform_target" ||
+		len(u["scopes"].([]any)) != 0 || u["legacyAuthUid"] != nil {
+		t.Fatalf("B reads the dispatcher as %s", r.raw)
+	}
+
+	// GET /v1/users carries manageAccount per row, as GET /v1/users/{id} does.
+	r = w.get("/v1/users?limit=200", taB)
+	expect(t, r, http.StatusOK, "")
+	want := map[string][2]any{opa: {false, "outside_reach"}, newID: {true, nil}, ds: {false, "platform_target"}}
+	seen := 0
+	for _, x := range r.data().([]any) {
+		u := x.(map[string]any)
+		wv, ok := want[u["id"].(string)]
+		if !ok {
+			continue
+		}
+		seen++
+		if u["manageAccount"] != wv[0] || u["accountReason"] != wv[1] {
+			t.Errorf("list row %s: manageAccount=%v accountReason=%v, want %v %v", u["email"], u["manageAccount"], u["accountReason"], wv[0], wv[1])
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("the list holds %d of the %d users", seen, len(want))
+	}
 }
 
 // AC3 and the per-organisation administration: B's admin manages the B membership of a user who also belongs to A

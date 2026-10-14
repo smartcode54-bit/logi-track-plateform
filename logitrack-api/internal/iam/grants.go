@@ -309,7 +309,9 @@ type AddMemberInput struct {
 // Either way the answer is the same 201 {tenantId, userId, role, status}: it never says whether the account existed,
 // nor where else it belongs; membership_added is recorded in the same transaction (tenant-scoped, no detail of the
 // account), and a created account also gets a platform-level user_created row. The address already a member of this
-// tenant is 409 already_exists (reason already_member: the caller lists this tenant's members anyway). driver is not
+// tenant is 409 already_exists (reason already_member: the caller lists this tenant's members anyway); an account
+// with a platform role or a dispatcher grant is 403 platform_target unless the caller is a human platform_admin
+// (membershipOutranks, as PUT/DELETE). driver is not
 // offered: a driver works through its one drivers profile (drivers.user_id is unique, driver link routes).
 func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*MembershipResult, error) {
 	p := c.p
@@ -360,6 +362,13 @@ func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*Members
 		case err == nil:
 			uid = existing.ID
 			if err := notSelf(p, uid); err != nil {
+				return err
+			}
+			// The one refusal the membership routes keep (Appendix C §C.8, T62): a platform role or a dispatcher grant
+			// is a platform admin's to place, so tenant staff cannot attach such an account (and then be unable to
+			// change or remove the membership, which PUT/DELETE refuse the same way). The 403 says the address is
+			// privileged; every other existing account answers like a new one.
+			if err := a.membershipOutranks(c, q, uid); err != nil {
 				return err
 			}
 			if _, err := q.GetMembership(c.ctx, iamdb.GetMembershipParams{UserID: uid, TenantID: tenant}); err == nil {
