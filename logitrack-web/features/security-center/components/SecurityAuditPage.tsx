@@ -42,7 +42,16 @@ import { eventTypeLabel, OwnReadsToggle, SeverityBadge } from "./eventDisplay";
 
 const ALL = "all";
 const SEVERITIES = ["info", "warning", "critical"] as const;
-const ROLE_EVENTS = new Set(["role_matrix_saved", "user_role_changed", "user_scope_changed", "platform_role_granted", "platform_role_revoked"]);
+const ROLE_EVENTS = new Set([
+    "role_matrix_saved",
+    "user_role_changed",
+    "membership_added",
+    "membership_role_changed",
+    "membership_removed",
+    "user_scope_changed",
+    "platform_role_granted",
+    "platform_role_revoked",
+]);
 
 /** Whether a row matches the text search (summary, actor, type, target, details). */
 export function eventMatches(r: SecurityEventDTO, q: string): boolean {

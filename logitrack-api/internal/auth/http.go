@@ -192,7 +192,7 @@ func (s *Service) handleTenant(c fiber.Ctx) error {
 	if err != nil {
 		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "uuid"})
 	}
-	res, err := s.SwitchTenant(c.Context(), PrincipalFrom(c), tid)
+	res, err := s.SwitchTenant(c.Context(), PrincipalFrom(c), tid, httpx.RequestIDFrom(c))
 	if err != nil {
 		return err
 	}

@@ -4,13 +4,15 @@
  * Role and scope changes of one user (T18; Appendix B §B.2.4, §B.2.5; R50, R86). Each section saves on
  * its own Go route; the user's open tabs get `session.revoked` `claims_changed`, refresh and stay
  * signed in:
- * - tenant role: `PUT /v1/tenants/{tenantId}/members/{userId} {role}`, removal `DELETE` (`users:assign_role`);
+ * - tenant role: `PUT /v1/tenants/{tenantId}/members/{userId} {role}`, suspend / reactivate `{status}` (T62),
+ *   removal `DELETE` (`users:assign_role`): one membership only, also for a person who belongs to another
+ *   organisation (its account-wide actions stay with an admin who reaches all of them, `manageAccount`);
  * - customer scope: `PUT|DELETE /v1/users/{id}/scopes/customer {billingPartyIds}` (`users:assign_role`);
  * - driver link: `PUT|DELETE /v1/users/{id}/driver-link {driverId}` (`drivers:edit` + `users:manage`);
  * - platform roles: `POST /v1/users/{id}/platform-roles`, `DELETE .../{role}` (`platform:manage_platform_roles`, not self).
  */
 import { useEffect, useMemo, useState } from "react";
-import { Link2, Loader2, Trash2 } from "lucide-react";
+import { Link2, Loader2, PauseCircle, PlayCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,8 +24,8 @@ import { Separator } from "@/components/ui/separator";
 import { useLanguage } from "@/context/language";
 import { PLATFORM_ROLES, type MeDTO, type PlatformRole } from "@/features/auth/api/me";
 import { apiErrorText } from "@/lib/apiError";
-import { removeMember, setDriverLink, setMemberRole, setPlatformRole, setUserScope, type UserDTO } from "../api/users";
-import { grantableRoles, isSelf, type UserActions } from "../utils/roles";
+import { removeMember, setDriverLink, setMemberRole, setMemberStatus, setPlatformRole, setUserScope, type UserDTO } from "../api/users";
+import { accountLockReason, grantableRoles, isSelf, type UserActions } from "../utils/roles";
 import { CustomerScopePicker, DriverPicker, TenantPicker } from "./pickers";
 
 function sameSet(a: string[], b: string[]): boolean {
@@ -110,12 +112,22 @@ export function EditUserDialog({
                     </DialogDescription>
                 </DialogHeader>
 
+                {!self && accountLockReason(user) ? (
+                    <p className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" data-testid="shared-account-note">
+                        {t("users.edit.sharedAccountNote")}
+                    </p>
+                ) : null}
                 <section className="space-y-3">
                     <h3 className="text-sm font-semibold">{t("users.edit.membershipsTitle")}</h3>
                     {editable.length === 0 ? <p className="text-xs text-muted-foreground">{t("users.edit.noMemberships")}</p> : null}
                     {editable.map((m) => (
                         <div key={m.tenantId} className="flex flex-wrap items-center gap-2">
-                            <span className="min-w-[120px] flex-1 text-sm">{tenantLabel(m)}</span>
+                            <span className="min-w-[120px] flex-1 text-sm">
+                                {tenantLabel(m)}
+                                {m.status === "suspended" ? (
+                                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">{t("users.membership.suspended")}</span>
+                                ) : null}
+                            </span>
                             <Select
                                 value={roles[m.tenantId] ?? m.role}
                                 onValueChange={(v) => setRoles((r) => ({ ...r, [m.tenantId]: v }))}
@@ -139,6 +151,29 @@ export function EditUserDialog({
                                 onClick={() => void run(`role-${m.tenantId}`, () => setMemberRole(m.tenantId, user.id, roles[m.tenantId]), "users.toast.roleUpdated")}
                             >
                                 {busy === `role-${m.tenantId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : t("users.form.save")}
+                            </Button>
+                            <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                aria-label={m.status === "suspended" ? t("users.membership.reactivate") : t("users.membership.suspend")}
+                                title={m.status === "suspended" ? t("users.membership.reactivate") : t("users.membership.suspend")}
+                                disabled={!actions.assignRole || self || busy !== null}
+                                onClick={() =>
+                                    void run(
+                                        `st-${m.tenantId}`,
+                                        () => setMemberStatus(m.tenantId, user.id, m.status === "suspended" ? "active" : "suspended"),
+                                        m.status === "suspended" ? "users.toast.membershipReactivated" : "users.toast.membershipSuspended",
+                                    )
+                                }
+                            >
+                                {busy === `st-${m.tenantId}` ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : m.status === "suspended" ? (
+                                    <PlayCircle className="h-4 w-4" />
+                                ) : (
+                                    <PauseCircle className="h-4 w-4" />
+                                )}
                             </Button>
                             <Button
                                 type="button"

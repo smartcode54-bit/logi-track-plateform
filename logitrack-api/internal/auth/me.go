@@ -15,6 +15,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
@@ -346,14 +347,20 @@ type AccessToken struct {
 	ExpiresIn   int    `json:"expiresIn"`
 }
 
+// EventTenantSwitched is the security_events type of POST /v1/auth/tenant (T62): one row per switch to another
+// tenant, carrying the new tenant only (its staff read it; the tenant left is not named, so a shared user's other
+// organisations stay hidden from them).
+const EventTenantSwitched = "tenant_switched"
+
 // SwitchTenant is POST /v1/auth/tenant: the session's active tenant becomes tenantID (an active
 // membership in a tenant that is not suspended, else 403 permission_denied) and a new access token
-// carries it; every later refresh re-issues it as tid (R83). The refresh token is unchanged. Locks the
-// user, then the session (lock order of C.4.4).
-func (s *Service) SwitchTenant(ctx context.Context, p *authz.Principal, tenantID uuid.UUID) (*AccessToken, error) {
+// carries it; every later refresh re-issues it as tid (R83), and the next sign-in opens there
+// (users.last_tenant_id, T62). The refresh token is unchanged. A switch to another tenant records
+// tenant_switched in the same transaction. Locks the user, then the session (lock order of C.4.4).
+func (s *Service) SwitchTenant(ctx context.Context, p *authz.Principal, tenantID uuid.UUID, requestID string) (*AccessToken, error) {
 	var out *AccessToken
 	pc := newPostCommit()
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		now := s.clock()
 		u, err := q.LockUser(ctx, p.UserID)
 		if err != nil {
@@ -381,6 +388,19 @@ func (s *Service) SwitchTenant(ctx context.Context, p *authz.Principal, tenantID
 		}
 		if err := q.SetActiveTenant(ctx, authdb.SetActiveTenantParams{TenantID: &m.TenantID, ID: p.SessionID}); err != nil {
 			return err
+		}
+		if err := q.SetLastTenant(ctx, authdb.SetLastTenantParams{TenantID: m.TenantID, ID: p.UserID}); err != nil {
+			return err
+		}
+		if sess.ActiveTenantID == nil || *sess.ActiveTenantID != m.TenantID {
+			uid, tid := p.UserID, m.TenantID
+			if err := security.Append(ctx, tx, security.Event{
+				EventType: EventTenantSwitched, Severity: security.SeverityInfo, Summary: "active tenant switched",
+				Details:     map[string]any{"tenantId": tid, "role": m.Role, "sessionId": p.SessionID},
+				ActorUserID: &uid, TargetUserID: &uid, TenantID: &tid, RequestID: requestID, OccurredAt: now,
+			}); err != nil {
+				return err
+			}
 		}
 		access, err := s.signAccess(c, p.UserID, now)
 		if err != nil {

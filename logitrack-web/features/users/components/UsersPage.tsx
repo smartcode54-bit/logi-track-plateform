@@ -7,9 +7,14 @@
  * BFF; no Cloud Function and no Firestore read remain. Controls follow the Go capabilities of `['me']`
  * (`users:view|manage|assign_role|revoke_sessions`, `drivers:edit`, `platform:manage_platform_roles`);
  * Go authorises each call again and refuses actions on the caller.
+ *
+ * One person may belong to several organisations (T62): "Add by email" gives an existing account a membership in
+ * the caller's tenant (or creates and invites it), and the account-wide actions (temporary password, invite,
+ * disable, sign out everywhere) are greyed out on a user Go marks `manageAccount: false` (a membership outside the
+ * caller's reach); the user's role here stays editable.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Edit, KeyRound, Loader2, LogOut, Mail, MoreHorizontal, Plus, RefreshCw, Search } from "lucide-react";
+import { Edit, KeyRound, Loader2, LogOut, Mail, MoreHorizontal, Plus, RefreshCw, Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,7 +40,8 @@ import {
     type CreateUserResult,
     type UserDTO,
 } from "../api/users";
-import { isSelf, userActions } from "../utils/roles";
+import { accountLockReason, isSelf, userActions } from "../utils/roles";
+import { AddMemberDialog } from "./AddMemberDialog";
 import { CreateUserDialog } from "./CreateUserDialog";
 import { ConfirmDialog, TemporaryPasswordDialog } from "./dialogs";
 import { EditUserDialog } from "./EditUserDialog";
@@ -76,6 +82,7 @@ export function UsersPage() {
     const rows = useMemo(() => users.data?.pages.flatMap((p) => p.data ?? []) ?? [], [users.data]);
 
     const [createOpen, setCreateOpen] = useState(false);
+    const [addOpen, setAddOpen] = useState(false);
     const [editing, setEditing] = useState<UserDTO | null>(null);
     const [pending, setPending] = useState<Pending>(null);
     const [temp, setTemp] = useState<{ password: string; account: string } | null>(null);
@@ -154,6 +161,12 @@ export function UsersPage() {
                         {users.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                         {t("users.refresh")}
                     </Button>
+                    {actions.manage && actions.assignRole && (me?.tenant || actions.platform) ? (
+                        <Button variant="outline" className="gap-2" onClick={() => setAddOpen(true)}>
+                            <UserPlus className="h-4 w-4" />
+                            {t("users.addMember.action")}
+                        </Button>
+                    ) : null}
                     {actions.manage ? (
                         <Button onClick={() => setCreateOpen(true)}>
                             <Plus className="mr-2 h-4 w-4" />
@@ -232,6 +245,9 @@ export function UsersPage() {
                                 rows.map((user) => {
                                     const self = isSelf(me, user);
                                     const when = lastSignIn(user.lastLoginAt);
+                                    // The account-wide actions: not on the caller, nor on an account Go says the caller does not manage.
+                                    const lock = self ? null : accountLockReason(user);
+                                    const lockTitle = lock ? t(`users.account.locked.${lock}`, t("users.account.locked.outside_reach")) : undefined;
                                     return (
                                         <TableRow key={user.id} className="hover:bg-muted/30 border-b border-border/50" data-testid="user-row">
                                             <TableCell className="pl-6 py-4">
@@ -268,9 +284,9 @@ export function UsersPage() {
                                                                 if (checked) void enable(user);
                                                                 else setPending({ kind: "disable", user });
                                                             }}
-                                                            disabled={self || toggling === user.id || user.status === "deleted"}
+                                                            disabled={self || lock !== null || toggling === user.id || user.status === "deleted"}
                                                             aria-label={t("users.disable.toggle")}
-                                                            title={self ? t("users.disable.cannotDisableSelf") : undefined}
+                                                            title={self ? t("users.disable.cannotDisableSelf") : lockTitle}
                                                         />
                                                     </div>
                                                 </TableCell>
@@ -291,26 +307,31 @@ export function UsersPage() {
                                                                 </DropdownMenuItem>
                                                             ) : null}
                                                             {actions.manage ? (
-                                                                <DropdownMenuItem disabled={self} onSelect={() => setPending({ kind: "tempPassword", user })}>
+                                                                <DropdownMenuItem disabled={self || lock !== null} title={lockTitle} onSelect={() => setPending({ kind: "tempPassword", user })}>
                                                                     <KeyRound className="mr-2 h-4 w-4" />
                                                                     {t("users.tempPassword.action")}
                                                                 </DropdownMenuItem>
                                                             ) : null}
                                                             {actions.manage && user.email ? (
-                                                                <DropdownMenuItem disabled={self} onSelect={() => void invite(user)}>
+                                                                <DropdownMenuItem disabled={self || lock !== null} title={lockTitle} onSelect={() => void invite(user)}>
                                                                     <Mail className="mr-2 h-4 w-4" />
                                                                     {t("users.invite.action")}
                                                                 </DropdownMenuItem>
                                                             ) : null}
                                                             {actions.revokeSessions ? (
                                                                 <DropdownMenuItem
-                                                                    disabled={self}
-                                                                    title={self ? t("users.revokeSessionsSelf") : undefined}
+                                                                    disabled={self || lock !== null}
+                                                                    title={self ? t("users.revokeSessionsSelf") : lockTitle}
                                                                     onSelect={() => setPending({ kind: "revoke", user })}
                                                                 >
                                                                     <LogOut className="mr-2 h-4 w-4" />
                                                                     {t("users.revokeSessionsShort")}
                                                                 </DropdownMenuItem>
+                                                            ) : null}
+                                                            {lock && (actions.manage || actions.revokeSessions) ? (
+                                                                <p className="max-w-[240px] px-2 py-1.5 text-xs text-muted-foreground" data-testid="account-locked">
+                                                                    {lockTitle}
+                                                                </p>
                                                             ) : null}
                                                         </DropdownMenuContent>
                                                     </DropdownMenu>
@@ -335,6 +356,9 @@ export function UsersPage() {
                 ) : null}
             </div>
 
+            {actions.manage && actions.assignRole ? (
+                <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} me={me} actions={actions} onAdded={() => void invalidate()} />
+            ) : null}
             {actions.manage ? <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} me={me} actions={actions} onCreated={created} /> : null}
             {editing ? (
                 <EditUserDialog

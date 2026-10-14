@@ -3,7 +3,9 @@ package iam
 import (
 	"errors"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -12,6 +14,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/iamdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 )
 
 // Grants: memberships, scopes, driver links and platform roles. Each change is one transaction: the rows,
@@ -93,7 +96,13 @@ func (a *Admin) Members(c call, tenant uuid.UUID, role string, limit int, cur st
 	return out, next, err
 }
 
-// MembershipResult is the response of PUT /v1/tenants/{id}/members/{userId}.
+// Membership statuses (memberships.status).
+const (
+	MembershipActive    = "active"
+	MembershipSuspended = "suspended"
+)
+
+// MembershipResult is the response of PUT /v1/tenants/{id}/members/{userId} and of POST /v1/tenants/{id}/members.
 type MembershipResult struct {
 	TenantID uuid.UUID `json:"tenantId"`
 	UserID   uuid.UUID `json:"userId"`
@@ -101,29 +110,64 @@ type MembershipResult struct {
 	Status   string    `json:"status"`
 }
 
-// memberTarget checks the tenant and the user of a membership write: the tenant in the write reach (403
-// otherwise) and existing (not quarantine: it holds no memberships, C.1.8), key-share locked before the user
-// (the lock order of PatchTenant), then the user in reach, locked and outranked (target).
-func (a *Admin) memberTarget(c call, q *iamdb.Queries, tenant, user uuid.UUID) error {
-	if err := notSelf(c.p, user); err != nil {
-		return err
-	}
+// lockMemberTenant checks the tenant of a membership write: in the write reach (403 otherwise) and existing, not
+// quarantine (it holds no memberships, C.1.8; 404), key-share locked before the user (the lock order of PatchTenant).
+func (a *Admin) lockMemberTenant(c call, q *iamdb.Queries, tenant uuid.UUID) error {
 	if !writeReach(c.p).hasTenant(tenant) {
 		return authz.ErrPermissionDenied("the tenant is outside the caller's reach").WithDetails(map[string]any{"tenantId": tenant})
 	}
 	t, err := q.TenantForMembership(c.ctx, tenant)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && t.Kind == "quarantine") {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && t.Kind == authz.TenantKindQuarantine) {
+		return httpx.ErrNotFound()
+	}
+	return err
+}
+
+// memberTarget checks the tenant and the user of a membership write. The write changes one membership, not the
+// account (T62, Appendix C §C.8 "Reach"): not the caller (403); the tenant (lockMemberTenant); the user in the write
+// reach (404), locked and not deleted (404); and, unless the caller is a human platform_admin, a user without a
+// platform role or a dispatcher grant (403 platform_target: both are minted by platform admins only). The user's
+// memberships in other tenants and its customer scopes do not matter, so the tenant_admin of B manages the B
+// membership of a user who also belongs to A; tenant_admin in this tenant stays with canAssign. The account-wide
+// routes (password, email, disable, sessions, invite) keep target and its full outranks check.
+func (a *Admin) memberTarget(c call, q *iamdb.Queries, tenant, user uuid.UUID) error {
+	if err := notSelf(c.p, user); err != nil {
+		return err
+	}
+	if err := a.lockMemberTenant(c, q, tenant); err != nil {
+		return err
+	}
+	if err := a.inReach(c, q, user, writeReach(c.p)); err != nil {
+		return err
+	}
+	u, err := q.LockAdminUser(c.ctx, user)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status == "deleted") {
 		return httpx.ErrNotFound()
 	}
 	if err != nil {
 		return err
 	}
-	_, err = a.target(c, q, user)
-	return err
+	return a.membershipOutranks(c, q, user)
+}
+
+// membershipOutranks is the outranks rule of a membership write (memberTarget).
+func (a *Admin) membershipOutranks(c call, q *iamdb.Queries, user uuid.UUID) error {
+	p := c.p
+	if p.HasPlatform(authz.PlatformAdmin) && !p.IsMachine() {
+		return nil
+	}
+	t, err := q.TargetPrivileges(c.ctx, user)
+	if err != nil {
+		return err
+	}
+	if t.PlatformRole || t.Dispatcher {
+		return deny(ReasonPlatformTarget, "the user holds a platform role or a dispatcher grant; only a platform admin manages it")
+	}
+	return nil
 }
 
 // linkedInTenant reports whether user is linked to a driver row of tenant (the driver-link invariant needs
-// its driver membership there, trigger t_driver_link_membership).
+// its active driver membership there, trigger t_driver_link_membership).
 func linkedInTenant(c call, q *iamdb.Queries, user, tenant uuid.UUID) (bool, error) {
 	d, err := q.DriverOfUser(c.ctx, user)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -132,14 +176,37 @@ func linkedInTenant(c call, q *iamdb.Queries, user, tenant uuid.UUID) (bool, err
 	return err == nil && d.TenantID == tenant, err
 }
 
-// SetMember is PUT /v1/tenants/{id}/members/{userId} {role} (users:assign_role with the tenant in reach, or
-// a platform_admin without X-Act-On-Tenant): adds the membership or changes its role (CanAssignRole), then
-// claims_changed and user_role_changed. A linked driver keeps its driver membership (409; unlink first).
-func (a *Admin) SetMember(c call, tenant, user uuid.UUID, role string) (*MembershipResult, error) {
-	newRole := authz.TenantRole(role)
-	if !newRole.Valid() {
-		return nil, errInvalid(violation("role", "invalid"))
+// SetMemberInput is the body of PUT /v1/tenants/{id}/members/{userId}: role, status (active | suspended), or both.
+// An absent role keeps the current one (a new membership needs it); an absent status means active, so a PUT that
+// names a role also reactivates a suspended membership (the P0 contract).
+type SetMemberInput struct {
+	Role   string `json:"role"`
+	Status string `json:"status"`
+}
+
+// SetMember is PUT /v1/tenants/{id}/members/{userId} {role, status} (users:assign_role with the tenant in reach, or
+// a platform_admin without X-Act-On-Tenant): adds the membership, changes its role (CanAssignRole) or suspends or
+// reactivates it (T62), then claims_changed and membership_added or membership_role_changed. Only this membership
+// changes (memberTarget). A linked driver keeps its active driver membership (409 driver_linked; unlink first).
+func (a *Admin) SetMember(c call, tenant, user uuid.UUID, in SetMemberInput) (*MembershipResult, error) {
+	var bad []httpx.FieldViolation
+	if in.Role == "" && in.Status == "" {
+		bad = append(bad, violation("role", "required"))
 	}
+	if in.Role != "" && !authz.TenantRole(in.Role).Valid() {
+		bad = append(bad, violation("role", "invalid"))
+	}
+	if in.Status != "" && in.Status != MembershipActive && in.Status != MembershipSuspended {
+		bad = append(bad, violation("status", "invalid"))
+	}
+	if len(bad) > 0 {
+		return nil, errInvalid(bad...)
+	}
+	status := in.Status
+	if status == "" {
+		status = MembershipActive
+	}
+	var out *MembershipResult
 	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if err := a.memberTarget(c, q, tenant, user); err != nil {
 			return err
@@ -149,13 +216,21 @@ func (a *Admin) SetMember(c call, tenant, user uuid.UUID, role string) (*Members
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if err := canAssign(c.p, tenant, newRole, authz.TenantRole(cur.Role)); err != nil {
+		role := in.Role
+		if role == "" {
+			if !found {
+				return errInvalid(violation("role", "required"))
+			}
+			role = cur.Role
+		}
+		if err := canAssign(c.p, tenant, authz.TenantRole(role), authz.TenantRole(cur.Role)); err != nil {
 			return err
 		}
-		if found && cur.Role == role && cur.Status == "active" {
+		out = &MembershipResult{TenantID: tenant, UserID: user, Role: role, Status: status}
+		if found && cur.Role == role && cur.Status == status {
 			return nil // unchanged
 		}
-		if found && cur.Role == string(authz.Driver) && newRole != authz.Driver {
+		if found && cur.Role == string(authz.Driver) && (role != string(authz.Driver) || status != MembershipActive) {
 			linked, err := linkedInTenant(c, q, user, tenant)
 			if err != nil {
 				return err
@@ -166,26 +241,28 @@ func (a *Admin) SetMember(c call, tenant, user uuid.UUID, role string) (*Members
 		}
 		actor := c.p.UserID
 		if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: user, TenantID: tenant, Role: role,
-			CreatedBy: &actor}); err != nil {
+			Status: status, CreatedBy: &actor}); err != nil {
 			return err
 		}
 		if err := a.claimsChanged(c, tx, user, keep); err != nil {
 			return err
 		}
-		details := map[string]any{"tenantId": tenant, "role": role, "previousRole": nil}
-		if found {
-			details["previousRole"], details["previousStatus"] = cur.Role, cur.Status
+		details := map[string]any{"tenantId": tenant, "role": role, "status": status}
+		if !found {
+			return a.audit(c, tx, EventMembershipAdded, "tenant membership added by an admin", &user, &tenant, details)
 		}
-		return a.audit(c, tx, EventUserRoleChanged, "tenant role changed by an admin", &user, &tenant, details)
+		details["previousRole"], details["previousStatus"] = cur.Role, cur.Status
+		return a.audit(c, tx, EventMembershipRoleChanged, "tenant membership changed by an admin", &user, &tenant, details)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &MembershipResult{TenantID: tenant, UserID: user, Role: role, Status: "active"}, nil
+	return out, nil
 }
 
 // RemoveMember is DELETE /v1/tenants/{id}/members/{userId}: the same rules as SetMember; 404 without a
-// membership.
+// membership. Removing the user's last usable membership leaves the account without tenant claims: its next
+// refresh carries no tid (C.4.4) and tenant data answers nothing.
 func (a *Admin) RemoveMember(c call, tenant, user uuid.UUID) error {
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if err := a.memberTarget(c, q, tenant, user); err != nil {
@@ -212,9 +289,124 @@ func (a *Admin) RemoveMember(c call, tenant, user uuid.UUID) error {
 		if err := a.claimsChanged(c, tx, user, keep); err != nil {
 			return err
 		}
-		return a.audit(c, tx, EventUserRoleChanged, "tenant membership removed by an admin", &user, &tenant,
-			map[string]any{"tenantId": tenant, "role": nil, "previousRole": cur.Role})
+		return a.audit(c, tx, EventMembershipRemoved, "tenant membership removed by an admin", &user, &tenant,
+			map[string]any{"tenantId": tenant, "previousRole": cur.Role, "previousStatus": cur.Status})
 	})
+}
+
+// AddMemberInput is the body of POST /v1/tenants/{id}/members: a person named by email.
+type AddMemberInput struct {
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	DisplayName string `json:"displayName"`
+	Locale      string `json:"locale"`
+}
+
+// AddMember is POST /v1/tenants/{id}/members {email, role, displayName?, locale?} (users:assign_role and
+// users:manage with the tenant in the write reach, or a platform_admin without X-Act-On-Tenant; T62). When an
+// account holds the address it gets the membership (claims_changed); otherwise the account is created without a
+// password and the invite (a reset link) is mailed through notify.email (R29; outbox user.created, sendInvite).
+// Either way the answer is the same 201 {tenantId, userId, role, status}: it never says whether the account existed,
+// nor where else it belongs; membership_added is recorded in the same transaction (tenant-scoped, no detail of the
+// account), and a created account also gets a platform-level user_created row. The address already a member of this
+// tenant is 409 already_exists (reason already_member: the caller lists this tenant's members anyway). driver is not
+// offered: a driver works through its one drivers profile (drivers.user_id is unique, driver link routes).
+func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*MembershipResult, error) {
+	p := c.p
+	var bad []httpx.FieldViolation
+	email, ok := normalizeEmail(in.Email)
+	if strings.TrimSpace(in.Email) == "" {
+		bad = append(bad, violation("email", "required"))
+	} else if !ok {
+		bad = append(bad, violation("email", "invalid"))
+	}
+	role := authz.TenantRole(in.Role)
+	switch {
+	case in.Role == "":
+		bad = append(bad, violation("role", "required"))
+	case !role.Valid():
+		bad = append(bad, violation("role", "invalid"))
+	case role == authz.Driver:
+		bad = append(bad, violation("role", "not_allowed"))
+	}
+	name := strings.TrimSpace(in.DisplayName)
+	if utf8.RuneCountInString(name) > 200 {
+		bad = append(bad, violation("displayName", "too_long"))
+	}
+	if !validLocale(in.Locale) {
+		bad = append(bad, violation("locale", "invalid"))
+	}
+	if len(bad) > 0 {
+		return nil, errInvalid(bad...)
+	}
+	if !p.Can(authz.UsersManage) {
+		return nil, authz.ErrPermissionDenied("missing capability", authz.UsersManage)
+	}
+	if err := canAssign(p, tenant, role, ""); err != nil {
+		return nil, err
+	}
+	if name == "" {
+		name = email[:strings.IndexByte(email, '@')]
+	}
+	var uid uuid.UUID
+	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
+		if err := a.lockMemberTenant(c, q, tenant); err != nil {
+			return err
+		}
+		actor := p.UserID
+		details := map[string]any{"tenantId": tenant, "role": string(role), "status": MembershipActive, "via": "email"}
+		existing, err := q.LockUserByEmail(c.ctx, email)
+		switch {
+		case err == nil:
+			uid = existing.ID
+			if err := notSelf(p, uid); err != nil {
+				return err
+			}
+			if _, err := q.GetMembership(c.ctx, iamdb.GetMembershipParams{UserID: uid, TenantID: tenant}); err == nil {
+				return errAlreadyExists("email", "already_member")
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: tenant, Role: string(role),
+				Status: MembershipActive, CreatedBy: &actor}); err != nil {
+				return err
+			}
+			if err := a.claimsChanged(c, tx, uid, keep); err != nil {
+				return err
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+			if uid, err = q.InsertAdminUser(c.ctx, iamdb.InsertAdminUserParams{Email: email, DisplayName: name}); err != nil {
+				return err
+			}
+			if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: tenant, Role: string(role),
+				Status: MembershipActive, CreatedBy: &actor}); err != nil {
+				return err
+			}
+			if err := a.auth.MirrorNewUserInTx(c.ctx, tx, uid, ""); err != nil {
+				return err
+			}
+			// Platform-level (no tenant): the tenant's staff read membership_added only, which looks the same for an
+			// account that existed.
+			if err := security.Append(c.ctx, tx, security.Event{EventType: EventUserCreated, Severity: security.SeverityInfo,
+				Summary: "user created by an admin (added to a tenant by email)", ActorUserID: &actor, TargetUserID: &uid,
+				Details:   map[string]any{"role": string(role), "invite": true, "tenantId": tenant, "via": "members"},
+				RequestID: c.rid, OccurredAt: a.clock()}); err != nil {
+				return err
+			}
+			invite := true
+			if err := emit(c, tx, RouteUserCreated, "user", uid.String(), &tenant, userCreatedPayload{UserID: uid,
+				Purpose: auth.PurposeInvite, Locale: in.Locale, RequestedBy: actor, SendInvite: &invite}); err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+		return a.audit(c, tx, EventMembershipAdded, "tenant membership added by an admin", &uid, &tenant, details)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &MembershipResult{TenantID: tenant, UserID: uid, Role: string(role), Status: MembershipActive}, nil
 }
 
 // ScopeResult is the response of PUT /v1/users/{id}/scopes/{kind}.
@@ -416,7 +608,7 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 		}
 		actor := c.p.UserID
 		if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: user, TenantID: d.TenantID,
-			Role: string(authz.Driver), CreatedBy: &actor}); err != nil {
+			Role: string(authz.Driver), Status: MembershipActive, CreatedBy: &actor}); err != nil {
 			return err
 		}
 		if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: &user, ID: d.ID}); err != nil {

@@ -66,6 +66,15 @@ export interface UserDTO {
     scopes: UserScope[];
     platformRoles: PlatformRole[];
     driver: { id: string; displayName: string | null } | null;
+    /**
+     * Whether the caller may use the account-wide actions on this user (temporary password, email, disable,
+     * invite, sessions; T62, Appendix C §C.8 "Reach"). A user who also belongs to an organisation outside the
+     * caller's reach is `false` with `accountReason: "outside_reach"`; its memberships in the caller's tenants
+     * stay manageable. Absent from an API older than T62: treated as manageable (Go still refuses).
+     */
+    manageAccount?: boolean;
+    /** Why `manageAccount` is false: `self`, `deleted`, `outside_reach`, `platform_target`, `steward_only`, `tenant_admin_only`. */
+    accountReason?: string;
 }
 
 /** `POST /v1/users`: `role` is a tenant role, or `customer` for a scope-only user (`billingPartyIds`). */
@@ -174,9 +183,40 @@ export function createUser(input: CreateUserInput): Promise<CreateUserResult> {
     return goFetch<CreateUserResult>(USERS_PATH, { method: "POST", body });
 }
 
-/** `PUT /v1/tenants/{tenantId}/members/{userId} {role}`: adds the membership or changes its role. */
+/** `PUT /v1/tenants/{tenantId}/members/{userId} {role}`: adds the membership or changes its role (and reactivates it). */
 export function setMemberRole(tenantId: string, userId: string, role: TenantRole | string): Promise<unknown> {
     return goFetch(goPath`/v1/tenants/${tenantId}/members/${userId}`, { method: "PUT", body: { role } });
+}
+
+/** `PUT /v1/tenants/{tenantId}/members/{userId} {status}`: suspends or reactivates one membership (T62). */
+export function setMemberStatus(tenantId: string, userId: string, status: "active" | "suspended"): Promise<unknown> {
+    return goFetch(goPath`/v1/tenants/${tenantId}/members/${userId}`, { method: "PUT", body: { status } });
+}
+
+/** `POST /v1/tenants/{tenantId}/members {email, role}`: a person by email (T62). */
+export interface AddMemberInput {
+    email: string;
+    /** A tenant role other than `driver` (a driver works through its drivers profile). */
+    role: TenantRole;
+    /** Used only when no account holds the address yet. */
+    displayName?: string;
+}
+
+/**
+ * The answer of `POST /v1/tenants/{id}/members`: the same whether the account existed (it gets the membership)
+ * or not (it is created and invited by a reset link, R29); it never says where else the person belongs.
+ */
+export interface AddMemberResult {
+    tenantId: string;
+    userId: string;
+    role: TenantRole;
+    status: "active";
+}
+
+export function addMemberByEmail(tenantId: string, input: AddMemberInput): Promise<AddMemberResult> {
+    const body: Record<string, unknown> = { email: input.email.trim(), role: input.role };
+    if (input.displayName?.trim()) body.displayName = input.displayName.trim();
+    return goFetch<AddMemberResult>(goPath`/v1/tenants/${tenantId}/members`, { method: "POST", body });
 }
 
 /** `DELETE /v1/tenants/{tenantId}/members/{userId}`. */

@@ -212,6 +212,14 @@ export function meDisplayName(me: Pick<MeDTO, "displayName" | "email"> | null | 
     return me?.displayName?.trim() || me?.email || "";
 }
 
+/**
+ * The switcher entries a principal can choose (T62): its active memberships (the only ones `GET /v1/me/tenants`
+ * lists) in tenants that are not suspended (Go never issues a suspended tenant as `tid`).
+ */
+export function usableTenantCount(tenants: readonly Pick<MeTenant, "status">[]): number {
+    return tenants.filter((x) => x.status !== "suspended").length;
+}
+
 /** The display name of a tenant in the active language. */
 export function tenantName(t: Pick<MeTenant, "nameTh" | "nameEn">, language: string): string {
     if (language === "en" && t.nameEn) return t.nameEn;

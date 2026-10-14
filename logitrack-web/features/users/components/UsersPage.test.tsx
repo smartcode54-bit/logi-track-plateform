@@ -218,6 +218,64 @@ describe("UsersPage", () => {
         expect(loaded.map((q) => (q.queryKey[1] as { reach: string }).reach)).toEqual(["all"]);
     });
 
+    it("adds a person by email through POST /v1/tenants/{id}/members and shows one message for either outcome (T62)", async () => {
+        const { web } = setup();
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [] }));
+        web.on("POST", "/api/go/v1/tenants/t-own/members", () =>
+            json(201, { data: { tenantId: "t-own", userId: "u-9", role: "operator", status: "active" } }),
+        );
+        renderWithProviders(<UsersPage />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("button", { name: "Add by email" }));
+        const dialog = await screen.findByRole("dialog");
+        await u.type(within(dialog).getByLabelText("Email"), "shared@carrier.test");
+        await u.click(within(dialog).getByRole("combobox", { name: "Role" }));
+        expect(screen.queryByRole("option", { name: "Driver" })).toBeNull();
+        await u.click(await screen.findByRole("option", { name: "Operator" }));
+        await u.click(within(dialog).getByRole("button", { name: "Add to organisation" }));
+        await waitFor(() => expect(web.calls.some((c) => c.method === "POST" && c.url === "/api/go/v1/tenants/t-own/members")).toBe(true));
+        expect(web.calls.find((c) => c.method === "POST")?.body).toEqual({ email: "shared@carrier.test", role: "operator" });
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    });
+
+    it("says so when the address is already a member", async () => {
+        const { web } = setup();
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [] }));
+        web.on("POST", "/api/go/v1/tenants/t-own/members", () =>
+            json(409, { error: { code: "already_exists", message: "already exists", details: { field: "email", reason: "already_member" } } }),
+        );
+        renderWithProviders(<UsersPage />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("button", { name: "Add by email" }));
+        const dialog = await screen.findByRole("dialog");
+        await u.type(within(dialog).getByLabelText("Email"), "op@own.test");
+        await u.click(within(dialog).getByRole("button", { name: "Add to organisation" }));
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent("already a member of this organisation");
+    });
+
+    it("greys out the account-wide actions of a user who also belongs to another organisation, and keeps its role here (T62)", async () => {
+        const { web } = setup();
+        const shared = user(7, { manageAccount: false, accountReason: "outside_reach" });
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [shared] }));
+        web.on("GET", "/api/go/v1/customers", () => json(200, { data: [] }));
+        web.on("PUT", "/api/go/v1/tenants/t-own/members/u-7", () => json(200, { data: { role: "operator", status: "suspended" } }));
+        renderWithProviders(<UsersPage />);
+        const u = userEvent.setup();
+        const [row] = await screen.findAllByTestId("user-row");
+        expect(within(row).getByRole("switch")).toBeDisabled();
+        await u.click(within(row).getByRole("button", { name: "Actions" }));
+        expect(await screen.findByRole("menuitem", { name: "Issue temporary password" })).toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Send invite email" })).toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Force logout" })).toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByTestId("account-locked")).toHaveTextContent("Also belongs to another organisation");
+        await u.click(screen.getByRole("menuitem", { name: "Edit Role" }));
+        const dialog = await screen.findByRole("dialog");
+        expect(within(dialog).getByTestId("shared-account-note")).toBeInTheDocument();
+        await u.click(within(dialog).getByRole("button", { name: "Suspend in this organisation" }));
+        await waitFor(() => expect(web.calls.some((c) => c.method === "PUT" && c.url === "/api/go/v1/tenants/t-own/members/u-7")).toBe(true));
+        expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({ status: "suspended" });
+    });
+
     it("hides the write controls without users:manage", async () => {
         const { web } = setup({ capabilities: ["users:view"] });
         web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(3)] }));

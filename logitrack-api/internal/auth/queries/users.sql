@@ -74,8 +74,9 @@ SET last_login_lat        = sqlc.arg(lat),
 WHERE id = sqlc.arg(id);
 
 -- name: ListMemberships :many
--- Active memberships in non-quarantine tenants, own fleet first (the default-tenant order).
-SELECT m.tenant_id, m.role, t.kind, t.name_th, t.name_en, t.status AS tenant_status
+-- Active memberships in non-quarantine tenants, own fleet first, then by name (the order of the switcher);
+-- member_since picks the fallback tenant of a sign-in (the earliest usable membership, T62).
+SELECT m.tenant_id, m.role, t.kind, t.name_th, t.name_en, t.status AS tenant_status, m.created_at AS member_since
 FROM memberships m
 JOIN tenants t ON t.id = m.tenant_id
 WHERE m.user_id = sqlc.arg(user_id) AND m.status = 'active' AND t.kind <> 'quarantine'
@@ -99,8 +100,10 @@ WHERE s.user_id = sqlc.arg(user_id)
 ORDER BY s.kind, s.created_at, s.billing_party_id;
 
 -- name: LastActiveTenant :one
--- The tenant the user worked in most recently: the default tenant of a new login.
-SELECT active_tenant_id FROM sessions
-WHERE user_id = sqlc.arg(user_id) AND active_tenant_id IS NOT NULL
-ORDER BY created_at DESC, id DESC
-LIMIT 1;
+-- The tenant the user worked in most recently (users.last_tenant_id, 0024, T62): the default tenant of a new login.
+SELECT last_tenant_id FROM users WHERE id = sqlc.arg(user_id);
+
+-- name: SetLastTenant :exec
+-- Remembers the tenant a sign-in opened or POST /v1/auth/tenant chose (T62); unchanged rows are not rewritten.
+UPDATE users SET last_tenant_id = sqlc.arg(tenant_id)::uuid
+WHERE id = sqlc.arg(id) AND last_tenant_id IS DISTINCT FROM sqlc.arg(tenant_id)::uuid;

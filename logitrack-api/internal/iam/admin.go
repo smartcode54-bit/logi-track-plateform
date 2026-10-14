@@ -30,7 +30,10 @@ const (
 	EventUserCreated           = "user_created"
 	EventUserUpdated           = "user_updated" // T19 refinement: PATCH /v1/users/{id} (display name, email)
 	EventUserInvited           = "user_invited"
-	EventUserRoleChanged       = "user_role_changed"
+	EventUserRoleChanged       = "user_role_changed" // P0-T19 membership writes; T62 writes the three membership_* types
+	EventMembershipAdded       = "membership_added"
+	EventMembershipRoleChanged = "membership_role_changed" // role, or status (suspended / active)
+	EventMembershipRemoved     = "membership_removed"
 	EventUserScopeChanged      = "user_scope_changed"
 	EventUserDisabled          = "user_disabled"
 	EventUserEnabled           = "user_enabled"

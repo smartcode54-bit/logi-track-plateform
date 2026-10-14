@@ -71,6 +71,8 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/:id", requireAuth, h.getTenant)
 			r.Patch("/:id", requireAuth, need(authz.PlatformManageTenants), h.patchTenant)
 			r.Get("/:id/members", requireAuth, need(authz.UsersView), h.listMembers)
+			// T62: a person by email, existing account or invite; the same answer either way.
+			r.Post("/:id/members", requireAuth, need(authz.UsersAssignRole), need(authz.UsersManage), h.addMember)
 			r.Put("/:id/members/:userId", requireAuth, need(authz.UsersAssignRole), h.setMember)
 			r.Delete("/:id/members/:userId", requireAuth, need(authz.UsersAssignRole), h.removeMember)
 		}},
@@ -565,17 +567,35 @@ func (h adminHTTP) setMember(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	var in struct {
-		Role string `json:"role"`
-	}
+	var in SetMemberInput
 	if err := httpx.DecodeJSON(c, &in); err != nil {
 		return err
 	}
-	res, err := h.a.SetMember(cl, tenant, user, in.Role)
+	res, err := h.a.SetMember(cl, tenant, user, in)
 	if err != nil {
 		return err
 	}
 	return httpx.JSON(c, http.StatusOK, res)
+}
+
+func (h adminHTTP) addMember(c fiber.Ctx) error {
+	cl, err := h.call(c)
+	if err != nil {
+		return err
+	}
+	tenant, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	var in AddMemberInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		return err
+	}
+	res, err := h.a.AddMember(cl, tenant, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusCreated, res)
 }
 
 func (h adminHTTP) removeMember(c fiber.Ctx) error {

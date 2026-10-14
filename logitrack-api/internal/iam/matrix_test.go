@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/scheduler"
@@ -290,7 +291,8 @@ func TestEventTypesCatalogued(t *testing.T) {
 	for _, e := range []string{EventUserCreated, EventUserUpdated, EventUserInvited, EventUserRoleChanged, EventUserScopeChanged,
 		EventUserDisabled, EventUserEnabled, EventUserDeleted, EventUserSessionsRevoked, EventUserTemporaryPassword,
 		EventDriverLinked, EventDriverUnlinked, EventPlatformRoleGranted, EventPlatformRoleRevoked, EventTenantCreated,
-		EventTenantUpdated, EventTenantContractor, EventPasswordChanged, EventRoleMatrixSaved, EventCrossTenantAccess} {
+		EventTenantUpdated, EventTenantContractor, EventPasswordChanged, EventRoleMatrixSaved, EventCrossTenantAccess,
+		EventMembershipAdded, EventMembershipRoleChanged, EventMembershipRemoved, auth.EventTenantSwitched} {
 		if !security.KnownType(e) {
 			t.Errorf("%s is not in security.EventTypes", e)
 		}

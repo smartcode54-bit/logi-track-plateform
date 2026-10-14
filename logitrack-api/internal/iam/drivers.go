@@ -148,7 +148,7 @@ func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, 
 			}
 			actor := p.UserID
 			if err := q.UpsertMembership(ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: to,
-				Role: string(authz.Driver), CreatedBy: &actor}); err != nil {
+				Role: string(authz.Driver), Status: MembershipActive, CreatedBy: &actor}); err != nil {
 				return err
 			}
 			if err := a.claimsChanged(c, tx, uid, keep); err != nil {
