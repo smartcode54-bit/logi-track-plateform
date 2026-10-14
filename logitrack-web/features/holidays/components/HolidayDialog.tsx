@@ -237,7 +237,7 @@ function HolidayForm({
                                 <SelectTrigger aria-label={t("holidays.dialog.typeLabel")}>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     {types.map((ty) => (
                                         <SelectItem key={ty} value={ty}>
                                             {t(`holidays.type.${ty}`)}
@@ -252,7 +252,7 @@ function HolidayForm({
                                 <SelectTrigger aria-label={t("holidays.dialog.statusLabel")}>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     {HOLIDAY_STATUSES.map((st) => (
                                         <SelectItem key={st} value={st}>
                                             {t(`holidays.status.${st}`)}

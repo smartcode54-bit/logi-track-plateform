@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
 import { useLanguage } from "@/context/language";
 import { PROVINCES } from "@/lib/provinces";
-import { Combobox } from "@/components/ui/combobox";
+import { SearchSelect } from "@/components/ui/search-select";
 import { Fingerprint } from "lucide-react";
 
 export function IdentificationSection() {
@@ -63,13 +63,12 @@ export function IdentificationSection() {
                             <FormItem className="flex flex-col">
                                 <FormLabel>{t("trucks.section.province")} *</FormLabel>
                                 <FormControl>
-                                    <Combobox
+                                    <SearchSelect
+                                        ref={field.ref}
                                         options={PROVINCES}
                                         value={field.value}
-                                        onSelect={(value) => setValue("province", value, { shouldValidate: true })}
+                                        onValueChange={(value) => setValue("province", value, { shouldValidate: true })}
                                         placeholder={t("trucks.section.province")}
-                                        searchPlaceholder="Search province..."
-                                        className={!field.value ? "text-muted-foreground" : ""}
                                     />
                                 </FormControl>
                                 <FormMessage />

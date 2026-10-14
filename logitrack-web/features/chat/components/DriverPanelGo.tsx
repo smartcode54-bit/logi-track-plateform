@@ -157,7 +157,7 @@ function ChatIncidentDialog({ driver, name, onClose }: { driver: ChatDriverDTO; 
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 {INCIDENT_CAUSES.map((c) => (
                                     <SelectItem key={c} value={c}>
                                         {t(`taskBoard.incident.cause.${c}`, c)}

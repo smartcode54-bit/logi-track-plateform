@@ -20,14 +20,13 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { CheckCircle2, Loader2, Clock, Check, ChevronsUpDown, Eye } from "lucide-react";
+import { CheckCircle2, Loader2, Clock, Eye } from "lucide-react";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import {
     MaintenanceImagePreviewDialog,
     type MaintenancePreviewGallery,
 } from "@/features/maintenance/components/maintenance/MaintenanceImagePreviewDialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { SearchSelect } from "@/components/ui/search-select";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
 import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 
@@ -97,8 +96,6 @@ interface MaintenanceFormProps {
 export function MaintenanceForm(props: MaintenanceFormProps) {
     const { t } = useLanguage();
     const pmStepKm = props.pmIntervalKm ?? DEFAULT_PM_INTERVAL_KM;
-    const [open, setOpen] = useState(false);
-    const [searchTerm, setSearchTerm] = useState("");
     const [previewGallery, setPreviewGallery] = useState<MaintenancePreviewGallery>(null);
     const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
     const formRef = useRef<HTMLFormElement>(null);
@@ -133,49 +130,17 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                     {props.trucksList && props.setTruckId && (
                         <div className="space-y-2 flex flex-col">
                             <Label className="text-base font-semibold">เลือกรถบรรทุก (Select Truck)</Label>
-                            <Popover open={open} onOpenChange={setOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" role="combobox" aria-expanded={open} className="w-full md:w-[400px] justify-between">
-                                        {props.truckId
-                                            ? props.trucksList.find(t => t.id === props.truckId)?.licensePlate
-                                            : "ค้นหา / เลือกรถ"
-                                        }
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-full md:w-[400px] p-2 space-y-2">
-                                    <div className="flex items-center border-b px-2 pb-1">
-                                        <Input
-                                            placeholder="ค้นหาทะเบียน..."
-                                            className="h-9 w-full bg-transparent border-none text-sm focus-visible:ring-0 shadow-none px-1"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="max-h-[250px] overflow-y-auto overflow-x-hidden space-y-1">
-                                        {props.trucksList
-                                            .filter(t => t.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()))
-                                            .map(t => (
-                                                <div
-                                                    key={t.id}
-                                                    className={`flex items-center gap-2 p-2 rounded-sm cursor-pointer hover:bg-accent text-sm ${props.truckId === t.id ? "bg-accent text-accent-foreground" : ""}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation(); // Precautionary 
-                                                        props.setTruckId && props.setTruckId(t.id);
-                                                        setOpen(false);
-                                                        setSearchTerm("");
-                                                    }}
-                                                >
-                                                    <Check className={`h-4 w-4 ${props.truckId === t.id ? "opacity-100" : "opacity-0"}`} />
-                                                    <span>{t.licensePlate}</span>
-                                                </div>
-                                            ))}
-                                        {props.trucksList.filter(t => t.licensePlate.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
-                                            <p className="text-center py-4 text-muted-foreground text-sm">ไม่พบทะเบียนรถที่ค้นหา</p>
-                                        )}
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
+                            <SearchSelect
+                                aria-label="เลือกรถบรรทุก (Select Truck)"
+                                value={props.truckId ?? ""}
+                                onValueChange={(id) => props.setTruckId?.(id)}
+                                options={props.trucksList.map((tr) => ({ value: tr.id, label: tr.licensePlate }))}
+                                searchable
+                                placeholder="ค้นหา / เลือกรถ"
+                                searchPlaceholder="ค้นหาทะเบียน..."
+                                emptyText="ไม่พบทะเบียนรถที่ค้นหา"
+                                className="w-full md:w-[400px]"
+                            />
                         </div>
                     )}
                     <div className="space-y-3">

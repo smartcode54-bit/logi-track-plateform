@@ -86,7 +86,7 @@ function ServiceFeeDialog({ fee, customerId, customers, onClose }: { fee: Servic
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     {FEE_TYPES.map((f) => (
                                         <SelectItem key={f} value={f}>
                                             {t(`accounting.serviceFees.type.${f}`)}
@@ -101,7 +101,7 @@ function ServiceFeeDialog({ fee, customerId, customers, onClose }: { fee: Servic
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     {FEE_UNITS.map((u) => (
                                         <SelectItem key={u} value={u}>
                                             {t(`accounting.serviceFees.unit.${u}`)}

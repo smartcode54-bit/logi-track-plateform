@@ -218,7 +218,7 @@ export function ExpenseDetailDialog({
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="z-[1005]" position="popper">
+                                <SelectContent>
                                     <SelectItem value="__none__">—</SelectItem>
                                     {EXPENSE_CATEGORIES.map((c) => (
                                         <SelectItem key={c} value={c}>

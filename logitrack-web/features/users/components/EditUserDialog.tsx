@@ -71,6 +71,10 @@ export function EditUserDialog({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
+    const scopeLabels = useMemo(
+        () => Object.fromEntries((user?.scopes ?? []).filter((s) => s.kind === "customer").map((s) => [s.billingPartyId, s.name])),
+        [user]
+    );
     const customerScope = useMemo(() => (user ? user.scopes.filter((s) => s.kind === "customer").map((s) => s.billingPartyId) : []), [user]);
 
     if (!user) return null;
@@ -141,7 +145,7 @@ export function EditUserDialog({
                                 <SelectTrigger className="h-8 w-[180px]" aria-label={t("users.form.role")}>
                                     <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent position="popper" className="z-[1005]">
+                                <SelectContent>
                                     {roleOptions(m.tenantId, m.role).map((r) => (
                                         <SelectItem key={r} value={r}>
                                             {t(`users.tenantRole.${r}`, r)}
@@ -213,7 +217,7 @@ export function EditUserDialog({
                                     <SelectTrigger className="h-9 w-[170px]">
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent position="popper" className="z-[1005]">
+                                    <SelectContent>
                                         {grantableRoles(me, newTenantId).map((r) => (
                                             <SelectItem key={r} value={r}>
                                                 {t(`users.tenantRole.${r}`)}
@@ -240,7 +244,7 @@ export function EditUserDialog({
                         <section className="space-y-2">
                             <h3 className="text-sm font-semibold">{t("users.scope.customerTitle")}</h3>
                             <p className="text-xs text-muted-foreground">{t("users.scope.customerHint")}</p>
-                            <CustomerScopePicker value={parties} onChange={setParties} disabled={accountOff} />
+                            <CustomerScopePicker value={parties} onChange={setParties} disabled={accountOff} labels={scopeLabels} />
                             <Button
                                 type="button"
                                 size="sm"
@@ -266,6 +270,7 @@ export function EditUserDialog({
                             <p className="text-xs">{driverLabel ? t("users.driverLinked", { name: driverLabel }) : t("users.driverLinkNone")}</p>
                             <DriverPicker
                                 value={driverId}
+                                selectedLabel={driverLabel}
                                 onChange={(id, label) => {
                                     setDriverId(id);
                                     setDriverLabel(label);

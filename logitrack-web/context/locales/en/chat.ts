@@ -14,9 +14,7 @@ export default {
     "chat.home.hint": "Select a conversation from the list to view messages, or use the driver panel on the right when a chat is selected.",
 
     "chat.panel.searchDriver": "Search a driver by name...",
-    "chat.panel.searching": "Searching drivers...",
     "chat.panel.noDriver": "No driver found",
-    "chat.panel.startChat": "Start chat",
     "chat.panel.newBroadcast": "New Broadcast",
     "chat.panel.queued": "Queued",
     "chat.panel.mine": "My Chats",
@@ -81,7 +79,6 @@ export default {
     "chat.broadcast.groupHint.all_tenants": "Drivers of every tenant (platform-wide)",
     "chat.broadcast.searchDriver": "Search a driver to add...",
     "chat.broadcast.pickDrivers": "Pick at least one driver.",
-    "chat.broadcast.removeRecipient": "Remove {name}",
     "chat.broadcast.noLogin": "{name} has no driver app login yet.",
     "chat.broadcast.selectedCount": "Selected drivers: {count}",
     "chat.broadcast.resolvedOnSend": "Recipients are counted when the broadcast is sent.",

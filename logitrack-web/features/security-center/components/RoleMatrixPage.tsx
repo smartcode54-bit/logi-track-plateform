@@ -133,7 +133,7 @@ export function RoleMatrixPage() {
                             <SelectTrigger aria-label={t("securityCenter.roles.layer")}>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value={PLATFORM_VALUE}>{t("securityCenter.roles.layerPlatform")}</SelectItem>
                                 {(tenants.data ?? [])
                                     .filter((tn) => tn.kind !== "quarantine")

@@ -219,15 +219,20 @@ describe("conversations panel over Go", () => {
         const { web } = setup();
         const user = userEvent.setup();
         renderWithProviders(<ConversationsPanelGo />);
-        await user.type(await screen.findByPlaceholderText("Search a driver by name..."), "som");
-        const link = await screen.findByRole("link", { name: /สมชาย som/ });
-        expect(link).toHaveAttribute("href", `/app/chat/with-driver?driverId=${DRIVER_ID}`);
+        // The shared searchable select (UI2): a combobox, options with listbox roles, keyboard picking.
+        await user.click(await screen.findByRole("combobox", { name: "Search a driver by name..." }));
+        await user.type(screen.getByPlaceholderText("Search a driver by name..."), "som");
+        await screen.findByRole("option", { name: /สมชาย som/ });
+        await user.keyboard("{Enter}");
+        expect(nav.push).toHaveBeenCalledWith(`/app/chat/with-driver?driverId=${DRIVER_ID}`);
         const searches = web.calls.filter((c) => path(c) === "/api/go/v1/drivers");
         expect(searches.length).toBeGreaterThan(0);
+        // Opening the list reads one page (limit 20), typing searches with q: never every driver.
         for (const c of searches) {
             expect(q(c).get("fields")).toBe("minimal");
-            expect(q(c).get("q")).toBeTruthy();
+            expect(q(c).get("limit")).toBe("20");
         }
+        expect(searches.map((c) => q(c).get("q"))).toContain("som");
     });
 });
 
@@ -509,14 +514,20 @@ describe("broadcasts over Go", () => {
         renderWithProviders(<BroadcastComposerGo />);
         await screen.findByText("Notice 1");
         await user.click(screen.getByRole("radio", { name: /Selected drivers/ }));
-        await user.type(screen.getByLabelText("Search a driver to add..."), "sc");
-        await user.click(await screen.findByRole("button", { name: /สมชาย sc/ }));
+        // The shared multi select (UI2): the picked drivers are its chips.
+        await user.click(screen.getByRole("combobox", { name: "Search a driver to add..." }));
+        const box = screen.getByPlaceholderText("Search a driver to add...");
+        await user.type(box, "sc");
+        await user.click(await screen.findByRole("option", { name: /สมชาย sc/ }));
         expect(await within(screen.getByTestId("broadcast-picked")).findByText("สมชาย sc")).toBeInTheDocument();
         // A driver without an app login cannot be picked.
-        await user.type(screen.getByLabelText("Search a driver to add..."), "no");
-        await user.click(await screen.findByRole("button", { name: /No login/ }));
+        await user.clear(box);
+        await user.type(box, "no");
+        await user.click(await screen.findByRole("option", { name: /No login/ }));
         await waitFor(() => expect(web.count("GET", "/api/go/v1/drivers/0192b3a4-0000-7000-8000-0000000000d2")).toBe(1));
-        expect(within(screen.getByTestId("broadcast-picked")).queryByText("No login")).toBeNull();
+        await waitFor(() => expect(within(screen.getByTestId("broadcast-picked")).queryByText("No login")).toBeNull());
+        await user.keyboard("{Escape}");
+        expect(within(screen.getByTestId("broadcast-picked")).getByText("สมชาย sc")).toBeInTheDocument();
 
         const searches = web.calls.filter((c) => path(c) === "/api/go/v1/drivers");
         expect(searches.length).toBeGreaterThan(0);
@@ -539,8 +550,11 @@ describe("broadcasts over Go", () => {
         renderWithProviders(<BroadcastComposerGo />);
         await screen.findByText("Notice 1");
         await user.click(screen.getByRole("radio", { name: /Selected drivers/ }));
-        await user.type(screen.getByLabelText("Search a driver to add..."), "s");
-        await user.click(await screen.findByRole("button", { name: /สมชาย s/ }));
+        await user.click(screen.getByRole("combobox", { name: "Search a driver to add..." }));
+        await user.type(screen.getByPlaceholderText("Search a driver to add..."), "s");
+        await user.click(await screen.findByRole("option", { name: /สมชาย s/ }));
+        await within(screen.getByTestId("broadcast-picked")).findByText("สมชาย s");
+        await user.keyboard("{Escape}");
         await user.type(screen.getByLabelText(/Subject/), "Hi");
         await user.type(screen.getByLabelText(/Message body/), "Body");
         await user.click(screen.getByRole("button", { name: /Send Broadcast Now/ }));

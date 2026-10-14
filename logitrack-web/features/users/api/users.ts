@@ -18,10 +18,9 @@
  * carry it. Writes never do: `PUT/DELETE /v1/tenants/{id}/members/{userId}` and
  * `POST /v1/users {tenantId}` are authorised for platform admins without it.
  */
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import { goFetch, goFetchEnvelope, goPath } from "@/lib/goFetch";
-import { fetchAllPages } from "@/lib/goPages";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { isPlatformPrincipal, type MeDTO, type PlatformRole, type TenantRole } from "@/features/auth/api/me";
 import { queryKeys } from "@/lib/queryKeys";
@@ -286,41 +285,3 @@ export async function findUserForLegacyAccount(legacy: { uid: string; email: str
     return (page.data ?? []).find((u) => u.legacyAuthUid === legacy.uid) ?? null;
 }
 
-// --- pickers ---
-
-/** One option of the customer-scope picker (`GET /v1/customers?fields=minimal`, Appendix B §B.2.10). */
-export interface CustomerOption {
-    id: string;
-    billingPartyId: string;
-    code: string | null;
-    name: string;
-}
-
-/** One option of the driver-link picker (`GET /v1/drivers?fields=minimal`, Appendix B §B.2.7). */
-export interface DriverOption {
-    id: string;
-    displayName: string | null;
-}
-
-/** `['customers', {fields:'minimal'}]` for the customer-scope picker (10 min, §10.7). */
-export function useCustomerOptions(enabled: boolean) {
-    return useQuery({
-        queryKey: queryKeys.customers.list({ fields: "minimal" }),
-        queryFn: ({ signal }) => fetchAllPages<CustomerOption>("/v1/customers", { fields: "minimal" }, { signal }),
-        staleTime: 10 * 60_000,
-        gcTime: 60 * 60_000,
-        enabled,
-    });
-}
-
-/** `['drivers', {fields:'minimal', q}]` for the driver-link picker (searched on the server). */
-export function useDriverOptions(q: string, enabled: boolean) {
-    const term = q.trim();
-    return useQuery({
-        queryKey: queryKeys.drivers.list({ fields: "minimal", q: term }),
-        queryFn: ({ signal }) =>
-            goFetch<DriverOption[]>("/v1/drivers", { signal, query: { fields: "minimal", q: term || undefined, limit: 20 } }),
-        staleTime: 5 * 60_000,
-        enabled,
-    });
-}

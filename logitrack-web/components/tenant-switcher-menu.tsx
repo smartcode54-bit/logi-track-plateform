@@ -31,7 +31,7 @@ export default function TenantSwitcherMenu({ tenants, active, switching, onChoos
                 <SelectTrigger className="h-8 w-[140px] md:w-[220px]" aria-label={t("nav.switchTenant")}>
                     <SelectValue placeholder={t("nav.switchTenant")} />
                 </SelectTrigger>
-                <SelectContent position="popper" className="z-[1005]">
+                <SelectContent>
                     {tenants.map((tenant) => (
                         <SelectItem key={tenant.id} value={tenant.id} disabled={tenant.status !== undefined && tenant.status !== "active"}>
                             {tenantName(tenant, language)}

@@ -9,22 +9,18 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, isValid, parseISO } from "date-fns";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DriverSelect, TruckSelect } from "@/components/entity-pickers";
+import { SearchSelect, nodeText, type SearchSelectOption } from "@/components/ui/search-select";
 
 import {
     customerLabel,
     customerPicksQuery,
-    driverPicksQuery,
-    truckPicksQuery,
     type CustomerPick,
 } from "../../api/pickers.go";
 
@@ -91,21 +87,28 @@ export interface CustomerSelectProps {
     id?: string;
 }
 
+/**
+ * A customer pick over the page's customer list (UI2: the shared searchable select, so the list filters as
+ * the user types and virtualises when long); `allValue` adds the "every customer" row first.
+ */
 export function CustomerSelect({ value, onChange, customers, allValue, allLabel, placeholder, className, disabled, id }: CustomerSelectProps) {
+    const options = useMemo<SearchSelectOption[]>(
+        () => [
+            ...(allValue !== undefined ? [{ value: allValue, label: allLabel ?? allValue }] : []),
+            ...customers.map((c) => ({ value: c.id, label: customerLabel(c), keywords: [c.code] })),
+        ],
+        [customers, allValue, allLabel]
+    );
     return (
-        <Select value={value} onValueChange={onChange} disabled={disabled}>
-            <SelectTrigger id={id} className={cn("min-w-[200px]", className)}>
-                <SelectValue placeholder={placeholder} />
-            </SelectTrigger>
-            <SelectContent className="z-[1005]" position="popper">
-                {allValue !== undefined ? <SelectItem value={allValue}>{allLabel}</SelectItem> : null}
-                {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                        {customerLabel(c)}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
+        <SearchSelect
+            id={id}
+            value={value}
+            onValueChange={(v) => onChange(v)}
+            options={options}
+            placeholder={placeholder}
+            disabled={disabled}
+            className={cn("min-w-[200px]", className)}
+        />
     );
 }
 
@@ -137,66 +140,21 @@ interface SearchPickerProps {
 
 /**
  * A driver or truck picker searched on the server (`['drivers',{fields:'minimal',q}]`,
- * `['trucks',{view:'picker',q}]`): no list of every driver or truck is read in the browser.
+ * `['trucks',{view:'picker',q}]`): no list of every driver or truck is read in the browser. The shared
+ * `DriverSelect` / `TruckSelect` (UI2); `clearLabel` makes it clearable (a filter's "all").
  */
 export function SearchPicker({ kind, value, onChange, placeholder, clearLabel, className, disabled }: SearchPickerProps) {
-    const { t } = useLanguage();
-    const [open, setOpen] = useState(false);
-    const [term, setTerm] = useState("");
-    const q = useDebounced(term);
-    const drivers = useQuery({ ...driverPicksQuery(q), enabled: open && kind === "driver" });
-    const trucks = useQuery({ ...truckPicksQuery(q), enabled: open && kind === "truck" });
-    const query = kind === "driver" ? drivers : trucks;
-    const options: PickValue[] =
-        kind === "driver"
-            ? (drivers.data ?? []).map((d) => ({ id: d.id, label: d.displayName || d.id.slice(0, 8) }))
-            : (trucks.data ?? []).map((tr) => ({ id: tr.id, label: tr.licensePlate || tr.id.slice(0, 8) }));
-    const choose = (v: PickValue | null) => {
-        onChange(v);
-        setOpen(false);
-        setTerm("");
-    };
+    const Picker = kind === "driver" ? DriverSelect : TruckSelect;
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <Button type="button" variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className={cn("w-[220px] justify-between font-normal", className)}>
-                    <span className={cn("truncate", !value && "text-muted-foreground")}>{value?.label ?? placeholder}</span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="z-[1005] w-[260px] p-2" align="start">
-                <Input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder={t("common.searchPlaceholder")} className="mb-2 h-8" />
-                <div className="max-h-64 overflow-y-auto" role="listbox">
-                    {clearLabel ? (
-                        <button type="button" className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent" onClick={() => choose(null)}>
-                            {clearLabel}
-                        </button>
-                    ) : null}
-                    {query.isFetching && options.length === 0 ? (
-                        <div className="flex justify-center py-3">
-                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : null}
-                    {query.error ? <p className="px-2 py-1.5 text-xs text-destructive">{apiErrorText(query.error, t)}</p> : null}
-                    {!query.isFetching && !query.error && options.length === 0 ? (
-                        <p className="px-2 py-1.5 text-xs text-muted-foreground">{t("common.noResults")}</p>
-                    ) : null}
-                    {options.map((o) => (
-                        <button
-                            key={o.id}
-                            type="button"
-                            role="option"
-                            aria-selected={value?.id === o.id}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                            onClick={() => choose(o)}
-                        >
-                            <Check className={cn("h-4 w-4", value?.id === o.id ? "opacity-100" : "opacity-0")} />
-                            <span className="truncate">{o.label}</span>
-                        </button>
-                    ))}
-                </div>
-            </PopoverContent>
-        </Popover>
+        <Picker
+            value={value?.id ?? ""}
+            selectedLabel={value?.label}
+            onValueChange={(id, option) => onChange(id && option ? { id, label: option.text ?? nodeText(option.label) } : null)}
+            placeholder={placeholder}
+            clearable={!!clearLabel}
+            disabled={disabled}
+            className={cn("w-[220px]", className)}
+        />
     );
 }
 

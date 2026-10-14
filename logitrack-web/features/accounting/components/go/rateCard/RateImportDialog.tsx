@@ -143,7 +143,7 @@ export function RateImportDialog({
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value="PRIMARY">{t("accounting.rateCard.jobCategory.primary")}</SelectItem>
                                 <SelectItem value="SUPPLEMENTARY">{t("accounting.rateCard.jobCategory.supplementary")}</SelectItem>
                             </SelectContent>

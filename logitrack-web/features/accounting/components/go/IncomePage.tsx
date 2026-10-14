@@ -106,7 +106,7 @@ function ManualPriceDialog({ row, onClose }: { row: IncomeRow; onClose: () => vo
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent className="z-[1005]" position="popper">
+                            <SelectContent>
                                 <SelectItem value="PRIMARY">{t("accounting.billingDocument.badge.jobCategoryPrimary")}</SelectItem>
                                 <SelectItem value="SUPPLEMENTARY">{t("accounting.billingDocument.badge.jobCategorySupplementary")}</SelectItem>
                             </SelectContent>

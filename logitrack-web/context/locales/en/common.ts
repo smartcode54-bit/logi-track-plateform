@@ -418,4 +418,15 @@ export default {
     // T42: the Go accounting / maintenance pages.
     "common.searchPlaceholder": "Search...",
     "common.noResults": "No results",
+
+    // UI2: the shared searchable select (components/ui/search-select.tsx).
+    "common.select.placeholder": "Select...",
+    "common.select.search": "Search...",
+    "common.select.empty": "No results",
+    "common.select.loading": "Loading...",
+    "common.select.clear": "Clear",
+    "common.select.create": "Create “{term}”",
+    "common.select.remove": "Remove {label}",
+    "common.select.partial": "Showing {shown} of {total}. Type to narrow the list.",
+    "common.select.count": "{count} of {max} selected",
 };

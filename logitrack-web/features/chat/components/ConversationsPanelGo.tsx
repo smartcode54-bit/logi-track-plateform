@@ -4,70 +4,48 @@
  * The conversations panel over Go (T50; Appendix E §E.2.1, §E.5 rows 1-2): the queue and the caller's chats
  * are `['chats','queued' | 'mine']` (keyset pages of 50; closed chats left out and unread counts computed by
  * Go), kept current by `tenant:{tid}:chats` (60 s poll only while the stream is down), instead of two
- * listeners on whole collections. Starting a chat searches drivers on the server
- * (`['drivers',{fields:'minimal',q}]`, debounced) instead of filtering 200 drivers read in the browser.
+ * listeners on whole collections. Starting a chat picks a driver in the shared driver picker (UI2), which
+ * searches on the server (`['drivers',{fields:'minimal',q}]`, debounced) instead of filtering 200 drivers
+ * read in the browser.
  */
-import { useState } from "react";
 import Link from "next/link";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Inbox, Loader2, Megaphone, MessageCircle, Search, User } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
-import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useCan } from "@/features/auth/api/useMe";
-import { driverPicksQuery } from "@/features/accounting/api/pickers.go";
 import { apiErrorText } from "@/lib/apiError";
 import { useStreamFallbackPoll } from "@/lib/realtime/polling";
+import { DriverSelect } from "@/components/entity-pickers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { chatListQuery, chatRows, type ChatDTO, type ChatListFilter } from "../api/chats.go";
 import { chatTimeLabel } from "./chatFormat";
 
-/** The driver search waits this long after the last key stroke (a server search per pause, not per key). */
-export const DRIVER_SEARCH_DEBOUNCE_MS = SEARCH_DEBOUNCE_MS;
 
 
+/** Starts a chat: the shared driver picker (UI2) over the server search; picking a driver opens the chat. */
 function DriverSearch() {
     const { t } = useLanguage();
-    const [q, setQ] = useState("");
-    const term = useDebouncedValue(q.trim(), DRIVER_SEARCH_DEBOUNCE_MS);
-    const drivers = useQuery({ ...driverPicksQuery(term), enabled: term !== "" });
+    const router = useRouter();
     return (
-        <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input type="search" placeholder={t("chat.panel.searchDriver")} value={q} onChange={(e) => setQ(e.target.value)} className="h-9 pl-8 text-sm" />
-            {q.trim() !== "" && (
-                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[240px] overflow-y-auto rounded-md border bg-popover shadow-md" data-testid="chat-driver-results">
-                    {term === "" || drivers.isPending ? (
-                        <li className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            {t("chat.panel.searching")}
-                        </li>
-                    ) : drivers.isError ? (
-                        <li className="p-3 text-sm text-destructive">{apiErrorText(drivers.error, t)}</li>
-                    ) : (drivers.data ?? []).length === 0 ? (
-                        <li className="p-3 text-sm text-muted-foreground">{t("chat.panel.noDriver")}</li>
-                    ) : (
-                        (drivers.data ?? []).map((d) => (
-                            <li key={d.id}>
-                                <Link
-                                    href={`/app/chat/with-driver?driverId=${encodeURIComponent(d.id)}`}
-                                    prefetch={false}
-                                    className="flex items-center justify-between gap-2 p-3 text-left transition-colors hover:bg-muted/80"
-                                >
-                                    <span className="block min-w-0 flex-1 truncate font-medium">{d.displayName || d.id.slice(0, 8)}</span>
-                                    <span className="shrink-0 text-xs text-muted-foreground">{t("chat.panel.startChat")}</span>
-                                </Link>
-                            </li>
-                        ))
-                    )}
-                </ul>
-            )}
-        </div>
+        <DriverSelect
+            value=""
+            onValueChange={(id) => {
+                if (id) router.push(`/app/chat/with-driver?driverId=${encodeURIComponent(id)}`);
+            }}
+            placeholder={t("chat.panel.searchDriver")}
+            searchPlaceholder={t("chat.panel.searchDriver")}
+            emptyText={t("chat.panel.noDriver")}
+            aria-label={t("chat.panel.searchDriver")}
+            icon={<Search aria-hidden className="h-4 w-4 text-muted-foreground" />}
+            className="text-sm"
+            data-testid="chat-driver-search"
+        />
     );
 }
 

@@ -14,9 +14,7 @@ export default {
     "chat.home.hint": "เลือกบทสนทนาจากรายการเพื่อดูข้อความ หรือดูข้อมูลคนขับที่แผงด้านขวาเมื่อเลือกแชทแล้ว",
 
     "chat.panel.searchDriver": "ค้นหาคนขับตามชื่อ...",
-    "chat.panel.searching": "กำลังค้นหาคนขับ...",
     "chat.panel.noDriver": "ไม่พบคนขับ",
-    "chat.panel.startChat": "เริ่มแชท",
     "chat.panel.newBroadcast": "ส่ง Broadcast ใหม่",
     "chat.panel.queued": "รอรับเรื่อง",
     "chat.panel.mine": "แชทของฉัน",
@@ -81,7 +79,6 @@ export default {
     "chat.broadcast.groupHint.all_tenants": "คนขับของทุกบริษัท (ทั้งแพลตฟอร์ม)",
     "chat.broadcast.searchDriver": "ค้นหาคนขับเพื่อเพิ่ม...",
     "chat.broadcast.pickDrivers": "เลือกคนขับอย่างน้อยหนึ่งคน",
-    "chat.broadcast.removeRecipient": "นำ {name} ออก",
     "chat.broadcast.noLogin": "{name} ยังไม่มีบัญชีเข้าแอปคนขับ",
     "chat.broadcast.selectedCount": "คนขับที่เลือก: {count}",
     "chat.broadcast.resolvedOnSend": "ระบบนับผู้รับตอนส่ง Broadcast",

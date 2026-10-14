@@ -123,7 +123,7 @@ export function AddMemberDialog({
                             <SelectTrigger aria-label={t("users.form.role")}>
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent position="popper" className="z-[1005]">
+                            <SelectContent>
                                 {roles.map((r) => (
                                     <SelectItem key={r} value={r}>
                                         {t(`users.tenantRole.${r}`)}

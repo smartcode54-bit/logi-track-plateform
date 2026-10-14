@@ -115,7 +115,7 @@ describe("HubFilterCombobox (over the old 50-hub cap)", () => {
         const u = await open(hubs);
         // The virtualised list is its own chunk, preloaded when the combobox mounts.
         const list = await waitFor(() => {
-            const el = document.querySelector<HTMLElement>('[data-slot="filter-combobox-virtual-list"]');
+            const el = document.querySelector<HTMLElement>('[data-slot="search-select-virtual"]')?.closest<HTMLElement>('[data-slot="search-select-list"]') ?? null;
             expect(el).not.toBeNull();
             return el;
         });

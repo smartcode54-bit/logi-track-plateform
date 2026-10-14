@@ -179,7 +179,7 @@ export function AddExpenseDialog({ type, open, onOpenChange }: { type: ExpenseTy
                                         <SelectTrigger>
                                             <SelectValue />
                                         </SelectTrigger>
-                                        <SelectContent className="z-[1005]" position="popper">
+                                        <SelectContent>
                                             {EXPENSE_CATEGORIES.map((c) => (
                                                 <SelectItem key={c} value={c}>
                                                     {categoryLabel(c, t)}
