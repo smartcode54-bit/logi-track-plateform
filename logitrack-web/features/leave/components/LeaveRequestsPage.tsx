@@ -376,7 +376,7 @@ function DecisionDialogBody({
                     <HrErrorAlert error={error} />
                 </div>
 
-                <DialogFooter className="gap-2 sm:gap-0">
+                <DialogFooter>
                     {rejecting ? (
                         <>
                             <Button variant="ghost" onClick={() => setRejecting(false)} disabled={decide.isPending}>
