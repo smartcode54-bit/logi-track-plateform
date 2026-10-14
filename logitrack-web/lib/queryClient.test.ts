@@ -217,9 +217,9 @@ describe("a change of principal empties the cache (no data of one user reaches t
     });
 
     it("a session that lapses quietly on a public page drops the previous user's data", async () => {
-        // On /support, a 401 `unauthenticated` whose refresh is refused is a signed-out visitor, not a
+        // On /about, a 401 `unauthenticated` whose refresh is refused is a signed-out visitor, not a
         // session end: no listener runs and no logout is sent, yet ['me'] turns null.
-        window.history.replaceState({}, "", "/support");
+        window.history.replaceState({}, "", "/about");
         const client = createQueryClient();
         const off = bindQueryClientToSession(client);
         client.setQueryData(["me"], principal("ann"));

@@ -253,6 +253,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[
   "/app/standby-records": ["operations:view_driver_monitor"],
   "/app/subcontractors": ["fleet:manage_subcontractors"],
   "/app/subcontractors/new": ["fleet:manage_subcontractors"],
+  "/app/support": [],
   "/app/truck-assignment": ["fleet:view_assignments"],
   "/app/trucks": ["fleet:view_trucks"],
   "/app/trucks/edit": ["fleet:edit_truck"],

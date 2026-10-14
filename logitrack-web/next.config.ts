@@ -38,6 +38,10 @@ export const PAGE_SOURCE = "/:path((?!_next/|api/|app/|app$).*)";
 export const ASSET_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "svg", "ico", "webp", "avif", "ttf", "otf", "woff", "woff2"];
 export const ASSET_SOURCE = `/:path((?!_next/|api/|app/).+\\.(?:${ASSET_EXTENSIONS.join("|")}))`;
 
+/** The former public support page and its place inside the console (UI3C). */
+export const SUPPORT_PUBLIC_PATH = "/support";
+export const SUPPORT_APP_PATH = "/app/support";
+
 /** The page of the password reset and invite links (`/reset-password#token=`, T18). */
 export const RESET_PASSWORD_PATH = "/reset-password";
 
@@ -100,6 +104,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/app/users", destination: "/app/security-center/users", permanent: true },
       { source: "/app/operations/roles", destination: "/app/security-center/roles", permanent: true },
+      // UI3C: support lives inside the console; a signed-out visitor passes the sign-in gate on the way. Not
+      // permanent, so browsers do not keep the move should a public help page come back.
+      { source: SUPPORT_PUBLIC_PATH, destination: SUPPORT_APP_PATH, permanent: false },
     ];
   },
   webpack: (config, { isServer }) => {

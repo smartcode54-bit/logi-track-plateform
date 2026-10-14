@@ -303,6 +303,8 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 		"/app/chat/with-driver":              taMgOsOp,
 		// added by T18 (owner addition): the tenants page of the Security Center
 		"/app/security-center/tenants": platform,
+		// added by UI3C (#143): support inside the shell, open like the dashboard
+		"/app/support": all,
 	}
 	legacy := legacyRoutes(t)
 	for path := range legacy {

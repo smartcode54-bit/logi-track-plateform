@@ -94,11 +94,15 @@ describe("next.config (standalone)", () => {
     for (const f of files) expect([f, await cacheControlFor(f)]).toEqual([f, ASSET_CACHE_CONTROL]);
   });
 
-  it("turns the legacy redirect pages into permanent redirects", async () => {
+  it("turns the legacy redirect pages into permanent redirects, and sends /support into the console (UI3C)", async () => {
     expect(await nextConfig.redirects!()).toEqual([
       { source: "/app/users", destination: "/app/security-center/users", permanent: true },
       { source: "/app/operations/roles", destination: "/app/security-center/roles", permanent: true },
+      { source: "/support", destination: "/app/support", permanent: false },
     ]);
+    // The public page is gone: only the redirect answers /support.
+    expect(fs.existsSync(path.join(webDir, "app", "support", "page.tsx"))).toBe(false);
+    expect(fs.existsSync(path.join(webDir, "app", "app", "support", "page.tsx"))).toBe(true);
   });
 });
 
@@ -255,7 +259,7 @@ describe("scripts/check-standalone.mjs", () => {
 
   it("allow-lists exactly the §16.1 web-public names and covers every web-server value", () => {
     // TW7: the Firebase and App Check public config left with the Firebase SDK.
-    expect([...NEXT_PUBLIC_ALLOW]).toEqual(["NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID"]);
+    expect([...NEXT_PUBLIC_ALLOW]).toEqual(["NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID", "NEXT_PUBLIC_SUPPORT_EMAIL"]);
     expect(SERVER_ONLY).toContain("GO_API_INTERNAL_URL");
     expect(SERVER_ONLY).not.toContain("NODE_ENV");
   });

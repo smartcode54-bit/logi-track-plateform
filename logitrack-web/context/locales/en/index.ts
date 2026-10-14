@@ -28,6 +28,7 @@ import apiErrors from "./apiErrors";
 import imagePreview from "./imagePreview";
 import hr from "./hr";
 import chat from "./chat";
+import support from "./support";
 
 const dictionary: Dictionary = {
     ...common,
@@ -55,6 +56,7 @@ const dictionary: Dictionary = {
     ...imagePreview,
     ...hr,
     ...chat,
+    ...support,
 };
 
 export default dictionary;
