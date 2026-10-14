@@ -1,13 +1,12 @@
 export default {
     // Trucks
-    "trucks.title": "Trucks",
     "trucks.subtitle": "Manage your truck fleet",
     "trucks.addTruck": "Add Truck",
     "trucks.searchPlaceholder": "Search trucks...",
     "trucks.noTrucks": "No trucks yet",
     "trucks.getStarted": "Get started by adding your first truck.",
     "trucks.filter.own": "Own Fleet",
-    "trucks.filter.subcontractor": "Subcontractor Trucks",
+    "trucks.filter.subcontractor": "Partner trucks",
     "trucks.filter.all": "All Trucks",
 
     "trucks.monitor": "Monitor and manage all registered trucks in the system",
@@ -93,12 +92,12 @@ export default {
 
     "trucks.step2.title": "Step 2: Compliance",
     "trucks.step2.desc": "Enter registration and insurance details.",
-    "trucks.step2.subOptions": "Registration details are optional for subcontractor vehicles.",
+    "trucks.step2.subOptions": "Registration details are optional for partner vehicles.",
     "trucks.step2.insurance": "Insurance Information",
 
     "trucks.step3.title": "Step 3: Engine Specifications",
     "trucks.step3.desc": "Details regarding engine specifications and capacity.",
-    "trucks.step3.subOptions": "Detailed engine information is optional for subcontractor trucks.",
+    "trucks.step3.subOptions": "Detailed engine information is optional for partner trucks.",
     "trucks.step3.maintenanceBook": "Maintenance Book",
     "trucks.step3.lastServiceDate": "Last Service Date",
     "trucks.step3.nextServiceDate": "Next Service Date",
@@ -211,7 +210,7 @@ export default {
 
     "trucks.stats.all": "All Trucks",
     "trucks.stats.own": "Own Fleet",
-    "trucks.stats.sub": "Subcontractor Fleet",
+    "trucks.stats.sub": "Partner fleet",
     "trucks.stats.schedule": "Maintenance Schedule",
     "trucks.stats.active": "Active",
     "trucks.stats.maintenance": "Maintenance",
@@ -252,7 +251,7 @@ export default {
     "trucks.detail.endDate": "End Date",
     "trucks.detail.renewalStatus": "Renewal Status",
     "trucks.detail.ownershipInfo": "Ownership Info",
-    "trucks.detail.subcontractorFleet": "Subcontractor Fleet",
+    "trucks.detail.subcontractorFleet": "Partner fleet",
     "trucks.detail.ownFleet": "Own Fleet",
     "trucks.detail.partner": "PARTNER",
     "trucks.detail.managedByPartner": "Managed by",
@@ -303,8 +302,8 @@ export default {
     "trucks.edit.backToDetails": "Back to Details",
     "trucks.edit.ownership": "Ownership",
     "trucks.edit.ownershipType": "Type",
-    "trucks.edit.subcontractorRequired": "Subcontractor (Required)",
-    "trucks.edit.selectSubcontractor": "Select a subcontractor",
+    "trucks.edit.subcontractorRequired": "Partner (required)",
+    "trucks.edit.selectSubcontractor": "Select a partner",
     "trucks.edit.saveChanges": "Save Changes",
     "trucks.edit.saving": "Saving...",
     "trucks.edit.cancel": "Cancel",

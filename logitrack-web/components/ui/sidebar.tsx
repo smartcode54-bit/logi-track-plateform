@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Tooltip,
+  TooltipInGroup,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
@@ -48,6 +48,17 @@ export function sidebarStateFromCookie(cookie: string): boolean | undefined {
   return undefined
 }
 
+/** Apple platforms write the sidebar shortcut with ⌘ (Meta); every other platform with Ctrl. */
+export function isApplePlatform(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+}
+
+/** Where a keystroke belongs to text entry, so ⌘B / Ctrl+B (bold in an editor) must not toggle the sidebar. */
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || Boolean(target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"))
+}
+
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
@@ -58,6 +69,8 @@ type SidebarContextProps = {
   toggleSidebar: () => void
   /** The id of the sidebar panel (the desktop container or the phone sheet), for the trigger's `aria-controls`. */
   sidebarId: string
+  /** The trigger, where focus returns when the phone sheet closes (it is not the sheet's Radix trigger). */
+  triggerRef: React.RefObject<HTMLButtonElement | null>
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -88,6 +101,7 @@ function SidebarProvider({
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
   const sidebarId = React.useId()
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -113,13 +127,13 @@ function SidebarProvider({
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
   }, [isMobile, setOpen, setOpenMobile])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
+  // Adds a keyboard shortcut to toggle the sidebar: ⌘B on Apple platforms, Ctrl+B elsewhere (UI3B: not both), and
+  // never while the user is typing in a field or an editor.
   React.useEffect(() => {
+    const apple = isApplePlatform()
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
+      const modifier = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+      if (event.key.toLowerCase() === SIDEBAR_KEYBOARD_SHORTCUT && modifier && !event.altKey && !isTextEntry(event.target)) {
         event.preventDefault()
         toggleSidebar()
       }
@@ -143,6 +157,7 @@ function SidebarProvider({
       setOpenMobile,
       toggleSidebar,
       sidebarId,
+      triggerRef,
     }),
     [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, sidebarId]
   )
@@ -186,7 +201,7 @@ function Sidebar({
   /** The accessible name of the sheet's close button (UI3B: it was hidden, 0×0). */
   sheetCloseLabel?: string
 }) {
-  const { isMobile, state, openMobile, setOpenMobile, sidebarId } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, sidebarId, triggerRef } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -214,6 +229,12 @@ function Sidebar({
           className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) gap-0 p-0 [--sidebar-width:18rem]"
           side={side}
           closeButton={false}
+          // The sheet opens from SidebarTrigger, not from a Radix Dialog.Trigger, so Radix has nowhere to return
+          // focus to: send it back to the trigger (UI3B review: Escape or the close left focus on <body>).
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            triggerRef.current?.focus()
+          }}
         >
           {/* A visible title and a labelled 44 px close button (UI3B: the sheet's own close rendered 0×0). */}
           <SheetHeader className="flex-row items-center justify-between gap-2 border-b border-sidebar-border py-1 pr-1 pl-4">
@@ -283,24 +304,36 @@ function Sidebar({
 
 /**
  * The button that shows or hides the sidebar (the sheet on a phone). It states what it controls and whether it is
- * open (`aria-controls`, `aria-expanded`) and names its keyboard shortcut (UI3B). `label` is its accessible name and
- * `tooltip` the visible hint (callers pass translated text; the shortcut belongs in the hint).
+ * open (`aria-controls`, `aria-expanded`) and names its keyboard shortcut for this platform (UI3B). `label` is its
+ * accessible name; `tooltip` is the visible hint, which should add to the name (the shortcut), not repeat it, since
+ * Radix describes the button by it. Callers pass translated text.
  */
 function SidebarTrigger({
   className,
   onClick,
   label = "Toggle Sidebar",
   tooltip,
+  ref,
   ...props
 }: React.ComponentProps<typeof Button> & {
   label?: string
   tooltip?: React.ReactNode
 }) {
-  const { toggleSidebar, isMobile, open, openMobile, sidebarId } = useSidebar()
+  const { toggleSidebar, isMobile, open, openMobile, sidebarId, triggerRef } = useSidebar()
   const expanded = isMobile ? openMobile : open
+  // The trigger is where focus returns when the phone sheet closes; a caller's own ref still gets the node.
+  const setRef = React.useCallback(
+    (node: HTMLButtonElement | null) => {
+      triggerRef.current = node
+      if (typeof ref === "function") ref(node)
+      else if (ref) ref.current = node
+    },
+    [ref, triggerRef]
+  )
 
   const button = (
     <Button
+      ref={setRef}
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
       variant="ghost"
@@ -309,7 +342,7 @@ function SidebarTrigger({
       aria-expanded={expanded}
       // The phone sheet is in the document only while it is open.
       aria-controls={isMobile && !openMobile ? undefined : sidebarId}
-      aria-keyshortcuts="Meta+B Control+B"
+      aria-keyshortcuts={isApplePlatform() ? "Meta+B" : "Control+B"}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -323,12 +356,12 @@ function SidebarTrigger({
 
   if (!tooltip) return button
   return (
-    <Tooltip>
+    <TooltipInGroup>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent side="bottom" align="start" hidden={isMobile}>
         {tooltip}
       </TooltipContent>
-    </Tooltip>
+    </TooltipInGroup>
   )
 }
 
@@ -601,11 +634,13 @@ function SidebarMenuButton({
 
   const content = typeof tooltip === "string" ? { children: tooltip } : tooltip
 
-  // The rail's tooltips only label: they close as soon as the pointer leaves the button and never take a click,
-  // nor does their positioning wrapper (`data-sidebar-tooltip`, app/globals.css) (UI3B: the logo's two-line tooltip
-  // lay over the header's sidebar trigger and swallowed its clicks).
+  // In the rail a tooltip is the only visible label, so it stays hoverable (WCAG 1.4.13: Radix keeps it open while
+  // the pointer moves onto it), but neither it nor its positioning wrapper takes a click (`data-sidebar-tooltip`,
+  // app/globals.css): the logo's two-line tooltip lies over the header's sidebar trigger and used to swallow its
+  // clicks (UI3B). It joins SidebarProvider's TooltipProvider with the trigger's own tooltip, so the pointer passing
+  // over the trigger on its way onto the logo's tooltip does not open the trigger's and close this one.
   return (
-    <Tooltip disableHoverableContent>
+    <TooltipInGroup>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent
         side="right"
@@ -615,7 +650,7 @@ function SidebarMenuButton({
         {...content}
         className={cn("pointer-events-none", content.className)}
       />
-    </Tooltip>
+    </TooltipInGroup>
   )
 }
 

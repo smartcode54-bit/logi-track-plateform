@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import React from "react";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -299,6 +299,23 @@ describe("on a phone", () => {
         await waitFor(() => expect(screen.queryByRole("dialog", { name: "Menu" })).toBeNull());
     });
 
+    it("returns focus to the menu button when the sheet closes, by Escape or by its close button (UI3B review)", async () => {
+        await renderShell(tenantAdmin);
+        const user = userEvent.setup();
+        const trigger = screen.getByRole("button", { name: "Show or hide the menu" });
+        await user.click(trigger);
+        await screen.findByRole("dialog", { name: "Menu" });
+        await user.keyboard("{Escape}");
+        await waitFor(() => expect(screen.queryByRole("dialog", { name: "Menu" })).toBeNull());
+        await waitFor(() => expect(document.activeElement).toBe(trigger));
+
+        await user.click(trigger);
+        const sheet = await screen.findByRole("dialog", { name: "Menu" });
+        await user.click(within(sheet).getByRole("button", { name: "Close the menu" }));
+        await waitFor(() => expect(screen.queryByRole("dialog", { name: "Menu" })).toBeNull());
+        await waitFor(() => expect(document.activeElement).toBe(trigger));
+    });
+
     it("names the slice in the header instead of repeating the page's heading, keeping the role whole (UI3B)", async () => {
         await renderShell(customer);
         const scope = within(header()).getByTestId("header-scope");
@@ -369,10 +386,14 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         const controlled = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
         expect(controlled).not.toBeNull();
         expect(controlled).toHaveAttribute("data-slot", "sidebar-container");
-        expect(trigger).toHaveAttribute("aria-keyshortcuts", "Meta+B Control+B");
-        // The shortcut is named in the trigger's tooltip.
+        // jsdom is no Apple platform: Ctrl+B, and only Ctrl+B.
+        expect(trigger).toHaveAttribute("aria-keyshortcuts", "Control+B");
+        // The tooltip adds the shortcut; it does not repeat the button's name as its description.
         act(() => trigger.focus());
-        expect((await screen.findAllByText(/Show or hide the menu \((⌘B|Ctrl\+B)\)/)).length).toBeGreaterThan(0);
+        expect((await screen.findAllByText("Shortcut: Ctrl+B")).length).toBeGreaterThan(0);
+        expect(screen.queryByText(/Show or hide the menu \(/)).toBeNull();
+        const description = document.getElementById(trigger.getAttribute("aria-describedby") ?? "");
+        expect(description?.textContent).toBe("Shortcut: Ctrl+B");
         const user = userEvent.setup();
         await user.click(trigger);
         expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -384,6 +405,56 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
         await waitFor(() => expect(within(header()).getByRole("button", { name: "แสดงหรือซ่อนเมนู" })).toBeInTheDocument());
         expect(header().textContent).not.toMatch(/Toggle Sidebar/);
+    });
+
+    it("toggles with Ctrl+B only off Apple platforms, and never while the user types in a field (UI3B review)", async () => {
+        await renderShell(tenantAdmin, (
+            <div>
+                <input aria-label="note" />
+                <div contentEditable suppressContentEditableWarning aria-label="editor" role="textbox" />
+            </div>
+        ));
+        const state = () => document.querySelector("[data-slot=sidebar][data-state]")?.getAttribute("data-state");
+        expect(state()).toBe("expanded");
+        // ⌘B is not this platform's shortcut (jsdom is not an Apple platform).
+        fireEvent.keyDown(window, { key: "b", metaKey: true });
+        expect(state()).toBe("expanded");
+        fireEvent.keyDown(document.body, { key: "b", ctrlKey: true });
+        await waitFor(() => expect(state()).toBe("collapsed"));
+        // Typing: bold in an editor, not a toggle.
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "note" }), { key: "b", ctrlKey: true });
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "editor" }), { key: "b", ctrlKey: true });
+        expect(state()).toBe("collapsed");
+    });
+
+    it("keeps the rail logo's tooltip open while the pointer crosses the header trigger towards it (one tooltip group)", async () => {
+        document.cookie = "sidebar_state=false; path=/";
+        await renderShell(tenantAdmin);
+        const logo = screen.getByRole("link", { name: /LogiTrack Pro/ });
+        const trigger = within(header()).getByRole("button", { name: "Show or hide the menu" });
+        await userEvent.setup().hover(logo);
+        await screen.findAllByTestId("sidebar-scope-tooltip");
+        // Out of the logo towards its tooltip, over the header trigger that lies under it (jsdom has no layout: the
+        // points are picked inside Radix's grace area for zero-sized boxes).
+        fireEvent.pointerLeave(logo, { pointerType: "mouse", clientX: 40, clientY: 30 });
+        fireEvent.pointerMove(trigger, { pointerType: "mouse", clientX: 30, clientY: 28 });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(screen.queryAllByTestId("sidebar-scope-tooltip").length).toBeGreaterThan(0);
+        expect(screen.queryByText("Shortcut: Ctrl+B")).toBeNull();
+    });
+
+    it("keeps the tab title when Next writes its own <title> back", async () => {
+        mockPathname = "/app/accounting/income";
+        await renderShell(tenantAdmin);
+        await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
+        // What Next's metadata does after a load and on a query-only navigation.
+        document.title = "LogiTrack Pro by GORATECH";
+        await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
+        const replacement = document.createElement("title");
+        replacement.textContent = "LogiTrack Pro by GORATECH";
+        document.head.querySelector("title")?.remove();
+        document.head.appendChild(replacement);
+        await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
     });
 
     it("starts a customer's menu with their home, the driver monitor, and no second home above it", async () => {

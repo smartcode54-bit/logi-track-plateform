@@ -161,8 +161,12 @@ export function AppSidebar() {
                                                     className="group/collapsible"
                                                 >
                                                     <CollapsibleTrigger asChild>
-                                                        {/* A closed group that holds the current page says so (Route Blue). */}
-                                                        <SidebarMenuButton isActive={holdsActive && !openGroups.has(item.labelKey)}>
+                                                        {/* A closed group that holds the current page says so: Route Blue, and
+                                                            aria-current="true" for those who do not see the colour. */}
+                                                        <SidebarMenuButton
+                                                            isActive={holdsActive && !openGroups.has(item.labelKey)}
+                                                            aria-current={holdsActive && !openGroups.has(item.labelKey) ? "true" : undefined}
+                                                        >
                                                             <item.icon />
                                                             <span>{title}</span>
                                                             <ChevronDown className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
@@ -246,10 +250,12 @@ function RailGroup({
     active: string | undefined
     label: (link: NavLink) => string
 }) {
+    const holdsActive = group.items.some((link) => link.url === active)
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <SidebarMenuButton tooltip={title} isActive={group.items.some((link) => link.url === active)}>
+                {/* The group of the current page: Route Blue, and aria-current="true" (the current section). */}
+                <SidebarMenuButton tooltip={title} isActive={holdsActive} aria-current={holdsActive ? "true" : undefined}>
                     <group.icon />
                     <span>{title}</span>
                 </SidebarMenuButton>

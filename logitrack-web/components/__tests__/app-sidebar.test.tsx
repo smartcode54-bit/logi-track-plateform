@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import React from "react";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,7 +108,7 @@ describe("AppSidebar", () => {
         await renderSidebar(["fleet:view_trucks", "accounting:view_income", "waitlist:view"]);
         const user = userEvent.setup();
         // Open the closed groups to see every entry.
-        for (const name of ["Billing", "Fleet & partners"]) await user.click(screen.getByRole("button", { name }));
+        for (const name of ["Billing", "Fleet and partners"]) await user.click(screen.getByRole("button", { name }));
         const links = hrefs();
         expect(links).toEqual(expect.arrayContaining(["/app/dashboard", "/app/trucks", "/app/accounting/income", "/app/waitlist"]));
         for (const hidden of ["/app/drivers", "/app/accounting/fuel", "/app/security-center", "/app/utilities/backfill", "/app/companies"]) {
@@ -161,7 +161,7 @@ describe("where am I (UI3B)", () => {
         mockPathname = "/app/accounting/income";
         await renderSidebar(ALL_GROUPS);
         expect(screen.getByRole("button", { name: "Billing" })).toHaveAttribute("aria-expanded", "true");
-        for (const name of ["Operations", "Costs", "Fleet & partners", "Payroll and HR"]) {
+        for (const name of ["Operations", "Costs", "Fleet and partners", "Payroll and HR"]) {
             expect(screen.getByRole("button", { name })).toHaveAttribute("aria-expanded", "false");
         }
         expect(hrefs()).not.toContain("/app/driver-monitor");
@@ -177,7 +177,19 @@ describe("where am I (UI3B)", () => {
         expect(current.className).toMatch(/data-\[active=true\]:font-medium/);
         // One current entry, and group buttons never claim to be the page.
         expect(document.querySelectorAll("[aria-current=page]")).toHaveLength(1);
-        expect(screen.getByRole("button", { name: "Fleet & partners" })).not.toHaveAttribute("aria-current");
+        expect(screen.getByRole("button", { name: "Fleet and partners" })).not.toHaveAttribute("aria-current");
+    });
+
+    it("says which closed group holds the current page, beyond colour (aria-current=\"true\")", async () => {
+        mockPathname = "/app/trucks/view";
+        await renderSidebar(ALL_GROUPS);
+        const user = userEvent.setup();
+        const fleet = screen.getByRole("button", { name: "Fleet and partners" });
+        await user.click(fleet);
+        expect(fleet).toHaveAttribute("aria-expanded", "false");
+        expect(fleet).toHaveAttribute("aria-current", "true");
+        expect(fleet).toHaveAttribute("data-active", "true");
+        expect(screen.getByRole("button", { name: "Billing" })).not.toHaveAttribute("aria-current");
     });
 
     it("scrolls the current entry into view when the sidebar opens", async () => {
@@ -199,8 +211,10 @@ describe("the icon rail (UI3B)", () => {
         const user = userEvent.setup();
         const billing = screen.getByRole("button", { name: "Billing" });
         expect(billing).toHaveAttribute("aria-haspopup", "menu");
-        // The group holding the current page is marked in the rail too.
+        // The group holding the current page is marked in the rail too, by colour and by aria-current.
         expect(billing).toHaveAttribute("data-active", "true");
+        expect(billing).toHaveAttribute("aria-current", "true");
+        expect(screen.getByRole("button", { name: "Costs" })).not.toHaveAttribute("aria-current");
         await user.click(billing);
         const menu = await screen.findByRole("menu");
         expect(menu).toHaveAttribute("data-side", "right");
@@ -214,7 +228,7 @@ describe("the icon rail (UI3B)", () => {
     it("is keyboard operable: Enter opens the menu, arrows move through its pages", async () => {
         await renderSidebar(ALL_GROUPS, { open: false });
         const user = userEvent.setup();
-        const fleet = screen.getByRole("button", { name: "Fleet & partners" });
+        const fleet = screen.getByRole("button", { name: "Fleet and partners" });
         fleet.focus();
         await user.keyboard("{Enter}");
         const menu = await screen.findByRole("menu");
@@ -230,14 +244,31 @@ describe("the icon rail (UI3B)", () => {
         await renderSidebar(["fleet:view_trucks"], { open: false });
         act(() => screen.getByRole("link", { name: /LogiTrack Pro/ }).focus());
         await screen.findAllByTestId("sidebar-scope-tooltip");
-        const content = document.querySelector("[data-slot=tooltip-content]");
+        const content = document.querySelector<HTMLElement>("[data-slot=tooltip-content]");
         expect(content).not.toBeNull();
         expect(content?.className).toMatch(/\bpointer-events-none\b/);
-        // Radix's positioning wrapper around it takes no pointer either (a rule jsdom does not apply, so read it).
-        expect(content).toHaveAttribute("data-sidebar-tooltip");
-        expect(content?.parentElement).toHaveAttribute("data-radix-popper-content-wrapper");
+        // Radix's positioning wrapper around it takes no pointer either: the stylesheet's `pointer-events: none` rule
+        // selects this very wrapper (jsdom does not cascade the stylesheet, so match its selector against the DOM).
+        const wrapper = content?.parentElement as HTMLElement;
+        expect(wrapper).toHaveAttribute("data-radix-popper-content-wrapper");
         const css = fs.readFileSync(path.join(WEB_ROOT, "app", "globals.css"), "utf8");
-        expect(css).toMatch(/\[data-radix-popper-content-wrapper\]:has\(> \[data-sidebar-tooltip\]\)\s*\{\s*pointer-events: none;/);
+        const inert = [...css.matchAll(/([^{}]+)\{\s*pointer-events:\s*none;\s*\}/g)].map((m) => m[1].replace(/\/\*[\s\S]*?\*\//g, "").trim());
+        expect(inert.some((selector) => wrapper.matches(selector)), inert.join(" | ")).toBe(true);
+        // ...and only the sidebar's: an ordinary tooltip's wrapper keeps taking the pointer.
+        content?.removeAttribute("data-sidebar-tooltip");
+        expect(inert.some((selector) => wrapper.matches(selector))).toBe(false);
+    });
+
+    it("keeps a rail tooltip open as the pointer leaves for it: it is the only visible label (WCAG 1.4.13)", async () => {
+        await renderSidebar(["fleet:view_trucks"], { open: false });
+        const user = userEvent.setup();
+        const dashboard = screen.getByRole("link", { name: "Dashboard" });
+        await user.hover(dashboard);
+        await waitFor(() => expect(document.querySelector("[data-slot=tooltip-content]")).not.toBeNull());
+        // Leaving the button towards the tooltip does not close it (a tooltip that is not hoverable closes here).
+        fireEvent.pointerLeave(dashboard, { pointerType: "mouse", clientX: 60, clientY: 90 });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(document.querySelector("[data-slot=tooltip-content]")).not.toBeNull();
     });
 });
 

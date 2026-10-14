@@ -1,6 +1,5 @@
 export default {
     // Waitlist Admin
-    "waitlist.title": "Waitlist",
     "waitlist.description": "Manage users who requested access.",
     "waitlist.requests": "Waitlist Requests",
     "waitlist.requestsDesc": "List of emails waiting for an invitation.",

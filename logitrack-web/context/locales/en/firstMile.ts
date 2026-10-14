@@ -2,7 +2,6 @@ export default {
     // ========================
     // First Mile - Main Page
     // ========================
-    "firstMile.title": "First Mile Tasks",
     "firstMile.subtitle": "Assign drivers to pick up from Hubs and deliver to SOCs (First Step of Day Trip).",
     "firstMile.newAssignment": "New Assignment",
 
@@ -145,7 +144,6 @@ export default {
     // ========================
     // Sources Page
     // ========================
-    "firstMile.sources.title": "Pickup-Delivery Point (PDP) Management",
     "firstMile.sources.newSource": "New Pickup-Delivery Point",
     "firstMile.sources.dbSources": "Pickup-Delivery Points",
     "firstMile.sources.refresh": "Refresh",

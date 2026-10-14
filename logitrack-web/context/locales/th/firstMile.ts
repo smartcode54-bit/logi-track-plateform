@@ -2,7 +2,6 @@ export default {
     // ========================
     // First Mile - Main Page
     // ========================
-    "firstMile.title": "งาน First Mile",
     "firstMile.subtitle": "มอบหมายคนขับไปรับสินค้าจาก Hub และส่งไปยัง SOC (ขั้นตอนแรกของเที่ยววิ่งประจำวัน)",
     "firstMile.newAssignment": "สร้างงานใหม่",
 
@@ -145,7 +144,6 @@ export default {
     // ========================
     // Sources Page
     // ========================
-    "firstMile.sources.title": "จัดการสถานีรับ-ส่งงาน",
     "firstMile.sources.newSource": "เพิ่มสถานีรับ-ส่งงานใหม่",
     "firstMile.sources.dbSources": "ข้อมูลสถานีรับ-ส่งงาน",
     "firstMile.sources.refresh": "รีเฟรช",

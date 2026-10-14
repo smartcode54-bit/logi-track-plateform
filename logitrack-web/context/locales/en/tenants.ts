@@ -1,6 +1,5 @@
 // Security Center tenants page (T18 owner addition): platform admins onboard carrier tenants.
 const tenants: Record<string, string> = {
-    "tenants.title": "Tenants",
     "tenants.subtitle": "Carrier organisations on the platform and their administrators.",
     "tenants.accessDenied": "Only platform administrators can manage tenants.",
     "tenants.create": "Create tenant",

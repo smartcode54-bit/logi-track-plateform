@@ -2,11 +2,12 @@
 // from its i18n keys, never from URL slugs. Every page under app/app gets a crumb whose text exists in the base
 // dictionary of both languages (the header renders it on every route, before any split namespace loads).
 //
-// UI3B: the menu follows the work loop (Operations, Billing, Costs, Fleet & partners, HR; System at the foot), the
+// UI3B: the menu follows the work loop (Operations, Billing, Costs, Fleet and partners, HR; System at the foot), the
 // principal's home is its first entry, the per-role sets of destinations are those of the gate (unchanged: the only
 // additions are First mile and Line haul, which became menu entries for whoever could already open them), and every
 // page's H1 reads the key of its menu entry.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -140,6 +141,11 @@ describe("menu entries", () => {
             ),
             ...SYSTEM_NAV.map((l) => l.labelKey),
             ...SECURITY_NAV.map((l) => l.labelKey),
+            // The sidebars' group label and footers (app-sidebar.tsx, security-center-sidebar.tsx).
+            "nav.system",
+            "nav.supportCenter",
+            "securityCenter.title",
+            "securityCenter.backToAdmin",
         ];
         for (const key of keys) {
             expect(en[key], `en ${key}`).toBeTruthy();
@@ -147,6 +153,8 @@ describe("menu entries", () => {
             // No shouting labels (DESIGN.md, The No Shouting Rule), and sentence case: after the first word only
             // proper names and initialisms are capitalised (First mile, not First Mile).
             expect(en[key], key).not.toMatch(/^[A-Z\s&]{4,}$/);
+            // "and", not "&" ("Fleet and partners" beside "Payroll and HR").
+            expect(en[key], key).not.toContain("&");
             const rest = en[key].split(" ").slice(1);
             for (const word of rest) expect(/^[A-Z][a-z]/.test(word) && !["Express", "Shopee"].includes(word), `${key}: "${en[key]}"`).toBe(false);
         }
@@ -158,7 +166,7 @@ describe("menu entries", () => {
         expect(activeNavUrl("/app/nowhere")).toBeUndefined();
     });
 
-    it("follow the work loop: Operations, Billing, Costs, Fleet & partners, HR, after the home", () => {
+    it("follow the work loop: Operations, Billing, Costs, Fleet and partners, HR, after the home", () => {
         expect(MAIN_NAV.map((e) => e.labelKey)).toEqual(["nav.dashboard", "nav.operations", "nav.billing", "nav.costs", "nav.fleetPartners", "nav.hr"]);
         const billing = MAIN_NAV.find((e) => e.labelKey === "nav.billing");
         expect(billing && isNavGroup(billing) ? billing.items.map((i) => i.url) : []).toEqual([
@@ -273,17 +281,61 @@ describe("the menu of each kind of principal (UI3B: only grouping, order, names 
     });
 });
 
-/** The source file that renders the H1 of the page at `url`: the page itself, else the one component it imports that does. */
-function headingFile(url: string): string {
+/**
+ * The component that renders the page at `url` and its file: the page's own default export when the page holds an
+ * H1, else the one component it imports (statically or through `dynamic(() => import(...).then((m) => m.X))`) whose
+ * file holds one.
+ */
+function pageComponent(url: string): { file: string; name: string } {
     const page = path.join(WEB_ROOT, "app", ...url.split("/").filter(Boolean), "page.tsx");
     const source = fs.readFileSync(page, "utf8");
-    if (/<h1\b/.test(source)) return page;
-    const specs = [...source.matchAll(/(?:from\s+|import\()\s*["']([^"']+)["']/g)].map((m) => m[1]);
-    const candidates = specs
-        .map((spec) => resolveImport(page, spec))
-        .filter((file): file is string => Boolean(file) && /<h1\b/.test(fs.readFileSync(file as string, "utf8")));
+    const defaultName = (src: string) => src.match(/export default function (\w+)/)?.[1] ?? "";
+    if (/<h1\b/.test(source)) return { file: page, name: defaultName(source) };
+    const imports = [
+        ...[...source.matchAll(/import\(\s*["']([^"']+)["']\s*\)\.then\(\(m\) => m\.(\w+)\)/g)].map((m) => ({ spec: m[1], name: m[2] })),
+        ...[...source.matchAll(/import\s*\{\s*(\w+)\s*\}\s*from\s*["']([^"']+)["']/g)].map((m) => ({ spec: m[2], name: m[1] })),
+        ...[...source.matchAll(/import\s+(\w+)\s+from\s*["']([^"']+)["']/g)].map((m) => ({ spec: m[2], name: "" })),
+    ];
+    const candidates = imports
+        .map(({ spec, name }) => ({ file: resolveImport(page, spec), name }))
+        .filter((c): c is { file: string; name: string } => Boolean(c.file) && /<h1\b/.test(fs.readFileSync(c.file as string, "utf8")));
     expect(candidates, `${url}: the components with an H1`).toHaveLength(1);
-    return candidates[0];
+    const [found] = candidates;
+    return { file: found.file, name: found.name || defaultName(fs.readFileSync(found.file, "utf8")) };
+}
+
+/**
+ * The page's primary heading: the one `<h1>` of the file, inside the page component's own body, and not in a branch
+ * of it (an `if (...) return` for an error or an empty state), so a heading there cannot stand in for a missing real
+ * one. Returns the heading's markup, or a reason it is not the primary heading.
+ */
+function primaryHeading(file: string, component: string): { markup?: string; problem?: string } {
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    const h1Lines = lines.flatMap((line, index) => (/<h1\b/.test(line) ? [index] : []));
+    if (h1Lines.length !== 1) return { problem: `${h1Lines.length} <h1> in the file (expected one)` };
+    const declaration = lines.findIndex((line) => new RegExp(`function ${component}\\(`).test(line));
+    if (declaration < 0) return { problem: `no function ${component}` };
+    const indent = (line: string) => line.length - line.trimStart().length;
+    const declIndent = indent(lines[declaration]);
+    // The body: after the declaration's last line (the one ending in "{"), up to its closing "}".
+    let start = declaration;
+    while (!/\{\s*$/.test(lines[start]) || indent(lines[start]) !== declIndent) start += 1;
+    let end = start + 1;
+    while (!(lines[end].trim() === "}" && indent(lines[end]) === declIndent)) end += 1;
+    const [at] = h1Lines;
+    if (at <= start || at >= end) {
+        // A thin wrapper (the task boards: `<Board kind="all" />`) renders a component of the same file: follow it.
+        const body = lines.slice(start + 1, end).join("\n");
+        const local = [...body.matchAll(/<([A-Z]\w*)[\s/>]/g)].map((m) => m[1]).find((tag) => lines.some((line) => new RegExp(`^function ${tag}\\(`).test(line)));
+        return local ? primaryHeading(file, local) : { problem: `the <h1> is outside ${component}` };
+    }
+    const bodyIndent = indent(lines.slice(start + 1, end).find((line) => line.trim() !== "") ?? "");
+    // The statement of the body that holds the heading: the nearest line above it at the body's indentation.
+    let statement = at;
+    while (statement > start && !(lines[statement].trim() !== "" && indent(lines[statement]) === bodyIndent)) statement -= 1;
+    if (/^(if\b|\} else|else\b|case\b)/.test(lines[statement].trim())) return { problem: `the <h1> is in a branch: "${lines[statement].trim()}"` };
+    const markup = lines.slice(at).join("\n");
+    return { markup: markup.slice(0, markup.indexOf("</h1>")) };
 }
 
 describe("one name per page (UI3B)", () => {
@@ -291,20 +343,47 @@ describe("one name per page (UI3B)", () => {
     const REDIRECTS = new Set(["/app/users", "/app/operations/roles"]);
     const pages = [...new Set([...urlsOf(MAIN_NAV), ...SYSTEM_NAV.map((l) => l.url), ...SECURITY_NAV.map((l) => l.url), "/app/payroll/config", "/app/payroll/penalties", "/app/utilities/billing-impact"])];
 
-    it("every menu page's H1 reads the key of its menu entry (= its crumb and its tab title)", () => {
-        expect(pages.length).toBeGreaterThan(35);
+    it("every menu page's primary H1 reads the key of its menu entry (= its crumb and its tab title)", () => {
+        expect(pages.length).toBe(44);
         for (const url of pages) {
             if (REDIRECTS.has(url)) continue;
             const { crumbs } = breadcrumbTrail(url);
             const key = crumbs[crumbs.length - 1].labelKey;
-            const file = headingFile(url);
-            const source = fs.readFileSync(file, "utf8");
-            const headings = [...source.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => m[1]);
-            expect(headings.length, `${url}: ${path.relative(WEB_ROOT, file)}`).toBeGreaterThan(0);
-            const literals = headings.flatMap((h) => [...h.matchAll(/["']([a-zA-Z]+\.[a-zA-Z.]+)["']/g)].map((m) => m[1]));
-            if (literals.length > 0) expect(literals, `${url}: ${path.relative(WEB_ROOT, file)}`).toContain(key);
+            const { file, name } = pageComponent(url);
+            const where = `${url}: ${path.relative(WEB_ROOT, file)} ${name}`;
+            const { markup, problem } = primaryHeading(file, name);
+            expect(problem, where).toBeUndefined();
+            const literals = [...(markup ?? "").matchAll(/["']([a-zA-Z]+\.[a-zA-Z.]+)["']/g)].map((m) => m[1]);
+            if (literals.length > 0) expect(literals, where).toContain(key);
             // A heading read through a lookup (the task boards' `keys.title`) still names the key in the same file.
-            else expect(source, `${url}: ${path.relative(WEB_ROOT, file)}`).toContain(`"${key}"`);
+            else expect(fs.readFileSync(file, "utf8"), where).toContain(`"${key}"`);
+        }
+    });
+
+    it("refuses a heading that only an error branch renders", () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ui3b-h1-"));
+        try {
+            const file = path.join(dir, "Page.tsx");
+            fs.writeFileSync(
+                file,
+                [
+                    "export function Page() {",
+                    "    const failed = true;",
+                    "    if (failed) {",
+                    '        return <h1>{t("nav.income")}</h1>;',
+                    "    }",
+                    "    return (",
+                    "        <div>body</div>",
+                    "    );",
+                    "}",
+                    "",
+                ].join("\n")
+            );
+            expect(primaryHeading(file, "Page").problem).toMatch(/in a branch/);
+            fs.writeFileSync(file, ["export function Page() {", "    return (", '        <h1>{t("nav.income")}</h1>', "    );", "}", ""].join("\n"));
+            expect(primaryHeading(file, "Page")).toEqual({ markup: '        <h1>{t("nav.income")}' });
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
         }
     });
 });

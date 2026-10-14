@@ -1,5 +1,4 @@
 export default {
-  "company.title": "บริษัท",
   "company.subtitle": "จัดการโปรไฟล์บริษัทและการตั้งค่า Tenant",
   "company.new": "เพิ่มบริษัทใหม่",
   "company.edit": "แก้ไขบริษัท",
@@ -12,7 +11,6 @@ export default {
   "company.createFirst": "ยังไม่มีบริษัท กรุณาสร้างบริษัทเจ้าของระบบก่อน",
 
   // Profile page
-  "company.profile.title": "โปรไฟล์บริษัท",
   "company.profile.subtitle": "ข้อมูลบริษัทที่แสดงในใบวางบิลและเอกสารการเงิน",
 
   // Section headings
@@ -23,7 +21,7 @@ export default {
   "company.section.banking": "ข้อมูลธนาคาร",
   "company.section.bankingDesc": "รายละเอียดบัญชีรับชำระเงินที่พิมพ์ในใบวางบิล",
   "company.section.tenantConfig": "การตั้งค่า Tenant",
-  "company.section.tenantConfigDesc": "ขีดจำกัดและการตั้งค่าสำหรับ Subcontractor Tenant",
+  "company.section.tenantConfigDesc": "ขีดจำกัดและการตั้งค่าสำหรับ tenant ของรถร่วม",
 
   // Field labels
   "company.field.nameTh": "ชื่อบริษัท (ภาษาไทย)",
@@ -64,7 +62,7 @@ export default {
 
   // Company type
   "company.type.owner": "เจ้าของระบบ (Operator)",
-  "company.type.subcontractor": "ผู้รับเหมาช่วง (Subcontractor)",
+  "company.type.subcontractor": "รถร่วม",
 
   // Asset upload hints
   "company.asset.logo.hint": "แสดงในส่วน header ของระบบ แนะนำ: 200×60px PNG",

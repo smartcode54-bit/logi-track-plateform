@@ -1,6 +1,5 @@
 export default {
     // Truck Assignments
-    "assignments.title": "จัดการการผู้ดูแลรถ",
     "assignments.subtitle": "จับคู่คนขับกับรถและติดตามการใช้งานรถ",
     "assignments.viewMaps": "ดูแผนที่",
     "assignments.quickAction": "การดำเนินการด่วน",

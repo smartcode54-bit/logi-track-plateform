@@ -40,14 +40,13 @@ export default {
     "nav.fuel": "ค่าน้ำมัน",
     "nav.fuelPriceHistory": "ประวัติราคาน้ำมัน",
     "nav.auditExpense": "ตรวจสอบค่าใช้จ่าย",
-    "nav.rateCard": "เรตราคา",
+    "nav.rateCard": "เรทราคา",
     "nav.income": "เที่ยวที่ต้องวางบิล",
     "nav.billingDocument": "เอกสารวางบิล",
     "nav.billingResult": "ทะเบียนใบวางบิล",
     "nav.shopeeExpressReport": "รายงาน Shopee Express",
     "nav.operations": "ปฏิบัติการ",
     "nav.jobAssign": "มอบหมายงาน",
-    "jobAssign.title": "มอบหมายงาน",
     "jobAssign.subtitle": "สร้างและมอบหมายงาน First Mile / Line Haul ให้คนขับ",
     "jobAssign.addJob": "เพิ่มงาน",
     "jobAssign.addFirstMile": "First Mile",
@@ -79,8 +78,6 @@ export default {
     "nav.standbyRecords": "บันทึก Standby",
     "nav.lineHaulTasks": "งาน Line Haul",
     "nav.holidays": "วันหยุด",
-
-    "nav.subcontractors": "ผู้รับเหมาช่วง",
     "nav.customers": "ลูกค้า",
     "nav.system": "ระบบ",
     "nav.companies": "บริษัท",
@@ -94,7 +91,7 @@ export default {
     "shell.nav.main": "เมนูหลัก",
     "shell.nav.security": "เมนูศูนย์ความปลอดภัย",
     "shell.closeMenu": "ปิดเมนู",
-    "shell.toggleSidebarHint": "แสดงหรือซ่อนเมนู ({keys})",
+    "shell.toggleSidebarHint": "ปุ่มลัด: {keys}",
     "shell.signOut": "ออกจากระบบ",
 
     // Common
@@ -156,7 +153,6 @@ export default {
     "leaveRequests.dialog.cancelButton": "ยกเลิก",
 
     // Incident Reports (admin)
-    "incidentReports.title": "รายงานปัญหาการจัดส่ง",
     "incidentReports.subtitle": "บันทึกและติดตามเหตุการณ์ระหว่างจัดส่ง",
     "incidentReports.stats.total": "รายงานทั้งหมด",
     "incidentReports.filter.pickDate": "เลือกวันที่",
@@ -186,7 +182,6 @@ export default {
     "incidentReports.detail.situation2": "สถานการณ์ 2",
 
     // Standby Records (admin)
-    "standbyRecords.title": "บันทึก Standby",
     "standbyRecords.subtitle": "รายการคนขับที่เช็คอินแล้วไม่มีงานจัดส่ง",
     "standbyRecords.stats.total": "รายการทั้งหมด",
     "standbyRecords.filter.pickDate": "เลือกวันที่",
@@ -290,7 +285,6 @@ export default {
     "customStops.status.failed": "ล้มเหลว",
 
     // Line Haul (admin)
-    "lineHaul.title": "งาน Line Haul",
     "lineHaul.subtitle": "จัดการงาน Line Haul และการเช็คอิน",
     "lineHaul.newAssignment": "มอบหมายงานใหม่",
     "lineHaul.filters.title": "ตัวกรอง",

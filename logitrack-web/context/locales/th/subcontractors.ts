@@ -1,12 +1,11 @@
 export default {
     // Overview Page
-    "subcontractors.title": "จัดการผู้รับเหมาช่วง",
-    "subcontractors.subtitle": "ติดตามประสิทธิภาพและความสอดคล้องของพันธมิตรขนส่งภายนอก",
-    "subcontractors.add": "เพิ่มผู้รับเหมา",
+    "subcontractors.subtitle": "ติดตามประสิทธิภาพและความสอดคล้องของรถร่วม",
+    "subcontractors.add": "เพิ่มรถร่วม",
     "subcontractors.search": "ค้นหาบริษัทหรือผู้ติดต่อ...",
 
     // Stats Cards
-    "subcontractors.stats.totalPartners": "พันธมิตรทั้งหมด",
+    "subcontractors.stats.totalPartners": "รถร่วมทั้งหมด",
     "subcontractors.stats.totalPartners.desc": "หน่วยธุรกิจที่ใช้งานอยู่",
     "subcontractors.stats.activeTrucks": "รถที่ใช้งานอยู่",
     "subcontractors.stats.activeTrucks.desc": "วิ่งอยู่ในปัจจุบัน",
@@ -36,13 +35,13 @@ export default {
     "subcontractors.table.global": "ทั่วโลก",
 
     // Table Loading/Empty
-    "subcontractors.loading": "กำลังโหลดข้อมูลพันธมิตร...",
-    "subcontractors.noData": "ไม่พบผู้รับเหมาที่ตรงกับตัวกรอง",
+    "subcontractors.loading": "กำลังโหลดข้อมูลรถร่วม...",
+    "subcontractors.noData": "ไม่พบรถร่วมที่ตรงกับตัวกรอง",
 
     // Dropdown Actions
     "subcontractors.action.viewProfile": "ดูโปรไฟล์",
     "subcontractors.action.manageContracts": "จัดการสัญญา",
-    "subcontractors.action.suspendPartner": "ระงับพันธมิตร",
+    "subcontractors.action.suspendPartner": "ระงับรถร่วม",
 
     // Pagination
     "subcontractors.pagination.showing": "แสดง",
@@ -56,10 +55,10 @@ export default {
     "subcontractors.status.active": "ใช้งาน",
     "subcontractors.status.onTrial": "ทดลองงาน",
     "subcontractors.status.terminated": "ยกเลิก",
-    "subcontractors.status.activePartner": "พันธมิตร",
+    "subcontractors.status.activePartner": "รถร่วม",
 
     // New Subcontractor Page
-    "subcontractors.new.title": "เพิ่มผู้รับเหมาใหม่",
+    "subcontractors.new.title": "เพิ่มรถร่วมใหม่",
     "subcontractors.new.step": "ขั้นตอนที่",
     "subcontractors.new.of": "จาก",
 
@@ -163,20 +162,20 @@ export default {
     "subcontractors.form.completeRegistration": "ลงทะเบียนเสร็จสิ้น",
 
     // Toast Messages
-    "subcontractors.toast.registerSuccess": "ลงทะเบียนผู้รับเหมาสำเร็จ",
-    "subcontractors.toast.registerError": "ไม่สามารถลงทะเบียนผู้รับเหมาได้",
-    "subcontractors.toast.updateSuccess": "อัปเดตผู้รับเหมาสำเร็จ",
-    "subcontractors.toast.updateError": "ไม่สามารถอัปเดตผู้รับเหมาได้",
-    "subcontractors.toast.notFound": "ไม่พบผู้รับเหมา",
-    "subcontractors.toast.loadError": "ไม่สามารถโหลดข้อมูลผู้รับเหมาได้",
+    "subcontractors.toast.registerSuccess": "ลงทะเบียนรถร่วมสำเร็จ",
+    "subcontractors.toast.registerError": "ไม่สามารถลงทะเบียนรถร่วมได้",
+    "subcontractors.toast.updateSuccess": "อัปเดตรถร่วมสำเร็จ",
+    "subcontractors.toast.updateError": "ไม่สามารถอัปเดตรถร่วมได้",
+    "subcontractors.toast.notFound": "ไม่พบรถร่วม",
+    "subcontractors.toast.loadError": "ไม่สามารถโหลดข้อมูลรถร่วมได้",
     "subcontractors.toast.uploadSuccess": "อัปโหลดไฟล์สำเร็จ",
     "subcontractors.toast.uploadError": "ไม่สามารถอัปโหลดไฟล์ได้",
 
     // Detail Page
-    "subcontractors.detail.partners": "พันธมิตร",
-    "subcontractors.detail.subcontractors": "ผู้รับเหมาช่วง",
-    "subcontractors.detail.partnerPortal": "พอร์ทัลพันธมิตร",
-    "subcontractors.detail.subcontractorManagement": "จัดการผู้รับเหมา",
+    "subcontractors.detail.partners": "รถร่วม",
+    "subcontractors.detail.subcontractors": "รถร่วม",
+    "subcontractors.detail.partnerPortal": "พอร์ทัลรถร่วม",
+    "subcontractors.detail.subcontractorManagement": "รถร่วม",
     "subcontractors.detail.overview": "ภาพรวม",
     "subcontractors.detail.assignedTrucks": "รถที่ได้รับมอบหมาย",
     "subcontractors.detail.contractsDocs": "สัญญาและเอกสาร",
@@ -184,7 +183,7 @@ export default {
     "subcontractors.detail.activityLog": "บันทึกกิจกรรม",
     "subcontractors.detail.totalDeliveries": "จำนวนการจัดส่งทั้งหมด",
     "subcontractors.detail.monthlyTarget": "เป้าหมายรายเดือน",
-    "subcontractors.detail.masterSubcontractor": "ผู้รับเหมาหลัก",
+    "subcontractors.detail.masterSubcontractor": "รถร่วมหลัก",
     "subcontractors.detail.joined": "เข้าร่วม",
     "subcontractors.detail.message": "ข้อความ",
     "subcontractors.detail.editProfile": "แก้ไขโปรไฟล์",
@@ -199,7 +198,7 @@ export default {
     "subcontractors.detail.dispatchManager": "ผู้จัดการจัดส่ง",
     "subcontractors.detail.available": "พร้อมให้บริการ",
     "subcontractors.detail.viewAllFleet": "ดูฝูงรถทั้งหมด",
-    "subcontractors.detail.notFound": "ไม่พบผู้รับเหมา",
+    "subcontractors.detail.notFound": "ไม่พบรถร่วม",
     "subcontractors.detail.backToList": "กลับสู่รายการ",
     "subcontractors.detail.noTrucks": "ยังไม่มีรถที่ได้รับมอบหมาย",
 
@@ -222,7 +221,7 @@ export default {
     "subcontractors.detail.audit": "ตรวจสอบ",
 
     // Edit Page
-    "subcontractors.edit.title": "แก้ไขผู้รับเหมา",
+    "subcontractors.edit.title": "แก้ไขรถร่วม",
     "subcontractors.edit.backToDetails": "กลับสู่รายละเอียด",
     "subcontractors.edit.basicInfo": "ข้อมูลพื้นฐาน",
     "subcontractors.edit.status": "สถานะ",

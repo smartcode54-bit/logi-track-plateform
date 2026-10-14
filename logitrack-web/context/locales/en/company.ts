@@ -1,5 +1,4 @@
 export default {
-  "company.title": "Companies",
   "company.subtitle": "Manage company profiles and tenant configuration.",
   "company.new": "New Company",
   "company.edit": "Edit Company",
@@ -12,7 +11,6 @@ export default {
   "company.createFirst": "No companies yet. Create the owner company to get started.",
 
   // Profile page
-  "company.profile.title": "Company Profile",
   "company.profile.subtitle": "Your company information used on invoices and billing documents.",
 
   // Section headings
@@ -23,7 +21,7 @@ export default {
   "company.section.banking": "Banking Information",
   "company.section.bankingDesc": "Payment details printed on invoices for customers.",
   "company.section.tenantConfig": "Tenant Configuration",
-  "company.section.tenantConfigDesc": "Limits and settings for subcontractor tenants.",
+  "company.section.tenantConfigDesc": "Limits and settings for partner tenants.",
 
   // Field labels
   "company.field.nameTh": "Company Name (Thai)",
@@ -64,7 +62,7 @@ export default {
 
   // Company type
   "company.type.owner": "Owner (Operator)",
-  "company.type.subcontractor": "Subcontractor",
+  "company.type.subcontractor": "Partner",
 
   // Asset upload hints
   "company.asset.logo.hint": "Shown in system header. Recommended: 200×60px PNG.",

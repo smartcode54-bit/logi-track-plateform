@@ -1,6 +1,5 @@
 export default {
     // User Management
-    "users.title": "User Management",
     "users.subtitle": "Manage users and their permissions.",
     "users.sync": "Sync Database",
     "users.add": "Add User",
@@ -20,7 +19,7 @@ export default {
     "users.role.partner": "Partner",
     "users.role.customer": "Customer",
     "users.role.user": "User",
-    "users.role.subcontractor": "Subcontractor",
+    "users.role.subcontractor": "Partner",
     "users.editRole": "Edit Role",
     "users.createTitle": "Create New User",
     "users.createDesc": "Add a user and choose their role. A temporary password is shown once, or an invite email is sent.",

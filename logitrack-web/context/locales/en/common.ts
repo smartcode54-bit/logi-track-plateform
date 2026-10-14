@@ -47,7 +47,6 @@ export default {
     "nav.shopeeExpressReport": "Shopee Express report",
     "nav.operations": "Operations",
     "nav.jobAssign": "Job assignment",
-    "jobAssign.title": "Job Assigning",
     "jobAssign.subtitle": "Create and assign First Mile / Line Haul jobs to drivers",
     "jobAssign.addJob": "Add job",
     "jobAssign.addFirstMile": "First Mile",
@@ -70,7 +69,7 @@ export default {
     "nav.sourceManagement": "Pickup and delivery points",
     "nav.driverMonitor": "Driver monitor",
     "nav.rolePermission": "Roles and permissions",
-    "nav.supportCenter": "Support Center",
+    "nav.supportCenter": "Support",
 
     "nav.hr": "Payroll and HR",
     "nav.payroll": "Payroll",
@@ -79,22 +78,20 @@ export default {
     "nav.standbyRecords": "Standby records",
     "nav.lineHaulTasks": "Line haul tasks",
     "nav.holidays": "Holidays",
-
-    "nav.subcontractors": "Subcontractors",
     "nav.customers": "Customers",
     "nav.system": "System",
     "nav.companies": "Companies",
     "nav.companyProfile": "Company profile",
     "nav.billing": "Billing",
     "nav.costs": "Costs",
-    "nav.fleetPartners": "Fleet & partners",
+    "nav.fleetPartners": "Fleet and partners",
     "nav.maintenance": "Maintenance",
     "nav.partners": "Partners",
     "nav.otherExpenses": "Other expenses",
     "shell.nav.main": "Main menu",
     "shell.nav.security": "Security center menu",
     "shell.closeMenu": "Close the menu",
-    "shell.toggleSidebarHint": "Show or hide the menu ({keys})",
+    "shell.toggleSidebarHint": "Shortcut: {keys}",
     "shell.signOut": "Sign out",
 
     // Common
@@ -156,7 +153,6 @@ export default {
     "leaveRequests.dialog.cancelButton": "Cancel",
 
     // Incident Reports (admin)
-    "incidentReports.title": "Incident Reports",
     "incidentReports.subtitle": "Log and track delivery incidents",
     "incidentReports.stats.total": "Total Incidents",
     "incidentReports.filter.pickDate": "Pick a date",
@@ -186,7 +182,6 @@ export default {
     "incidentReports.detail.situation2": "Situation 2",
 
     // Standby Records (admin)
-    "standbyRecords.title": "Standby Records",
     "standbyRecords.subtitle": "Driver check-in records with no delivery jobs",
     "standbyRecords.stats.total": "Total Records",
     "standbyRecords.filter.pickDate": "Pick a date",
@@ -290,7 +285,6 @@ export default {
     "customStops.status.failed": "Failed",
 
     // Line Haul (admin)
-    "lineHaul.title": "Line Haul Tasks",
     "lineHaul.subtitle": "Manage all line haul tasks and check-ins",
     "lineHaul.newAssignment": "New Assignment",
     "lineHaul.filters.title": "Filters",

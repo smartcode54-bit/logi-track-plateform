@@ -1,6 +1,5 @@
 export default {
     // List Page - Header
-    "drivers.title": "Driver Management",
     "drivers.subtitle": "Manage and track your fleet's personnel efficiently in real-time.",
     "drivers.export": "Export",
     "drivers.add": "Add New Driver",
@@ -107,8 +106,8 @@ export default {
     "drivers.form.type": "Type",
     "drivers.form.type.fullTime": "Full Time",
     "drivers.form.type.partTime": "Part Time",
-    "drivers.form.type.subcontractor": "Subcontractor",
-    "drivers.form.subcontractorCompany": "Subcontractor Company",
+    "drivers.form.type.subcontractor": "Partner",
+    "drivers.form.subcontractorCompany": "Partner company",
     "drivers.form.subcontractorCompany.placeholder": "Select...",
     "drivers.form.contractDuration": "Contract Duration (Years)",
     "drivers.form.initialStatus": "Initial Status",
@@ -138,7 +137,7 @@ export default {
     "drivers.toast.notFound": "Driver not found",
     "drivers.toast.loadError": "Failed to load driver data",
     "drivers.toast.noId": "No driver ID provided",
-    "drivers.toast.subLoadError": "Failed to load subcontractors",
+    "drivers.toast.subLoadError": "Failed to load partners",
 
     // Edit Page
     "drivers.edit.title": "Edit Driver",
@@ -164,7 +163,7 @@ export default {
     "drivers.detail.employmentType": "Employment Type",
     "drivers.detail.fullTime": "Full Time",
     "drivers.detail.partTime": "Part Time",
-    "drivers.detail.subcontractor": "Subcontractor",
+    "drivers.detail.subcontractor": "Partner",
     "drivers.detail.contractDuration": "Contract Duration",
     "drivers.detail.years": "Years",
     "drivers.detail.customerDriverIds": "Customer Driver IDs",

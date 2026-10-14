@@ -4,7 +4,8 @@
  * The chat console's frame (both sources, T50): conversations on the left, the room or the broadcast
  * composer in the middle, the driver panel on the right; collapsible columns on a wide screen (their state
  * remembered in this browser), two sheets on a narrow one. The panels are slots: the Go layout passes its
- * hooks' panels, the Firestore layout its legacy ones.
+ * hooks' panels, the Firestore layout its legacy ones. The middle column is a plain `div`: the page's one `<main>`
+ * landmark is the app shell's (app/app/layout.tsx, UI3B).
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, MessageCircle, User } from "lucide-react";
@@ -110,7 +111,7 @@ export function ChatShell({ conversations, driverPanel, overlays, children }: Ch
                         </SheetContent>
                     </Sheet>
                 </div>
-                <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">{children}</main>
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">{children}</div>
                 {overlays}
             </div>
         );
@@ -135,7 +136,7 @@ export function ChatShell({ conversations, driverPanel, overlays, children }: Ch
                 </aside>
             </Collapsible>
 
-            <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">{children}</main>
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">{children}</div>
 
             <Collapsible open={rightOpen} onOpenChange={handleRightOpenChange} className="shrink-0">
                 <aside className={`flex flex-col overflow-hidden border-l bg-muted/30 transition-[width] duration-200 ${rightOpen ? "w-[320px]" : "w-12"}`}>

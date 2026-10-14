@@ -55,7 +55,7 @@ export default function CompaniesPage() {
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <p className="text-xs text-muted-foreground">Subcontractor</p>
+              <p className="text-xs text-muted-foreground">{t("company.type.subcontractor")}</p>
               <p className="text-2xl font-bold">{subCount}</p>
             </CardContent>
           </Card>

@@ -40,7 +40,7 @@ const masterData: Record<string, string> = {
     "masterData.companies.total": "ทั้งหมด",
     "masterData.companies.active": "ใช้งานอยู่",
     "masterData.companies.listTitle": "รายชื่อบริษัท",
-    "masterData.companies.listDescription": "บริษัทหลัก {owner} · ผู้รับเหมาช่วง {sub}",
+    "masterData.companies.listDescription": "บริษัทหลัก {owner} · รถร่วม {sub}",
     "masterData.companies.loadError": "ไม่สามารถโหลดข้อมูลบริษัทได้",
     "masterData.companies.setupOwner": "ตั้งค่าโปรไฟล์บริษัทหลัก",
     "masterData.companies.signatoryHint": "ชื่อที่แสดงใต้ลายเซ็นในใบวางบิล",

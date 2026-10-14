@@ -1,8 +1,7 @@
 export default {
     // Overview Page
-    "subcontractors.title": "Subcontractor Management",
-    "subcontractors.subtitle": "Monitor performance and compliance of third-party logistics partners",
-    "subcontractors.add": "Add Subcontractor",
+    "subcontractors.subtitle": "Monitor performance and compliance of partner carriers",
+    "subcontractors.add": "Add partner",
     "subcontractors.search": "Search companies or contacts...",
 
     // Stats Cards
@@ -37,7 +36,7 @@ export default {
 
     // Table Loading/Empty
     "subcontractors.loading": "Loading partners...",
-    "subcontractors.noData": "No subcontractors found matching your filters.",
+    "subcontractors.noData": "No partners match your filters.",
 
     // Dropdown Actions
     "subcontractors.action.viewProfile": "View Profile",
@@ -59,7 +58,7 @@ export default {
     "subcontractors.status.activePartner": "ACTIVE PARTNER",
 
     // New Subcontractor Page
-    "subcontractors.new.title": "Add New Subcontractor",
+    "subcontractors.new.title": "Add a new partner",
     "subcontractors.new.step": "Step",
     "subcontractors.new.of": "of",
 
@@ -163,20 +162,20 @@ export default {
     "subcontractors.form.completeRegistration": "Complete Registration",
 
     // Toast Messages
-    "subcontractors.toast.registerSuccess": "Subcontractor registered successfully",
-    "subcontractors.toast.registerError": "Failed to register subcontractor",
-    "subcontractors.toast.updateSuccess": "Subcontractor updated successfully",
-    "subcontractors.toast.updateError": "Failed to update subcontractor",
-    "subcontractors.toast.notFound": "Subcontractor not found",
-    "subcontractors.toast.loadError": "Failed to load subcontractor data",
+    "subcontractors.toast.registerSuccess": "Partner registered",
+    "subcontractors.toast.registerError": "Failed to register the partner",
+    "subcontractors.toast.updateSuccess": "Partner updated",
+    "subcontractors.toast.updateError": "Failed to update the partner",
+    "subcontractors.toast.notFound": "Partner not found",
+    "subcontractors.toast.loadError": "Failed to load the partner's data",
     "subcontractors.toast.uploadSuccess": "File uploaded successfully",
     "subcontractors.toast.uploadError": "Failed to upload file",
 
     // Detail Page
     "subcontractors.detail.partners": "Partners",
-    "subcontractors.detail.subcontractors": "Subcontractors",
+    "subcontractors.detail.subcontractors": "Partners",
     "subcontractors.detail.partnerPortal": "Partner Portal",
-    "subcontractors.detail.subcontractorManagement": "Subcontractor Management",
+    "subcontractors.detail.subcontractorManagement": "Partners",
     "subcontractors.detail.overview": "Overview",
     "subcontractors.detail.assignedTrucks": "Assigned Trucks",
     "subcontractors.detail.contractsDocs": "Contracts & Documents",
@@ -184,7 +183,7 @@ export default {
     "subcontractors.detail.activityLog": "Activity Log",
     "subcontractors.detail.totalDeliveries": "Total Deliveries",
     "subcontractors.detail.monthlyTarget": "Monthly target",
-    "subcontractors.detail.masterSubcontractor": "Master Subcontractor",
+    "subcontractors.detail.masterSubcontractor": "Master partner",
     "subcontractors.detail.joined": "Joined",
     "subcontractors.detail.message": "Message",
     "subcontractors.detail.editProfile": "Edit Profile",
@@ -199,7 +198,7 @@ export default {
     "subcontractors.detail.dispatchManager": "DISPATCH MANAGER",
     "subcontractors.detail.available": "Available",
     "subcontractors.detail.viewAllFleet": "View All Fleet",
-    "subcontractors.detail.notFound": "Subcontractor not found",
+    "subcontractors.detail.notFound": "Partner not found",
     "subcontractors.detail.backToList": "Back to List",
     "subcontractors.detail.noTrucks": "No trucks assigned yet.",
 
@@ -222,7 +221,7 @@ export default {
     "subcontractors.detail.audit": "Audit",
 
     // Edit Page
-    "subcontractors.edit.title": "Edit Subcontractor",
+    "subcontractors.edit.title": "Edit partner",
     "subcontractors.edit.backToDetails": "Back to Details",
     "subcontractors.edit.basicInfo": "Basic Information",
     "subcontractors.edit.status": "Status",

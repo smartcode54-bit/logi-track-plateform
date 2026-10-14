@@ -48,6 +48,28 @@ export function documentTitle(names: readonly string[], brand: string): string {
     return [...names, brand].filter(Boolean).join(" · ");
 }
 
+/**
+ * Keeps `document.title` at `title` while the shell is mounted. Next writes its metadata `<title>` back after a
+ * load and on navigations that change only the query string (seen under `next dev` about 0.6 s after a full load),
+ * so the title is put back whenever anything in `<head>` changes, not only when `title` does (UI3B review).
+ */
+function useDocumentTitle(title: string): void {
+    useEffect(() => {
+        const previous = document.title;
+        const apply = () => {
+            if (document.title !== title) document.title = title;
+        };
+        apply();
+        // Setting the title is itself a mutation; `apply` only writes when the text differs, so this settles.
+        const observer = new MutationObserver(apply);
+        observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+        return () => {
+            observer.disconnect();
+            document.title = previous;
+        };
+    }, [title]);
+}
+
 export function AppBreadcrumb({ pathname, homeHref, className }: { pathname: string; homeHref: string; className?: string }) {
     const { customLastItem } = useBreadcrumb();
     const { t } = useLanguage();
@@ -66,13 +88,7 @@ export function AppBreadcrumb({ pathname, homeHref, className }: { pathname: str
 
     const entry = crumbs.length > 0 ? t(crumbs[crumbs.length - 1].labelKey) : "";
     const title = documentTitle([detailName, entry], t("brand.name"));
-    useEffect(() => {
-        const previous = document.title;
-        document.title = title;
-        return () => {
-            document.title = previous;
-        };
-    }, [title]);
+    useDocumentTitle(title);
 
     return (
         <Breadcrumb aria-label={t("shell.breadcrumb")} className={cn("min-w-0 overflow-hidden", className)}>

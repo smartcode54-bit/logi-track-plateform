@@ -1,6 +1,5 @@
 export default {
     // Waitlist Admin
-    "waitlist.title": "รายการรอ",
     "waitlist.description": "จัดการผู้ใช้ที่ขอสิทธิ์เข้าใช้งาน",
     "waitlist.requests": "คำขอรายการรอ",
     "waitlist.requestsDesc": "รายชื่ออีเมลที่รอการเชิญ",

@@ -1,6 +1,5 @@
 // Security Center tenants page (T18 owner addition): platform admins onboard carrier tenants.
 const tenants: Record<string, string> = {
-    "tenants.title": "ผู้ให้บริการขนส่ง (tenant)",
     "tenants.subtitle": "องค์กรผู้ให้บริการขนส่งบนแพลตฟอร์มและผู้ดูแลของแต่ละองค์กร",
     "tenants.accessDenied": "เฉพาะผู้ดูแลแพลตฟอร์มเท่านั้นที่จัดการองค์กรได้",
     "tenants.create": "สร้างองค์กร",

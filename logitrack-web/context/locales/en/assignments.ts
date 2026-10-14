@@ -1,6 +1,5 @@
 export default {
     // Truck Assignments
-    "assignments.title": "Manage Truck Assignments",
     "assignments.subtitle": "Pair drivers with vehicles and monitor active fleet deployments.",
     "assignments.viewMaps": "View Maps",
     "assignments.quickAction": "Quick Action",

@@ -262,7 +262,7 @@ export function BroadcastComposerGo() {
             <div className="mb-6 flex items-center gap-2">
                 <Megaphone className="h-6 w-6 text-primary" />
                 <div>
-                    <h2 className="text-lg font-semibold">{t("chat.broadcast.title")}</h2>
+                    <h1 className="text-lg font-semibold">{t("chat.broadcast.title")}</h1>
                     <p className="text-sm text-muted-foreground">{t("chat.broadcast.subtitle")}</p>
                 </div>
             </div>

@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 
-import { sidebarStateFromCookie, useSidebar } from "@/components/ui/sidebar";
+import { isApplePlatform, sidebarStateFromCookie, useSidebar } from "@/components/ui/sidebar";
 
 /** Tailwind's `lg`: from here a sidebar the user never collapsed starts open (UI3B). */
 export const SIDEBAR_OPEN_FROM_PX = 1024;
@@ -24,10 +24,9 @@ export function initialSidebarOpen(): boolean {
     return window.innerWidth >= SIDEBAR_OPEN_FROM_PX;
 }
 
-/** The sidebar's keyboard shortcut as this platform writes it: ⌘B on Apple devices, Ctrl+B elsewhere. */
+/** The sidebar's keyboard shortcut as this platform writes it (and accepts it): ⌘B on Apple devices, Ctrl+B elsewhere. */
 export function sidebarShortcutKeys(): string {
-    if (typeof navigator === "undefined") return "Ctrl+B";
-    return /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? "⌘B" : "Ctrl+B";
+    return isApplePlatform() ? "⌘B" : "Ctrl+B";
 }
 
 /** The collapsed rail's tooltip on the sidebar header: the title, and the scope line on its own line. */

@@ -29,7 +29,6 @@ export default {
     // Vehicle map (lat/long map with truck icons)
     "dashboard.vehicleMap.title": "Vehicle position on map",
     "dashboard.vehicleMap.loading": "Loading...",
-    "dashboard.overview": "Dashboard Overview",
     "dashboard.realTimeOperations": "Real-Time Operations",
 
     // Dashboard Stats
