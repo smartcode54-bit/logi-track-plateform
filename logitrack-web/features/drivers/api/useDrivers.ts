@@ -17,6 +17,7 @@ import {
     type StatusCounts,
 } from "./drivers";
 import type { CreateUserResult } from "@/features/users/api/users";
+import { PartialCreateError } from "@/lib/goUpload";
 
 const NO_DRIVERS: DriverDTO[] = [];
 const NO_COUNTS: StatusCounts = {};
@@ -46,9 +47,12 @@ export function useDriver(id: string) {
 
 /** Profile create and update (both make `['drivers']` stale). The login is `useCreateDriverLogin`. */
 export function useDriverWrites() {
+    const client = useQueryClient();
     const meta = { invalidates: [queryKeys.drivers.all()] };
     return {
-        create: useMutation({ mutationFn: createDriver, meta }),
+        create: useMutation({ mutationFn: createDriver, meta, onError: (error) => {
+            if (error instanceof PartialCreateError) void client.invalidateQueries({ queryKey: queryKeys.drivers.all() });
+        } }),
         update: useMutation({ mutationFn: updateDriver, meta }),
     };
 }

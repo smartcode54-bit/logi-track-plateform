@@ -8,7 +8,6 @@ import type { DriverStatus } from "@/features/drivers/api/drivers";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { LoadMore } from "@/components/load-more";
 import {
-    Loader2,
     Users,
     Activity,
     CalendarOff,
@@ -39,6 +38,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
+import { QueryError, QueryLoading } from "@/components/page-states";
+import { driverDisplayName } from "@/lib/driverName";
 import { chatWithDriverHref } from "@/features/chat/api/chats.go";
 
 
@@ -60,6 +61,7 @@ export default function DriversList() {
     // tab is visible (Appendix E §E.5 row 23, replacing the onSnapshot listener).
     const pages = useDriverPages({ status: statusFilter === "all" ? "" : statusFilter, q });
     const loading = pages.isPending;
+    const unavailable = loading || (pages.isError && !pages.data);
     const filteredDrivers = pages.drivers;
 
     // Stat cards: the server's counts over every matching driver, not only the loaded rows.
@@ -100,7 +102,7 @@ export default function DriversList() {
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.totalDrivers")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
-                                <h2 className="text-3xl font-bold">{stats.total}</h2>
+                                <h2 className="text-3xl font-bold">{unavailable ? "—" : stats.total}</h2>
                             </div>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
@@ -113,7 +115,7 @@ export default function DriversList() {
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.activeOnDuty")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
-                                <h2 className="text-3xl font-bold">{stats.active}</h2>
+                                <h2 className="text-3xl font-bold">{unavailable ? "—" : stats.active}</h2>
                             </div>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -126,7 +128,7 @@ export default function DriversList() {
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.inactive")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
-                                <h2 className="text-3xl font-bold">{stats.onLeave}</h2>
+                                <h2 className="text-3xl font-bold">{unavailable ? "—" : stats.onLeave}</h2>
                             </div>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
@@ -180,6 +182,7 @@ export default function DriversList() {
                     </div>
                 </div>
 
+                {pages.isError && !pages.isFetchNextPageError ? <QueryError label={t("drivers.loadError")} onRetry={() => void pages.refetch()} retrying={pages.isFetching} /> : null}
                 <div className="border rounded-lg bg-card overflow-hidden">
                     <Table>
                         <TableHeader className="bg-muted/50">
@@ -197,16 +200,13 @@ export default function DriversList() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="h-32 text-center">
-                                        <div className="flex flex-col items-center justify-center gap-2">
-                                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">{t("drivers.loading")}</p>
-                                        </div>
+                                    <TableCell colSpan={8} className="h-32 text-center">
+                                        <QueryLoading label={t("drivers.loading")} />
                                     </TableCell>
                                 </TableRow>
-                            ) : paginatedDrivers.length === 0 ? (
+                            ) : pages.isError && !pages.data ? null : paginatedDrivers.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="h-32 text-center">
+                                    <TableCell colSpan={8} className="h-32 text-center">
                                         <p className="text-sm text-muted-foreground">{t("drivers.noData")}</p>
                                     </TableCell>
                                 </TableRow>
@@ -216,11 +216,11 @@ export default function DriversList() {
                                         <TableCell>
                                             <div className="flex items-center gap-3">
                                                 <Avatar className="h-9 w-9 border border-border">
-                                                    <AvatarImage src={driver.profileUrl ?? undefined} alt={driver.firstName} />
+                                                    <AvatarImage src={driver.profileUrl ?? undefined} alt={driverDisplayName({ ...driver }, driver.id)} />
                                                     <AvatarFallback>{(driver.firstName || driver.displayName).slice(0, 1).toUpperCase()}{driver.lastName.slice(0, 1).toUpperCase()}</AvatarFallback>
                                                 </Avatar>
                                                 <div className="flex flex-col">
-                                                    <span className="font-medium text-sm text-foreground">{driver.firstName} {driver.lastName}</span>
+                                                    <span className="font-medium text-sm text-foreground">{driverDisplayName({ ...driver }, driver.id)}</span>
                                                     <span className="text-xs text-muted-foreground">{driver.email}</span>
                                                 </div>
                                             </div>
@@ -236,10 +236,12 @@ export default function DriversList() {
                                         </TableCell>
                                         <TableCell>
                                             {driver.currentAssignment ? (
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium text-sm text-primary">{driver.currentAssignment.truckPlate}</span>
-                                                    <span className="text-xs text-muted-foreground">{driver.currentAssignment.truckModel}</span>
-                                                </div>
+                                                driver.currentAssignment.truckId ? (
+                                                    <Link href={`/app/trucks/view?id=${driver.currentAssignment.truckId}`} prefetch={false} onClick={(e) => e.stopPropagation()} className="flex flex-col justify-center max-md:min-h-11 max-md:min-w-11 rounded-sm text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+                                                        <span className="text-sm font-medium">{driver.currentAssignment.truckPlate}</span>
+                                                        <span className="text-xs">{driver.currentAssignment.truckModel}</span>
+                                                    </Link>
+                                                ) : <span className="text-sm">{driver.currentAssignment.truckPlate}</span>
                                             ) : (
                                                 <span className="text-muted-foreground text-xs italic">{t("drivers.table.unassigned")}</span>
                                             )}
@@ -258,8 +260,8 @@ export default function DriversList() {
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button aria-label={t("common.actionsFor", { name: `${driver.firstName} ${driver.lastName}`.trim() })} variant="ghost" className="h-8 w-8 p-0">
+                                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                    <Button aria-label={t("common.actionsFor", { name: driverDisplayName({ ...driver }, driver.id) })} variant="ghost" className="h-8 w-8 max-md:h-11 max-md:w-11 p-0">
                                                         <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
@@ -267,7 +269,7 @@ export default function DriversList() {
                                                     <DropdownMenuLabel>{t("drivers.action.label")}</DropdownMenuLabel>
                                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/view?id=${driver.id}`); }}>{t("drivers.action.viewProfile")}</DropdownMenuItem>
                                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(`/app/drivers/edit?id=${driver.id}`); }}>{t("drivers.action.editDetails")}</DropdownMenuItem>
-                                                    {(driver.legacyAuthUid || driver.userId) && (
+                                                    {driver.userId && (
                                                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); router.push(chatWithDriverHref(driver)); }} className="gap-2">
                                                             <MessageCircle className="h-4 w-4" />
                                                             {t("masterData.drivers.chat")}
@@ -288,6 +290,7 @@ export default function DriversList() {
                             loaded={filteredDrivers.length}
                             hasNextPage={pages.hasNextPage}
                             isFetchingNextPage={pages.isFetchingNextPage}
+                            error={pages.isFetchNextPageError}
                             onLoadMore={() => void pages.fetchNextPage()}
                         />
                     </div>

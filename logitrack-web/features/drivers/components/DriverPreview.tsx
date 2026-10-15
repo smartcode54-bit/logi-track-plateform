@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-    Edit, Truck, Calendar, User, FileText, Info, Loader2,
+    Edit, Truck, Calendar, User, FileText, Info,
     Phone, Mail, CreditCard, Briefcase, Building2, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { PageLoading, QueryError, QueryLoading } from "@/components/page-states";
+import { driverDisplayName } from "@/lib/driverName";
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
 import { format } from "date-fns";
@@ -50,7 +52,8 @@ export default function DriverPreview() {
     // name comes inside the driver (`tenantNameTh`), so the subcontractor list is not loaded.
     const driverQuery = useDriver(driverId ?? "");
     const driver = driverQuery.data ?? null;
-    const { assignments: assignmentHistory } = useAssignmentsOf({ driverId: driverId ?? "" });
+    const assignmentsQuery = useAssignmentsOf({ driverId: driverId ?? "" });
+    const assignmentHistory = assignmentsQuery.assignments;
     const isLoading = driverQuery.isPending && Boolean(driverId);
 
     const formatDate = (date: Date | string | null | undefined) => {
@@ -62,14 +65,7 @@ export default function DriverPreview() {
         }
     };
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">{t("drivers.detail.loadingData")}</span>
-            </div>
-        );
-    }
+    if (isLoading) return <PageLoading />;
 
     // No id, no driver, or the read failed: not found, or a load error with a retry (UI3D).
     // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
@@ -82,10 +78,12 @@ export default function DriverPreview() {
     const idCardImage = driver.idCardUrl ?? "";
     const truckLicenseImage = driver.licenseUrl ?? "";
 
+    const idCardIsPdf = (driver.idCardKey ?? idCardImage.split(/[?#]/)[0]).toLowerCase().endsWith(".pdf");
+    const licenseIsPdf = (driver.licenseKey ?? truckLicenseImage.split(/[?#]/)[0]).toLowerCase().endsWith(".pdf");
     const viewableFiles = [
         ...(profileImage ? [{ url: profileImage, type: "image" as const, label: t("drivers.detail.profilePhoto") }] : []),
-        ...(idCardImage ? [{ url: idCardImage, type: "pdf" as const, label: t("drivers.detail.idCard") }] : []),
-        ...(truckLicenseImage ? [{ url: truckLicenseImage, type: "pdf" as const, label: t("drivers.detail.driverLicense") }] : []),
+        ...(idCardImage ? [{ url: idCardImage, type: idCardIsPdf ? "pdf" as const : "image" as const, label: t("drivers.detail.idCard") }] : []),
+        ...(truckLicenseImage ? [{ url: truckLicenseImage, type: licenseIsPdf ? "pdf" as const : "image" as const, label: t("drivers.detail.driverLicense") }] : []),
     ];
 
     const handleFileClick = (url: string) => {
@@ -101,7 +99,7 @@ export default function DriverPreview() {
         <div className="flex flex-col gap-section">
             <PageHeader
                 title={t("nav.drivers")}
-                recordName={`${driver.firstName} ${driver.lastName}`}
+                recordName={driverDisplayName({ ...driver }, driver.id)}
                 back={{ href: "/app/drivers" }}
                 status={<StatusBadge status={String(driver.status)} />}
                 description={
@@ -247,7 +245,7 @@ export default function DriverPreview() {
                                         className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-border transition-all"
                                         onClick={() => handleFileClick(idCardImage)}
                                     >
-                                        {idCardImage.toLowerCase().includes('.pdf') ? (
+                                        {idCardIsPdf ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
                                                 <FileText className="h-10 w-10 text-destructive mb-2" />
                                                 <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
@@ -275,7 +273,7 @@ export default function DriverPreview() {
                                         className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-border transition-all"
                                         onClick={() => handleFileClick(truckLicenseImage)}
                                     >
-                                        {truckLicenseImage.toLowerCase().includes('.pdf') ? (
+                                        {licenseIsPdf ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
                                                 <FileText className="h-10 w-10 text-destructive mb-2" />
                                                 <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
@@ -308,14 +306,14 @@ export default function DriverPreview() {
                                 onClick={() => profileImage && handleFileClick(profileImage)}
                             >
                                 {profileImage ? (
-                                    <Image src={profileImage} alt={driver.firstName} fill className="object-cover" />
+                                    <Image src={profileImage} alt={driverDisplayName({ ...driver }, driver.id)} fill className="object-cover" />
                                 ) : (
                                     <div className="h-full w-full bg-muted flex items-center justify-center text-muted-foreground">
                                         <User className="h-20 w-20" />
                                     </div>
                                 )}
                             </div>
-                            <h3 className="text-xl font-bold">{driver.firstName} {driver.lastName}</h3>
+                            <h3 className="text-xl font-bold">{driverDisplayName({ ...driver }, driver.id)}</h3>
                             <p className="text-sm text-muted-foreground">{driver.email}</p>
                             <div className="flex gap-2 mt-4 w-full">
                                 {driver.mobile?.trim() && (
@@ -354,6 +352,7 @@ export default function DriverPreview() {
                             )}
                         </CardHeader>
                         <CardContent className="p-0">
+                            {assignmentsQuery.isError && assignmentsQuery.data ? <QueryError label={t("drivers.history.loadError")} onRetry={() => void assignmentsQuery.refetch()} retrying={assignmentsQuery.isFetching} /> : null}
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -364,12 +363,18 @@ export default function DriverPreview() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {assignmentHistory.length > 0 ? (
+                                    {assignmentsQuery.isPending ? (
+                                        <TableRow><TableCell colSpan={4}><QueryLoading label={t("assignments.table.loading")} /></TableCell></TableRow>
+                                    ) : assignmentsQuery.isError && !assignmentsQuery.data ? (
+                                        <TableRow><TableCell colSpan={4}><QueryError label={t("drivers.history.loadError")} onRetry={() => void assignmentsQuery.refetch()} retrying={assignmentsQuery.isFetching} /></TableCell></TableRow>
+                                    ) : assignmentHistory.length > 0 ? (
                                         assignmentHistory.map((history) => (
                                             <TableRow key={history.id}>
                                                 <TableCell>
-                                                    <div className="font-medium text-xs">{history.truckPlate}</div>
-                                                    <div className="text-xs text-muted-foreground">{history.truckModel}</div>
+                                                    <Link href={`/app/trucks/view?id=${history.truckId}`} prefetch={false} onClick={(e) => e.stopPropagation()} className="flex flex-col justify-center max-md:min-h-11 max-md:min-w-11 rounded-sm text-xs text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+                                                        <span className="font-medium">{history.truckPlate}</span>
+                                                        <span>{history.truckModel}</span>
+                                                    </Link>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
                                                     {history.createdAt ? format(new Date(history.createdAt), "dd MMM yy", { locale: language === "th" ? th : undefined }) : "-"}
