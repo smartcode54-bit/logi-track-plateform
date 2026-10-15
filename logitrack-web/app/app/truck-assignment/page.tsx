@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import {
     Truck,
     User,
@@ -46,21 +45,6 @@ interface Picked {
 
 const picked = (id: string, option: SearchSelectOption | null): Picked | null =>
     id && option ? { id, label: option.text ?? nodeText(option.label), detail: nodeText(option.description) } : null;
-
-/** Retry the history's current server filter without resetting the table's filters or pagination. */
-function AssignmentHistoryRetry() {
-    const { t } = useLanguage();
-    const client = useQueryClient();
-    const cache = client.getQueryCache();
-    const historyFilter = { queryKey: ["truckAssignments"], type: "active" as const, predicate: (query: { queryKey: readonly unknown[] }) =>
-        (query.queryKey[1] as { view?: string } | undefined)?.view === "history" };
-    const state = useSyncExternalStore(
-        (notify) => cache.subscribe(notify),
-        () => cache.findAll(historyFilter).find((query) => query.state.status === "error")?.state ?? null,
-        () => null,
-    );
-    return state ? <QueryError label={t("assignments.historyLoadError")} onRetry={() => void client.refetchQueries(historyFilter)} retrying={state.fetchStatus === "fetching"} /> : null;
-}
 
 export default function TruckAssignmentPage() {
     const { t } = useLanguage();
@@ -339,7 +323,6 @@ export default function TruckAssignmentPage() {
             </div>
 
             {/* History: server-filtered keyset pages in a virtualised table (TW8) */}
-            <AssignmentHistoryRetry />
             <AssignmentHistory onRevoke={openRevokeDialog} />
             {/* Revoke Confirmation Dialog */}
             <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>

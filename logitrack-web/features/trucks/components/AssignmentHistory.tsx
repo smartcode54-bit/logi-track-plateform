@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { MoreHorizontal, Search, Settings } from "lucide-react";
 
-import { TruckQueryError } from "@/features/trucks/components/TruckQueryError";
+import { QueryError } from "@/components/page-states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -152,7 +152,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                     </Select>
                 </div>
             </div>
-            {history.isError && !history.isFetchNextPageError && <TruckQueryError onRetry={() => void history.refetch()} retrying={history.isFetching} />}
+            {history.isError && !history.isFetchNextPageError && <QueryError label={t("assignments.historyLoadError")} error={history.error} onRetry={() => void history.refetch()} retrying={history.isFetching} />}
             <VirtualTable
                 data={history.rows}
                 columns={columns}
