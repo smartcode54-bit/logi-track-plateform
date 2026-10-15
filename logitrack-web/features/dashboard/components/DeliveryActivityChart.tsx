@@ -57,7 +57,7 @@ export function DeliveryActivityChart({ activity, period }: { activity: Activity
                 <p className="text-4xl font-semibold text-foreground tabular-nums">{activity.total.toLocaleString()}</p>
                 <div className="flex items-center gap-2 mt-1">
                     {activity.trendPct !== null && (
-                        <span className={`text-sm font-medium ${activity.trendPct >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="activity-trend">
+                        <span className={`text-sm font-medium ${activity.trendPct >= 0 ? "text-success" : "text-destructive"}`} data-testid="activity-trend">
                             {activity.trendPct >= 0 ? "↑" : "↓"} {Math.abs(activity.trendPct)}%
                         </span>
                     )}
@@ -65,16 +65,10 @@ export function DeliveryActivityChart({ activity, period }: { activity: Activity
                 </div>
             </div>
 
-            <div className="h-[250px] w-full relative overflow-hidden">
-                <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="w-full h-full" preserveAspectRatio="none" role="img" aria-label={t("dashboard.activity.title")}>
-                    <defs>
-                        <linearGradient id="deliveryActivityGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.5} />
-                            <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                        </linearGradient>
-                    </defs>
-                    <path d={area} fill="url(#deliveryActivityGradient)" />
-                    <path d={line} fill="none" stroke="#3b82f6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            <div className="flex h-[250px] w-full flex-col overflow-hidden">
+                <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="min-h-0 w-full flex-1" preserveAspectRatio="none" role="img" aria-label={t("dashboard.activity.title")}>
+                    <path d={area} fill="var(--primary)" fillOpacity={0.12} />
+                    <path d={line} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <div className="flex justify-between text-xs text-muted-foreground mt-4 px-2">
                     {labels.map((label, i) => (

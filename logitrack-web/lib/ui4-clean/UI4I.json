@@ -1,0 +1,16 @@
+[
+  "features/dashboard/components/DashboardStatCards.tsx",
+  "features/dashboard/components/DashboardWidgets.tsx",
+  "features/dashboard/components/DeliveryActivityChart.tsx",
+  "features/dashboard/components/FleetMapClient.tsx",
+  "features/incident-reports/components/IncidentLocationMapClient.tsx",
+  "features/tasks/components/go/opsShared.tsx",
+  "features/tasks/components/go/TaskImportDialog.tsx",
+  "app/app/sources/page.tsx",
+  "app/app/sources/pickup-import-dialog.tsx",
+  "app/app/settings/company-profile/page.tsx",
+  "app/app/companies/page.tsx",
+  "features/chat/components/DriverPanelGo.tsx",
+  "features/chat/components/BroadcastComposerGo.tsx",
+  "features/chat/components/BroadcastVoidConfirmDialog.tsx"
+]

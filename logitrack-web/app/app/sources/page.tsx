@@ -21,6 +21,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HubDialog } from "../first-mile/hub-dialog";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
@@ -43,11 +45,14 @@ import { toast } from "sonner";
 
 const SourcesMap = dynamic(() => import("@/components/map/SourcesMap"), {
     ssr: false,
-    loading: () => (
-        <div className="h-[360px] w-full rounded-md border bg-muted/30 flex items-center justify-center text-muted-foreground text-sm">
-            Loading map...
-        </div>
-    ),
+    loading: function SourcesMapLoading() {
+        const { t } = useLanguage();
+        return (
+            <div className="h-[360px] w-full rounded-md border bg-muted/30 flex items-center justify-center text-muted-foreground text-sm">
+                {t("common.loading")}
+            </div>
+        );
+    },
 });
 
 // The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
@@ -415,19 +420,19 @@ export default function SourcesPage() {
             />
 
             {driverAddedNeedsCompletion.length > 0 && (
-                <button
-                    type="button"
-                    onClick={() => setShowOnlyNew(true)}
-                    className="flex w-full items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-left text-amber-800 transition-colors hover:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/15"
-                >
-                    <AlertTriangle className="h-5 w-5 shrink-0" />
-                    <p className="text-sm font-medium">
-                        {t("firstMile.sources.driverAddedAlert")}
-                        <span className="font-semibold ml-1">{driverAddedNeedsCompletion.length}</span>
-                        {t("firstMile.sources.driverAddedAlertSuffix")}
-                    </p>
-                    <span className="ml-auto text-xs underline">{t("firstMile.sources.filterNewClick")}</span>
-                </button>
+                <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" aria-hidden />
+                    <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                        <p>
+                            {t("firstMile.sources.driverAddedAlert")}
+                            <span className="font-semibold ml-1">{driverAddedNeedsCompletion.length}</span>
+                            {t("firstMile.sources.driverAddedAlertSuffix")}
+                        </p>
+                        <Button type="button" variant="outline" size="sm" className="max-md:h-11" onClick={() => setShowOnlyNew(true)}>
+                            {t("firstMile.sources.filterNewClick")}
+                        </Button>
+                    </AlertDescription>
+                </Alert>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch min-h-0">
@@ -460,9 +465,9 @@ export default function SourcesPage() {
                                 >
                                     {t("firstMile.sources.filterNew")}
                                     {driverAddedNeedsCompletion.length > 0 && (
-                                        <span className="ml-1 rounded-full bg-amber-500/30 px-1.5 py-0.5 text-xs font-medium">
+                                        <Badge variant="secondary" className="ml-1">
                                             {driverAddedNeedsCompletion.length}
-                                        </span>
+                                        </Badge>
                                     )}
                                 </Button>
                                 <Tabs value={distanceViewMode} onValueChange={(v) => v === "HUB_SOC" || v === "SOC_HUB" ? setDistanceViewMode(v) : undefined}>
@@ -557,7 +562,7 @@ export default function SourcesPage() {
                                         return (
                                             <TableRow
                                                 key={row.id || index}
-                                                className={`cursor-pointer ${needsAdminCompletion ? "bg-amber-500/5" : ""} ${isSelected ? "bg-primary/10 border-primary/30" : "hover:bg-muted/50"}`}
+                                                className={`cursor-pointer ${needsAdminCompletion ? "bg-warning/5" : ""} ${isSelected ? "bg-primary/10 border-primary/30" : "hover:bg-muted/50"}`}
                                                 onClick={() => {
                                                     if (hasCoords) setSelectedSourceId(rowKey);
                                                 }}
@@ -566,9 +571,9 @@ export default function SourcesPage() {
                                                     <span className="flex items-center gap-2">
                                                         {row.source_id}
                                                         {needsAdminCompletion && (
-                                                            <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                                                            <Badge variant="outline">
                                                                 {t("firstMile.sources.needsCompletion")}
-                                                            </span>
+                                                            </Badge>
                                                         )}
                                                     </span>
                                                 </TableCell>
@@ -589,7 +594,7 @@ export default function SourcesPage() {
                                                             href={`https://www.google.com/maps/search/?api=1&query=${row.latitude},${row.longitude}`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="flex items-center text-blue-600 hover:text-blue-800"
+                                                            className="flex items-center text-primary hover:underline"
                                                             onClick={(e) => e.stopPropagation()}
                                                         >
                                                             <MapPin className="mr-1 h-3 w-3" />

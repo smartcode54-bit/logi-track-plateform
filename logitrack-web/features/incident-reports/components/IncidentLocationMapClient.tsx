@@ -30,8 +30,8 @@ export function IncidentLocationMapClient({ lat, lng }: IncidentLocationMapClien
             const icon = L.divIcon({
                 className: "incident-marker",
                 html: `
-          <div style="background:#ef4444;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 4px rgba(0,0,0,0.2);border:2px solid #ffffff;overflow:hidden;">
-            <img src="/exclamation_8848378.png" style="width:20px;height:20px;object-fit:contain;" />
+          <div style="background:var(--destructive);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:2px solid var(--card);overflow:hidden;">
+            <img src="/exclamation_8848378.png" alt="" style="width:20px;height:20px;object-fit:contain;" />
           </div>
         `,
                 iconSize: [32, 32],
@@ -54,5 +54,5 @@ export function IncidentLocationMapClient({ lat, lng }: IncidentLocationMapClien
         };
     }, [lat, lng]);
 
-    return <div ref={mapContainerRef} className="w-full h-full z-0" style={{ zIndex: 0 }} />;
+    return <div ref={mapContainerRef} className="w-full h-full z-0" />;
 }

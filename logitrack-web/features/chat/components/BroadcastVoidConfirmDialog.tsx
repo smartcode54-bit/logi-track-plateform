@@ -27,7 +27,7 @@ export function BroadcastVoidConfirmDialog({ open, onOpenChange, onConfirm, load
                     <DialogTitle>{t("chat.broadcast.voidTitle")}</DialogTitle>
                     <DialogDescription className="space-y-2 pt-1 text-left">
                         <span className="block">{t("chat.broadcast.voidBody")}</span>
-                        <span className="block text-sm text-amber-600 dark:text-amber-500">{t("chat.broadcast.voidPushNote")}</span>
+                        <span className="block text-sm text-warning">{t("chat.broadcast.voidPushNote")}</span>
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>

@@ -20,6 +20,7 @@ import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
 import { periodRange, type DashboardSummaryDTO } from "../api/summary";
 import { DashboardPage } from "./DashboardPage";
+import { ChatStatusCard, VehiclePositionList } from "./DashboardWidgets";
 
 beforeAll(() => {
     globalThis.ResizeObserver ??= class {
@@ -116,6 +117,34 @@ const queryOf = (call: FakeCall) => Object.fromEntries(new URL(call.url, "http:/
 const callsTo = (web: ReturnType<typeof fakeWeb>, path: string) => web.calls.filter((c) => c.url.split("?")[0] === `/api/go${path}`);
 
 describe("the dashboard over Go", () => {
+    it.each([
+        [{ engineOn: true }, "Engine ON"],
+        [{ engineOn: false }, "Engine OFF"],
+        [{ engineOn: null }, null],
+        [{}, null],
+    ] as const)("labels only reported boolean engine telemetry: %j", async (telemetry, label) => {
+        setup();
+        renderWithProviders(<VehiclePositionList
+            vehicles={[{ truckId: "tr-1", tenantId: "t-own", licensePlate: "70-1111", lat: 13.7, lng: 100.5,
+                speedKmh: null, heading: null, lastGpsAt: null, updatedAt: "2026-10-12T01:00:05Z", ...telemetry }]}
+            loading={false} error={false} onRetry={vi.fn()}
+        />);
+        const positions = await screen.findByTestId("vehicle-positions");
+        expect(positions).toHaveTextContent("70-1111");
+        expect(within(positions).getByRole("link", { name: "Map" })).toHaveAttribute("href", "https://www.google.com/maps?q=13.7,100.5");
+        if (label) expect(within(positions).getByText(label)).toBeInTheDocument();
+        else expect(within(positions).queryByText(/Engine (ON|OFF)/)).toBeNull();
+    });
+
+    it("keeps semantic chat text on the card surface, including hover", async () => {
+        setup();
+        renderWithProviders(<ChatStatusCard unassigned={4} urgent={1} />);
+        const urgent = await screen.findByTestId("chats-urgent");
+        expect(urgent).toHaveAttribute("href", "/app/chat");
+        expect(urgent).toHaveClass("bg-card", "hover:bg-card");
+        expect(within(urgent).getByText("Urgent")).toHaveClass("text-destructive");
+    });
+
     it("loads every figure of the week from one summary request, the counters from ['badges']", async () => {
         const { web } = setup();
         renderWithProviders(<DashboardPage />);

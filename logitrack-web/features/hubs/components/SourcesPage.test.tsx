@@ -4,7 +4,7 @@
 // its "All customers" and "Not linked" rows.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import React from "react";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@/components/map/SourcesMap", () => ({ default: () => null }));
@@ -61,6 +61,24 @@ function setup() {
 const rowIds = () => ["SPX-A", "SPX-B", "SPK-1", "SPX-C", "SPX-D"].filter((id) => screen.queryByText(id));
 
 describe("sources page: customers by id and by search, never every customer (UI8)", () => {
+    it("filters driver-added incomplete hubs from the warning and keeps the count legible when active", async () => {
+        const web = setup();
+        web.handlers.unshift((call) => call.url.split("?")[0] === "/api/go/v1/hubs"
+            ? json(200, { data: [HUBS[0], { ...HUBS[1], latitude: null, longitude: null, createdByDriver: true }] })
+            : undefined);
+        renderWithProviders(<RouteNamespaces pathname="/app/sources"><SourcesPage /></RouteNamespaces>);
+        const action = await screen.findByRole("button", { name: "Click to filter" });
+        expect(action).toHaveClass("max-md:h-11");
+        const filter = screen.getByRole("button", { name: /^New\s*1$/ });
+        const count = within(filter).getByText("1");
+        expect(filter).toHaveAttribute("data-variant", "outline");
+        expect(count).toHaveClass("bg-secondary", "text-secondary-foreground");
+        await userEvent.setup().click(action);
+        await waitFor(() => expect(rowIds()).toEqual(["SPX-B"]));
+        expect(filter).toHaveAttribute("data-variant", "default");
+        expect(count).toHaveClass("bg-secondary", "text-secondary-foreground");
+    });
+
     it("names the linked customers in one ids lookup, searches the table by a customer's code, and filters with the server picker", async () => {
         const web = setup();
         renderWithProviders(

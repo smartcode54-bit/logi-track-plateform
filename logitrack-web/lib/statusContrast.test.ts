@@ -64,7 +64,7 @@ describe("status token contrast (WCAG AA)", () => {
 
     for (const theme of [":root", ".dark"] as const) {
         const token = tokens(theme);
-        for (const tone of ["success", "warning"] as const) {
+        for (const tone of ["success", "warning", "secondary"] as const) {
             const ratio = contrast(token(`${tone}-foreground`), token(tone));
             it(`${theme} filled ${tone} Badge: ${ratio.toFixed(2)}:1`, () => {
                 expect(ratio).toBeGreaterThanOrEqual(4.5);

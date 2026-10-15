@@ -46,23 +46,23 @@ export default function CompaniesPage() {
         />
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-4">
               <p className="text-xs text-muted-foreground">{t("masterData.companies.total")}</p>
-              <p className="text-2xl font-bold">{companies.length}</p>
+              <p className="text-2xl font-semibold">{companies.length}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
               <p className="text-xs text-muted-foreground">{t("company.type.subcontractor")}</p>
-              <p className="text-2xl font-bold">{subCount}</p>
+              <p className="text-2xl font-semibold">{subCount}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
               <p className="text-xs text-muted-foreground">{t("masterData.companies.active")}</p>
-              <p className="text-2xl font-bold text-green-600">{activeCount}</p>
+              <p className="text-2xl font-semibold text-success">{activeCount}</p>
             </CardContent>
           </Card>
         </div>
@@ -115,16 +115,14 @@ export default function CompaniesPage() {
                       <TableCell className="font-mono text-xs">{company.taxId}</TableCell>
                       <TableCell>
                         <Badge
-                          variant={company.companyType === "owner" ? "default" : "outline"}
-                          className={company.companyType === "owner" ? "bg-blue-600" : ""}
+                          variant="outline"
                         >
                           {company.companyType === "owner" ? t("company.type.owner") : t("company.type.subcontractor")}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge
-                          variant={company.isActive ? "default" : "secondary"}
-                          className={company.isActive ? "bg-green-600" : ""}
+                          variant={company.isActive ? "success" : "secondary"}
                         >
                           {company.isActive ? t("company.status.active") : t("company.status.inactive")}
                         </Badge>

@@ -72,13 +72,13 @@ export function DriverPanelGo({ chatSelected, driverId }: { chatSelected: boolea
                         <AvatarFallback className="text-lg">{initials}</AvatarFallback>
                     </Avatar>
                     <h3 className="mt-2 font-semibold">{name}</h3>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("chat.driver.fleetDriver")}</p>
+                    <p className="text-xs text-muted-foreground">{t("chat.driver.fleetDriver")}</p>
                     {d.mobile && <p className="text-xs text-muted-foreground">{d.mobile}</p>}
                 </div>
 
                 {assignment?.truckPlate ? (
                     <div className="space-y-2 rounded-lg border bg-card p-3">
-                        <h4 className="text-xs font-semibold uppercase text-muted-foreground">{t("chat.driver.activeAssignment")}</h4>
+                        <h4 className="text-xs font-semibold text-muted-foreground">{t("chat.driver.activeAssignment")}</h4>
                         <div className="flex items-center gap-2 text-sm">
                             <Truck className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span>{assignment.truckPlate}</span>
