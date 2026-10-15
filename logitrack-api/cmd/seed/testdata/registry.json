@@ -225,5 +225,6 @@
 {"symbol": "FO_APK", "table": "file_objects", "key": "logitrack-public:app_releases/prod/logitrack-prod-v3.5.0.apk", "uuid": "1f355add-de9c-57f2-82e2-4173cf276765"},
 {"symbol": "FO_ST1_INV", "table": "file_objects", "key": "logitrack:documents/statements/@ST1/invoice_summary.pdf", "uuid": "60836e27-afec-5d30-bd1e-9ac6e82db43e"},
 {"symbol": "FO_ST1_RCPT", "table": "file_objects", "key": "logitrack:documents/statements/@ST1/receipt.pdf", "uuid": "db42625d-6823-53d0-9d9e-32d659149a6f"},
-{"symbol": "FO_TR17_PEND", "table": "file_objects", "key": "logitrack:trips/@TR17/arrived-1790729700000.jpg", "uuid": "00ed7fc8-db5f-5d8b-a3b1-46323293e20e"}
+{"symbol": "FO_TR17_PEND", "table": "file_objects", "key": "logitrack:trips/@TR17/arrived-1790729700000.jpg", "uuid": "00ed7fc8-db5f-5d8b-a3b1-46323293e20e"},
+{"symbol": "MT04", "table": "maintenance_records", "key": "ฆฆ-999:2026-09-28:CM", "uuid": "319866c4-3710-5f5c-b8b5-8de1f2c948f4"}
 ]
