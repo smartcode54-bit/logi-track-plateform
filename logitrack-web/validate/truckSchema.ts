@@ -1,164 +1,93 @@
 import * as z from "zod";
+import { TRUCK_PLATE_MAX_LENGTH, TRUCK_PLATE_REGEX } from "@/features/trucks/utils/plate";
 
-// Helper for optional numeric fields to handle empty strings
-// Use union + transform instead of preprocess for better type safety
-const optionalNumber = (min: number, max: number, label: string) =>
-    z.union([z.string(), z.number(), z.undefined()])
-        .transform((val) => {
-            if (val === "" || val === null || val === undefined) return undefined;
-            if (typeof val === "string") {
-                const num = parseFloat(val);
-                return isNaN(num) ? undefined : num;
-            }
-            return typeof val === "number" ? val : undefined;
-        })
-        .pipe(
-            z.number()
-                .min(min, `${label} must be at least ${min}`)
-                .max(max, `${label} cannot exceed ${max}`)
-                .refine((val) => val >= 0, `${label} cannot be negative`)
-                .optional()
-        );
+type Translate = (key: string) => string;
 
-// Truck form validation schema
-export const truckSchema = z.object({
-    // Truck Ownership
-    ownershipType: z.enum(["own", "subcontractor"]).default("own"),
-    subcontractorId: z.string().optional(), // Required if ownershipType is 'subcontractor'
+/** The form sends a full body on create and edit; nullable Go fields stay optional in both. */
+export function createTruckSchema(t: Translate = (key) => key) {
+    const reasonKeys: Record<string, string> = {
+        required: "required", tooLong: "too_long", invalid: "invalid", number: "invalid", range: "out_of_range",
+        integer: "invalid", precision: "too_precise", date: "invalid", year: "out_of_range", seats: "out_of_range", partner: "required",
+    };
+    const message = (key: string) => t(reasonKeys[key] ? `masterData.fieldReason.${reasonKeys[key]}` : `trucks.validation.${key}`);
+    const required = (max = 100) => z.string({ error: message("required") }).trim()
+        .min(1, message("required")).max(max, message("tooLong"));
+    const optionalText = (max: number) => z.string().trim().max(max, message("tooLong")).optional();
+    const number = (min: number, max: number, integer = false) =>
+        z.union([z.string(), z.number(), z.null(), z.undefined()])
+            .transform((value) => value == null || value === "" ? undefined : Number(value))
+            .pipe(z.number({ error: message("number") }).min(min, message("range"))
+                .max(max, message("range"))
+                .refine((value) => integer ? Number.isInteger(value) : Math.abs(value * 100 - Math.round(value * 100)) < 0.000001,
+                    message(integer ? "integer" : "precision")).optional());
+    const date = z.string().refine((value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value,
+        message("date")).optional();
 
-    //validate truck identification
-    licensePlate: z.string()
-        .min(6, "License plate is required")
-        .regex(
-            /^([ก-ฮ]{2}|[0-9][ก-ฮ]{2})-?\d{1,4}$/,
-            "License plate must be in format xx-xxxx or xxx-xxxx (e.g., กก-1234 or 1กก-1234)"
-        ),
-    province: z.string().min(1, "Province is required"),
+    return z.object({
+        ownershipType: z.enum(["own", "subcontractor"], { error: message("invalid") }).default("own"),
+        subcontractorId: z.string().optional(),
+        licensePlate: required(TRUCK_PLATE_MAX_LENGTH).min(6, message("plate"))
+            .regex(TRUCK_PLATE_REGEX, message("plate")),
+        province: required(),
+        vin: z.string().trim().toUpperCase().refine((value) => !value || /^[A-Z0-9]{17}$/.test(value), message("vin")).optional(),
+        engineNumber: optionalText(50),
+        GPSVehicleId: optionalText(64),
+        truckStatus: z.enum(["active", "inactive", "maintenance", "insurance-claim", "sold", ""], { error: message("invalid") })
+            .refine((value) => value !== "", message("required")),
+        brand: required(),
+        model: required(),
+        year: z.string({ error: message("year") }).regex(/^\d{4}$/, message("year"))
+            .refine((value) => Number(value) >= 1900 && Number(value) <= 2200, message("year")),
+        color: required(),
+        type: required(),
+        seats: z.string().refine((value) => !value || /^\d+$/.test(value) && Number(value) <= 10, message("seats")),
+        fuelType: optionalText(50).default(""),
+        engineCapacity: number(0, 20000),
+        fuelCapacity: number(0, 1000),
+        maxLoadWeight: number(0, 100000),
+        registrationDate: date,
+        buyingDate: date,
+        notes: optionalText(2000),
+        imageFrontRight: z.string().optional().default(""),
+        imageFrontLeft: z.string().optional().default(""),
+        imageBackRight: z.string().optional().default(""),
+        imageBackLeft: z.string().optional().default(""),
+        documentTax: z.string().optional().default(""),
+        taxExpiryDate: date,
+        documentRegister: z.string().optional().default(""),
+        lastServiceDate: date,
+        nextServiceDate: date,
+        nextServiceMileage: number(0, 2000000, true),
+        pmIntervalKm: number(1, 500000, true),
+        currentMileage: number(0, 2000000, true),
+        insurancePolicyId: optionalText(100),
+        insurancePolicyNumber: optionalText(100),
+        insuranceCompany: optionalText(200),
+        insuranceType: z.enum(["1", "2", "2+", "3", "3+", ""], { error: message("invalid") }).optional(),
+        insuranceStartDate: date,
+        insuranceExpiryDate: date,
+        insurancePremium: number(0, 1000000),
+        insuranceDocuments: z.array(z.string()).optional(),
+        insuranceNotes: optionalText(2000),
+        taxResponsible: optionalText(100).default(""),
+        maintenanceResponsible: optionalText(100).default(""),
+        taxRenewalStatus: z.enum(["pending", "in_progress", "completed"], { error: message("invalid") }).optional(),
+        insuranceRenewalStatus: z.enum(["pending", "in_progress", "completed"], { error: message("invalid") }).optional(),
+        taxExpense: number(0, 1000000),
+        taxReceipt: z.string().optional(),
+        paymentMethod: z.enum(["Cash", "Transfer", "Company Credit", ""], { error: message("invalid") }).optional(),
+        insuranceReceipt: z.string().optional(),
+        statusHistory: z.array(z.object({ status: z.string(), date: z.string(), changedBy: z.string(), notes: z.string().optional() })).optional(),
+    }).superRefine((data, ctx) => {
+        if (data.ownershipType === "subcontractor" && !data.subcontractorId) {
+            ctx.addIssue({ code: "custom", message: message("partner"), path: ["subcontractorId"] });
+        }
+    });
+}
 
-    vin: z.string().length(17, "VIN must be exactly 17 characters").optional().or(z.literal("")),
-    engineNumber: z.string().length(10, "Engine number is required").optional().or(z.literal("")),
-    GPSVehicleId: z.string().optional(),
-    truckStatus: z.union([
-        z.enum(["active", "inactive", "maintenance", "insurance-claim", "sold"]),
-        z.literal(""),
-    ]).refine((val) => val !== "", {
-        message: "Truck status is required",
-    }),
-    //validate truck information
-    brand: z.string().min(1, "Brand is required"),
-    model: z.string().min(1, "Model is required"),
-    year: z.string().regex(/^\d{4}$/, "Year must be a 4-digit number"),
-    color: z.string().min(1, "Color is required"),
-    type: z.string().min(1, "Type is required"),
-    seats: z.string().refine(v => !v || (parseInt(v) >= 0 && parseInt(v) <= 10), "Seats must be 0-10 and cannot be negative"),
-    //validate truck engines (required for own fleet, optional for subcontractors)
-    fuelType: z.string().optional().default(""),
-    engineCapacity: optionalNumber(0, 20000, "Engine capacity"),
-    fuelCapacity: optionalNumber(0, 1000, "Fuel capacity"),
-    maxLoadWeight: optionalNumber(0, 100000, "Max load weight"),
-    //validate truck registration
-    registrationDate: z.string().optional(),
-    buyingDate: z.string().optional(),
-    notes: z.string().optional(),
-    // Images
-    imageFrontRight: z.string().optional().default(""),
-    imageFrontLeft: z.string().optional().default(""),
-    imageBackRight: z.string().optional().default(""),
-    imageBackLeft: z.string().optional().default(""),
-
-    // Documents
-    documentTax: z.string().optional().default(""),
-    taxExpiryDate: z.string().optional(),
-    documentRegister: z.string().optional().default(""),
-
-    // Maintenance Book
-    lastServiceDate: z.string().optional(),
-    nextServiceDate: z.string().optional(),
-    nextServiceMileage: optionalNumber(0, 2000000, "Next Service Mileage"),
-    /** Periodic PM interval (km between services); required for own fleet in superRefine */
-    pmIntervalKm: optionalNumber(1, 500000, "PM interval"),
-    currentMileage: optionalNumber(0, 2000000, "Current Mileage"),
-
-    // Insurance Information (Optional)
-    insurancePolicyId: z.string().optional(),
-    insurancePolicyNumber: z.string().optional(),
-    insuranceCompany: z.string().optional(),
-    insuranceType: z.enum(["1", "2", "2+", "3", "3+"]).or(z.literal("")).optional(),
-    insuranceStartDate: z.string().optional(),
-    insuranceExpiryDate: z.string().optional(),
-    insurancePremium: optionalNumber(0, 1000000, "Premium"),
-    insuranceDocuments: z.array(z.string()).optional(),
-    insuranceNotes: z.string().optional(),
-
-    // Responsibility Assignment
-    taxResponsible: z.string().optional().default("Operation Admin"),
-    maintenanceResponsible: z.string().optional().default("Driver"),
-
-    // Renewal Workflow Fields
-    taxRenewalStatus: z.enum(["pending", "in_progress", "completed"]).optional(),
-    insuranceRenewalStatus: z.enum(["pending", "in_progress", "completed"]).optional(),
-    taxExpense: optionalNumber(0, 1000000, "Tax Expense"),
-    taxReceipt: z.string().optional(),
-    paymentMethod: z.enum(["Cash", "Transfer", "Company Credit"]).or(z.literal("")).optional(),
-    insuranceReceipt: z.string().optional(),
-
-    // Audit Trail
-    statusHistory: z.array(z.object({
-        status: z.string(),
-        date: z.string(),
-        changedBy: z.string(),
-        notes: z.string().optional()
-    })).optional(),
-}).superRefine((data, ctx) => {
-    // Conditional validation: images and documents required for own fleet only
-    if (data.ownershipType === "own") {
-        if (!data.imageFrontRight) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Front-Right image is required for own fleet", path: ["imageFrontRight"] });
-        }
-        if (!data.imageFrontLeft) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Front-Left image is required for own fleet", path: ["imageFrontLeft"] });
-        }
-        if (!data.imageBackRight) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Back-Right image is required for own fleet", path: ["imageBackRight"] });
-        }
-        if (!data.imageBackLeft) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Back-Left image is required for own fleet", path: ["imageBackLeft"] });
-        }
-        if (!data.documentTax) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Tax document is required for own fleet", path: ["documentTax"] });
-        }
-        if (!data.taxExpiryDate) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Tax Expiry Date is required for own fleet", path: ["taxExpiryDate"] });
-        }
-        if (!data.registrationDate) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Registration Date is required for own fleet", path: ["registrationDate"] });
-        }
-        if (!data.documentRegister) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Registration document is required for own fleet", path: ["documentRegister"] });
-        }
-        if (!data.fuelType) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Fuel type is required for own fleet", path: ["fuelType"] });
-        }
-        if (data.currentMileage === undefined || data.currentMileage === null) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Current Mileage is required for own fleet", path: ["currentMileage"] });
-        }
-        if (data.nextServiceMileage === undefined || data.nextServiceMileage === null) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Next Service Mileage is required for own fleet", path: ["nextServiceMileage"] });
-        }
-        if (data.pmIntervalKm === undefined || data.pmIntervalKm === null) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "PM service interval (km) is required for own fleet", path: ["pmIntervalKm"] });
-        }
-    }
-    // Subcontractor trucks must have a subcontractor selected
-    if (data.ownershipType === "subcontractor" && !data.subcontractorId) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Subcontractor is required", path: ["subcontractorId"] });
-    }
-});
-
-// Type inference from schema - use input type for form values
+export const truckSchema = createTruckSchema();
 export type TruckFormValues = z.input<typeof truckSchema>;
-
-// Type for validated data (after form submission passes validation)
 export type TruckValidatedData = z.infer<typeof truckSchema>;
 
 // Default values for the form

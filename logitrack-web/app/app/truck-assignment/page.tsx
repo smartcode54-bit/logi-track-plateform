@@ -33,6 +33,7 @@ import { useDriverStatusCounts } from "@/features/drivers/api/useDrivers";
 import { toastSaveError } from "@/lib/formServerErrors";
 
 import { useLanguage } from "@/context/language";
+import { QueryError, QueryLoading } from "@/components/page-states";
 import { PageHeader } from "@/components/page-header";
 
 /** A picked driver or truck: its id and what the picker showed (name / plate, licence / truck type). */
@@ -62,6 +63,9 @@ export default function TruckAssignmentPage() {
     const truckCounts = useTruckStatusCounts("own");
     const { assign, revoke } = useAssignmentWrites();
     const isLoading = active.isPending || driverCounts.isPending || truckCounts.isPending;
+    const failedQueries = [active, driverCounts, truckCounts].filter((query) => query.isError);
+    const isUnavailable = isLoading || [active, driverCounts, truckCounts].some((query) => query.isError && !query.data);
+    const assignmentsUnavailable = active.isPending || (active.isError && !active.data);
     const isSubmitting = assign.isPending;
     const isRevoking = revoke.isPending;
 
@@ -151,6 +155,8 @@ export default function TruckAssignmentPage() {
         <div className="flex flex-col gap-section">
             <PageHeader title={t("nav.truckAssignment")} description={t('assignments.subtitle')} />
 
+            {isLoading ? <QueryLoading /> : null}
+            {failedQueries.length > 0 ? <QueryError label={t("assignments.toast.loadError")} onRetry={() => { for (const query of failedQueries) void query.refetch(); }} retrying={failedQueries.some((query) => query.isFetching)} /> : null}
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-card/50 border-border/50 shadow-sm relative overflow-hidden group">
@@ -160,7 +166,7 @@ export default function TruckAssignmentPage() {
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.totalTrucks')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
-                                        {isLoading ? "-" : stats.totalTrucks}
+                                        {isUnavailable ? "—" : stats.totalTrucks}
                                     </span>
                                 </div>
                             </div>
@@ -178,7 +184,7 @@ export default function TruckAssignmentPage() {
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.availableDrivers')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
-                                        {isLoading ? "-" : stats.availableDrivers}
+                                        {isUnavailable ? "—" : stats.availableDrivers}
                                     </span>
                                 </div>
                             </div>
@@ -196,7 +202,7 @@ export default function TruckAssignmentPage() {
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.activeAssignments')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
-                                        {isLoading ? "-" : stats.activeAssignments}
+                                        {isUnavailable ? "—" : stats.activeAssignments}
                                     </span>
                                 </div>
                             </div>
@@ -292,7 +298,7 @@ export default function TruckAssignmentPage() {
                                 size="lg"
                                 className="w-full sm:flex-1 h-12 text-base font-semibold"
                                 onClick={handleDeploy}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || assignmentsUnavailable}
                             >
                                 {isSubmitting ? t('assignments.deploying') : t('assignments.deploy')}
                             </Button>

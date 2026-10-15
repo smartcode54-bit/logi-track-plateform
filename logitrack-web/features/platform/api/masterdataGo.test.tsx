@@ -250,14 +250,21 @@ describe("master data writes through /api/go", () => {
         route("POST", "/api/go/v1/drivers", () => json({ id: "d-9" }, {}, 201));
         route("PATCH", "/api/go/v1/drivers/d-7", () => json({}));
         const base = driverFormValues({ ...driver(9), customerDriverIds: [], statusHistory: [], login: null } as never);
-        // NewDriverForm: the SPX ids go out with SPX's customer id; a code Go does not know is left out.
-        await createDriver({
+        // Unresolved entered values block creation at their field; resolved IDs still use server search.
+        await expect(createDriver({
             values: { ...base, customerDriverIds: { SPX: { appId: "A-1", workId: "" }, NOPE: { appId: "Z" }, TTP: { appId: "" } } },
+            files: { profile: null, idCard: null, license: null },
+        })).rejects.toMatchObject({ details: { fields: [{ field: "customerDriverIds.NOPE.appId", reason: "not_found" }] } });
+        expect(goCalls("/api/go/v1/drivers")).toEqual([]);
+        expect(goCalls("/api/go/v1/customers").map((c) => new URL(c.url, "http://web.test").searchParams.get("q")).sort()).toEqual(["NOPE", "SPX"]);
+        calls = [];
+        await createDriver({
+            values: { ...base, customerDriverIds: { SPX: { appId: "A-1", workId: "" } } },
             files: { profile: null, idCard: null, license: null },
         });
         expect(goCalls("/api/go/v1/drivers")[0].body).toMatchObject({ customerDriverIds: [{ customerId: "c-spx", idTypeKey: "appId", value: "A-1" }] });
         // Only the codes holding a value are searched, each once with its code as q.
-        expect(goCalls("/api/go/v1/customers").map((c) => new URL(c.url, "http://web.test").searchParams.get("q")).sort()).toEqual(["NOPE", "SPX"]);
+        expect(goCalls("/api/go/v1/customers").map((c) => new URL(c.url, "http://web.test").searchParams.get("q")).sort()).toEqual(["SPX"]);
 
         // EditDriverForm: a code the driver already holds comes with its detail, so nothing is searched.
         calls = [];

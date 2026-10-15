@@ -44,9 +44,10 @@ export default {
     "assignments.revoke.revoking": "Revoking...",
     "assignments.revoke.cancel": "Cancel",
     "assignments.toast.selectBoth": "Please select both a driver and a truck",
-    "assignments.toast.deploySuccess": "Assignment successfully",
+    "assignments.toast.deploySuccess": "Truck assigned successfully",
     "assignments.toast.deployError": "Failed to Assign",
     "assignments.toast.revokeSuccess": "Assignment revoked successfully",
     "assignments.toast.revokeError": "Failed to Revoke",
     "assignments.toast.loadError": "Failed to load dashboard data",
+    "assignments.historyLoadError": "Could not load assignment history. Try again.",
 };

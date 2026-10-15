@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { truckStatusTone, toneBadgeVariant, type StatusTone } from "@/lib/statusPresentation";
 import { useFleetStats } from "../api/useTrucks";
+import { classifyPM } from "../utils/pm";
+import { TruckQueryError } from "@/features/trucks/components/TruckQueryError";
 import type { TruckDTO } from "../api/trucks";
 
 interface FleetStatus {
@@ -27,8 +29,6 @@ interface TruckComplianceCardsProps {
     onFilterChange: (filter: { type: string | null; status: string | null }) => void;
 }
 
-const WARNING_DAYS = 30;
-const WARNING_KM = 2000;
 
 /** The counters of the cards over every truck (own fleet, carriers, PM schedule of the own fleet). */
 export function fleetCounters(trucks: readonly TruckDTO[], now: Date = new Date()) {
@@ -45,25 +45,11 @@ export function fleetCounters(trucks: readonly TruckDTO[], now: Date = new Date(
         else if (t.status === "inactive") group.inactive++;
         // PM schedule: own fleet only.
         if (t.ownershipType !== "own") continue;
-        let tracked = false;
-        let overdue = false;
-        let dueSoon = false;
-        if (t.nextServiceDate) {
-            tracked = true;
-            const days = Math.ceil((new Date(t.nextServiceDate).getTime() - now.getTime()) / 86_400_000);
-            if (days < 0) overdue = true;
-            else if (days <= WARNING_DAYS) dueSoon = true;
-        }
-        if (t.nextServiceMileage) {
-            tracked = true;
-            const kms = t.nextServiceMileage - (t.currentMileage ?? 0);
-            if (kms < 0) overdue = true;
-            else if (kms <= WARNING_KM) dueSoon = true;
-        }
-        if (tracked) {
+        const pm = classifyPM(t, now);
+        if (pm.status !== "not_configured") {
             stats.maintenance.total++;
-            if (overdue) stats.maintenance.overdue++;
-            else if (dueSoon) stats.maintenance.dueSoon++;
+            if (pm.status === "overdue") stats.maintenance.overdue++;
+            else if (pm.status === "due") stats.maintenance.dueSoon++;
             else stats.maintenance.normal++;
         }
     }
@@ -89,6 +75,8 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
         }
     };
 
+    if (fleet.isError && !fleet.data) return <TruckQueryError onRetry={() => void fleet.refetch()} retrying={fleet.isFetching} />;
+
     if (loading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -109,6 +97,8 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
     }
 
     return (
+        <div>
+        {fleet.isError && <TruckQueryError onRetry={() => void fleet.refetch()} retrying={fleet.isFetching} />}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             {/* Card 1: Own Fleet Status */}
             <Card className="border shadow-sm">
@@ -224,6 +214,7 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
                 </CardContent>
             </Card>
         </div>
+        </div>
     );
 }
 
@@ -233,6 +224,7 @@ function StatusItem({ label, count, tone = "neutral", active, lastItem, onClick 
             type="button"
             onClick={onClick}
             aria-pressed={Boolean(active)}
+            aria-label={`${label}: ${count}`}
             className={cn(
                 "flex min-w-0 flex-col items-center justify-center gap-2 rounded-md p-1 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 !lastItem ? "md:pr-4" : "",

@@ -27,7 +27,7 @@ export default {
     "renewals.status.overdue": "เกินกำหนด",
     "renewals.status.expiringSoon": "ใกล้หมดอายุ",
     "renewals.status.ok": "ปกติ",
-    "renewals.searchPlaceholder": "ค้นหาด้วยทะเบียนหรือยี่ห้อ...",
+    "renewals.searchPlaceholder": "ค้นหาทะเบียนรถ ประเภทรถ หรือจังหวัด...",
     "renewals.action.renewTax": "ต่อภาษี",
     "renewals.action.renewInsurance": "ต่อประกัน",
     "renewals.action.viewDetails": "ดูรายละเอียด",
@@ -76,4 +76,7 @@ export default {
     "renewals.form.select.cash": "เงินสด",
     "renewals.form.select.transfer": "โอนเงิน",
     "renewals.form.select.credit": "เครดิตบริษัท",
+    "renewals.form.amountRequired": "กรุณาระบุจำนวนเงินก่อนดำเนินการต่ออายุให้เสร็จสิ้น ระบุ 0 ได้",
+    "renewals.form.amountInvalid": "กรุณาระบุจำนวนเงินตั้งแต่ 0 ถึง 1,000,000",
+    "renewals.form.amountPrecision": "กรุณากรอกทศนิยมไม่เกิน 2 ตำแหน่ง",
 };

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/form";
 import { useLanguage } from "@/context/language";
 import { useAuth } from "@/context/auth";
-import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
+import { createTruckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { formatLicensePlate } from "@/lib/utils";
 
@@ -68,7 +68,7 @@ export default function EditTruckForm() {
     const previewOf = (ref: string) => previewOfRef(previews, ref);
 
     const form = useForm<TruckFormValues>({
-        resolver: zodResolver(truckSchema) as any,
+        resolver: zodResolver(createTruckSchema(t)) as any,
         defaultValues: truckDefaultValues,
     });
 
@@ -136,7 +136,7 @@ export default function EditTruckForm() {
             <div>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
+                    <form noValidate onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
                         {error && (
                             <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md border border-destructive/50">
                                 <p className="text-sm font-medium">{error}</p>

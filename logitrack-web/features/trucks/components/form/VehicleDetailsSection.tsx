@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
+import { truckTypeLabel } from "../../utils/labels";
 import { useLanguage } from "@/context/language";
 import { Truck } from "lucide-react";
 
@@ -22,8 +23,8 @@ export function VehicleDetailsSection() {
     const { control } = useFormContext();
     const { t } = useLanguage();
 
-    const currentYear = new Date().getFullYear();
-    const years = Array.from({ length: 11 }, (_, i) => (currentYear - i).toString());
+    const newestYear = new Date().getFullYear() + 1;
+    const years = Array.from({ length: newestYear - 1980 + 1 }, (_, i) => (newestYear - i).toString());
 
     return (
         <Card>
@@ -67,13 +68,14 @@ export function VehicleDetailsSection() {
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>{t("trucks.section.year")}</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <Select onValueChange={field.onChange} value={field.value ?? ""}>
                                     <FormControl>
                                         <SelectTrigger>
                                             <SelectValue placeholder={t("trucks.placeholder.selectYear")} />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
+                                        {field.value && !years.includes(field.value) && <SelectItem value={field.value}>{field.value}</SelectItem>}
                                         {years.map((year) => (
                                             <SelectItem key={year} value={year}>
                                                 {year}
@@ -104,7 +106,7 @@ export function VehicleDetailsSection() {
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>{t("trucks.section.truckType")} *</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <Select onValueChange={field.onChange} value={field.value ?? ""}>
                                     <FormControl>
                                         <SelectTrigger>
                                             <SelectValue placeholder={t("trucks.placeholder.selectType")} />
@@ -114,6 +116,7 @@ export function VehicleDetailsSection() {
                                         {/* Stored as "Pickup" on purpose — the truck master keeps full
                                             names and lib/truckType.ts maps it to the 4W task class.
                                             Only the label follows the 4W vocabulary. */}
+                                        {field.value && !["Pickup", "4 Wheels Jumbo", "6 Wheels", "10 Wheels", "18 Wheels", "Van"].includes(field.value) && <SelectItem value={field.value}>{truckTypeLabel(field.value, t)}</SelectItem>}
                                         <SelectItem value="Pickup">{t("trucks.type.pickup")}</SelectItem>
                                         <SelectItem value="4 Wheels Jumbo">{t("trucks.type.4wheels")}</SelectItem>
                                         <SelectItem value="6 Wheels">{t("trucks.type.6wheels")}</SelectItem>

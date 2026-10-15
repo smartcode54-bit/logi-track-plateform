@@ -4,6 +4,7 @@ import { useFormContext } from "react-hook-form";
 import { TruckFormValues } from "@/validate/truckSchema";
 import { CheckCircle2, FileText, Truck, Shield } from "lucide-react";
 
+import { truckTypeLabel } from "../../../utils/labels";
 import { useLanguage } from "@/context/language";
 
 export function Step4Documentation() {
@@ -28,7 +29,7 @@ export function Step4Documentation() {
                             <div className="flex justify-between"><span className="text-muted-foreground">{t("trucks.step4.makeModel")}:</span> <span>{values.brand} {values.model}</span></div>
                             <div className="flex justify-between"><span className="text-muted-foreground">{t("trucks.step4.plate")}:</span> <span className="font-medium">{values.licensePlate}</span></div>
                             <div className="flex justify-between"><span className="text-muted-foreground">{t("trucks.step4.vin")}:</span> <span className="font-mono text-xs">{values.vin || t("trucks.ui4.notAvailable")}</span></div>
-                            <div className="flex justify-between"><span className="text-muted-foreground">{t("trucks.step4.type")}:</span> <span>{values.type}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">{t("trucks.step4.type")}:</span> <span>{truckTypeLabel(values.type, t)}</span></div>
                         </div>
                     </div>
 

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
+import { truckFuelLabel } from "../../utils/labels";
 import { useLanguage } from "@/context/language";
 import { Zap } from "lucide-react";
 
@@ -37,14 +38,15 @@ export function EngineInformationSection() {
                         name="fuelType"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("trucks.section.fuelType")} *</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormLabel>{t("trucks.section.fuelType")}</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value ?? ""}>
                                     <FormControl>
                                         <SelectTrigger>
                                             <SelectValue placeholder={t("trucks.section.selectFuel")} />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
+                                        {field.value && !["Diesel", "Gasoline", "NGV", "Electric", "Hybrid"].includes(field.value) && <SelectItem value={field.value}>{truckFuelLabel(field.value, t)}</SelectItem>}
                                         <SelectItem value="Diesel">{t("trucks.fuel.diesel")}</SelectItem>
                                         <SelectItem value="Gasoline">{t("trucks.fuel.gasoline")}</SelectItem>
                                         <SelectItem value="NGV">{t("trucks.fuel.ngv")}</SelectItem>
