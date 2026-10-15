@@ -101,6 +101,14 @@ func TestCountsMatchAppendixTable(t *testing.T) {
 				t.Errorf("§D.1.2 %s %s is %q: a generated count is exact", table, prof, row[col])
 				continue
 			}
+			// UI4K5 adds a smoke repair and a fleet cohort beyond Appendix D's original volumes.
+			if table == "maintenance_records" {
+				want++
+			}
+			if prof != ProfileSmoke {
+				want += map[string]int{"tenants": 2, "drivers": 6, "trucks": 9, "truck_assignments": 9,
+					"maintenance_records": 12, "file_objects": 2}[table]
+			}
 			if got, known := p.Expected[table]; !known || got != want {
 				t.Errorf("%s %s: the plan has %d rows, §D.1.2 says %d", prof, table, got, want)
 			}
@@ -435,11 +443,7 @@ func checkFleet(t *testing.T, p *Plan) {
 		if cur := d.Str("current_assignment_id"); cur != activeOf[d.Str("id")] {
 			t.Errorf("driver %s: current assignment %q, its active assignment %q", d.Str("id_card"), cur, activeOf[d.Str("id")])
 		}
-		// A generated driver is on_duty exactly while it holds an active assignment, as CreateAssignment and the
-		// revoke leave it (internal/fleet); the smoke rows D1, D2 and D6 keep the T16 fixture's active.
-		if p.Symbols.SymbolOf(uuid.MustParse(d.Str("id"))) != "" {
-			continue
-		}
+		// Drivers are on_duty exactly while holding an active assignment, as CreateAssignment leaves them.
 		if holds := activeOf[d.Str("id")] != ""; holds != (d.Str("status") == "on_duty") {
 			t.Errorf("driver %s: status %s, active assignment %v", d.Str("id_card"), d.Str("status"), holds)
 		}

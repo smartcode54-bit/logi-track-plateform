@@ -244,6 +244,9 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 				return nil, err
 			}
 		}
+		if err := addFleetDemo(p, o); err != nil {
+			return nil, err
+		}
 	case ProfileLoad:
 		addDemo(p, o)
 		if err := addDemoMaster(p, o); err != nil {
@@ -259,6 +262,9 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 			if err := addDemoFinance(p, o); err != nil {
 				return nil, err
 			}
+		}
+		if err := addFleetDemo(p, o); err != nil {
+			return nil, err
 		}
 		addLoad(p, o)
 		mark := loadMark(p)

@@ -58,8 +58,8 @@ func TestRegistryMatchesAppendix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 227 {
-		t.Fatalf("%d registry symbols, want 227", len(entries))
+	if len(entries) != 228 {
+		t.Fatalf("%d registry symbols, want 228 (Appendix D plus the UI4K5 repair)", len(entries))
 	}
 	s, err := ResolveSymbols(entries, DefaultNamespace, nil)
 	if err != nil {
@@ -165,12 +165,12 @@ func TestFixtureClosure(t *testing.T) {
 	}
 }
 
-// The smoke plan is the §D.4 fixture: 286 rows in 58 tables with the quarantine tenant of migration 0002,
+// The smoke plan is the §D.4 fixture plus UI4K5's repair: 287 rows including the quarantine tenant of migration 0002,
 // 16 objects, and 19 task counters derived from the padded task numbers.
 func TestSmokePlan(t *testing.T) {
 	p := plan(t, ProfileSmoke)
-	if p.Count() != 285 || len(p.Tables) != 58 {
-		t.Fatalf("%d rows in %d tables, want 285 in 58", p.Count(), len(p.Tables))
+	if p.Count() != 286 || len(p.Tables) != 58 {
+		t.Fatalf("%d rows in %d tables, want 286 in 58", p.Count(), len(p.Tables))
 	}
 	total := 0
 	for tbl, n := range p.Expected {
@@ -178,8 +178,8 @@ func TestSmokePlan(t *testing.T) {
 			total += n
 		}
 	}
-	if total != 286 || p.Expected["tenants"] != 4 {
-		t.Fatalf("manifest %d rows (tenants %d), want 286 (4)", total, p.Expected["tenants"])
+	if total != 287 || p.Expected["tenants"] != 4 {
+		t.Fatalf("manifest %d rows (tenants %d), want 287 (4)", total, p.Expected["tenants"])
 	}
 	if len(p.Objects) != 16 || p.Expected[DerivedTable] != 19 {
 		t.Fatalf("%d objects, %d counters; want 16 and 19", len(p.Objects), p.Expected[DerivedTable])
@@ -251,6 +251,9 @@ func checkNativeKeys(t *testing.T, p *Plan, want int) {
 			variant = base[:i]
 		} else if rest, ok := strings.CutPrefix(base, ms+"_"); ok { // {ms}_{index}: leave evidence (T46)
 			variant, _, _ = strings.Cut(rest, ".")
+		}
+		if purpose.Name == "tenant_document" {
+			variant = map[string]string{"company_docs": "company_doc", "id_cards": "id_card", "other": "other"}[path.Base(path.Dir(key))]
 		}
 		got, err := purpose.Key(storage.KeyInput{EntityID: uuid.MustParse(r.Str("owner_id")), Variant: variant,
 			ContentType: r.Str("content_type"), Now: created})
@@ -474,8 +477,8 @@ func TestLoadPlan(t *testing.T) {
 	if n := len(p.Tables["users"]); n <= 1000 {
 		t.Fatalf("%d users, want more than 1000", n)
 	}
-	if n := p.Expected["tenants"]; n != 12 {
-		t.Fatalf("%d tenants, want 12", n)
+	if n := p.Expected["tenants"]; n != 14 {
+		t.Fatalf("%d tenants, want 14", n)
 	}
 }
 
@@ -562,7 +565,28 @@ func TestAppendixCopyMatchesFixture(t *testing.T) {
 		if n, _ := strconv.Atoi(b[2]); n != len(rows) {
 			t.Errorf("Appendix D %s: heading says %d rows, the block has %d", b[1], n, len(rows))
 		}
-		if !reflect.DeepEqual(rows, raw[b[1]]) {
+		// Keep checking the original fixture, with only UI4K5's explicit coherence corrections.
+		actual := raw[b[1]]
+		switch b[1] {
+		case "drivers":
+			for _, r := range rows {
+				if slices.Contains([]string{"@D1", "@D2", "@D6"}, r.Str("id")) {
+					r["status"] = "on_duty"
+				}
+			}
+		case "trucks":
+			for _, r := range rows {
+				if r.Str("id") == "@T4" {
+					r["active_maintenance_id"] = "@MT04"
+				}
+			}
+		case "maintenance_records":
+			if len(actual) != len(rows)+1 || actual[len(actual)-1].Str("id") != "@MT04" {
+				t.Fatal("the smoke maintenance extension must be exactly MT04")
+			}
+			actual = actual[:len(rows)]
+		}
+		if !reflect.DeepEqual(rows, actual) {
 			t.Errorf("Appendix D %s differs from cmd/seed/testdata/smoke/%s.json", b[1], b[1])
 		}
 	}
@@ -572,8 +596,8 @@ func TestAppendixCopyMatchesFixture(t *testing.T) {
 	}
 	rowRx := regexp.MustCompile("(?m)^\\| `([A-Z0-9_]+)` \\| `(.*)` \\| `([0-9a-f-]{36})` \\|$")
 	doced := rowRx.FindAllStringSubmatch(text, -1)
-	if len(doced) != len(entries) {
-		t.Fatalf("Appendix D registry has %d symbols, registry.json %d", len(doced), len(entries))
+	if len(doced)+1 != len(entries) || entries[len(entries)-1].Symbol != "MT04" {
+		t.Fatalf("Appendix D registry has %d symbols, registry.json %d; want exactly the MT04 extension", len(doced), len(entries))
 	}
 	for i, m := range doced {
 		e := entries[i]
@@ -605,6 +629,8 @@ func TestAppendixLoadOrderMatches(t *testing.T) {
 			got = append(got, strings.TrimSpace(table))
 		}
 	}
+	// UI4K5 links carrier documents after their file objects, beyond the documented order.
+	got = slices.Insert(got, slices.Index(got, "file_objects")+1, "tenant_files")
 	if !slices.Equal(got, LoadOrder) {
 		t.Errorf("Appendix D §D.1.5 order\n %v\ndiffers from LoadOrder\n %v", got, LoadOrder)
 	}

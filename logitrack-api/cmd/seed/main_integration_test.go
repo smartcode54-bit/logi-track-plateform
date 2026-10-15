@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -169,6 +170,11 @@ var passLine = regexp.MustCompile(`(?m)^ ?\d+ PASS `)
 // race detector only; under it the tests share the process drawer, which draws the demo's photos once (T35).
 func coldMedia() { media = processMedia() }
 
+func manifestCountLine(profile seed.Profile) string {
+	tables := append(slices.Clone(seed.LoadOrder), seed.DerivedTable)
+	return fmt.Sprintf("counts: %d tables match the %s manifest", len(tables), profile)
+}
+
 // The smoke profile loads in under five seconds, passes the twelve invariants, and a second run gives the
 // same ids, counts and fingerprint (Appendix D §D.1.7, invariant 12).
 func TestSmokeLoadVerifyTwice(t *testing.T) {
@@ -184,8 +190,8 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if !raceEnabled && first.took >= 5*time.Second {
 		t.Errorf("seed --profile smoke took %s, want < 5s", first.took)
 	}
-	if !strings.Contains(first.stdout, "286") && !strings.Contains(first.stdout, "285 rows") {
-		t.Errorf("load summary does not report the 285 seeded rows:\n%s", first.stdout)
+	if !strings.Contains(first.stdout, ": 286 rows in ") {
+		t.Errorf("load summary does not report the 286 seeded rows:\n%s", first.stdout)
 	}
 	if !strings.Contains(first.stdout, "d7.kitti@logitrack.test was created with a temporary password") {
 		t.Errorf("the load does not say that the must-change-password user got a temporary password:\n%s", first.stdout)
@@ -195,7 +201,7 @@ func TestSmokeLoadVerifyTwice(t *testing.T) {
 	if n := len(passLine.FindAllString(v1.stdout, -1)); n != 12 {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v1.stdout)
 	}
-	if !strings.Contains(v1.stdout, "counts: 60 tables match the smoke manifest") {
+	if !strings.Contains(v1.stdout, manifestCountLine(seed.ProfileSmoke)) {
 		t.Errorf("count diff missing or failing:\n%s", v1.stdout)
 	}
 	// nwr.admin, and the TTP drivers: the broker D6 (its NWR history is the one cross-tenant read allowed, R24)
@@ -272,7 +278,7 @@ func TestDemoLoadVerify(t *testing.T) {
 		t.Errorf("demo has %d dispatcher and %d customer scopes, want a dispatcher per tenant and three customers", dispatchers, customers)
 	}
 	// Master data as the API reads it (T26): every truck carries the class of its type, every active assignment is
-	// its driver's home truck, the generated drivers holding one are on duty (the smoke D1, D2 and D6 keep active),
+	// its driver's home truck, every driver holding one is on duty,
 	// and every hub with coordinates has its SOC pairs in both directions.
 	var badClass, badHome, onDuty, missingPairs int
 	if err := conn.QueryRow(ctx, `SELECT
@@ -288,9 +294,9 @@ func TestDemoLoadVerify(t *testing.T) {
 		Scan(&badClass, &badHome, &onDuty, &missingPairs); err != nil {
 		t.Fatal(err)
 	}
-	if badClass != 0 || badHome != 0 || onDuty != 7 || missingPairs != 0 {
+	if badClass != 0 || badHome != 0 || onDuty != 16 || missingPairs != 0 {
 		t.Errorf("demo master data: %d trucks without a class, %d active assignments that are not the home truck, "+
-			"%d drivers on duty (want the 7 generated drivers with a truck), %d missing hub-SOC pairs",
+			"%d drivers on duty (want 16 drivers with a truck), %d missing hub-SOC pairs",
 			badClass, badHome, onDuty, missingPairs)
 	}
 	// Operations as the API reads them (T35, issue #55): today's first-mile board of Appendix D §D.2 #1 on the anchor
@@ -429,7 +435,7 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 		t.Errorf("the top-up inserted the must-change-password user again:\n%s", r.stdout)
 	}
 	topped := s.mustSeed(t, "--verify", "--profile", "demo")
-	if n := len(passLine.FindAllString(topped.stdout, -1)); n != 12 || !strings.Contains(topped.stdout, "counts: 60 tables match the demo manifest") {
+	if n := len(passLine.FindAllString(topped.stdout, -1)); n != 12 || !strings.Contains(topped.stdout, manifestCountLine(seed.ProfileDemo)) {
 		t.Fatalf("after the top-up:\n%s", topped.stdout)
 	}
 	if again := s.mustSeed(t, "--profile", "demo", "--mode", "upsert"); !strings.Contains(again.stdout, ": 0 rows") {
@@ -489,7 +495,14 @@ func TestDemoUpsertOverSmaller(t *testing.T) {
 	if want := fmt.Sprintf("%d truck row(s) kept as the database holds them", len(plates)); !strings.Contains(r.stderr, want) {
 		t.Errorf("the top-up does not report the %d kept trucks (%q):\n%s", len(plates), want, r.stderr)
 	}
-	for _, plate := range plates {
+	shown := plates
+	if len(shown) > 10 {
+		shown = shown[:10]
+		if want := fmt.Sprintf(" and %d more", len(plates)-len(shown)); !strings.Contains(r.stderr, want) {
+			t.Errorf("the kept-truck warning does not report its omitted plates (%q):\n%s", want, r.stderr)
+		}
+	}
+	for _, plate := range shown {
 		if !strings.Contains(r.stderr, plate) {
 			t.Errorf("the kept-truck warning does not name %s:\n%s", plate, r.stderr)
 		}
