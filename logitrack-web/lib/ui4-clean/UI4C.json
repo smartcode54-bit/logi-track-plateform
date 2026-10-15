@@ -1,0 +1,9 @@
+[
+  "features/subcontractors/api/subcontractors.ts",
+  "features/subcontractors/api/useSubcontractors.ts",
+  "features/subcontractors/components/SubcontractorDetail.tsx",
+  "features/subcontractors/components/SubcontractorEdit.tsx",
+  "features/subcontractors/components/SubcontractorStats.tsx",
+  "features/subcontractors/components/SubcontractorTable.tsx",
+  "features/subcontractors/components/form/NewSubcontractorWizard.tsx"
+]

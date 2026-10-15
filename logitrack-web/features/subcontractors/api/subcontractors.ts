@@ -188,6 +188,11 @@ export function invalidateSubcontractors(client: QueryClient = getQueryClient())
 
 // --- writes ------------------------------------------------------------------------------------
 
+/** Suspends a carrier without changing any profile fields. */
+export async function suspendSubcontractor(id: string): Promise<void> {
+    await goFetch(goPath`/v1/tenants/${id}`, { method: "PATCH", body: { status: "suspended" } });
+}
+
 export interface SubcontractorSave {
     values: SubcontractorFormValues;
 }
