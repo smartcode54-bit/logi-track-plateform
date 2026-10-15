@@ -1,106 +1,95 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, FileText, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
+import { uploadContentType } from "@/lib/goUpload";
 
 interface FileUploaderProps {
     label: string;
-    /**
-     * Stores one file now and returns its reference (a Go object key, or a Firestore download URL)
-     * and a URL to preview it (T25: `uploadSubcontractorDocument`, by the `masterdata` flag).
-     */
-    upload: (file: File) => Promise<{ ref: string; previewUrl: string }>;
-    onUploadComplete: (ref: string, previewUrl: string) => void;
-    /** The stored references (keys or URLs). */
+    upload: (file: File) => Promise<{ ref: string; previewUrl: string; contentType?: string }>;
+    onUploadComplete: (ref: string, previewUrl: string, contentType: string) => void;
+    onUploadPendingChange?: (pending: boolean) => void;
     currentUrls?: string[];
-    /** Preview URL per reference, when it is not a URL itself (a Go key). */
-    previews?: Record<string, string>;
+    previews?: Record<string, string | null>;
+    contentTypes?: Record<string, string>;
     onRemove?: (ref: string) => void;
-    multiple?: boolean;
+    disabled?: boolean;
 }
 
-export default function FileUploader({ label, upload, onUploadComplete, currentUrls = [], previews = {}, onRemove }: FileUploaderProps) {
+function previewHref(value: string | null | undefined): string | undefined {
+    if (!value) return undefined;
+    try {
+        const url = new URL(value);
+        return ["https:", "http:", "blob:"].includes(url.protocol) ? value : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+export default function FileUploader({ label, upload, onUploadComplete, onUploadPendingChange, currentUrls = [], previews = {}, contentTypes = {}, onRemove, disabled = false }: FileUploaderProps) {
+    const inputId = useId();
     const [uploading, setUploading] = useState(false);
+    const [uploadedTypes, setUploadedTypes] = useState<Record<string, string>>({});
     const { t } = useLanguage();
 
-    const isImageUrl = (url: string) => {
-        if (url.startsWith("blob:")) return true;
-        try {
-            const urlObj = new URL(url);
-            const pathname = urlObj.pathname;
-            return /\.(jpg|jpeg|png|webp|gif)$/i.test(pathname) ||
-                /\.(jpg|jpeg|png|webp|gif)\?/.test(url); // Fallback for some signed URLs
-        } catch (e) {
-            return false;
-        }
-    };
-
     const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0) return;
-
-        const file = e.target.files[0]; // Handle single file for now, loop if multiple needed
+        const input = e.currentTarget;
+        const file = input.files?.[0];
+        if (!file || uploading || disabled) return;
+        setUploading(true);
+        onUploadPendingChange?.(true);
         try {
-            setUploading(true);
-            const { ref, previewUrl } = await upload(file);
-            onUploadComplete(ref, previewUrl);
+            const { ref, previewUrl, contentType = uploadContentType(file) } = await upload(file);
+            setUploadedTypes(types => ({ ...types, [ref]: contentType }));
+            onUploadComplete(ref, previewUrl, contentType);
             toast.success(t("subcontractors.toast.uploadSuccess"));
-
-            // Reset input
-            e.target.value = "";
         } catch (error) {
             console.error(error);
             toast.error(t("subcontractors.toast.uploadError"));
         } finally {
+            input.value = "";
             setUploading(false);
+            onUploadPendingChange?.(false);
         }
     };
 
     return (
         <div className="space-y-4">
-            <Label>{label}</Label>
-
-            {/* Existing Files List */}
+            <Label htmlFor={inputId}>{label}</Label>
             {currentUrls.length > 0 && (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                     {currentUrls.map((ref, index) => {
-                        const url = previews[ref] ?? ref;
-                        const isImage = isImageUrl(url);
+                        const url = previewHref(Object.hasOwn(previews, ref) ? previews[ref] : ref);
+                        const contentType = contentTypes[ref] ?? uploadedTypes[ref];
+                        const isImage = url && (contentType ? contentType.startsWith("image/")
+                            : /\.(jpg|jpeg|png|webp|gif)$/i.test(new URL(url).pathname) || /\.(jpg|jpeg|png|webp|gif)$/i.test(ref));
+                        const content = isImage ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={url} alt={`${t("subcontractors.file.document")} ${index + 1}`} className="h-full w-full object-cover" />
+                        ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-muted-foreground">
+                                <FileText className="h-8 w-8" aria-hidden />
+                                <span className="w-full text-center text-xs">{t("subcontractors.file.document")} {index + 1}</span>
+                                {!url && <span className="text-center text-xs">{t("subcontractors.ui4.documentUnavailable")}</span>}
+                            </div>
+                        );
                         return (
-                            <div key={index} className="relative group border rounded-md overflow-hidden bg-muted/30">
-                                <a href={url} target="_blank" rel="noopener noreferrer" className="block aspect-square w-full">
-                                    {isImage ? (
-                                        <div className="relative w-full h-full">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={url}
-                                                alt={`${t("subcontractors.file.document")} ${index + 1}`}
-                                                className="w-full h-full object-cover transition-transform hover:scale-105"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center w-full h-full p-4 gap-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-                                            <FileText className="h-8 w-8" />
-                                            <span className="text-xs text-center truncate w-full px-2">{t("subcontractors.file.document")} {index + 1}</span>
-                                        </div>
-                                    )}
-                                </a>
+                            <div key={ref} className="group relative overflow-hidden rounded-md border bg-muted/30">
+                                {url ? (
+                                    <a href={url} target="_blank" rel="noopener noreferrer" aria-label={t("subcontractors.ui4.openDocumentNumber", { number: index + 1 })} className="block aspect-square w-full hover:bg-muted/50">
+                                        {content}
+                                    </a>
+                                ) : <div className="aspect-square w-full">{content}</div>}
                                 {onRemove && (
-                                    <Button aria-label={t("common.removeFile")}
-                                        variant="destructive"
-                                        size="icon"
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            onRemove(ref);
-                                        }}
-                                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        <X className="h-3 w-3" />
+                                    <Button aria-label={t("common.removeFile")} variant="destructive" size="icon" type="button" disabled={disabled || uploading}
+                                        onClick={() => onRemove(ref)}
+                                        className="absolute right-1 top-1 max-md:size-11 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                                        <X className="h-4 w-4" aria-hidden />
                                     </Button>
                                 )}
                             </div>
@@ -108,21 +97,14 @@ export default function FileUploader({ label, upload, onUploadComplete, currentU
                     })}
                 </div>
             )}
-
-            {/* Upload Input */}
             <div className="flex items-center gap-2">
-                <Input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    onChange={handleFileChange}
-                    disabled={uploading}
-                    className="max-w-xs"
-                />
-                {uploading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                <Input id={inputId} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFileChange}
+                    disabled={uploading || disabled} aria-describedby={`${inputId}-formats`} className="max-w-xs" />
+                {uploading && <span role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />{t("subcontractors.file.uploading")}
+                </span>}
             </div>
-            <p className="text-xs text-muted-foreground">
-                {t("subcontractors.file.acceptedFormats")}
-            </p>
+            <p id={`${inputId}-formats`} className="text-xs text-muted-foreground">{t("subcontractors.file.acceptedFormats")}</p>
         </div>
     );
 }

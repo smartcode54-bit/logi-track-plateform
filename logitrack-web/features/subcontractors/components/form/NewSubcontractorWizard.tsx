@@ -4,6 +4,7 @@ import { useForm, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { subcontractorSchema, SubcontractorFormValues, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
+import { SubcontractorFormMessage as FormMessage, subcontractorFormTranslate } from "./SubcontractorFormMessage";
 import { useSaveSubcontractor } from "../../api/useSubcontractors";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { useRouter } from "next/navigation";
@@ -15,7 +16,6 @@ import {
     FormField,
     FormItem,
     FormLabel,
-    FormMessage,
     FormDescription,
 } from "@/components/ui/form";
 import { RequiredMark } from "@/components/ui/required-mark";
@@ -59,10 +59,6 @@ export default function NewSubcontractorWizard() {
 
     const onSubmit = async (data: SubcontractorFormValues) => {
         const fleetSize = Number(data.fleetSize ?? 0);
-        if (!Number.isFinite(fleetSize) || !Number.isInteger(fleetSize) || fleetSize < 0) {
-            form.setError("fleetSize", { type: "validate", message: t("subcontractors.form.totalTrucks.integer") });
-            return;
-        }
         try {
             const values = {
                 ...data,
@@ -92,13 +88,6 @@ export default function NewSubcontractorWizard() {
         }
 
         const isValid = await form.trigger(fieldsToValidate);
-        if (isValid && currentStep === 3) {
-            const fleetSize = Number(form.getValues("fleetSize") ?? 0);
-            if (!Number.isFinite(fleetSize) || !Number.isInteger(fleetSize) || fleetSize < 0) {
-                form.setError("fleetSize", { type: "validate", message: t("subcontractors.form.totalTrucks.integer") });
-                return;
-            }
-        }
         if (isValid) {
             setCurrentStep(prev => prev + 1);
             window.scrollTo({ top: 0, behavior: "smooth" });
@@ -166,7 +155,7 @@ export default function NewSubcontractorWizard() {
                 <div className="min-w-0 flex-1 md:pl-6">
                     <div className="max-w-3xl">
                         <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
+                            <form noValidate onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, subcontractorFormTranslate(t)))} className="space-y-8">
                                 {/* Step 1: Company Profile */}
                                 {currentStep === 1 && (
                                     <div className="space-y-6">

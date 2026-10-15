@@ -13,8 +13,8 @@ const validateThaiID = (id: string) => {
 };
 
 export const subcontractorSchema = z.object({
-    name: z.string().min(1, "Name is required"),
-    type: z.enum(["individual", "company"]).default("individual"),
+    name: z.string({ error: "subcontractors.validation.nameRequired" }).trim().min(1, "subcontractors.validation.nameRequired"),
+    type: z.enum(["individual", "company"], { error: "subcontractors.validation.type" }).default("individual"),
 
     // Individual specific
     idCardNumber: z.string().optional(),
@@ -22,32 +22,34 @@ export const subcontractorSchema = z.object({
     // Company specific
     taxId: z.string().optional(),
 
-    contactPerson: z.string().min(1, "Contact person is required"),
-    phone: z.string().min(1, "Phone is required"),
-    email: z.string().email("Invalid email").optional().or(z.literal("")),
-    website: z.string().url("Invalid URL").optional().or(z.literal("")),
+    contactPerson: z.string({ error: "subcontractors.validation.contactRequired" }).trim().min(1, "subcontractors.validation.contactRequired"),
+    phone: z.string({ error: "subcontractors.validation.phoneRequired" }).trim().min(1, "subcontractors.validation.phoneRequired"),
+    email: z.string().email("subcontractors.validation.email").optional().or(z.literal("")),
+    website: z.string().url("subcontractors.validation.website").optional().or(z.literal("")),
     address: z.string().optional(),
 
     // Contact Details Extra
     designation: z.string().optional(),
 
     // Fleet & Service
-    fleetSize: z.coerce.number().min(0).default(0),
+    fleetSize: z.coerce.number({ error: "subcontractors.validation.fleetSize" })
+        .int("subcontractors.validation.fleetSize").min(0, "subcontractors.validation.fleetSize")
+        .max(2147483647, "subcontractors.validation.fleetSize").default(0),
     dispatchCenter: z.string().optional(),
     serviceRegions: z.array(z.string()).default([]),
     vehicleTypes: z.array(z.string()).default([]),
 
-    status: z.enum(["active", "pending", "suspended"]).default("active"),
+    status: z.enum(["active", "pending", "suspended"], { error: "subcontractors.validation.status" }).default("active"),
 
     documents: z.array(z.string()).optional(),
 
-    // LINE notifications: กลุ่ม LINE ปลายทางที่จะส่งแจ้งเตือนเช็คอิน/จบงาน (ว่าง = ปิด)
+    // LINE group receiving check-in and job-complete notifications (blank disables them).
     lineGroupId: z.string().optional(),
 
     // Billing date basis (ADR 0027/0028) — when this partner is billed directly, which date decides
     // the billing period + rate round: "delivered" (default) = delivery instant; "plan" = the plan
     // date on the task. Mirrors customers.billingDateBasis; billing reads customers first, then here.
-    billingDateBasis: z.enum(["delivered", "plan"]).optional(),
+    billingDateBasis: z.enum(["delivered", "plan"], { error: "subcontractors.validation.billingDateBasis" }).optional(),
 }).refine((data) => {
     if (data.type === "individual") {
         if (!data.idCardNumber) return false;
@@ -55,7 +57,7 @@ export const subcontractorSchema = z.object({
     }
     return true;
 }, {
-    message: "โปรดกรอก เลขบัตรประจำตัวประชาชน/รหัสประจำตัวนิติบุคคล ของรถร่วมให้ถูกต้อง",
+    message: "subcontractors.validation.idCardNumber",
     path: ["idCardNumber"],
 }).refine((data) => {
     if (data.type === "company") {
@@ -64,7 +66,7 @@ export const subcontractorSchema = z.object({
     }
     return true;
 }, {
-    message: "โปรดกรอก เลขประจำตัวผู้เสียภาษี/รหัสประจำตัวนิติบุคคล ของรถร่วมให้ถูกต้อง",
+    message: "subcontractors.validation.taxId",
     path: ["taxId"],
 });
 

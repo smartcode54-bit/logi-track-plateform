@@ -7,7 +7,8 @@
 -- name: ListCarrierProfiles :many
 -- GET /v1/subcontractors, ordered by Thai name (pickers); the keyset is (name_th, id).
 SELECT t.id, t.code, t.name_th, t.name_en, t.legal_type, t.status, t.contact_person, t.phone, t.email, t.fleet_size,
-       t.line_group_id, t.contractor_tenant_id, t.created_at, bp.id AS billing_party_id, bp.billing_date_basis
+       t.line_group_id, t.contractor_tenant_id, t.created_at, bp.id AS billing_party_id, bp.billing_date_basis,
+       t.service_regions
 FROM tenants t
 LEFT JOIN billing_parties bp ON bp.tenant_id = t.id
 WHERE t.kind = 'carrier'
