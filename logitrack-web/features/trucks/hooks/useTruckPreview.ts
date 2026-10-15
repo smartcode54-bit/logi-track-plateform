@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLanguage } from "@/context/language";
 import { recordUnavailable } from "@/components/record-state";
-import { useAssignmentsOf, useTruck } from "../api/useTrucks";
+import { useTruck } from "../api/useTrucks";
+import { truckFileType } from "../utils/uploads";
 import { fileUrl } from "../api/trucks";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
@@ -20,7 +21,6 @@ export function useTruckPreview() {
 
     const truckQuery = useTruck(truckId);
     const truck = truckQuery.data ?? null;
-    const assignments = useAssignmentsOf({ truckId });
     const { options: subcontractors } = useSubcontractorOptions();
 
     const [isViewerOpen, setIsViewerOpen] = useState(false);
@@ -39,14 +39,14 @@ export function useTruckPreview() {
 
     const viewableFiles = truck
         ? [
-              ...(fileUrl(truck.files, "imageFrontRight") ? [{ url: fileUrl(truck.files, "imageFrontRight"), type: "image" as const, label: t("trucks.detail.view.frontRight") }] : []),
-              ...(fileUrl(truck.files, "imageFrontLeft") ? [{ url: fileUrl(truck.files, "imageFrontLeft"), type: "image" as const, label: t("trucks.detail.view.frontLeft") }] : []),
-              ...(fileUrl(truck.files, "imageBackRight") ? [{ url: fileUrl(truck.files, "imageBackRight"), type: "image" as const, label: t("trucks.detail.view.backRight") }] : []),
-              ...(fileUrl(truck.files, "imageBackLeft") ? [{ url: fileUrl(truck.files, "imageBackLeft"), type: "image" as const, label: t("trucks.detail.view.backLeft") }] : []),
-              ...(documentTax ? [{ url: documentTax, type: "pdf" as const, label: t("trucks.detail.taxDoc") }] : []),
-              ...(fileUrl(truck.files, "documentRegister") ? [{ url: fileUrl(truck.files, "documentRegister"), type: "pdf" as const, label: t("trucks.detail.view.registrationDoc") }] : []),
-              ...(truck.files.legacyImage ?? []).filter((f) => f.url).map((f, i) => ({ url: f.url!, type: "image" as const, label: `${t("trucks.detail.view.legacyImage")} ${i + 1}` })),
-              ...insuranceDocuments.map((url, i) => ({ url, type: "pdf" as const, label: `${t("trucks.detail.insuranceDoc")} ${i + 1}` })),
+              ...(fileUrl(truck.files, "imageFrontRight") ? [{ url: fileUrl(truck.files, "imageFrontRight"), isPhoto: true, type: "image" as const, label: t("trucks.detail.view.frontRight") }] : []),
+              ...(fileUrl(truck.files, "imageFrontLeft") ? [{ url: fileUrl(truck.files, "imageFrontLeft"), isPhoto: true, type: "image" as const, label: t("trucks.detail.view.frontLeft") }] : []),
+              ...(fileUrl(truck.files, "imageBackRight") ? [{ url: fileUrl(truck.files, "imageBackRight"), isPhoto: true, type: "image" as const, label: t("trucks.detail.view.backRight") }] : []),
+              ...(fileUrl(truck.files, "imageBackLeft") ? [{ url: fileUrl(truck.files, "imageBackLeft"), isPhoto: true, type: "image" as const, label: t("trucks.detail.view.backLeft") }] : []),
+              ...(documentTax ? [{ url: documentTax, isPhoto: false, type: truckFileType(documentTax), label: t("trucks.detail.taxDoc") }] : []),
+              ...(fileUrl(truck.files, "documentRegister") ? [{ url: fileUrl(truck.files, "documentRegister"), isPhoto: false, type: truckFileType(fileUrl(truck.files, "documentRegister")), label: t("trucks.detail.view.registrationDoc") }] : []),
+              ...(truck.files.legacyImage ?? []).filter((f) => f.url).map((f, i) => ({ url: f.url!, isPhoto: true, type: "image" as const, label: `${t("trucks.detail.view.legacyImage")} ${i + 1}` })),
+              ...insuranceDocuments.map((url, i) => ({ url, isPhoto: false, type: truckFileType(url), label: `${t("trucks.detail.insuranceDoc")} ${i + 1}` })),
           ]
         : [];
 
@@ -60,7 +60,6 @@ export function useTruckPreview() {
 
     return {
         truck,
-        assignmentHistory: assignments.assignments,
         isLoading: truckQuery.isPending && Boolean(truckId),
         missing,
         loadError: truckQuery.error,

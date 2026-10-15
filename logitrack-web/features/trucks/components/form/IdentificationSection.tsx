@@ -18,6 +18,7 @@ import { useFormContext } from "react-hook-form";
 import { useLanguage } from "@/context/language";
 import { PROVINCES } from "@/lib/provinces";
 import { SearchSelect } from "@/components/ui/search-select";
+import { TRUCK_PLATE_MAX_LENGTH, TRUCK_PLATE_PATTERN } from "../../utils/plate";
 import { Fingerprint } from "lucide-react";
 
 export function IdentificationSection() {
@@ -43,7 +44,9 @@ export function IdentificationSection() {
                                 <FormControl>
                                     <Input
                                         placeholder={t("trucks.placeholder.licensePlate")}
-                                        maxLength={7}
+                                        maxLength={TRUCK_PLATE_MAX_LENGTH}
+                                        minLength={6}
+                                        pattern={TRUCK_PLATE_PATTERN}
                                         {...field}
                                         onChange={(e) => {
                                             // Remove English characters (a-z, A-Z) to enforce Thai characters
@@ -81,7 +84,7 @@ export function IdentificationSection() {
                         name="vin"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("trucks.section.vin")} *</FormLabel>
+                                <FormLabel>{t("trucks.section.vin")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         placeholder={t("trucks.placeholder.vin")}
@@ -103,11 +106,11 @@ export function IdentificationSection() {
                         name="engineNumber"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>{t("trucks.section.engineNumber")} *</FormLabel>
+                                <FormLabel>{t("trucks.section.engineNumber")}</FormLabel>
                                 <FormControl>
                                     <Input
                                         placeholder={t("trucks.placeholder.engineNumber")}
-                                        maxLength={10}
+                                        maxLength={50}
                                         {...field}
                                         onChange={(e) => {
                                             // Remove Thai characters
@@ -125,10 +128,10 @@ export function IdentificationSection() {
                         name="GPSVehicleId"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>GPS Vehicle ID</FormLabel>
+                                <FormLabel>{t("trucks.section.gpsVehicleId")}</FormLabel>
                                 <FormControl>
                                     <Input
-                                        placeholder="Enter Vehicle ID (Optional)"
+                                        placeholder={t("trucks.placeholder.gpsVehicleId")}
                                         {...field}
                                     />
                                 </FormControl>

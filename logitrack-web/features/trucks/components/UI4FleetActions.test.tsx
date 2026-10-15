@@ -114,7 +114,10 @@ describe("UI4 fleet actions", () => {
 
     it.each(["en", "th"])("localizes all missing import fields in %s while keeping spreadsheet columns unchanged", async (language) => {
         localStorage.setItem("language", "en");
-        const web = serve().on("POST", "/api/go/v1/trucks/import", () => json(200, { created: 1, updated: 0, errors: [] }));
+        const fields = ["licensePlate", "province", "type", "brand", "model"];
+        const web = serve().on("POST", "/api/go/v1/trucks/import", () => json(200, { data: {
+            created: 1, updated: 0, unchanged: 0, errors: [{ row: 1, licensePlate: null, fields: fields.map((field) => ({ field, reason: "required" })) }],
+        } }));
         renderWithProviders(<><LanguageToggle /><TrucksListDashboard /></>);
         const user = userEvent.setup();
         if (language === "th") await user.click(await screen.findByRole("button", { name: "Use Thai" }));
@@ -122,26 +125,23 @@ describe("UI4 fleet actions", () => {
         const dialog = await screen.findByRole("dialog");
         const columns = ["License Plate", "Province", "Type", "Brand", "Model"];
         await user.upload(within(dialog).getByLabelText(language === "th" ? "เลือกไฟล์" : "Select File"), new File([
-            `${columns.join(",")},Color\n,,,,,Red\n70-5678,Bangkok,6W,Isuzu,FRR,White`,
+            `${columns.join(",")},Color\n,,,,,Red\n1กก-5678,Bangkok,6W,Isuzu,FRR,White`,
         ], "trucks.csv", { type: "text/csv" }));
-        await within(dialog).findByText("70-5678");
-        const invalid = dialog.querySelector<SVGElement>("[data-slot=tooltip-trigger]")!;
-        await user.hover(invalid);
-        const tooltip = await screen.findByRole("tooltip");
-        for (const column of columns) expect(tooltip).toHaveTextContent(`${language === "th" ? "ไม่มีข้อมูล" : "Missing"} ${column}`);
-        if (language === "th") expect(tooltip).not.toHaveTextContent("Missing");
+        await within(dialog).findByText("1กก-5678");
+        const labels = language === "th" ? ["เลขทะเบียน", "จังหวัด", "ประเภทรถ", "ยี่ห้อ", "รุ่น"] : ["License Plate", "Province", "Truck Type", "Brand", "Model"];
+        for (const label of labels) expect(within(dialog).getByText(new RegExp(`^${label}:`))).toBeInTheDocument();
         await user.click(within(dialog).getByRole("button", { name: language === "th" ? "ยืนยันการนำเข้า" : "Confirm Import" }));
-        await waitFor(() => expect(web.count("POST", "/api/go/v1/trucks/import")).toBe(1));
-        expect(web.calls.find((call) => call.method === "POST")?.body).toEqual({ rows: [
+        await waitFor(() => expect(web.count("POST", "/api/go/v1/trucks/import")).toBe(2));
+        expect(web.calls.filter((call) => call.method === "POST")[1]?.body).toEqual({ dryRun: false, rows: [
             { Color: "Red" },
-            { "License Plate": "70-5678", Province: "Bangkok", Type: "6W", Brand: "Isuzu", Model: "FRR", Color: "White" },
+            { "License Plate": "1กก-5678", Province: "Bangkok", Type: "6W", Brand: "Isuzu", Model: "FRR", Color: "White" },
         ] });
     });
 
     it.each([
         { nextServiceMileage: 9000, currentMileage: 10000, nextServiceDate: null, label: "PM: เกินกำหนด 1000 กม." },
         { nextServiceMileage: 11000, currentMileage: 10000, nextServiceDate: null, label: "PM: เหลือ 1000 กม." },
-        { nextServiceMileage: null, currentMileage: 10000, nextServiceDate: new Date(Date.now() + 10 * 86400000).toISOString(), label: "PM: เหลือ 10 วัน" },
+        { nextServiceMileage: null, currentMileage: 10000, nextServiceDate: new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10), label: "PM: เหลือ 10 วัน" },
     ])("keeps Thai maintenance labels consistent: $label", async ({ label, ...over }) => {
         localStorage.setItem("language", "en");
         serve({ ...over, status: "active" });
@@ -154,15 +154,15 @@ describe("UI4 fleet actions", () => {
         localStorage.setItem("language", "en");
         serve();
         renderWithProviders(<><LanguageToggle /><DocumentationSummary /></>);
-        expect(await screen.findAllByText("Not specified")).toHaveLength(4);
+        expect(await screen.findAllByText("Not specified")).toHaveLength(5);
         await userEvent.setup().click(screen.getByRole("button", { name: "Use Thai" }));
-        expect(await screen.findAllByText("ไม่ระบุ")).toHaveLength(4);
+        expect(await screen.findAllByText("ไม่ระบุ")).toHaveLength(5);
         expect(screen.queryByText("N/A")).toBeNull();
     });
 
     it("keeps computed PM counts and removes the fabricated zero PM tiles", async () => {
         localStorage.setItem("language", "en");
-        serve({ ownershipType: "own", nextServiceMileage: 1000 });
+        serve({ ownershipType: "own", nextServiceMileage: 1000, currentMileage: 0 });
         renderWithProviders(<TruckComplianceCards onFilterChange={vi.fn()} />);
         const due = (await screen.findByText("PM Soon")).closest("button")!;
         expect(within(due).getByText("1")).toHaveClass("bg-warning");

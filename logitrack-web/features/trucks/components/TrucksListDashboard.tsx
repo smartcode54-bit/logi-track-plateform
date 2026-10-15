@@ -1,6 +1,5 @@
 "use client";
 
-import { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -8,7 +7,6 @@ import {
     Plus,
     Search,
     MoreHorizontal,
-    Loader2,
     Eye,
     Edit,
     ChevronLeft,
@@ -27,7 +25,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { formatLicensePlate } from "@/lib/utils";
@@ -49,6 +46,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { truckStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 
+import { TruckQueryLoading } from "@/features/trucks/components/TruckQueryLoading";
+import { TruckQueryError } from "@/features/trucks/components/TruckQueryError";
+import { classifyPM, pmLabel } from "../utils/pm";
+import { truckTypeLabel } from "../utils/labels";
 import { useTrucksList } from "../hooks/useTrucksList";
 import { TruckComplianceCards } from "./TruckComplianceCards";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
@@ -65,7 +66,7 @@ export default function TrucksListDashboard() {
     const router = useRouter();
 
     const {
-        loading,
+        loading, error, hasData, assignmentsLoading, assignmentsError, assignmentsHaveData,
         isRefreshing,
         refresh,
         searchQuery,
@@ -162,7 +163,7 @@ export default function TrucksListDashboard() {
                         <SelectContent>
                             <SelectItem value="all">{t('trucks.filter.allTypes')}</SelectItem>
                             {uniqueTypes.map(type => (
-                                <SelectItem key={type} value={type}>{type}</SelectItem>
+                                <SelectItem key={type} value={type}>{truckTypeLabel(type, t)}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
@@ -206,6 +207,8 @@ export default function TrucksListDashboard() {
                 </div>
             </div>
 
+            {error && <TruckQueryError onRetry={refresh} retrying={isRefreshing} />}
+            {assignmentsError && <TruckQueryError onRetry={refresh} retrying={isRefreshing} />}
             {/* Content */}
             <div className="border rounded-lg bg-card overflow-hidden">
                 <Table>
@@ -223,15 +226,8 @@ export default function TrucksListDashboard() {
                     </TableHeader>
                     <TableBody>
                         {loading ? (
-                            <TableRow>
-                                <TableCell colSpan={8} className="h-32 text-center">
-                                    <div className="flex flex-col items-center justify-center gap-2">
-                                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                        <p className="text-sm text-muted-foreground">{t('trucks.detail.loading')}</p>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        ) : paginatedTrucks.length === 0 ? (
+                            <TableRow><TableCell colSpan={8}><TruckQueryLoading label={t("common.loading")} /></TableCell></TableRow>
+                        ) : error && !hasData ? null : paginatedTrucks.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={8} className="h-32 text-center">
                                     <p className="text-sm text-muted-foreground">{t('masterData.trucks.noMatch')}</p>
@@ -253,7 +249,7 @@ export default function TrucksListDashboard() {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        {(() => {
+                                        {assignmentsLoading ? <span role="status">{t("common.loading")}</span> : assignmentsError && !assignmentsHaveData ? "-" : (() => {
                                             if (truck.drivers.length === 0) {
                                                 return <span className="text-muted-foreground text-xs">-</span>;
                                             }
@@ -265,7 +261,7 @@ export default function TrucksListDashboard() {
                                                 return (
                                                     <div className="flex items-center gap-2">
                                                         <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                                                            {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
+                                                            {assignment.driverName?.trim().substring(0, 2).toUpperCase() || "-"}
                                                         </div>
                                                         <span className="text-sm font-medium">{assignment.driverName}</span>
                                                     </div>
@@ -286,7 +282,7 @@ export default function TrucksListDashboard() {
                                                         {assignments.map((assignment, idx) => (
                                                             <div key={idx} className="flex items-center gap-2 px-2 py-1.5 text-sm">
                                                                 <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                                                                    {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
+                                                                    {assignment.driverName?.trim().substring(0, 2).toUpperCase() || "-"}
                                                                 </div>
                                                                 <span className="truncate font-medium">{assignment.driverName}</span>
                                                             </div>
@@ -302,45 +298,11 @@ export default function TrucksListDashboard() {
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
                                             {(() => {
-                                                const km = truck.nextServiceMileage && truck.currentMileage ? truck.nextServiceMileage - truck.currentMileage : null;
-                                                const days = truck.nextServiceDate ? Math.ceil((new Date(truck.nextServiceDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null;
-
-                                                let pmBadge: ReactNode = null;
-
-                                                if (truck.status === 'maintenance') {
-                                                    pmBadge = <Badge variant={toneBadgeVariant(truckStatusTone("maintenance"))} className="text-xs px-1 py-0 w-fit">{t('trucks.badge.pmInShop')}</Badge>;
-                                                } else if (km !== null && km < 0) {
-                                                    pmBadge = <Badge variant="destructive" className="text-xs px-1 py-0 w-fit">{t("trucks.ui4.pmKmOverdue", { km: -km })}</Badge>;
-                                                } else if (days !== null && days < 0) {
-                                                    pmBadge = <Badge variant="destructive" className="text-xs px-1 py-0 w-fit">{t('trucks.badge.pmOverdue')}</Badge>;
-                                                } else if (km !== null && km <= 1000) {
-                                                    pmBadge = <Badge variant="warning" className="text-xs px-1 py-0 w-fit">{t("trucks.ui4.pmKmDue", { km })}</Badge>;
-                                                } else if (days !== null && days <= 30) {
-                                                    pmBadge = <Badge variant="warning" className="text-xs px-1 py-0 w-fit">{t("trucks.ui4.pmDaysDue", { days })}</Badge>;
-                                                }
-
-                                                if (pmBadge) {
-                                                    return (
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <Link href={`/app/trucks/maintenance?id=${truck.id}`} prefetch={false} onClick={(e) => e.stopPropagation()} className="hover:opacity-80 transition-opacity w-fit">
-                                                                        {pmBadge}
-                                                                    </Link>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>
-                                                                    <p>{t('masterData.trucks.recordMaintenance')}</p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-                                                    );
-                                                }
-
-                                                return (
-                                                    <span className="text-xs text-success flex items-center gap-1">
-                                                        {t("trucks.ui4.pmOk")}
-                                                    </span>
-                                                );
+                                                const pm = classifyPM(truck);
+                                                const label = pmLabel(pm, t);
+                                                return <Link className="inline-flex items-center max-md:min-h-11 max-md:min-w-11" href={`/app/trucks/maintenance?id=${truck.id}`} prefetch={false} onClick={(e) => e.stopPropagation()}>
+                                                    <Badge variant={pm.status === "overdue" ? "destructive" : pm.status === "due" ? "warning" : pm.status === "normal" ? "success" : "secondary"}>{label}</Badge>
+                                                </Link>;
                                             })()}
                                         </div>
                                     </TableCell>
@@ -379,6 +341,7 @@ export default function TrucksListDashboard() {
                 </Table>
 
                 {/* Pagination over the loaded rows; the next keyset page loads on demand (T25). */}
+                {!(error && !hasData) && <>
                 <div className="px-4 pt-4 border-t border-border/50 bg-muted/20">
                     <LoadMore loaded={filteredTrucks.length} hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onLoadMore={fetchNextPage} />
                 </div>
@@ -428,6 +391,7 @@ export default function TrucksListDashboard() {
                         </Button>
                     </div>
                 </div>
+                </>}
             </div>
         </div>
     );

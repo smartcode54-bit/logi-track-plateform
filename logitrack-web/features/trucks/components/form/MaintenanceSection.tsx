@@ -70,7 +70,7 @@ export function MaintenanceSection() {
                                 <FormControl>
                                     <Input
                                         type="number"
-                                        placeholder="e.g., 48000"
+                                        placeholder={t("trucks.placeholder.currentMileage")}
                                         {...field}
                                         onChange={(e) => {
                                             const val = e.target.value === "" ? undefined : Number(e.target.value);
@@ -92,7 +92,7 @@ export function MaintenanceSection() {
                                 <FormControl>
                                     <Input
                                         type="number"
-                                        placeholder="e.g., 50000"
+                                        placeholder={t("trucks.placeholder.mileage")}
                                         {...field}
                                         onChange={(e) => {
                                             const val = e.target.value === "" ? undefined : Number(e.target.value);
@@ -136,7 +136,7 @@ export function MaintenanceSection() {
                             <FormItem>
                                 <FormLabel>{t("trucks.maintenance.responsible")}</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="e.g. Driver Name" {...field} value={field.value ?? ""} />
+                                    <Input placeholder={t("trucks.placeholder.responsible")} {...field} value={field.value ?? ""} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
     FormControl,
     FormField,
@@ -20,6 +21,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFormContext } from "react-hook-form";
+import { truckUploadError, TRUCK_DOCUMENT_ACCEPT } from "../../utils/uploads";
 import { ShieldCheck, Upload, X, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -44,6 +46,8 @@ export function InsuranceSection({ onFileSelect, previewOf = identity }: Insuran
     const isUploading = false;
     const { t } = useLanguage();
 
+    const [fileError, setFileError] = useState<string | null>(null);
+
     // Watch documents
     const insuranceDocuments = watch("insuranceDocuments") || [];
 
@@ -52,9 +56,10 @@ export function InsuranceSection({ onFileSelect, previewOf = identity }: Insuran
 
         const file = e.target.files[0];
 
-        // Max 5MB
-        if (file.size > 5 * 1024 * 1024) {
-            alert("File size must be less than 5MB");
+        const error = truckUploadError(file, "insurance_document");
+        setFileError(error);
+        e.target.value = "";
+        if (error) {
             return;
         }
 
@@ -231,6 +236,7 @@ export function InsuranceSection({ onFileSelect, previewOf = identity }: Insuran
                 <div className="space-y-4">
                     <FormLabel>{t("trucks.section.insuranceDocs")}</FormLabel>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {fileError && <p role="alert" className="text-sm text-destructive">{t(fileError)}</p>}
                         {insuranceDocuments.map((docRef: string, index: number) => {
                             const docUrl = previewOf(docRef);
                             return (
@@ -249,7 +255,7 @@ export function InsuranceSection({ onFileSelect, previewOf = identity }: Insuran
                                         {t("masterData.trucks.documentN", { n: index + 1 })} · {t("masterData.files.unavailable")}
                                     </span>
                                 )}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <div className="absolute right-1 top-1">
                                     <Button aria-label={t("common.removeFile")}
                                         variant="destructive"
                                         size="icon"
@@ -266,7 +272,7 @@ export function InsuranceSection({ onFileSelect, previewOf = identity }: Insuran
                         <div className="relative aspect-[3/4] flex flex-col items-center justify-center border-2 border-dashed rounded-md hover:bg-muted/50 transition-colors cursor-pointer">
                             <input
                                 type="file"
-                                accept=".pdf,image/*"
+                                accept={TRUCK_DOCUMENT_ACCEPT}
                                 onChange={handleFileChange}
                                 disabled={isUploading}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"

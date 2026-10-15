@@ -9,6 +9,7 @@ import TruckFileUploader from "./TruckFileUploader";
 
 interface PhotosSectionProps {
     onFileSelect: (field: keyof TruckFormValues, file: File, blobUrl: string) => void;
+    pendingFiles?: ReadonlyMap<string, File>;
     /**
      * The preview URL of a field's value (a stored file's ref, or a picked file's `blob:` URL); null
      * when the stored file cannot be read (shown as unavailable, still kept). Default: the value itself.
@@ -18,7 +19,7 @@ interface PhotosSectionProps {
 
 const identity = (ref: string) => ref;
 
-export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSectionProps) {
+export function PhotosSection({ onFileSelect, previewOf = identity, pendingFiles }: PhotosSectionProps) {
     const { t } = useLanguage();
     const { watch, setValue, formState: { errors } } = useFormContext<TruckFormValues>();
 
@@ -50,7 +51,9 @@ export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSect
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label={t("trucks.photos.frontRight") + " *"}
+                                pendingFiles={pendingFiles}
+                                label={t("trucks.photos.frontRight")}
+                                purpose="truck_photo"
                                 folder="photos/front-right"
                                 currentUrls={current("imageFrontRight")}
                                 onUploadComplete={handleUpload("imageFrontRight")}
@@ -61,7 +64,9 @@ export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSect
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label={t("trucks.photos.frontLeft") + " *"}
+                                pendingFiles={pendingFiles}
+                                label={t("trucks.photos.frontLeft")}
+                                purpose="truck_photo"
                                 folder="photos/front-left"
                                 currentUrls={current("imageFrontLeft")}
                                 onUploadComplete={handleUpload("imageFrontLeft")}
@@ -72,7 +77,9 @@ export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSect
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label={t("trucks.photos.backRight") + " *"}
+                                pendingFiles={pendingFiles}
+                                label={t("trucks.photos.backRight")}
+                                purpose="truck_photo"
                                 folder="photos/back-right"
                                 currentUrls={current("imageBackRight")}
                                 onUploadComplete={handleUpload("imageBackRight")}
@@ -83,7 +90,9 @@ export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSect
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label={t("trucks.photos.backLeft") + " *"}
+                                pendingFiles={pendingFiles}
+                                label={t("trucks.photos.backLeft")}
+                                purpose="truck_photo"
                                 folder="photos/back-left"
                                 currentUrls={current("imageBackLeft")}
                                 onUploadComplete={handleUpload("imageBackLeft")}
@@ -108,7 +117,8 @@ export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSect
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label={t("trucks.documents.tax") + " *"}
+                                pendingFiles={pendingFiles}
+                                label={t("trucks.documents.tax")}
                                 folder="documents/tax"
                                 currentUrls={current("documentTax")}
                                 onUploadComplete={handleUpload("documentTax")}
@@ -119,7 +129,8 @@ export function PhotosSection({ onFileSelect, previewOf = identity }: PhotosSect
                         </div>
                         <div className="space-y-2">
                             <TruckFileUploader
-                                label={t("trucks.documents.register") + " *"}
+                                pendingFiles={pendingFiles}
+                                label={t("trucks.documents.register")}
                                 folder="documents/register"
                                 currentUrls={current("documentRegister")}
                                 onUploadComplete={handleUpload("documentRegister")}

@@ -28,7 +28,7 @@ export default {
     "renewals.status.expiringSoon": "EXPIRING SOON",
     "renewals.status.ok": "OK",
 
-    "renewals.searchPlaceholder": "Search by license or brand...",
+    "renewals.searchPlaceholder": "Search by plate, vehicle type or province...",
     "renewals.action.renewTax": "Renew Tax",
     "renewals.action.renewInsurance": "Renew Insurance",
     "renewals.action.viewDetails": "View Details",
@@ -77,4 +77,7 @@ export default {
     "renewals.form.select.cash": "Cash",
     "renewals.form.select.transfer": "Transfer",
     "renewals.form.select.credit": "Company Credit",
+    "renewals.form.amountRequired": "Enter an amount before completing the renewal. Zero is allowed.",
+    "renewals.form.amountInvalid": "Enter an amount from 0 to 1,000,000.",
+    "renewals.form.amountPrecision": "Use no more than two decimal places.",
 };

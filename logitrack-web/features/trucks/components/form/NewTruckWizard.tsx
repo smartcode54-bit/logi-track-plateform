@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,10 +11,10 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { useAuth } from "@/context/auth";
-import { truckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
+import { createTruckSchema, TruckFormValues, truckDefaultValues } from "@/validate/truckSchema";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { useTruckWrites } from "../../api/useTrucks";
-import { TRUCK_FIELD_MAP } from "../../api/trucks";
+import { TRUCK_FIELD_MAP, TruckFilesSaveError } from "../../api/trucks";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 
 // Import Steps from local sub-folder
@@ -40,9 +41,20 @@ export default function NewTruckWizard() {
     const isSubmitting = create.isPending;
     const [filesToUpload] = useState<Map<string, File>>(() => new Map());
 
+    const [createdId, setCreatedId] = useState<string>();
+    const [uploadWarning, setUploadWarning] = useState(0);
+    const uploadWarningRef = useRef<HTMLParagraphElement>(null);
+    const [uploaded] = useState(() => new Map<string, string>());
+
+    useEffect(() => {
+        if (!uploadWarning) return;
+        uploadWarningRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        uploadWarningRef.current?.focus({ preventScroll: true });
+    }, [uploadWarning]);
+
     // Initialize Form
     const methods = useForm<TruckFormValues>({
-        resolver: zodResolver(truckSchema) as any,
+        resolver: zodResolver(createTruckSchema(t)) as any,
         defaultValues: truckDefaultValues,
         mode: "onChange",
     });
@@ -96,9 +108,15 @@ export default function NewTruckWizard() {
             if (!currentUser) throw new Error(t("masterData.notSignedIn"));
             // Go: `POST /v1/trucks`, then the picked files (their keys embed the new truck) in a
             // `PATCH`; Firestore: the legacy uploads and document (T25).
-            await create.mutateAsync({ values: data, pending: filesToUpload, userId: currentUser.uid });
+            await create.mutateAsync({ values: data, pending: filesToUpload, userId: currentUser.uid, createdId, onCreated: setCreatedId, uploaded });
             router.push("/app/trucks");
         } catch (error) {
+            if (error instanceof TruckFilesSaveError) {
+                setCreatedId(error.truckId);
+                setUploadWarning((attempt) => attempt + 1);
+                toast.error(t("trucks.upload.savedWithFileErrors"));
+                return;
+            }
             if (applyServerFieldErrors(methods, error, t, TRUCK_FIELD_MAP) > 0) setCurrentStep(1);
             toastSaveError(error, t, "trucks.edit.error");
         }
@@ -161,8 +179,9 @@ export default function NewTruckWizard() {
 
                     <div className="min-w-0 flex-1 p-4 md:p-8">
                         <div className="max-w-3xl mx-auto pb-8">
-                            <form onSubmit={handleSubmit(onSubmit as any, createInvalidHandler(methods, t))}>
-                                {currentStep === 1 && <Step1Specs onFileSelect={handleFileSelect} />}
+                            {uploadWarning > 0 && <p ref={uploadWarningRef} tabIndex={-1} role="alert" className="mb-4 text-sm text-destructive">{t("trucks.upload.savedWithFileErrors")}</p>}
+                            <form noValidate onSubmit={handleSubmit(onSubmit as any, createInvalidHandler(methods, t))}>
+                                {currentStep === 1 && <Step1Specs onFileSelect={handleFileSelect} pendingFiles={filesToUpload} />}
                                 {currentStep === 2 && <Step2Compliance onFileSelect={handleFileSelect} />}
                                 {currentStep === 3 && <Step3Maintenance />}
                                 {currentStep === 4 && <Step4Documentation />}

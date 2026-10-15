@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { MoreHorizontal, Search, Settings } from "lucide-react";
 
+import { TruckQueryError } from "@/features/trucks/components/TruckQueryError";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -62,7 +63,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                 cell: (info) => (
                     <div className="flex items-center gap-3">
                         <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold ring-2 ring-background">
-                            {(info.getValue() || "UK").substring(0, 2).toUpperCase()}
+                            {info.getValue()?.trim().substring(0, 2).toUpperCase() || "-"}
                         </div>
                         {info.getValue()}
                     </div>
@@ -151,6 +152,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                     </Select>
                 </div>
             </div>
+            {history.isError && !history.isFetchNextPageError && <TruckQueryError onRetry={() => void history.refetch()} retrying={history.isFetching} />}
             <VirtualTable
                 data={history.rows}
                 columns={columns}
@@ -161,8 +163,8 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                 loading={history.isPending}
                 loadingState={t("assignments.table.loading")}
                 emptyState={t("assignments.table.noHistory")}
-                error={history.isError}
-                errorState={t("masterData.list.loadError")}
+                error={history.isError && !history.data}
+                errorState={null}
                 resetScrollKey={`${statusParam}|${q}`}
                 headerRowClassName="bg-muted/30 hover:bg-muted/30 border-border/50"
                 rowClassName="border-border/50 hover:bg-muted/30 transition-colors"
