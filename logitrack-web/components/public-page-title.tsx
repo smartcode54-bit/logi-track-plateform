@@ -6,8 +6,8 @@ import { publicPageTitle, type PublicPage } from "@/lib/publicPageTitle";
 
 /**
  * The tab title of a public page in the active language (UI3E): "Sign in · LogiTrack Pro", "เข้าสู่ระบบ · LogiTrack
- * Pro". Rendered by the route's layout next to its English `metadata` (lib/publicPageMetadata.ts); it follows a
- * language switch at once.
+ * Pro". The route layout's server `metadata` starts in Thai from the `th` dictionary (UI4G); this client title follows
+ * the active language, including an explicit stored choice, at once.
  */
 export function PublicPageTitle({ page }: { page: PublicPage }) {
     const { t } = useLanguage();

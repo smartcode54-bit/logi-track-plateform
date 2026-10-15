@@ -68,6 +68,22 @@ Heuristic counts (each is a candidate to verify in context). `base` = mv-go `f85
 | `motion-reduce` / reduced-motion handling | 0 | 0 | 0 | 0 | 0 | 0 | **0** | 0 |
 | Hover scale on cards and tiles | 0 | 0 | 9 | 0 | 0 | 3 | **12** | 13 |
 
+### UI4 after measurement
+
+Measured 2026-10-15 on mv-go `7d04c8a7` with `cd logitrack-web && node scripts/ui-audit-counts.mjs .`. This source-counter
+report uses the shared ratchet metric names in `scripts/ui-audit-metrics.mjs`; it is separate from the UI1 audit scores
+above.
+
+| Group | Files / pages | `paletteColors` | `hexOrRgb` | `tinyText` | `uppercaseClass` | `sideStripe` | `blurGlow` | `invalidHslVar` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| UI1 shared | 47 / 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| UI3 shell, sign-in, navigation | 36 / 8 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |
+| UI4 master data | 76 / 23 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| UI5 operations | 23 / 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| UI6 accounting, billing, maintenance, utilities | 42 / 12 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| UI7 HR, comms, security, settings, dashboard, public | 84 / 24 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **308 / 73** | **2** | **0** | **2** | **0** | **0** | **0** | **0** |
+
 In the shared code, the three native `<select>`s are inside `components/ui/datetime-picker.tsx` (allowed there by
 the UI2 guard), the raw `<table>` is `VirtualTable`, and every remaining inline style is computed from data (virtual
 row offsets, image pan and zoom, progress value).
