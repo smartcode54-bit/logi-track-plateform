@@ -90,12 +90,12 @@ function Records() {
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">{t("standbyRecords.stats.total", "Total Records")}</p>
-                            <h2 className="mt-1 text-3xl font-bold">
+                            <h2 className="mt-1 text-3xl font-semibold">
                                 {rows.length}
                                 {q.hasNextPage ? "+" : ""}
                             </h2>
                         </div>
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 text-orange-500 dark:bg-orange-900/30">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
                             <PauseCircle className="h-6 w-6" />
                         </div>
                     </CardContent>
@@ -135,7 +135,7 @@ function Records() {
                         <TableHeader className="bg-muted/50">
                             <TableRow>
                                 {["date", "driver", "route", "startedAt", "endedAt", "duration", "status"].map((k) => (
-                                    <TableHead key={k} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t(`standbyRecords.table.${k}`)}</TableHead>
+                                    <TableHead key={k} className="text-xs font-semibold text-muted-foreground">{t(`standbyRecords.table.${k}`)}</TableHead>
                                 ))}
                             </TableRow>
                         </TableHeader>
@@ -150,7 +150,7 @@ function Records() {
                                 </TableRow>
                             ) : (
                                 shown.map((r) => (
-                                    <TableRow key={r.id} className="cursor-pointer border-b border-border/50 transition-colors hover:bg-orange-50/50 dark:hover:bg-orange-900/10" onClick={() => setDetail(r)}>
+                                    <TableRow key={r.id} className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/50" onClick={() => setDetail(r)}>
                                         <TableCell className="text-sm">{formatDateTime(r.createdAt)}</TableCell>
                                         <TableCell><span className="text-sm font-medium">{r.driverName ?? "—"}</span></TableCell>
                                         <TableCell>
@@ -164,8 +164,8 @@ function Records() {
                                         <TableCell className="text-sm">{formatDateTime(r.endedAt)}</TableCell>
                                         <TableCell className="font-mono text-sm">{r.durationMinutes ?? "—"}</TableCell>
                                         <TableCell>
-                                            <Badge variant="outline" className="border-orange-200 bg-orange-50 font-medium text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-400">
-                                                {r.status.toUpperCase()}
+                                            <Badge variant="outline">
+                                                {r.status}
                                             </Badge>
                                         </TableCell>
                                     </TableRow>
@@ -201,18 +201,18 @@ function StandbyDetail({ record, onClose }: { record: StandbyDTO; onClose: () =>
             <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <PauseCircle className="h-5 w-5 text-orange-500" />
+                        <PauseCircle className="h-5 w-5 text-muted-foreground" />
                         {t("standbyRecords.detail.title", "Standby Record Detail")}
                     </DialogTitle>
                     <DialogDescription>ID: {record.id}</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-2">
-                    <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50 p-4 dark:border-orange-900 dark:bg-orange-950/20">
-                        <div className="flex items-center gap-2 text-sm font-medium text-orange-900 dark:text-orange-100">
+                    <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                             <MapPin className="h-4 w-4" />
                             {record.startLocation ?? "—"} → {record.endLocation ?? "—"}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-400">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Clock className="h-3.5 w-3.5" />
                             {formatDateTime(record.startedAt)} → {formatDateTime(record.endedAt)}
                             {record.durationMinutes != null ? (
@@ -222,29 +222,29 @@ function StandbyDetail({ record, onClose }: { record: StandbyDTO; onClose: () =>
                     </div>
                     <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/30 p-4 text-sm">
                         <div>
-                            <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("standbyRecords.table.driver", "Driver")}</p>
+                            <p className="mb-1 text-xs text-muted-foreground">{t("standbyRecords.table.driver", "Driver")}</p>
                             <p className="font-medium">{record.driverName ?? "—"}</p>
                         </div>
                         <div>
-                            <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("standbyRecords.detail.taskId", "Task ID")}</p>
+                            <p className="mb-1 text-xs text-muted-foreground">{t("standbyRecords.detail.taskId", "Task ID")}</p>
                             <p className="font-mono text-xs">{task.data?.taskNo ?? record.taskId?.slice(0, 12) ?? "—"}</p>
                         </div>
                         {record.truckLicensePlate ? (
                             <div>
-                                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("incidentReports.table.plate")}</p>
+                                <p className="mb-1 text-xs text-muted-foreground">{t("incidentReports.table.plate")}</p>
                                 <p className="font-mono">{record.truckLicensePlate}</p>
                             </div>
                         ) : null}
                         {record.note ? (
                             <div className="col-span-2">
-                                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("standbyRecords.detail.note", "Note")}</p>
+                                <p className="mb-1 text-xs text-muted-foreground">{t("standbyRecords.detail.note", "Note")}</p>
                                 <p className="text-sm">{record.note}</p>
                             </div>
                         ) : null}
                         {record.lat != null && record.lng != null ? (
                             <div className="col-span-2">
-                                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">{t("standbyRecords.detail.location", "Location")}</p>
-                                <a href={`https://www.google.com/maps?q=${record.lat},${record.lng}`} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-500 hover:underline">
+                                <p className="mb-1 text-xs text-muted-foreground">{t("standbyRecords.detail.location", "Location")}</p>
+                                <a href={`https://www.google.com/maps?q=${record.lat},${record.lng}`} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary hover:underline">
                                     {record.lat.toFixed(5)}, {record.lng.toFixed(5)}
                                 </a>
                             </div>

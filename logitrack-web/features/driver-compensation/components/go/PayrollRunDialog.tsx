@@ -185,7 +185,7 @@ export function PayrollRunDialog({
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <DialogTitle className="flex items-center gap-2 text-xl">
-                                <Banknote className="h-6 w-6 text-green-600" />
+                                <Banknote className="h-6 w-6 text-success" />
                                 {t("payroll.dialog.title")}
                             </DialogTitle>
                             <DialogDescription className="mt-1">
@@ -207,14 +207,14 @@ export function PayrollRunDialog({
                     <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-4 rounded-lg border bg-muted/30 p-4">
                             <div className="space-y-1">
-                                <span className="text-xs font-semibold uppercase text-muted-foreground">{t("payroll.dialog.driver")}</span>
+                                <span className="text-xs font-semibold text-muted-foreground">{t("payroll.dialog.driver")}</span>
                                 <div className="flex items-center gap-2">
                                     <User className="h-4 w-4 text-muted-foreground" />
                                     <span className="font-medium">{run.driverName ?? t("payroll.unknownDriver")}</span>
                                 </div>
                             </div>
                             <div className="space-y-1">
-                                <span className="text-xs font-semibold uppercase text-muted-foreground">{t("payroll.dialog.payPeriod")}</span>
+                                <span className="text-xs font-semibold text-muted-foreground">{t("payroll.dialog.payPeriod")}</span>
                                 <div className="flex items-center gap-2">
                                     <Calendar className="h-4 w-4 text-muted-foreground" />
                                     <span className="text-sm font-medium">
@@ -229,7 +229,7 @@ export function PayrollRunDialog({
                             icon={<ArrowUpCircle className="h-4 w-4" />}
                             lines={earnings}
                             sign="+"
-                            tone="text-green-700"
+                            tone="text-success"
                             empty={t("payroll.dialog.noEarnings")}
                         />
                         <Lines
@@ -237,7 +237,7 @@ export function PayrollRunDialog({
                             icon={<ArrowDownCircle className="h-4 w-4" />}
                             lines={deductions}
                             sign="-"
-                            tone="text-red-700"
+                            tone="text-destructive"
                             empty={t("payroll.dialog.noDeductions")}
                         />
 
@@ -250,7 +250,7 @@ export function PayrollRunDialog({
                                 <span>{t("payroll.dialog.totalDeductions")}</span>
                                 <span className="tabular-nums">-{formatThb(run.totalDeductionsThb)}</span>
                             </div>
-                            <div className="flex justify-between pt-1 text-lg font-bold">
+                            <div className="flex justify-between pt-1 text-lg font-semibold">
                                 <span>{t("payroll.dialog.netPay")}</span>
                                 <span className="text-primary tabular-nums" data-testid="payroll-detail-net">
                                     {formatThb(run.netPayThb)}
@@ -259,7 +259,7 @@ export function PayrollRunDialog({
                         </div>
 
                         {run.paymentDate || run.paymentMethod ? (
-                            <div className="rounded border border-green-100 bg-green-50/50 p-3 text-sm text-muted-foreground dark:border-green-900 dark:bg-green-950/20">
+                            <div className="rounded border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
                                 {run.paymentDate ? (
                                     <p>
                                         {t("payroll.dialog.paidOn")} <span className="font-medium text-foreground">{dayLabel(run.paymentDate, language, "PPP")}</span>

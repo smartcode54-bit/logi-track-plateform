@@ -114,7 +114,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                     <TableCell>
                                         <div className="flex flex-col gap-1.5 py-1">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-bold text-muted-foreground w-6">EN</span>
+                                                <span className="text-xs font-semibold text-muted-foreground w-6">EN</span>
                                                 <Input 
                                                     value={holiday.holidayNameEN} 
                                                     onChange={(e) => handleUpdate(index, { holidayNameEN: e.target.value })}
@@ -123,7 +123,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                                 />
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-bold text-muted-foreground w-6">TH</span>
+                                                <span className="text-xs font-semibold text-muted-foreground w-6">TH</span>
                                                 <Input 
                                                     value={holiday.holidayNameTH} 
                                                     onChange={(e) => handleUpdate(index, { holidayNameTH: e.target.value })}
@@ -163,7 +163,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                             variant="ghost" 
                                             size="icon" 
                                             onClick={() => handleRemove(index)}
-                                            className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                            className="h-8 w-8 text-destructive hover:text-destructive"
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
@@ -179,7 +179,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
                         {t("holidays.dialog.cancel")}
                     </Button>
-                    <Button onClick={handleConfirmSave} disabled={isSaving || tempHolidays.length === 0} className="bg-green-600 hover:bg-green-700">
+                    <Button onClick={handleConfirmSave} disabled={isSaving || tempHolidays.length === 0}>
                         {isSaving ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (

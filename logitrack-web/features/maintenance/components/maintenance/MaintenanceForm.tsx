@@ -119,7 +119,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
     };
 
     return (
-        <Card className="border-t-4 border-t-blue-500 shadow-md">
+        <Card>
             <CardHeader>
                 <CardTitle>{props.selectedRecordId ? t("maintenance.form.editTitle") : t("maintenance.form.addRecord")}</CardTitle>
                 <CardDescription>{props.selectedRecordId ? t("maintenance.form.editDesc") : t("maintenance.form.newDesc")}</CardDescription>
@@ -148,10 +148,10 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         <div className="flex gap-4">
                             <div
                                 onClick={() => !props.selectedRecordId && props.setType("PM")}
-                                className={`flex items-center space-x-2 border p-3 rounded-lg flex-1 transition-colors ${props.type === 'PM' ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500' : 'hover:bg-muted/50'} ${props.selectedRecordId ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                                className={`flex items-center space-x-2 border p-3 rounded-lg flex-1 transition-colors ${props.type === 'PM' ? 'border-primary bg-primary/10' : 'hover:bg-muted/50'} ${props.selectedRecordId ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                             >
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${props.type === 'PM' ? 'border-blue-600' : 'border-muted-foreground'}`}>
-                                    {props.type === 'PM' && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${props.type === 'PM' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                    {props.type === 'PM' && <div className="w-2 h-2 rounded-full bg-primary" />}
                                 </div>
                                 <div className="flex-1">
                                     <span className="font-semibold block">{t("maintenance.form.pm")}</span>
@@ -160,10 +160,10 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             </div>
                             <div
                                 onClick={() => !props.selectedRecordId && props.setType("CM")}
-                                className={`flex items-center space-x-2 border p-3 rounded-lg flex-1 transition-colors ${props.type === 'CM' ? 'border-red-500 bg-red-500/10 ring-1 ring-red-500' : 'hover:bg-muted/50'} ${props.selectedRecordId ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                                className={`flex items-center space-x-2 border p-3 rounded-lg flex-1 transition-colors ${props.type === 'CM' ? 'border-primary bg-primary/10' : 'hover:bg-muted/50'} ${props.selectedRecordId ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                             >
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${props.type === 'CM' ? 'border-red-600' : 'border-muted-foreground'}`}>
-                                    {props.type === 'CM' && <div className="w-2 h-2 rounded-full bg-red-600" />}
+                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${props.type === 'CM' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                    {props.type === 'CM' && <div className="w-2 h-2 rounded-full bg-primary" />}
                                 </div>
                                 <div className="flex-1">
                                     <span className="font-semibold block">{t("maintenance.form.cm")}</span>
@@ -286,7 +286,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         </div>
                         <div className="space-y-2">
                             <Label>{t("maintenance.form.totalCost")}</Label>
-                            <Input disabled value={((parseFloat(props.costLabor) || 0) + (parseFloat(props.costParts) || 0)).toFixed(2)} className="bg-muted font-bold" />
+                            <Input disabled value={((parseFloat(props.costLabor) || 0) + (parseFloat(props.costParts) || 0)).toFixed(2)} className="bg-muted font-semibold" />
                         </div>
                     </div>
 
@@ -328,7 +328,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             <div className="space-y-4 rounded-lg border bg-muted/10 p-4">
                                 {savedUrls.length > 0 && (
                                     <div className="space-y-2">
-                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                        <p className="text-xs font-medium text-muted-foreground">
                                             {t("maintenance.form.savedReceipts")}
                                         </p>
                                         <div className="flex flex-wrap gap-3">
@@ -344,12 +344,12 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                                         /* eslint-disable-next-line @next/next/no-img-element */
                                                         <img src={url} alt="" className="h-full w-full object-cover" />
                                                     ) : (
-                                                        <span className="flex h-full w-full items-center justify-center p-1 text-center text-[10px] text-muted-foreground">
+                                                        <span className="flex h-full w-full items-center justify-center p-1 text-center text-xs text-muted-foreground">
                                                             {t("maintenance.history.viewDriverFile")}
                                                         </span>
                                                     )}
-                                                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
-                                                        <Eye className="h-6 w-6 text-white" />
+                                                    <span className="absolute inset-0 flex items-center justify-center bg-background/80 opacity-0 transition group-hover:opacity-100">
+                                                        <Eye className="h-6 w-6 text-foreground" />
                                                     </span>
                                                 </button>
                                             ))}
@@ -360,7 +360,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                 {driverUrls.length > 0 && (
                                     <div className="space-y-2 border-t border-dashed pt-4">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                            <p className="text-xs font-medium text-muted-foreground">
                                                 {t("maintenance.form.driverReceiptBlock")}
                                             </p>
                                             {props.driverReceiptAmount != null &&
@@ -377,7 +377,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                                     key={`${url}-${idx}`}
                                                     type="button"
                                                     onClick={() => openReceiptPreview(url)}
-                                                    className="group relative flex h-28 w-28 shrink-0 overflow-hidden rounded-md border bg-amber-500/5 ring-amber-500/30 ring-offset-background transition hover:ring-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                    className="group relative flex h-28 w-28 shrink-0 overflow-hidden rounded-md border bg-muted/50 ring-offset-background transition hover:ring-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                                     title={t("maintenance.form.clickToPreview")}
                                                 >
                                                     {looksLikeImageUrl(url) ? (
@@ -388,8 +388,8 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                                             {t("maintenance.history.viewDriverFile")}
                                                         </span>
                                                     )}
-                                                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
-                                                        <Eye className="h-7 w-7 text-white" />
+                                                    <span className="absolute inset-0 flex items-center justify-center bg-background/80 opacity-0 transition group-hover:opacity-100">
+                                                        <Eye className="h-7 w-7 text-foreground" />
                                                     </span>
                                                 </button>
                                             ))}
@@ -426,7 +426,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                 <Button
                                     type="submit"
                                     disabled={props.isSubmitting}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md px-6"
+                                    className="px-6"
                                 >
                                     {props.isSubmitting ? <Loader2 className="animate-spin" /> : t("maintenance.form.save")}
                                 </Button>
@@ -434,7 +434,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700 dark:hover:bg-green-950/40 dark:text-green-400 gap-2 font-semibold shadow-sm"
+                                        className="gap-2"
                                         disabled={props.isSubmitting}
                                         onClick={(e) => {
                                             e.preventDefault();
@@ -461,7 +461,6 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             </Button>
                             <Button
                                 type="button"
-                                className="bg-green-600 text-white hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600"
                                 disabled={props.isSubmitting}
                                 onClick={() => {
                                     setCompleteConfirmOpen(false);

@@ -192,7 +192,7 @@ function History({ versions, error, loading, activeId }: { versions: CompConfigD
                                 <TableRow key={v.id}>
                                     <TableCell className="font-medium">
                                         {dayLabel(v.effectiveFromDate, language)}
-                                        {v.id === activeId ? <span className="ml-2 text-xs text-green-700">{t("hr.config.inEffect")}</span> : null}
+                                        {v.id === activeId ? <span className="ml-2 text-xs text-success">{t("hr.config.inEffect")}</span> : null}
                                     </TableCell>
                                     <TableCell className="text-right tabular-nums">{formatThb(v.weekdayRateThb)}</TableCell>
                                     <TableCell className="text-right tabular-nums">{formatThb(v.holidayRateThb)}</TableCell>

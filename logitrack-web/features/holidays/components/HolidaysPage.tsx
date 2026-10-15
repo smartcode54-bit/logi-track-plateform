@@ -42,6 +42,7 @@ import { useLanguage } from "@/context/language";
 import { useMe } from "@/features/auth/api/useMe";
 import { HrErrorAlert } from "@/features/driver-compensation/components/go/hrShared";
 import { cn } from "@/lib/utils";
+import { toneBadgeVariant } from "@/lib/statusPresentation";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,12 +92,12 @@ type DateClickArg = ArgOf<"dateClick">;
 type EventClickArg = ArgOf<"eventClick">;
 type DayCellContentArg = ArgOf<"dayCellContent">;
 
-const TYPE_BADGE: Record<string, string> = {
-    public: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-    company: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-    other: "bg-gray-500/10 text-gray-500 border-gray-500/20",
-};
-const TYPE_COLOR: Record<string, string> = { public: "#3b82f6", company: "#a855f7", other: "#6b7280" };
+const TYPE_BADGE = {
+    public: toneBadgeVariant("primary"),
+    company: "outline",
+    other: "secondary",
+} as const;
+const TYPE_COLOR: Record<string, string> = { public: "var(--primary)", company: "var(--chart-2)", other: "var(--muted-foreground)" };
 
 const todayKey = () => format(new Date(), "yyyy-MM-dd");
 
@@ -169,8 +170,9 @@ export function HolidaysPage() {
                 title: holidayName(h, language),
                 start: h.date,
                 allDay: true,
-                backgroundColor: TYPE_COLOR[h.type] ?? TYPE_COLOR.other,
-                borderColor: "transparent",
+                backgroundColor: `color-mix(in srgb, ${TYPE_COLOR[h.type] ?? TYPE_COLOR.other} 12%, var(--card))`,
+                borderColor: "var(--border)",
+                textColor: "var(--foreground)",
                 extendedProps: { holidayId: h.id },
                 display: "block",
             })),
@@ -316,7 +318,7 @@ export function HolidaysPage() {
                                     variant={listFilter === "month" ? "secondary" : "ghost"}
                                     size="sm"
                                     onClick={() => setListFilter("month")}
-                                    className="h-8 flex-1 px-3 text-[11px] font-bold uppercase tracking-wider md:flex-none"
+                                    className="h-8 flex-1 px-3 text-xs font-semibold md:flex-none"
                                 >
                                     {t("holidays.thisMonth")}
                                 </Button>
@@ -324,7 +326,7 @@ export function HolidaysPage() {
                                     variant={listFilter === "year" ? "secondary" : "ghost"}
                                     size="sm"
                                     onClick={() => setListFilter("year")}
-                                    className="h-8 flex-1 px-3 text-[11px] font-bold uppercase tracking-wider md:flex-none"
+                                    className="h-8 flex-1 px-3 text-xs font-semibold md:flex-none"
                                 >
                                     {t("hr.holidays.wholeYear")}
                                 </Button>
@@ -335,11 +337,11 @@ export function HolidaysPage() {
                             <Table className="w-full table-fixed">
                                 <TableHeader className="bg-muted/30">
                                     <TableRow>
-                                        <TableHead className="w-12 text-center font-bold">{t("holidays.table.no")}</TableHead>
-                                        <TableHead className="w-2/5 min-w-0 font-bold">{t("holidays.table.name")}</TableHead>
-                                        <TableHead className="w-1/4 font-bold">{t("holidays.table.date")}</TableHead>
-                                        <TableHead className="w-1/5 font-bold">{t("holidays.table.type")}</TableHead>
-                                        <TableHead className="w-20 text-right font-bold">{t("holidays.table.actions")}</TableHead>
+                                        <TableHead className="w-12 text-center font-semibold">{t("holidays.table.no")}</TableHead>
+                                        <TableHead className="w-2/5 min-w-0 font-semibold">{t("holidays.table.name")}</TableHead>
+                                        <TableHead className="w-1/4 font-semibold">{t("holidays.table.date")}</TableHead>
+                                        <TableHead className="w-1/5 font-semibold">{t("holidays.table.type")}</TableHead>
+                                        <TableHead className="w-20 text-right font-semibold">{t("holidays.table.actions")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -362,7 +364,7 @@ export function HolidaysPage() {
                                                 <TableCell className="w-2/5 min-w-0 whitespace-normal break-words font-semibold">{holidayName(h, language)}</TableCell>
                                                 <TableCell className="w-1/4">{format(new Date(`${h.date}T00:00:00`), "PPP", { locale: language === "th" ? thLocale : undefined })}</TableCell>
                                                 <TableCell className="w-1/5">
-                                                    <Badge variant="outline" className={TYPE_BADGE[h.type] ?? TYPE_BADGE.other}>
+                                                    <Badge variant={TYPE_BADGE[h.type] ?? TYPE_BADGE.other}>
                                                         {t(`holidays.type.${h.type}`)}
                                                     </Badge>
                                                 </TableCell>
@@ -379,7 +381,7 @@ export function HolidaysPage() {
                                                                 <DropdownMenuItem onClick={() => setDialog({ edit: h })}>
                                                                     <Pencil className="mr-2 h-3.5 w-3.5" /> {t("holidays.editHoliday")}
                                                                 </DropdownMenuItem>
-                                                                <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDeleting(h)}>
+                                                                <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleting(h)}>
                                                                     <Trash2 className="mr-2 h-3.5 w-3.5" /> {t("holidays.deleteHoliday")}
                                                                 </DropdownMenuItem>
                                                             </DropdownMenuContent>
@@ -394,7 +396,7 @@ export function HolidaysPage() {
                         </div>
                     </>
                 ) : (
-                    <Card className="rounded-xl border-border bg-card p-4 shadow-md">
+                    <Card className="border-border bg-card p-4">
                         <div className="calendar-container">
                             <HolidayCalendar
                                 calendarRef={calendarRef}
@@ -408,7 +410,7 @@ export function HolidaysPage() {
                                 height="auto"
                                 themeSystem="standard"
                                 multiMonthMaxColumns={view === "year" ? 3 : 1}
-                                eventClassNames="cursor-pointer hover:opacity-80 transition-opacity font-medium text-xs px-1 shadow-sm border-l-4"
+                                eventClassNames="cursor-pointer hover:opacity-80 transition-opacity font-medium text-xs px-1"
                                 dayMaxEvents={10}
                                 fixedWeekCount={false}
                                 showNonCurrentDates={view !== "month"}
@@ -416,18 +418,18 @@ export function HolidaysPage() {
                                     const classes = ["transition-all duration-200"];
                                     if (byDay.has(format(arg.date, "yyyy-MM-dd"))) classes.push("holiday-cell");
                                     const day = arg.date.getDay();
-                                    if (day === 0) classes.push("bg-red-500/5", "weekend-sun");
-                                    if (day === 6) classes.push("bg-blue-500/5", "weekend-sat");
+                                    if (day === 0) classes.push("weekend-sun");
+                                    if (day === 6) classes.push("weekend-sat");
                                     return classes;
                                 }}
                                 dayCellContent={(arg: DayCellContentArg) => {
                                     const h = byDay.get(format(arg.date, "yyyy-MM-dd"));
                                     const content = (
                                         <div className="group flex cursor-default items-center gap-1.5 px-2 py-1">
-                                            <span className={cn("text-sm font-medium transition-colors", h ? "font-bold text-red-600 dark:text-red-400" : "text-foreground")}>
+                                            <span className={cn("text-sm font-medium transition-colors", h ? "font-semibold text-primary" : "text-foreground")}>
                                                 {arg.dayNumberText}
                                             </span>
-                                            {h ? <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-600 shadow-[0_0_4px_rgba(220,38,38,0.4)]" /> : null}
+                                            {h ? <div className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
                                         </div>
                                     );
                                     if (view !== "year" || !h) return content;
@@ -435,15 +437,15 @@ export function HolidaysPage() {
                                     return (
                                         <Tooltip delayDuration={100}>
                                             <TooltipTrigger asChild>{content}</TooltipTrigger>
-                                            <TooltipContent side="top" className="overflow-hidden border-none p-0 shadow-2xl">
+                                            <TooltipContent side="top" className="overflow-hidden border border-border p-0 shadow-md">
                                                 <div className="w-64 bg-card text-card-foreground">
-                                                    <div className="bg-red-600 px-3 py-1.5">
-                                                        <p className="text-xs font-bold uppercase tracking-wider text-white">
+                                                    <div className="border-b border-border bg-muted px-3 py-1.5">
+                                                        <p className="text-xs font-medium text-foreground">
                                                             {t("holidays.table.type")}: {t(`holidays.type.${h.type}`)}
                                                         </p>
                                                     </div>
                                                     <div className="space-y-2 p-3">
-                                                        <p className="text-base font-bold leading-tight">{holidayName(h, language)}</p>
+                                                        <p className="text-base font-semibold leading-tight">{holidayName(h, language)}</p>
                                                         {description ? <p className="border-t border-border pt-1 text-xs italic leading-relaxed text-muted-foreground">{description}</p> : null}
                                                     </div>
                                                 </div>
@@ -485,11 +487,11 @@ function StatCard({ label, value, testId }: { label: string; value: number; test
             <CardContent className="flex items-center justify-between p-6">
                 <div>
                     <p className="text-sm font-medium text-muted-foreground">{label}</p>
-                    <h2 className="text-3xl font-bold" data-testid={testId}>
+                    <h2 className="text-3xl font-semibold" data-testid={testId}>
                         {value}
                     </h2>
                 </div>
-                <CalendarIcon className="h-8 w-8 text-blue-500/80" />
+                <CalendarIcon className="h-8 w-8 text-muted-foreground" />
             </CardContent>
         </Card>
     );

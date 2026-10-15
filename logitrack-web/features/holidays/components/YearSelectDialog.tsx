@@ -44,7 +44,7 @@ export function YearSelectDialog({ open, onOpenChange, onSelect }: YearSelectDia
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Calendar className="h-5 w-5 text-blue-500" />
+                        <Calendar className="h-5 w-5 text-muted-foreground" />
                         {t("holidays.dialog.selectYear")}
                     </DialogTitle>
                     <DialogDescription>
@@ -72,7 +72,7 @@ export function YearSelectDialog({ open, onOpenChange, onSelect }: YearSelectDia
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         {t("holidays.dialog.cancel")}
                     </Button>
-                    <Button onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700 text-white px-8">
+                    <Button onClick={handleConfirm}>
                         {t("holidays.dialog.ok")}
                     </Button>
                 </DialogFooter>

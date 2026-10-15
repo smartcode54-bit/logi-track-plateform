@@ -176,10 +176,15 @@ describe("leave requests over Go", () => {
         const { web } = setup();
         const user = userEvent.setup();
         renderWithProviders(<LeaveRequestsPage />);
-        await user.click(await screen.findByText("Driver 2"));
+        await user.click(await screen.findByRole("button", { name: "Manage Request Driver 2" }));
+        const cancelItem = await screen.findByRole("menuitem", { name: "Cancel approved leave" });
+        expect(cancelItem).toHaveClass("text-destructive");
+        await user.click(cancelItem);
         const dialog = await screen.findByRole("dialog");
         expect(within(dialog).queryByRole("button", { name: "Approve Request" })).toBeNull();
-        await user.click(within(dialog).getByRole("button", { name: "Cancel request" }));
+        const cancelButton = within(dialog).getByRole("button", { name: "Cancel request" });
+        expect(cancelButton).toHaveClass("text-destructive");
+        await user.click(cancelButton);
         await waitFor(() => expect(web.count("POST", "/api/go/v1/leave-requests/l2/cancel")).toBe(1));
     });
 
