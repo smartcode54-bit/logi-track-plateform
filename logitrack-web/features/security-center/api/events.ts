@@ -46,7 +46,7 @@ export interface SecurityEventDTO {
     type: string;
     severity: Severity | string;
     summary: string;
-    details: Record<string, unknown>;
+    details: Record<string, unknown> | null;
     actorUserId: string | null;
     /** The actor's address when the event was written (older rows are named on read). */
     actorEmail: string | null;
@@ -188,15 +188,33 @@ export function eventTarget(e: Pick<SecurityEventDTO, "details" | "targetUserId"
     return e.targetUserId ?? "";
 }
 
+type Translate = (key: string, fallbackOrParams?: string | Record<string, string | number>) => string;
+
+export function eventTypeLabel(type: string, t: Translate): string {
+    return t(`securityCenter.securityEvents.types.${type}`, t("securityCenter.ui4.unknownEvent"));
+}
+
+export function eventActorLabel(e: SecurityEventDTO, t: Translate): string {
+    return e.actorEmail || t(e.actorUserId || e.actorLegacyUid ? "securityCenter.ui4.unknownUser" : "securityCenter.audit.system");
+}
+
+export function eventTargetLabel(e: SecurityEventDTO, t: Translate): string {
+    for (const key of ["email", "targetEmail", "name", "keyPrefix"]) {
+        const value = e.details?.[key];
+        if (typeof value === "string" && value) return value;
+    }
+    return eventTarget(e) ? t("securityCenter.ui4.unknownTarget") : "—";
+}
+
 /**
  * CSV of the loaded rows (the export of the audit page): one line per event, quoted fields. A field
  * that a spreadsheet would read as a formula (`=`, `+`, `-`, `@`, tab, CR first) is prefixed with `'`:
  * summaries and details hold user-chosen text (names, emails).
  */
-export function eventsCsv(rows: readonly SecurityEventDTO[]): string {
+export function eventsCsv(rows: readonly SecurityEventDTO[], t: Translate): string {
     const q = (v: string) => `"${neutraliseCsvFormula(v).replaceAll('"', '""')}"`;
     const header = ["timestamp", "type", "severity", "actor", "actorUserId", "target", "summary", "details", "tenantId", "requestId"];
-    const lines = [header.join(",")];
+    const lines = [[...header, ...["securityCenter.ui4.csvEventLabel", "securityCenter.ui4.csvActorLabel", "securityCenter.ui4.csvTargetLabel"].map((key) => q(t(key)))].join(",")];
     for (const r of rows) {
         lines.push(
             [
@@ -210,6 +228,9 @@ export function eventsCsv(rows: readonly SecurityEventDTO[]): string {
                 JSON.stringify(r.details ?? {}),
                 r.tenantId ?? "",
                 r.requestId ?? "",
+                eventTypeLabel(r.type, t),
+                eventActorLabel(r, t),
+                eventTarget(r) ? eventTargetLabel(r, t) : "",
             ]
                 .map((v) => q(String(v)))
                 .join(",")

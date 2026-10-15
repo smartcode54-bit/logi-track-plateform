@@ -19,15 +19,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { hasCapability } from "@/features/auth/api/me";
+import { toneBadgeVariant, type StatusTone } from "@/lib/statusPresentation";
 import { apiErrorText } from "@/lib/apiError";
 import { TENANT_KINDS, TENANT_STATUSES, useInvalidateTenants, useTenants, type TenantDTO } from "../api/tenants";
 import { TenantAdminsDialog } from "./TenantAdminsDialog";
 import { TenantFormDialog } from "./TenantFormDialog";
 
-const STATUS_STYLE: Record<string, string> = {
-    active: "bg-green-600 hover:bg-green-600",
-    pending: "bg-amber-500 hover:bg-amber-500",
-    suspended: "bg-gray-500 hover:bg-gray-500",
+const STATUS_STYLE: Record<string, StatusTone> = {
+    active: "success",
+    pending: "warning",
+    suspended: "neutral",
 };
 
 export function TenantsPage() {
@@ -55,11 +56,11 @@ export function TenantsPage() {
                 actions={
                     <>
                         <Button variant="outline" className="gap-2" onClick={() => void tenants.refetch()} disabled={tenants.isFetching}>
-                            {tenants.isFetching ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
+                            {tenants.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden /> : <RefreshCw className="h-4 w-4 text-muted-foreground" aria-hidden />}
                             {t("users.refresh")}
                         </Button>
                         <Button onClick={() => setForm({ tenant: null })}>
-                            <Plus className="mr-2 h-4 w-4" aria-hidden />
+                            <Plus className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden />
                             {t("tenants.create")}
                         </Button>
                     </>
@@ -99,11 +100,11 @@ export function TenantsPage() {
                 <Table>
                     <TableHeader className="bg-muted/40">
                         <TableRow className="hover:bg-transparent">
-                            <TableHead className="pl-6 text-xs font-semibold uppercase">{t("tenants.table.name")}</TableHead>
-                            <TableHead className="text-xs font-semibold uppercase">{t("tenants.table.code")}</TableHead>
-                            <TableHead className="text-xs font-semibold uppercase">{t("tenants.table.kind")}</TableHead>
-                            <TableHead className="text-xs font-semibold uppercase">{t("tenants.table.status")}</TableHead>
-                            <TableHead className="w-[52px] text-right text-xs font-semibold uppercase">{t("users.table.actions")}</TableHead>
+                            <TableHead className="pl-6 text-sm font-medium">{t("tenants.table.name")}</TableHead>
+                            <TableHead className="text-sm font-medium">{t("tenants.table.code")}</TableHead>
+                            <TableHead className="text-sm font-medium">{t("tenants.table.kind")}</TableHead>
+                            <TableHead className="text-sm font-medium">{t("tenants.table.status")}</TableHead>
+                            <TableHead className="w-[52px] text-right text-sm font-medium">{t("users.table.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -139,23 +140,23 @@ export function TenantsPage() {
                                         <Badge variant="outline">{t(`tenants.kind.${tenant.kind}`, tenant.kind)}</Badge>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge className={STATUS_STYLE[tenant.status]}>{t(`tenants.status.${tenant.status}`, tenant.status)}</Badge>
+                                        <Badge variant={toneBadgeVariant(STATUS_STYLE[tenant.status] ?? "neutral")}>{t(`tenants.status.${tenant.status}`, tenant.status)}</Badge>
                                     </TableCell>
                                     <TableCell className="text-right">
                                         {tenant.kind === "quarantine" ? null : (
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t("users.table.actions")}>
-                                                        <MoreHorizontal className="h-4 w-4" />
+                                                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
                                                     <DropdownMenuItem onSelect={() => setForm({ tenant })}>
-                                                        <Edit className="mr-2 h-4 w-4" />
+                                                        <Edit className="mr-2 h-4 w-4 text-muted-foreground" />
                                                         {t("tenants.edit")}
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem onSelect={() => setAdminsOf(tenant)}>
-                                                        <UserCog className="mr-2 h-4 w-4" />
+                                                        <UserCog className="mr-2 h-4 w-4 text-muted-foreground" />
                                                         {t("tenants.admins.manage")}
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
@@ -172,7 +173,7 @@ export function TenantsPage() {
             {tenants.hasNextPage ? (
                 <div className="flex justify-end">
                     <Button variant="outline" onClick={() => void tenants.fetchNextPage()} disabled={tenants.isFetchingNextPage}>
-                        {tenants.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        {tenants.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                         {t("users.loadMore")}
                     </Button>
                 </div>

@@ -1,6 +1,8 @@
 // T54S: the pure parts of the Security Center over Go (role-matrix save body and its fresh read,
 // API-key capability rules, the audit CSV and range, the viewer's own cross-tenant reads, the platform
 // poll, the overview distribution).
+import en from "@/context/locales/en/securityCenter";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CAPABILITY_CATALOG } from "shared-docs/schemas/capabilities";
@@ -237,9 +239,9 @@ describe("security events helpers", () => {
     });
 
     it("exports CSV with formulas neutralised", () => {
-        const csv = eventsCsv([ev({ summary: '=HYPERLINK("http://evil")', details: { name: "+cmd" } })]);
+        const csv = eventsCsv([ev({ summary: '=HYPERLINK("http://evil")', details: { name: "+cmd" } })], (key, fallback) => en[key as keyof typeof en] ?? (typeof fallback === "string" ? fallback : key));
         const [header, line] = csv.split("\n");
-        expect(header).toBe("timestamp,type,severity,actor,actorUserId,target,summary,details,tenantId,requestId");
+        expect(header).toBe("timestamp,type,severity,actor,actorUserId,target,summary,details,tenantId,requestId,\"Event label\",\"Actor label\",\"Target label\"");
         expect(line).toContain(`"'=HYPERLINK(""http://evil"")"`);
         expect(line).toContain(`"'+cmd"`);
         expect(line.startsWith('"2026-10-11T01:02:03Z"')).toBe(true);

@@ -72,18 +72,18 @@ describe("TenantsPage", () => {
         expect(await screen.findAllByTestId("tenant-row")).toHaveLength(1);
         expect(web.calls.find((c) => c.url.startsWith("/api/go/v1/tenants"))?.url).toBe("/api/go/v1/tenants?kind=carrier&limit=50");
 
-        await u.click(screen.getByRole("button", { name: "Create tenant" }));
+        await u.click(screen.getByRole("button", { name: "Create organisation" }));
         const form = await screen.findByRole("dialog");
         await u.type(within(form).getByLabelText("Code"), "NEW");
         await u.type(within(form).getByLabelText("Name (Thai)"), "ขนส่งใหม่");
-        await u.click(within(form).getByRole("button", { name: "Create tenant" }));
+        await u.click(within(form).getByRole("button", { name: "Create organisation" }));
         await waitFor(() => expect(web.calls.some((c) => c.method === "POST" && c.url === "/api/go/v1/tenants")).toBe(true));
         expect(web.calls.find((c) => c.method === "POST" && c.url === "/api/go/v1/tenants")?.body).toEqual({ kind: "carrier", code: "NEW", nameTh: "ขนส่งใหม่", legalType: "company" });
 
         // The admins dialog of the new tenant opens by itself.
-        expect(await screen.findByText("This tenant has no administrator yet.")).toBeInTheDocument();
+        expect(await screen.findByText("This organisation has no administrator yet.")).toBeInTheDocument();
         await u.click(screen.getByRole("button", { name: "Create a new administrator" }));
-        const create = await screen.findByRole("dialog", { name: "Create a tenant administrator" });
+        const create = await screen.findByRole("dialog", { name: "Create an organisation administrator" });
         await u.type(within(create).getByLabelText("Display Name"), "Carrier Admin");
         await u.type(within(create).getByLabelText("Email"), "admin@carrier.test");
         await u.click(within(create).getByRole("button", { name: "Create User" }));
@@ -166,9 +166,9 @@ describe("TenantsPage", () => {
         await u.click(within(form).getByRole("combobox", { name: "Status" }));
         await u.click(await screen.findByRole("option", { name: "Suspended" }));
         await u.click(within(form).getByRole("button", { name: "Save Changes" }));
-        const confirm = await screen.findByRole("dialog", { name: "Suspend this tenant?" });
+        const confirm = await screen.findByRole("dialog", { name: "Suspend this organisation?" });
         expect(web.calls.some((c) => c.method === "PATCH")).toBe(false);
-        await u.click(within(confirm).getByRole("button", { name: "Suspend tenant" }));
+        await u.click(within(confirm).getByRole("button", { name: "Suspend organisation" }));
         await waitFor(() => expect(web.calls.some((c) => c.method === "PATCH")).toBe(true));
         expect(web.calls.find((c) => c.method === "PATCH")?.body).toEqual({ nameTh: "ขนส่ง t-a", nameEn: "New EN", status: "suspended" });
     });
@@ -217,7 +217,7 @@ describe("TenantsPage", () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe({}) }));
         renderWithProviders(<TenantsPage />);
-        expect(await screen.findByText("Only platform administrators can manage tenants.")).toBeInTheDocument();
+        expect(await screen.findByText("Only platform administrators can manage organisations.")).toBeInTheDocument();
         expect(web.calls.some((c) => c.url.startsWith("/api/go/v1/tenants"))).toBe(false);
     });
 });

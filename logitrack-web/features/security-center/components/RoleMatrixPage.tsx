@@ -18,6 +18,8 @@ import { Info, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { CAPABILITY_CATALOG, type CapabilityInfo } from "shared-docs/schemas/capabilities";
+import { organisationRoleLabel } from "@/features/users/components/UserBadges";
+import { TechnicalKeysToggle } from "./TechnicalKeysToggle";
 import { useLanguage } from "@/context/language";
 import { isPlatformAdmin } from "@/features/auth/api/me";
 import { useCan, useMe } from "@/features/auth/api/useMe";
@@ -91,6 +93,7 @@ export function RoleMatrixPage() {
     const counts = useUsersByRole(reach, canViewOverview);
     const [edits, setEdits] = useState<MatrixEdits>({});
     const [search, setSearch] = useState("");
+    const [showTechnicalKeys, setShowTechnicalKeys] = useState(false);
     const save = useMutation({
         mutationFn: (m: RoleMatrixDTO) => saveRoleMatrixFresh(client, target, m, edits),
         meta: { invalidates: [queryKeys.roles.all(), queryKeys.me()] },
@@ -160,8 +163,8 @@ export function RoleMatrixPage() {
                         return (
                             <Card key={role}>
                                 <CardContent className="pb-2 pt-6">
-                                    <span className="text-2xl font-bold tabular-nums">{n.toLocaleString()}</span>
-                                    <p className="mt-1 text-sm font-medium text-muted-foreground">{t(`users.tenantRole.${role}`)}</p>
+                                    <span className="text-2xl font-semibold tabular-nums">{n.toLocaleString(language === "th" ? "th-TH" : "en-GB")}</span>
+                                    <p className="mt-1 text-sm font-medium text-muted-foreground">{organisationRoleLabel(role, t)}</p>
                                     <div className="mt-3 h-1 overflow-hidden rounded-full bg-primary/20">
                                         <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (n / max) * 100)}%` }} />
                                     </div>
@@ -195,6 +198,10 @@ export function RoleMatrixPage() {
                               ? t("securityCenter.roles.layerOwnFleetHint")
                               : t("securityCenter.roles.layerCarrierHint")}
                     </p>
+                    <div className="space-y-3">
+                        <TechnicalKeysToggle checked={showTechnicalKeys} onChange={setShowTechnicalKeys} />
+                        <p className="text-xs text-muted-foreground">{t("securityCenter.ui4.overrideLegend", { custom: t("securityCenter.roles.overridden"), platform: t("securityCenter.roles.platformOverride") })}</p>
+                    </div>
                     <div className="relative max-w-sm">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
@@ -227,10 +234,10 @@ export function RoleMatrixPage() {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-muted/50 hover:bg-muted/50">
-                                                    <TableHead className="w-[320px] font-semibold">{t("securityCenter.roles.capabilities")}</TableHead>
+                                                    <TableHead className="w-[320px]">{t("securityCenter.roles.capabilities")}</TableHead>
                                                     {MATRIX_ROLES.map((r) => (
-                                                        <TableHead key={r} className="w-24 text-center font-semibold">
-                                                            {t(`users.tenantRole.${r}`)}
+                                                        <TableHead key={r} className="w-24 text-center">
+                                                            {organisationRoleLabel(r, t)}
                                                         </TableHead>
                                                     ))}
                                                 </TableRow>
@@ -240,14 +247,14 @@ export function RoleMatrixPage() {
                                                     <TableRow key={c.key} data-testid="matrix-row" data-key={c.key}>
                                                         <TableCell className="align-top">
                                                             <p className="font-medium">{title(c)}</p>
-                                                            <p className="font-mono text-xs text-muted-foreground">{c.key}</p>
+                                                            {showTechnicalKeys ? <p className="font-mono text-xs text-muted-foreground">{c.key}</p> : null}
                                                         </TableCell>
                                                         {MATRIX_ROLES.map((role) => {
                                                             const cell = m.roles.find((r) => r.role === role)?.capabilities[c.key];
                                                             if (!cell) return <TableCell key={role} />;
                                                             const value = cellValue(m, edits, role, c.key);
                                                             const edited = value !== cell.effective;
-                                                            const label = `${t(`users.tenantRole.${role}`)}: ${title(c)}`;
+                                                            const label = `${organisationRoleLabel(role, t)}: ${title(c)}`;
                                                             return (
                                                                 <TableCell key={role} className="py-4 text-center align-top">
                                                                     <div className="flex flex-col items-center gap-1">
@@ -258,15 +265,15 @@ export function RoleMatrixPage() {
                                                                             onCheckedChange={(checked) => toggle(role, c.key, checked === true)}
                                                                             className={cn(
                                                                                 "h-5 w-5 data-[state=checked]:border-primary data-[state=checked]:bg-primary",
-                                                                                edited && "ring-2 ring-amber-400 ring-offset-1"
+                                                                                edited && "ring-2 ring-warning ring-offset-1"
                                                                             )}
                                                                         />
                                                                         {cell.overridden ? (
-                                                                            <span className="text-[10px] text-primary" title={t("securityCenter.roles.overriddenHint")}>
+                                                                            <span className="text-xs text-primary" title={t("securityCenter.roles.overriddenHint")}>
                                                                                 {t("securityCenter.roles.overridden")}
                                                                             </span>
                                                                         ) : cell.platformOverride !== undefined ? (
-                                                                            <span className="text-[10px] text-muted-foreground" title={t("securityCenter.roles.platformOverrideHint")}>
+                                                                            <span className="text-xs text-muted-foreground" title={t("securityCenter.roles.platformOverrideHint")}>
                                                                                 {t("securityCenter.roles.platformOverride")}
                                                                             </span>
                                                                         ) : null}
@@ -286,10 +293,10 @@ export function RoleMatrixPage() {
 
                     <div className="flex flex-col items-start justify-between gap-4 pt-4 sm:flex-row sm:items-center">
                         <div className="flex items-center gap-2 rounded-lg bg-primary/10 px-4 py-3 text-sm text-primary">
-                            <Info className="h-4 w-4 shrink-0" />
+                            <Info className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span>{t("securityCenter.roles.changesAppliedGo")}</span>
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             {pending > 0 ? (
                                 <span className="text-sm text-muted-foreground" data-testid="pending-changes">
                                     {t("securityCenter.roles.pendingChanges", { count: pending })}
@@ -301,7 +308,7 @@ export function RoleMatrixPage() {
                             <Button onClick={() => save.mutate(m)} disabled={pending === 0 || save.isPending}>
                                 {save.isPending ? (
                                     <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" />
                                         {t("securityCenter.roles.saving")}
                                     </>
                                 ) : (

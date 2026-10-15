@@ -14,7 +14,8 @@ import { Loader2, RefreshCw } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { useSecurityReach } from "@/features/security-center/api/reach";
-import { formatDateTime } from "@/features/security-center/components/eventDisplay";
+import { ScopeCaption } from "@/features/security-center/components/ScopeCaption";
+import { buildTypeLabel, formatDateTime } from "@/features/security-center/components/eventDisplay";
 import { apiErrorText } from "@/lib/apiError";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,16 +28,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ACTIVE_WINDOW, installationRows, useInstallations, useInstallationStats, type VersionStatus } from "../api/installations";
 
 /** `current` and `unknown` get no badge: a wall of green hides the rows that need attention. */
-const STATUS_BADGE: Partial<Record<VersionStatus, { variant: "destructive" | "secondary" | "outline"; key: string }>> = {
+const STATUS_BADGE: Partial<Record<VersionStatus, { variant: "destructive" | "warning" | "outline"; key: string }>> = {
     blocked: { variant: "destructive", key: "securityCenter.mobileClients.badge.blocked" },
-    outdated: { variant: "secondary", key: "securityCenter.mobileClients.badge.outdated" },
+    outdated: { variant: "warning", key: "securityCenter.mobileClients.badge.outdated" },
     ahead: { variant: "outline", key: "securityCenter.mobileClients.badge.ahead" },
 };
 
 const ALL = "all";
 
 export function MobileClientsPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const reach = useSecurityReach();
     const [flavor, setFlavor] = useState(ALL);
     const list = useInstallations({ flavor: flavor === ALL ? "" : flavor }, reach);
@@ -47,7 +48,7 @@ export function MobileClientsPage() {
 
     return (
         <div className="flex flex-col gap-section">
-            <PageHeader title={t("securityCenter.mobileClients")} description={t("securityCenter.mobileClients.subtitle")} />
+            <PageHeader title={t("securityCenter.mobileClients")} description={<>{t("securityCenter.mobileClients.subtitle")}<ScopeCaption reach={reach} resource="installations" /></>} />
 
             {list.error ? (
                 <Alert variant="destructive">
@@ -78,19 +79,19 @@ export function MobileClientsPage() {
                                 {t("securityCenter.mobileClients.gate", {
                                     floor: s.minAllowedVersion ?? "—",
                                     latest: s.latestVersion ?? "—",
-                                    flavor: s.flavor ?? "—",
+                                    buildType: buildTypeLabel(s.flavor, t),
                                 })}
                             </p>
                         ) : null}
                     </div>
                     <Select value={flavor} onValueChange={setFlavor}>
-                        <SelectTrigger className="w-[160px]" aria-label={t("securityCenter.mobileClients.colFlavor")}>
+                        <SelectTrigger className="w-[160px]" aria-label={t("securityCenter.ui4.buildType")}>
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value={ALL}>{t("securityCenter.mobileClients.allFlavors")}</SelectItem>
-                            <SelectItem value="prod">prod</SelectItem>
-                            <SelectItem value="dev">dev</SelectItem>
+                            <SelectItem value="prod">{t("securityCenter.ui4.production")}</SelectItem>
+                            <SelectItem value="dev">{t("securityCenter.ui4.test")}</SelectItem>
                         </SelectContent>
                     </Select>
                 </CardHeader>
@@ -107,25 +108,22 @@ export function MobileClientsPage() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("securityCenter.mobileClients.colDriver")}</TableHead>
-                                        <TableHead>{t("securityCenter.mobileClients.colDriverId")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileClients.colTenant")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileClients.colPlatform")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileClients.colVersion")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileClients.colBuild")}</TableHead>
-                                        <TableHead>{t("securityCenter.mobileClients.colFlavor")}</TableHead>
+                                        <TableHead>{t("securityCenter.ui4.buildType")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileClients.colLastSeen")}</TableHead>
-                                        <TableHead>{t("securityCenter.mobileClients.colInstallId")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {rows.map((r) => {
                                         const badge = STATUS_BADGE[r.versionStatus as VersionStatus];
                                         return (
-                                            <TableRow key={`${r.driverId}/${r.installId}`} data-testid="installation-row">
+                                            <TableRow key={`${r.driverId}/${r.installId}`} data-testid="installation-row" title={`${t("securityCenter.mobileClients.colDriverId")}: ${r.driverId} · ${t("securityCenter.mobileClients.colInstallId")}: ${r.installId}`}>
                                                 <TableCell className="font-medium">{r.driverName ?? "—"}</TableCell>
-                                                <TableCell className="font-mono text-xs">{r.driverId}</TableCell>
                                                 <TableCell className="text-sm">{r.tenantName ?? "—"}</TableCell>
-                                                <TableCell>{r.platform}</TableCell>
+                                                <TableCell>{r.platform === "android" ? "Android" : r.platform === "ios" ? "iOS" : "—"}</TableCell>
                                                 <TableCell>
                                                     <span className="flex items-center gap-2 whitespace-nowrap">
                                                         {r.appVersion ?? "—"}
@@ -134,16 +132,9 @@ export function MobileClientsPage() {
                                                 </TableCell>
                                                 <TableCell>{r.buildNumber ?? "—"}</TableCell>
                                                 <TableCell>
-                                                    {r.flavor === "dev" ? (
-                                                        <Badge variant="destructive">{t("securityCenter.mobileClients.badge.devFlavor")}</Badge>
-                                                    ) : (
-                                                        r.flavor
-                                                    )}
+                                                    {r.flavor === "dev" ? <Badge variant="destructive">{buildTypeLabel(r.flavor, t)}</Badge> : buildTypeLabel(r.flavor, t)}
                                                 </TableCell>
-                                                <TableCell className="whitespace-nowrap text-sm">{formatDateTime(r.lastSeenAt)}</TableCell>
-                                                <TableCell className="max-w-[140px] truncate font-mono text-xs" title={r.installId}>
-                                                    {r.installId}
-                                                </TableCell>
+                                                <TableCell className="whitespace-nowrap text-sm">{formatDateTime(r.lastSeenAt, language)}</TableCell>
                                             </TableRow>
                                         );
                                     })}
@@ -163,12 +154,12 @@ export function MobileClientsPage() {
                                 onClick={() => void Promise.all([list.refetch(), stats.refetch()])}
                                 disabled={list.isFetching}
                             >
-                                <RefreshCw className={`mr-2 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} />
+                                <RefreshCw className={`mr-2 h-4 w-4 text-muted-foreground ${list.isFetching ? "animate-spin" : ""}`} />
                                 {t("securityCenter.mobileClients.refresh")}
                             </Button>
                             {list.hasNextPage ? (
                                 <Button variant="outline" size="sm" onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-                                    {list.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    {list.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                                     {t("securityCenter.audit.loadMore")}
                                 </Button>
                             ) : null}

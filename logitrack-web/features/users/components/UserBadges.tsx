@@ -4,40 +4,37 @@ import { Link2, Shield, Truck, User, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/context/language";
+import { toneBadgeVariant } from "@/lib/statusPresentation";
 import type { UserDTO, UserMembership } from "../api/users";
-
-const ROLE_STYLE: Record<string, string> = {
-    tenant_admin: "bg-green-700 hover:bg-green-700",
-    manager: "bg-indigo-600 hover:bg-indigo-600",
-    operation_staff: "bg-teal-600 hover:bg-teal-600",
-    operator: "bg-cyan-600 hover:bg-cyan-600",
-    driver: "bg-amber-600 hover:bg-amber-600",
-};
 
 function membershipName(m: UserMembership, language: string): string {
     if (language === "en" && m.tenantNameEn) return m.tenantNameEn;
     return m.tenantNameTh || m.tenantNameEn || m.tenantId;
 }
 
+/** Body wording; the shared role label also names the principal in navigation. */
+export function organisationRoleLabel(role: string, t: (key: string, fallback?: string) => string): string {
+    return role === "tenant_admin" ? t("users.organisationAdmin") : t(`users.tenantRole.${role}`, role);
+}
+
 /** Tenant roles (with the tenant's name when it is not the viewer's active tenant) and platform roles. */
-export function UserRoleBadges({ user, activeTenantId }: { user: UserDTO; activeTenantId?: string }) {
+export function UserRoleBadges({ user, activeTenantId, showOrganisation = false }: { user: UserDTO; activeTenantId?: string; showOrganisation?: boolean }) {
     const { t, language } = useLanguage();
     return (
         <div className="flex flex-wrap gap-1">
             {user.platformRoles.map((r) => (
-                <Badge key={r} className="bg-rose-700 hover:bg-rose-700">
-                    <Shield className="mr-1 h-3 w-3" />
+                <Badge key={r} variant="secondary">
+                    <Shield className="mr-1 h-3 w-3 text-muted-foreground" />
                     {t(`users.platformRole.${r}`)}
                 </Badge>
             ))}
             {user.memberships.map((m) => {
                 const Icon = m.role === "tenant_admin" ? Shield : m.role === "driver" ? Truck : User;
-                const style = ROLE_STYLE[m.role];
                 return (
-                    <Badge key={m.tenantId} className={style} variant={style ? "default" : "outline"}>
-                        <Icon className="mr-1 h-3 w-3" />
-                        {t(`users.tenantRole.${m.role}`, m.role)}
-                        {m.tenantId !== activeTenantId ? <span className="ml-1 opacity-80">· {membershipName(m, language)}</span> : null}
+                    <Badge key={m.tenantId} variant="outline">
+                        <Icon className="mr-1 h-3 w-3 text-muted-foreground" />
+                        {organisationRoleLabel(m.role, t)}
+                        {showOrganisation || m.tenantId !== activeTenantId ? <span className="ml-1 opacity-80">· {membershipName(m, language)}</span> : null}
                     </Badge>
                 );
             })}
@@ -58,7 +55,7 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
     if (customers.length > 0) {
         parts.push(
             <span key="customer" className="flex items-center gap-1 text-xs">
-                <Users className="h-3 w-3 text-blue-600" />
+                <Users className="h-3 w-3 text-muted-foreground" />
                 {t("users.scopeKind.customer")}: {customers.map((s) => s.name).join(", ")}
             </span>
         );
@@ -66,7 +63,7 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
     if (dispatcher.length > 0) {
         parts.push(
             <span key="dispatcher" className="flex items-center gap-1 text-xs">
-                <Users className="h-3 w-3 text-purple-600" />
+                <Users className="h-3 w-3 text-muted-foreground" />
                 {t("users.scopeKind.dispatcher")}: {dispatcher.map((s) => s.name).join(", ")}
             </span>
         );
@@ -74,14 +71,14 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
     if (user.driver) {
         parts.push(
             <span key="driver" className="flex items-center gap-1 text-xs">
-                <Link2 className="h-3 w-3 text-green-600" />
+                <Link2 className="h-3 w-3 text-muted-foreground" />
                 {user.driver.displayName || user.driver.id}
             </span>
         );
     } else if (driverRole) {
         parts.push(
-            <span key="driver" className="flex items-center gap-1 text-xs text-amber-600">
-                <Link2 className="h-3 w-3" />
+            <span key="driver" className="flex items-center gap-1 text-xs text-warning">
+                <Link2 className="h-3 w-3 text-muted-foreground" />
                 {t("users.driverLinkNone")}
             </span>
         );
@@ -93,18 +90,13 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
 /** The account state: active, disabled, needs a reset; plus "must change password". */
 export function UserStatusBadge({ user }: { user: UserDTO }) {
     const { t } = useLanguage();
-    const active = user.status === "active";
+    const tone = user.status === "active" ? "success" : user.status === "reset_required" ? "warning" : "neutral";
     return (
         <div className="flex flex-col gap-1">
-            <span
-                className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
-                    active ? "border-green-200/50 bg-green-500/10 text-green-600" : "border-gray-200 bg-gray-100 text-gray-500"
-                }`}
-            >
-                <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${active ? "bg-green-500" : "bg-gray-400"}`} />
+            <Badge variant={toneBadgeVariant(tone)} className="w-fit">
                 {t(`users.accountStatus.${user.status}`, user.status)}
-            </span>
-            {user.mustChangePassword ? <span className="text-[11px] text-amber-600">{t("users.mustChangePassword")}</span> : null}
+            </Badge>
+            {user.mustChangePassword ? <span className="text-xs text-warning">{t("users.mustChangePassword")}</span> : null}
         </div>
     );
 }

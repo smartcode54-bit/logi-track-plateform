@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ChevronDown, FileDown, Loader2, RefreshCw, Search, Shield, TrendingUp, Users } from "lucide-react";
 
+import { DisclosureSummary } from "./DisclosureSummary";
 import { useLanguage } from "@/context/language";
 import { useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
@@ -28,9 +29,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
     EVENT_RANGES,
     eventActor,
+    eventActorLabel,
     eventRows,
     eventsCsv,
     eventTarget,
+    eventTargetLabel,
     eventTypesOf,
     rangeStart,
     useSecurityEvents,
@@ -39,7 +42,8 @@ import {
     type SecurityEventDTO,
 } from "../api/events";
 import { useSecurityReach } from "../api/reach";
-import { eventTypeLabel, OwnReadsToggle, SeverityBadge } from "./eventDisplay";
+import { ScopeCaption } from "./ScopeCaption";
+import { eventTypeLabel, formatDateTime, OwnReadsToggle, SeverityBadge } from "./eventDisplay";
 
 const ALL = "all";
 const SEVERITIES = ["info", "warning", "critical"] as const;
@@ -61,7 +65,7 @@ export function eventMatches(r: SecurityEventDTO, q: string): boolean {
 }
 
 export function SecurityAuditPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const reach = useSecurityReach();
     const viewerId = useMe().data?.id;
     const [showOwnReads, setShowOwnReads] = useState(false);
@@ -75,7 +79,7 @@ export function SecurityAuditPage() {
     const loaded = eventRows(events.data?.pages);
     const visible = withoutOwnReads(loaded, viewerId, showOwnReads);
     const q = search.trim().toLowerCase();
-    const rows = visible.rows.filter((r) => eventMatches(r, q));
+    const rows = visible.rows.filter((r) => (eventMatches(r, q) || eventTypeLabel(r.type, t).toLowerCase().includes(q)));
     const pollPaused = (events.data?.pages.length ?? 0) > 1;
     const types = eventTypesOf(events.data?.pages);
     const kpis = {
@@ -85,7 +89,7 @@ export function SecurityAuditPage() {
     };
 
     const exportCsv = () => {
-        const blob = new Blob([eventsCsv(rows)], { type: "text/csv;charset=utf-8" });
+        const blob = new Blob([eventsCsv(rows, t)], { type: "text/csv;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -105,15 +109,15 @@ export function SecurityAuditPage() {
         <div className="flex flex-col gap-section">
             <PageHeader
                 title={t("securityCenter.securityAudit")}
-                description={t("securityCenter.audit.subtitle")}
+                description={<>{t("securityCenter.audit.subtitle")}<ScopeCaption reach={reach} /></>}
                 actions={
                     <>
                         <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
-                            <FileDown className="mr-2 h-4 w-4" aria-hidden />
+                            <FileDown className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden />
                             {t("securityCenter.audit.exportCsv")}
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => void events.refetch()} disabled={events.isFetching}>
-                            <RefreshCw className={`mr-2 h-4 w-4 ${events.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                            <RefreshCw className={`mr-2 h-4 w-4 text-muted-foreground ${events.isFetching ? "animate-spin" : ""}`} aria-hidden />
                             {t("securityCenter.audit.refreshLogs")}
                         </Button>
                     </>
@@ -139,7 +143,7 @@ export function SecurityAuditPage() {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-sm font-medium text-muted-foreground">{t(label)}</p>
-                                    <p className="text-2xl font-bold tabular-nums">{value}</p>
+                                    <p className="text-2xl font-semibold tabular-nums">{value}</p>
                                     <p className="text-xs text-muted-foreground">{t(hint)}</p>
                                 </div>
                                 <Icon className="h-8 w-8 text-muted-foreground" />
@@ -151,7 +155,7 @@ export function SecurityAuditPage() {
 
             <div className="space-y-4 rounded-lg border border-border/50 bg-card/50 p-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                    <ChevronDown className="h-4 w-4" />
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
                     {t("securityCenter.audit.filters")}
                 </div>
                 <div className="flex flex-wrap gap-4">
@@ -162,7 +166,7 @@ export function SecurityAuditPage() {
                         <SelectContent>
                             {EVENT_RANGES.map((r) => (
                                 <SelectItem key={r} value={r}>
-                                    {t(`securityCenter.audit.${r === "last7" ? "last7Days" : r === "last30" ? "last30Days" : "last90Days"}`)}
+                                    {t(r === "last7" ? "securityCenter.audit.last7Days" : r === "last30" ? "securityCenter.audit.last30Days" : "securityCenter.audit.last90Days")}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -175,7 +179,7 @@ export function SecurityAuditPage() {
                             <SelectItem value={ALL}>{t("securityCenter.audit.allActions")}</SelectItem>
                             {(types.length > 0 ? types : type !== ALL ? [type] : []).map((ty) => (
                                 <SelectItem key={ty} value={ty}>
-                                    {eventTypeLabel(ty, t)}
+                                    {t(`securityCenter.securityEvents.types.${ty}`, ty)}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -225,12 +229,12 @@ export function SecurityAuditPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-muted/50">
-                                    <TableHead className="text-xs font-semibold uppercase">{t("securityCenter.audit.timestamp")}</TableHead>
-                                    <TableHead className="text-xs font-semibold uppercase">{t("securityCenter.audit.performedBy")}</TableHead>
-                                    <TableHead className="text-xs font-semibold uppercase">{t("securityCenter.audit.action")}</TableHead>
-                                    <TableHead className="text-xs font-semibold uppercase">{t("securityCenter.audit.severity")}</TableHead>
-                                    <TableHead className="text-xs font-semibold uppercase">{t("securityCenter.audit.target")}</TableHead>
-                                    <TableHead className="text-xs font-semibold uppercase">{t("securityCenter.audit.changeDetails")}</TableHead>
+                                    <TableHead>{t("securityCenter.audit.timestamp")}</TableHead>
+                                    <TableHead>{t("securityCenter.audit.performedBy")}</TableHead>
+                                    <TableHead>{t("securityCenter.audit.action")}</TableHead>
+                                    <TableHead>{t("securityCenter.audit.severity")}</TableHead>
+                                    <TableHead>{t("securityCenter.audit.target")}</TableHead>
+                                    <TableHead>{t("securityCenter.audit.changeDetails")}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -244,16 +248,20 @@ export function SecurityAuditPage() {
                                     rows.map((r) => (
                                         <TableRow key={r.id} data-testid="event-row">
                                             <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                                                {format(new Date(r.createdAt), "MMM d, yyyy, HH:mm:ss")}
+                                                {formatDateTime(r.createdAt, language)}
                                             </TableCell>
-                                            <TableCell className="font-medium">{eventActor(r) || t("securityCenter.audit.system")}</TableCell>
+                                            <TableCell className="font-medium" title={r.actorUserId || r.actorLegacyUid || undefined}>{eventActorLabel(r, t)}</TableCell>
                                             <TableCell>{eventTypeLabel(r.type, t)}</TableCell>
                                             <TableCell>
                                                 <SeverityBadge severity={r.severity} t={t} />
                                             </TableCell>
-                                            <TableCell className="text-sm">{eventTarget(r) || "—"}</TableCell>
-                                            <TableCell className="max-w-md truncate text-sm" title={r.summary}>
-                                                {r.summary}
+                                            <TableCell className="text-sm" title={r.targetUserId || String(r.details?.targetUid ?? "")}>{eventTargetLabel(r, t)}</TableCell>
+                                            <TableCell className="max-w-md text-sm">
+                                                <details>
+                                                    <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
+                                                    <p className="mt-2 break-words">{r.summary}</p>
+                                                    <pre className="mt-2 whitespace-pre-wrap break-all text-xs">{JSON.stringify({ type: r.type, details: r.details, actorUserId: r.actorUserId, targetUserId: r.targetUserId, tenantId: r.tenantId, requestId: r.requestId }, null, 2)}</pre>
+                                                </details>
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -269,7 +277,7 @@ export function SecurityAuditPage() {
                     </span>
                     {events.hasNextPage ? (
                         <Button variant="outline" size="sm" onClick={() => void events.fetchNextPage()} disabled={events.isFetchingNextPage}>
-                            {events.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {events.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                             {t("securityCenter.audit.loadMore")}
                         </Button>
                     ) : loaded.length > 0 ? (

@@ -15,9 +15,9 @@
  */
 import Link from "next/link";
 import { useState } from "react";
-import { formatDistanceToNow } from "date-fns";
 import { Activity, AlertTriangle, Check, Loader2, LogIn, Smartphone, Users } from "lucide-react";
 
+import { DisclosureSummary } from "./DisclosureSummary";
 import { useLanguage } from "@/context/language";
 import { useCan, useMe } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
@@ -27,11 +27,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { eventRows, NO_EVENT_FILTER, RECENT_EVENTS_FETCH_PLATFORM, RECENT_EVENTS_LIMIT, useSecurityEvents, withoutOwnReads } from "../api/events";
-import { roleDistribution, systemHealthy, useSecurityOverview, useUsersByRole } from "../api/overview";
+import { eventActorLabel, eventRows, NO_EVENT_FILTER, RECENT_EVENTS_FETCH_PLATFORM, RECENT_EVENTS_LIMIT, useSecurityEvents, withoutOwnReads } from "../api/events";
+import { OUTBOX_STALE_SECONDS, roleDistribution, systemHealthy, useSecurityOverview, useUsersByRole } from "../api/overview";
 import { useSecurityReach } from "../api/reach";
+import { ScopeCaption } from "./ScopeCaption";
 import { ActiveUsersPanel } from "./ActiveUsersPanel";
-import { eventTypeLabel, formatCompactInt, OwnReadsToggle, severityColor, severityIcon } from "./eventDisplay";
+import { permissionHint, eventTypeLabel, formatDateTime, formatRelative, formatCompactInt, OwnReadsToggle, SeverityBadge, severityIcon } from "./eventDisplay";
 
 function Spinner({ className = "h-8 w-8" }: { className?: string }) {
     return <Loader2 className={`${className} animate-spin text-muted-foreground`} />;
@@ -40,6 +41,7 @@ function Spinner({ className = "h-8 w-8" }: { className?: string }) {
 function StatCard({
     label,
     value,
+    valueSize,
     icon: Icon,
     tone,
     children,
@@ -47,6 +49,7 @@ function StatCard({
 }: {
     label: string;
     value: React.ReactNode;
+    valueSize?: "message";
     icon: React.ComponentType<{ className?: string }>;
     tone?: string;
     children?: React.ReactNode;
@@ -55,10 +58,10 @@ function StatCard({
     return (
         <Card data-testid={testId}>
             <CardContent className="pt-6">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+                <p className="text-xs font-medium text-muted-foreground mb-2">{label}</p>
                 <div className="flex items-center gap-2">
-                    <span className={`text-3xl font-bold tabular-nums ${tone ?? ""}`}>{value}</span>
-                    <Icon className={`h-6 w-6 ${tone ?? "text-muted-foreground"}`} />
+                    <span className={`${valueSize === "message" ? "text-lg" : "text-3xl"} font-semibold tabular-nums ${tone ?? ""}`}>{value}</span>
+                    <Icon className="h-6 w-6 shrink-0 text-muted-foreground" />
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">{children}</div>
             </CardContent>
@@ -67,7 +70,7 @@ function StatCard({
 }
 
 export function SecurityOverviewPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const reach = useSecurityReach();
     const viewerId = useMe().data?.id;
     const canViewAudit = useCan("security:view_audit").allowed;
@@ -88,8 +91,8 @@ export function SecurityOverviewPage() {
     const pct = (n: number) => (dist && dist.total > 0 ? (n / dist.total) * 100 : 0);
     const conic =
         dist && dist.total > 0
-            ? `conic-gradient(rgb(59 130 246) 0% ${pct(dist.drivers)}%, rgb(249 115 22) ${pct(dist.drivers)}% ${pct(dist.drivers) + pct(dist.operations)}%, hsl(var(--muted)) ${pct(dist.drivers) + pct(dist.operations)}% 100%)`
-            : "conic-gradient(hsl(var(--muted)) 0% 100%)";
+            ? `conic-gradient(var(--chart-1) 0% ${pct(dist.drivers)}%, var(--chart-2) ${pct(dist.drivers)}% ${pct(dist.drivers) + pct(dist.operations)}%, var(--muted) ${pct(dist.drivers) + pct(dist.operations)}% 100%)`
+            : "conic-gradient(var(--muted) 0% 100%)";
     const recentLoaded = eventRows(recent.data?.pages);
     const recentVisible = withoutOwnReads(recentLoaded, viewerId, showOwnReads);
     const recentRows = recentVisible.rows.slice(0, RECENT_EVENTS_LIMIT);
@@ -102,11 +105,10 @@ export function SecurityOverviewPage() {
                     <>
                         <p>{t("securityCenter.overview.subtitleGo")}</p>
                         {o ? (
-                            <p className="mt-1 text-xs" data-testid="overview-scope">
-                                {o.scope.all ? t("securityCenter.overview.scopeAll") : t("securityCenter.overview.scopeTenant")}
-                                {" · "}
-                                {t("securityCenter.overview.generatedAt", { time: new Date(o.generatedAt).toLocaleTimeString() })}
-                            </p>
+                            <div className="mt-1 text-xs" data-testid="overview-scope">
+                                <ScopeCaption reach={o.scope.all ? "all" : "tenant"} resource="overview" />
+                                {t("securityCenter.overview.generatedAt", { time: formatDateTime(o.generatedAt, language) })}
+                            </div>
                         ) : null}
                     </>
                 }
@@ -119,9 +121,9 @@ export function SecurityOverviewPage() {
             ) : null}
             {o?.quarantine && o.quarantine.rows > 0 ? (
                 <Alert>
-                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                     <AlertDescription data-testid="quarantine-alert">
-                        {t("securityCenter.overview.quarantineRows", { rows: o.quarantine.rows.toLocaleString() })}
+                        {t("securityCenter.overview.quarantineRows", { rows: o.quarantine.rows.toLocaleString(language === "th" ? "th-TH" : "en-GB") })}
                     </AlertDescription>
                 </Alert>
             ) : null}
@@ -138,14 +140,14 @@ export function SecurityOverviewPage() {
                         <StatCard
                             testId="card-system"
                             label={t("securityCenter.overview.systemStatus")}
-                            value={systemHealthy(o.system) ? t("securityCenter.status.healthy") : t("securityCenter.status.degraded")}
+                            value={systemHealthy(o.system) ? t("securityCenter.ui4.systemResponding") : t("securityCenter.status.degraded")}
+                            valueSize="message"
                             icon={systemHealthy(o.system) ? Check : AlertTriangle}
-                            tone={systemHealthy(o.system) ? "text-emerald-500" : "text-amber-500"}
+                            tone={systemHealthy(o.system) ? "text-success" : "text-warning"}
                         >
-                            {t("securityCenter.overview.systemSummary", {
-                                redis: t(`securityCenter.status.state.${o.system.redis}`, o.system.redis),
-                                pending: o.system.outbox.pending,
-                            })}
+                            {o.system.outbox.oldestSeconds > OUTBOX_STALE_SECONDS ? (
+                                <p>{t("securityCenter.ui4.pendingDelivery", { count: o.system.outbox.pending })}</p>
+                            ) : null}
                             {canViewStatus ? (
                                 <Link href="/app/security-center/status" prefetch={false} className="block text-primary hover:underline">
                                     {t("securityCenter.overview.viewStatus")}
@@ -154,10 +156,10 @@ export function SecurityOverviewPage() {
                         </StatCard>
                     ) : (
                         <StatCard testId="card-system" label={t("securityCenter.overview.systemStatus")} value="—" icon={Activity}>
-                            {t("securityCenter.overview.systemNoPermission")}
+                            {permissionHint("security:view_status", language, t)}
                         </StatCard>
                     )}
-                    <StatCard testId="card-sessions" label={t("securityCenter.overview.activeSessions")} value={o.sessions.active.toLocaleString()} icon={Users}>
+                    <StatCard testId="card-sessions" label={t("securityCenter.overview.activeSessions")} value={o.sessions.active.toLocaleString(language === "th" ? "th-TH" : "en-GB")} icon={Users}>
                         {t("securityCenter.overview.sessionsRevoked24h", { count: o.sessions.revoked24h })}
                         {" · "}
                         {t("securityCenter.overview.usersActive", { count: o.users.byStatus.active ?? 0, total: o.users.total })}
@@ -170,18 +172,18 @@ export function SecurityOverviewPage() {
                     <StatCard
                         testId="card-logins"
                         label={t("securityCenter.overview.failedLogins24h")}
-                        value={o.logins.failed24h.toLocaleString()}
+                        value={o.logins.failed24h.toLocaleString(language === "th" ? "th-TH" : "en-GB")}
                         icon={LogIn}
-                        tone={o.logins.lockouts24h > 0 ? "text-amber-500" : undefined}
+                        tone={o.logins.lockouts24h > 0 ? "text-warning" : undefined}
                     >
                         {t("securityCenter.overview.lockouts24h", { count: o.logins.lockouts24h })}
                     </StatCard>
                     <StatCard
                         testId="card-mobile"
                         label={t("securityCenter.overview.mobileInstalls")}
-                        value={o.installations ? o.installations.total.toLocaleString() : "—"}
+                        value={o.installations ? o.installations.total.toLocaleString(language === "th" ? "th-TH" : "en-GB") : "—"}
                         icon={Smartphone}
-                        tone={o.installations && o.installations.belowFloor > 0 ? "text-red-500" : undefined}
+                        tone={o.installations && o.installations.belowFloor > 0 ? "text-destructive" : undefined}
                     >
                         {o.installations ? (
                             <>
@@ -197,7 +199,7 @@ export function SecurityOverviewPage() {
                                 ) : null}
                             </>
                         ) : (
-                            t("securityCenter.overview.mobileInstallsNoPermission")
+                            permissionHint("security:view_mobile_clients", language, t)
                         )}
                     </StatCard>
                 </div>
@@ -218,7 +220,7 @@ export function SecurityOverviewPage() {
                     <CardContent>
                         {!canViewAudit ? (
                             <Alert>
-                                <AlertDescription>{t("securityCenter.overview.auditFeedNoPermission")}</AlertDescription>
+                                <AlertDescription>{permissionHint("security:view_audit", language, t)}</AlertDescription>
                             </Alert>
                         ) : recent.isPending ? (
                             <div className="flex justify-center py-8">
@@ -245,17 +247,27 @@ export function SecurityOverviewPage() {
                                     const Icon = severityIcon(ev.severity);
                                     const label = eventTypeLabel(ev.type, t);
                                     return (
-                                        <li key={ev.id} className="flex items-start gap-3 rounded-lg bg-muted/30 p-3">
-                                            <Icon className={`h-5 w-5 shrink-0 mt-0.5 ${severityColor(ev.severity)}`} />
+                                        <li key={ev.id} className="flex flex-wrap items-start gap-3 rounded-lg bg-muted/30 p-3">
+                                            <Icon className="h-5 w-5 shrink-0 mt-0.5 text-muted-foreground" />
                                             <div className="min-w-0 flex-1">
-                                                <p className="text-sm font-medium break-words">{ev.summary || label}</p>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="text-sm font-medium break-words">{label}</p>
+                                                    <SeverityBadge severity={ev.severity} t={t} />
+                                                </div>
                                                 <p className="text-xs text-muted-foreground">
-                                                    {label}
-                                                    {ev.actorEmail ? ` · ${ev.actorEmail}` : ""}
+                                                    {eventActorLabel(ev, t)}
                                                 </p>
+                                                <details className="mt-1 text-xs text-muted-foreground">
+                                                    <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
+                                                    <p className="mt-1 break-words">{ev.summary}</p>
+                                                    <p className="mt-1 break-all font-mono">{ev.type}</p>
+                                                    {ev.details && Object.keys(ev.details).length > 0 ? (
+                                                        <pre className="mt-1 whitespace-pre-wrap break-all">{JSON.stringify(ev.details, null, 2)}</pre>
+                                                    ) : null}
+                                                </details>
                                             </div>
                                             <span className="shrink-0 text-xs text-muted-foreground">
-                                                {formatDistanceToNow(new Date(ev.createdAt), { addSuffix: true })}
+                                                {formatRelative(ev.createdAt, language)}
                                             </span>
                                         </li>
                                     );
@@ -321,7 +333,7 @@ export function SecurityOverviewPage() {
 
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-base">{t("securityCenter.overview.rbacDistribution")}</CardTitle>
+                            <CardTitle className="text-base">{t("securityCenter.ui4.usersByRole")}</CardTitle>
                         </CardHeader>
                         <CardContent>
                             {byRole.error ? (
@@ -333,26 +345,26 @@ export function SecurityOverviewPage() {
                                     <Spinner />
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-6" data-testid="rbac-distribution">
-                                    <div className="relative h-32 w-32 shrink-0">
+                                <div className="flex flex-wrap items-center gap-6" data-testid="rbac-distribution">
+                                    <div className="relative h-32 w-32 shrink-0" aria-hidden="true">
                                         <div className="absolute inset-0 rounded-full" style={{ background: conic }} />
                                         <div className="absolute inset-0 m-auto flex h-20 w-20 flex-col items-center justify-center rounded-full bg-card">
-                                            <p className="text-lg font-bold leading-none tabular-nums">{formatCompactInt(dist.total)}</p>
-                                            <p className="mt-1 text-[10px] uppercase text-muted-foreground">{t("securityCenter.overview.users")}</p>
+                                            <p className="text-lg font-semibold leading-none tabular-nums">{formatCompactInt(dist.total)}</p>
+                                            <p className="mt-1 text-xs text-muted-foreground">{t("securityCenter.overview.users")}</p>
                                         </div>
                                     </div>
                                     <ul className="space-y-2 text-sm">
                                         {(
                                             [
-                                                ["bg-blue-500", "securityCenter.overview.drivers", dist.drivers],
-                                                ["bg-orange-500", "securityCenter.overview.operationsRoles", dist.operations],
-                                                ["bg-muted", "securityCenter.overview.others", dist.others],
+                                                ["var(--chart-1)", "securityCenter.overview.drivers", dist.drivers],
+                                                ["var(--chart-2)", "securityCenter.overview.operationsRoles", dist.operations],
+                                                ["var(--muted)", "securityCenter.overview.others", dist.others],
                                             ] as const
                                         ).map(([color, key, n]) => (
                                             <li key={key} className="flex items-center gap-2">
-                                                <span className={`h-3 w-3 rounded-full ${color}`} />
+                                                <svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="6" fill={color} /></svg>
                                                 <span>
-                                                    {t(key)} ({n.toLocaleString()}
+                                                    {t(key)} ({n.toLocaleString(language === "th" ? "th-TH" : "en-GB")}
                                                     {dist.total > 0 ? ` · ${Math.round((n / dist.total) * 100)}%` : ""})
                                                 </span>
                                             </li>
@@ -366,7 +378,7 @@ export function SecurityOverviewPage() {
             </div>
 
             <div className="space-y-4">
-                <h2 className="text-xl font-bold">{t("securityCenter.overview.sessionsHelpTitle")}</h2>
+                <h2 className="text-xl font-semibold">{t("securityCenter.ui4.recentlyActiveUsers")}</h2>
                 <Card>
                     <CardContent className="space-y-3 pt-6">
                         <ActiveUsersPanel />

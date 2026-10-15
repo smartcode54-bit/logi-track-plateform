@@ -2,16 +2,16 @@
 
 import { useId } from "react";
 import { AlertTriangle, Info, Shield } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { enUS, th } from "date-fns/locale";
+import { CAPABILITY_CATALOG } from "shared-docs/schemas/capabilities";
 
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 
 type Translate = (key: string, fallbackOrParams?: string | Record<string, string | number>) => string;
 
-/** The label of an event type: its catalogue text, else the raw type (a legacy or future type). */
-export function eventTypeLabel(type: string, t: Translate): string {
-    return t(`securityCenter.securityEvents.types.${type}`, type);
-}
+export { eventTypeLabel } from "../api/events";
 
 export function severityIcon(severity: string) {
     if (severity === "critical" || severity === "warning") return AlertTriangle;
@@ -19,14 +19,8 @@ export function severityIcon(severity: string) {
     return Shield;
 }
 
-export function severityColor(severity: string): string {
-    if (severity === "critical") return "text-red-500";
-    if (severity === "warning") return "text-amber-500";
-    return "text-blue-500";
-}
-
 export function SeverityBadge({ severity, t }: { severity: string; t: Translate }) {
-    const variant = severity === "critical" ? "destructive" : severity === "warning" ? "secondary" : "outline";
+    const variant = severity === "critical" ? "destructive" : severity === "warning" ? "warning" : "outline";
     return <Badge variant={variant}>{t(`securityCenter.severity.${severity}`, severity)}</Badge>;
 }
 
@@ -39,10 +33,29 @@ export function formatCompactInt(n: number): string {
 }
 
 /** A timestamp of the API (RFC 3339) as a local date and time, "—" when absent or invalid. */
-export function formatDateTime(value: string | null | undefined): string {
-    if (!value) return "—";
+export function formatDateTime(value: string | number | null | undefined, language: string): string {
+    if (value === null || value === undefined || value === "") return "—";
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(language === "th" ? "th-TH" : "en-GB");
+}
+
+export function formatRelative(value: string | number | null | undefined, language: string): string {
+    if (value === null || value === undefined || value === "") return "—";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? "—" : formatDistanceToNow(d, { addSuffix: true, locale: language === "th" ? th : enUS });
+}
+
+export function buildTypeLabel(value: string | null | undefined, t: Translate): string {
+    return t(value === "prod" ? "securityCenter.ui4.production" : value === "dev" ? "securityCenter.ui4.test" : "securityCenter.ui4.unknownBuildType");
+}
+
+export function capabilityTitle(key: string, language: string): string {
+    const capability = CAPABILITY_CATALOG.find((c) => c.key === key);
+    return capability ? (language === "th" ? capability.titleTh : capability.titleEn) : key;
+}
+
+export function permissionHint(key: string, language: string, t: Translate): string {
+    return t("securityCenter.ui4.permissionHint", { capability: capabilityTitle(key, language), page: t("securityCenter.rolePermissionMatrix") });
 }
 
 /**

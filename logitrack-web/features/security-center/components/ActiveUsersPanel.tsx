@@ -13,7 +13,6 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
 import { Loader2, LogOut, MonitorSmartphone } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,7 +28,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import { reachPollMs, useSecurityReach } from "../api/reach";
 import { revokeUserSession, useUserSessions } from "../api/sessions";
-import { formatDateTime } from "./eventDisplay";
+import { userAgentLabel } from "./userAgent";
+import { permissionHint, formatDateTime, formatRelative } from "./eventDisplay";
 
 /** Users who signed in within this many days count as recently active (as the Firestore panel). */
 export const ACTIVE_WITHIN_DAYS = 30;
@@ -45,7 +45,7 @@ export function recentlyActive(rows: readonly UserDTO[], now: number = Date.now(
 }
 
 export function ActiveUsersPanel() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const client = useQueryClient();
     const me = useMe().data;
     const reach = useSecurityReach();
@@ -59,7 +59,7 @@ export function ActiveUsersPanel() {
     if (!canView) {
         return (
             <Alert>
-                <AlertDescription>{t("securityCenter.sessions.noPermission")}</AlertDescription>
+                <AlertDescription>{permissionHint("users:view", language, t)}</AlertDescription>
             </Alert>
         );
     }
@@ -106,7 +106,6 @@ export function ActiveUsersPanel() {
         <div className="space-y-2">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <p className="text-sm font-medium text-foreground">{t("securityCenter.overview.sessionListTitle")}</p>
                     <p className="text-xs text-muted-foreground">{t("securityCenter.sessions.subtitle", { days: ACTIVE_WITHIN_DAYS, rows: ACTIVE_USERS_SHOWN })}</p>
                 </div>
                 <Button variant="outline" size="sm" asChild className="shrink-0 self-start">
@@ -117,7 +116,7 @@ export function ActiveUsersPanel() {
             </div>
             {!canRevoke ? (
                 <Alert className="mb-2">
-                    <AlertDescription>{t("securityCenter.overview.sessionListNoManageUsers")}</AlertDescription>
+                    <AlertDescription>{permissionHint("users:revoke_sessions", language, t)}</AlertDescription>
                 </Alert>
             ) : null}
             {users.error ? (
@@ -135,10 +134,10 @@ export function ActiveUsersPanel() {
                     <Table>
                         <TableHeader>
                             <TableRow className="bg-muted/50">
-                                <TableHead className="text-xs font-semibold uppercase">{t("users.table.user")}</TableHead>
-                                <TableHead className="text-xs font-semibold uppercase">{t("users.table.lastSignIn")}</TableHead>
+                                <TableHead className="text-sm font-medium">{t("users.table.user")}</TableHead>
+                                <TableHead className="text-sm font-medium">{t("users.table.lastSignIn")}</TableHead>
                                 {canRevoke ? (
-                                    <TableHead className="w-[140px] text-right text-xs font-semibold uppercase">{t("users.table.actions")}</TableHead>
+                                    <TableHead className="w-[140px] text-right text-sm font-medium">{t("users.table.actions")}</TableHead>
                                 ) : null}
                             </TableRow>
                         </TableHeader>
@@ -152,7 +151,7 @@ export function ActiveUsersPanel() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-sm text-muted-foreground">
-                                        {u.lastLoginAt ? formatDistanceToNow(new Date(u.lastLoginAt), { addSuffix: true }) : "—"}
+                                        {u.lastLoginAt ? formatRelative(u.lastLoginAt, language) : "—"}
                                     </TableCell>
                                     {canRevoke ? (
                                         <TableCell className="text-right">
@@ -171,7 +170,7 @@ export function ActiveUsersPanel() {
                                                 }
                                                 onClick={() => setSelected(u)}
                                             >
-                                                <MonitorSmartphone className="h-4 w-4" />
+                                                <MonitorSmartphone className="h-4 w-4 text-muted-foreground" />
                                                 {t("securityCenter.sessions.open")}
                                             </Button>
                                         </TableCell>
@@ -219,14 +218,14 @@ export function ActiveUsersPanel() {
                                                 </span>
                                                 <span className="block max-w-[260px] truncate text-xs text-muted-foreground" title={s.userAgent ?? ""}>
                                                     {s.appVersion ? `${s.appVersion} · ` : ""}
-                                                    {s.userAgent ?? "—"}
+                                                    {userAgentLabel(s.userAgent, t("securityCenter.ui4.unknownBrowser"))}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="font-mono text-xs">{s.ip ?? "—"}</TableCell>
                                             <TableCell className="whitespace-nowrap text-xs">
-                                                {formatDateTime(s.lastSeenAt)}
+                                                {formatDateTime(s.lastSeenAt, language)}
                                                 <span className="block text-muted-foreground">
-                                                    {t("securityCenter.sessions.since", { time: formatDateTime(s.createdAt) })}
+                                                    {t("securityCenter.sessions.since", { time: formatDateTime(s.createdAt, language) })}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="text-right">
@@ -237,7 +236,7 @@ export function ActiveUsersPanel() {
                                                     disabled={busy !== null}
                                                     onClick={() => selected && void revokeOne(selected.id, s.id)}
                                                 >
-                                                    {busy === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                                                    {busy === s.id ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <LogOut className="h-4 w-4 text-muted-foreground" />}
                                                     <span className="sr-only sm:not-sr-only sm:ml-1">{t("securityCenter.sessions.revoke")}</span>
                                                 </Button>
                                             </TableCell>
@@ -257,7 +256,7 @@ export function ActiveUsersPanel() {
                             disabled={busy !== null || !selected}
                             onClick={() => selected && void revokeAll(selected.id)}
                         >
-                            {busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                             {t("users.revokeSessionsConfirm")}
                         </Button>
                     </DialogFooter>

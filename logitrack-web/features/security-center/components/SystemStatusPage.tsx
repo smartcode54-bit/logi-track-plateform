@@ -7,10 +7,11 @@
  * DLQ depths are on `/metrics` and Grafana, which the browser never reaches. Polled every 60 s while
  * the tab is visible.
  */
-import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, CheckCircle2, Clock, Database, Loader2, RefreshCw, Server, Workflow, Zap } from "lucide-react";
 
+import { DisclosureSummary } from "./DisclosureSummary";
 import { useLanguage } from "@/context/language";
+import { toneBadgeVariant, toneTextClass, type StatusTone } from "@/lib/statusPresentation";
 import { apiErrorText } from "@/lib/apiError";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,11 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { formatDateTime, formatRelative } from "./eventDisplay";
+
 import { OUTBOX_STALE_SECONDS, systemHealthy, useSecurityStatus } from "../api/overview";
 
-function StateBadge({ ok, label }: { ok: boolean; label: string }) {
+function StateBadge({ ok, label, failureTone = "destructive" }: { ok: boolean; label: string; failureTone?: StatusTone }) {
     return (
-        <Badge variant={ok ? "outline" : "destructive"} className={ok ? "border-emerald-500 text-emerald-600" : undefined}>
+        <Badge variant={toneBadgeVariant(ok ? "success" : failureTone)}>
             {label}
         </Badge>
     );
@@ -30,7 +33,7 @@ function StateBadge({ ok, label }: { ok: boolean; label: string }) {
 
 function Row({ icon: Icon, title, hint, children }: { icon: React.ComponentType<{ className?: string }>; title: string; hint: string; children: React.ReactNode }) {
     return (
-        <div className="flex items-start justify-between gap-4 py-3" data-testid="status-row">
+        <div className="flex flex-wrap items-start justify-between gap-4 py-3" data-testid="status-row">
             <div className="flex items-start gap-3">
                 <Icon className="mt-0.5 h-5 w-5 text-muted-foreground" />
                 <div>
@@ -44,9 +47,11 @@ function Row({ icon: Icon, title, hint, children }: { icon: React.ComponentType<
 }
 
 export function SystemStatusPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const status = useSecurityStatus();
     const s = status.data;
+    const summaryTone: StatusTone = !s || systemHealthy(s) ? "success"
+        : s.database !== "ok" || s.redis !== "ok" || !s.scheduler.leaderPresent ? "destructive" : "warning";
 
     return (
         <div className="flex flex-col gap-section">
@@ -55,7 +60,7 @@ export function SystemStatusPage() {
                 description={t("securityCenter.status.subtitle")}
                 actions={
                     <Button variant="outline" size="sm" onClick={() => void status.refetch()} disabled={status.isFetching}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${status.isFetching ? "animate-spin" : ""}`} aria-hidden />
+                        <RefreshCw className={`mr-2 h-4 w-4 text-muted-foreground ${status.isFetching ? "animate-spin" : ""}`} aria-hidden />
                         {t("securityCenter.status.refresh")}
                     </Button>
                 }
@@ -78,15 +83,15 @@ export function SystemStatusPage() {
                     <Card>
                         <CardContent className="flex items-center gap-3 pt-6" data-testid="status-summary">
                             {systemHealthy(s) ? (
-                                <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+                                <CheckCircle2 className={`h-8 w-8 ${toneTextClass(summaryTone)}`} aria-hidden />
                             ) : (
-                                <AlertTriangle className="h-8 w-8 text-amber-500" />
+                                <AlertTriangle className={`h-8 w-8 ${toneTextClass(summaryTone)}`} aria-hidden />
                             )}
                             <div>
-                                <p className="text-2xl font-bold">{systemHealthy(s) ? t("securityCenter.status.healthy") : t("securityCenter.status.degraded")}</p>
+                                <p className="text-2xl font-semibold">{systemHealthy(s) ? t("securityCenter.status.healthy") : t("securityCenter.status.degraded")}</p>
                                 <p className="text-xs text-muted-foreground">
                                     {t("securityCenter.status.checkedAt", {
-                                        time: formatDistanceToNow(status.dataUpdatedAt, { addSuffix: true }),
+                                        time: formatRelative(status.dataUpdatedAt, language),
                                     })}
                                 </p>
                             </div>
@@ -96,10 +101,15 @@ export function SystemStatusPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2 text-base">
-                                <Server className="h-5 w-5" />
+                                <Server className="h-5 w-5 text-muted-foreground" />
                                 {t("securityCenter.status.health")}
                             </CardTitle>
                             <CardDescription>{t("securityCenter.status.healthHint")}</CardDescription>
+                            <details className="text-xs text-muted-foreground">
+                                <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
+                                <p className="mt-2">{t("securityCenter.status.technicalHint")}</p>
+                                <p>{formatDateTime(status.dataUpdatedAt, language)}</p>
+                            </details>
                         </CardHeader>
                         <CardContent className="divide-y">
                             <Row icon={Database} title={t("securityCenter.status.database")} hint={t("securityCenter.status.databaseHint")}>
@@ -117,6 +127,7 @@ export function SystemStatusPage() {
                             <Row icon={Workflow} title={t("securityCenter.status.outbox")} hint={t("securityCenter.status.outboxHint")}>
                                 <StateBadge
                                     ok={s.outbox.oldestSeconds < OUTBOX_STALE_SECONDS}
+                                    failureTone="warning"
                                     label={t("securityCenter.status.outboxPending", { pending: s.outbox.pending, seconds: s.outbox.oldestSeconds })}
                                 />
                             </Row>
@@ -134,13 +145,13 @@ export function SystemStatusPage() {
                                     [
                                         ["securityCenter.status.jobsQueued", s.jobs.queued, ""],
                                         ["securityCenter.status.jobsRunning", s.jobs.running, ""],
-                                        ["securityCenter.status.jobsFailed24h", s.jobs.failed24h, s.jobs.failed24h > 0 ? "text-red-500" : ""],
+                                        ["securityCenter.status.jobsFailed24h", s.jobs.failed24h, s.jobs.failed24h > 0 ? "text-destructive" : ""],
                                         ["securityCenter.status.jobsSucceeded24h", s.jobs.succeeded24h, ""],
                                     ] as const
                                 ).map(([key, n, tone]) => (
                                     <div key={key}>
                                         <p className="text-xs text-muted-foreground">{t(key)}</p>
-                                        <p className={`text-2xl font-bold tabular-nums ${tone}`}>{n.toLocaleString()}</p>
+                                        <p className={`text-2xl font-semibold tabular-nums ${tone}`}>{n.toLocaleString(language === "th" ? "th-TH" : "en-GB")}</p>
                                     </div>
                                 ))}
                             </div>
