@@ -433,8 +433,8 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   name the slice only for a customer view (no tenant, platform role or dispatcher grant). When space runs out the
   slice is shortened, never the role, and the line height is normal so Thai marks are not clipped.
 - **The user menu** holds the name, email and scope line, the language (in its own words, "ไทย" / "English", no
-  flags) and theme (radio items) and the one sign-out ("Sign out" / "ออกจากระบบ"), which lands on `/login`. The
-  header carries only controls that work: no placeholder search, bell or report button.
+  flags), theme (radio items), **My account** (`/my-account`) and the one sign-out ("Sign out" / "ออกจากระบบ"),
+  which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.
 - A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
   targets are 44 px on phones. The page area takes `min-w-0`, so a wide page scrolls without pushing the header out.
 
@@ -444,6 +444,17 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 - Keep the first trip record above the fold. Use one summary column with a named open button for each trip; the
   button opens the existing detail and evidence view. Keep the desktop monitor layout intact.
 
+### My account
+- `/my-account` shows the signed-in name, email and scope, and provides an in-app password change for the current
+  session. Google-only users are directed to forgot-password.
+
+### Security center
+- Lead with plain, localized language; put technical evidence behind a disclosure. Keep scope captions aligned with
+  each query's reach and make role overrides visible.
+
+### Maps and calendars
+- Read map-marker and calendar colours from CSS variables; do not hard-code hex colours.
+
 ### Public pages
 - The landing `/`, `/join-network`, `/about` and the sign-in pages share `components/navigation.tsx` (logo, "LogiTrack
   Pro", "by GORATECH", links only to pages that exist) and the landing footer (`components/landing/Footer.tsx`:
@@ -452,8 +463,10 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   on paper separated by hairlines, each with a Headline (600) and its points as a list under hairlines (`dl`), never
   icon cards. No kicker, no stat chips, no coloured band.
 - The language switch is text only, each language in its own words ("English", "ไทย"), with `aria-pressed`; no flags.
-- Each page has its own tab title, "<page> · LogiTrack Pro" in the active language (the route's `metadata` in
-  English, `PublicPageTitle` after a switch; `lib/publicPageTitle.ts`); the landing keeps "LogiTrack Pro by GORATECH".
+- Each page has its own tab title, "<page> · LogiTrack Pro" in the active language. Server `metadata` starts in Thai
+  from the `th` dictionary because `DEFAULT_LANGUAGE` is `th`; `PublicPageTitle` follows the active language, including
+  an explicit stored choice (`lib/publicPageTitle.ts`). The server document uses `<html lang="th">`; the landing keeps
+  "LogiTrack Pro by GORATECH".
 - The sign-in card is the same on `/` and `/login` (`LoginForm`): sign-in is the primary button; under it, "No
   account? Ask the transport company or administrator who invited you", and on its own line the LogiTrack Pro waitlist,
   labelled for transport companies (accounts are by invitation; the waitlist is GORATECH's, for new tenants). Its title

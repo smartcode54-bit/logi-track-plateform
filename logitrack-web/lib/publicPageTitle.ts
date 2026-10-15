@@ -4,9 +4,10 @@
  * navigation's label where the navigation links the page, else the page's heading. The landing `/` keeps the product's
  * full name, "LogiTrack Pro by GORATECH" (app/layout.tsx), in both languages.
  *
- * The server sets the English title through each route's `metadata` (lib/publicPageMetadata.ts); the client puts the
- * active language's title in place (components/public-page-title.tsx). This module holds no dictionary, so a page that
- * imports it carries no translation in its initial JS.
+ * The server sets the Thai title through each route's `metadata` (lib/publicPageMetadata.ts), matching the Thai
+ * default; the client puts the active language's title in place (components/public-page-title.tsx), including an
+ * explicit stored choice. This module holds no dictionary, so a page that imports it carries no translation in its
+ * initial JS.
  */
 
 export const PUBLIC_PAGE_TITLE_KEYS = {
