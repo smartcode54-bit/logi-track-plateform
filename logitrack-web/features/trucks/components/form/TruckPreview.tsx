@@ -3,6 +3,8 @@ import { z } from "zod";
 import { truckSchema } from "@/validate/truckSchema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { truckFileType } from "../../utils/uploads";
+import { truckTypeLabel, truckFuelLabel } from "../../utils/labels";
 import Image from "next/image";
 import { Edit, Check, X, FileText, Camera } from "lucide-react";
 import { useLanguage } from "@/context/language";
@@ -55,8 +57,8 @@ export function TruckPreview({
         ...(data.imageFrontLeft ? [{ url: data.imageFrontLeft, type: "image" as const, label: t("trucks.photos.frontLeft") }] : []),
         ...(data.imageBackRight ? [{ url: data.imageBackRight, type: "image" as const, label: t("trucks.photos.backRight") }] : []),
         ...(data.imageBackLeft ? [{ url: data.imageBackLeft, type: "image" as const, label: t("trucks.photos.backLeft") }] : []),
-        ...(data.documentTax ? [{ url: data.documentTax, type: "pdf" as const, label: t("trucks.documents.tax") }] : []),
-        ...(data.documentRegister ? [{ url: data.documentRegister, type: "pdf" as const, label: t("trucks.detail.view.registrationDoc") }] : []),
+        ...(data.documentTax ? [{ url: data.documentTax, type: truckFileType(data.documentTax), label: t("trucks.documents.tax") }] : []),
+        ...(data.documentRegister ? [{ url: data.documentRegister, type: truckFileType(data.documentRegister), label: t("trucks.detail.view.registrationDoc") }] : []),
     ];
 
     const handleFileClick = (url: string) => {
@@ -145,7 +147,7 @@ export function TruckPreview({
                     </div>
                     <div>
                         <p className="text-sm font-medium text-muted-foreground">{t("trucks.step4.type")}</p>
-                        <p className="text-base font-semibold">{data.type}</p>
+                        <p className="text-base font-semibold">{truckTypeLabel(data.type, t)}</p>
                     </div>
                     <div>
                         <p className="text-sm font-medium text-muted-foreground">{t("trucks.section.seats")}</p>
@@ -162,7 +164,7 @@ export function TruckPreview({
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <p className="text-sm font-medium text-muted-foreground">{t("trucks.section.fuelType")}</p>
-                        <p className="text-base font-semibold">{data.fuelType}</p>
+                        <p className="text-base font-semibold">{truckFuelLabel(data.fuelType, t)}</p>
                     </div>
                     <div>
                         <p className="text-sm font-medium text-muted-foreground">{t("trucks.ui4.engineCapacity")}</p>

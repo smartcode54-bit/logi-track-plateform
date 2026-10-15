@@ -24,7 +24,7 @@ import { AssignmentHistory, ASSIGNMENT_SEARCH_MAX, HISTORY_ROW_HEIGHT } from "./
 import { ASSIGNMENTS_PAGE_SIZE, type TruckAssignmentDTO } from "../api/truckAssignments";
 
 const PATH = "/api/go/v1/truck-assignments";
-const LOAD_ERROR = "The list could not be loaded. Please try again.";
+const LOAD_ERROR = "Could not load assignment history. Try again.";
 const NEXT_PAGE_ERROR = "The next rows could not be loaded.";
 const NO_HISTORY = "No recent assignments found.";
 

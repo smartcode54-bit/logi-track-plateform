@@ -6,11 +6,12 @@ import { PhotosSection } from "../PhotosSection";
 
 interface Step1Props {
     onFileSelect: (field: string, file: File, blobUrl: string) => void;
+    pendingFiles?: ReadonlyMap<string, File>;
 }
 
 import { useLanguage } from "@/context/language";
 
-export function Step1Specs({ onFileSelect }: Step1Props) {
+export function Step1Specs({ onFileSelect, pendingFiles }: Step1Props) {
     const { t } = useLanguage();
 
     return (
@@ -26,7 +27,7 @@ export function Step1Specs({ onFileSelect }: Step1Props) {
             {/* Vehicle Appearance / Photos */}
             <div className="bg-card border rounded-lg p-6 animate-in fade-in slide-in-from-bottom-5 duration-500 delay-100">
                 <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t("trucks.step1.appearance")}</h3>
-                <PhotosSection onFileSelect={onFileSelect} />
+                <PhotosSection onFileSelect={onFileSelect} pendingFiles={pendingFiles} />
             </div>
         </div>
     );

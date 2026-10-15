@@ -82,7 +82,7 @@ export function Step3Maintenance() {
                                 <FormControl>
                                     <Input
                                         type="number"
-                                        placeholder="e.g., 48000"
+                                        placeholder={t("trucks.placeholder.currentMileage")}
                                         {...field}
                                         onChange={(e) => {
                                             const val = e.target.value === "" ? undefined : Number(e.target.value);

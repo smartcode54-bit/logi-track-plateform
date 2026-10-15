@@ -16,6 +16,7 @@
  * `masterdata` flag switch of T25).
  */
 import { infiniteQueryOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
+import { validateTruckUpload, type TruckUploadPurpose } from "../utils/uploads";
 import { apiDate } from "@/lib/calendarDate";
 import { goFetch, goFetchEnvelope, goPath, type GoEnvelope } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
@@ -465,13 +466,17 @@ export type PendingFiles = ReadonlyMap<string, File>;
 export interface TruckSave {
     values: TruckFormValues;
     pending: PendingFiles;
+    /** Retained by the wizard as soon as POST succeeds, before any upload. */
+    createdId?: string;
+    onCreated?: (id: string) => void;
+    uploaded?: Map<string, string>;
     /** The loaded truck's file refs per kind (`storedFileKeys`); absent on a create. */
     stored?: Partial<Record<TruckFileKind, string[]>>;
     /** Legacy (the actor the retired Firestore path recorded): Go takes the actor from the session. */
     userId?: string;
 }
 
-const SINGLE_FILE_KINDS: ReadonlyArray<{ field: keyof TruckFormValues; kind: TruckFileKind; purpose: UploadPurpose }> = [
+const SINGLE_FILE_KINDS: ReadonlyArray<{ field: keyof TruckFormValues; kind: TruckFileKind; purpose: TruckUploadPurpose }> = [
     { field: "imageFrontRight", kind: "imageFrontRight", purpose: "truck_photo" },
     { field: "imageFrontLeft", kind: "imageFrontLeft", purpose: "truck_photo" },
     { field: "imageBackRight", kind: "imageBackRight", purpose: "truck_photo" },
@@ -496,7 +501,12 @@ export async function truckFilesBody(truckId: string, save: TruckSave): Promise<
         if (!value) return null;
         if (value.startsWith("blob:")) {
             const file = save.pending.get(value);
-            return file ? uploadToGo(file, { purpose, entityId: truckId }) : undefined;
+            if (!file) return undefined;
+            const cached = save.uploaded?.get(value);
+            if (cached) return cached;
+            const key = await uploadToGo(file, { purpose, entityId: truckId });
+            save.uploaded?.set(value, key);
+            return key;
         }
         return known.has(value) ? value : undefined; // undefined: a ref the API does not know (leave the kind alone)
     };
@@ -518,18 +528,52 @@ export async function truckFilesBody(truckId: string, save: TruckSave): Promise<
     return files;
 }
 
+/** A saved truck must be retried by id, even if uploading or linking its files fails. */
+export class TruckFilesSaveError extends Error {
+    constructor(readonly truckId: string, readonly cause: unknown) {
+        super("trucks.upload.savedWithFileErrors");
+    }
+}
+
+function validatePendingFiles(save: TruckSave): void {
+    for (const { field, purpose } of SINGLE_FILE_KINDS) {
+        const file = save.pending.get(String(save.values[field] ?? ""));
+        if (file) validateTruckUpload(file, purpose, field);
+    }
+    for (const ref of save.values.insuranceDocuments ?? []) {
+        const file = save.pending.get(ref);
+        if (file) validateTruckUpload(file, "insurance_document", "insuranceDocuments");
+    }
+}
+
 async function createOnGo(save: TruckSave): Promise<string> {
+    validatePendingFiles(save);
+    if (save.createdId) {
+        try { await updateOnGo(save.createdId, save); }
+        catch (error) {
+            await invalidateFleet();
+            throw new TruckFilesSaveError(save.createdId, error);
+        }
+        return save.createdId;
+    }
     const body: Record<string, unknown> = { ...truckBodyFromForm(save.values) };
     if (save.values.ownershipType === "subcontractor" && save.values.subcontractorId) body.tenantId = save.values.subcontractorId;
     const created = await goFetch<TruckDetailDTO>(TRUCKS_PATH, { method: "POST", body });
-    const files = await truckFilesBody(created.id, save);
-    if (Object.values(files).some((list) => list.length > 0)) {
-        await goFetch(goPath`/v1/trucks/${created.id}`, { method: "PATCH", body: { files } });
+    save.onCreated?.(created.id);
+    try {
+        const files = await truckFilesBody(created.id, save);
+        if (Object.values(files).some((list) => list.length > 0)) {
+            await goFetch(goPath`/v1/trucks/${created.id}`, { method: "PATCH", body: { files } });
+        }
+    } catch (error) {
+        await invalidateFleet();
+        throw new TruckFilesSaveError(created.id, error);
     }
     return created.id;
 }
 
 async function updateOnGo(id: string, save: TruckSave): Promise<void> {
+    validatePendingFiles(save);
     const files = await truckFilesBody(id, save);
     const body: Record<string, unknown> = truckBodyFromForm(save.values);
     if (Object.keys(files).length > 0) body.files = files;
@@ -608,7 +652,7 @@ export interface TruckImportResult {
     created: number;
     updated: number;
     unchanged: number;
-    errors: Array<{ row: number; licensePlate: string | null; fields: Array<{ field: string; reason: string }> }>;
+    errors: Array<{ row: number; licensePlate: string | null; fields: Array<{ field: string; reason: string; params?: Record<string, unknown> }> }>;
 }
 
 /**
@@ -616,6 +660,6 @@ export interface TruckImportResult {
  * names or Thai; it validates and upserts by plate). `validRows` (what the dialog validated for the
  * retired Firestore path) is not sent.
  */
-export function importTrucks({ rawRows }: { rawRows: Record<string, unknown>[]; validRows: Record<string, unknown>[] }): Promise<TruckImportResult> {
-    return goFetch<TruckImportResult>(`${TRUCKS_PATH}/import`, { method: "POST", body: { rows: rawRows } });
+export function importTrucks({ rawRows, dryRun = false }: { rawRows: Record<string, unknown>[]; validRows?: Record<string, unknown>[]; dryRun?: boolean }): Promise<TruckImportResult> {
+    return goFetch<TruckImportResult>(`${TRUCKS_PATH}/import`, { method: "POST", body: { rows: rawRows, dryRun } });
 }

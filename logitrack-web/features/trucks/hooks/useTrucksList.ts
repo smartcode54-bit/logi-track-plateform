@@ -5,6 +5,7 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useActiveAssignments, useFleetStats, useTruckPages } from "../api/useTrucks";
+import { classifyPM, type PMStatus } from "../utils/pm";
 import type { Ownership, TruckDTO } from "../api/trucks";
 
 export interface TruckRow extends TruckDTO {
@@ -26,6 +27,7 @@ export function useTrucksList() {
     const [typeFilter, setTypeFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
     const [groupFilter, setGroupFilter] = useState("all");
+    const [pmFilter, setPMFilter] = useState<PMStatus | null>(null);
     const q = useDebouncedValue(searchQuery.trim());
 
     // Pagination over the loaded rows
@@ -44,7 +46,7 @@ export function useTrucksList() {
     const fleet = useFleetStats();
     const assignments = useActiveAssignments();
 
-    useEffect(() => setCurrentPage(1), [q, typeFilter, statusFilter, groupFilter]);
+    useEffect(() => setCurrentPage(1), [q, typeFilter, statusFilter, groupFilter, pmFilter]);
 
     const uniqueTypes = useMemo(() => {
         const types = new Set([...fleet.trucks, ...pages.trucks].map((t) => t.type).filter(Boolean));
@@ -58,13 +60,21 @@ export function useTrucksList() {
             if (!list.some((d) => d.driverId === a.driverId)) list.push({ driverId: a.driverId, driverName: a.driverName });
             byTruck.set(a.truckId, list);
         }
-        return pages.trucks.map((t) => ({ ...t, drivers: byTruck.get(t.id) ?? [] }));
-    }, [pages.trucks, assignments.assignments]);
+        // PM has no Go list predicate: classify the complete fleet read, never just the loaded page.
+        const source = pmFilter ? fleet.trucks.filter((truck) =>
+            truck.ownershipType === "own" && classifyPM(truck).status === pmFilter &&
+            (statusFilter === "all" || truck.status === statusFilter) &&
+            (typeFilter === "all" || truck.type === typeFilter) &&
+            (!q || [truck.licensePlate, truck.id, truck.model, truck.brand, truck.province].some((value) => value.toLowerCase().includes(q.toLowerCase())))
+        ) : pages.trucks;
+        return source.map((t) => ({ ...t, drivers: byTruck.get(t.id) ?? [] }));
+    }, [pages.trucks, fleet.trucks, assignments.assignments, pmFilter, q, typeFilter, statusFilter]);
 
     const totalPages = Math.ceil(filteredTrucks.length / itemsPerPage);
 
     // The card filters set the list filters (the server applies them).
     const handleCardFilterChange = ({ type, status }: { type: string | null; status: string | null }) => {
+        setPMFilter(null);
         if (!type && !status) {
             setGroupFilter("all");
             setStatusFilter("all");
@@ -79,12 +89,14 @@ export function useTrucksList() {
             setGroupFilter("own");
             setStatusFilter(statusOf(status));
         } else if (type === "maintenance") {
+            setPMFilter(status === "overdue" ? "overdue" : "due");
             setGroupFilter("own");
             setStatusFilter("all");
         }
     };
 
     const clearFilters = () => {
+        setPMFilter(null);
         setSearchQuery("");
         setTypeFilter("all");
         setStatusFilter("all");
@@ -92,6 +104,9 @@ export function useTrucksList() {
         setCurrentPage(1);
     };
 
+    useEffect(() => setCurrentPage((page) => Math.min(page, Math.max(1, totalPages))), [totalPages]);
+
+    const source = pmFilter ? fleet : pages;
     const isRefreshing = useIsFetching({ queryKey: queryKeys.trucks.all() }) > 0;
     const refresh = () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.trucks.all() });
@@ -100,8 +115,12 @@ export function useTrucksList() {
 
     return {
         trucks: filteredTrucks,
-        loading: pages.isPending,
-        error: pages.isError,
+        loading: source.isPending,
+        error: source.isError,
+        hasData: Boolean(source.data),
+        assignmentsLoading: assignments.isPending,
+        assignmentsError: assignments.isError,
+        assignmentsHaveData: Boolean(assignments.data),
         isRefreshing,
         refresh,
         searchQuery,
@@ -111,14 +130,14 @@ export function useTrucksList() {
         statusFilter,
         setStatusFilter,
         groupFilter,
-        setGroupFilter,
+        setGroupFilter: (value: string) => { setPMFilter(null); setGroupFilter(value); },
         currentPage,
         setCurrentPage,
         itemsPerPage,
         uniqueTypes,
         filteredTrucks,
         totalPages,
-        hasNextPage: pages.hasNextPage,
+        hasNextPage: !pmFilter && pages.hasNextPage,
         isFetchingNextPage: pages.isFetchingNextPage,
         fetchNextPage: () => void pages.fetchNextPage(),
         handleCardFilterChange,

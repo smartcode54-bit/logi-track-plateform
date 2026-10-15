@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
+import { TruckAssignmentHistory } from "./TruckAssignmentHistory";
+import { truckFuelLabel, truckTypeLabel } from "../utils/labels";
 import { FileViewer } from "@/components/ui/file-viewer";
 import { formatLicensePlate, isPdfUrl } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -134,7 +136,7 @@ export default function TruckPreview() {
                             </div>
                             <div>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.fuelType")}</p>
-                                <p className="font-semibold">{truck.fuelType || t("trucks.fuel.diesel")}</p>
+                                <p className="font-semibold">{truckFuelLabel(truck.fuelType, t)}</p>
                             </div>
                             <div>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.maxLoad")}</p>
@@ -333,7 +335,7 @@ export default function TruckPreview() {
                                                         <div className="relative mb-3">
                                                             <Avatar className="h-20 w-20 border-4 border-background shadow-sm">
                                                                 <AvatarFallback className="bg-primary/10 text-primary font-bold text-xl">
-                                                                    {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
+                                                                    {assignment.driverName?.trim().substring(0, 2).toUpperCase() || "-"}
                                                                 </AvatarFallback>
                                                             </Avatar>
                                                             <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-muted border-2 border-background"></span>
@@ -372,7 +374,7 @@ export default function TruckPreview() {
                                                         <div className="flex items-center gap-3">
                                                             <Avatar className="h-10 w-10 border-2 border-background shadow-sm">
                                                                 <AvatarFallback className="bg-primary/10 text-primary font-bold text-sm">
-                                                                    {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
+                                                                    {assignment.driverName?.trim().substring(0, 2).toUpperCase() || "-"}
                                                                 </AvatarFallback>
                                                             </Avatar>
                                                             <div className="text-left">
@@ -419,6 +421,7 @@ export default function TruckPreview() {
                         </CardContent>
                     </Card>
 
+                    <TruckAssignmentHistory truckId={truck.id} />
                     {/* Vehicle Photos */}
                     <Card>
                         <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
@@ -426,11 +429,11 @@ export default function TruckPreview() {
                                 <Camera className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.photos")}
                             </CardTitle>
-                            <span className="text-xs font-medium text-muted-foreground">{viewableFiles.filter((f: any) => f.type === 'image').length} {t("trucks.detail.photosCount")}</span>
+                            <span className="text-xs font-medium text-muted-foreground">{viewableFiles.filter((file) => file.isPhoto).length} {t("trucks.detail.photosCount")}</span>
                         </CardHeader>
                         <CardContent className="pt-4">
                             <div className="grid grid-cols-2 gap-2">
-                                {viewableFiles.filter((f: any) => f.type === 'image').map((file: any, i: number) => (
+                                {viewableFiles.filter((file) => file.isPhoto).map((file: any, i: number) => (
                                     <div
                                         key={i}
                                         className="relative aspect-video rounded-md overflow-hidden bg-muted border cursor-pointer"

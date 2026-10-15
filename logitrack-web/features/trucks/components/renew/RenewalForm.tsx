@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { fileUrl, formPaymentMethod, previewOfRef, truckFilePreviewUrls, type TruckDetailDTO } from "../../api/trucks";
 import { useTruckWrites } from "../../api/useTrucks";
+import { renewalAmountError } from "../../utils/renewalAmount";
+import { truckUploadError, TRUCK_DOCUMENT_ACCEPT } from "../../utils/uploads";
 import { toastSaveError } from "@/lib/formServerErrors";
 
 interface RenewalFormProps {
@@ -33,7 +35,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
     const currentUser = auth?.currentUser;
 
     const initialStatus = type === 'tax' ? (truck.taxRenewalStatus || "pending") : (truck.insuranceRenewalStatus || "pending");
-    const initialResponsible = type === 'tax' ? (truck.taxResponsible || "Operation Admin") : (truck.maintenanceResponsible || "Operation Admin");
+    const initialResponsible = type === 'tax' ? (truck.taxResponsible || "") : (truck.maintenanceResponsible || "");
     const initialExpense = type === 'tax' ? (truck.taxExpenseThb ?? "") : (truck.insurancePremiumThb ?? "");
     const initialExpiry = type === 'tax' ? (truck.taxExpiryDate || "") : (truck.insuranceExpiryDate || "");
     // `POST /v1/trucks/{id}/renewals` on Go, the legacy truck update + ledger row on Firestore (T25).
@@ -42,7 +44,9 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
     const [status, setStatus] = useState<StatusType>(initialStatus as StatusType);
     const [assignedTo, setAssignedTo] = useState(initialResponsible);
     const [provider, setProvider] = useState(type === 'insurance' ? truck.insuranceCompany || "" : "");
-    const [expense, setExpense] = useState<string>(initialExpense ? String(initialExpense) : "");
+    const [expense, setExpense] = useState<string>(initialExpense != null ? String(initialExpense) : "");
+    const amountError = renewalAmountError(expense, true);
+    const [fileError, setFileError] = useState<string | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<string>(formPaymentMethod(truck.paymentMethod));
     const [startDate, setStartDate] = useState(type === 'insurance' ? truck.insuranceStartDate || "" : "");
     const [expiryDate, setExpiryDate] = useState(initialExpiry);
@@ -68,13 +72,20 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            setSelectedFile(e.target.files[0]);
+            const error = truckUploadError(e.target.files[0], "truck_receipt");
+            setFileError(error);
+            if (!error) setSelectedFile(e.target.files[0]);
+            e.target.value = "";
         }
     };
 
     const handleDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
+        const error = truckUploadError(file, "insurance_document");
+        setFileError(error);
+        e.target.value = "";
+        if (error) return;
         const blobUrl = URL.createObjectURL(file);
         newDocs.set(blobUrl, file);
         setUploadedDocs(prev => [...prev, blobUrl]);
@@ -90,13 +101,19 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
         if (!currentUser) return;
 
         const nextStatus: StatusType = targetStatus || status;
+        const error = renewalAmountError(expense, nextStatus === "completed");
+        if (error) {
+            toast.error(t(error));
+            document.getElementById(`renewal-amount-${type}`)?.focus();
+            return;
+        }
 
         try {
             await renew.mutateAsync({
                 truck,
                 type,
                 status: nextStatus,
-                amount: expense ? parseFloat(expense) : null,
+                amount: expense.trim() ? Number(expense) : null,
                 paymentMethod,
                 expiryDate,
                 responsible: assignedTo,
@@ -109,7 +126,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                 insuranceNotes: notes,
                 documents: uploadedDocs.filter((u) => !u.startsWith("blob:")),
                 newDocuments: uploadedDocs.filter((u) => u.startsWith("blob:")).map((u) => newDocs.get(u)).filter((f): f is File => Boolean(f)),
-                actorLabel: currentUser.displayName || currentUser.email || "Unknown",
+                actorLabel: currentUser.displayName || currentUser.email || "",
                 userId: currentUser.uid,
             });
 
@@ -154,7 +171,8 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                 </div>
             </CardHeader>
             <CardContent>
-                <form className="space-y-6">
+                <form noValidate className="space-y-6" onSubmit={(event) => void handleSave(event)}>
+                    {fileError && <p role="alert" className="text-sm text-destructive">{t(fileError)}</p>}
                     {type === 'tax' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
@@ -166,13 +184,20 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label>{t("renewals.form.expense")}</Label>
+                                <Label htmlFor={`renewal-amount-${type}`}>{t("renewals.form.expense")}</Label>
                                 <Input
+                                    id={`renewal-amount-${type}`}
+                                    aria-invalid={Boolean(amountError)}
+                                    aria-describedby={amountError ? `renewal-amount-error-${type}` : undefined}
                                     type="number"
+                                    min={0}
+                                    max={1000000}
+                                    step="0.01"
                                     value={expense}
                                     onChange={(e) => setExpense(e.target.value)}
                                     placeholder="0.00"
                                 />
+                                {amountError && <p id={`renewal-amount-error-${type}`} className="text-sm text-destructive">{t(amountError)}</p>}
                             </div>
                             <div className="space-y-2">
                                 <Label>{t("renewals.form.paymentMethod")}</Label>
@@ -256,13 +281,20 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>{t("renewals.form.premium")}</Label>
+                                    <Label htmlFor={`renewal-amount-${type}`}>{t("renewals.form.premium")}</Label>
                                     <Input
+                                        id={`renewal-amount-${type}`}
+                                        aria-invalid={Boolean(amountError)}
+                                        aria-describedby={amountError ? `renewal-amount-error-${type}` : undefined}
                                         type="number"
+                                        min={0}
+                                        max={1000000}
+                                        step="0.01"
                                         value={expense}
                                         onChange={(e) => setExpense(e.target.value)}
                                         placeholder="33000"
                                     />
+                                    {amountError && <p id={`renewal-amount-error-${type}`} className="text-sm text-destructive">{t(amountError)}</p>}
                                 </div>
                             </div>
 
@@ -370,7 +402,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                             type="file"
                                             className="absolute inset-0 opacity-0 cursor-pointer"
                                             onChange={handleDocUpload}
-                                            accept="image/*,application/pdf"
+                                            accept={TRUCK_DOCUMENT_ACCEPT}
                                             disabled={uploadingDoc}
                                         />
                                         {uploadingDoc ? (
@@ -417,7 +449,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                                 type="file"
                                                 className="absolute inset-0 opacity-0 cursor-pointer"
                                                 onChange={handleFileChange}
-                                                accept="image/*,application/pdf"
+                                                accept={TRUCK_DOCUMENT_ACCEPT}
                                             />
                                             <Upload className="h-8 w-8" />
                                             <span className="text-sm font-medium">{selectedFile ? selectedFile.name : t("renewals.form.upload.label")}</span>
@@ -449,7 +481,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                         <Button
                             type="button"
                             onClick={(e) => handleSave(e, 'completed')}
-                            disabled={isSubmitting || !expiryDate || (type === 'tax' && !existingFileUrl && !selectedFile)}
+                            disabled={isSubmitting || Boolean(amountError) || !expiryDate || (type === 'tax' && !existingFileUrl && !selectedFile)}
                         >
                             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                             {t("renewals.form.button.complete")}
