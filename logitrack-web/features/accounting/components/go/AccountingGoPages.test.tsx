@@ -113,19 +113,21 @@ const billingRows = (q: Record<string, string>) => ({
     preview: { grandTotal: 2000, withholdingTaxRate: 0.01, withholdingTax: 20, net: 1980, rowCount: 1, tripOnlyCount: 1, tripSubtotal: 2000, standbyCount: 0, standbySubtotal: 0, multiDropCount: 0, multiDropSubtotal: 0 },
     typeCounts: { trip: 1, multidrop: 0, standby: 0 },
     categoryCounts: { PRIMARY: 1, SUPPLEMENTARY: 0, unverified: 0 },
-    issues: { planDateDrifted: 0, planDateOutOfPeriod: 0, noPlanDate: 0, standbyPlanOtherMonth: 0, suppPricedWithFuel: 0, suppManualPriceWithFuel: 0, repairTripIds: [] },
+    issues: { planDateDrifted: 0, planDateOutOfPeriod: 0, noPlanDate: 0, standbyPlanOtherMonth: 0, suppPricedWithFuel: 0, suppManualPriceWithFuel: 0, repairTripIds: [] as string[] },
     filterOptions: { plates: [], vehicleClasses: [], reviewMonths: [] },
     outsideReach: 0,
     documentable: true,
 });
 
 /** The Billing Document page's handlers; `/v1/billing/rows` answers 422 to an empty toggle list, as Go does. */
-function billingDocumentSetup() {
+function billingDocumentSetup(repair = false) {
     const web = setup();
     web.on("GET", "/api/go/v1/billing/rows", (c) => {
         const q = query(c.url);
         if (q.types === "" || q.categories === "") return goErr(422, "invalid_argument", { fields: [{ field: q.types === "" ? "types" : "categories", reason: "required" }] });
-        return json(200, { data: billingRows(q) });
+        const data = billingRows(q);
+        if (repair) data.issues = { ...data.issues, planDateDrifted: 1, repairTripIds: ["t1"] };
+        return json(200, { data });
     });
     web.on("GET", "/api/go/v1/billing/standby-diagnostics", () => json(200, { data: { unpriced: [], missingEndedAt: [], missingEndedAtTruncated: false } }));
     web.on("GET", "/api/go/v1/billing/rows/missing-billing-date", () => json(200, { data: [] }));
@@ -186,7 +188,7 @@ describe("Go accounting pages (T42)", () => {
         renderPage("/app/accounting/income", <IncomePage />);
         await named();
         expect(await screen.findByText("SPXTH-001")).toBeInTheDocument();
-        expect(screen.getAllByText("฿1,234").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("฿1,234.00").length).toBeGreaterThan(0);
         const trips = web.calls.find((c) => c.url.startsWith("/api/go/v1/trips"))!;
         const q = query(trips.url);
         expect(q).toMatchObject({ axis: "delivered", limit: "200" });
@@ -379,6 +381,24 @@ describe("Go accounting pages (T42)", () => {
         // The documents are queued: Go has no row for them yet, so the dialog waits instead of saying "none".
         expect(await screen.findByTestId("documents-waiting")).toBeInTheDocument();
         expect(screen.queryByText("No document has been rendered for this statement yet.")).toBeNull();
+    });
+
+    it("billing document: forced repairs confirm their scope and cancel sends no writes", async () => {
+        const web = billingDocumentSetup(true);
+        web.on("POST", "/api/go/v1/trips/t1/billing/compute", () => json(200, { data: { ok: true } }));
+        renderPage("/app/accounting/billing-document", <BillingDocumentPage />);
+        const u = userEvent.setup();
+        await loadCJSF(u);
+        await u.click(await screen.findByRole("button", { name: /Recompute from task/ }));
+        const confirm = await screen.findByRole("dialog");
+        expect(confirm).toHaveTextContent("CJSF — CJ Super Fresh");
+        expect(confirm).toHaveTextContent("selected records (limit: 1)");
+        await u.click(within(confirm).getByRole("button", { name: "Cancel" }));
+        expect(web.count("POST", "/api/go/v1/trips/t1/billing/compute")).toBe(0);
+        await u.click(screen.getByRole("button", { name: /Recompute from task/ }));
+        await u.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reprice existing amounts" }));
+        await waitFor(() => expect(web.count("POST", "/api/go/v1/trips/t1/billing/compute")).toBe(1));
+        expect(web.calls.find((call) => call.method === "POST")?.body).toEqual({ forceRecompute: true });
     });
 
     it("billing document: a new statement's documents dialog polls while the stream is closed until the documents arrive", async () => {

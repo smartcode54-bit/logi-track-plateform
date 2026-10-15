@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 
 import { EXPENSE_CATEGORIES, fileHref, patchExpense, setExpenseStatus, type ExpenseDTO, type ExpensePatch } from "../../api/expenses.go";
-import { formatDateTime, formatThb, SearchPicker, type PickValue } from "./shared";
+import { formatDateTime, formatThbSatang as formatThb, SearchPicker, type PickValue } from "./shared";
 
 const CATEGORY_KEY: Record<string, string> = {
     tire_repair: "accounting.category.tireRepair",
@@ -40,15 +40,10 @@ export function categoryLabel(category: string | null | undefined, t: (k: string
 
 export function ExpenseStatusBadge({ status }: { status: string }) {
     const { t } = useLanguage();
-    const cls =
-        status === "approved"
-            ? "border-green-300 bg-green-50 text-green-700"
-            : status === "rejected"
-              ? "border-red-300 bg-red-50 text-red-700"
-              : "border-amber-300 bg-amber-50 text-amber-700";
+    const variant = status === "approved" ? "success" : status === "rejected" ? "destructive" : "warning";
     const key = status === "approved" ? "statusApproved" : status === "rejected" ? "statusRejected" : "statusPending";
     return (
-        <Badge variant="outline" className={`text-xs ${cls}`}>
+        <Badge variant={variant}>
             {t(`accounting.audit.${key}`)}
         </Badge>
     );
@@ -287,7 +282,7 @@ export function ExpenseDetailDialog({
                         </Button>
                     ) : null}
                     {audit && canAudit && expense.status !== "approved" ? (
-                        <Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={() => void decide("approved")} disabled={busy !== null}>
+                        <Button variant="default" onClick={() => void decide("approved")} disabled={busy !== null}>
                             {busy === "approved" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
                             {t("accounting.audit.approve")}
                         </Button>

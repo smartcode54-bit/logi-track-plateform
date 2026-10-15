@@ -205,6 +205,17 @@ export interface IncomeRow {
     unpricedReason: string | null;
     driverName: string | null;
     durationMinutes: number | null;
+    rateEntryId?: string | null;
+    lookupHubCode?: string | null;
+    lookupDestinationCode?: string | null;
+    referenceFuelPriceThb?: number | null;
+    fuelBandLowerThb?: number | null;
+    fuelBandUpperThb?: number | null;
+    stops?: StopChargeDTO[];
+    stopChargeThb?: number | null;
+    rateSource?: string | null;
+    rateEffectiveFromDate?: string | null;
+    truckLicensePlate?: string | null;
 }
 
 export function tripIncomeRow(t: IncomeTripDTO): IncomeRow {
@@ -227,7 +238,7 @@ export function tripIncomeRow(t: IncomeTripDTO): IncomeRow {
         addThbPerTrip: b?.addThbPerTrip ?? null,
         estimateThb: b?.estimateThb ?? null,
         deliveredAt: t.deliveredAt,
-        billingDate: b?.billingDate ?? b?.billingAxisDate ?? null,
+        billingDate: b?.billingAxisDate ?? null,
         rateImportId: b?.rateImportId ?? null,
         fuelAdjustmentId: b?.fuelAdjustmentId ?? null,
         fuelEffectiveFromDate: b?.fuelEffectiveFromDate ?? null,
@@ -235,6 +246,15 @@ export function tripIncomeRow(t: IncomeTripDTO): IncomeRow {
         unpricedReason: b?.unpricedReason ?? (b && !b.priced ? "not_computed" : null),
         driverName: t.driverName,
         durationMinutes: null,
+        rateEntryId: b?.rateEntryId,
+        lookupHubCode: b?.lookupHubCode,
+        lookupDestinationCode: b?.lookupDestinationCode,
+        referenceFuelPriceThb: b?.referenceFuelPriceThb,
+        fuelBandLowerThb: b?.fuelBandLowerThb,
+        fuelBandUpperThb: b?.fuelBandUpperThb,
+        stops: b?.stops,
+        stopChargeThb: b?.stopChargeThb,
+        truckLicensePlate: t.truckLicensePlate,
     };
 }
 
@@ -247,14 +267,14 @@ export function standbyIncomeRow(s: IncomeStandbyDTO, customerIdOfParty: (party:
         tripId: s.tripId,
         standbyId: s.id,
         taskId: s.taskId,
-        label: s.id.slice(0, 8),
+        label: [s.driverName, s.truckLicensePlate].filter(Boolean).join(" · "),
         customerId: customerIdOfParty(party),
         partyId: party,
         origin: s.startLocation ?? "",
         destination: s.endLocation ?? "",
         vehicleClass: null,
         jobCategory: null,
-        baseRateThb: b?.estimateThb ?? null,
+        baseRateThb: null,
         rateMultiplier: null,
         addThbPerTrip: null,
         estimateThb: b?.estimateThb ?? null,
@@ -262,11 +282,15 @@ export function standbyIncomeRow(s: IncomeStandbyDTO, customerIdOfParty: (party:
         billingDate: null,
         rateImportId: null,
         fuelAdjustmentId: null,
-        fuelEffectiveFromDate: b?.effectiveFromDate ?? null,
+        fuelEffectiveFromDate: null,
         manualOverride: false,
         unpricedReason: b?.unpricedReason ?? null,
         driverName: s.driverName,
         durationMinutes: s.durationMinutes,
+        rateEntryId: b?.rateEntryId,
+        rateSource: b?.rateSource,
+        rateEffectiveFromDate: b?.effectiveFromDate,
+        truckLicensePlate: s.truckLicensePlate,
     };
 }
 

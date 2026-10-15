@@ -45,7 +45,7 @@ import {
 import { fuelRetailGoQuery } from "../../api/fuel.go";
 import { AddExpenseDialog } from "./AddExpenseDialog";
 import { categoryLabel, ExpenseDetailDialog, ExpenseStatusBadge } from "./ExpenseDetailDialog";
-import { ApiErrorAlert, Field, formatDateTime, formatThb, SearchPicker, type PickValue } from "./shared";
+import { ApiErrorAlert, Field, formatDateTime, formatThbSatang as formatThb, SearchPicker, type PickValue } from "./shared";
 import { TollImportDialog } from "./TollImportDialog";
 
 const col = createColumnHelper<ExpenseDTO>();
@@ -57,7 +57,7 @@ function BangchakCard() {
         <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
-                    <Fuel className="h-4 w-4 text-amber-500" />
+                    <Fuel className="h-4 w-4 text-warning" />
                     {t("accounting.bangchak.title")}
                 </CardTitle>
                 <Button size="sm" variant="ghost" onClick={() => void prices.refetch()} disabled={prices.isFetching} aria-label={t("accounting.bangchak.refresh")}>
@@ -166,7 +166,7 @@ function ExpensesPage({ type }: { type: ExpenseType }) {
                           cell: ({ row: { original: r } }) => {
                               const e = efficiency.get(r.id);
                               if (!e || e.kmPerLiter == null) return <span className="text-muted-foreground">—</span>;
-                              return <span className={e.flag === "out-of-range" ? "font-medium text-red-600" : ""}>{e.kmPerLiter.toFixed(1)}</span>;
+                              return <span className={e.flag === "out-of-range" ? "font-medium text-destructive" : ""}>{e.kmPerLiter.toFixed(1)}</span>;
                           },
                           meta: { headerClassName: "text-right", cellClassName: "text-right text-xs" },
                       }),

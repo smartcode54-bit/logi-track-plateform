@@ -18,7 +18,7 @@ import { Calculator } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
-import { format, startOfMonth } from "date-fns";
+import { bangkokMonthRange } from "../../lib/billingUiDates";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -42,7 +42,7 @@ export function RateCardPage() {
     const [customerId, setCustomerId] = useState<string>(ALL_CUSTOMERS);
     const [tab, setTab] = useState<Tab>("entries");
     const [recompute, setRecompute] = useState(false);
-    const now = new Date();
+    const range = bangkokMonthRange();
 
     return (
         <div className="flex flex-col gap-section">
@@ -51,7 +51,7 @@ export function RateCardPage() {
                 description={t("accounting.rateCard.subtitle")}
                 actions={
                     canEdit || canRecompute ? (
-                        <Button variant="outline" onClick={() => setRecompute(true)}>
+                        <Button className="max-md:min-h-11" variant="outline" onClick={() => setRecompute(true)}>
                             <Calculator aria-hidden className="mr-2 h-4 w-4" />
                             {t("accounting.go.rateCard.recompute")}
                         </Button>
@@ -112,7 +112,7 @@ export function RateCardPage() {
                         <DialogTitle>{t("accounting.go.rateCard.recompute")}</DialogTitle>
                         <DialogDescription>{t("accounting.income.backfill.subtitle")}</DialogDescription>
                     </DialogHeader>
-                    <BackfillPanel defaultFrom={format(startOfMonth(now), "yyyy-MM-dd")} defaultTo={format(now, "yyyy-MM-dd")} />
+                    {recompute ? <BackfillPanel defaultCustomer={customerId} defaultFrom={range.from} defaultTo={range.to} /> : null}
                 </DialogContent>
             </Dialog>
         </div>

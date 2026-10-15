@@ -134,7 +134,7 @@ export function ExpenseAuditPage() {
                                   <Checkbox
                                       aria-label={r.id}
                                       checked={selected.has(r.id)}
-                                      onClick={(e) => e.stopPropagation()}
+                                     onClick={(e) => e.stopPropagation()}
                                       onCheckedChange={(v) =>
                                           setSelected((prev) => {
                                               const next = new Set(prev);
@@ -172,13 +172,13 @@ export function ExpenseAuditPage() {
                                   <Button
                                       size="sm"
                                       variant="ghost"
-                                      onClick={(e) => {
+                                     onClick={(e) => {
                                           e.stopPropagation();
                                           void approveOne(r);
                                       }}
                                       disabled={busy !== null}
                                   >
-                                      {busy === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-green-600" />}
+                                      {busy === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                                       <span className="ml-1">{t("accounting.audit.approve")}</span>
                                   </Button>
                               ) : null,
@@ -251,7 +251,7 @@ export function ExpenseAuditPage() {
                             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={selectedPending.length === 0}>
                                 {t("accounting.audit.clearSelection")}
                             </Button>
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => void approveSelected()} disabled={selectedPending.length === 0 || busy !== null}>
+                            <Button size="sm" onClick={() => void approveSelected()} disabled={selectedPending.length === 0 || busy !== null}>
                                 {busy === "bulk" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
                                 {t("accounting.audit.approveSelected")}
                             </Button>

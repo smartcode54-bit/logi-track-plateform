@@ -24,6 +24,12 @@ export function formatThb(n: number | null | undefined): string {
     return `฿${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+/** Fixed decimals for billing amounts on UI4D accounting pages. */
+export function formatThbSatang(n: number | null | undefined): string {
+    if (n == null || !Number.isFinite(n)) return "—";
+    return `฿${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /** An RFC 3339 instant or a `yyyy-MM-dd` day, formatted; `—` when absent or invalid. */
 export function formatDay(v: string | null | undefined, pattern = "dd/MM/yyyy"): string {
     if (!v) return "—";

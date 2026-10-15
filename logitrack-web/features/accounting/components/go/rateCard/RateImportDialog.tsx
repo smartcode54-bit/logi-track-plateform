@@ -14,6 +14,7 @@ import { Loader2, Upload } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -171,14 +172,14 @@ export function RateImportDialog({
                     <p className="rounded-md border px-3 py-2 text-sm">{t("accounting.rateCard.import.rowsReady", { count: parsed.rows.length })}</p>
                 ) : null}
                 {parsed && parsed.warnings.length > 0 ? (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <Alert variant="warning"><AlertDescription>
                         <p className="font-medium">{t("accounting.rateCard.import.warnings", { count: parsed.warnings.length })}</p>
                         <ul className="mt-1 max-h-32 space-y-0.5 overflow-auto text-xs">
                             {parsed.warnings.slice(0, 20).map((w, i) => (
                                 <li key={i}>{t(w.key, w.params)}</li>
                             ))}
                         </ul>
-                    </div>
+                    </AlertDescription></Alert>
                 ) : null}
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
