@@ -10,14 +10,14 @@ export const driverSchema = z.object({
     authId: z.string().optional(),
 
     // Personal Info
-    firstName: z.string().min(1, "First Name is required"),
-    lastName: z.string().min(1, "Last Name is required"),
+    firstName: z.string({ error: "drivers.validation.firstName" }).trim().min(1, "drivers.validation.firstName"),
+    lastName: z.string({ error: "drivers.validation.lastName" }).trim().min(1, "drivers.validation.lastName"),
     /** Full Thai name (ชื่อ-สกุล ภาษาไทย) — single combined field */
-    fullNameTh: z.string().min(1, "Thai full name is required"),
-    mobile: z.string().min(1, "Mobile number is required"),
-    email: z.string().email("Invalid email address").optional().or(z.literal("")),
+    fullNameTh: z.string({ error: "drivers.validation.fullNameTh" }).trim().min(1, "drivers.validation.fullNameTh"),
+    mobile: z.string({ error: "drivers.validation.mobile" }).trim().min(1, "drivers.validation.mobile"),
+    email: z.string().email("drivers.validation.email").optional().or(z.literal("")),
     profileImage: z.string().optional(),
-    birthDate: z.coerce.date()
+    birthDate: z.coerce.date({ error: "drivers.validation.birthDate" })
         .refine((date) => {
             const today = new Date();
             const age = today.getFullYear() - date.getFullYear();
@@ -26,13 +26,13 @@ export const driverSchema = z.object({
                 return age - 1 >= 20 && age - 1 <= 55;
             }
             return age >= 20 && age <= 55;
-        }, "Driver must be between 20 and 55 years old"),
+        }, "drivers.validation.age"),
 
     // Identity & License
-    idCard: z.string().length(13, "ID Card must be exactly 13 digits"),
+    idCard: z.string({ error: "drivers.validation.idCard" }).length(13, "drivers.validation.idCard"),
     idCardExpiredDate: z.coerce.date().optional(),
     idCardImage: z.string().optional(),
-    truckLicenseId: z.string().length(8, "Truck License ID must be exactly 8 characters"),
+    truckLicenseId: z.string({ error: "drivers.validation.license" }).length(8, "drivers.validation.license"),
     licenseType: z.enum(["บ.1", "บ.2", "บ.3", "บ.4", "ท.1", "ท.2", "ท.3", "ท.4"]).optional(),
     truckLicenseExpiredDate: z.coerce.date().optional(),
     truckLicenseImage: z.string().optional(),

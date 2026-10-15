@@ -1,10 +1,10 @@
 "use client";
 
+import { DriverFormMessage as FormMessage } from "./DriverFormMessage";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { createInvalidHandler } from "@/lib/formInvalidHandler";
-import { driverSchema, Driver } from "@/validate/driverSchema";
-import { isDriverLoginOutOfReach } from "@/features/drivers/api/drivers";
+import { driverFormResolver, driverInvalidHandler as createInvalidHandler } from "./driverFormResolver";
+import { Driver } from "@/validate/driverSchema";
+import { isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
 import { useCreateDriverLogin, useDriverWrites } from "@/features/drivers/api/useDrivers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
@@ -13,6 +13,8 @@ import type { CreateUserResult } from "@/features/users/api/users";
 import { TemporaryPasswordNotice } from "./TemporaryPasswordNotice";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { PartialCreateError } from "@/lib/goUpload";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +23,6 @@ import {
     FormField,
     FormItem,
     FormLabel,
-    FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +46,8 @@ import { DriverBirthDatePicker } from "./DriverBirthDatePicker";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
+import { assertDriverUpload, driverUploadAccept, DriverUploadError } from "../api/driverUploads";
+import { driverDisplayName } from "@/lib/driverName";
 
 export default function NewDriverForm() {
     const router = useRouter();
@@ -66,6 +69,7 @@ export default function NewDriverForm() {
     // created through `POST /v1/users {role:"driver", driverId}` with a generated temporary password
     // shown once (R29, T25): no password is chosen here.
     const [createLoginAccount, setCreateLoginAccount] = useState(true);
+    const [savedDriver, setSavedDriver] = useState<DriverDetailDTO | null>(null);
     const [created, setCreated] = useState<{ driverId: string; login: CreateUserResult | null } | null>(null);
 
     // File states
@@ -75,7 +79,7 @@ export default function NewDriverForm() {
     const [truckLicenseFile, setTruckLicenseFile] = useState<File | null>(null);
 
     const form = useForm<Driver>({
-        resolver: zodResolver(driverSchema) as any,
+        resolver: driverFormResolver(),
         defaultValues: {
             firstName: "",
             lastName: "",
@@ -102,6 +106,11 @@ export default function NewDriverForm() {
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
+            try { assertDriverUpload(file, "driver_profile"); } catch (error) {
+                if (error instanceof DriverUploadError) toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                e.target.value = "";
+                return;
+            }
             setSelectedImage(file);
             const reader = new FileReader();
             reader.onloadend = () => setImagePreview(reader.result as string);
@@ -125,14 +134,25 @@ export default function NewDriverForm() {
         try {
             driverId = await create.mutateAsync({
                 values: data,
+                existing: savedDriver ?? undefined,
                 files: { profile: selectedImage, idCard: idCardFile, license: truckLicenseFile },
             });
         } catch (error) {
+            if (error instanceof PartialCreateError) {
+                setSavedDriver(error.entity as DriverDetailDTO);
+                toast.error(t("drivers.upload.partialSaved"));
+                return;
+            }
+            if (error instanceof DriverUploadError) {
+                toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                return;
+            }
             if (applyServerFieldErrors(form, error, t, { licenseExpiredDate: "truckLicenseExpiredDate", tenantId: "subcontractorId" }) > 0) setCurrentStep(1);
-            toastSaveError(error, t, "drivers.toast.registerError");
+            if (savedDriver) toast.error(t("drivers.upload.partialSaved"));
+            else toastSaveError(error, t, "drivers.toast.registerError");
             return;
         }
-        toast.success(`${t("drivers.word.driver")} ${data.firstName} ${data.lastName} ${t("drivers.toast.registerSuccess")}`);
+        toast.success(`${driverDisplayName(data)} ${t("drivers.toast.registerSuccess")}`);
         if (!createLoginAccount) {
             router.push("/app/drivers");
             return;
@@ -204,6 +224,14 @@ export default function NewDriverForm() {
                 />
             </div>
 
+            {savedDriver ? (
+                <Alert>
+                    <AlertDescription>
+                        {t("drivers.upload.partialSaved")}{" "}
+                        <Link className="underline underline-offset-4" href={`/app/drivers/view?id=${savedDriver.id}`} prefetch={false}>{t("drivers.action.viewProfile")}</Link>
+                    </AlertDescription>
+                </Alert>
+            ) : null}
             <div className="flex min-w-0 flex-1">
                 {/* Sidebar */}
                 <div className="w-64 border-r bg-muted/30 p-6 hidden md:block overflow-y-auto">
@@ -237,7 +265,7 @@ export default function NewDriverForm() {
                 <div className="min-w-0 flex-1 p-4 md:p-8">
                     <div className="max-w-3xl mx-auto pb-8">
                         <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
+                            <form noValidate onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
 
                                 {/* Step 1: Personal Info */}
                                 {currentStep === 1 && (
@@ -257,7 +285,7 @@ export default function NewDriverForm() {
                                                                     <span className="text-xs text-muted-foreground">{t("drivers.form.uploadPhoto")}</span>
                                                                 </label>
                                                             )}
-                                                            <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+                                                            <input id="p-upload" type="file" accept={driverUploadAccept("driver_profile")} className="hidden" onChange={handleImageChange} />
                                                         </div>
                                                         {imagePreview && (
                                                             <Button aria-label={t("common.removePhoto")} type="button" variant="destructive" size="icon" onClick={removeImage} className="absolute -top-1 -right-1 h-8 w-8">
@@ -328,7 +356,14 @@ export default function NewDriverForm() {
                                                         <FormItem>
                                                             <FormLabel>{t("drivers.form.uploadImage")}</FormLabel>
                                                             <div className="flex items-center gap-2">
-                                                                <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setIdCardFile(f); }} />
+                                                                <Input type="file" aria-label={t("drivers.edit.idCardImage")} accept={driverUploadAccept("driver_id_card")} onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    try { assertDriverUpload(file, "driver_id_card"); setIdCardFile(file); } catch (error) {
+                                                        if (error instanceof DriverUploadError) toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                                                        e.target.value = "";
+                                                    }
+                                                }} />
                                                                 {idCardFile && <FileText className="text-success h-5 w-5" />}
                                                             </div>
                                                         </FormItem>
@@ -368,7 +403,14 @@ export default function NewDriverForm() {
                                                         <FormItem>
                                                             <FormLabel>{t("drivers.form.uploadImage")}</FormLabel>
                                                             <div className="flex items-center gap-2">
-                                                                <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setTruckLicenseFile(f); }} />
+                                                                <Input type="file" aria-label={t("drivers.edit.licenseImage")} accept={driverUploadAccept("driver_license")} onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    try { assertDriverUpload(file, "driver_license"); setTruckLicenseFile(file); } catch (error) {
+                                                        if (error instanceof DriverUploadError) toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                                                        e.target.value = "";
+                                                    }
+                                                }} />
                                                                 {truckLicenseFile && <FileText className="text-success h-5 w-5" />}
                                                             </div>
                                                         </FormItem>
@@ -496,7 +538,7 @@ export default function NewDriverForm() {
                                                     <span className="text-muted-foreground">{t("drivers.form.reviewLicenseId")}</span>
                                                     <span className="font-medium text-right">{form.getValues("truckLicenseId")}</span>
                                                     <span className="text-muted-foreground">{t("drivers.form.reviewEmployment")}</span>
-                                                    <span className="font-medium text-right">{form.getValues("employmentType")}</span>
+                                                    <span className="font-medium text-right">{t(`drivers.form.type.${({ FULL_TIME: "fullTime", PART_TIME: "partTime", SUBCONTRACTOR: "subcontractor" } as const)[form.getValues("employmentType")]}`)}</span>
                                                 </div>
                                                 <div className="flex gap-2 text-sm text-muted-foreground bg-primary/10 p-3 rounded-md">
                                                     <CheckCircle2 className="h-4 w-4 text-primary" />

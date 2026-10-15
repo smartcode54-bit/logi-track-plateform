@@ -139,7 +139,7 @@ describe("drivers list over the old 100-row cap", () => {
 
         // The table's last page holds the 150th driver, unreachable before.
         for (let page = 1; page < 15; page++) await u.click(screen.getByRole("button", { name: "Next" }));
-        expect(screen.getByText("F149 L149")).toBeInTheDocument();
+        expect(screen.getByText("คนขับ 149")).toBeInTheDocument();
         expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/drivers")).map((c) => c.url)).toEqual([
             "/api/go/v1/drivers?limit=100",
             "/api/go/v1/drivers?limit=100&cursor=100",

@@ -19,13 +19,14 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { goFetch, goFetchEnvelope, goPath, type GoEnvelope } from "@/lib/goFetch";
 import { goNextPageParam } from "@/lib/goQuery";
-import { uploadToGo } from "@/lib/goUpload";
+import { PartialCreateError, uploadToGo } from "@/lib/goUpload";
+import { assertDriverUpload } from "./driverUploads";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { createUser, type CreateUserResult } from "@/features/users/api/users";
 import { fetchCustomersByCode } from "@/features/accounting/api/pickers.go";
 import { getQueryClient } from "@/lib/queryClient";
 import { fieldViolations } from "@/features/auth/utils/fieldErrors";
-import { isApiError } from "@/lib/apiError";
+import { ApiError, isApiError } from "@/lib/apiError";
 import type { Driver } from "@/validate/driverSchema";
 import { apiDate, localDate } from "@/lib/calendarDate";
 
@@ -177,16 +178,21 @@ const text = (v: unknown): string | null => {
 
 /**
  * The Go body of the driver form (no files, no tenant). `customerIdByCode` resolves the form's
- * customer codes (`customerDriverIds.SPX.appId`) to customer ids; codes it does not know are left
- * out (the server would refuse them).
+ * customer codes (`customerDriverIds.SPX.appId`) to customer ids. Unresolved values are field errors.
  */
 export function driverBodyFromForm(v: Driver, customerIdByCode: ReadonlyMap<string, string>): Record<string, unknown> {
     const ids: Array<{ customerId: string; idTypeKey: string; value: string }> = [];
     for (const [code, map] of Object.entries(v.customerDriverIds ?? {})) {
         const customerId = customerIdByCode.get(code.toUpperCase());
-        if (!customerId || !map) continue;
+        if (!map) continue;
         for (const [idTypeKey, value] of Object.entries(map)) {
-            if (value && String(value).trim()) ids.push({ customerId, idTypeKey, value: String(value).trim() });
+            if (!value || !String(value).trim()) continue;
+            if (!customerId) {
+                throw new ApiError({ status: 422, code: "invalid_argument", message: "Unresolved customer", details: {
+                    fields: [{ field: `customerDriverIds.${code}.${idTypeKey}`, reason: "not_found" }],
+                } });
+            }
+            ids.push({ customerId, idTypeKey, value: String(value).trim() });
         }
     }
     return {
@@ -288,6 +294,8 @@ export interface DriverSave {
     files: DriverFiles;
     /** The profile photo was removed. */
     removeProfile?: boolean;
+    /** A previous create saved the row but failed while attaching files. */
+    existing?: DriverDetailDTO;
 }
 
 /** The customer codes of the form's `customerDriverIds` (`{SPX: {appId}}`) that hold a value. */
@@ -321,17 +329,31 @@ async function fileKeys(driverId: string, files: DriverFiles, removeProfile?: bo
 }
 
 async function createOnGo(save: DriverSave): Promise<string> {
+    assertDriverUpload(save.files.profile, "driver_profile");
+    assertDriverUpload(save.files.idCard, "driver_id_card");
+    assertDriverUpload(save.files.license, "driver_license");
+    if (save.existing) {
+        await updateOnGo(save.existing.id, { ...save, previous: save.existing });
+        return save.existing.id;
+    }
     const body: Record<string, unknown> = driverBodyFromForm(save.values, await customerIdsByCode(save.values));
     if (apiEmploymentType(save.values.employmentType) === "subcontractor" && save.values.subcontractorId) {
         body.tenantId = save.values.subcontractorId;
     }
     const created = await goFetch<DriverDetailDTO>(DRIVERS_PATH, { method: "POST", body });
-    const keys = await fileKeys(created.id, save.files);
-    if (Object.keys(keys).length > 0) await goFetch(goPath`/v1/drivers/${created.id}`, { method: "PATCH", body: keys });
+    try {
+        const keys = await fileKeys(created.id, save.files);
+        if (Object.keys(keys).length > 0) await goFetch(goPath`/v1/drivers/${created.id}`, { method: "PATCH", body: keys });
+    } catch (failure) {
+        throw new PartialCreateError(created, failure);
+    }
     return created.id;
 }
 
 async function updateOnGo(id: string, save: DriverSave & { previous: DriverDetailDTO }): Promise<void> {
+    assertDriverUpload(save.files.profile, "driver_profile");
+    assertDriverUpload(save.files.idCard, "driver_id_card");
+    assertDriverUpload(save.files.license, "driver_license");
     const byCode = await customerIdsByCode(save.values, save.previous);
     const prev = driverBodyFromForm(driverFormValues(save.previous), byCode);
     const next = driverBodyFromForm(save.values, byCode);
@@ -347,7 +369,24 @@ async function updateOnGo(id: string, save: DriverSave & { previous: DriverDetai
         await goFetch(goPath`/v1/drivers/${id}`, { method: "PATCH", body: { tenantId: wantsTenant } });
     }
     Object.assign(body, await fileKeys(id, save.files, save.removeProfile));
-    if (Object.keys(body).length > 0) await goFetch(goPath`/v1/drivers/${id}`, { method: "PATCH", body });
+    if (Object.keys(body).length > 0) {
+        try {
+            await goFetch(goPath`/v1/drivers/${id}`, { method: "PATCH", body });
+        } catch (error) {
+            throw driverFieldError(error, save.values);
+        }
+    }
+}
+
+/** Go indexes the replacement set; RHF addresses it by customer code and ID type. */
+function driverFieldError(error: unknown, values: Driver): unknown {
+    if (!isApiError(error) || !Array.isArray(error.details.fields)) return error;
+    const paths = Object.entries(values.customerDriverIds ?? {}).flatMap(([code, ids]) =>
+        Object.entries(ids).filter(([, value]) => value.trim()).map(([key]) => `customerDriverIds.${code}.${key}`));
+    return new ApiError({ ...error, details: { ...error.details, fields: fieldViolations(error).map((v) => {
+        const index = /^customerDriverIds\[(\d+)\]/.exec(v.field);
+        return { ...v, field: index ? paths[Number(index[1])] ?? v.field : v.field };
+    }) } });
 }
 
 /** Registers a driver profile (no login: that is `createDriverLogin`); returns its id. */
