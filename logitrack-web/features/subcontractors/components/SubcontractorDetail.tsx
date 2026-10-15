@@ -2,21 +2,20 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Edit, Loader2 } from "lucide-react";
+import { Edit } from "lucide-react";
 import { useSubcontractor } from "../api/useSubcontractors";
 import { useTruckPages } from "@/features/trucks/api/useTrucks";
 import { useMe } from "@/features/auth/api/useMe";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { formatLicensePlate } from "@/lib/utils";
 import { carrierStatusTone, toneBadgeVariant, truckStatusTone } from "@/lib/statusPresentation";
 import { routeAllowed } from "@/lib/routeCapabilities";
-import { apiErrorText } from "@/lib/apiError";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
+import { LoadingState, QueryErrorState } from "./PartnerQueryStates";
 
 function ProfileField({ label, children }: { label: string; children: React.ReactNode }) {
     return (
@@ -54,12 +53,7 @@ export default function SubcontractorDetail() {
     }
 
     if (query.isPending || !subcontractor) {
-        return (
-            <div className="flex min-h-[400px] items-center justify-center" role="status" aria-busy="true">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
-                <span className="sr-only">{t("common.loading")}</span>
-            </div>
-        );
+        return <LoadingState />;
     }
 
     const statusLabel = ["active", "pending", "suspended"].includes(subcontractor.status)
@@ -113,34 +107,37 @@ export default function SubcontractorDetail() {
                 </section>
             </div>
             <section className="min-w-0 space-y-4">
-                <h2 className="text-base font-semibold">{t("subcontractors.ui4.fleetPreview", { count: trucks.length })}</h2>
-                {truckPages.error && <Alert variant="destructive"><AlertDescription>{apiErrorText(truckPages.error, t)}</AlertDescription></Alert>}
-                <div className="overflow-hidden rounded-xl border border-border bg-card">
-                    <Table>
-                        <TableHeader><TableRow>
-                            <TableHead>{t("subcontractors.detail.truckType")}</TableHead>
-                            <TableHead>{t("subcontractors.detail.plate")}</TableHead>
-                            <TableHead>{t("subcontractors.table.status")}</TableHead>
-                        </TableRow></TableHeader>
-                        <TableBody>
-                            {trucks.map((truck) => (
-                                <TableRow key={truck.id}>
-                                    <TableCell>{truck.type || notSet}</TableCell>
-                                    <TableCell className="font-mono">{formatLicensePlate(truck.licensePlate)}</TableCell>
-                                    <TableCell><Badge variant={toneBadgeVariant(truckStatusTone(truck.status))}>
-                                        {truck.status === "in_transit" ? t("trucks.status.inTransit")
-                                            : truck.status === "insurance_claim" ? t("trucks.detail.status.insuranceClaim")
-                                            : ["active", "maintenance", "inactive"].includes(truck.status) ? t(`trucks.status.${truck.status}`)
-                                            : ["available", "sold"].includes(truck.status) ? t(`trucks.detail.status.${truck.status}`) : truck.status}
-                                    </Badge></TableCell>
-                                </TableRow>
-                            ))}
-                            {trucks.length === 0 && <TableRow><TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
-                                {truckPages.isPending ? t("common.loading") : truckPages.error ? notSet : t("subcontractors.detail.noTrucks")}
-                            </TableCell></TableRow>}
-                        </TableBody>
-                    </Table>
-                </div>
+                <h2 className="text-base font-semibold">{truckPages.data ? t("subcontractors.ui4.fleetPreview", { count: trucks.length }) : t("subcontractors.detail.fleet")}</h2>
+                {truckPages.error && <QueryErrorState title={t("subcontractors.loadError.fleet")} error={truckPages.error} onRetry={() => void truckPages.refetch()} retrying={truckPages.isFetching} />}
+                {truckPages.isPending && <LoadingState />}
+                {truckPages.data && (
+                    <div className="overflow-hidden rounded-xl border border-border bg-card">
+                        <Table>
+                            <TableHeader><TableRow>
+                                <TableHead>{t("subcontractors.detail.truckType")}</TableHead>
+                                <TableHead>{t("subcontractors.detail.plate")}</TableHead>
+                                <TableHead>{t("subcontractors.table.status")}</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>
+                                {trucks.map((truck) => (
+                                    <TableRow key={truck.id}>
+                                        <TableCell>{truck.type || notSet}</TableCell>
+                                        <TableCell className="font-mono">{formatLicensePlate(truck.licensePlate)}</TableCell>
+                                        <TableCell><Badge variant={toneBadgeVariant(truckStatusTone(truck.status))}>
+                                            {truck.status === "in_transit" ? t("trucks.status.inTransit")
+                                                : truck.status === "insurance_claim" ? t("trucks.detail.status.insuranceClaim")
+                                                : ["active", "maintenance", "inactive"].includes(truck.status) ? t(`trucks.status.${truck.status}`)
+                                                : ["available", "sold"].includes(truck.status) ? t(`trucks.detail.status.${truck.status}`) : truck.status}
+                                        </Badge></TableCell>
+                                    </TableRow>
+                                ))}
+                                {trucks.length === 0 && <TableRow><TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                                    {t("subcontractors.detail.noTrucks")}
+                                </TableCell></TableRow>}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
             </section>
             <section className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">

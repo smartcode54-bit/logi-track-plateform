@@ -34,7 +34,8 @@ func (q *Queries) DeleteTenantDocumentsExcept(ctx context.Context, arg DeleteTen
 const listCarrierProfiles = `-- name: ListCarrierProfiles :many
 
 SELECT t.id, t.code, t.name_th, t.name_en, t.legal_type, t.status, t.contact_person, t.phone, t.email, t.fleet_size,
-       t.line_group_id, t.contractor_tenant_id, t.created_at, bp.id AS billing_party_id, bp.billing_date_basis
+       t.line_group_id, t.contractor_tenant_id, t.created_at, bp.id AS billing_party_id, bp.billing_date_basis,
+       t.service_regions
 FROM tenants t
 LEFT JOIN billing_parties bp ON bp.tenant_id = t.id
 WHERE t.kind = 'carrier'
@@ -72,6 +73,7 @@ type ListCarrierProfilesRow struct {
 	CreatedAt          time.Time
 	BillingPartyID     *uuid.UUID
 	BillingDateBasis   *string
+	ServiceRegions     []string
 }
 
 // Carrier profiles: /v1/subcontractors* (T20, Appendix B §B.2.10), a view of tenants(kind='carrier') and their
@@ -111,6 +113,7 @@ func (q *Queries) ListCarrierProfiles(ctx context.Context, arg ListCarrierProfil
 			&i.CreatedAt,
 			&i.BillingPartyID,
 			&i.BillingDateBasis,
+			&i.ServiceRegions,
 		); err != nil {
 			return nil, err
 		}
