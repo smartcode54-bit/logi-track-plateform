@@ -2,7 +2,7 @@
 
 /**
  * The user menu of the app header (UI3, issue #143): who is signed in, the scope line (which slice of the data,
- * as what: `principalRoleLabel`), the interface language and theme, and the one sign-out. It is the only home
+ * as what: `principalRoleLabel`), a link to the account page, the interface language and theme, and the one sign-out. It is the only home
  * of the language and theme switches inside `/app`, so they are one tap away on a phone too (the header keeps
  * this menu at every width; the old EN/TH pills were hidden below `sm`).
  *
@@ -14,7 +14,8 @@
  * never the role, with a line height that leaves Thai marks unclipped.
  */
 import { useId } from "react";
-import { LogOut, Monitor, Moon, Sun } from "lucide-react";
+import Link from "next/link";
+import { LogOut, Monitor, Moon, Sun, User } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -91,6 +92,12 @@ export function UserMenu() {
                     <ScopeLine className="text-xs text-muted-foreground" testId="user-menu-scope" />
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild className={ITEM}>
+                    <Link href="/my-account">
+                        <User className="mr-2 size-4" aria-hidden />
+                        {t("nav.myAccount")}
+                    </Link>
+                </DropdownMenuItem>
                 <DropdownMenuLabel id={languageLabelId} className="text-xs font-normal text-muted-foreground">
                     {t("shell.language")}
                 </DropdownMenuLabel>
