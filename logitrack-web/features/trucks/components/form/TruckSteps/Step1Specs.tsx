@@ -1,7 +1,5 @@
 "use client";
 
-import { useFormContext } from "react-hook-form";
-import { TruckFormValues } from "@/validate/truckSchema";
 import { IdentificationSection } from "../IdentificationSection";
 import { VehicleDetailsSection } from "../VehicleDetailsSection";
 import { PhotosSection } from "../PhotosSection";
@@ -27,7 +25,7 @@ export function Step1Specs({ onFileSelect }: Step1Props) {
 
             {/* Vehicle Appearance / Photos */}
             <div className="bg-card border rounded-lg p-6 animate-in fade-in slide-in-from-bottom-5 duration-500 delay-100">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">{t("trucks.step1.appearance")}</h3>
+                <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t("trucks.step1.appearance")}</h3>
                 <PhotosSection onFileSelect={onFileSelect} />
             </div>
         </div>

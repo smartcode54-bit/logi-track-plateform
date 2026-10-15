@@ -1,19 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useMe } from "@/features/auth/api/useMe";
+import { routeAllowed } from "@/lib/routeCapabilities";
+import { truckStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 import {
-    ArrowLeft, Edit, Truck, Calendar, User, FileText, Info, Loader2, Camera,
-    MapPin, Phone, Shield, MoreHorizontal, Download, Plus,
+    ArrowLeft, Edit, Truck, User, FileText, Info, Loader2, Camera,
+    MapPin, Shield, Plus,
     Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { FileViewer } from "@/components/ui/file-viewer";
 import { formatLicensePlate, isPdfUrl } from "@/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useTruckPreview } from "../hooks/useTruckPreview";
 import { PageHeader } from "@/components/page-header";
 import { RecordState } from "@/components/record-state";
@@ -21,14 +23,6 @@ import { useLanguage } from "@/context/language";
 
 function StatusBadge({ status }: { status: string }) {
     const { t } = useLanguage();
-    const styles: Record<string, string> = {
-        active: "bg-green-100 text-green-800 hover:bg-green-100",
-        inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
-        maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
-        "insurance-claim": "bg-red-100 text-red-800 hover:bg-red-100",
-        insurance_claim: "bg-red-100 text-red-800 hover:bg-red-100",
-        sold: "bg-purple-100 text-purple-800 hover:bg-purple-100",
-    };
     const labels: Record<string, string> = {
         active: t("trucks.detail.status.available"),
         inactive: t("trucks.detail.status.inactive"),
@@ -36,17 +30,16 @@ function StatusBadge({ status }: { status: string }) {
         "insurance-claim": t("trucks.detail.status.insuranceClaim"),
         insurance_claim: t("trucks.detail.status.insuranceClaim"),
         sold: t("trucks.detail.status.sold"),
-        [status]: status
     };
-    const statusKey = status as keyof typeof styles;
     return (
-        <Badge className={styles[statusKey] || styles.inactive} variant="outline">
-            {labels[statusKey] || status}
+        <Badge variant={toneBadgeVariant(truckStatusTone(status))}>
+            {labels[status] || status}
         </Badge>
     );
 }
 
 export default function TruckPreview() {
+    const { data: me } = useMe();
     const {
         truck,
         isLoading,
@@ -57,7 +50,6 @@ export default function TruckPreview() {
         isViewerOpen,
         setIsViewerOpen,
         viewerIndex,
-        setViewerIndex,
         partnerName,
         documentTax,
         insuranceDocuments,
@@ -65,7 +57,6 @@ export default function TruckPreview() {
         handleFileClick,
         formatDate,
         t,
-        language
     } = useTruckPreview();
 
 
@@ -124,33 +115,33 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Truck className="h-5 w-5 text-blue-600" />
+                                <Truck className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.vehicleSpecs")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-y-6 gap-x-4">
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.brand")}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.brand")}</p>
                                 <p className="font-semibold">{truck.brand}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.model")}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.model")}</p>
                                 <p className="font-semibold">{truck.model}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.year")}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.year")}</p>
                                 <p className="font-semibold">{truck.year}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.fuelType")}</p>
-                                <p className="font-semibold">{truck.fuelType || "Diesel"}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.fuelType")}</p>
+                                <p className="font-semibold">{truck.fuelType || t("trucks.fuel.diesel")}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.detail.maxLoad")}</p>
-                                <p className="font-semibold">{truck.maxLoadWeightKg ? `${truck.maxLoadWeightKg.toLocaleString()} kg` : "-"}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.detail.maxLoad")}</p>
+                                <p className="font-semibold">{truck.maxLoadWeightKg ? t("trucks.ui4.kg", { value: truck.maxLoadWeightKg.toLocaleString() }) : "-"}</p>
                             </div>
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("trucks.section.truckType")}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">{t("trucks.section.truckType")}</p>
                                 <p className="font-semibold">
                                     {(() => {
                                         const typeMap: Record<string, string> = {
@@ -173,7 +164,7 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Info className="h-5 w-5 text-blue-600" />
+                                <Info className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.engineReg")}
                             </CardTitle>
                         </CardHeader>
@@ -193,11 +184,11 @@ export default function TruckPreview() {
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.engineCap")}</span>
-                                    <span className="text-sm font-medium">{truck.engineCapacity ? `${truck.engineCapacity.toLocaleString()} cc` : "-"}</span>
+                                    <span className="text-sm font-medium">{truck.engineCapacity ? t("trucks.ui4.cc", { value: truck.engineCapacity.toLocaleString() }) : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.fuelCap")}</span>
-                                    <span className="text-sm font-medium">{truck.fuelCapacity ? `${truck.fuelCapacity.toLocaleString()} L` : "-"}</span>
+                                    <span className="text-sm font-medium">{truck.fuelCapacity ? t("trucks.ui4.liters", { value: truck.fuelCapacity.toLocaleString() }) : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.regDate")}</span>
@@ -216,12 +207,12 @@ export default function TruckPreview() {
                                     {(() => {
                                         const status = truck.taxRenewalStatus || 'pending';
                                         if (status === 'completed') {
-                                            return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">{t("trucks.detail.status.completed")}</Badge>;
+                                            return <Badge variant="success">{t("trucks.detail.status.completed")}</Badge>;
                                         }
                                         if (status === 'in_progress') {
-                                            return <Badge className="bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100">{t("trucks.detail.status.inProgress")}</Badge>;
+                                            return <Badge>{t("trucks.detail.status.inProgress")}</Badge>;
                                         }
-                                        return <Badge variant="outline" className="capitalize">{t("trucks.detail.status.pending")}</Badge>;
+                                        return <Badge variant="secondary">{t("trucks.detail.status.pending")}</Badge>;
                                     })()}
                                 </div>
                             </div>
@@ -232,7 +223,7 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Shield className="h-5 w-5 text-blue-600" />
+                                <Shield className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.insuranceDetails")}
                             </CardTitle>
                         </CardHeader>
@@ -248,11 +239,11 @@ export default function TruckPreview() {
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.insuranceType")}</span>
-                                    <span className="text-sm font-medium">{truck.insuranceType ? `Type ${truck.insuranceType}` : "-"}</span>
+                                    <span className="text-sm font-medium">{truck.insuranceType ? t(`trucks.insurance.type.${truck.insuranceType.replace("+", "_plus")}`) : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.premium")}</span>
-                                    <span className="text-sm font-medium">{truck.insurancePremiumThb ? `${truck.insurancePremiumThb.toLocaleString()} THB` : "-"}</span>
+                                    <span className="text-sm font-medium">{truck.insurancePremiumThb ? t("trucks.ui4.thb", { value: truck.insurancePremiumThb.toLocaleString() }) : "-"}</span>
                                 </div>
                                 <div className="flex justify-between py-2 border-b">
                                     <span className="text-sm text-muted-foreground">{t("trucks.detail.startDate")}</span>
@@ -267,12 +258,12 @@ export default function TruckPreview() {
                                     {(() => {
                                         const status = truck.insuranceRenewalStatus || 'pending';
                                         if (status === 'completed') {
-                                            return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">{t("trucks.detail.status.completed")}</Badge>;
+                                            return <Badge variant="success">{t("trucks.detail.status.completed")}</Badge>;
                                         }
                                         if (status === 'in_progress') {
-                                            return <Badge className="bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-100">{t("trucks.detail.status.inProgress")}</Badge>;
+                                            return <Badge>{t("trucks.detail.status.inProgress")}</Badge>;
                                         }
-                                        return <Badge variant="outline" className="capitalize">{t("trucks.detail.status.pending")}</Badge>;
+                                        return <Badge variant="secondary">{t("trucks.detail.status.pending")}</Badge>;
                                     })()}
                                 </div>
                             </div>
@@ -283,20 +274,20 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Shield className="h-5 w-5 text-blue-600" />
+                                <Shield className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.ownershipInfo")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="bg-muted/30 rounded-lg p-4 border flex items-start gap-4">
-                                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                    <Truck className="h-5 w-5 text-blue-600" />
+                                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                    <Truck className="h-5 w-5 text-primary" />
                                 </div>
                                 <div>
                                     <h4 className="text-sm font-semibold flex items-center gap-2">
                                         {truck.ownershipType === "subcontractor" ? t("trucks.detail.subcontractorFleet") : t("trucks.detail.ownFleet")}
                                         {truck.ownershipType === "subcontractor" && (
-                                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] h-5 px-1.5 rounded-sm">{t("trucks.detail.partner")}</Badge>
+                                            <Badge variant="secondary">{t("trucks.detail.partner")}</Badge>
                                         )}
                                     </h4>
                                     <p className="text-sm text-muted-foreground mt-1">
@@ -304,9 +295,13 @@ export default function TruckPreview() {
                                             ? `${t("trucks.detail.managedByPartner")} ${partnerName}`
                                             : t("trucks.detail.managedByInternal")}
                                     </p>
-                                    <Button variant="link" className="p-0 h-auto text-blue-600 mt-2 text-xs font-medium flex items-center gap-1">
-                                        {t("trucks.detail.viewPartner")} <ArrowLeft className="h-3 w-3 rotate-180" />
-                                    </Button>
+                                    {truck.ownershipType === "subcontractor" && truck.tenantId && routeAllowed(me?.capabilities ?? [], `/app/subcontractors/${truck.tenantId}`) && (
+                                        <Button asChild variant="link" className="p-0 h-auto mt-2 text-xs max-md:min-h-11 max-md:min-w-11">
+                                            <Link href={`/app/subcontractors/${truck.tenantId}`} prefetch={false}>
+                                                {t("trucks.detail.viewPartner")} <ArrowLeft className="h-3 w-3 rotate-180" aria-hidden />
+                                            </Link>
+                                        </Button>
+                                    )}
                                     </div>
                             </div>
                         </CardContent>
@@ -319,7 +314,7 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <MapPin className="h-5 w-5 text-blue-600" />
+                                <MapPin className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.currentAssignment")}
                             </CardTitle>
                         </CardHeader>
@@ -337,11 +332,11 @@ export default function TruckPreview() {
                                                     <>
                                                         <div className="relative mb-3">
                                                             <Avatar className="h-20 w-20 border-4 border-background shadow-sm">
-                                                                <AvatarFallback className="bg-blue-100 text-blue-600 font-bold text-xl">
+                                                                <AvatarFallback className="bg-primary/10 text-primary font-bold text-xl">
                                                                     {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
                                                                 </AvatarFallback>
                                                             </Avatar>
-                                                            <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-green-500 border-2 border-background"></span>
+                                                            <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full bg-muted border-2 border-background"></span>
                                                         </div>
                                                         <h3 className="text-lg font-bold">{assignment.driverName}</h3>
                                                         <p className="text-xs text-muted-foreground font-medium mb-4">
@@ -350,11 +345,11 @@ export default function TruckPreview() {
 
                                                         <div className="grid grid-cols-2 gap-4 w-full mb-6">
                                                             <div className="bg-muted/50 rounded p-2 text-center">
-                                                                <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">Status</p>
-                                                                <p className="text-xs font-semibold text-green-600">{t("trucks.detail.onDuty")}</p>
+                                                                <p className="text-xs text-muted-foreground font-bold mb-0.5">{t("trucks.ui4.status")}</p>
+                                                                <p className="text-xs font-semibold text-success">{t("trucks.detail.onDuty")}</p>
                                                             </div>
                                                             <div className="bg-muted/50 rounded p-2 text-center">
-                                                                <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider mb-0.5">{t("trucks.detail.action")}</p>
+                                                                <p className="text-xs text-muted-foreground font-bold mb-0.5">{t("trucks.detail.action")}</p>
                                                                 <p className="text-xs font-semibold">{t("trucks.detail.active")}</p>
                                                             </div>
                                                         </div>
@@ -365,7 +360,7 @@ export default function TruckPreview() {
                                                                     {t("trucks.detail.viewProfile")}
                                                                 </Link>
                                                             </Button>
-                                                            <Button className="w-full text-xs h-9 bg-red-50 text-red-600 hover:bg-red-100 border-red-100 shadow-none" asChild>
+                                                            <Button className="w-full text-xs h-9" asChild>
                                                                 <Link href="/app/truck-assignment" prefetch={false}>
                                                                     {t("trucks.detail.manage")}
                                                                 </Link>
@@ -376,13 +371,13 @@ export default function TruckPreview() {
                                                     <div className="w-full flex items-center justify-between p-2 rounded-lg bg-muted/30">
                                                         <div className="flex items-center gap-3">
                                                             <Avatar className="h-10 w-10 border-2 border-background shadow-sm">
-                                                                <AvatarFallback className="bg-blue-100 text-blue-600 font-bold text-sm">
+                                                                <AvatarFallback className="bg-primary/10 text-primary font-bold text-sm">
                                                                     {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
                                                                 </AvatarFallback>
                                                             </Avatar>
                                                             <div className="text-left">
                                                                 <p className="font-semibold text-sm">{assignment.driverName}</p>
-                                                                <p className="text-[10px] text-muted-foreground">{t("trucks.detail.assignedSince")}: {assignment.assignedAt ? new Date(assignment.assignedAt).toLocaleDateString() : '-'}</p>
+                                                                <p className="text-xs text-muted-foreground">{t("trucks.detail.assignedSince")}: {assignment.assignedAt ? new Date(assignment.assignedAt).toLocaleDateString() : '-'}</p>
                                                             </div>
                                                         </div>
                                                         <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
@@ -397,7 +392,7 @@ export default function TruckPreview() {
 
                                         {uniqueAssignments.length > 1 && (
                                             <div className="pt-2">
-                                                <Button className="w-full text-xs h-9 bg-blue-600 hover:bg-blue-700 text-white" asChild>
+                                                <Button className="w-full text-xs h-9" asChild>
                                                     <Link href="/app/truck-assignment" prefetch={false}>
                                                         {t("trucks.detail.manageAssignments")}
                                                     </Link>
@@ -412,7 +407,7 @@ export default function TruckPreview() {
                                         </div>
                                         <p className="text-sm font-medium mb-1">{t("trucks.detail.noDriver")}</p>
                                         <p className="text-xs text-muted-foreground mb-4">{t("trucks.detail.assignDriverDesc")}</p>
-                                        <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" asChild>
+                                        <Button className="w-full gap-2" asChild>
                                             <Link href="/app/truck-assignment" prefetch={false}>
                                                 <Plus className="h-4 w-4" />
                                                 {t("trucks.detail.assignDriver")}
@@ -428,7 +423,7 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Camera className="h-5 w-5 text-blue-600" />
+                                <Camera className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.photos")}
                             </CardTitle>
                             <span className="text-xs font-medium text-muted-foreground">{viewableFiles.filter((f: any) => f.type === 'image').length} {t("trucks.detail.photosCount")}</span>
@@ -441,7 +436,7 @@ export default function TruckPreview() {
                                         className="relative aspect-video rounded-md overflow-hidden bg-muted border cursor-pointer"
                                         onClick={() => handleFileClick(file.url)}
                                     >
-                                        <Image src={file.url} alt={file.label} fill className="object-cover hover:scale-105 transition-transform duration-300" />
+                                        <Image src={file.url} alt={file.label} fill className="object-cover transition-transform duration-300" />
                                     </div>
                                 ))}
                             </div>
@@ -452,7 +447,7 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <FileText className="h-5 w-5 text-blue-600" />
+                                <FileText className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.taxDoc")}
                             </CardTitle>
                         </CardHeader>
@@ -464,13 +459,13 @@ export default function TruckPreview() {
                                 >
                                     {isPdfUrl(documentTax) ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
-                                            <FileText className="h-12 w-12 text-blue-600 mb-2" />
-                                            <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewTaxDoc")}</span>
+                                            <FileText className="h-12 w-12 text-primary mb-2" />
+                                            <span className="text-sm font-medium text-primary">{t("trucks.detail.viewTaxDoc")}</span>
                                         </div>
                                     ) : (
                                         <Image
                                             src={documentTax}
-                                            alt="Tax Document"
+                                            alt={t("trucks.documents.tax")}
                                             fill
                                             className="object-cover"
                                         />
@@ -478,7 +473,7 @@ export default function TruckPreview() {
                                 </div>
                             ) : (
                                 <div className="flex items-center justify-center aspect-[4/3] rounded-md bg-muted/50">
-                                    <p className="text-sm text-red-500 font-medium">{t("masterData.trucks.noTaxDoc")}</p>
+                                    <p className="text-sm text-destructive font-medium">{t("masterData.trucks.noTaxDoc")}</p>
                                 </div>
                             )}
                         </CardContent>
@@ -488,7 +483,7 @@ export default function TruckPreview() {
                     <Card>
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Shield className="h-5 w-5 text-blue-600" />
+                                <Shield className="h-5 w-5 text-primary" />
                                 {t("trucks.detail.insuranceDoc")}
                             </CardTitle>
                         </CardHeader>
@@ -500,13 +495,13 @@ export default function TruckPreview() {
                                 >
                                     {isPdfUrl(insuranceDocuments[0]) ? (
                                         <div className="flex flex-col items-center justify-center h-full bg-muted">
-                                            <FileText className="h-12 w-12 text-blue-600 mb-2" />
-                                            <span className="text-sm font-medium text-blue-600">{t("trucks.detail.viewInsuranceDoc")}</span>
+                                            <FileText className="h-12 w-12 text-primary mb-2" />
+                                            <span className="text-sm font-medium text-primary">{t("trucks.detail.viewInsuranceDoc")}</span>
                                         </div>
                                     ) : (
                                         <Image
                                             src={insuranceDocuments[0]}
-                                            alt="Insurance Document"
+                                            alt={t("trucks.detail.insuranceDoc")}
                                             fill
                                             className="object-cover"
                                         />
@@ -514,7 +509,7 @@ export default function TruckPreview() {
                                 </div>
                             ) : (
                                 <div className="flex items-center justify-center aspect-[4/3] rounded-md bg-muted/50">
-                                    <p className="text-sm text-red-500 font-medium">{t("masterData.trucks.noInsuranceDoc")}</p>
+                                    <p className="text-sm text-destructive font-medium">{t("masterData.trucks.noInsuranceDoc")}</p>
                                 </div>
                             )}
                         </CardContent>

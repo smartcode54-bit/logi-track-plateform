@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, Copy, KeyRound } from "lucide-react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/context/language";
 
@@ -29,24 +30,26 @@ export function TemporaryPasswordNotice({ email, temporaryPassword }: TemporaryP
         }
     };
     return (
-        <div className="space-y-2 p-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20">
-            <p className="text-sm font-medium flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-amber-600" />
+        <Alert variant="warning" className="space-y-2">
+            <AlertTitle className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4" />
                 {t("masterData.drivers.login.created", { email })}
-            </p>
-            {temporaryPassword ? (
-                <>
-                    <div className="flex items-center gap-2">
-                        <code className="rounded bg-background px-2 py-1 font-mono text-sm select-all">{temporaryPassword}</code>
-                        <Button type="button" size="sm" variant="outline" onClick={copy} aria-label={t("masterData.drivers.login.copy")}>
-                            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                        </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{t("masterData.drivers.login.temporaryHint")}</p>
-                </>
-            ) : (
-                <p className="text-xs text-muted-foreground">{t("masterData.drivers.login.inviteSent")}</p>
-            )}
-        </div>
+            </AlertTitle>
+            <AlertDescription className="space-y-2">
+                {temporaryPassword ? (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <code className="rounded bg-background px-2 py-1 font-mono text-sm select-all">{temporaryPassword}</code>
+                            <Button type="button" size="sm" variant="outline" onClick={copy} aria-label={t("masterData.drivers.login.copy")}>
+                                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                        </div>
+                        <p className="text-xs">{t("masterData.drivers.login.temporaryHint")}</p>
+                    </>
+                ) : (
+                    <p className="text-xs">{t("masterData.drivers.login.inviteSent")}</p>
+                )}
+            </AlertDescription>
+        </Alert>
     );
 }

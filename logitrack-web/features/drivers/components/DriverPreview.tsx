@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { driverStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
 import { useDriver } from "@/features/drivers/api/useDrivers";
@@ -25,18 +26,13 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
 import { format } from "date-fns";
+import { th } from "date-fns/locale";
 import { useLanguage } from "@/context/language";
 
 function StatusBadge({ status }: { status: string }) {
     const { t } = useLanguage();
-    const styles = {
-        active: "bg-green-100 text-green-800 hover:bg-green-100",
-        inactive: "bg-gray-100 text-gray-800 hover:bg-gray-100",
-        on_duty: "bg-blue-100 text-blue-800 hover:bg-blue-100",
-    };
-    const statusKey = status as keyof typeof styles;
     return (
-        <Badge className={styles[statusKey] || styles.inactive} variant="outline">
+        <Badge variant={toneBadgeVariant(driverStatusTone(status))}>
             {t(`masterData.drivers.status.${status}`)}
         </Badge>
     );
@@ -45,7 +41,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function DriverPreview() {
     const searchParams = useSearchParams();
     const driverId = searchParams.get('id');
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
 
     const [isViewerOpen, setIsViewerOpen] = useState(false);
     const [viewerIndex, setViewerIndex] = useState(0);
@@ -60,8 +56,8 @@ export default function DriverPreview() {
     const formatDate = (date: Date | string | null | undefined) => {
         if (!date) return "-";
         try {
-            return format(new Date(date), "dd MMMM yyyy");
-        } catch (e) {
+            return format(new Date(date), "dd MMMM yyyy", { locale: language === "th" ? th : undefined });
+        } catch {
             return "-";
         }
     };
@@ -115,7 +111,7 @@ export default function DriverPreview() {
                             {t("drivers.detail.registered")} {formatDate(driver.createdAt)}
                         </span>
                         <span aria-hidden>•</span>
-                        <span>ID: <span className="font-mono">{driver.id?.substring(0, 8).toUpperCase() ?? "-"}</span></span>
+                        <span>{t("trucks.table.id")}: <span className="font-mono">{driver.id?.substring(0, 8).toUpperCase() ?? "-"}</span></span>
                     </span>
                 }
                 actions={
@@ -134,7 +130,7 @@ export default function DriverPreview() {
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <User className="h-5 w-5 text-blue-600" />
+                                <User className="h-5 w-5 text-primary" />
                                 {t("drivers.detail.personalInfo")}
                             </CardTitle>
                         </CardHeader>
@@ -169,7 +165,7 @@ export default function DriverPreview() {
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <Briefcase className="h-5 w-5 text-blue-600" />
+                                <Briefcase className="h-5 w-5 text-primary" />
                                 {t("drivers.detail.employmentDetails")}
                             </CardTitle>
                         </CardHeader>
@@ -185,7 +181,7 @@ export default function DriverPreview() {
                                 {driver.employmentType === 'subcontractor' && (
                                     <div className="flex justify-between py-2 border-b">
                                         <span className="text-sm text-muted-foreground">{t("drivers.detail.subcontractor")}</span>
-                                        <span className="text-sm font-medium text-blue-600">
+                                        <span className="text-sm font-medium text-primary">
                                             {driver.tenantNameTh || driver.tenantNameEn || driver.tenantId}
                                         </span>
                                     </div>
@@ -215,7 +211,7 @@ export default function DriverPreview() {
                             <Card>
                                 <CardHeader className="pb-3">
                                     <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                        <Building2 className="h-5 w-5 text-blue-600" />
+                                        <Building2 className="h-5 w-5 text-primary" />
                                         {t("drivers.detail.customerDriverIds")}
                                     </CardTitle>
                                     <p className="text-sm text-muted-foreground">{t("drivers.detail.customerDriverIdsDesc")}</p>
@@ -239,27 +235,27 @@ export default function DriverPreview() {
                     <Card>
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                                <FileText className="h-5 w-5 text-blue-600" />
+                                <FileText className="h-5 w-5 text-primary" />
                                 {t("drivers.detail.documents")}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.idCard")}</p>
+                                <p className="text-xs font-semibold text-muted-foreground">{t("drivers.detail.idCard")}</p>
                                 {idCardImage ? (
                                     <div
-                                        className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-blue-500 transition-all"
+                                        className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-border transition-all"
                                         onClick={() => handleFileClick(idCardImage)}
                                     >
                                         {idCardImage.toLowerCase().includes('.pdf') ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
-                                                <FileText className="h-10 w-10 text-red-500 mb-2" />
+                                                <FileText className="h-10 w-10 text-destructive mb-2" />
                                                 <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
                                             </div>
                                         ) : (
                                             <Image
                                                 src={idCardImage}
-                                                alt="ID Card"
+                                                alt={t("drivers.detail.idCard")}
                                                 fill
                                                 className="object-contain"
                                             />
@@ -273,21 +269,21 @@ export default function DriverPreview() {
                             </div>
 
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase">{t("drivers.detail.drivingLicense")}</p>
+                                <p className="text-xs font-semibold text-muted-foreground">{t("drivers.detail.drivingLicense")}</p>
                                 {truckLicenseImage ? (
                                     <div
-                                        className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-blue-500 transition-all"
+                                        className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted cursor-pointer border hover:border-border transition-all"
                                         onClick={() => handleFileClick(truckLicenseImage)}
                                     >
                                         {truckLicenseImage.toLowerCase().includes('.pdf') ? (
                                             <div className="flex flex-col items-center justify-center h-full bg-muted/50">
-                                                <FileText className="h-10 w-10 text-red-500 mb-2" />
+                                                <FileText className="h-10 w-10 text-destructive mb-2" />
                                                 <span className="text-xs font-medium text-muted-foreground">{t("drivers.detail.viewPdf")}</span>
                                             </div>
                                         ) : (
                                             <Image
                                                 src={truckLicenseImage}
-                                                alt="Driving License"
+                                                alt={t("drivers.detail.drivingLicense")}
                                                 fill
                                                 className="object-contain"
                                             />
@@ -314,7 +310,7 @@ export default function DriverPreview() {
                                 {profileImage ? (
                                     <Image src={profileImage} alt={driver.firstName} fill className="object-cover" />
                                 ) : (
-                                    <div className="h-full w-full bg-slate-100 flex items-center justify-center text-slate-300">
+                                    <div className="h-full w-full bg-muted flex items-center justify-center text-muted-foreground">
                                         <User className="h-20 w-20" />
                                     </div>
                                 )}
@@ -322,14 +318,22 @@ export default function DriverPreview() {
                             <h3 className="text-xl font-bold">{driver.firstName} {driver.lastName}</h3>
                             <p className="text-sm text-muted-foreground">{driver.email}</p>
                             <div className="flex gap-2 mt-4 w-full">
-                                <Button className="flex-1" variant="outline">
-                                    <Phone className="h-4 w-4 mr-2" />
-                                    {t("drivers.detail.call")}
-                                </Button>
-                                <Button className="flex-1" variant="outline">
-                                    <Mail className="h-4 w-4 mr-2" />
-                                    {t("drivers.detail.emailBtn")}
-                                </Button>
+                                {driver.mobile?.trim() && (
+                                    <Button asChild className="flex-1 max-md:min-h-11" variant="outline">
+                                        <a href={`tel:${driver.mobile}`}>
+                                            <Phone className="h-4 w-4 mr-2" aria-hidden />
+                                            {t("drivers.detail.call")}
+                                        </a>
+                                    </Button>
+                                )}
+                                {driver.email?.trim() && (
+                                    <Button asChild className="flex-1 max-md:min-h-11" variant="outline">
+                                        <a href={`mailto:${driver.email}`}>
+                                            <Mail className="h-4 w-4 mr-2" aria-hidden />
+                                            {t("drivers.detail.emailBtn")}
+                                        </a>
+                                    </Button>
+                                )}
                             </div>
                         </CardContent>
                     </Card>
@@ -353,10 +357,10 @@ export default function DriverPreview() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="w-[120px] text-xs">{t("drivers.detail.truck")}</TableHead>
-                                        <TableHead className="text-xs">{t("drivers.detail.start")}</TableHead>
-                                        <TableHead className="text-xs">{t("drivers.detail.end")}</TableHead>
-                                        <TableHead className="text-right text-xs">{t("drivers.table.status")}</TableHead>
+                                        <TableHead className="w-[120px]">{t("drivers.detail.truck")}</TableHead>
+                                        <TableHead>{t("drivers.detail.start")}</TableHead>
+                                        <TableHead>{t("drivers.detail.end")}</TableHead>
+                                        <TableHead className="text-right">{t("drivers.table.status")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -365,18 +369,17 @@ export default function DriverPreview() {
                                             <TableRow key={history.id}>
                                                 <TableCell>
                                                     <div className="font-medium text-xs">{history.truckPlate}</div>
-                                                    <div className="text-[10px] text-muted-foreground">{history.truckModel}</div>
+                                                    <div className="text-xs text-muted-foreground">{history.truckModel}</div>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
-                                                    {history.createdAt ? format(new Date(history.createdAt), "dd MMM yy") : "-"}
+                                                    {history.createdAt ? format(new Date(history.createdAt), "dd MMM yy", { locale: language === "th" ? th : undefined }) : "-"}
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
-                                                    {history.revokedAt ? format(new Date(history.revokedAt), "dd MMM yy") : "-"}
+                                                    {history.revokedAt ? format(new Date(history.revokedAt), "dd MMM yy", { locale: language === "th" ? th : undefined }) : "-"}
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <Badge
-                                                        variant="secondary"
-                                                        className={`text-[10px] px-1.5 h-5 ${history.status === "active" ? 'bg-green-100 text-green-600 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-100'}`}
+                                                        variant={toneBadgeVariant(driverStatusTone(history.status))}
                                                     >
                                                         {history.status === "active" ? t("drivers.detail.current") : t("drivers.detail.revoked")}
                                                     </Badge>

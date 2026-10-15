@@ -18,6 +18,7 @@ import { useCan } from "@/features/auth/api/useMe";
 import { ApiErrorAlert, formatDateTime, formatThb } from "@/features/accounting/components/go/shared";
 import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -76,14 +77,14 @@ export function TripDetailDialog({ row, onClose }: { row: MonitorRowDTO; onClose
                     </DialogHeader>
                     <ApiErrorAlert error={detail.error} />
                     {(incidents.data ?? []).map((inc) => (
-                        <div key={inc.id} className="space-y-1 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/20">
-                            <h4 className="text-sm font-semibold text-red-800 dark:text-red-400">{t("driverMonitor.detail.incidentReport")}</h4>
-                            <p className="text-xs text-red-700 dark:text-red-300">{inc.description ?? "—"}</p>
-                            <p className="text-xs font-medium text-red-800 dark:text-red-400">{incidentCause(inc.delayCause)} · {formatDateTime(inc.createdAt)}</p>
+                        <Alert key={inc.id} variant="destructive" className="space-y-1">
+                            <AlertTitle>{t("driverMonitor.detail.incidentReport")}</AlertTitle>
+                            <AlertDescription>{inc.description ?? "—"}</AlertDescription>
+                            <p className="text-xs font-medium text-destructive">{incidentCause(inc.delayCause)} · {formatDateTime(inc.createdAt)}</p>
                             <ImagePreviewGallery compact items={[inc.mapPhoto, inc.situation1Photo, inc.situation2Photo]
                                 .map((p, i) => (p?.url ? { url: p.url, label: [t("incidentReports.detail.locationSnapshot"), t("incidentReports.detail.situation1"), t("incidentReports.detail.situation2")][i] } : null))
                                 .filter((x): x is { url: string; label: string } => x !== null)} />
-                        </div>
+                        </Alert>
                     ))}
                     <div className="space-y-4 py-2">
                         <section className="space-y-2">

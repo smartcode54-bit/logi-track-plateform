@@ -92,11 +92,9 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
     const validateData = (data: any[]) => {
         const validated: ImportedTruck[] = data.map((row) => {
             const errors: string[] = [];
-            if (!row['License Plate']) errors.push("Missing License Plate");
-            if (!row['Province']) errors.push("Missing Province");
-            if (!row['Type']) errors.push("Missing Type");
-            if (!row['Brand']) errors.push("Missing Brand");
-            if (!row['Model']) errors.push("Missing Model");
+            for (const column of ['License Plate', 'Province', 'Type', 'Brand', 'Model']) {
+                if (!row[column]) errors.push(column);
+            }
 
             const normalizeType = (val: any): string => {
                 const type = val?.toString().toUpperCase() || "";
@@ -252,18 +250,18 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
                                 </TableHeader>
                                 <TableBody>
                                     {importedData.map((truck, index) => (
-                                        <TableRow key={index} className={!truck.isValid ? "bg-red-50" : ""}>
+                                        <TableRow key={index} className={!truck.isValid ? "bg-muted" : ""}>
                                             <TableCell>
                                                 {truck.isValid ? (
-                                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                                    <CheckCircle className="h-4 w-4 text-success" />
                                                 ) : (
                                                     <TooltipProvider>
                                                         <Tooltip>
                                                              <TooltipTrigger asChild>
-                                                                <AlertCircle className="h-4 w-4 text-red-500" />
+                                                                <AlertCircle className="h-4 w-4 text-destructive" />
                                                             </TooltipTrigger>
                                                             <TooltipContent>
-                                                                <p>{truck.errors.join(", ")}</p>
+                                                                <p>{truck.errors.map((column) => t("trucks.ui4.missingImportField", { column })).join(", ")}</p>
                                                             </TooltipContent>
                                                         </Tooltip>
                                                     </TooltipProvider>
@@ -272,19 +270,19 @@ export function TruckImportDialog({ setOpen }: LazyDialogControl) {
                                             </TableCell>
                                             <TableCell className="font-medium">
                                                 {truck.licensePlate}
-                                                <div className="text-[10px] text-muted-foreground">{truck.province}</div>
+                                                <div className="text-xs text-muted-foreground">{truck.province}</div>
                                             </TableCell>
                                             <TableCell>
                                                 {truck.brand} {truck.model}
-                                                <div className="text-[10px] text-muted-foreground">{truck.color} {truck.year}</div>
+                                                <div className="text-xs text-muted-foreground">{truck.color} {truck.year}</div>
                                             </TableCell>
                                             <TableCell className="hidden md:table-cell text-xs">
-                                                <div>VIN: {truck.vin || "-"}</div>
-                                                <div>Eng: {truck.engineNumber || "-"}</div>
+                                                <div>{t("trucks.section.vin")}: {truck.vin || "-"}</div>
+                                                <div>{t("trucks.section.engineNumber")}: {truck.engineNumber || "-"}</div>
                                             </TableCell>
                                             <TableCell>{truck.type}</TableCell>
                                             <TableCell>
-                                                <Badge variant="outline" className="text-[10px]">{truck.truckStatus}</Badge>
+                                                <Badge variant="outline" className="text-xs">{truck.truckStatus}</Badge>
                                             </TableCell>
                                             <TableCell className="text-xs capitalize">{truck.ownershipType}</TableCell>
                                         </TableRow>

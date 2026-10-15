@@ -131,14 +131,14 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
     };
 
     return (
-        <Card className="border-t-4 border-t-primary/20 shadow-md">
+        <Card className="border-t-primary/20 shadow-md">
             <CardHeader className="pb-4">
                 <div className="flex justify-between items-start">
                     <div>
                         <CardTitle className="text-xl flex items-center gap-2">
                             {type === 'tax' ? t("renewals.form.card.taxTitle") : t("renewals.form.card.insuranceTitle")}
-                            {status === 'completed' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
-                            {status === 'in_progress' && <Clock className="h-5 w-5 text-yellow-500" />}
+                            {status === 'completed' && <CheckCircle2 className="h-5 w-5 text-success" />}
+                            {status === 'in_progress' && <Clock className="h-5 w-5 text-warning" />}
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {t("renewals.form.card.currentExpiry")}: <span className="font-semibold text-foreground">
@@ -147,8 +147,8 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                         </CardDescription>
                     </div>
                     <div>
-                        <Badge variant={status === 'completed' ? 'default' : status === 'in_progress' ? 'secondary' : 'outline'} className="capitalize">
-                            {status === 'in_progress' ? t("renewals.form.status.inProgress") : (status?.replace('_', ' ') || 'Pending')}
+                        <Badge variant={status === 'completed' ? 'success' : status === 'in_progress' ? 'default' : 'secondary'}>
+                            {status === 'in_progress' ? t("renewals.form.status.inProgress") : (status === "completed" ? t("trucks.detail.status.completed") : t("trucks.detail.status.pending"))}
                         </Badge>
                     </div>
                 </div>
@@ -322,7 +322,7 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => setUploadedDocs([])}
-                                            className="text-red-500 hover:text-red-600 hover:bg-red-50 h-7 px-2 text-xs"
+                                            className="text-destructive hover:text-destructive hover:bg-muted h-7 px-2 text-xs"
                                         >
                                             {t("renewals.form.resetAll")}
                                         </Button>
@@ -334,15 +334,15 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                         return (
                                         <div
                                             key={index}
-                                            className="relative aspect-[4/3] rounded-lg border-2 border-blue-500/50 bg-muted/30 flex flex-col items-center justify-center gap-2 group"
+                                            className="relative aspect-[4/3] rounded-lg border-2 border-border bg-muted/30 flex flex-col items-center justify-center gap-2 group"
                                         >
-                                            <FileText className="h-10 w-10 text-blue-500" />
+                                            <FileText className="h-10 w-10 text-primary" />
                                             {docUrl ? (
                                                 <a
                                                     href={docUrl}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="text-sm text-blue-500 hover:underline"
+                                                    className="text-sm text-primary hover:underline"
                                                 >
                                                     {t("masterData.trucks.documentN", { n: index + 1 })}
                                                 </a>
@@ -351,13 +351,16 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                                     {t("masterData.trucks.documentN", { n: index + 1 })} · {t("masterData.files.unavailable")}
                                                 </span>
                                             )}
-                                            <button
+                                            <Button
                                                 type="button"
+                                                variant="destructive"
+                                                size="icon"
+                                                aria-label={t("common.removeFile")}
                                                 onClick={() => removeDoc(index)}
-                                                className="absolute top-2 right-2 h-6 w-6 rounded-full bg-red-500 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                                className="absolute top-2 right-2 h-8 w-8"
                                             >
                                                 ×
-                                            </button>
+                                            </Button>
                                         </div>
                                         );
                                     })}
@@ -391,10 +394,10 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
                                 <div className="flex-1">
                                     {existingFileUrl ? (
                                         <div className="flex items-center gap-3 p-3 border rounded-md bg-muted/20">
-                                            <FileText className="h-8 w-8 text-blue-500" />
+                                            <FileText className="h-8 w-8 text-primary" />
                                             <div className="flex-1 overflow-hidden">
-                                                <p className="text-sm font-medium truncate">Uploaded Document</p>
-                                                <a href={existingFileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                                                <p className="text-sm font-medium truncate">{t("trucks.ui4.uploadedDocument")}</p>
+                                                <a href={existingFileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">
                                                     {t("renewals.form.upload.view")}
                                                 </a>
                                             </div>
@@ -445,7 +448,6 @@ export function RenewalForm({ type, truck, onSuccess }: RenewalFormProps) {
 
                         <Button
                             type="button"
-                            className="bg-green-600 hover:bg-green-700 text-white"
                             onClick={(e) => handleSave(e, 'completed')}
                             disabled={isSubmitting || !expiryDate || (type === 'tax' && !existingFileUrl && !selectedFile)}
                         >

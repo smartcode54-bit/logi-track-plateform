@@ -157,15 +157,14 @@ export default function TruckAssignmentPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.totalTrucks')}</p>
+                                <p className="text-xs font-semibold text-muted-foreground">{t('assignments.totalTrucks')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {isLoading ? "-" : stats.totalTrucks}
                                     </span>
-                                    <span className="text-xs font-medium text-green-500">~+5%</span>
                                 </div>
                             </div>
-                            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
+                            <div className="p-2 bg-primary/10 rounded-lg text-primary transition-transform">
                                 <Truck className="h-5 w-5" />
                             </div>
                         </div>
@@ -176,15 +175,14 @@ export default function TruckAssignmentPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.availableDrivers')}</p>
+                                <p className="text-xs font-semibold text-muted-foreground">{t('assignments.availableDrivers')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {isLoading ? "-" : stats.availableDrivers}
                                     </span>
-                                    <span className="text-xs font-medium text-orange-500">↘-2%</span>
                                 </div>
                             </div>
-                            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
+                            <div className="p-2 bg-primary/10 rounded-lg text-primary transition-transform">
                                 <User className="h-5 w-5" />
                             </div>
                         </div>
@@ -195,15 +193,14 @@ export default function TruckAssignmentPage() {
                     <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('assignments.activeAssignments')}</p>
+                                <p className="text-xs font-semibold text-muted-foreground">{t('assignments.activeAssignments')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
                                         {isLoading ? "-" : stats.activeAssignments}
                                     </span>
-                                    <span className="text-xs font-medium text-green-500">~+12%</span>
                                 </div>
                             </div>
-                            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
+                            <div className="p-2 bg-primary/10 rounded-lg text-primary transition-transform">
                                 <ClipboardList className="h-5 w-5" />
                             </div>
                         </div>
@@ -215,7 +212,7 @@ export default function TruckAssignmentPage() {
             <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
                 <div className="p-6 border-b border-border/50">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <ArrowRight className="h-4 w-4 text-blue-500" />
+                        <ArrowRight className="h-4 w-4 text-primary" />
                         {t('assignments.new')}
                     </h2>
                 </div>
@@ -253,7 +250,7 @@ export default function TruckAssignmentPage() {
 
                         {/* Arrow */}
                         <div className="hidden lg:flex items-center justify-center pt-8">
-                            <div className="h-10 w-10 rounded-full bg-blue-600/10 text-blue-500 flex items-center justify-center">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center">
                                 <ArrowRight className="h-5 w-5" />
                             </div>
                         </div>
@@ -293,7 +290,7 @@ export default function TruckAssignmentPage() {
                         <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-sm">
                             <Button
                                 size="lg"
-                                className="w-full sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-900/20 h-12 text-base font-semibold"
+                                className="w-full sm:flex-1 h-12 text-base font-semibold"
                                 onClick={handleDeploy}
                                 disabled={isSubmitting}
                             >
@@ -303,7 +300,7 @@ export default function TruckAssignmentPage() {
                                 type="button"
                                 variant="outline"
                                 size="lg"
-                                className="w-full sm:w-auto h-12 text-base border-border/50 bg-background/50 hover:bg-muted/50"
+                                className="w-full sm:w-auto h-12 text-base"
                                 onClick={() => {
                                     setSelectedDriver(null);
                                     setSelectedTruck(null);
@@ -314,13 +311,7 @@ export default function TruckAssignmentPage() {
                                 {t('assignments.resetForm')}
                             </Button>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                            </span>
-                            {t('assignments.syncing')}
-                        </div>
+
                     </div>
                 </div>
             </div>

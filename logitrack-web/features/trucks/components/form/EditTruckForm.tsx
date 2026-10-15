@@ -11,10 +11,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
     Form,
-    FormControl,
     FormField,
     FormItem,
-    FormLabel,
     FormMessage,
 } from "@/components/ui/form";
 import { useLanguage } from "@/context/language";
@@ -44,30 +42,8 @@ import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcon
 import { carrierName } from "@/features/subcontractors/api/subcontractors";
 import { applyServerFieldErrors } from "@/lib/formServerErrors";
 import { apiErrorText } from "@/lib/apiError";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
-
-function SubcontractorSelector({ value, onChange, disabled }: { value?: string, onChange: (val: string) => void, disabled?: boolean }) {
-    const { t } = useLanguage();
-    // `['subcontractors','options']` (T25): one cached list for every truck and driver form.
-    const { options: subs } = useSubcontractorOptions();
-
-    return (
-        <Select onValueChange={onChange} value={value || ""} disabled={disabled}>
-            <FormControl>
-                <SelectTrigger>
-                    <SelectValue placeholder={t("trucks.edit.selectSubcontractor")} />
-                </SelectTrigger>
-            </FormControl>
-            <SelectContent>
-                {subs.map(sub => (
-                    <SelectItem key={sub.id} value={sub.id}>{carrierName(sub)}</SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    );
-}
 
 export default function EditTruckForm() {
     const router = useRouter();
@@ -82,6 +58,7 @@ export default function EditTruckForm() {
     const currentUser = authContext?.currentUser ?? null;
     // `['trucks','detail',id]` (T25); a truck's tenant (ownership) is fixed after creation.
     const truckQuery = useTruck(truckId ?? "");
+    const { options: subcontractors } = useSubcontractorOptions(truckQuery.data?.ownershipType === "subcontractor");
     const { update } = useTruckWrites();
     const isSubmitting = update.isPending;
     // The loaded truck's file refs (keys) and their preview URLs: the form holds refs, so a stored file
@@ -168,58 +145,21 @@ export default function EditTruckForm() {
                         <div className="bg-card border rounded-lg p-6">
                             <h3 className="text-lg font-medium mb-4">{t("trucks.edit.ownership")}</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <FormField
-                                    control={form.control}
-                                    name="ownershipType"
-                                    render={({ field }) => (
-                                        <FormItem className="space-y-3">
-                                            <FormLabel>{t("trucks.edit.ownershipType")}</FormLabel>
-                                            <FormControl>
-                                                <div className="flex gap-4">
-                                                    <Button
-                                                        type="button"
-                                                        disabled
-                                                        variant={field.value === "own" ? "default" : "outline"}
-                                                        onClick={() => {
-                                                            field.onChange("own");
-                                                            form.setValue("subcontractorId", "");
-                                                        }}
-                                                        className="flex-1"
-                                                    >
-                                                        {t("trucks.detail.ownFleet")}
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        disabled
-                                                        variant={field.value === "subcontractor" ? "default" : "outline"}
-                                                        onClick={() => field.onChange("subcontractor")}
-                                                        className="flex-1"
-                                                    >
-                                                        {t("trucks.detail.subcontractorFleet")}
-                                                    </Button>
-                                                </div>
-                                            </FormControl>
-                                            <p className="text-xs text-muted-foreground">{t("masterData.trucks.ownershipFixed")}</p>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                {form.watch("ownershipType") === "subcontractor" && (
-                                    <FormField
-                                        control={form.control}
-                                        name="subcontractorId"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>{t("trucks.edit.subcontractorRequired")}</FormLabel>
-                                                <SubcontractorSelector
-                                                    value={field.value}
-                                                    onChange={field.onChange}
-                                                    disabled
-                                                />
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
+                                <div className="space-y-2">
+                                    <p className="text-sm font-medium">{t("trucks.edit.ownershipType")}</p>
+                                    <p className="text-sm">{truckQuery.data?.ownershipType === "subcontractor" ? t("trucks.detail.subcontractorFleet") : t("trucks.detail.ownFleet")}</p>
+                                    <p className="text-xs text-muted-foreground">{t("masterData.trucks.ownershipFixed")}</p>
+                                    <FormField control={form.control} name="ownershipType" render={() => <FormItem><FormMessage /></FormItem>} />
+                                </div>
+                                {truckQuery.data?.ownershipType === "subcontractor" && (
+                                    <div className="space-y-2">
+                                        <p className="text-sm font-medium">{t("trucks.edit.subcontractorRequired")}</p>
+                                        <p className="text-sm">{(() => {
+                                            const partner = subcontractors.find((sub) => sub.id === truckQuery.data?.tenantId);
+                                            return partner ? carrierName(partner) : truckQuery.data?.tenantId || "-";
+                                        })()}</p>
+                                        <FormField control={form.control} name="subcontractorId" render={() => <FormItem><FormMessage /></FormItem>} />
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -232,7 +172,7 @@ export default function EditTruckForm() {
                         <InsuranceSection onFileSelect={handleFileSelect} previewOf={previewOf} />
                         <PhotosSection onFileSelect={handleFileSelect} previewOf={previewOf} />
 
-                        <div className="flex justify-end gap-4">
+                        <div data-form-action-bar className="sticky bottom-0 z-sticky flex flex-col gap-3 border-t border-border bg-background p-4 md:flex-row md:justify-end">
                             <Button type="button" variant="outline" asChild>
                                 <Link href={`/app/trucks/view?id=${truckId}`} prefetch={false}>{t("trucks.edit.cancel")}</Link>
                             </Button>

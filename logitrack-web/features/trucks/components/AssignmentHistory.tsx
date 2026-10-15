@@ -26,7 +26,6 @@ export const HISTORY_ROW_HEIGHT = 57;
  * `422 q too_long`). `maxLength` counts UTF-16 units and Go counts characters, so this never sends more.
  */
 export const ASSIGNMENT_SEARCH_MAX = 100;
-const HEAD = "text-xs font-semibold tracking-wider text-muted-foreground uppercase";
 
 interface AssignmentHistoryProps {
     /** Opens the page's revoke dialog for an active row. */
@@ -56,44 +55,42 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                     const at = info.getValue();
                     return at ? new Date(at).toLocaleString() : "-";
                 },
-                meta: { headerClassName: `${HEAD} pl-6`, cellClassName: "pl-6 font-medium text-foreground/80 py-4" },
+                meta: { headerClassName: "pl-6", cellClassName: "pl-6 font-medium text-foreground/80 py-4" },
             }),
             column.accessor("driverName", {
                 header: () => t("assignments.table.driver"),
                 cell: (info) => (
                     <div className="flex items-center gap-3">
-                        <div className="h-7 w-7 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center text-xs font-bold ring-2 ring-background">
+                        <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold ring-2 ring-background">
                             {(info.getValue() || "UK").substring(0, 2).toUpperCase()}
                         </div>
                         {info.getValue()}
                     </div>
                 ),
-                meta: { headerClassName: HEAD },
             }),
             column.display({
                 id: "vehicle",
                 header: () => t("assignments.table.vehicle"),
                 cell: ({ row }) => `${row.original.truckModel ?? ""} (${row.original.truckPlate ?? ""})`,
-                meta: { headerClassName: HEAD, cellClassName: "text-foreground/80" },
+                meta: { cellClassName: "text-foreground/80" },
             }),
             column.accessor("adminLabel", {
                 header: () => t("assignments.table.admin"),
                 cell: (info) => info.getValue() ?? "-",
-                meta: { headerClassName: HEAD, cellClassName: "text-muted-foreground" },
+                meta: { cellClassName: "text-muted-foreground" },
             }),
             column.accessor("status", {
                 header: () => t("assignments.table.status"),
                 cell: (info) =>
                     info.getValue() === "active" ? (
-                        <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20 border-green-500/20 shadow-none uppercase text-[10px] tracking-wider px-2 py-0.5">
+                        <Badge variant="success">
                             {t("assignments.status.active")}
                         </Badge>
                     ) : (
-                        <Badge variant="secondary" className="bg-muted text-muted-foreground uppercase text-[10px] tracking-wider px-2 py-0.5">
+                        <Badge variant="secondary">
                             {t("assignments.status.revoked")}
                         </Badge>
                     ),
-                meta: { headerClassName: HEAD },
             }),
             column.display({
                 id: "actions",
@@ -101,7 +98,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                 cell: ({ row }) => (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button aria-label={t("common.actionsForRow")} variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted">
+                            <Button aria-label={t("common.actionsForRow")} variant="ghost" size="icon" className="h-8 w-8">
                                 <MoreHorizontal className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>
@@ -117,7 +114,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                         </DropdownMenuContent>
                     </DropdownMenu>
                 ),
-                meta: { headerClassName: `${HEAD} text-right pr-6`, cellClassName: "text-right pr-6" },
+                meta: { headerClassName: "text-right pr-6", cellClassName: "text-right pr-6" },
             }),
         ],
         [t, onRevoke]
@@ -127,7 +124,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
         <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
             <div className="p-6 border-b border-border/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Settings className="h-4 w-4 text-blue-500" />
+                    <Settings className="h-4 w-4 text-primary" />
                     {t("assignments.history")}
                 </h2>
                 <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
@@ -152,9 +149,6 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                             <SelectItem value="revoked">{t("assignments.status.revoked")}</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="sm" className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10">
-                        {t("assignments.downloadCsv")}
-                    </Button>
                 </div>
             </div>
             <VirtualTable

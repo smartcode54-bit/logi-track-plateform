@@ -135,7 +135,7 @@ export default function CustomerDetail() {
                                     <span className="text-sm text-muted-foreground w-40 shrink-0 flex items-center gap-1">
                                         <Mail className="h-3 w-3" />{t("customers.detail.billing.billingEmail")}
                                     </span>
-                                    <a href={`mailto:${customer.billingEmail}`} className="text-sm font-medium text-blue-500 hover:underline">
+                                    <a href={`mailto:${customer.billingEmail}`} className="text-sm font-medium text-primary hover:underline">
                                         {customer.billingEmail}
                                     </a>
                                 </div>

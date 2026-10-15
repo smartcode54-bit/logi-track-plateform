@@ -13,6 +13,7 @@ import type { CreateUserResult } from "@/features/users/api/users";
 import { TemporaryPasswordNotice } from "./TemporaryPasswordNotice";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -40,6 +41,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
+import { DriverBirthDatePicker } from "./DriverBirthDatePicker";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
@@ -202,7 +204,7 @@ export default function NewDriverForm() {
                 />
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex min-w-0 flex-1">
                 {/* Sidebar */}
                 <div className="w-64 border-r bg-muted/30 p-6 hidden md:block overflow-y-auto">
                     <div className="space-y-6">
@@ -232,8 +234,8 @@ export default function NewDriverForm() {
                 </div>
 
                 {/* Main Content */}
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 relative">
-                    <div className="max-w-3xl mx-auto pb-24">
+                <div className="min-w-0 flex-1 p-4 md:p-8">
+                    <div className="max-w-3xl mx-auto pb-8">
                         <Form {...form}>
                             <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
 
@@ -246,9 +248,9 @@ export default function NewDriverForm() {
                                                 {/* Profile Image */}
                                                 <div className="flex justify-center mb-6">
                                                     <div className="relative group">
-                                                        <div className="w-32 h-32 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 relative">
+                                                        <div className="w-32 h-32 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-muted relative">
                                                             {imagePreview ? (
-                                                                <Image src={imagePreview} alt="Preview" fill className="object-cover" />
+                                                                <Image src={imagePreview} alt={t("drivers.detail.profilePhoto")} fill className="object-cover" />
                                                             ) : (
                                                                 <label htmlFor="p-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                                                                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
@@ -258,29 +260,29 @@ export default function NewDriverForm() {
                                                             <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                                                         </div>
                                                         {imagePreview && (
-                                                            <button aria-label={t("common.removePhoto")} type="button" onClick={removeImage} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-sm">
+                                                            <Button aria-label={t("common.removePhoto")} type="button" variant="destructive" size="icon" onClick={removeImage} className="absolute -top-1 -right-1 h-8 w-8">
                                                                 <X className="h-4 w-4" />
-                                                            </button>
+                                                            </Button>
                                                         )}
                                                     </div>
                                                 </div>
 
                                                 <div className="grid md:grid-cols-2 gap-6">
                                                     <FormField control={form.control} name="firstName" render={({ field }) => (
-                                                        <FormItem><FormLabel>{t("drivers.form.firstName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.firstName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.firstName")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.firstName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                     <FormField control={form.control} name="lastName" render={({ field }) => (
-                                                        <FormItem><FormLabel>{t("drivers.form.lastName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.lastName")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                 </div>
 
                                                 <FormField control={form.control} name="fullNameTh" render={({ field }) => (
-                                                    <FormItem><FormLabel>{t("drivers.form.fullNameTh")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.fullNameTh.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                                    <FormItem><FormLabel>{t("drivers.form.fullNameTh")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.fullNameTh.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                 )} />
 
                                                 <div className="grid md:grid-cols-2 gap-6">
                                                     <FormField control={form.control} name="mobile" render={({ field }) => (
-                                                        <FormItem><FormLabel>{t("drivers.form.mobile")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.mobile.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.mobile")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.mobile.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                     <FormField control={form.control} name="email" render={({ field }) => (
                                                         <FormItem><FormLabel>{t("drivers.form.email")}</FormLabel><FormControl><Input placeholder={t("drivers.form.email.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
@@ -292,13 +294,12 @@ export default function NewDriverForm() {
                                                     const minDate = new Date(); minDate.setFullYear(minDate.getFullYear() - 55);
                                                     return (
                                                         <FormItem>
-                                                            <FormLabel>{t("drivers.form.birthDate")} <span className="text-red-500">*</span></FormLabel>
-                                                            <DatePicker
+                                                            <FormLabel>{t("drivers.form.birthDate")} <RequiredMark /></FormLabel>
+                                                            <DriverBirthDatePicker
                                                                 value={field.value}
                                                                 onChange={field.onChange}
-                                                                fromYear={minDate.getFullYear()}
-                                                                toYear={maxDate.getFullYear()}
-                                                                disabled={(d: Date) => d > maxDate || d < minDate}
+                                                                minDate={minDate}
+                                                                maxDate={maxDate}
                                                             />
                                                             <FormMessage />
                                                         </FormItem>
@@ -315,10 +316,10 @@ export default function NewDriverForm() {
                                         <Card className="border-none shadow-sm">
                                             <CardHeader><CardTitle>{t("drivers.form.identityDocs")}</CardTitle></CardHeader>
                                             <CardContent className="space-y-6">
-                                                <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50 space-y-4">
+                                                <div className="p-4 border rounded-lg bg-muted space-y-4">
                                                     <h3 className="font-semibold flex items-center gap-2"><User className="h-4 w-4" /> {t("drivers.form.nationalIdCard")}</h3>
                                                     <FormField control={form.control} name="idCard" render={({ field }) => (
-                                                        <FormItem><FormLabel>{t("drivers.form.idNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.idNumber.placeholder")} maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
+                                                        <FormItem><FormLabel>{t("drivers.form.idNumber")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.idNumber.placeholder")} maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
                                                     )} />
                                                     <div className="grid md:grid-cols-2 gap-4">
                                                         <FormField control={form.control} name="idCardExpiredDate" render={({ field }) => (
@@ -328,17 +329,17 @@ export default function NewDriverForm() {
                                                             <FormLabel>{t("drivers.form.uploadImage")}</FormLabel>
                                                             <div className="flex items-center gap-2">
                                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setIdCardFile(f); }} />
-                                                                {idCardFile && <FileText className="text-green-600 h-5 w-5" />}
+                                                                {idCardFile && <FileText className="text-success h-5 w-5" />}
                                                             </div>
                                                         </FormItem>
                                                     </div>
                                                 </div>
 
-                                                <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50 space-y-4">
+                                                <div className="p-4 border rounded-lg bg-muted space-y-4">
                                                     <h3 className="font-semibold flex items-center gap-2"><Truck className="h-4 w-4" /> {t("drivers.form.drivingLicense")}</h3>
                                                     <div className="grid md:grid-cols-2 gap-4">
                                                         <FormField control={form.control} name="truckLicenseId" render={({ field }) => (
-                                                            <FormItem><FormLabel>{t("drivers.form.licenseNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.licenseNumber.placeholder")} maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
+                                                            <FormItem><FormLabel>{t("drivers.form.licenseNumber")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.licenseNumber.placeholder")} maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
                                                         )} />
                                                         <FormField control={form.control} name="licenseType" render={({ field }) => (
                                                             <FormItem>
@@ -368,7 +369,7 @@ export default function NewDriverForm() {
                                                             <FormLabel>{t("drivers.form.uploadImage")}</FormLabel>
                                                             <div className="flex items-center gap-2">
                                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setTruckLicenseFile(f); }} />
-                                                                {truckLicenseFile && <FileText className="text-green-600 h-5 w-5" />}
+                                                                {truckLicenseFile && <FileText className="text-success h-5 w-5" />}
                                                             </div>
                                                         </FormItem>
                                                     </div>
@@ -466,7 +467,7 @@ export default function NewDriverForm() {
                                                             <span className="font-medium text-foreground">{watchedEmail}</span>
                                                         </div>
                                                     ) : (
-                                                        <p className="text-sm text-amber-600 flex items-center gap-1">
+                                                        <p className="text-sm text-warning flex items-center gap-1">
                                                             ⚠ {t("drivers.form.loginAccount.emailMissing")}
                                                         </p>
                                                     )}
@@ -497,8 +498,8 @@ export default function NewDriverForm() {
                                                     <span className="text-muted-foreground">{t("drivers.form.reviewEmployment")}</span>
                                                     <span className="font-medium text-right">{form.getValues("employmentType")}</span>
                                                 </div>
-                                                <div className="flex gap-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-                                                    <CheckCircle2 className="h-4 w-4 text-blue-500" />
+                                                <div className="flex gap-2 text-sm text-muted-foreground bg-primary/10 p-3 rounded-md">
+                                                    <CheckCircle2 className="h-4 w-4 text-primary" />
                                                     <span>{t("drivers.form.auditNote")}</span>
                                                 </div>
                                             </CardContent>
@@ -511,11 +512,11 @@ export default function NewDriverForm() {
                     </div>
 
                     {/* Footer */}
-                    <div className="absolute bottom-0 right-0 left-0 p-4 border-t bg-background/80 backdrop-blur-sm flex justify-between items-center z-20">
+                    <div data-form-action-bar className="sticky bottom-0 z-sticky flex flex-col gap-3 border-t border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
                         <Button type="button" variant="outline" onClick={currentStep === 1 ? () => router.push('/app/drivers') : prevStep} className="bg-background">
                             {currentStep === 1 ? t("drivers.form.cancel") : t("drivers.form.back")}
                         </Button>
-                        <Button type="button" className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]" onClick={currentStep === 4 ? form.handleSubmit(onSubmit, createInvalidHandler(form, t)) : nextStep} disabled={isSubmitting}>
+                        <Button type="button" className="min-w-[140px]" onClick={currentStep === 4 ? form.handleSubmit(onSubmit, createInvalidHandler(form, t)) : nextStep} disabled={isSubmitting}>
                             {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("drivers.form.saving")}</> : currentStep === 4 ? t("drivers.form.completeRegistration") : t("drivers.form.nextStep")}
                         </Button>
                     </div>

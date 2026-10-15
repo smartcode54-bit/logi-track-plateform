@@ -47,7 +47,7 @@ export default function NewTruckWizard() {
         mode: "onChange",
     });
 
-    const { trigger, handleSubmit, watch, setValue } = methods;
+    const { trigger, handleSubmit, watch } = methods;
     const ownershipType = watch("ownershipType");
 
     // Handle File Selection (Passed down to steps)
@@ -118,7 +118,7 @@ export default function NewTruckWizard() {
                     />
                 </div>
 
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex min-w-0 flex-1">
                     <div className="w-64 border-r bg-muted/30 p-6 hidden md:block overflow-y-auto">
                         <div className="space-y-6">
                             {STEPS.map((step) => {
@@ -146,12 +146,12 @@ export default function NewTruckWizard() {
                             })}
                         </div>
 
-                        <div className="mt-8 p-4 bg-blue-950/20 border border-blue-900/30 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2 text-blue-400">
+                        <div className="mt-8 p-4 bg-primary/10 border border-border rounded-lg">
+                            <div className="flex items-center gap-2 mb-2 text-primary">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                                     <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
                                 </svg>
-                                <span className="text-xs font-bold uppercase tracking-wider">{t("trucks.wizard.tips")}</span>
+                                <span className="text-xs font-bold">{t("trucks.wizard.tips")}</span>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
                                 {t("trucks.wizard.tips.vin")}
@@ -159,8 +159,8 @@ export default function NewTruckWizard() {
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-8 relative">
-                        <div className="max-w-3xl mx-auto pb-24">
+                    <div className="min-w-0 flex-1 p-4 md:p-8">
+                        <div className="max-w-3xl mx-auto pb-8">
                             <form onSubmit={handleSubmit(onSubmit as any, createInvalidHandler(methods, t))}>
                                 {currentStep === 1 && <Step1Specs onFileSelect={handleFileSelect} />}
                                 {currentStep === 2 && <Step2Compliance onFileSelect={handleFileSelect} />}
@@ -169,7 +169,7 @@ export default function NewTruckWizard() {
                             </form>
                         </div>
 
-                        <div className="fixed bottom-0 right-0 left-0 md:left-64 p-4 border-t bg-background/80 backdrop-blur-sm flex justify-between items-center z-20">
+                        <div data-form-action-bar className="sticky bottom-0 z-sticky flex flex-col gap-3 border-t border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
                             <Button
                                 type="button"
                                 variant="outline"
@@ -180,7 +180,7 @@ export default function NewTruckWizard() {
 
                             <Button
                                 type="button"
-                                className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
+                                className="min-w-[140px]"
                                 onClick={currentStep === 4 ? handleSubmit(onSubmit as any, createInvalidHandler(methods, t)) : nextStep}
                                 disabled={isSubmitting}
                             >

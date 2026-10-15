@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useRenewals } from "@/features/trucks/api/useTrucks";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { toneBadgeVariant } from "@/lib/statusPresentation";
+import { th } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MoreHorizontal, Truck, AlertTriangle, CheckCircle2, Search, Calendar, Shield, CreditCard, Loader2, ArrowRight } from "lucide-react";
+import { MoreHorizontal, Truck, AlertTriangle, CheckCircle2, Search, Calendar, Shield, CreditCard, Loader2 } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -22,7 +24,7 @@ import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 
 export default function RenewalsPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     // `['renewals', {}]` (T25): `GET /v1/trucks/renewals` (state on the Bangkok calendar) or Firestore.
     const { renewals: trucks, isPending: loading } = useRenewals();
     const [searchTerm, setSearchTerm] = useState("");
@@ -108,26 +110,26 @@ export default function RenewalsPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="border-l-4 border-l-red-500">
+                <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-red-700">{t("renewals.card.taxCritical")}</CardTitle>
-                        <CreditCard className="h-4 w-4 text-red-500" />
+                        <CardTitle className="text-sm font-medium text-destructive">{t("renewals.card.taxCritical")}</CardTitle>
+                        <CreditCard className="h-4 w-4 text-destructive" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-red-700">{taxOverdue}</div>
-                        <p className="text-xs text-red-600 font-medium">{t("renewals.card.overduePayments")}</p>
+                        <div className="text-2xl font-bold text-destructive">{taxOverdue}</div>
+                        <p className="text-xs text-destructive font-medium">{t("renewals.card.overduePayments")}</p>
                         <p className="text-xs text-muted-foreground mt-1">{taxExpiring} {t("renewals.card.expiringSoon")}</p>
                     </CardContent>
                 </Card>
 
-                <Card className="border-l-4 border-l-orange-500">
+                <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-orange-700">{t("renewals.card.insuranceCritical")}</CardTitle>
-                        <Shield className="h-4 w-4 text-orange-500" />
+                        <CardTitle className="text-sm font-medium text-destructive">{t("renewals.card.insuranceCritical")}</CardTitle>
+                        <Shield className="h-4 w-4 text-destructive" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-orange-700">{insuranceOverdue}</div>
-                        <p className="text-xs text-orange-600 font-medium">{t("renewals.card.policiesExpired")}</p>
+                        <div className="text-2xl font-bold text-destructive">{insuranceOverdue}</div>
+                        <p className="text-xs text-destructive font-medium">{t("renewals.card.policiesExpired")}</p>
                         <p className="text-xs text-muted-foreground mt-1">{insuranceExpiring} {t("renewals.card.expiringSoon")}</p>
                     </CardContent>
                 </Card>
@@ -135,7 +137,7 @@ export default function RenewalsPage() {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">{t("renewals.card.complianceRate")}</CardTitle>
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CheckCircle2 className="h-4 w-4 text-success" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
@@ -149,9 +151,9 @@ export default function RenewalsPage() {
             {/* Main Table */}
             <Card>
                 <CardHeader>
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <CardTitle>{t("renewals.table.title")}</CardTitle>
-                        <div className="relative w-[300px]">
+                        <div className="relative w-full md:w-[300px]">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
                                 placeholder={t("renewals.searchPlaceholder")}
@@ -184,14 +186,14 @@ export default function RenewalsPage() {
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <Badge variant="outline" className="capitalize text-xs">
-                                            {truck.ownershipType}
+                                            {truck.ownershipType === "own" ? t("trucks.detail.ownFleet") : t("trucks.detail.subcontractorFleet")}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
                                             <StatusBadge status={truck.tax.state} />
                                             <span className="text-xs text-muted-foreground">
-                                                {truck.tax.expiryDate ? format(new Date(truck.tax.expiryDate), "dd MMM yyyy") : t("masterData.renewals.noDate")}
+                                                {truck.tax.expiryDate ? format(new Date(truck.tax.expiryDate), "dd MMM yyyy", { locale: language === "th" ? th : undefined }) : t("masterData.renewals.noDate")}
                                             </span>
                                         </div>
                                     </TableCell>
@@ -202,7 +204,7 @@ export default function RenewalsPage() {
                                         <div className="flex flex-col gap-1">
                                             <StatusBadge status={truck.insurance.state} />
                                             <span className="text-xs text-muted-foreground">
-                                                {truck.insurance.expiryDate ? format(new Date(truck.insurance.expiryDate), "dd MMM yyyy") : t("masterData.renewals.noDate")}
+                                                {truck.insurance.expiryDate ? format(new Date(truck.insurance.expiryDate), "dd MMM yyyy", { locale: language === "th" ? th : undefined }) : t("masterData.renewals.noDate")}
                                             </span>
                                         </div>
                                     </TableCell>
@@ -213,7 +215,7 @@ export default function RenewalsPage() {
                                         <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
                                                 <Button variant="ghost" className="h-8 w-8 p-0">
-                                                    <span className="sr-only">Open menu</span>
+                                                    <span className="sr-only">{t("common.actionsForRow")}</span>
                                                     <MoreHorizontal className="h-4 w-4" />
                                                 </Button>
                                             </DropdownMenuTrigger>
@@ -258,13 +260,13 @@ export default function RenewalsPage() {
 function StatusBadge({ status }: { status: string }) {
     const { t } = useLanguage();
     if (status === "in_progress") {
-        return <Badge variant="secondary" className="w-fit text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200">{t("renewals.status.inProgress")}</Badge>
+        return <Badge variant={toneBadgeVariant("primary")} className="w-fit">{t("renewals.status.inProgress")}</Badge>;
     }
     if (status === "overdue") {
-        return <Badge variant="destructive" className="w-fit text-[10px] h-5 px-1.5 bg-red-100 text-red-700 hover:bg-red-100 border-red-200">{t("renewals.status.overdue")}</Badge>
+        return <Badge variant={toneBadgeVariant("destructive")} className="w-fit">{t("renewals.status.overdue")}</Badge>;
     }
     if (status === "expiring_soon") {
-        return <Badge className="w-fit text-[10px] h-5 px-1.5 bg-yellow-100 text-yellow-700 hover:bg-yellow-100 border-yellow-200">{t("renewals.status.expiringSoon")}</Badge>
+        return <Badge variant={toneBadgeVariant("warning")} className="w-fit">{t("renewals.status.expiringSoon")}</Badge>;
     }
-    return <Badge variant="outline" className="w-fit text-[10px] h-5 px-1.5 bg-green-50 text-green-700 border-green-200 hover:bg-green-50">{t("renewals.status.ok")}</Badge>
+    return <Badge variant={toneBadgeVariant("success")} className="w-fit">{t("renewals.status.ok")}</Badge>;
 }
