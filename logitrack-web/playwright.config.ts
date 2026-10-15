@@ -7,7 +7,7 @@ dotenv.config({ path: '.env.local' });
 export default defineConfig({
     testDir: './tests',
     // Production-build acceptance specs with their own harness (playwright.layout/monitor.config.ts).
-    testIgnore: ["**/driver-monitor-compact.spec.ts", "**/ui3f-shell.spec.ts", "**/ui3f-navigation.spec.ts"],
+    testIgnore: ["**/driver-monitor-compact.spec.ts", "**/ui3f-shell.spec.ts", "**/ui3f-navigation.spec.ts", "**/ui4-*.spec.ts"],
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,

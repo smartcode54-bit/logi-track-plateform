@@ -8,6 +8,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { countMetrics, UI4_METRICS } from "./ui-audit-metrics.mjs";
 
 const webDir = process.argv[2] ?? ".";
 const jsonOut = process.argv[3] === "--json" ? process.argv[4] : null;
@@ -21,20 +22,23 @@ const GROUPS = [
   ["UI7 HR, comms, security, settings, dashboard, public", [/^app\/app\/(dashboard|payroll|leave-requests|holidays|chat|security-center|operations|users|waitlist)\//, /^app\/(page\.tsx|join-network\/|about\/)/, /^components\/landing\//, /^features\/(dashboard|driver-compensation|leave|holidays|chat|security-center|mobile-release|users|waitlist|tenants)\//]],
 ];
 
-function walk(dir, out = []) {
+// Keep the legacy report's original source set and raw-source measurements stable. UI4's
+// parser-based columns are calculated separately from comment-stripped source.
+function walkLegacy(dir, out = []) {
   for (const name of fs.readdirSync(dir)) {
-    const p = path.join(dir, name);
-    const st = fs.statSync(p);
-    if (st.isDirectory()) {
-      if (!["node_modules", ".next", "__tests__"].includes(name)) walk(p, out);
-    } else if (/\.(tsx|css)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
+    const filename = path.join(dir, name);
+    const stat = fs.statSync(filename);
+    if (stat.isDirectory()) {
+      if (!["node_modules", ".next", "__tests__"].includes(name)) walkLegacy(filename, out);
+    } else if (/\.(tsx|css)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(filename);
   }
   return out;
 }
-const files = ["app", "components", "features"].flatMap((d) => walk(path.join(webDir, d))).map((f) => ({
-  rel: path.relative(webDir, f).split(path.sep).join("/"),
-  src: fs.readFileSync(f, "utf8"),
-}));
+const files = ["app", "components", "features"].flatMap((dir) => walkLegacy(path.join(webDir, dir))).map((filename) => {
+  const rel = path.relative(webDir, filename).split(path.sep).join("/");
+  const src = fs.readFileSync(filename, "utf8");
+  return { rel, src, ui4Metrics: countMetrics(src, rel) };
+});
 
 /** The JSX opening tags of `name` (`<Button ...>`), braces and strings respected. */
 function tags(src, name) {
@@ -83,7 +87,9 @@ const METRICS = {
   darkVariants: (s) => count(s, /\bdark:/g),
   motionReduce: (s) => count(s, /motion-reduce:|motion-safe:|prefers-reduced-motion/g),
   hoverScale: (s) => count(s, /hover:scale-|group-hover:scale-/g),
+  ...Object.fromEntries(Object.entries(UI4_METRICS).filter(([name]) => name !== "paletteColors")),
 };
+const UI4_METRIC_NAMES = new Set(Object.keys(UI4_METRICS).filter((name) => name !== "paletteColors"));
 
 const result = {};
 for (const [group, patterns] of GROUPS) {
@@ -93,7 +99,7 @@ for (const [group, patterns] of GROUPS) {
   for (const [k, fn] of Object.entries(METRICS)) {
     row[k] = 0;
     for (const f of gfiles) {
-      const n = fn(f.src);
+      const n = UI4_METRIC_NAMES.has(k) ? f.ui4Metrics[k] : fn(f.src);
       row[k] += n;
       if (n) (top[k] ??= []).push([f.rel, n]);
     }

@@ -1,0 +1,321 @@
+{
+  "app/app/companies/page.tsx": {
+    "paletteColors": 3
+  },
+  "app/app/renewals/page.tsx": {
+    "paletteColors": 25,
+    "sideStripe": 2,
+    "tinyText": 4
+  },
+  "app/app/settings/company-profile/page.tsx": {
+    "paletteColors": 6
+  },
+  "app/app/sources/page.tsx": {
+    "paletteColors": 13
+  },
+  "app/app/sources/pickup-import-dialog.tsx": {
+    "paletteColors": 5
+  },
+  "app/app/truck-assignment/page.tsx": {
+    "blurGlow": 2,
+    "paletteColors": 16,
+    "uppercaseClass": 3
+  },
+  "components/app-sidebar.tsx": {
+    "tinyText": 2
+  },
+  "components/ui/file-viewer.tsx": {
+    "paletteColors": 2
+  },
+  "features/accounting/components/go/AddExpenseDialog.tsx": {
+    "paletteColors": 3
+  },
+  "features/accounting/components/go/BackfillPanel.tsx": {
+    "paletteColors": 2
+  },
+  "features/accounting/components/go/BillingDocumentPage.tsx": {
+    "paletteColors": 26,
+    "sideStripe": 3,
+    "tinyText": 6
+  },
+  "features/accounting/components/go/BillingResultPage.tsx": {
+    "paletteColors": 13,
+    "tinyText": 1
+  },
+  "features/accounting/components/go/ExpenseAuditPage.tsx": {
+    "paletteColors": 3
+  },
+  "features/accounting/components/go/ExpenseDetailDialog.tsx": {
+    "paletteColors": 11
+  },
+  "features/accounting/components/go/ExpensesPage.tsx": {
+    "paletteColors": 2
+  },
+  "features/accounting/components/go/FuelPriceHistoryPage.tsx": {
+    "paletteColors": 2,
+    "sideStripe": 1,
+    "tinyText": 2
+  },
+  "features/accounting/components/go/IncomePage.tsx": {
+    "paletteColors": 10,
+    "tinyText": 6
+  },
+  "features/accounting/components/go/ShopeeReportPage.tsx": {
+    "paletteColors": 4
+  },
+  "features/accounting/components/go/badges.tsx": {
+    "paletteColors": 15,
+    "tinyText": 3
+  },
+  "features/accounting/components/go/rateCard/EntriesTab.tsx": {
+    "tinyText": 1
+  },
+  "features/accounting/components/go/rateCard/FuelAdjustmentsTab.tsx": {
+    "tinyText": 2
+  },
+  "features/accounting/components/go/rateCard/RateImportDialog.tsx": {
+    "paletteColors": 3
+  },
+  "features/chat/components/BroadcastComposerGo.tsx": {
+    "paletteColors": 4
+  },
+  "features/chat/components/BroadcastVoidConfirmDialog.tsx": {
+    "paletteColors": 2
+  },
+  "features/chat/components/DriverPanelGo.tsx": {
+    "uppercaseClass": 2
+  },
+  "features/customers/components/CustomerDetail.tsx": {
+    "paletteColors": 1
+  },
+  "features/customers/components/EditCustomerForm.tsx": {
+    "uppercaseClass": 3
+  },
+  "features/customers/components/NewCustomerForm.tsx": {
+    "uppercaseClass": 3
+  },
+  "features/dashboard/components/DashboardStatCards.tsx": {
+    "paletteColors": 10
+  },
+  "features/dashboard/components/DashboardWidgets.tsx": {
+    "paletteColors": 30
+  },
+  "features/dashboard/components/DeliveryActivityChart.tsx": {
+    "hexOrRgb": 3,
+    "paletteColors": 2
+  },
+  "features/dashboard/components/FleetMapClient.tsx": {
+    "hexOrRgb": 13
+  },
+  "features/driver-compensation/components/go/PayrollConfigPage.tsx": {
+    "paletteColors": 1
+  },
+  "features/driver-compensation/components/go/PayrollPage.tsx": {
+    "paletteColors": 11
+  },
+  "features/driver-compensation/components/go/PayrollRunDialog.tsx": {
+    "paletteColors": 7,
+    "uppercaseClass": 2
+  },
+  "features/driver-compensation/components/go/hrShared.tsx": {
+    "paletteColors": 27
+  },
+  "features/drivers/components/DriverPreview.tsx": {
+    "paletteColors": 26,
+    "tinyText": 2,
+    "uppercaseClass": 2
+  },
+  "features/drivers/components/DriversList.tsx": {
+    "paletteColors": 21,
+    "uppercaseClass": 8
+  },
+  "features/drivers/components/EditDriverForm.tsx": {
+    "paletteColors": 35
+  },
+  "features/drivers/components/NewDriverForm.tsx": {
+    "blurGlow": 1,
+    "paletteColors": 23
+  },
+  "features/drivers/components/TemporaryPasswordNotice.tsx": {
+    "paletteColors": 5
+  },
+  "features/drivers/components/go/TripDetailDialog.tsx": {
+    "paletteColors": 10
+  },
+  "features/drivers/components/go/TripEditDialog.tsx": {
+    "paletteColors": 2
+  },
+  "features/holidays/components/HolidayDialog.tsx": {
+    "paletteColors": 2,
+    "tinyText": 1
+  },
+  "features/holidays/components/HolidaysPage.tsx": {
+    "blurGlow": 1,
+    "hexOrRgb": 3,
+    "paletteColors": 18,
+    "sideStripe": 1,
+    "tinyText": 2,
+    "uppercaseClass": 3
+  },
+  "features/holidays/components/ReviewGeneratedDialog.tsx": {
+    "paletteColors": 5,
+    "tinyText": 2
+  },
+  "features/holidays/components/YearSelectDialog.tsx": {
+    "paletteColors": 3
+  },
+  "features/holidays/components/holidayCalendar.css": {
+    "hexOrRgb": 10
+  },
+  "features/incident-reports/components/IncidentLocationMapClient.tsx": {
+    "hexOrRgb": 3
+  },
+  "features/leave/components/LeaveRequestsPage.tsx": {
+    "paletteColors": 24,
+    "tinyText": 1,
+    "uppercaseClass": 7
+  },
+  "features/maintenance/components/go/MaintenanceOverviewPage.tsx": {
+    "paletteColors": 17,
+    "sideStripe": 3
+  },
+  "features/maintenance/components/maintenance/MaintenanceForm.tsx": {
+    "paletteColors": 24,
+    "sideStripe": 1,
+    "tinyText": 1,
+    "uppercaseClass": 2
+  },
+  "features/maintenance/components/maintenance/MaintenanceHistoryList.tsx": {
+    "paletteColors": 6
+  },
+  "features/maintenance/components/maintenance/MaintenanceStats.tsx": {
+    "paletteColors": 8,
+    "sideStripe": 2
+  },
+  "features/mobile-release/components/MobileReleasePage.tsx": {
+    "paletteColors": 1
+  },
+  "features/security-center/components/ActiveUsersPanel.tsx": {
+    "uppercaseClass": 3
+  },
+  "features/security-center/components/CreateApiKeyDialog.tsx": {
+    "paletteColors": 1
+  },
+  "features/security-center/components/RoleMatrixPage.tsx": {
+    "paletteColors": 1,
+    "tinyText": 2
+  },
+  "features/security-center/components/SecurityAuditPage.tsx": {
+    "uppercaseClass": 6
+  },
+  "features/security-center/components/SecurityOverviewPage.tsx": {
+    "hexOrRgb": 2,
+    "invalidHslVar": 2,
+    "paletteColors": 6,
+    "tinyText": 1,
+    "uppercaseClass": 2
+  },
+  "features/security-center/components/SystemStatusPage.tsx": {
+    "paletteColors": 5
+  },
+  "features/security-center/components/eventDisplay.tsx": {
+    "paletteColors": 3
+  },
+  "features/standby/components/go/StandbyRecordsPage.tsx": {
+    "paletteColors": 21,
+    "uppercaseClass": 6
+  },
+  "features/subcontractors/components/SubcontractorDetail.tsx": {
+    "paletteColors": 144,
+    "tinyText": 1,
+    "uppercaseClass": 2
+  },
+  "features/subcontractors/components/SubcontractorEdit.tsx": {
+    "paletteColors": 5
+  },
+  "features/subcontractors/components/SubcontractorStats.tsx": {
+    "paletteColors": 9,
+    "uppercaseClass": 3
+  },
+  "features/subcontractors/components/SubcontractorTable.tsx": {
+    "paletteColors": 15,
+    "tinyText": 3,
+    "uppercaseClass": 9
+  },
+  "features/subcontractors/components/form/NewSubcontractorWizard.tsx": {
+    "blurGlow": 1,
+    "paletteColors": 67,
+    "tinyText": 1,
+    "uppercaseClass": 4
+  },
+  "features/tasks/components/go/TaskImportDialog.tsx": {
+    "paletteColors": 1
+  },
+  "features/tasks/components/go/opsShared.tsx": {
+    "paletteColors": 41
+  },
+  "features/tenants/components/TenantsPage.tsx": {
+    "paletteColors": 6,
+    "uppercaseClass": 5
+  },
+  "features/trucks/components/AssignmentHistory.tsx": {
+    "paletteColors": 11,
+    "tinyText": 2,
+    "uppercaseClass": 3
+  },
+  "features/trucks/components/TruckComplianceCards.tsx": {
+    "paletteColors": 11,
+    "sideStripe": 1,
+    "tinyText": 4,
+    "uppercaseClass": 4
+  },
+  "features/trucks/components/TruckImportDialog.tsx": {
+    "paletteColors": 3,
+    "tinyText": 3
+  },
+  "features/trucks/components/TruckPreview.tsx": {
+    "paletteColors": 67,
+    "tinyText": 4,
+    "uppercaseClass": 8
+  },
+  "features/trucks/components/TrucksListDashboard.tsx": {
+    "paletteColors": 46,
+    "tinyText": 7,
+    "uppercaseClass": 8
+  },
+  "features/trucks/components/form/NewTruckWizard.tsx": {
+    "blurGlow": 1,
+    "paletteColors": 5,
+    "uppercaseClass": 1
+  },
+  "features/trucks/components/form/TruckPreview.tsx": {
+    "paletteColors": 1
+  },
+  "features/trucks/components/form/TruckSteps/Step1Specs.tsx": {
+    "uppercaseClass": 1
+  },
+  "features/trucks/components/form/TruckSteps/Step4Documentation.tsx": {
+    "paletteColors": 10
+  },
+  "features/trucks/components/renew/RenewalForm.tsx": {
+    "paletteColors": 13,
+    "sideStripe": 1
+  },
+  "features/users/components/EditUserDialog.tsx": {
+    "paletteColors": 5,
+    "tinyText": 1,
+    "uppercaseClass": 1
+  },
+  "features/users/components/UserBadges.tsx": {
+    "paletteColors": 25,
+    "tinyText": 1
+  },
+  "features/users/components/UsersPage.tsx": {
+    "paletteColors": 1,
+    "tinyText": 1,
+    "uppercaseClass": 8
+  },
+  "features/users/components/dialogs.tsx": {
+    "paletteColors": 1
+  }
+}
