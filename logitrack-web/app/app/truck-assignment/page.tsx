@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
     Truck,
     User,
@@ -33,6 +34,7 @@ import { useDriverStatusCounts } from "@/features/drivers/api/useDrivers";
 import { toastSaveError } from "@/lib/formServerErrors";
 
 import { useLanguage } from "@/context/language";
+import { QueryError, QueryLoading } from "@/components/page-states";
 import { PageHeader } from "@/components/page-header";
 
 /** A picked driver or truck: its id and what the picker showed (name / plate, licence / truck type). */
@@ -44,6 +46,21 @@ interface Picked {
 
 const picked = (id: string, option: SearchSelectOption | null): Picked | null =>
     id && option ? { id, label: option.text ?? nodeText(option.label), detail: nodeText(option.description) } : null;
+
+/** Retry the history's current server filter without resetting the table's filters or pagination. */
+function AssignmentHistoryRetry() {
+    const { t } = useLanguage();
+    const client = useQueryClient();
+    const cache = client.getQueryCache();
+    const historyFilter = { queryKey: ["truckAssignments"], type: "active" as const, predicate: (query: { queryKey: readonly unknown[] }) =>
+        (query.queryKey[1] as { view?: string } | undefined)?.view === "history" };
+    const state = useSyncExternalStore(
+        (notify) => cache.subscribe(notify),
+        () => cache.findAll(historyFilter).find((query) => query.state.status === "error")?.state ?? null,
+        () => null,
+    );
+    return state ? <QueryError label={t("assignments.historyLoadError")} onRetry={() => void client.refetchQueries(historyFilter)} retrying={state.fetchStatus === "fetching"} /> : null;
+}
 
 export default function TruckAssignmentPage() {
     const { t } = useLanguage();
@@ -62,6 +79,9 @@ export default function TruckAssignmentPage() {
     const truckCounts = useTruckStatusCounts("own");
     const { assign, revoke } = useAssignmentWrites();
     const isLoading = active.isPending || driverCounts.isPending || truckCounts.isPending;
+    const failedQueries = [active, driverCounts, truckCounts].filter((query) => query.isError);
+    const isUnavailable = isLoading || [active, driverCounts, truckCounts].some((query) => query.isError && !query.data);
+    const assignmentsUnavailable = active.isPending || (active.isError && !active.data);
     const isSubmitting = assign.isPending;
     const isRevoking = revoke.isPending;
 
@@ -151,6 +171,8 @@ export default function TruckAssignmentPage() {
         <div className="flex flex-col gap-section">
             <PageHeader title={t("nav.truckAssignment")} description={t('assignments.subtitle')} />
 
+            {isLoading ? <QueryLoading /> : null}
+            {failedQueries.length > 0 ? <QueryError label={t("assignments.toast.loadError")} onRetry={() => { for (const query of failedQueries) void query.refetch(); }} retrying={failedQueries.some((query) => query.isFetching)} /> : null}
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-card/50 border-border/50 shadow-sm relative overflow-hidden group">
@@ -160,7 +182,7 @@ export default function TruckAssignmentPage() {
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.totalTrucks')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
-                                        {isLoading ? "-" : stats.totalTrucks}
+                                        {isUnavailable ? "—" : stats.totalTrucks}
                                     </span>
                                 </div>
                             </div>
@@ -178,7 +200,7 @@ export default function TruckAssignmentPage() {
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.availableDrivers')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
-                                        {isLoading ? "-" : stats.availableDrivers}
+                                        {isUnavailable ? "—" : stats.availableDrivers}
                                     </span>
                                 </div>
                             </div>
@@ -196,7 +218,7 @@ export default function TruckAssignmentPage() {
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.activeAssignments')}</p>
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-3xl font-bold font-mono text-foreground">
-                                        {isLoading ? "-" : stats.activeAssignments}
+                                        {isUnavailable ? "—" : stats.activeAssignments}
                                     </span>
                                 </div>
                             </div>
@@ -292,7 +314,7 @@ export default function TruckAssignmentPage() {
                                 size="lg"
                                 className="w-full sm:flex-1 h-12 text-base font-semibold"
                                 onClick={handleDeploy}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || assignmentsUnavailable}
                             >
                                 {isSubmitting ? t('assignments.deploying') : t('assignments.deploy')}
                             </Button>
@@ -317,6 +339,7 @@ export default function TruckAssignmentPage() {
             </div>
 
             {/* History: server-filtered keyset pages in a virtualised table (TW8) */}
+            <AssignmentHistoryRetry />
             <AssignmentHistory onRevoke={openRevokeDialog} />
             {/* Revoke Confirmation Dialog */}
             <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>

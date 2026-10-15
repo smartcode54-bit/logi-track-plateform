@@ -1,9 +1,9 @@
 "use client";
 
+import { DriverFormMessage as FormMessage } from "./DriverFormMessage";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { createInvalidHandler } from "@/lib/formInvalidHandler";
-import { driverSchema, Driver } from "@/validate/driverSchema";
+import { driverFormResolver, driverInvalidHandler as createInvalidHandler } from "./driverFormResolver";
+import { Driver } from "@/validate/driverSchema";
 import { driverFormValues, isDriverLoginOutOfReach, type DriverDetailDTO } from "@/features/drivers/api/drivers";
 import { useCreateDriverLogin, useDriver, useDriverWrites } from "@/features/drivers/api/useDrivers";
 import { useSubcontractorOptions } from "@/features/subcontractors/api/useSubcontractors";
@@ -22,7 +22,6 @@ import {
     FormField,
     FormItem,
     FormLabel,
-    FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +44,10 @@ import { format } from "date-fns";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
+import { assertDriverUpload, driverUploadAccept, DriverUploadError } from "../api/driverUploads";
+import { driverDisplayName } from "@/lib/driverName";
+import { PageLoading } from "@/components/page-states";
+import { CustomerDriverIdsFields } from "./CustomerDriverIdsFields";
 import { RecordState, recordUnavailable } from "@/components/record-state";
 
 /**
@@ -63,7 +66,7 @@ const FORM_DEFAULTS: Partial<Driver> = {
     contractYears: "" as any,
     status: "Active",
     employmentType: "FULL_TIME",
-    customerDriverIds: { SPX: { appId: "", workId: "" } },
+    customerDriverIds: {},
 };
 
 export default function EditDriverForm() {
@@ -104,7 +107,7 @@ export default function EditDriverForm() {
     const { options: subcontractors } = useSubcontractorOptions();
 
     const form = useForm<Driver>({
-        resolver: zodResolver(driverSchema) as any,
+        resolver: driverFormResolver(),
         defaultValues: FORM_DEFAULTS as Driver,
         mode: "onChange",
     });
@@ -118,14 +121,7 @@ export default function EditDriverForm() {
             ...FORM_DEFAULTS,
             ...values,
             contractYears: values.contractYears ?? ("" as any),
-            customerDriverIds: {
-                ...(values.customerDriverIds || {}),
-                SPX: {
-                    appId: values.customerDriverIds?.SPX?.appId ?? "",
-                    workId: values.customerDriverIds?.SPX?.workId ?? "",
-                    ...(values.customerDriverIds?.SPX || {}),
-                },
-            },
+            customerDriverIds: values.customerDriverIds ?? {},
         } as Driver);
         setImagePreview(driver.profileUrl);
         setExistingIdCardImage(driver.idCardUrl ?? null);
@@ -137,6 +133,11 @@ export default function EditDriverForm() {
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
+            try { assertDriverUpload(file, "driver_profile"); } catch (error) {
+                if (error instanceof DriverUploadError) toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                e.target.value = "";
+                return;
+            }
             setSelectedImage(file);
             setProfileRemoved(false);
             const reader = new FileReader();
@@ -184,6 +185,10 @@ export default function EditDriverForm() {
             toast.success(t("drivers.toast.updateSuccess"));
             router.push(`/app/drivers/view?id=${driverId}`);
         } catch (error) {
+            if (error instanceof DriverUploadError) {
+                toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                return;
+            }
             applyServerFieldErrors(form, error, t, { status: "status", licenseExpiredDate: "truckLicenseExpiredDate", tenantId: "subcontractorId" });
             toastSaveError(error, t, "drivers.toast.updateError");
         }
@@ -197,16 +202,9 @@ export default function EditDriverForm() {
         return <RecordState error={driverQuery.error} onRetry={() => void driverQuery.refetch()} retrying={driverQuery.isFetching} />;
     }
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center min-h-[50vh]" role="status" aria-busy="true">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
-                <span className="ml-2 text-muted-foreground">{t("drivers.edit.loading")}</span>
-            </div>
-        );
-    }
+    if (isLoading) return <PageLoading />;
 
-    const driverName = driverQuery.data ? `${driverQuery.data.firstName} ${driverQuery.data.lastName}` : "";
+    const driverName = driverQuery.data ? driverDisplayName({ ...driverQuery.data }, driverQuery.data.id) : "";
 
     return (
         <div className="flex max-w-4xl flex-col gap-section">
@@ -218,7 +216,7 @@ export default function EditDriverForm() {
             />
             <div className="space-y-6">
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
+                    <form noValidate onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -238,7 +236,7 @@ export default function EditDriverForm() {
                                                     <span className="text-xs text-muted-foreground">{t("drivers.edit.changePhoto")}</span>
                                                 </label>
                                             )}
-                                            <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+                                            <input id="p-upload" type="file" accept={driverUploadAccept("driver_profile")} className="hidden" onChange={handleImageChange} />
                                         </div>
                                         {imagePreview && (
                                             <Button aria-label={t("common.removePhoto")} type="button" variant="destructive" size="icon" onClick={removeImage} className="absolute -top-1 -right-1 h-8 w-8">
@@ -318,7 +316,14 @@ export default function EditDriverForm() {
                                         <FormItem>
                                             <FormLabel>{t("drivers.edit.idCardImage")}</FormLabel>
                                             <div className="flex items-center gap-2">
-                                                <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setIdCardFile(f); }} />
+                                                <Input type="file" aria-label={t("drivers.edit.idCardImage")} accept={driverUploadAccept("driver_id_card")} onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    try { assertDriverUpload(file, "driver_id_card"); setIdCardFile(file); } catch (error) {
+                                                        if (error instanceof DriverUploadError) toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                                                        e.target.value = "";
+                                                    }
+                                                }} />
                                                 {idCardFile ? <FileText className="text-success h-5 w-5" /> : existingIdCardImage && <CheckCircle2 className="text-primary h-5 w-5" />}
                                             </div>
                                             {!idCardFile && existingIdCardImage && <p className="text-xs text-muted-foreground mt-1">{t("drivers.edit.currentFileExists")}</p>}
@@ -368,7 +373,14 @@ export default function EditDriverForm() {
                                         <FormItem>
                                             <FormLabel>{t("drivers.edit.licenseImage")}</FormLabel>
                                             <div className="flex items-center gap-2">
-                                                <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setTruckLicenseFile(f); }} />
+                                                <Input type="file" aria-label={t("drivers.edit.licenseImage")} accept={driverUploadAccept("driver_license")} onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    try { assertDriverUpload(file, "driver_license"); setTruckLicenseFile(file); } catch (error) {
+                                                        if (error instanceof DriverUploadError) toast.error(t(`drivers.upload.${error.reason}`, { file: error.fileName }));
+                                                        e.target.value = "";
+                                                    }
+                                                }} />
                                                 {truckLicenseFile ? <FileText className="text-success h-5 w-5" /> : existingTruckLicenseImage && <CheckCircle2 className="text-primary h-5 w-5" />}
                                             </div>
                                             {!truckLicenseFile && existingTruckLicenseImage && <p className="text-xs text-muted-foreground mt-1">{t("drivers.edit.currentFileExists")}</p>}
@@ -479,37 +491,7 @@ export default function EditDriverForm() {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                <div className="bg-muted p-4 rounded-lg space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2">{t("drivers.ui4.primaryCustomer")}</h3>
-                                    <div className="grid md:grid-cols-2 gap-4">
-                                        <FormField
-                                            control={form.control}
-                                            name="customerDriverIds.SPX.appId"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>{t("drivers.form.spxAppId")}</FormLabel>
-                                                    <FormControl>
-                                                        <Input placeholder={t("drivers.form.spxAppId.placeholder")} {...field} value={field.value ?? ""} />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name="customerDriverIds.SPX.workId"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>{t("drivers.form.spxWorkId")}</FormLabel>
-                                                    <FormControl>
-                                                        <Input placeholder={t("drivers.form.spxWorkId.placeholder")} {...field} value={field.value ?? ""} />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                    </div>
-                                </div>
+                                <CustomerDriverIdsFields key={loaded?.id} form={form} existing={loaded?.customerDriverIds ?? []} />
                             </CardContent>
                         </Card>
 
