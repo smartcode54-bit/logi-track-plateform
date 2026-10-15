@@ -200,7 +200,7 @@ function Editor({ trip, onClose }: { trip: TripDetailDTO; onClose: () => void })
             <div key={type} className="space-y-1 rounded border p-2">
                 <p className="truncate text-xs font-medium">{t(`taskBoard.photo.${type}`, type)}</p>
                 {picked ? (
-                    <p className="truncate text-xs text-emerald-600">{picked.name}</p>
+                    <p className="truncate text-xs text-success">{picked.name}</p>
                 ) : current?.url ? (
                     <a href={current.url} target="_blank" rel="noopener noreferrer">
                         {/* eslint-disable-next-line @next/next/no-img-element -- a signed URL of Go's storage */}
@@ -514,7 +514,7 @@ function RenameDialog({ trip, onDone, onBack }: { trip: TripDetailDTO; onDone: (
                     <Field label={t("driverMonitor.editTrip.renameNew")} htmlFor="trip-rename">
                         <Input id="trip-rename" value={next} onChange={(e) => setNext(e.target.value)} disabled={busy} />
                     </Field>
-                    <p className="text-xs text-amber-700">{t("driverMonitor.editTrip.renameWarning")}</p>
+                    <p className="text-xs text-warning">{t("driverMonitor.editTrip.renameWarning")}</p>
                 </div>
                 <WriteErrorAlert error={error} />
                 <DialogFooter>

@@ -1,7 +1,6 @@
 export default {
     // List Page - Header
     "drivers.subtitle": "Manage and track your fleet's personnel efficiently in real-time.",
-    "drivers.export": "Export",
     "drivers.add": "Add New Driver",
 
     // Stats Cards
@@ -208,4 +207,5 @@ export default {
     // Toast
     "drivers.toast.accountCreated": "Login account created and linked successfully",
     "drivers.toast.accountCreateError": "Failed to create login account",
+    "drivers.ui4.primaryCustomer": "Primary customer",
 };

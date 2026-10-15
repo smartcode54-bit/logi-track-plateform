@@ -4,6 +4,8 @@ import { useLanguage } from "@/context/language";
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { truckStatusTone, toneBadgeVariant, type StatusTone } from "@/lib/statusPresentation";
 import { useFleetStats } from "../api/useTrucks";
 import type { TruckDTO } from "../api/trucks";
 
@@ -91,7 +93,7 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 {[1, 2].map((i) => (
-                    <Card key={i} className="border-l-4 border-l-muted shadow-sm animate-pulse">
+                    <Card key={i} className="border-l-muted shadow-sm animate-pulse">
                         <CardHeader className="pb-2">
                             <div className="h-5 w-32 bg-muted rounded" />
                         </CardHeader>
@@ -114,38 +116,31 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
                     <div className="flex justify-between items-start">
                         <span className="text-lg font-semibold text-foreground">{t('trucks.stats.own')}</span>
                         <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wider">{t('trucks.stats.all')}</span>
+                            <span className="text-xs text-muted-foreground font-medium">{t('trucks.stats.all')}</span>
                             <span className="text-3xl font-bold text-foreground leading-none mt-1">{stats.fleet.total}</span>
                         </div>
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-4 gap-4 mt-2 text-center divide-x divide-border/40">
+                    <div className="grid grid-cols-3 gap-4 mt-2 text-center divide-x divide-border/40">
                         <StatusItem
                             label={t('trucks.stats.active')}
                             count={stats.fleet.active}
-                            color="text-green-500"
+                            tone={truckStatusTone("active")}
                             active={activeFilter?.type === 'own' && activeFilter?.status === 'active'}
                             onClick={() => handleCardClick('own', 'active')}
                         />
                         <StatusItem
                             label={t('trucks.stats.available')}
                             count={stats.fleet.inactive}
-                            color="text-blue-500"
+                            tone={truckStatusTone("inactive")}
                             active={activeFilter?.type === 'own' && activeFilter?.status === 'available'}
                             onClick={() => handleCardClick('own', 'available')}
                         />
                         <StatusItem
-                            label={t('trucks.stats.pm')}
-                            count={0}
-                            color="text-orange-500"
-                            active={activeFilter?.type === 'own' && activeFilter?.status === 'pm'}
-                            onClick={() => handleCardClick('own', 'pm')}
-                        />
-                        <StatusItem
                             label={t('trucks.stats.corrective')}
                             count={stats.fleet.maintenance}
-                            color="text-red-500"
+                            tone={truckStatusTone("maintenance")}
                             active={activeFilter?.type === 'own' && activeFilter?.status === 'corrective'}
                             lastItem
                             onClick={() => handleCardClick('own', 'corrective')}
@@ -160,38 +155,31 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
                     <div className="flex justify-between items-start">
                         <span className="text-lg font-semibold text-foreground">{t('trucks.stats.sub')}</span>
                         <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wider">{t('trucks.stats.all')}</span>
+                            <span className="text-xs text-muted-foreground font-medium">{t('trucks.stats.all')}</span>
                             <span className="text-3xl font-bold text-foreground leading-none mt-1">{stats.sub.total}</span>
                         </div>
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-4 gap-4 mt-2 text-center divide-x divide-border/40">
+                    <div className="grid grid-cols-3 gap-4 mt-2 text-center divide-x divide-border/40">
                         <StatusItem
                             label={t('trucks.stats.active')}
                             count={stats.sub.active}
-                            color="text-green-500"
+                            tone={truckStatusTone("active")}
                             active={activeFilter?.type === 'sub' && activeFilter?.status === 'active'}
                             onClick={() => handleCardClick('sub', 'active')}
                         />
                         <StatusItem
                             label={t('trucks.stats.available')}
                             count={stats.sub.inactive}
-                            color="text-blue-500"
+                            tone={truckStatusTone("inactive")}
                             active={activeFilter?.type === 'sub' && activeFilter?.status === 'available'}
                             onClick={() => handleCardClick('sub', 'available')}
                         />
                         <StatusItem
-                            label={t('trucks.stats.pm')}
-                            count={0}
-                            color="text-orange-500"
-                            active={activeFilter?.type === 'sub' && activeFilter?.status === 'pm'}
-                            onClick={() => handleCardClick('sub', 'pm')}
-                        />
-                        <StatusItem
                             label={t('trucks.stats.corrective')}
                             count={stats.sub.maintenance}
-                            color="text-red-500"
+                            tone={truckStatusTone("maintenance")}
                             active={activeFilter?.type === 'sub' && activeFilter?.status === 'corrective'}
                             lastItem
                             onClick={() => handleCardClick('sub', 'corrective')}
@@ -205,7 +193,7 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
                 <CardHeader className="pb-4">
                     <div className="flex flex-col items-start gap-1">
                         <span className="text-base font-semibold text-foreground">{t('masterData.trucks.maintenanceCorrective')}</span>
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{t('trucks.stats.ownFleetOnly')}</span>
+                        <span className="text-xs text-muted-foreground font-medium">{t('trucks.stats.ownFleetOnly')}</span>
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -213,21 +201,21 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
                         <StatusItem
                             label={t('trucks.stats.pmSoon')}
                             count={stats.maintenance.dueSoon}
-                            color="text-sky-500"
+                            tone="warning"
                             active={activeFilter?.type === 'maintenance' && activeFilter?.status === 'due'}
                             onClick={() => handleCardClick('maintenance', 'due')}
                         />
                         <StatusItem
                             label={t('trucks.stats.pmOverdue')}
                             count={stats.maintenance.overdue}
-                            color="text-orange-500"
+                            tone="destructive"
                             active={activeFilter?.type === 'maintenance' && activeFilter?.status === 'overdue'}
                             onClick={() => handleCardClick('maintenance', 'overdue')}
                         />
                         <StatusItem
                             label={t('trucks.stats.corrective')}
                             count={stats.fleet.maintenance}
-                            color="text-red-500"
+                            tone={truckStatusTone("maintenance")}
                             active={activeFilter?.type === 'own' && activeFilter?.status === 'corrective'}
                             lastItem
                             onClick={() => handleCardClick('own', 'corrective')}
@@ -239,20 +227,20 @@ export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsPro
     );
 }
 
-function StatusItem({ label, count, color, active, lastItem, onClick }: { label: string, count: number, color?: string, active?: boolean, lastItem?: boolean, onClick: () => void }) {
+function StatusItem({ label, count, tone = "neutral", active, lastItem, onClick }: { label: string, count: number, tone?: StatusTone, active?: boolean, lastItem?: boolean, onClick: () => void }) {
     return (
-        <div
+        <button
+            type="button"
             onClick={onClick}
+            aria-pressed={Boolean(active)}
             className={cn(
-                "flex flex-col items-center justify-center cursor-pointer transition-all hover:opacity-80 relative",
-                !lastItem ? "pr-4" : "",
-                active ? "scale-105 transform" : ""
+                "flex min-w-0 flex-col items-center justify-center gap-2 rounded-md p-1 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                !lastItem ? "md:pr-4" : "",
+                active ? "bg-muted ring-1 ring-ring" : ""
             )}
         >
-            <span className={cn("text-[10px] uppercase tracking-wider mb-2 font-semibold", active ? "text-primary" : "text-muted-foreground")}>
-                {label}
-            </span>
-            <span className={cn("text-2xl font-bold", color || "text-foreground")}>{count}</span>
-        </div>
+            <span className="text-xs font-medium text-muted-foreground">{label}</span>
+            <Badge variant={toneBadgeVariant(tone)} className="text-lg tabular-nums">{count}</Badge>
+        </button>
     );
 }

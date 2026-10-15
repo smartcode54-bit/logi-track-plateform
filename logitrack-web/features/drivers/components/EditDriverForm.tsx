@@ -13,6 +13,8 @@ import type { CreateUserResult } from "@/features/users/api/users";
 import { TemporaryPasswordNotice } from "./TemporaryPasswordNotice";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { RequiredMark } from "@/components/ui/required-mark";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -38,6 +40,7 @@ import {
 import Link from "next/link";
 import { toast } from "sonner";
 import { DatePicker } from "@/components/ui/date-picker";
+import { DriverBirthDatePicker } from "./DriverBirthDatePicker";
 import { format } from "date-fns";
 import Image from "next/image";
 import { useLanguage } from "@/context/language";
@@ -186,8 +189,6 @@ export default function EditDriverForm() {
         }
     };
 
-    const onInvalid = createInvalidHandler(form, t);
-
     const employmentType = form.watch("employmentType");
 
     // No id, no driver, or the read failed: not found, or a load error with a retry (UI3D), never an empty form.
@@ -217,7 +218,7 @@ export default function EditDriverForm() {
             />
             <div className="space-y-6">
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
+                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -228,9 +229,9 @@ export default function EditDriverForm() {
                             <CardContent className="space-y-6">
                                 <div className="flex justify-center mb-6">
                                     <div className="relative group">
-                                        <div className="w-32 h-32 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 relative">
+                                        <div className="w-32 h-32 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-muted relative">
                                             {imagePreview ? (
-                                                <Image src={imagePreview} alt="Preview" fill className="object-cover" />
+                                                <Image src={imagePreview} alt={t("drivers.detail.profilePhoto")} fill className="object-cover" />
                                             ) : (
                                                 <label htmlFor="p-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                                                     <Upload className="h-8 w-8 text-muted-foreground mb-2" />
@@ -240,29 +241,29 @@ export default function EditDriverForm() {
                                             <input id="p-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                                         </div>
                                         {imagePreview && (
-                                            <button aria-label={t("common.removePhoto")} type="button" onClick={removeImage} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-sm">
+                                            <Button aria-label={t("common.removePhoto")} type="button" variant="destructive" size="icon" onClick={removeImage} className="absolute -top-1 -right-1 h-8 w-8">
                                                 <X className="h-4 w-4" />
-                                            </button>
+                                            </Button>
                                         )}
                                     </div>
                                 </div>
 
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <FormField control={form.control} name="firstName" render={({ field }) => (
-                                        <FormItem><FormLabel>{t("drivers.form.firstName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.firstName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.firstName")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.firstName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                     <FormField control={form.control} name="lastName" render={({ field }) => (
-                                        <FormItem><FormLabel>{t("drivers.form.lastName")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.lastName")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.lastName.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                 </div>
 
                                 <FormField control={form.control} name="fullNameTh" render={({ field }) => (
-                                    <FormItem><FormLabel>{t("drivers.form.fullNameTh")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.fullNameTh.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                    <FormItem><FormLabel>{t("drivers.form.fullNameTh")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.fullNameTh.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                 )} />
 
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <FormField control={form.control} name="mobile" render={({ field }) => (
-                                        <FormItem><FormLabel>{t("drivers.form.mobile")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.mobile.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.mobile")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.mobile.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                     <FormField control={form.control} name="email" render={({ field }) => (
                                         <FormItem><FormLabel>{t("drivers.form.email")}</FormLabel><FormControl><Input placeholder={t("drivers.form.email.placeholder")} {...field} /></FormControl><FormMessage /></FormItem>
@@ -274,13 +275,12 @@ export default function EditDriverForm() {
                                     const minDate = new Date(); minDate.setFullYear(minDate.getFullYear() - 55);
                                     return (
                                         <FormItem className="flex flex-col">
-                                            <FormLabel>{t("drivers.form.birthDate")} <span className="text-red-500">*</span></FormLabel>
-                                            <DatePicker
+                                            <FormLabel>{t("drivers.form.birthDate")} <RequiredMark /></FormLabel>
+                                            <DriverBirthDatePicker
                                                 value={field.value ? new Date(field.value) : undefined}
                                                 onChange={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
-                                                fromYear={minDate.getFullYear()}
-                                                toYear={maxDate.getFullYear()}
-                                                disabled={(d: Date) => d > maxDate || d < minDate}
+                                                minDate={minDate}
+                                                maxDate={maxDate}
                                             />
                                             <FormMessage />
                                         </FormItem>
@@ -297,10 +297,10 @@ export default function EditDriverForm() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
+                                <div className="bg-muted p-4 rounded-lg space-y-4">
                                     <h3 className="font-semibold flex items-center gap-2">{t("drivers.form.nationalIdCard")}</h3>
                                     <FormField control={form.control} name="idCard" render={({ field }) => (
-                                        <FormItem><FormLabel>{t("drivers.form.idNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.idNumber.placeholder")} maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
+                                        <FormItem><FormLabel>{t("drivers.form.idNumber")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.idNumber.placeholder")} maxLength={13} {...field} /></FormControl><FormMessage /></FormItem>
                                     )} />
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField control={form.control} name="idCardExpiredDate" render={({ field }) => (
@@ -319,18 +319,18 @@ export default function EditDriverForm() {
                                             <FormLabel>{t("drivers.edit.idCardImage")}</FormLabel>
                                             <div className="flex items-center gap-2">
                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setIdCardFile(f); }} />
-                                                {idCardFile ? <FileText className="text-green-600 h-5 w-5" /> : existingIdCardImage && <CheckCircle2 className="text-blue-500 h-5 w-5" />}
+                                                {idCardFile ? <FileText className="text-success h-5 w-5" /> : existingIdCardImage && <CheckCircle2 className="text-primary h-5 w-5" />}
                                             </div>
                                             {!idCardFile && existingIdCardImage && <p className="text-xs text-muted-foreground mt-1">{t("drivers.edit.currentFileExists")}</p>}
                                         </FormItem>
                                     </div>
                                 </div>
 
-                                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
+                                <div className="bg-muted p-4 rounded-lg space-y-4">
                                     <h3 className="font-semibold flex items-center gap-2">{t("drivers.form.drivingLicense")}</h3>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField control={form.control} name="truckLicenseId" render={({ field }) => (
-                                            <FormItem><FormLabel>{t("drivers.form.licenseNumber")} <span className="text-red-500">*</span></FormLabel><FormControl><Input placeholder={t("drivers.form.licenseNumber.placeholder")} maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
+                                            <FormItem><FormLabel>{t("drivers.form.licenseNumber")} <RequiredMark /></FormLabel><FormControl><Input aria-required="true" placeholder={t("drivers.form.licenseNumber.placeholder")} maxLength={8} {...field} /></FormControl><FormMessage /></FormItem>
                                         )} />
                                         <FormField control={form.control} name="licenseType" render={({ field }) => (
                                             <FormItem>
@@ -369,7 +369,7 @@ export default function EditDriverForm() {
                                             <FormLabel>{t("drivers.edit.licenseImage")}</FormLabel>
                                             <div className="flex items-center gap-2">
                                                 <Input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) setTruckLicenseFile(f); }} />
-                                                {truckLicenseFile ? <FileText className="text-green-600 h-5 w-5" /> : existingTruckLicenseImage && <CheckCircle2 className="text-blue-500 h-5 w-5" />}
+                                                {truckLicenseFile ? <FileText className="text-success h-5 w-5" /> : existingTruckLicenseImage && <CheckCircle2 className="text-primary h-5 w-5" />}
                                             </div>
                                             {!truckLicenseFile && existingTruckLicenseImage && <p className="text-xs text-muted-foreground mt-1">{t("drivers.edit.currentFileExists")}</p>}
                                         </FormItem>
@@ -479,8 +479,8 @@ export default function EditDriverForm() {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2">Primary Customer</h3>
+                                <div className="bg-muted p-4 rounded-lg space-y-4">
+                                    <h3 className="font-semibold flex items-center gap-2">{t("drivers.ui4.primaryCustomer")}</h3>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <FormField
                                             control={form.control}
@@ -525,28 +525,20 @@ export default function EditDriverForm() {
                                 {createdLogin ? (
                                     <TemporaryPasswordNotice email={createdLogin.user.email ?? accountEmail} temporaryPassword={createdLogin.temporaryPassword} />
                                 ) : loaded?.login || loaded?.userId || loaded?.legacyAuthUid ? (
-                                    <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                                        <ShieldCheck className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-                                        <div className="space-y-0.5">
-                                            <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                                                {t("drivers.form.loginAccount.linked")}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground font-mono break-all">
-                                                {t("drivers.form.loginAccount.linkedUid", { uid: loaded?.login?.email || loaded?.login?.userId || loaded?.userId || loaded?.legacyAuthUid || "" })}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground">
-                                                {t("drivers.form.loginAccount.securityNote")}
-                                            </p>
-                                        </div>
-                                    </div>
+                                    <Alert variant="success">
+                                        <ShieldCheck className="h-5 w-5" />
+                                        <AlertTitle>{t("drivers.form.loginAccount.linked")}</AlertTitle>
+                                        <AlertDescription className="space-y-1">
+                                            <p className="text-xs font-mono break-all">{t("drivers.form.loginAccount.linkedUid", { uid: loaded?.login?.email || loaded?.login?.userId || loaded?.userId || loaded?.legacyAuthUid || "" })}</p>
+                                            <p className="text-xs">{t("drivers.form.loginAccount.securityNote")}</p>
+                                        </AlertDescription>
+                                    </Alert>
                                 ) : (
                                     <div className="space-y-4">
-                                        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                                            <ShieldOff className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-                                            <p className="text-sm text-amber-700 dark:text-amber-400">
-                                                {t("drivers.form.loginAccount.noAccount")}
-                                            </p>
-                                        </div>
+                                        <Alert variant="warning">
+                                            <ShieldOff className="h-5 w-5" />
+                                            <AlertDescription>{t("drivers.form.loginAccount.noAccount")}</AlertDescription>
+                                        </Alert>
                                         {!showCreateAccount ? (
                                             <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateAccount(true)}>
                                                 <KeyRound className="h-4 w-4 mr-2" />
@@ -588,7 +580,7 @@ export default function EditDriverForm() {
                             </CardContent>
                         </Card>
 
-                        <div className="flex justify-end gap-4">
+                        <div data-form-action-bar className="sticky bottom-0 z-sticky flex flex-col gap-3 border-t border-border bg-background p-4 md:flex-row md:items-center md:justify-end">
                             <Button type="button" variant="outline" asChild>
                                 <Link href={`/app/drivers/view?id=${driverId}`} prefetch={false}>{t("drivers.form.cancel")}</Link>
                             </Button>

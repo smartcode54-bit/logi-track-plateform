@@ -1,7 +1,6 @@
 export default {
     // List Page - Header
     "drivers.subtitle": "จัดการและติดตามบุคลากรของฝูงรถอย่างมีประสิทธิภาพแบบเรียลไทม์",
-    "drivers.export": "ส่งออก",
     "drivers.add": "เพิ่มพนักงานขับรถ",
 
     // Stats Cards
@@ -208,4 +207,5 @@ export default {
     // Toast
     "drivers.toast.accountCreated": "สร้างบัญชีและผูกกับข้อมูลคนขับสำเร็จ",
     "drivers.toast.accountCreateError": "ไม่สามารถสร้างบัญชีได้",
+    "drivers.ui4.primaryCustomer": "ลูกค้าหลัก",
 };

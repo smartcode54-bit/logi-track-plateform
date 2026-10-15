@@ -7,7 +7,6 @@ import Link from "next/link";
 import {
     Plus,
     Search,
-    Download,
     MoreHorizontal,
     Loader2,
     Eye,
@@ -48,6 +47,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { truckStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 
 import { useTrucksList } from "../hooks/useTrucksList";
 import { TruckComplianceCards } from "./TruckComplianceCards";
@@ -94,16 +94,6 @@ export default function TrucksListDashboard() {
         currentPage * itemsPerPage
     );
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case "active": return "bg-green-500/10 text-green-500 hover:bg-green-500/20 border-green-500/20";
-            case "maintenance": return "bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/20";
-            case "in-transit": return "bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 border-yellow-500/20";
-            case "inactive": return "bg-gray-500/10 text-gray-500 hover:bg-gray-500/20 border-gray-500/20";
-            default: return "bg-gray-500/10 text-gray-500 hover:bg-gray-500/20 border-gray-500/20";
-        }
-    };
-
     const getStatusLabel = (status: string) => {
         switch (status) {
             case "active": return t('trucks.status.active');
@@ -118,9 +108,9 @@ export default function TrucksListDashboard() {
 
     const getOwnershipBadge = (type: string) => {
         if (type === 'own') {
-            return <Badge variant="secondary" className="bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 border-blue-800">{t('trucks.badge.company')}</Badge>;
+            return <Badge variant="secondary">{t('trucks.badge.company')}</Badge>;
         }
-        return <Badge variant="secondary" className="bg-slate-800 text-slate-400 hover:bg-slate-700">{t('trucks.badge.partner')}</Badge>;
+        return <Badge variant="secondary">{t('trucks.badge.partner')}</Badge>;
     };
 
     return (
@@ -130,10 +120,6 @@ export default function TrucksListDashboard() {
                 description={t('trucks.monitor')}
                 actions={
                     <>
-                        <Button variant="outline" className="gap-2">
-                            <Download className="h-4 w-4" aria-hidden />
-                            {t('trucks.export')}
-                        </Button>
                         <LazyDialog
                             trigger={
                                 <Button variant="outline" className="gap-2">
@@ -204,7 +190,7 @@ export default function TrucksListDashboard() {
                         </SelectContent>
                     </Select>
 
-                    <Button variant="ghost" onClick={clearFilters} className="text-blue-500 hover:text-blue-700 hover:bg-transparent px-2">
+                    <Button variant="ghost" onClick={clearFilters} className="px-2">
                         {t('trucks.filter.clear')}
                     </Button>
 
@@ -225,14 +211,14 @@ export default function TrucksListDashboard() {
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow className="hover:bg-transparent border-b border-border/50">
-                            <TableHead className="w-[100px] text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.id')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.plate')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.model')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.driver')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.ownership')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.pmStatus')}</TableHead>
-                            <TableHead className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('trucks.table.status')}</TableHead>
-                            <TableHead className="text-right text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('common.actions')}</TableHead>
+                            <TableHead className="w-[100px]">{t('trucks.table.id')}</TableHead>
+                            <TableHead>{t('trucks.table.plate')}</TableHead>
+                            <TableHead>{t('trucks.table.model')}</TableHead>
+                            <TableHead>{t('trucks.table.driver')}</TableHead>
+                            <TableHead>{t('trucks.table.ownership')}</TableHead>
+                            <TableHead>{t('trucks.table.pmStatus')}</TableHead>
+                            <TableHead>{t('trucks.table.status')}</TableHead>
+                            <TableHead className="text-right">{t('common.actions')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -278,7 +264,7 @@ export default function TrucksListDashboard() {
                                                 const assignment = assignments[0];
                                                 return (
                                                     <div className="flex items-center gap-2">
-                                                        <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600">
+                                                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
                                                             {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
                                                         </div>
                                                         <span className="text-sm font-medium">{assignment.driverName}</span>
@@ -299,7 +285,7 @@ export default function TrucksListDashboard() {
                                                         <DropdownMenuLabel>{t('masterData.trucks.assignedDrivers')}</DropdownMenuLabel>
                                                         {assignments.map((assignment, idx) => (
                                                             <div key={idx} className="flex items-center gap-2 px-2 py-1.5 text-sm">
-                                                                <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600 shrink-0">
+                                                                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
                                                                     {(assignment.driverName || 'DR').substring(0, 2).toUpperCase()}
                                                                 </div>
                                                                 <span className="truncate font-medium">{assignment.driverName}</span>
@@ -322,15 +308,15 @@ export default function TrucksListDashboard() {
                                                 let pmBadge: ReactNode = null;
 
                                                 if (truck.status === 'maintenance') {
-                                                    pmBadge = <Badge variant="secondary" className="text-[10px] px-1 py-0 h-5 w-fit bg-yellow-100 text-yellow-700 border-yellow-200">{t('trucks.badge.pmInShop')}</Badge>;
+                                                    pmBadge = <Badge variant={toneBadgeVariant(truckStatusTone("maintenance"))} className="text-xs px-1 py-0 w-fit">{t('trucks.badge.pmInShop')}</Badge>;
                                                 } else if (km !== null && km < 0) {
-                                                    pmBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">PM: {-km}km Over</Badge>;
+                                                    pmBadge = <Badge variant="destructive" className="text-xs px-1 py-0 w-fit">{t("trucks.ui4.pmKmOverdue", { km: -km })}</Badge>;
                                                 } else if (days !== null && days < 0) {
-                                                    pmBadge = <Badge variant="destructive" className="text-[10px] px-1 py-0 h-5 w-fit">{t('trucks.badge.pmOverdue')}</Badge>;
+                                                    pmBadge = <Badge variant="destructive" className="text-xs px-1 py-0 w-fit">{t('trucks.badge.pmOverdue')}</Badge>;
                                                 } else if (km !== null && km <= 1000) {
-                                                    pmBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">PM: {km}km</Badge>;
+                                                    pmBadge = <Badge variant="warning" className="text-xs px-1 py-0 w-fit">{t("trucks.ui4.pmKmDue", { km })}</Badge>;
                                                 } else if (days !== null && days <= 30) {
-                                                    pmBadge = <Badge variant="outline" className="text-[10px] px-1 py-0 h-5 w-fit text-orange-600 border-orange-600 bg-orange-50">PM: {days}d</Badge>;
+                                                    pmBadge = <Badge variant="warning" className="text-xs px-1 py-0 w-fit">{t("trucks.ui4.pmDaysDue", { days })}</Badge>;
                                                 }
 
                                                 if (pmBadge) {
@@ -351,24 +337,21 @@ export default function TrucksListDashboard() {
                                                 }
 
                                                 return (
-                                                    <span className="text-xs text-green-600 flex items-center gap-1">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-green-500" /> OK
+                                                    <span className="text-xs text-success flex items-center gap-1">
+                                                        {t("trucks.ui4.pmOk")}
                                                     </span>
                                                 );
                                             })()}
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(String(truck.status))}`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full bg-current`} />
-                                            {getStatusLabel(String(truck.status))}
-                                        </div>
+                                        <Badge variant={toneBadgeVariant(truckStatusTone(String(truck.status)))}>{getStatusLabel(String(truck.status))}</Badge>
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <DropdownMenu>
                                             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                <Button variant="ghost" className="h-8 w-8 p-0 hover:bg-muted">
-                                                    <span className="sr-only">Open menu</span>
+                                                <Button variant="ghost" className="h-8 w-8 p-0">
+                                                    <span className="sr-only">{t("common.actionsForRow")}</span>
                                                     <MoreHorizontal className="h-4 w-4" />
                                                 </Button>
                                             </DropdownMenuTrigger>
@@ -399,7 +382,7 @@ export default function TrucksListDashboard() {
                 <div className="px-4 pt-4 border-t border-border/50 bg-muted/20">
                     <LoadMore loaded={filteredTrucks.length} hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onLoadMore={fetchNextPage} />
                 </div>
-                <div className="flex items-center justify-between px-4 py-4 bg-muted/20">
+                <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 bg-muted/20">
                     <div className="text-sm text-muted-foreground">
                         {t('masterData.list.showing', { from: paginatedTrucks.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0, to: Math.min(currentPage * itemsPerPage, filteredTrucks.length), total: filteredTrucks.length })}
                     </div>
@@ -426,7 +409,7 @@ export default function TrucksListDashboard() {
                                         key={pageNum}
                                         variant={currentPage === pageNum ? "default" : "outline"}
                                         size="sm"
-                                        className={`h-8 w-8 p-0 ${currentPage === pageNum ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                                        className="h-8 w-8 p-0"
                                         onClick={() => setCurrentPage(pageNum)}
                                     >
                                         {pageNum}

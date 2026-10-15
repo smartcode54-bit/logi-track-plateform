@@ -8,7 +8,6 @@ import type { DriverStatus } from "@/features/drivers/api/drivers";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { LoadMore } from "@/components/load-more";
 import {
-    Download,
     Loader2,
     Users,
     Activity,
@@ -35,6 +34,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { driverStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLanguage } from "@/context/language";
@@ -76,15 +76,6 @@ export default function DriversList() {
     );
     const totalPages = Math.ceil(filteredDrivers.length / itemsPerPage);
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case "active": return "bg-green-500/10 text-green-500 border-green-500/20";
-            case "on_duty": return "bg-blue-500/10 text-blue-500 border-blue-500/20";
-            case "inactive": return "bg-gray-500/10 text-gray-500 border-gray-500/20";
-            default: return "bg-gray-500/10 text-gray-500";
-        }
-    };
-
     return (
         <div className="flex flex-col gap-section">
             <PageHeader
@@ -92,10 +83,6 @@ export default function DriversList() {
                 description={t("drivers.subtitle")}
                 actions={
                     <>
-                        <Button variant="outline" className="gap-2">
-                            <Download className="h-4 w-4" aria-hidden />
-                            {t("drivers.export")}
-                        </Button>
                         <Button asChild>
                             <Link href="/app/drivers/new" prefetch={false}>
                                 <Plus className="mr-2 h-4 w-4" aria-hidden />
@@ -116,7 +103,7 @@ export default function DriversList() {
                                 <h2 className="text-3xl font-bold">{stats.total}</h2>
                             </div>
                         </div>
-                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
+                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
                             <Users className="h-6 w-6" />
                         </div>
                     </CardContent>
@@ -129,7 +116,7 @@ export default function DriversList() {
                                 <h2 className="text-3xl font-bold">{stats.active}</h2>
                             </div>
                         </div>
-                        <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
+                        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                             <Activity className="h-6 w-6" />
                         </div>
                     </CardContent>
@@ -142,7 +129,7 @@ export default function DriversList() {
                                 <h2 className="text-3xl font-bold">{stats.onLeave}</h2>
                             </div>
                         </div>
-                        <div className="h-12 w-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500">
+                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
                             <CalendarOff className="h-6 w-6" />
                         </div>
                     </CardContent>
@@ -197,14 +184,14 @@ export default function DriversList() {
                     <Table>
                         <TableHeader className="bg-muted/50">
                             <TableRow className="border-b border-border/50">
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.driver")}</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.contact")}</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.employment")}</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.assignedVehicle")}</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.licenseId")}</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.licenseType")}</TableHead>
-                                <TableHead className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.status")}</TableHead>
-                                <TableHead className="text-right uppercase text-xs font-semibold text-muted-foreground tracking-wider">{t("drivers.table.actions")}</TableHead>
+                                <TableHead>{t("drivers.table.driver")}</TableHead>
+                                <TableHead>{t("drivers.table.contact")}</TableHead>
+                                <TableHead>{t("drivers.table.employment")}</TableHead>
+                                <TableHead>{t("drivers.table.assignedVehicle")}</TableHead>
+                                <TableHead>{t("drivers.table.licenseId")}</TableHead>
+                                <TableHead>{t("drivers.table.licenseType")}</TableHead>
+                                <TableHead>{t("drivers.table.status")}</TableHead>
+                                <TableHead className="text-right">{t("drivers.table.actions")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -250,7 +237,7 @@ export default function DriversList() {
                                         <TableCell>
                                             {driver.currentAssignment ? (
                                                 <div className="flex flex-col">
-                                                    <span className="font-medium text-sm text-blue-600">{driver.currentAssignment.truckPlate}</span>
+                                                    <span className="font-medium text-sm text-primary">{driver.currentAssignment.truckPlate}</span>
                                                     <span className="text-xs text-muted-foreground">{driver.currentAssignment.truckModel}</span>
                                                 </div>
                                             ) : (
@@ -264,7 +251,7 @@ export default function DriversList() {
                                             <span className="text-sm text-muted-foreground">{driver.licenseType || "-"}</span>
                                         </TableCell>
                                         <TableCell>
-                                            <Badge variant="secondary" className={`${getStatusColor(driver.status)} font-medium border`}>
+                                            <Badge variant={toneBadgeVariant(driverStatusTone(driver.status))}>
                                                 <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
                                                 {t(`masterData.drivers.status.${driver.status}`)}
                                             </Badge>
@@ -304,7 +291,7 @@ export default function DriversList() {
                             onLoadMore={() => void pages.fetchNextPage()}
                         />
                     </div>
-                    <div className="flex items-center justify-between px-4 py-4 bg-muted/20">
+                    <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 bg-muted/20">
                         <div className="text-sm text-muted-foreground">
                             {t("drivers.pagination.showing")} {paginatedDrivers.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} {t("drivers.pagination.to")} {Math.min(currentPage * itemsPerPage, filteredDrivers.length)} {t("drivers.pagination.of")} {filteredDrivers.length} {t("drivers.pagination.entries")}
                         </div>

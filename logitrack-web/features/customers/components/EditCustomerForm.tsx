@@ -6,6 +6,7 @@ import { customerFormValues, customerInputFromForm } from "@/features/customers/
 import { useCustomer, useSaveCustomer } from "@/features/customers/api/useCustomers";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { Button } from "@/components/ui/button";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -155,7 +156,7 @@ export default function EditCustomerForm() {
                                 <div className="relative group">
                                     <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-input bg-muted focus-within:ring-[3px] focus-within:ring-ring/50">
                                         {logoPreview ? (
-                                            <Image src={logoPreview} alt="Logo" fill className="object-cover" />
+                                            <Image src={logoPreview} alt={t("customers.form.uploadLogo")} fill className="object-cover" />
                                         ) : (
                                             <label htmlFor="logo-upload" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                                                 <Upload className="h-6 w-6 text-muted-foreground mb-1" />
@@ -165,9 +166,9 @@ export default function EditCustomerForm() {
                                         <input id="logo-upload" type="file" accept="image/*" className="sr-only" aria-label={t("customers.form.uploadLogo")} onChange={handleLogoChange} />
                                     </div>
                                     {logoPreview && (
-                                        <button type="button" onClick={removeLogo} aria-label={t("customers.form.removeLogo")} className="absolute -top-1 -right-1 rounded-full bg-destructive p-1 text-white shadow-sm hover:bg-destructive/90 dark:bg-destructive/60">
-                                            <X className="h-3 w-3" aria-hidden />
-                                        </button>
+                                        <Button type="button" variant="destructive" size="icon" onClick={removeLogo} aria-label={t("customers.form.removeLogo")} className="absolute -top-1 -right-1 max-md:size-11">
+                                            <X className="h-4 w-4" aria-hidden />
+                                        </Button>
                                     )}
                                 </div>
                             </div>
@@ -176,9 +177,9 @@ export default function EditCustomerForm() {
                                 name="code"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>{t("customers.form.code")}</FormLabel>
+                                        <FormLabel>{t("customers.form.code")} <RequiredMark /></FormLabel>
                                         <FormControl>
-                                            <Input placeholder={t("customers.form.code.placeholder")} {...field} />
+                                            <Input aria-required="true" placeholder={t("customers.form.code.placeholder")} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -189,9 +190,9 @@ export default function EditCustomerForm() {
                                 name="name"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>{t("customers.form.name")}</FormLabel>
+                                        <FormLabel>{t("customers.form.name")} <RequiredMark /></FormLabel>
                                         <FormControl>
-                                            <Input placeholder={t("customers.form.name.placeholder")} {...field} />
+                                            <Input aria-required="true" placeholder={t("customers.form.name.placeholder")} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -252,7 +253,7 @@ export default function EditCustomerForm() {
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        className="mt-8 shrink-0 text-destructive hover:text-destructive"
+                                        className="mt-8 shrink-0"
                                         onClick={() => remove(index)}
                                     >
                                         <Trash2 className="h-4 w-4" />
@@ -279,7 +280,7 @@ export default function EditCustomerForm() {
                         <CardContent className="space-y-6">
                             {/* Tax & Legal */}
                             <div className="space-y-3">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                <p className="text-xs font-semibold text-muted-foreground">
                                     {t("customers.form.billing.taxSection")}
                                 </p>
                                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -355,7 +356,7 @@ export default function EditCustomerForm() {
 
                             {/* Contact */}
                             <div className="space-y-3">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                <p className="text-xs font-semibold text-muted-foreground">
                                     {t("customers.form.billing.contactSection")}
                                 </p>
                                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -403,7 +404,7 @@ export default function EditCustomerForm() {
 
                             {/* Payment Terms */}
                             <div className="space-y-3">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                <p className="text-xs font-semibold text-muted-foreground">
                                     {t("customers.form.billing.paymentSection")}
                                 </p>
                                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
