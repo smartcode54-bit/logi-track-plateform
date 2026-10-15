@@ -46,7 +46,8 @@ describe("LanguageProvider", () => {
     let stored: string | null;
 
     beforeEach(() => {
-        stored = null;
+        stored = "en";
+        document.documentElement.lang = "th";
         deferred.clear();
         loadDictionary.mockClear();
         vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => stored);
@@ -80,11 +81,23 @@ describe("LanguageProvider", () => {
         expect(screen.getByTestId("missing")).toHaveTextContent("missing.key");
     });
 
-    it("uses English when nothing valid is stored", async () => {
-        stored = "fr";
+    it.each([null, "fr", ""])("uses Thai when storage is absent or invalid (%s)", async (value) => {
+        stored = value;
+        document.documentElement.lang = "en";
+        render(<LanguageProvider><Probe /></LanguageProvider>);
+        await settle("th");
+        expect(screen.getByTestId("text")).toHaveTextContent("สวัสดี Ann");
+        expect(screen.getByTestId("language")).toHaveTextContent("th");
+        expect(document.documentElement.lang).toBe("th");
+        expect(loadDictionary.mock.calls.map(([l]) => l)).toEqual(["th"]);
+    });
+
+    it("keeps an explicit stored English preference", async () => {
         render(<LanguageProvider><Probe /></LanguageProvider>);
         await settle("en");
         expect(screen.getByTestId("text")).toHaveTextContent("Hello Ann");
+        expect(document.documentElement.lang).toBe("en");
+        expect(stored).toBe("en");
         expect(loadDictionary.mock.calls.map(([l]) => l)).toEqual(["en"]);
     });
 
@@ -102,20 +115,20 @@ describe("LanguageProvider", () => {
     });
 
     it("sets <html lang> to the language on screen, only once its dictionary is in (UI3)", async () => {
-        document.documentElement.lang = "en"; // what app/layout.tsx renders on the server
-        stored = "th";
+        document.documentElement.lang = "th"; // what app/layout.tsx renders on the server
+        stored = "en";
         const user = userEvent.setup();
         render(<LanguageProvider><Probe /></LanguageProvider>);
-        expect(document.documentElement.lang).toBe("en");
-
-        await settle("th");
         expect(document.documentElement.lang).toBe("th");
 
-        await user.click(screen.getByRole("button", { name: "to en" }));
-        // The Thai text is still on screen while English loads, so lang stays Thai with it.
-        expect(document.documentElement.lang).toBe("th");
         await settle("en");
         expect(document.documentElement.lang).toBe("en");
+
+        await user.click(screen.getByRole("button", { name: "to th" }));
+        // English is still on screen while Thai loads, so lang stays English with it.
+        expect(document.documentElement.lang).toBe("en");
+        await settle("th");
+        expect(document.documentElement.lang).toBe("th");
     });
 
     it("applies the last toggle when an earlier load finishes later", async () => {
@@ -129,6 +142,8 @@ describe("LanguageProvider", () => {
         await settle("th"); // the earlier request resolves last
         expect(screen.getByTestId("language")).toHaveTextContent("en");
         expect(screen.getByTestId("text")).toHaveTextContent("Hello Ann");
+        expect(document.documentElement.lang).toBe("en");
+        expect(stored).toBe("en");
     });
 
     it("keeps t() when the current language is chosen again", async () => {
@@ -145,15 +160,27 @@ describe("LanguageProvider", () => {
         expect(seen.size).toBe(1);
     });
 
-    it("falls back to English, then shows a reload screen, when dictionaries cannot load", async () => {
-        stored = "th";
+    it("falls back to Thai when the stored English dictionary cannot load, keeping the saved preference", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => undefined);
+        document.documentElement.lang = "en";
+        render(<LanguageProvider><Probe /></LanguageProvider>);
+
+        await act(async () => deferred.get("en")?.reject(new Error("ChunkLoadError")));
+        expect(loadDictionary.mock.calls.map(([l]) => l)).toEqual(["en", "th"]);
+        await settle("th");
+        expect(screen.getByTestId("text")).toHaveTextContent("สวัสดี Ann");
+        expect(document.documentElement.lang).toBe("th");
+        expect(stored).toBe("en");
+    });
+
+    it("falls back to Thai, then shows a reload screen, when dictionaries cannot load", async () => {
         vi.spyOn(console, "error").mockImplementation(() => undefined);
         render(<LanguageProvider><Probe /></LanguageProvider>);
 
-        await act(async () => deferred.get("th")?.reject(new Error("ChunkLoadError")));
-        expect(loadDictionary.mock.calls.map(([l]) => l)).toEqual(["th", "en"]);
-
         await act(async () => deferred.get("en")?.reject(new Error("ChunkLoadError")));
+        expect(loadDictionary.mock.calls.map(([l]) => l)).toEqual(["en", "th"]);
+
+        await act(async () => deferred.get("th")?.reject(new Error("ChunkLoadError")));
         expect(screen.getByRole("alert")).toHaveTextContent("Could not load the interface language.");
         expect(screen.getByRole("button", { name: "Reload / โหลดใหม่" })).toBeInTheDocument();
     });

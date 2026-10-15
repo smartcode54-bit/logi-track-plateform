@@ -72,9 +72,9 @@ beforeAll(() => {
 afterAll(() => restore());
 beforeEach(() => {
     try {
-        window.localStorage.removeItem("language");
+        window.localStorage.setItem("language", "en");
     } catch {
-        // English is the default anyway
+        // Storage may be unavailable in the test environment.
     }
 });
 

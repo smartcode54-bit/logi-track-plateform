@@ -8,6 +8,7 @@
  * | `signInWithPassword` | `POST /api/auth/login` | 200 sets both cookies; 403 `password_change_required` carries `details.passwordChangeTicket` and sets none (R79) |
  * | `googleNonce`, `signInWithGoogle` | `GET /api/auth/google/nonce`, `POST /api/auth/google` | GIS ID token + single-use nonce (Appendix C §C.4.10) |
  * | `changePasswordWithTicket` | `POST /api/go/v1/auth/password/change` | `{passwordChangeTicket, newPassword}`, no session (anonymous) |
+ * | `changePassword` | `POST /api/go/v1/auth/password/change` | `{currentPassword, newPassword}`, current session kept |
  * | `requestPasswordReset`, `resetPassword` | `POST /api/go/v1/auth/password/forgot`, `/reset` | anonymous; forgot always 202 (R4) |
  * | `switchTenant` | `POST /api/auth/tenant` | replaces `lt_at` (R83) |
  * | `signOutSession` | `POST /api/auth/logout` | revokes the session, expires both cookies; never throws |
@@ -129,6 +130,11 @@ export function changePasswordWithTicket(passwordChangeTicket: string, newPasswo
         body: { passwordChangeTicket, newPassword },
         anonymous: true,
     });
+}
+
+/** Changes the password of the current session; Go revokes the user's other sessions, keeping this one. */
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    return goFetch<void>("/v1/auth/password/change", { method: "POST", body: { currentPassword, newPassword } });
 }
 
 /** `POST /v1/auth/password/forgot`: always 202, whether or not the address has an account (R4). */

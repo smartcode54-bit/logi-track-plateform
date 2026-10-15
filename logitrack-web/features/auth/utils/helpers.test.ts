@@ -37,6 +37,29 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("loginDestination (the login page's redirect of a signed-in visitor)", () => {
     const operator = makeMe({ tenant: { id: "o", nameTh: "o", nameEn: null, kind: "own_fleet", role: "operator" }, capabilities: ["operations:view_driver_monitor"] });
+    const driverTenant = { id: "d", nameTh: "กองรถ", nameEn: "Fleet", kind: "own_fleet", role: "driver" };
+    const driver = makeMe({ tenant: driverTenant, tenants: [driverTenant], steward: false, driver: { id: "d-1" }, capabilities: [] });
+
+    it.each([null, "/app", "https://evil.example/app"])("sends a single-membership driver to the driver-app panel for next=%s", (next) => {
+        expect(loginDestination(next, driver)).toBe("/");
+    });
+    it("also sends a driver with no listed memberships to the driver-app panel", () => {
+        expect(loginDestination(null, { ...driver, tenants: [] })).toBe("/");
+    });
+    it("keeps multi-membership drivers in the shell, where they can switch tenants", () => {
+        const me = { ...driver, tenants: [driverTenant, { ...driverTenant, id: "other", role: "operator" }] };
+        expect(loginDestination(null, me)).toBe("/app/dashboard");
+        expect(loginDestination("/app", me)).toBe("/app");
+        expect(loginDestination("/app/trucks", me)).toBe("/app/trucks");
+        expect(loginDestination("https://evil.example/app", me)).toBe("/app");
+    });
+    it.each([
+        { platformRoles: ["support"] },
+        { dispatcher: true },
+        { customerScopes: [{ billingPartyId: "b", name: "Shipper" }] },
+    ])("preserves next for a driver who also has another principal role: %j", (otherRole) => {
+        expect(loginDestination("/app/trucks", { ...driver, ...otherRole })).toBe("/app/trucks");
+    });
     it("goes to ?next= when the URL carries one, made safe", () => {
         expect(loginDestination("/app/accounting/income?month=9", operator)).toBe("/app/accounting/income?month=9");
         expect(loginDestination("https://evil.example/app", operator)).toBe("/app");
