@@ -557,7 +557,8 @@ func TestExpensesAndMaintenance(t *testing.T) {
 			}
 			mt := generated(t, p, "maintenance_records")
 			got := countBy(mt, func(r Row) string { return r.Str("maintenance_type") + "/" + r.Str("status") })
-			if got["CM/scheduled"] != 1 || got["CM/in_progress"] != 1 || got["PM/completed"] == 0 || len(mt) != got["PM/completed"]+got["PM/pm_booking"]+2 {
+			// UI4K5 adds three completed PMs, bookings, scheduled PMs and open CM repairs.
+			if got["CM/scheduled"] != 1 || got["CM/in_progress"] != 4 || got["PM/scheduled"] != 3 || got["PM/completed"] <= 3 || len(mt) != got["PM/completed"]+got["PM/pm_booking"]+8 {
 				t.Errorf("maintenance %v", got)
 			}
 			for _, r := range mt {

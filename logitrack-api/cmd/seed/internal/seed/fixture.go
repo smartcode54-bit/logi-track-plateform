@@ -46,7 +46,7 @@ func (r Row) Str(col string) string {
 // LoadOrder is the table order of Appendix D §D.1.5: parents before children, the forward references
 // written NULL first and back-filled (Deferred). task_number_counters is derived after the load.
 var LoadOrder = []string{
-	"tenants", "users", "auth_identities", "file_objects", "customers", "billing_parties", "companies",
+	"tenants", "users", "auth_identities", "file_objects", "tenant_files", "customers", "billing_parties", "companies",
 	"memberships", "user_platform_roles", "user_scopes", "role_capability_overrides",
 	"hubs", "hub_name_aliases", "hub_soc_distances", "trucks", "drivers", "truck_assignments", "maintenance_records",
 	"customer_rate_entries", "customer_fuel_rate_adjustments", "customer_service_fees", "standby_rate_entries",
