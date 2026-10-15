@@ -44,14 +44,14 @@ export function TemporaryPasswordDialog({
                 </DialogHeader>
                 {account ? <p className="text-sm font-medium">{account}</p> : null}
                 <div className="flex items-center gap-2">
-                    <code data-testid="temporary-password" className="flex-1 select-all rounded-md border bg-muted px-3 py-2 font-mono text-base tracking-wider">
+                    <code data-testid="temporary-password" className="min-w-0 flex-1 break-all select-all rounded-md border bg-muted px-3 py-2 font-mono text-base tracking-wider">
                         {password}
                     </code>
                     <Button type="button" variant="outline" size="icon" onClick={() => void copy()} aria-label={t("users.tempPassword.copy")}>
-                        <Copy className="h-4 w-4" />
+                        <Copy className="h-4 w-4 text-muted-foreground" />
                     </Button>
                 </div>
-                <p className="text-xs text-amber-600">{t("users.tempPassword.once")}</p>
+                <p className="text-xs text-warning">{t("users.tempPassword.once")}</p>
                 <DialogFooter>
                     <Button type="button" onClick={onClose}>
                         {t("users.tempPassword.done")}
@@ -120,7 +120,7 @@ export function ConfirmDialog({
                         {t("users.form.cancel")}
                     </Button>
                     <Button type="button" variant={destructive ? "destructive" : "default"} onClick={() => void confirm()} disabled={busy}>
-                        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                         {confirmLabel}
                     </Button>
                 </DialogFooter>

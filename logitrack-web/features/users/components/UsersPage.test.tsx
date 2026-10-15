@@ -9,6 +9,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("@/lib/loginGeo", () => ({ resolveLoginGeoForClient: async () => null }));
 
+import { renderInLanguage } from "@/features/security-center/test-utils/renderInLanguage";
 import { UsersPage } from "./UsersPage";
 import { USERS_PAGE_SIZE, useUsers, type UserDTO } from "../api/users";
 import { createQueryClient } from "@/lib/queryClient";
@@ -221,6 +222,7 @@ describe("UsersPage", () => {
         tenantStaff.web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(4)] }));
         const first = renderWithProviders(<UsersPage />);
         await screen.findAllByTestId("user-row");
+        expect(screen.getByTestId("scope-caption")).toHaveTextContent("Organisation: Own fleet");
         const own = tenantStaff.web.calls.filter((c) => c.url.startsWith("/api/go/v1/users"));
         expect(own.length).toBeGreaterThan(0);
         expect(own.every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
@@ -233,6 +235,8 @@ describe("UsersPage", () => {
         platform.web.on("GET", "/api/go/v1/users", (c) => json(200, { data: c.headers["x-act-on-tenant"] === "*" ? [user(4), customer] : [] }));
         const { client } = renderWithProviders(<UsersPage />);
         await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(2));
+        expect(screen.getByTestId("scope-caption")).toHaveTextContent("All organisations");
+        expect(screen.getAllByTestId("user-row")[0]).toHaveTextContent("Own fleet");
         const all = platform.web.calls.filter((c) => c.url.startsWith("/api/go/v1/users"));
         expect(all.every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
         // The reach is part of the key, so a tenant-reach page is never cached under the platform reach.
@@ -366,5 +370,50 @@ describe("UsersPage", () => {
         expect(screen.queryByRole("button", { name: /Add User/ })).toBeNull();
         expect(screen.queryByRole("switch")).toBeNull();
         expect(screen.queryByRole("button", { name: "Actions" })).toBeNull();
+    });
+});
+
+describe.each(["en", "th"] as const)("UI4 user scope in %s", (language) => {
+    it("describes a carrier's own users without promising contractor or steward reach", async () => {
+        const web = fakeWeb();
+        const tenant = { id: "t-car", nameTh: "รถร่วม", nameEn: "Carrier One", kind: "carrier", role: "tenant_admin" as const };
+        const me = makeMe({ id: "u-self", tenant, tenants: [tenant], steward: false });
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(1, {
+            memberships: [{ tenantId: tenant.id, tenantNameTh: tenant.nameTh, tenantNameEn: tenant.nameEn, tenantKind: tenant.kind, role: "tenant_admin", status: "active" }],
+            manageAccount: false, accountReason: "tenant_admin_only",
+        })] }));
+        renderInLanguage(<UsersPage />, language);
+        await screen.findAllByTestId("user-row");
+        expect(screen.getByTestId("scope-caption")).toHaveTextContent(language === "th" ? "องค์กร: รถร่วม" : "Organisation: Carrier One");
+        expect(screen.getByTestId("scope-caption")).not.toHaveTextContent(/linked carriers|without organisation memberships|ผู้ขนส่งที่เชื่อมโยง|บัญชีที่ไม่มีสมาชิกภาพ/);
+        await userEvent.setup().click(within(screen.getAllByTestId("user-row")[0]).getByRole("button"));
+        expect(await screen.findByTestId("account-locked")).toHaveTextContent(language === "th" ? "ผู้ดูแลองค์กร" : "An organisation admin:");
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/users")).every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
+    });
+
+    it.each([false, true])("shows the query reach and organisation names with platform=%s", async (platform) => {
+        const web = fakeWeb();
+        const me = makeMe({ platformRoles: platform ? ["platform_admin"] : [] });
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(1),
+            user(2, { memberships: [{ tenantId: "t-car", tenantNameTh: "รถร่วม", tenantNameEn: "Linked carrier", tenantKind: "carrier", role: "operator", status: "active" }] }),
+            user(3, { memberships: [], scopes: [{ kind: "customer", billingPartyId: "bp-1", name: "Customer only" }] }),
+        ] }));
+        renderInLanguage(<UsersPage />, language);
+        const row = (await screen.findAllByTestId("user-row"))[0];
+        const caption = screen.getByTestId("scope-caption");
+        if (platform) {
+            expect(caption).toHaveTextContent(language === "th" ? "ทุกองค์กร" : "All organisations");
+            // The row's organisation is named even when it matches the viewer's selected organisation.
+            expect(row).toHaveTextContent(language === "th" ? "กองรถ" : "Own fleet");
+        } else {
+            expect(caption).toHaveTextContent(language === "th" ? "องค์กร: กองรถและผู้ขนส่งที่เชื่อมโยง" : "Organisation: Own fleet and linked carriers");
+            expect(caption).toHaveTextContent(language === "th" ? "บัญชีที่ไม่มีสมาชิกภาพในองค์กร" : "accounts without organisation memberships");
+            expect(screen.getAllByTestId("user-row")).toHaveLength(3);
+        }
+        expect(web.calls.filter((call) => call.url.startsWith("/api/go/v1/users")).every((call) =>
+            call.headers["x-act-on-tenant"] === (platform ? "*" : undefined)
+        )).toBe(true);
     });
 });

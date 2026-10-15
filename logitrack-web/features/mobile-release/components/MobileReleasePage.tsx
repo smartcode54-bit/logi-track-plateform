@@ -17,10 +17,11 @@ import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, Rocket } from "lucide-react";
 import { toast } from "sonner";
 
+import { DisclosureSummary } from "@/features/security-center/components/DisclosureSummary";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { useSecurityReach } from "@/features/security-center/api/reach";
-import { formatDateTime } from "@/features/security-center/components/eventDisplay";
+import { capabilityTitle, buildTypeLabel, formatDateTime } from "@/features/security-center/components/eventDisplay";
 import { apiErrorText } from "@/lib/apiError";
 import { compareSemver, parseSemver } from "@/lib/mobileVersion";
 import { PageHeader } from "@/components/page-header";
@@ -79,7 +80,7 @@ export function raisesFloor(current: string | null, candidate: string | null): b
 }
 
 export function MobileReleasePage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const reach = useSecurityReach();
     const canViewClients = useCan("security:view_mobile_clients").allowed;
     const releases = useMobileReleases("");
@@ -141,7 +142,7 @@ export function MobileReleasePage() {
         pending === null
             ? t("securityCenter.mobileRelease.removeImpact")
             : !canViewClients
-              ? t("securityCenter.mobileRelease.impactUnknown")
+              ? t("securityCenter.mobileRelease.impactUnknown", { capability: capabilityTitle("security:view_mobile_clients", language), page: t("securityCenter.rolePermissionMatrix") })
               : impact.data?.belowVersion
                 ? impact.data.belowVersion.count > 0
                     ? t("securityCenter.mobileRelease.forceImpact", { blocked: impact.data.belowVersion.count, total: impact.data.total })
@@ -163,16 +164,24 @@ export function MobileReleasePage() {
                 <CardHeader>
                     <CardTitle className="text-base">{t("securityCenter.mobileRelease.publishedTitle")}</CardTitle>
                     <CardDescription>{t("securityCenter.mobileRelease.publishedHintGo")}</CardDescription>
+                    <details className="text-xs text-muted-foreground">
+                        <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
+                        <p className="mt-2">{t("securityCenter.mobileRelease.technicalHint")}</p>
+                    </details>
                 </CardHeader>
                 <CardContent>
                     {latest ? (
                         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3" data-testid="published-build">
                             <Fact label={t("securityCenter.mobileRelease.latestVersion")} value={latest} />
                             <Fact label={t("securityCenter.mobileRelease.latestBuildNumber")} value={gate.latestBuildNumber ?? ""} />
-                            <Fact label={t("securityCenter.mobileRelease.flavor")} value={gate.flavor ?? ""} />
+                            <Fact label={t("securityCenter.ui4.buildType")} value={buildTypeLabel(gate.flavor, t)} />
                             <Fact label={t("securityCenter.mobileRelease.apkSize")} value={formatBytes(gate.apkSizeBytes)} />
-                            <Fact label={t("securityCenter.mobileRelease.releasedAt")} value={formatDateTime(gate.releasedAt)} />
-                            <Fact label={t("securityCenter.mobileRelease.releasedBy")} value={gate.releasedBy ?? ""} />
+                            <Fact label={t("securityCenter.mobileRelease.releasedAt")} value={formatDateTime(gate.releasedAt, language)} />
+                            <details className="text-xs text-muted-foreground">
+                                <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
+                                <Fact label={t("securityCenter.mobileRelease.releasedBy")} value={gate.releasedBy ?? ""} />
+                                <Fact label={t("securityCenter.mobileRelease.apkSha256")} value={gate.apkSha256 ?? ""} />
+                            </details>
                             <div className="col-span-2 sm:col-span-3">
                                 <Fact
                                     label={t("securityCenter.mobileRelease.apkDownloadUrl")}
@@ -186,9 +195,6 @@ export function MobileReleasePage() {
                                         )
                                     }
                                 />
-                            </div>
-                            <div className="col-span-2 sm:col-span-3">
-                                <Fact label={t("securityCenter.mobileRelease.apkSha256")} value={gate.apkSha256 ?? ""} />
                             </div>
                             {gate.releaseNotes ? (
                                 <div className="col-span-2 sm:col-span-3">
@@ -217,7 +223,7 @@ export function MobileReleasePage() {
                                     <TableRow>
                                         <TableHead>{t("securityCenter.mobileRelease.latestVersion")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileRelease.latestBuildNumber")}</TableHead>
-                                        <TableHead>{t("securityCenter.mobileRelease.flavor")}</TableHead>
+                                        <TableHead>{t("securityCenter.ui4.buildType")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileRelease.apkSize")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileRelease.releasedAt")}</TableHead>
                                         <TableHead>{t("securityCenter.mobileRelease.releasedBy")}</TableHead>
@@ -235,10 +241,15 @@ export function MobileReleasePage() {
                                                 ) : null}
                                             </TableCell>
                                             <TableCell>{r.buildNumber}</TableCell>
-                                            <TableCell>{r.flavor}</TableCell>
+                                            <TableCell>{buildTypeLabel(r.flavor, t)}</TableCell>
                                             <TableCell>{formatBytes(r.apkSizeBytes)}</TableCell>
-                                            <TableCell className="whitespace-nowrap text-sm">{formatDateTime(r.releasedAt)}</TableCell>
-                                            <TableCell className="text-sm">{r.releasedBy ?? "—"}</TableCell>
+                                            <TableCell className="whitespace-nowrap text-sm">{formatDateTime(r.releasedAt, language)}</TableCell>
+                                            <TableCell className="text-sm">
+                                                <details>
+                                                    <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
+                                                    {r.releasedBy ?? "—"}
+                                                </details>
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -259,7 +270,7 @@ export function MobileReleasePage() {
                         <p className="font-mono text-lg">{gate.minAllowedVersion ?? t("securityCenter.mobileRelease.noFloor")}</p>
                         {gate.minAllowedVersionSetAt ? (
                             <p className="text-xs text-muted-foreground">
-                                {t("securityCenter.mobileRelease.minAllowedVersionSetAt")}: {formatDateTime(gate.minAllowedVersionSetAt)}
+                                {t("securityCenter.mobileRelease.minAllowedVersionSetAt")}: {formatDateTime(gate.minAllowedVersionSetAt, language)}
                                 {gate.minAllowedVersionSetBy ? ` · ${gate.minAllowedVersionSetBy}` : ""}
                             </p>
                         ) : null}
@@ -284,7 +295,7 @@ export function MobileReleasePage() {
                         </div>
                         <p className="text-xs text-muted-foreground">{t("securityCenter.mobileRelease.minAllowedVersionHint")}</p>
                         {inputReason ? (
-                            <p className="text-xs text-red-500" role="alert">
+                            <p className="text-xs text-destructive" role="alert">
                                 {inputReason}
                             </p>
                         ) : null}
@@ -295,7 +306,7 @@ export function MobileReleasePage() {
             <Card className="border-destructive/40">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-base">
-                        <Rocket className="h-4 w-4" />
+                        <Rocket className="h-4 w-4 text-muted-foreground" />
                         {t("securityCenter.mobileRelease.force", { version: latest || "—" })}
                     </CardTitle>
                     <CardDescription>{t("securityCenter.mobileRelease.forceHint")}</CardDescription>
@@ -303,7 +314,7 @@ export function MobileReleasePage() {
                 <CardContent className="space-y-3">
                     {forceReason ? (
                         <div className="flex items-start gap-2 text-sm text-muted-foreground" data-testid="force-blocked">
-                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                             <span>{forceReason}</span>
                         </div>
                     ) : null}
@@ -354,7 +365,7 @@ export function MobileReleasePage() {
                             disabled={!confirmReady || floor.isPending}
                             onClick={() => pending !== undefined && floor.mutate({ minAllowedVersion: pending })}
                         >
-                            {floor.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {floor.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                             {pending === null ? t("securityCenter.mobileRelease.removeFloor") : t("securityCenter.mobileRelease.confirmAction")}
                         </Button>
                     </DialogFooter>

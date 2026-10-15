@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { organisationRoleLabel } from "@/features/users/components/UserBadges";
 import { useLanguage } from "@/context/language";
 import { PLATFORM_ROLES, type MeDTO, type PlatformRole } from "@/features/auth/api/me";
 import { apiErrorText } from "@/lib/apiError";
@@ -122,7 +123,7 @@ export function EditUserDialog({
                 </DialogHeader>
 
                 {lock ? (
-                    <p className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" data-testid="shared-account-note">
+                    <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground" data-testid="shared-account-note">
                         {t("users.edit.sharedAccountNote")}
                     </p>
                 ) : null}
@@ -134,7 +135,7 @@ export function EditUserDialog({
                             <span className="min-w-[120px] flex-1 text-sm">
                                 {tenantLabel(m)}
                                 {m.status === "suspended" ? (
-                                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">{t("users.membership.suspended")}</span>
+                                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{t("users.membership.suspended")}</span>
                                 ) : null}
                             </span>
                             <Select
@@ -148,7 +149,7 @@ export function EditUserDialog({
                                 <SelectContent>
                                     {roleOptions(m.tenantId, m.role).map((r) => (
                                         <SelectItem key={r} value={r}>
-                                            {t(`users.tenantRole.${r}`, r)}
+                                            {organisationRoleLabel(r, t)}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -166,7 +167,7 @@ export function EditUserDialog({
                                     )
                                 }
                             >
-                                {busy === `role-${m.tenantId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : t("users.form.save")}
+                                {busy === `role-${m.tenantId}` ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : t("users.form.save")}
                             </Button>
                             <Button
                                 type="button"
@@ -184,11 +185,11 @@ export function EditUserDialog({
                                 }
                             >
                                 {busy === `st-${m.tenantId}` ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                                 ) : m.status === "suspended" ? (
-                                    <PlayCircle className="h-4 w-4" />
+                                    <PlayCircle className="h-4 w-4 text-muted-foreground" />
                                 ) : (
-                                    <PauseCircle className="h-4 w-4" />
+                                    <PauseCircle className="h-4 w-4 text-muted-foreground" />
                                 )}
                             </Button>
                             <Button
@@ -199,7 +200,7 @@ export function EditUserDialog({
                                 disabled={!actions.assignRole || self || busy !== null}
                                 onClick={() => void run(`rm-${m.tenantId}`, () => removeMember(m.tenantId, user.id), "users.toast.membershipRemoved")}
                             >
-                                <Trash2 className="h-4 w-4 text-destructive" />
+                                <Trash2 className="h-4 w-4 text-muted-foreground" />
                             </Button>
                         </div>
                     ))}
@@ -220,7 +221,7 @@ export function EditUserDialog({
                                     <SelectContent>
                                         {grantableRoles(me, newTenantId).map((r) => (
                                             <SelectItem key={r} value={r}>
-                                                {t(`users.tenantRole.${r}`)}
+                                                {organisationRoleLabel(r, t)}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -232,7 +233,7 @@ export function EditUserDialog({
                                 disabled={!newTenantId || memberTenants.has(newTenantId) || busy !== null}
                                 onClick={() => void run("add", () => setMemberRole(newTenantId, user.id, newRole), "users.toast.roleUpdated")}
                             >
-                                {busy === "add" ? <Loader2 className="h-3 w-3 animate-spin" /> : t("users.edit.addMembership")}
+                                {busy === "add" ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : t("users.edit.addMembership")}
                             </Button>
                         </div>
                     ) : null}
@@ -252,7 +253,7 @@ export function EditUserDialog({
                                 disabled={accountOff || sameSet(parties, customerScope)}
                                 onClick={() => void run("scope", () => setUserScope(user.id, "customer", parties), "users.toast.scopeUpdated")}
                             >
-                                {busy === "scope" ? <Loader2 className="h-3 w-3 animate-spin" /> : t("users.form.save")}
+                                {busy === "scope" ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : t("users.form.save")}
                             </Button>
                         </section>
                     </>
@@ -285,7 +286,7 @@ export function EditUserDialog({
                                     disabled={accountOff || !driverId || driverId === (user.driver?.id ?? "")}
                                     onClick={() => void run("link", () => setDriverLink(user.id, driverId), "users.driverLinkSaved")}
                                 >
-                                    {busy === "link" ? <Loader2 className="h-3 w-3 animate-spin" /> : t("users.driverLinkSave")}
+                                    {busy === "link" ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : t("users.driverLinkSave")}
                                 </Button>
                                 {user.driver ? (
                                     <Button
@@ -325,7 +326,7 @@ export function EditUserDialog({
                                             }}
                                         />
                                         {t(`users.platformRole.${r}`)}
-                                        {busy === `plt-${r}` ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                        {busy === `plt-${r}` ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : null}
                                     </label>
                                 );
                             })}

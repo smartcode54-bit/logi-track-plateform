@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { fakeWeb, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
+import { renderInLanguage } from "@/features/security-center/test-utils/renderInLanguage";
 import { MobileClientsPage } from "./MobileClientsPage";
 import { floorBlockedReason, MobileReleasePage, raisesFloor } from "./MobileReleasePage";
 import type { GateViewDTO } from "../api/releases";
@@ -155,7 +156,7 @@ describe("Mobile release (Go)", () => {
         web.on("PUT", "/api/go/v1/app-releases/floor", () => json(200, { data: { ...GATE, minAllowedVersion: null }, meta: { changed: true, blocked7d: 0 } }));
         renderWithProviders(<MobileReleasePage />);
         const u = userEvent.setup();
-        expect(await screen.findByTestId("force-blocked")).toHaveTextContent("The published build has no download link. Publish it again with cmd/release");
+        expect(await screen.findByTestId("force-blocked")).toHaveTextContent("The published build has no download link. Ask the release owner to publish it again");
         expect(screen.getByRole("button", { name: "Force all drivers to 3.2.0" })).toBeDisabled();
         await u.type(screen.getByLabelText("New minimum version"), "3.0.0");
         expect(screen.getByRole("button", { name: "Set minimum" })).toBeDisabled();
@@ -203,11 +204,63 @@ describe("Mobile clients (Go)", () => {
         expect(rows).toHaveLength(2);
         expect(within(rows[0]).getByText("Blocked")).toBeInTheDocument();
         expect(within(rows[0]).getByText("Carrier One")).toBeInTheDocument();
-        expect(within(rows[1]).getByText("Dev build")).toBeInTheDocument();
-        expect(await screen.findByTestId("mobile-summary")).toHaveTextContent("30 installations · 2 blocked · 6 outdated · 20 on the latest build");
+        expect(within(rows[1]).getByText("Test build")).toHaveClass("bg-destructive");
+        expect(await screen.findByTestId("mobile-summary")).toHaveTextContent("30 devices · 2 blocked · 6 outdated · 20 on the latest build");
         expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
         const list = web.calls.find((c) => c.url.startsWith("/api/go/v1/app-installations?"));
         expect(list?.url).toBe("/api/go/v1/app-installations?limit=100");
         expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/app-installations")).every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+    });
+});
+
+describe.each(["en", "th"] as const)("UI4 mobile language in %s", (language) => {
+    const labels = language === "th"
+        ? { build: "ประเภทบิลด์", production: "ใช้งานจริง", test: "บิลด์ทดสอบ", unknown: "ไม่ทราบประเภทบิลด์", all: "ทุกประเภทบิลด์" }
+        : { build: "Build type", production: "Production", test: "Test build", unknown: "Unknown build type", all: "All build types" };
+
+    it("localizes build types in published and historical releases", async () => {
+        const web = setup();
+        web.on("GET", "/api/go/v1/app-releases", () => json(200, { data: ["prod", "dev", "future"].map((flavor, index) => ({
+            id: String(index), flavor, version: `3.${index}.0`, buildNumber: String(index), apkKey: "k", apkUrl: GATE.apkDownloadUrl,
+            releasedAt: GATE.releasedAt, releasedBy: "cmd/release", latest: index === 0,
+        })), meta: { settings: GATE } }));
+        renderInLanguage(<MobileReleasePage />, language);
+        expect(await screen.findByTestId("published-build")).toHaveTextContent(labels.production);
+        const rows = await screen.findAllByTestId("release-row");
+        expect(rows.map((row) => row.children[2].textContent)).toEqual([labels.production, labels.test, labels.unknown]);
+        for (const row of rows) {
+            expect(within(row).getByText("cmd/release").closest("details")?.open).toBe(false);
+            if (language === "th") expect(row).not.toHaveTextContent(/Oct|ago/);
+        }
+    });
+
+    it("labels device build filters and platforms while keeping IDs in row evidence", async () => {
+        const web = setup();
+        web.on("GET", "/api/go/v1/app-installations", () => json(200, { data: ["prod", "dev", "future"].map((flavor, index) => ({
+            driverId: `driver-uuid-${index}`, installId: `install-uuid-${index}`, driverName: "Driver", tenantName: index === 1 ? "Linked carrier" : "Own fleet",
+            flavor, platform: index === 1 ? "ios" : "android", appVersion: "3.2.0", buildNumber: "12", lastSeenAt: GATE.releasedAt, versionStatus: "current",
+        })) }));
+        web.on("GET", "/api/go/v1/app-installations/stats", () => json(200, { data: { total: 3, byStatus: {}, latestVersion: "3.2.0", minAllowedVersion: "3.1.0", flavor: "prod" } }));
+        renderInLanguage(<MobileClientsPage />, language);
+        const rows = await screen.findAllByTestId("installation-row");
+        expect(screen.getByTestId("scope-caption")).toHaveTextContent(language === "th" ? "ผู้ขนส่งที่เชื่อมโยง" : "linked carriers");
+        expect(rows[1]).toHaveTextContent("Linked carrier");
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/app-installations")).every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
+        expect(rows.map((row) => row.children[5].textContent)).toEqual([labels.production, labels.test, labels.unknown]);
+        expect(rows[0]).toHaveTextContent("Android");
+        expect(rows[1]).toHaveTextContent("iOS");
+        expect(within(rows[1]).getByText(labels.test)).toHaveClass("bg-destructive");
+        expect(screen.getByRole("columnheader", { name: language === "th" ? "หมายเลขบิลด์" : "Build" })).toBeInTheDocument();
+        for (const [index, row] of rows.entries()) {
+            expect(row).not.toHaveTextContent(`driver-uuid-${index}`);
+            expect(row).not.toHaveTextContent(`install-uuid-${index}`);
+            expect(row.title).toContain(`driver-uuid-${index}`);
+            expect(row.title).toContain(`install-uuid-${index}`);
+        }
+        const u = userEvent.setup();
+        await u.click(screen.getByRole("combobox", { name: labels.build }));
+        expect(screen.getByRole("option", { name: labels.all })).toBeInTheDocument();
+        await u.click(screen.getByRole("option", { name: labels.test }));
+        await waitFor(() => expect(web.calls.some((call) => call.url.includes("flavor=dev"))).toBe(true));
     });
 });

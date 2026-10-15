@@ -9,7 +9,6 @@
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
 import { Key, Loader2, Plus, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,11 +26,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import { apiKeyRows, revokeApiKey, useApiKeys, type ApiKeyDTO } from "../api/apiKeys";
 import { useSecurityReach } from "../api/reach";
+import { ScopeCaption } from "./ScopeCaption";
 import { CreateApiKeyDialog } from "./CreateApiKeyDialog";
-import { formatDateTime } from "./eventDisplay";
+import { formatDateTime, formatRelative } from "./eventDisplay";
 
 function StatusBadge({ status, t }: { status: string; t: (k: string, f?: string) => string }) {
-    const variant = status === "active" ? "outline" : status === "revoked" ? "destructive" : "secondary";
+    const variant = status === "active" ? "success" : "secondary";
     return <Badge variant={variant}>{t(`securityCenter.apiKeys.status.${status}`, status)}</Badge>;
 }
 
@@ -70,10 +70,10 @@ export function ApiKeysPage() {
         <div className="flex flex-col gap-section">
             <PageHeader
                 title={t("securityCenter.apiKeys")}
-                description={t("securityCenter.apiKeys.subtitle")}
+                description={<>{t("securityCenter.apiKeys.subtitle")}<ScopeCaption reach={reach} /></>}
                 actions={
                     <Button onClick={() => setCreating(true)} disabled={!me}>
-                        <Plus className="mr-2 h-4 w-4" aria-hidden />
+                        <Plus className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden />
                         {t("securityCenter.apiKeys.create")}
                     </Button>
                 }
@@ -82,7 +82,7 @@ export function ApiKeysPage() {
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Key className="h-5 w-5" />
+                        <Key className="h-5 w-5 text-muted-foreground" />
                         {t("securityCenter.apiKeys.management")}
                     </CardTitle>
                     <CardDescription>{t("securityCenter.apiKeys.listHint")}</CardDescription>
@@ -133,21 +133,21 @@ export function ApiKeysPage() {
                                                 <StatusBadge status={k.status} t={t} />
                                                 {k.expiresAt ? (
                                                     <span className="block text-xs text-muted-foreground">
-                                                        {t("securityCenter.apiKeys.expires", { time: formatDateTime(k.expiresAt) })}
+                                                        {t("securityCenter.apiKeys.expires", { time: formatDateTime(k.expiresAt, language) })}
                                                     </span>
                                                 ) : null}
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap text-xs">
-                                                {formatDateTime(k.createdAt)}
+                                                {formatDateTime(k.createdAt, language)}
                                                 <span className="block text-muted-foreground">{k.createdByEmail}</span>
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap text-xs">
-                                                {k.lastUsedAt ? formatDistanceToNow(new Date(k.lastUsedAt), { addSuffix: true }) : t("securityCenter.apiKeys.never")}
+                                                {k.lastUsedAt ? formatRelative(k.lastUsedAt, language) : t("securityCenter.apiKeys.never")}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 {k.status !== "revoked" ? (
                                                     <Button variant="ghost" size="sm" onClick={() => setRevoking(k)}>
-                                                        <ShieldOff className="mr-1 h-4 w-4" />
+                                                        <ShieldOff className="mr-1 h-4 w-4 text-muted-foreground" />
                                                         {t("securityCenter.apiKeys.revoke")}
                                                     </Button>
                                                 ) : null}
@@ -161,7 +161,7 @@ export function ApiKeysPage() {
                     {keys.hasNextPage ? (
                         <div className="mt-4 flex justify-center">
                             <Button variant="outline" size="sm" onClick={() => void keys.fetchNextPage()} disabled={keys.isFetchingNextPage}>
-                                {keys.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                {keys.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                                 {t("securityCenter.audit.loadMore")}
                             </Button>
                         </div>
@@ -188,7 +188,7 @@ export function ApiKeysPage() {
                             {t("securityCenter.apiKeys.cancel")}
                         </Button>
                         <Button variant="destructive" onClick={() => void confirmRevoke()} disabled={busy}>
-                            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                             {t("securityCenter.apiKeys.revokeConfirm")}
                         </Button>
                     </DialogFooter>

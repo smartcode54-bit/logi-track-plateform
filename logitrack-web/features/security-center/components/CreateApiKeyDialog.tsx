@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import { Check, Copy, Loader2, TriangleAlert } from "lucide-react";
 
+import { TechnicalKeysToggle } from "./TechnicalKeysToggle";
 import { useLanguage } from "@/context/language";
 import { isPlatformAdmin, type MeDTO } from "@/features/auth/api/me";
 import { useAllTenants } from "@/features/tenants/api/tenants";
@@ -59,6 +60,7 @@ export function CreateApiKeyDialog({
     const [submitting, setSubmitting] = useState(false);
     const [created, setCreated] = useState<CreatedApiKeyDTO | null>(null);
     const [copied, setCopied] = useState(false);
+    const [showTechnicalKeys, setShowTechnicalKeys] = useState(false);
 
     const platformKey = platformAdmin && (platformKeyChoice || PLATFORM_ONLY_SCOPES.includes(scope));
     const tenantId = platformKey ? null : platformAdmin ? tenantChoice || me?.tenant?.id || "" : (me?.tenant?.id ?? "");
@@ -80,6 +82,7 @@ export function CreateApiKeyDialog({
         setError(null);
         setCreated(null);
         setCopied(false);
+        setShowTechnicalKeys(false);
     };
 
     const close = (next: boolean) => {
@@ -133,7 +136,7 @@ export function CreateApiKeyDialog({
                 {created ? (
                     <div className="space-y-3">
                         <Alert>
-                            <TriangleAlert className="h-4 w-4" />
+                            <TriangleAlert className="h-4 w-4 text-muted-foreground" />
                             <AlertDescription>{t("securityCenter.apiKeys.secretOnce")}</AlertDescription>
                         </Alert>
                         <div className="flex items-center gap-2">
@@ -141,11 +144,11 @@ export function CreateApiKeyDialog({
                                 {created.secret}
                             </code>
                             <Button type="button" variant="outline" size="icon" onClick={() => void copy()} aria-label={t("securityCenter.apiKeys.copy")}>
-                                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                {copied ? <Check className="h-4 w-4 text-muted-foreground" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                             </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                            {t("securityCenter.apiKeys.createdSummary", { name: created.name, prefix: created.keyPrefix, scope: created.scope })}
+                            {t("securityCenter.apiKeys.createdSummary", { name: created.name, prefix: created.keyPrefix, scope: t(`securityCenter.apiKeys.scopes.${created.scope}`) })}
                         </p>
                     </div>
                 ) : (
@@ -153,7 +156,7 @@ export function CreateApiKeyDialog({
                         <div className="space-y-2">
                             <Label htmlFor="api-key-name">{t("securityCenter.apiKeys.name")}</Label>
                             <Input id="api-key-name" value={name} maxLength={MAX_NAME + 20} onChange={(e) => setName(e.target.value)} autoComplete="off" />
-                            {name && nameError === "tooLong" ? <p className="text-xs text-red-500">{t("securityCenter.apiKeys.nameTooLong", { max: MAX_NAME })}</p> : null}
+                            {name && nameError === "tooLong" ? <p className="text-xs text-destructive">{t("securityCenter.apiKeys.nameTooLong", { max: MAX_NAME })}</p> : null}
                         </div>
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
@@ -163,7 +166,7 @@ export function CreateApiKeyDialog({
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {API_KEY_SCOPES.filter((s) => platformAdmin || !PLATFORM_ONLY_SCOPES.includes(s)).map((s) => (
+                                        {API_KEY_SCOPES.filter((s) => s !== "cf_shim" && (platformAdmin || !PLATFORM_ONLY_SCOPES.includes(s))).map((s) => (
                                             <SelectItem key={s} value={s}>
                                                 {t(`securityCenter.apiKeys.scopes.${s}`)}
                                             </SelectItem>
@@ -211,6 +214,7 @@ export function CreateApiKeyDialog({
                         ) : null}
                         <div className="space-y-2">
                             <Label>{t("securityCenter.apiKeys.capabilities")}</Label>
+                            {grantable.length > 0 ? <TechnicalKeysToggle checked={showTechnicalKeys} onChange={setShowTechnicalKeys} /> : null}
                             {grantable.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">{t("securityCenter.apiKeys.noGrantable")}</p>
                             ) : (
@@ -221,11 +225,11 @@ export function CreateApiKeyDialog({
                                                 checked={selected.includes(c.key)}
                                                 disabled={scope === "release_publisher"}
                                                 onCheckedChange={(v) => toggleCap(c.key, v === true)}
-                                                aria-label={c.key}
+                                                aria-label={language === "th" ? c.titleTh : c.titleEn}
                                             />
                                             <span>
                                                 {language === "th" ? c.titleTh : c.titleEn}
-                                                <span className="block font-mono text-xs text-muted-foreground">{c.key}</span>
+                                                {showTechnicalKeys ? <span className="block break-all font-mono text-xs text-muted-foreground">{c.key}</span> : null}
                                             </span>
                                         </label>
                                     ))}
@@ -251,7 +255,7 @@ export function CreateApiKeyDialog({
                                 {t("securityCenter.apiKeys.cancel")}
                             </Button>
                             <Button type="button" onClick={() => void submit()} disabled={!canSubmit}>
-                                {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
                                 {t("securityCenter.apiKeys.create")}
                             </Button>
                         </>

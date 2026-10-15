@@ -1,0 +1,22 @@
+[
+  "features/mobile-release/components/MobileClientsPage.tsx",
+  "features/mobile-release/components/MobileReleasePage.tsx",
+  "features/security-center/api/events.ts",
+  "features/security-center/components/ActiveUsersPanel.tsx",
+  "features/security-center/components/ApiKeysPage.tsx",
+  "features/security-center/components/CreateApiKeyDialog.tsx",
+  "features/security-center/components/DisclosureSummary.tsx",
+  "features/security-center/components/RoleMatrixPage.tsx",
+  "features/security-center/components/ScopeCaption.tsx",
+  "features/security-center/components/SecurityAuditPage.tsx",
+  "features/security-center/components/SecurityOverviewPage.tsx",
+  "features/security-center/components/SystemStatusPage.tsx",
+  "features/security-center/components/TechnicalKeysToggle.tsx",
+  "features/security-center/components/eventDisplay.tsx",
+  "features/security-center/components/userAgent.ts",
+  "features/tenants/components/TenantsPage.tsx",
+  "features/users/components/EditUserDialog.tsx",
+  "features/users/components/UserBadges.tsx",
+  "features/users/components/UsersPage.tsx",
+  "features/users/components/dialogs.tsx"
+]
