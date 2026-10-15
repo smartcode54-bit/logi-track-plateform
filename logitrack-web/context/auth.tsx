@@ -50,6 +50,7 @@ import { resolveLoginGeoForClient } from "@/lib/loginGeo";
 import { clearCacheExceptMe, resetSessionCache } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import { endSession, onSessionEnd } from "@/lib/sessionEnd";
+import { assertSessionGeneration, sessionGeneration } from "@/lib/sessionGeneration";
 import { onClaimsRefreshed, sharedRefresh } from "@/lib/sharedRefresh";
 
 /** The signed-in user as the pages read it (the fields of the former Firebase `User` they use). */
@@ -94,7 +95,12 @@ const AuthContext = createContext<AuthContextType | null>(null);
  * its cache.
  */
 export async function completeSignIn(client: QueryClient): Promise<MeDTO> {
+    const generation = sessionGeneration();
+    // setQueryData alone does not stop a bootstrap already in flight from publishing null later.
+    await client.cancelQueries({ queryKey: queryKeys.me(), exact: true }, { revert: false });
     const me = await readMe();
+    await client.cancelQueries({ queryKey: queryKeys.me(), exact: true }, { revert: false });
+    assertSessionGeneration(generation);
     if (!client.getQueryData<MeDTO | null>(queryKeys.me())) clearCacheExceptMe(client);
     client.setQueryData<MeDTO | null>(queryKeys.me(), me);
     return me;

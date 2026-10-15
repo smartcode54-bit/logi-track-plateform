@@ -21,8 +21,9 @@
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
 import { goFetch } from "./goFetch";
 import type { LoginGeoCoords } from "./loginGeo";
-import { endSession } from "./sessionEnd";
-import { sharedRefresh } from "./sharedRefresh";
+import { startSession } from "./sessionEnd";
+import { sessionRequest } from "./sessionRequest";
+import { withSessionLock } from "./sharedRefresh";
 
 export const AUTH_LOGIN_PATH = "/api/auth/login";
 export const AUTH_GOOGLE_PATH = "/api/auth/google";
@@ -36,8 +37,6 @@ export interface SignInResult {
     defaultTenantId: string | null;
     expiresIn: number;
 }
-
-const REFRESHABLE = new Set(["token_expired", "unauthenticated"]);
 
 async function send(path: string, init: RequestInit): Promise<Response> {
     try {
@@ -76,34 +75,20 @@ async function anonymousCall<T>(path: string, method: "GET" | "POST", body?: unk
 
 /** A session-bound auth route: `goFetch`'s refresh-once rule over the BFF auth path. */
 async function sessionCall<T>(path: string, body?: unknown): Promise<T> {
-    const init = jsonInit("POST", body);
-    const startedAt = Date.now();
-    let res = await send(path, init);
-    if (res.status === 401) {
-        const first = await apiErrorFromResponse(res);
-        if (!REFRESHABLE.has(first.code)) {
-            endSession(first);
-            throw first;
-        }
-        const refreshed = await sharedRefresh({ force: first.details.reason === "claims_changed", since: startedAt });
-        if (!refreshed) {
-            endSession(first);
-            throw first;
-        }
-        res = await send(path, init);
-        if (res.status === 401) {
-            const second = await apiErrorFromResponse(res);
-            endSession(second);
-            throw second;
-        }
-    }
-    if (!res.ok) throw await apiErrorFromResponse(res);
-    return readData<T>(res);
+    return sessionRequest(() => anonymousCall<T>(path, "POST", body));
+}
+
+async function signIn(path: string, body: unknown): Promise<SignInResult> {
+    return withSessionLock(async () => {
+        const result = await anonymousCall<SignInResult>(path, "POST", body);
+        startSession();
+        return result;
+    });
 }
 
 /** `POST /api/auth/login`. Throws ApiError: `invalid_credentials`, `locked`, `account_disabled`, `password_change_required`, ... */
 export function signInWithPassword(email: string, password: string): Promise<SignInResult> {
-    return anonymousCall<SignInResult>(AUTH_LOGIN_PATH, "POST", { email, password });
+    return signIn(AUTH_LOGIN_PATH, { email, password });
 }
 
 /** `GET /api/auth/google/nonce`: a single-use nonce for the GIS button, valid `expiresIn` seconds. */
@@ -113,7 +98,7 @@ export function googleNonce(): Promise<{ nonce: string; expiresIn: number }> {
 
 /** `POST /api/auth/google` with the GIS ID token and the nonce it was issued for. */
 export function signInWithGoogle(idToken: string, nonce: string): Promise<SignInResult> {
-    return anonymousCall<SignInResult>(AUTH_GOOGLE_PATH, "POST", { idToken, nonce });
+    return signIn(AUTH_GOOGLE_PATH, { idToken, nonce });
 }
 
 /** The single-use ticket of a `403 password_change_required` sign-in (R79), or undefined. */
@@ -155,7 +140,9 @@ export function switchTenant(tenantId: string): Promise<void> {
 /** `POST /api/auth/logout`: revokes this session and expires both cookies. Never throws. */
 export async function signOutSession(): Promise<void> {
     try {
-        await fetch(AUTH_SIGN_OUT_PATH, { method: "POST", credentials: "same-origin", cache: "no-store", keepalive: true });
+        await withSessionLock(async () => {
+            await fetch(AUTH_SIGN_OUT_PATH, { method: "POST", credentials: "same-origin", cache: "no-store", keepalive: true });
+        });
     } catch {
         // The BFF clears the cookies whatever Go answers; a network failure leaves them to expire.
     }

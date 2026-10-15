@@ -7,8 +7,9 @@
  * listener (T18, R50).
  *
  * - Signed out: on a public page Go answers 401 `unauthenticated` and the refresh is refused;
- *   `goFetch` throws that 401 without ending anything and the query resolves to `null`. On a
- *   protected page `goFetch` has already ended the session (lib/sessionEnd.ts) by then.
+ *   `sessionRequest` throws that 401 without ending anything and the query resolves to `null`. On a
+ *   protected page it has already ended the session (lib/sessionEnd.ts) by then. Work from before
+ *   a successful sign-in is cancelled instead of publishing an old principal or signed-out state.
  * - Freshness: 5 min stale / 30 min gc. A sign-in and a tenant switch set it from a fresh
  *   `GET /v1/me` (context/auth.tsx `completeSignIn`, `switchTenant`); a forced refresh after
  *   `claims_changed` invalidates it (lib/queryClient.ts `bindQueryClientToSession`) and the
@@ -26,6 +27,7 @@
 import { queryOptions, type QueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import { ApiError, isApiError } from "@/lib/apiError";
 import { goFetch } from "@/lib/goFetch";
+import { sessionRequest } from "@/lib/sessionRequest";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import type { CapabilityId } from "@/lib/capabilities";
 import { toCatalogKey } from "@/lib/capabilityAliases";
@@ -134,12 +136,13 @@ export function parseMe(data: unknown): MeDTO {
     };
 }
 
-/** `GET /v1/me` read through `parseMe`; throws whatever `goFetch` throws (a sign-in or switch needs a principal). */
+/** `GET /v1/me` read through `parseMe`; a sign-in or switch needs a principal, so a 401 throws. */
 export async function readMe(signal?: AbortSignal): Promise<MeDTO> {
-    return parseMe(await goFetch<unknown>(ME_PATH, { signal }));
+    // sessionRequest owns the 401 handling so an old bootstrap cannot end a newer session.
+    return parseMe(await sessionRequest(() => goFetch<unknown>(ME_PATH, { signal, anonymous: true }), { signal, allowSignedOut: true }));
 }
 
-/** `GET /v1/me`, or `null` for a signed-out visitor (a 401 that `goFetch` did not turn into a session end). */
+/** `GET /v1/me`, or `null` for a signed-out visitor; cancelled and superseded reads never publish null. */
 export async function fetchMe({ signal }: Pick<QueryFunctionContext, "signal">): Promise<MeDTO | null> {
     try {
         return await readMe(signal);

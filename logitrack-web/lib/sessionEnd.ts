@@ -10,6 +10,8 @@
  * No token is handled here: both cookies are HttpOnly and only the BFF reads or sets them (R36).
  */
 import type { ApiError } from "./apiError";
+import { advanceSessionGeneration, sessionGeneration } from "./sessionGeneration";
+import { withSessionLock } from "./sharedRefresh";
 
 export const LOGIN_PATH = "/login";
 export const AUTH_LOGOUT_PATH = "/api/auth/logout";
@@ -23,7 +25,15 @@ const listeners = new Set<SessionEndListener>();
 let leaving = false;
 // A session end on a public page whose logout has not settled yet; concurrent failures share it.
 let quietEnd: Promise<void> | undefined;
+let endingGeneration: number | undefined;
 let navigate: (url: string) => void = (url) => window.location.assign(url);
+
+/** A successful sign-in supersedes old auth work and any session-end latch from the public page. */
+export function startSession(): void {
+    advanceSessionGeneration();
+    leaving = false;
+    quietEnd = undefined;
+}
 
 /** Whether `pathname` is in the protected `/app` route group (the `proxy.ts` matcher, Appendix E §E.8.4). */
 export function isProtectedPath(pathname: string): boolean {
@@ -75,18 +85,29 @@ export function loginUrl(cause?: Pick<ApiError, "code">): string {
 }
 
 /** Best-effort `POST /api/auth/logout`; resolves when it settles and never rejects. */
-function logout(): Promise<void> {
-    try {
-        // `keepalive` lets it complete after a navigation; a failure is ignored because the session
-        // is already unusable.
-        return fetch(AUTH_LOGOUT_PATH, { method: "POST", credentials: "same-origin", keepalive: true }).then(
-            () => undefined,
-            () => undefined
-        );
-    } catch {
-        // fetch itself unavailable: carry on.
-        return Promise.resolve();
-    }
+function logout(onStarted?: () => void): Promise<void> {
+    const generation = sessionGeneration();
+    let started = false;
+    const notifyStarted = () => {
+        if (started || generation !== sessionGeneration()) return;
+        started = true;
+        onStarted?.();
+    };
+    // Another tab's refresh may never settle. Leave the unusable page within a bounded wait.
+    const timeout = onStarted ? setTimeout(notifyStarted, 1500) : undefined;
+    return withSessionLock(async () => {
+        if (generation !== sessionGeneration()) return;
+        let request: Promise<unknown> = Promise.resolve();
+        try {
+            // `keepalive` lets it complete after a navigation; a failure is ignored because the session
+            // is already unusable.
+            request = fetch(AUTH_LOGOUT_PATH, { method: "POST", credentials: "same-origin", keepalive: true });
+        } catch {
+            // fetch itself unavailable: carry on.
+        }
+        notifyStarted();
+        await request.catch(() => undefined);
+    }).catch(notifyStarted).finally(() => clearTimeout(timeout));
 }
 
 /**
@@ -98,6 +119,13 @@ function logout(): Promise<void> {
  * correctly later.
  */
 export function endSession(cause: ApiError): void {
+    const generation = sessionGeneration();
+    // A sign-in in another tab also supersedes this tab's session-end latches.
+    if (endingGeneration !== generation) {
+        leaving = false;
+        quietEnd = undefined;
+        endingGeneration = generation;
+    }
     if (leaving || typeof window === "undefined") return;
     const leave = isProtectedPath(window.location.pathname);
     if (!leave && quietEnd) return;
@@ -109,11 +137,10 @@ export function endSession(cause: ApiError): void {
             // A failing listener must not keep the user on a page whose session is gone.
         }
     }
-    const done = logout();
-    if (leave) {
-        navigate(loginUrl(cause));
-        return;
-    }
+    const destination = leave ? loginUrl(cause) : null;
+    // Dispatch before navigation when the lock is available; otherwise bound the redirect wait.
+    const done = logout(destination ? () => navigate(destination) : undefined);
+    if (leave) return;
     const pending = done.finally(() => {
         if (quietEnd === pending) quietEnd = undefined;
     });
