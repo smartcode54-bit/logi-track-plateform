@@ -113,7 +113,7 @@ export function ShopeeReportPage() {
                     r.signedRunsheetPhotos.length > 0 ? (
                         <Badge variant="secondary">{r.signedRunsheetPhotos.length}</Badge>
                     ) : (
-                        <Badge variant="outline" className="border-red-500 text-red-600">
+                        <Badge variant="destructive">
                             0
                         </Badge>
                     ),
@@ -211,30 +211,30 @@ export function ShopeeReportPage() {
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.shopeeReport.summary.trips")}</p>
-                                <p className="text-2xl font-bold">{report.data.tripCount}</p>
+                                <p className="text-2xl font-semibold tabular-nums">{report.data.tripCount}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.shopeeReport.summary.drivers")}</p>
-                                <p className="text-2xl font-bold">{report.data.driverCount}</p>
+                                <p className="text-2xl font-semibold tabular-nums">{report.data.driverCount}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.shopeeReport.summary.signedPhotos")}</p>
-                                <p className="text-2xl font-bold">{report.data.photoCount}</p>
+                                <p className="text-2xl font-semibold tabular-nums">{report.data.photoCount}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.shopeeReport.summary.missing")}</p>
-                                <p className={`text-2xl font-bold ${report.data.missingPhotoCount > 0 ? "text-red-600" : ""}`}>{report.data.missingPhotoCount}</p>
+                                <p className={`text-2xl font-semibold tabular-nums ${report.data.missingPhotoCount > 0 ? "text-destructive" : ""}`}>{report.data.missingPhotoCount}</p>
                             </CardContent>
                         </Card>
                     </div>
                     {report.data.missingPhotoCount > 0 ? (
-                        <p className="text-sm text-amber-600">{t("accounting.shopeeReport.missingWarning", { count: report.data.missingPhotoCount })}</p>
+                        <p className="text-sm text-warning">{t("accounting.shopeeReport.missingWarning", { count: report.data.missingPhotoCount })}</p>
                     ) : null}
 
                     {trips.length > 0 ? (

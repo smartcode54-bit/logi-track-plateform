@@ -35,7 +35,7 @@ import {
     type FuelAdjustmentInput,
 } from "../../../api/rateCard.go";
 import { useCustomerLookup } from "../../../api/useCustomerLookup";
-import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, formatThb, todayKey } from "../shared";
+import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, formatThbSatang as formatThb, todayKey } from "../shared";
 import { VoidDialog } from "./VoidDialog";
 
 type Mode = FuelAdjustmentInput["mode"];
@@ -263,14 +263,14 @@ export function FuelAdjustmentsTab({ customerId, canEdit }: { customerId: string
                                     <TableCell className="text-right font-mono text-xs">
                                         {r.addThbPerTrip !== 0 ? formatThb(r.addThbPerTrip) : "—"}
                                         {r.fuelBandEnabled ? (
-                                            <Badge variant="outline" className="ml-1 px-1 py-0 text-[10px]">
+                                            <Badge variant="outline" className="ml-1 px-1 py-0 text-xs">
                                                 {t("accounting.rateCard.fuelAdjustments.table.bandBadge")}
                                             </Badge>
                                         ) : null}
                                     </TableCell>
                                     <TableCell className="text-right font-mono text-xs">
                                         {r.referenceFuelPriceThbPerLitre != null ? r.referenceFuelPriceThbPerLitre.toFixed(2) : "—"}
-                                        {r.fuelBand ? <span className="block text-[10px] text-muted-foreground">{`${r.fuelBand.lowerThb.toFixed(2)}–${r.fuelBand.upperThb.toFixed(2)}`}</span> : null}
+                                        {r.fuelBand ? <span className="block text-xs text-muted-foreground">{`${r.fuelBand.lowerThb.toFixed(2)}–${r.fuelBand.upperThb.toFixed(2)}`}</span> : null}
                                     </TableCell>
                                     <TableCell className="max-w-[200px] truncate text-xs">{r.announcementNote || "—"}</TableCell>
                                     <TableCell className="whitespace-nowrap text-xs">{formatDateTime(r.createdAt)}</TableCell>

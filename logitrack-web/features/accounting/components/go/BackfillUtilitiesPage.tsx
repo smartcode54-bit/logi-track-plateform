@@ -1,29 +1,23 @@
 "use client";
 
-/**
- * Billing utilities over Go (T42, P3; developer-spec.md §10.13 row `/app/utilities/{backfill,billing-impact}`,
- * gated by `accounting:recompute_force`). The billing backfills run as Go jobs
- * (`POST /v1/jobs/billing.backfill-trips|backfill-standby`, followed through `['jobs',id]`) instead of
- * 540 s callables. The one-off Firestore repairs of the Firestore page (task customer links, trip truck
- * data, truck-type and job-category migrations) are not offered here: on PostgreSQL the ETL load applies
- * them (`cmd/etl`, developer-spec.md §13), so there is nothing left for a button to fix.
- */
-import { format, startOfMonth } from "date-fns";
-import { Info, Wand2 } from "lucide-react";
+/** Billing backfill jobs and the read-only billing impact report. */
+import { bangkokMonthRange } from "../../lib/billingUiDates";
+import Link from "next/link";
+import { Wand2 } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { BackfillPanel } from "./BackfillPanel";
 
 export function BackfillUtilitiesPage() {
     const { t } = useLanguage();
-    const now = new Date();
+    const range = bangkokMonthRange();
     return (
         <div className="flex max-w-5xl flex-col gap-section">
-            <PageHeader title={t("nav.utilities")} description={t("accounting.go.utilities.subtitle")} />
+            <PageHeader title={t("nav.utilities")} description={t("accounting.go.utilities.subtitle")} actions={<Button asChild className="max-md:min-h-11" variant="outline"><Link href="/app/utilities/billing-impact">{t("accounting.ui4.billingImpact")}</Link></Button>} />
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -33,14 +27,10 @@ export function BackfillUtilitiesPage() {
                     <CardDescription>{t("accounting.income.backfill.subtitle")}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <BackfillPanel defaultFrom={format(startOfMonth(now), "yyyy-MM-dd")} defaultTo={format(now, "yyyy-MM-dd")} />
+                    <BackfillPanel defaultFrom={range.from} defaultTo={range.to} />
                 </CardContent>
             </Card>
-            <Alert>
-                <Info className="h-4 w-4" />
-                <AlertTitle>{t("accounting.go.utilities.etlTitle")}</AlertTitle>
-                <AlertDescription>{t("accounting.go.utilities.etlBody")}</AlertDescription>
-            </Alert>
+
         </div>
     );
 }

@@ -42,7 +42,7 @@ import {
     type RateEntryDTO,
 } from "../../../api/rateCard.go";
 import { fetchCustomerLookup, useCustomerLookup } from "../../../api/useCustomerLookup";
-import { ApiErrorAlert, formatDay, formatThb, todayKey } from "../shared";
+import { ApiErrorAlert, formatDay, formatThbSatang as formatThb, todayKey } from "../shared";
 import { VoidDialog } from "./VoidDialog";
 
 // xlsx loads with the dialog, on its first open (developer-spec.md §10.11).
@@ -272,7 +272,7 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
             col.accessor("rateThb", { header: () => t("accounting.rateCard.table.rateThb"), cell: (c) => formatThb(c.getValue()), meta: { headerClassName: "text-right", cellClassName: "text-right font-mono" } }),
             col.accessor("distanceKm", { header: () => t("accounting.rateCard.table.distanceKm"), cell: (c) => c.getValue() ?? "—", meta: { headerClassName: "text-right", cellClassName: "text-right text-xs" } }),
             col.accessor("effectiveFromDateStr", { header: () => t("accounting.rateCard.table.effectiveFrom"), cell: (c) => formatDay(c.getValue()), meta: { cellClassName: "whitespace-nowrap text-xs" } }),
-            col.accessor("importId", { header: () => t("accounting.rateCard.table.importId"), meta: { cellClassName: "max-w-[140px] truncate font-mono text-[10px]" } }),
+            col.accessor("importId", { header: () => t("accounting.rateCard.table.importId"), meta: { cellClassName: "max-w-[140px] truncate font-mono text-xs" } }),
             col.display({
                 id: "status",
                 header: () => "",

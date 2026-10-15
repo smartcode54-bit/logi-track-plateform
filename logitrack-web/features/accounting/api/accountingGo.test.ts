@@ -26,7 +26,7 @@ import {
 import { PartialCreateError, UploadRefusedError } from "@/lib/goUpload";
 import { walkComplete } from "../components/go/IncomePage";
 import { isLegacyXls } from "../components/go/TollImportDialog";
-import { computeTripBilling, repairTrips, startBillingJob } from "./billingWrites.go";
+import { computeTripBilling, patchTripDeliveredAt, repairTrips, startBillingJob } from "./billingWrites.go";
 import { expensePatchOf } from "../components/go/ExpenseDetailDialog";
 import { auditFilter } from "../components/go/ExpenseAuditPage";
 import { effectiveStatus, statementStats } from "../components/go/BillingResultPage";
@@ -587,5 +587,23 @@ describe("fuel price history", () => {
         expect(table.rows[1].diff("ไฮดีเซล S")).toBeNull();
         expect(fuelHistoryTable(days, "all").names).toHaveLength(2);
         expect(matchesFuelType("แก๊สโซฮอล์95", "gasohol")).toBe(true);
+    });
+});
+
+
+describe("Income delivered-time edits", () => {
+    it("sends no request for an unchanged instant, including equivalent timezone offsets", async () => {
+        const web = fakeWeb();
+        await patchTripDeliveredAt("t1", "2026-10-05T02:00:00+07:00", getQueryClient(), "2026-10-04T19:00:00Z");
+        expect(web.calls).toEqual([]);
+    });
+    it("writes deliveredAt only; billingAxisDate is read-only and never writes task.date", async () => {
+        const web = fakeWeb();
+        web.on("PATCH", "/api/go/v1/trips/t1", () => json(200, { data: {} }));
+        await patchTripDeliveredAt("t1", "2026-10-04T20:00:00Z", getQueryClient(), "2026-10-04T19:00:00Z");
+        expect(web.calls).toHaveLength(1);
+        expect(web.calls[0]).toMatchObject({ method: "PATCH", url: "/api/go/v1/trips/t1", body: { deliveredAt: "2026-10-04T20:00:00Z" } });
+        const mapped = tripIncomeRow({ id: "t1", billing: { billingAxisDate: "2026-10-05", billingDate: "2026-10-01" } } as IncomeTripDTO);
+        expect(mapped.billingDate).toBe("2026-10-05");
     });
 });

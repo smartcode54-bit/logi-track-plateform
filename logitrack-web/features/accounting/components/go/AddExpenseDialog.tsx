@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
 import { PartialCreateError, uploadAccept, UploadRefusedError } from "@/lib/goUpload";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -129,9 +130,9 @@ export function AddExpenseDialog({ type, open, onOpenChange }: { type: ExpenseTy
                     <DialogDescription>{isFuel ? t("accounting.fuel.addDialog.description") : t("accounting.other.addDialog.description")}</DialogDescription>
                 </DialogHeader>
                 {created ? (
-                    <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800" data-testid="expense-saved-without-photos">
+                    <Alert variant="warning" data-testid="expense-saved-without-photos"><AlertDescription>
                         {t("accounting.go.expense.savedWithoutPhotos")}
-                    </p>
+                    </AlertDescription></Alert>
                 ) : null}
                 {/* Once the row is saved only the photos can change: the fields are its stored values. */}
                 <fieldset disabled={created !== null} className="min-w-0">

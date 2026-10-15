@@ -204,9 +204,9 @@ describe("income over the old 500-row cap", () => {
 
         // Totals over every row: 650 × ฿1,000 + 350 × ฿500.
         // A card is the CardHeader (its title) and the CardContent (its figure) of one Card.
-        const card = (title: string) => screen.getByText(title).parentElement!.parentElement!;
-        expect(within(card("Total estimated income")).getByText(`฿${(650 * 1000 + 350 * 500).toLocaleString()}`)).toBeInTheDocument();
-        expect(within(card("Delivered trips")).getByText(total.toLocaleString())).toBeInTheDocument();
+        const card = (title: string) => screen.getAllByText(title).find((el) => el.getAttribute("data-slot") === "card-title")!.parentElement!.parentElement!;
+        expect(within(card("Billing amount")).getByText(`฿${(650 * 1000 + 350 * 500).toLocaleString("en-US", { minimumFractionDigits: 2 })}`)).toBeInTheDocument();
+        expect(within(card("Priced rows")).getByText(total.toLocaleString())).toBeInTheDocument();
 
         // 1,000 rows, fewer than 100 in the DOM; the oldest trip is reached by scrolling.
         const viewport = document.querySelector<HTMLElement>('[data-slot="virtual-table-viewport"]')!;

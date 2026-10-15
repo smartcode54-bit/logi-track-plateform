@@ -9,16 +9,9 @@
  * | standby customer | `PATCH /v1/standby/{id}/customer` `{customerId}` | T38 |
  * | recompute one standby | `POST /v1/standby/{id}/billing/compute` `{forceRecompute?}` | T38 |
  * | backfills, impact report | `POST /v1/jobs/billing.backfill-trips|backfill-standby|impact-report` -> `202 {jobId}` | T38 |
- * | plan date | `PATCH /v1/tasks/{id}` `{date}` | T34 (T28 shipped only the tenant reassignment) |
  * | delivered time | `PATCH /v1/trips/{id}` `{deliveredAt}` | T34 |
  *
- * The routes are the catalogue's contracts. T38 serves the trip and standby billing routes and the three billing
- * jobs. Until the other owners merge their routes fail with a Go error, which the pages show like any other
- * (measured on mv-go against the mounted route groups):
- * - plan date: `PATCH /v1/tasks/{id}` exists as T28's reassignment-only route, so `{date}` gets
- *   `422 invalid_argument` (`date: not_supported`, `tenantId: required`), or `403 permission_denied`
- *   without `operations:manage_tasks`; it can never reassign a task (unknown fields are refused);
- * - delivered time: `GET /v1/trips/:id` exists, so `PATCH /v1/trips/{id}` gets `405 method_not_allowed`.
+ * Trip deliveredAt PATCH routes accept this field and reprice under the period lock.
  * Each write invalidates the keys it changes: the month's billing prefix and `['income']` (R89: never the
  * whole cache).
  */
@@ -173,15 +166,9 @@ export async function computeStandbyBilling(
     return out;
 }
 
-/** The plan date of a task (`yyyy-MM-dd`); a delivered trip's billing is restamped under the period lock. */
-export async function patchTaskPlanDate(taskId: string, date: string, client: QueryClient = getQueryClient()) {
-    const out = await goFetch<unknown>(goPath`/v1/tasks/${taskId}`, { method: "PATCH", body: { date } });
-    await Promise.all([afterBillingWrite(null, client), client.invalidateQueries({ queryKey: queryKeys.tasks.all() })]);
-    return out;
-}
-
 /** A trip's delivered time (RFC 3339); a priced trip is repriced, or refused with `409 billing_period_locked`. */
-export async function patchTripDeliveredAt(tripId: string, deliveredAt: string, client: QueryClient = getQueryClient()) {
+export async function patchTripDeliveredAt(tripId: string, deliveredAt: string, client: QueryClient = getQueryClient(), previousDeliveredAt?: string | null) {
+    if (previousDeliveredAt && new Date(previousDeliveredAt).getTime() === new Date(deliveredAt).getTime()) return;
     const out = await goFetch<unknown>(goPath`/v1/trips/${tripId}`, { method: "PATCH", body: { deliveredAt } });
     await Promise.all([afterBillingWrite(null, client), client.invalidateQueries({ queryKey: queryKeys.trips.all() })]);
     return out;
@@ -207,7 +194,7 @@ export interface BackfillResult {
     failed: number;
     blocked?: number;
     blockedInvoices?: string[];
-    failures?: { tripId?: string; standbyId?: string; id?: string; error?: string }[];
+    failures?: { tripId?: string; standbyId?: string; id?: string; tripNo?: string; driverName?: string; truckLicensePlate?: string; error?: string }[];
     capped?: boolean;
 }
 

@@ -27,7 +27,7 @@ const RANGES = ["30", "60", "90", "180", "365"] as const;
 function PriceDiff({ diff }: { diff: number | null }) {
     if (diff === null) return <span className="text-xs text-muted-foreground">—</span>;
     const Icon = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus;
-    const color = diff > 0 ? "text-red-500" : diff < 0 ? "text-green-500" : "text-muted-foreground";
+    const color = diff > 0 ? "text-destructive" : diff < 0 ? "text-success" : "text-muted-foreground";
     return (
         <span className={`flex items-center justify-end gap-0.5 font-mono text-xs ${color}`}>
             <Icon className="h-3 w-3" />
@@ -68,10 +68,10 @@ export function FuelPriceHistoryPage() {
                         const prev = previous?.items.find((i) => i.nameTh === item.nameTh);
                         const diff = prev != null ? Math.round((item.price - prev.price) * 100) / 100 : null;
                         return (
-                            <Card key={item.nameTh} className="border-l-4 border-l-amber-500">
+                            <Card key={item.nameTh}>
                                 <CardContent className="pb-3 pt-3">
                                     <p className="truncate text-xs text-muted-foreground">{item.nameTh}</p>
-                                    <p className="font-mono text-xl font-bold">{item.price.toFixed(2)}</p>
+                                    <p className="font-mono text-xl font-semibold tabular-nums">{item.price.toFixed(2)}</p>
                                     <div className="mt-0.5 flex items-center justify-between">
                                         <span className="text-xs text-muted-foreground">{item.unit}</span>
                                         <PriceDiff diff={diff} />
@@ -137,8 +137,8 @@ export function FuelPriceHistoryPage() {
                                     <TableRow key={day.dayKey ?? day.capturedAt}>
                                         <TableCell className="sticky left-0 z-10 bg-background font-mono text-xs">
                                             <div>{formatDay(day.dayKey ?? null)}</div>
-                                            <div className="text-[10px] text-muted-foreground">{formatDay(day.capturedAt, "HH:mm")}</div>
-                                            {day.status === "error" ? <div className="text-[10px] text-destructive">{day.errorMessage ?? "error"}</div> : null}
+                                            <div className="text-xs text-muted-foreground">{formatDay(day.capturedAt, "HH:mm")}</div>
+                                            {day.status === "error" ? <div className="text-xs text-destructive">{day.errorMessage ?? "error"}</div> : null}
                                         </TableCell>
                                         {table.names.map((name) => {
                                             const price = prices.get(name);

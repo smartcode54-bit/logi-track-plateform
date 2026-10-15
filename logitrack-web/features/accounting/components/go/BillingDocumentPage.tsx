@@ -30,6 +30,7 @@ import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { VirtualTable } from "@/components/virtual-table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,8 +58,10 @@ import {
 } from "../../api/billing.go";
 import { assignStandbyCustomer, computeStandbyBilling, repairTrips } from "../../api/billingWrites.go";
 
+import { useCustomerLookup } from "../../api/useCustomerLookup";
+import { ForceRepriceDialog } from "./ForceRepriceDialog";
 import { JobCategoryBadge } from "./badges";
-import { ApiErrorAlert, formatDateTime, formatDay, formatThb, MONTHS, monthName, yearOptions } from "./shared";
+import { ApiErrorAlert, formatDateTime, formatDay, formatThbSatang as formatThb, MONTHS, monthName, yearOptions } from "./shared";
 import { StatementDocumentsDialog } from "./StatementDocumentsDialog";
 
 interface LoadedPeriod {
@@ -67,7 +70,6 @@ interface LoadedPeriod {
     month: number;
 }
 
-const TYPE_COLORS: Record<string, string> = { trip: "bg-blue-500", standby: "bg-orange-500", multidrop: "bg-purple-500" };
 
 /** The `reviewMonth` option label: `MMMM yyyy` of a `yyyy-MM` value, or "no date". */
 function reviewMonthLabel(value: string, language: string, none: string): string {
@@ -114,11 +116,11 @@ function StandbyIssuesPanel({ issues, period, canRepair }: { issues: StandbyIssu
         }
     };
     return (
-        <Card className="border-amber-500/60" data-testid="standby-issues">
-            <CardContent className="space-y-3 pt-4">
+        <Alert variant="warning" data-testid="standby-issues">
+            <AlertDescription className="space-y-3">
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                         <div className="text-sm">
                             <p className="font-medium">{t("accounting.billingDocument.standbyIssues.title", { count: issues.length })}</p>
                             <p className="text-muted-foreground">{t("accounting.billingDocument.standbyIssues.body", { unpriced, missingEndedAt })}</p>
@@ -186,8 +188,8 @@ function StandbyIssuesPanel({ issues, period, canRepair }: { issues: StandbyIssu
                         </Table>
                     </div>
                 ) : null}
-            </CardContent>
-        </Card>
+            </AlertDescription>
+        </Alert>
     );
 }
 
@@ -209,6 +211,8 @@ function IssuesPanel({
     const { t } = useLanguage();
     const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
     const [result, setResult] = useState<string | null>(null);
+    const [confirm, setConfirm] = useState(false);
+    const customers = useCustomerLookup(period.customerId === ALL_PARTIES ? [] : [period.customerId]);
     const i = data.issues;
     const any =
         missingCount > 0 ||
@@ -232,16 +236,16 @@ function IssuesPanel({
         );
     };
     return (
-        <Card className="border-amber-500/60" data-testid="billing-issues">
-            <CardContent className="space-y-3 pt-4">
+        <Alert variant="warning" data-testid="billing-issues">
+            <AlertDescription className="space-y-3">
                 <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     <div className="space-y-1 text-sm">
                         <p className="font-medium">{t("accounting.billingDocument.repair.title")}</p>
                         <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
-                            {missingCount > 0 ? <li className="text-red-600">{t("accounting.billingDocument.repair.missingBillingDate", { count: missingCount })}</li> : null}
-                            {missingFailed ? <li className="text-red-600">{t("accounting.billingDocument.repair.missingCheckFailed")}</li> : null}
-                            {i.suppPricedWithFuel > 0 ? <li className="text-red-600">{t("accounting.billingDocument.repair.suppWithFuel", { count: i.suppPricedWithFuel })}</li> : null}
+                            {missingCount > 0 ? <li className="text-destructive">{t("accounting.billingDocument.repair.missingBillingDate", { count: missingCount })}</li> : null}
+                            {missingFailed ? <li className="text-destructive">{t("accounting.billingDocument.repair.missingCheckFailed")}</li> : null}
+                            {i.suppPricedWithFuel > 0 ? <li className="text-destructive">{t("accounting.billingDocument.repair.suppWithFuel", { count: i.suppPricedWithFuel })}</li> : null}
                             {i.planDateOutOfPeriod > 0 ? <li>{t("accounting.billingDocument.repair.outOfPeriod", { count: i.planDateOutOfPeriod })}</li> : null}
                             {i.planDateDrifted > 0 ? <li>{t("accounting.billingDocument.repair.drifted", { count: i.planDateDrifted })}</li> : null}
                             {i.standbyPlanOtherMonth > 0 ? <li>{t("accounting.billingDocument.repair.standbyOtherMonth", { count: i.standbyPlanOtherMonth })}</li> : null}
@@ -253,7 +257,7 @@ function IssuesPanel({
                 </div>
                 {repairIds.length > 0 ? (
                     canRepair ? (
-                        <Button size="sm" variant="outline" onClick={() => void repair()} disabled={progress !== null}>
+                        <Button size="sm" variant="outline" onClick={() => setConfirm(true)} disabled={progress !== null}>
                             {progress ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wrench className="mr-2 h-4 w-4" />}
                             {progress
                                 ? t("accounting.billingDocument.repair.running", { done: progress.done, total: progress.total })
@@ -264,8 +268,19 @@ function IssuesPanel({
                     )
                 ) : null}
                 {result ? <p className="text-xs text-muted-foreground">{result}</p> : null}
-            </CardContent>
-        </Card>
+                {confirm ? <ForceRepriceDialog
+                    scope={{
+                        from: formatDay(data.periodFrom || `${period.year}-${String(period.month).padStart(2, "0")}-01`),
+                        to: formatDay(data.periodTo || `${period.year}-${String(period.month).padStart(2, "0")}-${new Date(Date.UTC(period.year, period.month, 0)).getUTCDate()}`),
+                        customer: period.customerId === ALL_PARTIES ? t("accounting.filter.all") : customers.label(period.customerId),
+                        kinds: t("accounting.go.backfill.trips"),
+                        limit: repairIds.length,
+                    }}
+                    onCancel={() => setConfirm(false)}
+                    onConfirm={() => { setConfirm(false); void repair(); }}
+                /> : null}
+            </AlertDescription>
+        </Alert>
     );
 }
 
@@ -302,7 +317,7 @@ function UnpricedPanel({ data }: { data: BillingRowsDTO }) {
                                         <TableCell className="font-mono text-xs">{u.tripNo ?? u.id.slice(0, 8)}</TableCell>
                                         <TableCell className="text-xs">
                                             {t(`accounting.billingDocument.unpriced.reason.${u.reason}`, u.reason)}
-                                            <span className="block text-[10px] text-muted-foreground">{t(`accounting.billingDocument.unpriced.source.${u.reasonSource}`, u.reasonSource)}</span>
+                                            <span className="block text-xs text-muted-foreground">{t(`accounting.billingDocument.unpriced.source.${u.reasonSource}`, u.reasonSource)}</span>
                                         </TableCell>
                                         <TableCell className="text-xs">{[u.hubDisplayName, u.destinationDisplayName].filter(Boolean).join(" → ") || "—"}</TableCell>
                                         <TableCell className="text-xs">{u.vehicleClass ?? u.lookupVehicleClass ?? "—"}</TableCell>
@@ -411,7 +426,7 @@ export function BillingDocumentPage() {
                 cell: ({ row: { original: r } }) => (
                     <div className="flex flex-col gap-1 font-mono text-xs">
                         <span>{r.tripNo ?? r.id.slice(0, 8)}</span>
-                        <Badge variant="outline" className="w-fit px-1 py-0 text-[10px]">
+                        <Badge variant="outline" className="w-fit px-1 py-0 text-xs">
                             {r.rowType === "standby"
                                 ? t("accounting.billingDocument.badge.standby")
                                 : r.rowType === "multidrop_stop"
@@ -426,7 +441,7 @@ export function BillingDocumentPage() {
                 header: () => t("accounting.billingDocument.table.planDate"),
                 cell: ({ row: { original: r } }) =>
                     r.flags.includes("plan_date_drifted") ? (
-                        <span className="text-amber-500" title={t("accounting.billingDocument.table.planDateDrift")}>
+                        <span className="text-warning" title={t("accounting.billingDocument.table.planDateDrift")}>
                             {formatDay(r.planDate)} ⚠
                         </span>
                     ) : (
@@ -481,12 +496,12 @@ export function BillingDocumentPage() {
                     <div className="flex flex-col gap-1">
                         <JobCategoryBadge value={r.jobCategory} kind={r.rowType} />
                         {r.flags.includes("supp_priced_with_fuel") ? (
-                            <Badge variant="outline" className="w-fit border-red-500 px-1 py-0 text-[10px] text-red-600">
+                            <Badge variant="destructive" className="w-fit">
                                 {t("accounting.billingDocument.badge.suppWithFuel")}
                             </Badge>
                         ) : null}
                         {r.flags.includes("supp_manual_price_with_fuel") ? (
-                            <Badge variant="outline" className="w-fit px-1 py-0 text-[10px] text-muted-foreground">
+                            <Badge variant="outline" className="w-fit px-1 py-0 text-xs text-muted-foreground">
                                 {t("accounting.billingDocument.badge.suppManualPrice")}
                             </Badge>
                         ) : null}
@@ -532,7 +547,7 @@ export function BillingDocumentPage() {
                     <div className="space-y-1">
                         <Label className="flex items-center gap-1.5">
                             {basisLabel === "plan" ? t("accounting.billingDocument.filters.planMonth") : t("accounting.billingDocument.filters.deliveredMonth")}
-                            <Badge variant="secondary" className="px-1 py-0 text-[10px] font-normal">
+                            <Badge variant="secondary" className="px-1 py-0 text-xs font-normal">
                                 {t("accounting.billingDocument.filters.billingPeriodTag")}
                             </Badge>
                         </Label>
@@ -627,7 +642,7 @@ export function BillingDocumentPage() {
                         <div className="space-y-1">
                             <Label className="flex items-center gap-1.5">
                                 {reviewAxisPlan ? t("accounting.billingDocument.filters.planMonth") : t("accounting.billingDocument.filters.deliveredMonth")}
-                                <Badge variant="outline" className="px-1 py-0 text-[10px] font-normal">
+                                <Badge variant="outline" className="px-1 py-0 text-xs font-normal">
                                     {t("accounting.billingDocument.filters.reviewTag")}
                                 </Badge>
                             </Label>
@@ -668,8 +683,7 @@ export function BillingDocumentPage() {
                                             checked={params.types.includes(ty)}
                                             onCheckedChange={(v) => setParams((p) => ({ ...p, types: toggle(p.types, ty, v === true) }))}
                                         />
-                                        <span className={`inline-block h-2 w-2 rounded-full ${TYPE_COLORS[ty]}`} />
-                                        {typeLabel[ty]}
+                                        <Badge variant="outline">{typeLabel[ty]}</Badge>
                                         <Badge variant="secondary" className="px-1.5 py-0 text-xs">
                                             {panel?.typeCounts[ty] ?? 0}
                                         </Badge>
@@ -681,7 +695,7 @@ export function BillingDocumentPage() {
                             <Label className="text-xs text-muted-foreground">{t("accounting.billingDocument.table.jobCategory")}</Label>
                             <div className="flex flex-col gap-2">
                                 {INVOICE_CATEGORIES.map((c) => (
-                                    <label key={c} className={`flex cursor-pointer items-center gap-2 text-sm ${c === "unverified" ? "text-red-600" : ""}`}>
+                                    <label key={c} className={`flex cursor-pointer items-center gap-2 text-sm ${c === "unverified" ? "text-destructive" : ""}`}>
                                         <Checkbox
                                             checked={params.categories.includes(c)}
                                             onCheckedChange={(v) => setParams((p) => ({ ...p, categories: toggle(p.categories, c, v === true) }))}
@@ -723,25 +737,25 @@ export function BillingDocumentPage() {
             {data && totals ? (
                 <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
-                        <Card className="border-l-4 border-l-blue-500">
+                        <Card>
                             <CardContent className="pb-3 pt-4">
                                 <p className="text-xs text-muted-foreground">{typeLabel.trip}</p>
-                                <p className="text-xl font-bold">{totals.tripOnlyCount}</p>
-                                <p className="font-mono text-sm text-blue-600">{formatThb(totals.tripSubtotal)}</p>
+                                <p className="text-xl font-semibold tabular-nums">{totals.tripOnlyCount}</p>
+                                <p className="font-mono text-sm tabular-nums font-semibold">{formatThb(totals.tripSubtotal)}</p>
                             </CardContent>
                         </Card>
-                        <Card className="border-l-4 border-l-orange-500">
+                        <Card>
                             <CardContent className="pb-3 pt-4">
                                 <p className="text-xs text-muted-foreground">{typeLabel.standby}</p>
-                                <p className="text-xl font-bold">{totals.standbyCount}</p>
-                                <p className="font-mono text-sm text-orange-600">{formatThb(totals.standbySubtotal)}</p>
+                                <p className="text-xl font-semibold tabular-nums">{totals.standbyCount}</p>
+                                <p className="font-mono text-sm tabular-nums font-semibold">{formatThb(totals.standbySubtotal)}</p>
                             </CardContent>
                         </Card>
-                        <Card className="border-l-4 border-l-purple-500">
+                        <Card>
                             <CardContent className="pb-3 pt-4">
                                 <p className="text-xs text-muted-foreground">{typeLabel.multidrop}</p>
-                                <p className="text-xl font-bold">{totals.multiDropCount}</p>
-                                <p className="font-mono text-sm text-purple-600">{formatThb(totals.multiDropSubtotal)}</p>
+                                <p className="text-xl font-semibold tabular-nums">{totals.multiDropCount}</p>
+                                <p className="font-mono text-sm tabular-nums font-semibold">{formatThb(totals.multiDropSubtotal)}</p>
                             </CardContent>
                         </Card>
                     </div>
@@ -749,13 +763,13 @@ export function BillingDocumentPage() {
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.tripCount")}</p>
-                                <p className="text-2xl font-bold">{totals.rowCount}</p>
+                                <p className="text-2xl font-semibold tabular-nums">{totals.rowCount}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.total")}</p>
-                                <p className="text-2xl font-bold">{formatThb(totals.grandTotal)}</p>
+                                <p className="text-2xl font-semibold tabular-nums">{formatThb(totals.grandTotal)}</p>
                             </CardContent>
                         </Card>
                         <Card>
@@ -765,17 +779,17 @@ export function BillingDocumentPage() {
                                         ? t("accounting.billingDocument.summary.withholdingTaxRate", { rate: (whtRate * 100).toFixed(2).replace(/\.?0+$/, "") })
                                         : t("accounting.billingDocument.summary.withholdingTaxNoRate")}
                                 </p>
-                                <p className="text-2xl font-bold text-red-600">-{formatThb(totals.withholdingTax)}</p>
+                                <p className="text-2xl font-semibold tabular-nums">-{formatThb(totals.withholdingTax)}</p>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardContent className="pt-4">
                                 <p className="text-xs text-muted-foreground">{t("accounting.billingDocument.summary.netTotal")}</p>
-                                <p className="text-2xl font-bold text-green-600">{formatThb(totals.net)}</p>
+                                <p className="text-2xl font-semibold tabular-nums">{formatThb(totals.net)}</p>
                             </CardContent>
                         </Card>
                     </div>
-                    {reviewActive ? <p className="text-xs text-amber-600">{t("accounting.billingDocument.summary.previewTotals")}</p> : null}
+                    {reviewActive ? <p className="text-xs text-warning">{t("accounting.billingDocument.summary.previewTotals")}</p> : null}
                 </div>
             ) : null}
 
@@ -793,27 +807,27 @@ export function BillingDocumentPage() {
                     </CardContent>
                     {loaded?.customerId === ALL_PARTIES ? (
                         <CardContent className="pt-0">
-                            <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.selectCustomerWarning")}</p>
+                            <p className="text-xs text-warning">{t("accounting.billingDocument.download.selectCustomerWarning")}</p>
                         </CardContent>
                     ) : null}
                     {reviewActive ? (
                         <CardContent className="pt-0">
-                            <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.reviewFilterActive")}</p>
+                            <p className="text-xs text-warning">{t("accounting.billingDocument.download.reviewFilterActive")}</p>
                         </CardContent>
                     ) : null}
                     {stale ? (
                         <CardContent className="pt-0">
-                            <p className="text-xs text-amber-600">{t("accounting.billingDocument.download.staleBasis")}</p>
+                            <p className="text-xs text-warning">{t("accounting.billingDocument.download.staleBasis")}</p>
                         </CardContent>
                     ) : null}
                     {data.outsideReach > 0 ? (
                         <CardContent className="pt-0">
-                            <p className="text-xs text-amber-600">{t("accounting.billingDocument.statement.outsideReach", { count: data.outsideReach })}</p>
+                            <p className="text-xs text-warning">{t("accounting.billingDocument.statement.outsideReach", { count: data.outsideReach })}</p>
                         </CardContent>
                     ) : null}
                     {!data.documentable && data.outsideReach === 0 && loaded?.customerId !== ALL_PARTIES ? (
                         <CardContent className="pt-0">
-                            <p className="text-xs text-amber-600">{t("accounting.billingDocument.statement.nothingToBill")}</p>
+                            <p className="text-xs text-warning">{t("accounting.billingDocument.statement.nothingToBill")}</p>
                         </CardContent>
                     ) : null}
                 </Card>
@@ -838,7 +852,7 @@ export function BillingDocumentPage() {
                 </Card>
             ) : loaded && !complete ? (
                 <Card>
-                    <CardContent className="pt-6 text-center text-sm text-amber-600" data-testid="toggles-incomplete">
+                    <CardContent className="pt-6 text-center text-sm text-warning" data-testid="toggles-incomplete">
                         {t("accounting.go.billingDocument.tickOne")}
                     </CardContent>
                 </Card>

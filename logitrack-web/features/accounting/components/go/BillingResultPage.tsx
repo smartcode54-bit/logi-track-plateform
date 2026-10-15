@@ -48,13 +48,9 @@ import {
 import { ApiErrorAlert, CenteredSpinner, formatDateTime, formatDay, MONTHS, monthName, yearOptions } from "./shared";
 import { StatementDocumentsDialog } from "./StatementDocumentsDialog";
 
-const STATUS_COLORS: Record<string, string> = {
-    draft: "bg-gray-100 text-gray-700",
-    sent: "bg-blue-100 text-blue-700",
-    paid: "bg-green-100 text-green-700",
-    cancelled: "bg-red-100 text-red-700",
-    overdue: "bg-amber-100 text-amber-700",
-};
+const STATUS_VARIANTS = {
+    draft: "outline", sent: "default", paid: "success", cancelled: "secondary", overdue: "warning",
+} as const;
 
 function money(n: number) {
     return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -216,7 +212,7 @@ export function BillingResultPage() {
                             <TrendingUp className="h-3.5 w-3.5" />
                             {t("accounting.billingResult.stats.total")}
                         </div>
-                        <p className="text-xl font-bold">฿{money(stats.total)}</p>
+                        <p className="text-xl font-semibold tabular-nums">฿{money(stats.total)}</p>
                         <p className="text-xs text-muted-foreground">
                             {t("accounting.billingResult.stats.invoiceCount", { count: String(stats.counted) })}
                             {stats.cancelled > 0 ? ` · ${t("accounting.billingResult.stats.excludingCancelled", { count: String(stats.cancelled) })}` : ""}
@@ -229,7 +225,7 @@ export function BillingResultPage() {
                             <FileText className="h-3.5 w-3.5" />
                             {t("accounting.billingResult.stats.draft")} / {t("accounting.billingResult.stats.sent")}
                         </div>
-                        <p className="text-xl font-bold">{stats.draft + stats.sent}</p>
+                        <p className="text-xl font-semibold tabular-nums">{stats.draft + stats.sent}</p>
                     </CardContent>
                 </Card>
                 <Card>
@@ -238,7 +234,7 @@ export function BillingResultPage() {
                             <Clock className="h-3.5 w-3.5" />
                             {t("accounting.billingResult.stats.paid")}
                         </div>
-                        <p className="text-xl font-bold text-green-600">{stats.paid}</p>
+                        <p className="text-xl font-semibold tabular-nums">{stats.paid}</p>
                     </CardContent>
                 </Card>
                 <Card>
@@ -247,7 +243,7 @@ export function BillingResultPage() {
                             <AlertTriangle className="h-3.5 w-3.5" />
                             {t("accounting.billingResult.stats.overdue")}
                         </div>
-                        <p className={`text-xl font-bold ${stats.overdue > 0 ? "text-amber-600" : ""}`}>{stats.overdue}</p>
+                        <p className="text-xl font-semibold tabular-nums">{stats.overdue}</p>
                     </CardContent>
                 </Card>
             </div>
@@ -298,16 +294,16 @@ export function BillingResultPage() {
                                                 <TableCell className="text-right font-mono">{money(s.totalAmount)}</TableCell>
                                                 <TableCell className="text-right font-mono text-muted-foreground">
                                                     {money(s.withholdingTax)}
-                                                    <span className="block text-[10px]">{(s.withholdingTaxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%</span>
+                                                    <span className="block text-xs">{(s.withholdingTaxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%</span>
                                                 </TableCell>
                                                 <TableCell className="text-right font-mono font-medium">{money(s.netAmount)}</TableCell>
                                                 <TableCell>
-                                                    <Badge className={`text-xs ${STATUS_COLORS[eff] ?? ""}`} variant="outline">
+                                                    <Badge variant={STATUS_VARIANTS[eff as keyof typeof STATUS_VARIANTS] ?? "outline"}>
                                                         {t(`accounting.billingResult.status.${eff}`, eff)}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-sm">
-                                                    <span className={eff === "overdue" ? "font-medium text-amber-600" : ""}>{formatDay(s.dueDate)}</span>
+                                                    <span className={eff === "overdue" ? "font-medium text-warning" : ""}>{formatDay(s.dueDate)}</span>
                                                 </TableCell>
                                                 <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDateTime(s.generatedAt)}</TableCell>
                                                 <TableCell className="text-sm text-muted-foreground">{s.generatedByName ?? "—"}</TableCell>
