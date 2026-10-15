@@ -1,134 +1,72 @@
 "use client";
 
-import { useAuth } from "@/context/auth";
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
+
 import Navigation from "@/components/navigation";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { User, Mail, Shield } from "lucide-react";
+import { ScopeLine } from "@/components/scope-line";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useLanguage } from "@/context/language";
+import { meDisplayName } from "@/features/auth/api/me";
+import { useMe } from "@/features/auth/api/useMe";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { initialOf } from "@/lib/initials";
 
-export default function MyAccountPage() {
-  const authContext = useAuth();
-  const router = useRouter();
-  const currentUser = authContext?.currentUser;
+// The interactive form loads separately so account details do not wait for the form library.
+const AccountPasswordPanel = dynamic(() => import("@/features/auth/components/AccountPasswordPanel").then((module) => module.AccountPasswordPanel), {
+    ssr: false,
+    loading: AccountPasswordLoading,
+});
 
-  useEffect(() => {
-    // Redirect to login once ['me'] says signed out (not while it is still loading, T18).
-    if (authContext && !authContext.loading && !currentUser) {
-      router.push("/login");
-    }
-  }, [authContext, currentUser, router]);
-
-  // Show loading state while checking auth
-  if (!authContext || authContext.loading) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <Navigation />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="text-center">Loading...</div>
-        </main>
-      </div>
-    );
-  }
-
-  // Show loading state while redirecting
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <Navigation />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="text-center">Redirecting to login...</div>
-        </main>
-      </div>
-    );
-  }
-
-  const getUserInitials = () => {
-    if (currentUser.displayName) {
-      const names = currentUser.displayName.split(" ");
-      if (names.length >= 2) {
-        return (names[0][0] + names[names.length - 1][0]).toUpperCase();
-      }
-      return currentUser.displayName[0].toUpperCase();
-    }
-    if (currentUser.email) {
-      return currentUser.email[0].toUpperCase();
-    }
-    return "U";
-  };
-
-  return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Navigation />
-      <main className="flex-1 container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold text-foreground mb-6">My Account</h1>
-          
-          {/* Profile Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="w-5 h-5" />
-                Profile Information
-              </CardTitle>
-              <CardDescription>
-                Your account details and profile information
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex flex-col items-center gap-4">
-                <Avatar className="w-24 h-24">
-                  <AvatarImage 
-                    src={currentUser.photoURL || undefined} 
-                    alt={currentUser.displayName || currentUser.email || "User"} 
-                  />
-                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                    {getUserInitials()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="text-center">
-                  <h2 className="text-xl font-semibold">
-                    {currentUser.displayName || "No name set"}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {currentUser.email}
-                  </p>
-                </div>
-              </div>
-
-              <div className="border-t pt-6 space-y-4">
-                <div className="flex items-center gap-3">
-                  <Mail className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Email</p>
-                    <p className="text-sm text-muted-foreground">
-                      {currentUser.email}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">User ID</p>
-                    <p className="text-xs text-muted-foreground font-mono break-all">
-                      {currentUser.uid}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    </div>
-  );
+function AccountPasswordLoading() {
+    const { t } = useLanguage();
+    return <p role="status" className="text-sm text-muted-foreground">{t("common.loading")}</p>;
 }
 
+export default function MyAccountPage() {
+    const { t } = useLanguage();
+    const router = useRouter();
+    const { data: me, isPending, isError, isSuccess } = useMe();
+    useDocumentTitle(`${t("nav.myAccount")} · ${t("brand.name")}`);
+
+    useEffect(() => {
+        if (isSuccess && me === null) router.replace("/login");
+    }, [isSuccess, me, router]);
+
+    return (
+        <div className="flex min-h-screen flex-col bg-background text-foreground">
+            <Navigation />
+            <main className="mx-auto w-full max-w-2xl flex-1 space-y-section p-gutter py-section">
+                <h1 className="text-2xl font-semibold tracking-tight">{t("nav.myAccount")}</h1>
+                {isPending ? <p role="status" className="text-sm text-muted-foreground">{t("common.loading")}</p> :
+                    !me && isError ? <p role="alert" className="text-sm text-destructive">{t("auth.account.loadError")}</p> :
+                    !me ? <p role="status" className="text-sm text-muted-foreground">{t("auth.account.redirecting")}</p> : (
+                        <>
+                            <section aria-labelledby="account-profile-title" className="space-y-stack">
+                                <h2 id="account-profile-title" className="text-base font-semibold">{t("auth.account.profileTitle")}</h2>
+                                <div className="flex items-center gap-4">
+                                    <Avatar className="size-12 shrink-0">
+                                        <AvatarImage src={me.photoUrl ?? undefined} alt="" />
+                                        <AvatarFallback className="text-base font-medium">{initialOf(meDisplayName(me))}</AvatarFallback>
+                                    </Avatar>
+                                    <ScopeLine className="min-w-0 flex-1 text-sm text-muted-foreground" compact />
+                                </div>
+                                <dl className="grid gap-4 text-sm sm:grid-cols-2">
+                                    <div className="min-w-0 space-y-1">
+                                        <dt className="font-medium">{t("auth.account.name")}</dt>
+                                        <dd className="break-words text-muted-foreground">{me.displayName?.trim() ? meDisplayName(me) : t("auth.account.notSet")}</dd>
+                                    </div>
+                                    <div className="min-w-0 space-y-1">
+                                        <dt className="font-medium">{t("auth.email")}</dt>
+                                        <dd className="break-words text-muted-foreground">{me.email || t("auth.account.notSet")}</dd>
+                                    </div>
+                                </dl>
+                            </section>
+                            <AccountPasswordPanel />
+                        </>
+                    )}
+            </main>
+        </div>
+    );
+}

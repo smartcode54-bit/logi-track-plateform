@@ -332,7 +332,7 @@ describe("on a phone", () => {
         await userEvent.setup().click(screen.getByTestId("user-menu-trigger"));
         const menu = await screen.findByRole("menu");
         const items = [...within(menu).getAllByRole("menuitemradio"), ...within(menu).getAllByRole("menuitem")];
-        expect(items).toHaveLength(6);
+        expect(items).toHaveLength(7);
         for (const item of items) expect(item.className, item.textContent ?? "").toMatch(/\bmax-md:min-h-11\b/);
         expect(menu.querySelector("img")).toBeNull();
     });
