@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { subcontractorSchema, SubcontractorFormValues, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
@@ -18,6 +18,7 @@ import {
     FormMessage,
     FormDescription,
 } from "@/components/ui/form";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -28,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowLeft, Check, Upload, Building, Phone, Truck, FileText, Globe, Smartphone, Mail, MapPin, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Truck, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,12 +42,13 @@ export default function NewSubcontractorWizard() {
     const [currentStep, setCurrentStep] = useState(1);
     const { create } = useSaveSubcontractor();
     const isSubmitting = create.isPending;
+    const [serviceRegionsText, setServiceRegionsText] = useState(() => (subcontractorDefaultValues.serviceRegions ?? []).join(", "));
 
     const STEPS = [
         { id: 1, title: t("subcontractors.step1.title"), description: t("subcontractors.step1.description") },
         { id: 2, title: t("subcontractors.step2.title"), description: t("subcontractors.step2.description") },
         { id: 3, title: t("subcontractors.step3.title"), description: t("subcontractors.step3.description") },
-        { id: 4, title: t("subcontractors.step4.title"), description: t("subcontractors.step4.description") },
+        { id: 4, title: t("subcontractors.ui4.reviewTitle"), description: t("subcontractors.ui4.documentsAfterCreate") },
     ];
 
     const form = useForm<SubcontractorFormValues>({
@@ -56,10 +58,21 @@ export default function NewSubcontractorWizard() {
     });
 
     const onSubmit = async (data: SubcontractorFormValues) => {
+        const fleetSize = Number(data.fleetSize ?? 0);
+        if (!Number.isFinite(fleetSize) || !Number.isInteger(fleetSize) || fleetSize < 0) {
+            form.setError("fleetSize", { type: "validate", message: t("subcontractors.form.totalTrucks.integer") });
+            return;
+        }
         try {
-            await create.mutateAsync({ values: data });
+            const values = {
+                ...data,
+                fleetSize,
+                serviceRegions: serviceRegionsText.split(",").map((region) => region.trim()).filter(Boolean),
+            };
+            delete values.documents;
+            const id = await create.mutateAsync({ values });
             toast.success(t("subcontractors.toast.registerSuccess"));
-            router.push("/app/subcontractors");
+            router.push(`/app/subcontractors/${id}/edit`);
         } catch (error) {
             applyServerFieldErrors(form, error, t, { nameTh: "name", legalType: "type" });
             toastSaveError(error, t, "subcontractors.toast.registerError");
@@ -67,17 +80,25 @@ export default function NewSubcontractorWizard() {
     };
 
     const nextStep = async () => {
-        let fieldsToValidate: any[] = [];
+        let fieldsToValidate: FieldPath<SubcontractorFormValues>[] = [];
 
         if (currentStep === 1) {
             fieldsToValidate = ['name', 'type', 'idCardNumber', 'taxId', 'website', 'address'];
         } else if (currentStep === 2) {
             fieldsToValidate = ['contactPerson', 'designation', 'phone', 'email', 'lineGroupId'];
         } else if (currentStep === 3) {
+            form.setValue("serviceRegions", serviceRegionsText.split(",").map((region) => region.trim()).filter(Boolean));
             fieldsToValidate = ['fleetSize', 'dispatchCenter', 'serviceRegions', 'vehicleTypes'];
         }
 
         const isValid = await form.trigger(fieldsToValidate);
+        if (isValid && currentStep === 3) {
+            const fleetSize = Number(form.getValues("fleetSize") ?? 0);
+            if (!Number.isFinite(fleetSize) || !Number.isInteger(fleetSize) || fleetSize < 0) {
+                form.setError("fleetSize", { type: "validate", message: t("subcontractors.form.totalTrucks.integer") });
+                return;
+            }
+        }
         if (isValid) {
             setCurrentStep(prev => prev + 1);
             window.scrollTo({ top: 0, behavior: "smooth" });
@@ -101,25 +122,25 @@ export default function NewSubcontractorWizard() {
                 />
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 items-stretch">
                 {/* Sidebar Steps */}
-                <div className="w-64 border-r bg-muted/30 p-6 hidden md:block overflow-y-auto">
+                <div className="w-56 shrink-0 border-r border-border bg-muted p-4 hidden md:block">
                     <div className="space-y-6">
                         {STEPS.map((step) => {
                             const isActive = step.id === currentStep;
                             const isCompleted = step.id < currentStep;
 
                             return (
-                                <div key={step.id} className={cn("flex items-start gap-3 relative", isActive ? "opacity-100" : "opacity-60")}>
+                                <div key={step.id} className={cn("flex items-start gap-3 relative", isActive ? "text-foreground" : "text-muted-foreground")}>
                                     <div className={cn(
-                                        "flex items-center justify-center w-8 h-8 rounded-full border-2 text-sm font-semibold z-10 bg-background",
+                                        "flex items-center justify-center w-8 h-8 rounded-md border text-sm font-semibold z-raised bg-background",
                                         isActive ? "border-primary text-primary" : "",
-                                        isCompleted ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30 text-muted-foreground"
+                                        isCompleted ? "border-primary bg-primary text-primary-foreground" : "border-control-edge text-muted-foreground"
                                     )}>
                                         {isCompleted ? <CheckCircle2 className="h-5 w-5" /> : step.id}
                                     </div>
                                     {step.id !== STEPS.length && (
-                                        <div className="absolute left-4 top-8 bottom-[-24px] w-[2px] bg-border" />
+                                        <div className="absolute left-4 top-8 bottom-[-24px] w-px bg-border" />
                                     )}
                                     <div className="pt-1">
                                         <p className={cn("text-sm font-medium", isActive ? "text-primary" : "")}>{step.title}</p>
@@ -131,10 +152,9 @@ export default function NewSubcontractorWizard() {
                     </div>
 
                     {/* Tips Card */}
-                    <div className="mt-8 p-4 bg-blue-950/20 border border-blue-900/30 rounded-lg">
-                        <div className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400">
-                            <div className="h-4 w-4 font-bold border rounded-full flex items-center justify-center text-[10px]">i</div>
-                            <span className="text-xs font-bold uppercase tracking-wider">{t("subcontractors.tips")}</span>
+                    <div className="mt-8 p-4 bg-muted border border-border rounded-lg">
+                        <div className="flex items-center gap-2 mb-2 text-primary ">
+                            <span className="text-sm font-medium">{t("subcontractors.tips")}</span>
                         </div>
                         <p className="text-xs text-muted-foreground leading-relaxed">
                             {t("subcontractors.tips.taxId")}
@@ -143,16 +163,16 @@ export default function NewSubcontractorWizard() {
                 </div>
 
                 {/* Main Form Area */}
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 relative">
-                    <div className="max-w-3xl mx-auto pb-24">
+                <div className="min-w-0 flex-1 md:pl-6">
+                    <div className="max-w-3xl">
                         <Form {...form}>
                             <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
                                 {/* Step 1: Company Profile */}
                                 {currentStep === 1 && (
                                     <div className="space-y-6">
-                                        <Card className="border-none shadow-sm">
+                                        <Card>
                                             <CardHeader>
-                                                <CardTitle>{t("subcontractors.form.companyProfile")}</CardTitle>
+                                                <CardTitle className="text-base">{t("subcontractors.form.companyProfile")}</CardTitle>
                                                 <CardDescription>{t("subcontractors.form.companyProfile.desc")}</CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-6">
@@ -162,9 +182,9 @@ export default function NewSubcontractorWizard() {
                                                         name="name"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                 <FormLabel>{t("subcontractors.form.legalName")}</FormLabel>
+                                                                 <FormLabel>{t("subcontractors.form.legalName")} <RequiredMark /></FormLabel>
                                                                  <FormControl>
-                                                                     <Input placeholder={t("subcontractors.form.legalName.placeholder")} {...field} />
+                                                                     <Input aria-required="true" placeholder={t("subcontractors.form.legalName.placeholder")} {...field} />
                                                                  </FormControl>
                                                                  <FormMessage />
                                                             </FormItem>
@@ -200,9 +220,9 @@ export default function NewSubcontractorWizard() {
                                                             name="taxId"
                                                             render={({ field }) => (
                                                                 <FormItem>
-                                                                     <FormLabel>{t("subcontractors.form.taxId")}</FormLabel>
+                                                                     <FormLabel>{t("subcontractors.form.taxId")} <RequiredMark /></FormLabel>
                                                                      <FormControl>
-                                                                         <Input placeholder={t("subcontractors.form.taxId.placeholder")} {...field} />
+                                                                         <Input aria-required="true" placeholder={t("subcontractors.form.taxId.placeholder")} {...field} />
                                                                      </FormControl>
                                                                      <FormMessage />
                                                                 </FormItem>
@@ -215,9 +235,9 @@ export default function NewSubcontractorWizard() {
                                                             name="idCardNumber"
                                                             render={({ field }) => (
                                                                 <FormItem>
-                                                                     <FormLabel>{t("subcontractors.form.nationalId")}</FormLabel>
+                                                                     <FormLabel>{t("subcontractors.form.nationalId")} <RequiredMark /></FormLabel>
                                                                      <FormControl>
-                                                                         <Input placeholder={t("subcontractors.form.nationalId.placeholder")} {...field} />
+                                                                         <Input aria-required="true" placeholder={t("subcontractors.form.nationalId.placeholder")} {...field} />
                                                                      </FormControl>
                                                                      <FormMessage />
                                                                 </FormItem>
@@ -233,10 +253,7 @@ export default function NewSubcontractorWizard() {
                                                         <FormItem>
                                                              <FormLabel>{t("subcontractors.form.website")}</FormLabel>
                                                              <FormControl>
-                                                                 <div className="relative">
-                                                                     <Globe className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                                                                     <Input className="pl-10" placeholder={t("subcontractors.form.website.placeholder")} {...field} />
-                                                                 </div>
+                                                                 <Input placeholder={t("subcontractors.form.website.placeholder")} {...field} />
                                                              </FormControl>
                                                              <FormMessage />
                                                         </FormItem>
@@ -268,9 +285,9 @@ export default function NewSubcontractorWizard() {
                                 {/* Step 2: Contact Details */}
                                 {currentStep === 2 && (
                                     <div className="space-y-6">
-                                        <Card className="border-none shadow-sm">
+                                        <Card>
                                             <CardHeader>
-                                                <CardTitle>{t("subcontractors.form.contactInfo")}</CardTitle>
+                                                <CardTitle className="text-base">{t("subcontractors.form.contactInfo")}</CardTitle>
                                                 <CardDescription>{t("subcontractors.form.contactInfo.desc")}</CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-6">
@@ -279,9 +296,9 @@ export default function NewSubcontractorWizard() {
                                                     name="contactPerson"
                                                     render={({ field }) => (
                                                         <FormItem>
-                                                             <FormLabel>{t("subcontractors.form.fullName")}</FormLabel>
+                                                             <FormLabel>{t("subcontractors.form.fullName")} <RequiredMark /></FormLabel>
                                                              <FormControl>
-                                                                 <Input placeholder={t("subcontractors.form.fullName.placeholder")} {...field} />
+                                                                 <Input aria-required="true" placeholder={t("subcontractors.form.fullName.placeholder")} {...field} />
                                                              </FormControl>
                                                              <FormMessage />
                                                         </FormItem>
@@ -308,12 +325,9 @@ export default function NewSubcontractorWizard() {
                                                         name="phone"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                 <FormLabel>{t("subcontractors.form.mobilePhone")}</FormLabel>
+                                                                 <FormLabel>{t("subcontractors.form.mobilePhone")} <RequiredMark /></FormLabel>
                                                                  <FormControl>
-                                                                     <div className="relative">
-                                                                         <Smartphone className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                                                                         <Input className="pl-10" placeholder={t("subcontractors.form.mobilePhone.placeholder")} {...field} />
-                                                                     </div>
+                                                                     <Input aria-required="true" placeholder={t("subcontractors.form.mobilePhone.placeholder")} {...field} />
                                                                  </FormControl>
                                                                  <FormMessage />
                                                             </FormItem>
@@ -326,10 +340,7 @@ export default function NewSubcontractorWizard() {
                                                             <FormItem>
                                                                  <FormLabel>{t("subcontractors.form.workEmail")}</FormLabel>
                                                                  <FormControl>
-                                                                     <div className="relative">
-                                                                         <Mail className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                                                                         <Input className="pl-10" placeholder={t("subcontractors.form.workEmail.placeholder")} {...field} />
-                                                                     </div>
+                                                                     <Input placeholder={t("subcontractors.form.workEmail.placeholder")} {...field} />
                                                                  </FormControl>
                                                                  <FormMessage />
                                                             </FormItem>
@@ -359,14 +370,14 @@ export default function NewSubcontractorWizard() {
                                 {/* Step 3: Fleet & Service Area */}
                                 {currentStep === 3 && (
                                     <div className="space-y-6">
-                                        <Card className="border-none shadow-sm">
+                                        <Card>
                                             <CardHeader>
-                                                <CardTitle>{t("subcontractors.form.fleetService")}</CardTitle>
+                                                <CardTitle className="text-base">{t("subcontractors.form.fleetService")}</CardTitle>
                                                 <CardDescription>{t("subcontractors.form.fleetService.desc")}</CardDescription>
                                             </CardHeader>
                                             <CardContent className="space-y-8">
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-blue-600" /> {t("subcontractors.form.fleetCapacity")}</h3>
+                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-primary" /> {t("subcontractors.form.fleetCapacity")}</h3>
                                                     <div className="grid md:grid-cols-2 gap-6">
                                                         <FormField
                                                             control={form.control}
@@ -374,20 +385,9 @@ export default function NewSubcontractorWizard() {
                                                             render={({ field }) => (
                                                                 <FormItem>
                                                                      <FormLabel>{t("subcontractors.form.totalTrucks")}</FormLabel>
-                                                                     <Select onValueChange={(val) => field.onChange(parseInt(val))} defaultValue={field.value?.toString()}>
-                                                                         <FormControl>
-                                                                             <SelectTrigger>
-                                                                                 <SelectValue placeholder={t("subcontractors.form.totalTrucks.placeholder")} />
-                                                                             </SelectTrigger>
-                                                                         </FormControl>
-                                                                         <SelectContent>
-                                                                             <SelectItem value="5">1-5</SelectItem>
-                                                                             <SelectItem value="10">6-10</SelectItem>
-                                                                             <SelectItem value="20">11-20</SelectItem>
-                                                                             <SelectItem value="50">21-50</SelectItem>
-                                                                             <SelectItem value="100">50+</SelectItem>
-                                                                         </SelectContent>
-                                                                     </Select>
+                                                                     <FormControl>
+                                                                         <Input type="number" min={0} step={1} {...field} value={Number(field.value ?? 0)} />
+                                                                     </FormControl>
                                                                      <FormDescription>{t("subcontractors.form.totalTrucks.desc")}</FormDescription>
                                                                      <FormMessage />
                                                                 </FormItem>
@@ -399,18 +399,9 @@ export default function NewSubcontractorWizard() {
                                                             render={({ field }) => (
                                                                 <FormItem>
                                                                      <FormLabel>{t("subcontractors.form.dispatchCenter")}</FormLabel>
-                                                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                                         <FormControl>
-                                                                             <SelectTrigger>
-                                                                                 <SelectValue placeholder={t("subcontractors.form.dispatchCenter.placeholder")} />
-                                                                             </SelectTrigger>
-                                                                         </FormControl>
-                                                                         <SelectContent>
-                                                                             <SelectItem value="Central Hub - North">{t("subcontractors.form.dispatchCenter.northHub")}</SelectItem>
-                                                                             <SelectItem value="Central Hub - South">{t("subcontractors.form.dispatchCenter.southHub")}</SelectItem>
-                                                                             <SelectItem value="East Coast Depot">{t("subcontractors.form.dispatchCenter.eastCoast")}</SelectItem>
-                                                                         </SelectContent>
-                                                                     </Select>
+                                                                     <FormControl>
+                                                                         <Input {...field} />
+                                                                     </FormControl>
                                                                      <FormMessage />
                                                                 </FormItem>
                                                             )}
@@ -418,38 +409,28 @@ export default function NewSubcontractorWizard() {
                                                     </div>
                                                 </div>
 
-                                                <div>
-                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-600" /> {t("subcontractors.form.serviceRegions")}</h3>
-                                                    <FormField
-                                                        control={form.control}
-                                                        name="serviceRegions"
-                                                        render={({ field }) => (
-                                                            <FormItem>
-                                                                 <FormControl>
-                                                                     <div className="space-y-3">
-                                                                         <div className="relative">
-                                                                             <Check className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                                                             <Input placeholder={t("subcontractors.form.serviceRegions.search")} className="pl-10" />
-                                                                         </div>
-                                                                         <div className="flex flex-wrap gap-2">
-                                                                             {["California", "Texas", "Florida", "New York"].map(region => (
-                                                                                 <div key={region} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
-                                                                                     {region}
-                                                                                     <button type="button" className="hover:text-blue-900 dark:hover:text-blue-100">×</button>
-                                                                                 </div>
-                                                                             ))}
-                                                                             <Button variant="ghost" size="sm" className="text-blue-600">+ Add 12 more</Button>
-                                                                         </div>
-                                                                     </div>
-                                                                 </FormControl>
-                                                                 <FormMessage />
-                                                            </FormItem>
-                                                        )}
-                                                    />
-                                                </div>
+                                                <FormField
+                                                    control={form.control}
+                                                    name="serviceRegions"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>{t("subcontractors.form.serviceRegions")}</FormLabel>
+                                                            <FormControl>
+                                                                <Input value={serviceRegionsText}
+                                                                    onChange={(event) => setServiceRegionsText(event.target.value)}
+                                                                    onBlur={() => {
+                                                                        field.onChange(serviceRegionsText.split(",").map((region) => region.trim()).filter(Boolean));
+                                                                        field.onBlur();
+                                                                    }} />
+                                                            </FormControl>
+                                                            <FormDescription>{t("subcontractors.form.serviceRegions.search")}</FormDescription>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
 
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-blue-600" /> {t("subcontractors.form.vehicleTypes")}</h3>
+                                                    <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Truck className="w-4 h-4 text-primary" /> {t("subcontractors.form.vehicleTypes")}</h3>
                                                     <FormField
                                                         control={form.control}
                                                         name="vehicleTypes"
@@ -460,7 +441,7 @@ export default function NewSubcontractorWizard() {
                                                                          { id: "4-wheeler", label: t("subcontractors.form.vehicle.4wheeler"), sub: t("subcontractors.form.vehicle.4wheeler.desc") },
                                                                          { id: "6-wheeler", label: t("subcontractors.form.vehicle.6wheeler"), sub: t("subcontractors.form.vehicle.6wheeler.desc") },
                                                                          { id: "10-wheeler", label: t("subcontractors.form.vehicle.10wheeler"), sub: t("subcontractors.form.vehicle.10wheeler.desc") },
-                                                                         { id: "cold-chain", label: t("subcontractors.form.vehicle.coldChain"), sub: t("subcontractors.form.vehicle.coldChain.desc"), icon: "❄️" },
+                                                                         { id: "cold-chain", label: t("subcontractors.form.vehicle.coldChain"), sub: t("subcontractors.form.vehicle.coldChain.desc") },
                                                                          { id: "flatbed", label: t("subcontractors.form.vehicle.flatbed"), sub: t("subcontractors.form.vehicle.flatbed.desc") },
                                                                          { id: "hazmat", label: t("subcontractors.form.vehicle.hazmat"), sub: t("subcontractors.form.vehicle.hazmat.desc") },
                                                                      ].map((item) => (
@@ -473,8 +454,8 @@ export default function NewSubcontractorWizard() {
                                                                                      <FormItem
                                                                                          key={item.id}
                                                                                          className={cn(
-                                                                                             "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm transition-all cursor-pointer hover:border-blue-300",
-                                                                                             field.value?.includes(item.id) ? "border-blue-500 bg-blue-50/30 dark:bg-blue-900/20" : "border-slate-200 dark:border-slate-800"
+                                                                                             "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm transition-all cursor-pointer hover:border-primary",
+                                                                                             field.value?.includes(item.id) ? "border-primary bg-muted " : "border-border "
                                                                                          )}
                                                                                      >
                                                                                          <FormControl>
@@ -494,7 +475,6 @@ export default function NewSubcontractorWizard() {
                                                                                          </FormControl>
                                                                                          <div className="space-y-1 leading-none">
                                                                                              <FormLabel className="font-semibold cursor-pointer">
-                                                                                                 {item.icon && <span className="mr-1">{item.icon}</span>}
                                                                                                  {item.label}
                                                                                              </FormLabel>
                                                                                              <FormDescription>
@@ -516,119 +496,63 @@ export default function NewSubcontractorWizard() {
                                     </div>
                                 )}
 
-                                {/* Step 4: Document Upload & Review */}
+                                {/* Step 4: Review */}
                                 {currentStep === 4 && (
-                                    <div className="space-y-6">
-                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                                            <div className="lg:col-span-2 space-y-6">
-                                                <Card className="border-none shadow-sm">
-                                                    <CardHeader>
-                                                        <CardTitle>{t("subcontractors.form.requiredDocs")}</CardTitle>
-                                                    </CardHeader>
-                                                    <CardContent className="space-y-8">
-                                                        <div>
-                                                            <h4 className="text-sm font-medium mb-4">{t("subcontractors.form.businessLicense")}</h4>
-                                                            <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer">
-                                                                <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/50 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 mb-2">
-                                                                     <Upload className="h-5 w-5" />
-                                                                </div>
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{t("subcontractors.form.dragDrop")}</p>
-                                                                <p className="text-xs text-slate-500 mt-1">{t("subcontractors.form.fileFormats")}</p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div>
-                                                            <h4 className="text-sm font-medium mb-4">{t("subcontractors.form.insuranceCert")}</h4>
-                                                            <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/50 rounded-xl p-4 flex items-center justify-between">
-                                                                <div className="flex items-center gap-3">
-                                                                     <div className="h-8 w-8 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center text-green-600 dark:text-green-400">
-                                                                         <Check className="h-4 w-4" />
-                                                                     </div>
-                                                                     <div>
-                                                                         <p className="text-sm font-medium text-green-800 dark:text-green-200">insurance_cert_2024.pdf</p>
-                                                                         <p className="text-xs text-green-600 dark:text-green-400">{t("subcontractors.form.uploadSuccess")}</p>
-                                                                     </div>
-                                                                </div>
-                                                                <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500">
-                                                                     <span className="sr-only">Remove</span>
-                                                                     ×
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            </div>
-
-                                            <div>
-                                                <Card className="border-none shadow-sm">
-                                                    <CardHeader>
-                                                        <CardTitle>{t("subcontractors.form.summaryReview")}</CardTitle>
-                                                    </CardHeader>
-                                                    <CardContent className="space-y-6">
-                                                        <div>
-                                                            <div className="flex justify-between items-center mb-2">
-                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t("subcontractors.form.companyDetails")}</h4>
-                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(1)}>{t("subcontractors.form.edit")}</Button>
-                                                            </div>
-                                                            <div className="space-y-1">
-                                                                <p className="font-semibold text-slate-900 dark:text-slate-100">{form.getValues("name") || t("subcontractors.form.notEntered")}</p>
-                                                                <p className="text-xs text-slate-500">Tax ID: {form.getValues("taxId") || form.getValues("idCardNumber") || "-"}</p>
-                                                                <p className="text-xs text-slate-500">{form.getValues("address") || t("subcontractors.form.noAddress")}</p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="h-px bg-slate-100 dark:bg-slate-800" />
-
-                                                        <div>
-                                                            <div className="flex justify-between items-center mb-2">
-                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t("subcontractors.form.primaryContact")}</h4>
-                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(2)}>{t("subcontractors.form.edit")}</Button>
-                                                            </div>
-                                                            <div className="space-y-1">
-                                                                <p className="font-semibold text-slate-900 dark:text-slate-100">{form.getValues("contactPerson") || "-"}</p>
-                                                                <p className="text-xs text-slate-500">{form.getValues("email") || "-"}</p>
-                                                                <p className="text-xs text-slate-500">{form.getValues("phone") || "-"}</p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="h-px bg-slate-100 dark:bg-slate-800" />
-
-                                                        <div>
-                                                            <div className="flex justify-between items-center mb-2">
-                                                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t("subcontractors.form.operationalInfo")}</h4>
-                                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={() => setCurrentStep(3)}>{t("subcontractors.form.edit")}</Button>
-                                                            </div>
-                                                            <div className="grid grid-cols-2 gap-y-2 text-sm">
-                                                                <span className="text-slate-500">{t("subcontractors.table.fleetSize")}</span>
-                                                                <span className="text-right font-medium">{String(form.getValues("fleetSize"))} {t("subcontractors.form.trucks")}</span>
-                                                                <span className="text-slate-500">{t("subcontractors.form.serviceAreas")}</span>
-                                                                <span className="text-right font-medium">Midwest, Northeast</span>
-                                                            </div>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="text-base">{t("subcontractors.ui4.reviewTitle")}</CardTitle>
+                                            <CardDescription>{t("subcontractors.ui4.documentsAfterCreate")}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-6">
+                                            <section className="space-y-2">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <h2 className="text-sm font-medium">{t("subcontractors.form.companyDetails")}</h2>
+                                                    <Button variant="link" size="sm" type="button" aria-label={t("subcontractors.form.editCompanyDetails")} onClick={() => setCurrentStep(1)}>{t("subcontractors.form.edit")}</Button>
+                                                </div>
+                                                <p className="text-sm font-medium">{form.getValues("name") || t("subcontractors.form.notEntered")}</p>
+                                                <p className="text-sm text-muted-foreground">{t("subcontractors.form.taxId")}: {form.getValues("taxId") || form.getValues("idCardNumber") || "-"}</p>
+                                                <p className="break-words text-sm text-muted-foreground">{form.getValues("address") || t("subcontractors.form.noAddress")}</p>
+                                            </section>
+                                            <section className="space-y-2 border-t border-border pt-4">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <h2 className="text-sm font-medium">{t("subcontractors.form.primaryContact")}</h2>
+                                                    <Button variant="link" size="sm" type="button" aria-label={t("subcontractors.form.editContactDetails")} onClick={() => setCurrentStep(2)}>{t("subcontractors.form.edit")}</Button>
+                                                </div>
+                                                <p className="text-sm font-medium">{form.getValues("contactPerson") || "-"}</p>
+                                                <p className="break-words text-sm text-muted-foreground">{form.getValues("email") || "-"}</p>
+                                                <p className="text-sm text-muted-foreground">{form.getValues("phone") || "-"}</p>
+                                            </section>
+                                            <section className="space-y-2 border-t border-border pt-4">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <h2 className="text-sm font-medium">{t("subcontractors.form.operationalInfo")}</h2>
+                                                    <Button variant="link" size="sm" type="button" aria-label={t("subcontractors.form.editOperationalInfo")} onClick={() => setCurrentStep(3)}>{t("subcontractors.form.edit")}</Button>
+                                                </div>
+                                                <dl className="grid grid-cols-2 gap-2 text-sm">
+                                                    <dt className="text-muted-foreground">{t("subcontractors.table.fleetSize")}</dt>
+                                                    <dd className="text-right font-medium">{String(form.getValues("fleetSize"))} {t("subcontractors.form.trucks")}</dd>
+                                                    <dt className="text-muted-foreground">{t("subcontractors.form.serviceAreas")}</dt>
+                                                    <dd className="break-words text-right font-medium">{form.getValues("serviceRegions")?.filter(Boolean).join(", ") || t("subcontractors.ui4.notSet")}</dd>
+                                                </dl>
+                                            </section>
+                                        </CardContent>
+                                    </Card>
                                 )}
                             </form>
                         </Form>
                     </div>
 
                     {/* Sticky Footer for Navigation */}
-                    <div className="fixed bottom-0 right-0 left-0 md:left-64 p-4 border-t bg-background/80 backdrop-blur-sm flex justify-between items-center z-20">
+                    <div className="sticky bottom-0 z-sticky border-t border-border bg-background py-4 flex flex-col gap-3 md:flex-row md:justify-between md:items-center">
                         <Button
                             type="button"
                             variant="outline"
                             onClick={currentStep === 1 ? () => router.push('/app/subcontractors') : prevStep}
-                            className="bg-background"
                         >
                             {currentStep === 1 ? t("subcontractors.form.cancel") : t("subcontractors.form.back")}
                         </Button>
 
                         <Button
                             type="button"
-                            className="bg-blue-600 hover:bg-blue-700 text-white min-w-[140px]"
                             onClick={currentStep === 4 ? form.handleSubmit(onSubmit, createInvalidHandler(form, t)) : nextStep}
                             disabled={isSubmitting}
                         >

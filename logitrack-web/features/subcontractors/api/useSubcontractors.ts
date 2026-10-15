@@ -1,9 +1,11 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
 import {
     createSubcontractor,
+    invalidateSubcontractors,
+    suspendSubcontractor,
     subcontractorOptionsQuery,
     subcontractorQuery,
     subcontractorsListQuery,
@@ -15,6 +17,20 @@ import {
 
 const NO_ROWS: SubcontractorSummaryDTO[] = [];
 const NO_OPTIONS: SubcontractorOptionDTO[] = [];
+
+export function useSuspendSubcontractor() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: suspendSubcontractor,
+        retry: false,
+        onSuccess: async () => {
+            await Promise.all([
+                invalidateSubcontractors(client),
+                client.invalidateQueries({ queryKey: queryKeys.tenants.all() }),
+            ]);
+        },
+    });
+}
 
 /** `['subcontractors', {view:'full'}]`: the list page. */
 export function useSubcontractorList() {

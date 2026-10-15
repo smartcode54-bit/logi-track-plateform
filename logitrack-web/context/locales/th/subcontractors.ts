@@ -1,22 +1,38 @@
 export default {
+    // Record-backed partner actions
+    "subcontractors.ui4.documentsEmpty": "ยังไม่มีเอกสาร",
+    "subcontractors.ui4.documentUnavailable": "ไม่สามารถเปิดเอกสารได้",
+    "subcontractors.ui4.openDocument": "เปิดเอกสาร",
+    "subcontractors.ui4.manageDocuments": "จัดการเอกสาร",
+    "subcontractors.ui4.documentsAfterCreate": "หลังลงทะเบียน ให้เพิ่มเอกสารในหน้าแก้ไขข้อมูลรถร่วม",
+    "subcontractors.ui4.reviewTitle": "ตรวจสอบข้อมูลรถร่วม",
+    "subcontractors.ui4.suspendTitle": "ระงับรถร่วมรายนี้หรือไม่?",
+    "subcontractors.ui4.suspendBody": "ระงับ {name} หรือไม่? สถานะรถร่วมจะเปลี่ยน และผู้ใช้งานทั้งหมดของรถร่วมนี้จะเข้าระบบไม่ได้ทันที",
+    "subcontractors.ui4.suspendConfirm": "ระงับรถร่วม",
+    "subcontractors.ui4.suspended": "ระงับรถร่วมแล้ว",
+    "subcontractors.ui4.suspendFailed": "ไม่สามารถระงับรถร่วมได้",
+    "subcontractors.ui4.fleetPreview": "ตัวอย่างรถในสังกัด (แสดง {count} คัน)",
+    "subcontractors.ui4.notSet": "-",
+    "subcontractors.ui4.openDocumentNumber": "เปิดเอกสารลำดับที่ {number}",
+
     // Overview Page
-    "subcontractors.subtitle": "ติดตามประสิทธิภาพและความสอดคล้องของรถร่วม",
+    "subcontractors.subtitle": "ข้อมูลรถร่วมและจำนวนรถที่แจ้ง",
     "subcontractors.add": "เพิ่มรถร่วม",
     "subcontractors.search": "ค้นหาบริษัทหรือผู้ติดต่อ...",
 
     // Stats Cards
     "subcontractors.stats.totalPartners": "รถร่วมทั้งหมด",
-    "subcontractors.stats.totalPartners.desc": "หน่วยธุรกิจที่ใช้งานอยู่",
-    "subcontractors.stats.activeTrucks": "รถที่ใช้งานอยู่",
-    "subcontractors.stats.activeTrucks.desc": "วิ่งอยู่ในปัจจุบัน",
-    "subcontractors.stats.pendingContracts": "สัญญารอดำเนินการ",
-    "subcontractors.stats.pendingContracts.desc": "รอการตรวจสอบ",
+    "subcontractors.stats.totalPartners.desc": "รถร่วมที่ลงทะเบียน",
+    "subcontractors.stats.activeTrucks": "จำนวนรถที่รถร่วมแจ้ง",
+    "subcontractors.stats.activeTrucks.desc": "จำนวนรถรวมตามข้อมูลที่รถร่วมแจ้ง",
+    "subcontractors.stats.pendingContracts": "รถร่วมที่รอดำเนินการ",
+    "subcontractors.stats.pendingContracts.desc": "รถร่วมที่มีสถานะรอดำเนินการ",
 
     // Filters
     "subcontractors.filter.allStatuses": "สถานะทั้งหมด",
     "subcontractors.filter.active": "ใช้งาน",
-    "subcontractors.filter.onTrial": "ทดลองงาน",
-    "subcontractors.filter.terminated": "ยกเลิก",
+    "subcontractors.filter.onTrial": "รอดำเนินการ",
+    "subcontractors.filter.terminated": "ระงับ",
     "subcontractors.filter.allRegions": "ภูมิภาคทั้งหมด",
     "subcontractors.filter.fleetSize": "ขนาดฝูงรถ",
     "subcontractors.filter.allSizes": "ทุกขนาด",
@@ -32,7 +48,7 @@ export default {
     "subcontractors.table.status": "สถานะ",
     "subcontractors.table.actions": "การดำเนินการ",
     "subcontractors.table.vehicles": "คัน",
-    "subcontractors.table.global": "ทั่วโลก",
+    "subcontractors.table.code": "รหัส",
 
     // Table Loading/Empty
     "subcontractors.loading": "กำลังโหลดข้อมูลรถร่วม...",
@@ -40,7 +56,6 @@ export default {
 
     // Dropdown Actions
     "subcontractors.action.viewProfile": "ดูโปรไฟล์",
-    "subcontractors.action.manageContracts": "จัดการสัญญา",
     "subcontractors.action.suspendPartner": "ระงับรถร่วม",
 
     // Pagination
@@ -52,11 +67,6 @@ export default {
     "subcontractors.pagination.next": "ถัดไป",
 
     // Status Badges
-    "subcontractors.status.active": "ใช้งาน",
-    "subcontractors.status.onTrial": "ทดลองงาน",
-    "subcontractors.status.terminated": "ยกเลิก",
-    "subcontractors.status.activePartner": "รถร่วม",
-
     // New Subcontractor Page
     "subcontractors.new.title": "เพิ่มรถร่วมใหม่",
     "subcontractors.new.step": "ขั้นตอนที่",
@@ -69,8 +79,6 @@ export default {
     "subcontractors.step2.description": "ผู้ติดต่อและการสื่อสาร",
     "subcontractors.step3.title": "ฝูงรถและบริการ",
     "subcontractors.step3.description": "ความจุและพื้นที่ครอบคลุม",
-    "subcontractors.step4.title": "เอกสาร",
-    "subcontractors.step4.description": "อัปโหลดและตรวจสอบ",
 
     // Tips
     "subcontractors.tips": "เคล็ดลับ",
@@ -114,15 +122,11 @@ export default {
     "subcontractors.form.fleetService.desc": "ความสามารถในการปฏิบัติงานและพื้นที่ครอบคลุม",
     "subcontractors.form.fleetCapacity": "ความจุฝูงรถ",
     "subcontractors.form.totalTrucks": "จำนวนรถทั้งหมดที่พร้อมใช้งาน",
-    "subcontractors.form.totalTrucks.placeholder": "เลือกจำนวน",
     "subcontractors.form.totalTrucks.desc": "จำนวนรถที่พร้อมจัดส่ง",
+    "subcontractors.form.totalTrucks.integer": "กรุณาระบุจำนวนรถเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป",
     "subcontractors.form.dispatchCenter": "ศูนย์จัดส่งหลัก",
-    "subcontractors.form.dispatchCenter.placeholder": "เลือกศูนย์",
-    "subcontractors.form.dispatchCenter.northHub": "ศูนย์กลาง - เหนือ",
-    "subcontractors.form.dispatchCenter.southHub": "ศูนย์กลาง - ใต้",
-    "subcontractors.form.dispatchCenter.eastCoast": "คลังสินค้าภาคตะวันออก",
     "subcontractors.form.serviceRegions": "จังหวัดและภูมิภาคที่ให้บริการ",
-    "subcontractors.form.serviceRegions.search": "ค้นหาและเพิ่มภูมิภาค...",
+    "subcontractors.form.serviceRegions.search": "คั่นจังหวัดหรือภูมิภาคด้วยเครื่องหมายจุลภาค (,)",
     "subcontractors.form.vehicleTypes": "ประเภทรถและความเชี่ยวชาญ",
     "subcontractors.form.vehicle.4wheeler": "4 ล้อ (LDT)",
     "subcontractors.form.vehicle.4wheeler.desc": "รถบรรทุกเบา",
@@ -138,17 +142,13 @@ export default {
     "subcontractors.form.vehicle.hazmat.desc": "ขนส่งสินค้าอันตราย",
 
     // Step 4 - Documents
-    "subcontractors.form.requiredDocs": "เอกสารที่จำเป็น",
-    "subcontractors.form.businessLicense": "ใบอนุญาตประกอบธุรกิจ",
-    "subcontractors.form.insuranceCert": "ใบรับรองประกันภัย",
-    "subcontractors.form.dragDrop": "ลากและวางหรือคลิกเพื่ออัปโหลด",
-    "subcontractors.form.fileFormats": "PDF, PNG, JPG (สูงสุด 10MB)",
-    "subcontractors.form.uploadSuccess": "อัปโหลดสำเร็จ",
-    "subcontractors.form.summaryReview": "สรุปข้อมูล",
     "subcontractors.form.companyDetails": "รายละเอียดบริษัท",
     "subcontractors.form.primaryContact": "ผู้ติดต่อหลัก",
     "subcontractors.form.operationalInfo": "ข้อมูลการปฏิบัติงาน",
     "subcontractors.form.edit": "แก้ไข",
+    "subcontractors.form.editCompanyDetails": "แก้ไขรายละเอียดบริษัท",
+    "subcontractors.form.editContactDetails": "แก้ไขข้อมูลผู้ติดต่อ",
+    "subcontractors.form.editOperationalInfo": "แก้ไขข้อมูลการปฏิบัติงาน",
     "subcontractors.form.notEntered": "ยังไม่ได้กรอก",
     "subcontractors.form.noAddress": "ไม่มีที่อยู่",
     "subcontractors.form.trucks": "คัน",
@@ -171,46 +171,20 @@ export default {
     "subcontractors.toast.uploadError": "ไม่สามารถอัปโหลดไฟล์ได้",
 
     // Detail Page
-    "subcontractors.detail.partnerPortal": "พอร์ทัลรถร่วม",
-    "subcontractors.detail.subcontractorManagement": "รถร่วม",
-    "subcontractors.detail.overview": "ภาพรวม",
-    "subcontractors.detail.assignedTrucks": "รถที่ได้รับมอบหมาย",
-    "subcontractors.detail.contractsDocs": "สัญญาและเอกสาร",
-    "subcontractors.detail.performance": "ประสิทธิภาพ",
-    "subcontractors.detail.activityLog": "บันทึกกิจกรรม",
-    "subcontractors.detail.masterSubcontractor": "รถร่วมหลัก",
     "subcontractors.detail.joined": "เข้าร่วม",
     "subcontractors.detail.editProfile": "แก้ไขโปรไฟล์",
     "subcontractors.detail.companyDetails": "รายละเอียดบริษัท",
     "subcontractors.detail.legalName": "ชื่อตามกฎหมาย",
-    "subcontractors.detail.taxIdEIN": "เลขประจำตัวผู้เสียภาษี",
     "subcontractors.detail.businessType": "ประเภทธุรกิจ",
-    "subcontractors.detail.corporation": "นิติบุคคล (บริษัทจำกัด)",
-    "subcontractors.detail.soleProprietorship": "เจ้าของคนเดียว",
     "subcontractors.detail.headquarters": "สำนักงานใหญ่",
     "subcontractors.detail.pointOfContact": "ผู้ติดต่อ",
-    "subcontractors.detail.dispatchManager": "ผู้จัดการจัดส่ง",
-    "subcontractors.detail.available": "พร้อมให้บริการ",
-    "subcontractors.detail.viewAllFleet": "ดูฝูงรถทั้งหมด",
     "subcontractors.detail.noTrucks": "ยังไม่มีรถที่ได้รับมอบหมาย",
 
     // Detail - Truck Table
-    "subcontractors.detail.truckId": "รหัสรถ",
     "subcontractors.detail.truckType": "ประเภท",
     "subcontractors.detail.plate": "ทะเบียน",
-    "subcontractors.detail.location": "สถานที่",
 
     // Detail - Documents
-    "subcontractors.detail.recentDocuments": "เอกสารล่าสุด",
-    "subcontractors.detail.uploadNew": "อัปโหลดใหม่",
-    "subcontractors.detail.added": "เพิ่มเมื่อ",
-    "subcontractors.detail.download": "ดาวน์โหลด",
-    "subcontractors.detail.view": "ดู",
-    "subcontractors.detail.expiresIn": "หมดอายุใน",
-    "subcontractors.detail.days": "วัน",
-    "subcontractors.detail.renewNow": "ต่ออายุ",
-    "subcontractors.detail.verified": "ยืนยันแล้ว",
-    "subcontractors.detail.audit": "ตรวจสอบ",
 
     // Edit Page
     "subcontractors.edit.title": "แก้ไขรถร่วม",
@@ -219,8 +193,8 @@ export default {
     "subcontractors.edit.status": "สถานะ",
     "subcontractors.edit.status.placeholder": "เลือกสถานะ",
     "subcontractors.edit.status.active": "ใช้งาน",
-    "subcontractors.edit.status.pending": "รอการลงทะเบียน",
-    "subcontractors.edit.status.suspended": "ถูกระงับ",
+    "subcontractors.edit.status.pending": "รอดำเนินการ",
+    "subcontractors.edit.status.suspended": "ระงับ",
     "subcontractors.edit.idCard": "เลขบัตรประชาชน",
     "subcontractors.edit.idCard.placeholder": "เลขบัตรประชาชน",
     "subcontractors.edit.taxId": "เลขประจำตัวผู้เสียภาษี / ทะเบียนการค้า",

@@ -1,317 +1,170 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
+import { Edit, Loader2 } from "lucide-react";
 import { useSubcontractor } from "../api/useSubcontractors";
 import { useTruckPages } from "@/features/trucks/api/useTrucks";
+import { useMe } from "@/features/auth/api/useMe";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-    Loader2, Building2, User, Phone, Mail, MapPin, Truck,
-    Plus, Edit, LayoutDashboard, FileText, Activity, Clock,
-    CheckCircle2, AlertTriangle, Calendar, ArrowLeft
-} from "lucide-react";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { formatLicensePlate, cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { formatLicensePlate } from "@/lib/utils";
+import { carrierStatusTone, toneBadgeVariant, truckStatusTone } from "@/lib/statusPresentation";
+import { routeAllowed } from "@/lib/routeCapabilities";
+import { apiErrorText } from "@/lib/apiError";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
 
-function NavItem({ icon: Icon, label, active = false }: { icon: React.ElementType; label: string; active?: boolean }) {
+function ProfileField({ label, children }: { label: string; children: React.ReactNode }) {
     return (
-        <button
-            className={cn(
-                "w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors",
-                active
-                    ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                    : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
-            )}
-        >
-            <Icon className={cn("h-4 w-4", active ? "text-blue-600 dark:text-blue-400" : "text-slate-400")} />
-            {label}
-        </button>
+        <div className="grid gap-1 border-b border-border py-3 last:border-0">
+            <dt className="text-sm text-muted-foreground">{label}</dt>
+            <dd className="break-words text-sm text-foreground">{children}</dd>
+        </div>
     );
+}
+
+function documentHref(url: string | null): string | undefined {
+    if (!url) return undefined;
+    try {
+        const parsed = new URL(url);
+        return ["https:", "http:"].includes(parsed.protocol) ? parsed.href : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 export default function SubcontractorDetail() {
     const params = useParams();
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const id = params?.id as string;
-
-    // `['subcontractors','detail',id]` and the carrier's trucks (`['trucks', {tenantId}]`, server
-    // filter instead of the all-trucks scan, T25).
+    const me = useMe();
     const query = useSubcontractor(id ?? "");
     const subcontractor = query.data ?? null;
     const truckPages = useTruckPages({ tenantId: id ?? "" }, { enabled: Boolean(id) });
-    const trucks = truckPages.trucks;
+    const trucks = truckPages.trucks.slice(0, 3);
+    const editHref = `/app/subcontractors/${id}/edit`;
+    const canEdit = routeAllowed(me.data?.capabilities ?? [], editHref);
 
-    // No id, no partner, or the read failed: not found or outside the reader's scope, or a load error with a retry
-    // (UI3D).
-    // A failed background refetch keeps the loaded record (recordUnavailable); only a missing one shows RecordState.
     if (!id || recordUnavailable(query)) {
         return <RecordState error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
     }
 
     if (query.isPending || !subcontractor) {
         return (
-            <div className="flex items-center justify-center min-h-[400px]" role="status" aria-busy="true">
+            <div className="flex min-h-[400px] items-center justify-center" role="status" aria-busy="true">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
                 <span className="sr-only">{t("common.loading")}</span>
             </div>
         );
     }
 
+    const statusLabel = ["active", "pending", "suspended"].includes(subcontractor.status)
+        ? t(`subcontractors.edit.status.${subcontractor.status}`) : subcontractor.status;
+    const notSet = t("subcontractors.ui4.notSet");
+
     return (
-        <div className="flex flex-col gap-section">
+        <div className="flex min-w-0 flex-col gap-section">
             <PageHeader
                 title={t("nav.partners")}
                 recordName={subcontractor.nameTh}
                 back={{ href: "/app/subcontractors" }}
-                status={<Badge variant="secondary">{t("subcontractors.status.activePartner")}</Badge>}
-                description={<span className="font-mono">ID: SUB-{subcontractor.id.substring(0, 6).toUpperCase()}</span>}
-                actions={
+                status={<Badge variant={toneBadgeVariant(carrierStatusTone(subcontractor.status))}>{statusLabel}</Badge>}
+                description={subcontractor.createdAt
+                    ? `${t("subcontractors.detail.joined")} ${new Date(subcontractor.createdAt).toLocaleDateString(language === "th" ? "th-TH" : "en-GB")}`
+                    : undefined}
+                actions={canEdit ? (
                     <Button asChild>
-                        <Link href={`/app/subcontractors/${subcontractor.id}/edit`} prefetch={false}>
+                        <Link href={editHref} prefetch={false}>
                             <Edit className="h-4 w-4" aria-hidden /> {t("subcontractors.detail.editProfile")}
                         </Link>
                     </Button>
-                }
+                ) : undefined}
             />
-            <div className="space-y-6">
-                {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    {/* Left Sidebar - Partner Portal */}
-                    <div className="lg:col-span-3 space-y-6">
-                        <Card className="border-none shadow-sm bg-white dark:bg-card">
-                            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-                                <h3 className="font-semibold text-slate-900 dark:text-slate-100">{t("subcontractors.detail.partnerPortal")}</h3>
-                                <p className="text-xs text-slate-500">{t("subcontractors.detail.subcontractorManagement")}</p>
-                            </div>
-                            <div className="p-2 space-y-1">
-                                <NavItem icon={LayoutDashboard} label={t("subcontractors.detail.overview")} active />
-                                <NavItem icon={Truck} label={t("subcontractors.detail.assignedTrucks")} />
-                                <NavItem icon={FileText} label={t("subcontractors.detail.contractsDocs")} />
-                                <NavItem icon={Activity} label={t("subcontractors.detail.performance")} />
-                                <NavItem icon={Clock} label={t("subcontractors.detail.activityLog")} />
-                            </div>
-                        </Card>
-
-                    </div>
-
-                    {/* Right Content Area */}
-                    <div className="lg:col-span-9 space-y-6">
-                        {/* Header Profile Card */}
-                        <Card className="border-none shadow-sm bg-white dark:bg-card overflow-hidden">
-                            <div className="p-6 md:p-8">
-                                <div className="flex flex-col md:flex-row gap-6 items-start justify-between">
-                                    <div className="flex items-start gap-6">
-                                        <div>
-                                            <div className="space-y-1 text-sm text-slate-500 dark:text-slate-400">
-                                                <p className="font-medium text-foreground">{t("subcontractors.detail.masterSubcontractor")}</p>
-                                                <div className="flex items-center gap-4 mt-2">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <Calendar className="h-4 w-4" />
-                                                        <span>{t("subcontractors.detail.joined")} {subcontractor.createdAt ? new Date(subcontractor.createdAt).toLocaleDateString() : "-"}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <MapPin className="h-4 w-4" />
-                                                        <span>{subcontractor.address ? subcontractor.address.split(',')[0] : "-"}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </Card>
-
-                        {/* Content Tabs Navigation */}
-                        <div className="border-b border-slate-200 dark:border-slate-800">
-                            <div className="flex items-center gap-6">
-                                <button className="px-1 py-3 text-sm font-medium text-blue-600 border-b-2 border-blue-600 flex items-center gap-2">
-                                    <LayoutDashboard className="h-4 w-4" /> {t("subcontractors.detail.overview")}
-                                </button>
-                                <button className="px-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-2">
-                                    <Truck className="h-4 w-4" /> {t("subcontractors.detail.assignedTrucks")}
-                                    <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs">{trucks.length}{truckPages.hasNextPage ? "+" : ""}</span>
-                                </button>
-                                <button className="px-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-2">
-                                    <FileText className="h-4 w-4" /> {t("subcontractors.detail.contractsDocs")}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Two Column Layout for Details */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Company Details */}
-                            <div className="space-y-4">
-                                <h3 className="font-semibold flex items-center gap-2 text-slate-900 dark:text-slate-100">
-                                    <Building2 className="h-4 w-4 text-blue-600" />
-                                    {t("subcontractors.detail.companyDetails")}
-                                </h3>
-                                <div className="bg-white dark:bg-card rounded-xl border border-slate-200 dark:border-slate-800 p-6 space-y-4">
-                                    <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
-                                        <span className="text-sm text-slate-500">{t("subcontractors.detail.legalName")}</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.nameTh}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
-                                        <span className="text-sm text-slate-500">{t("subcontractors.detail.taxIdEIN")}</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.taxId || "XX-XXXX882"}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
-                                        <span className="text-sm text-slate-500">{t("subcontractors.detail.businessType")}</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{subcontractor.legalType === 'company' ? t("subcontractors.detail.corporation") : t("subcontractors.detail.soleProprietorship")}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center py-2">
-                                        <span className="text-sm text-slate-500">{t("subcontractors.detail.headquarters")}</span>
-                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100 text-right max-w-[60%] truncate">{subcontractor.address || "Chicago, Illinois, US"}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Point of Contact */}
-                            <div className="space-y-4">
-                                <h3 className="font-semibold flex items-center gap-2 text-slate-900 dark:text-slate-100">
-                                    <User className="h-4 w-4 text-blue-600" />
-                                    {t("subcontractors.detail.pointOfContact")}
-                                </h3>
-                                <div className="bg-white dark:bg-card rounded-xl border border-slate-200 dark:border-slate-800 p-6">
-                                    <div className="flex items-center gap-4 mb-6">
-                                        <Avatar className="h-12 w-12 bg-blue-50 text-blue-600">
-                                            <AvatarFallback>{(subcontractor.contactPerson ?? "").substring(0, 1)}</AvatarFallback>
-                                        </Avatar>
-                                        <div>
-                                            <p className="font-semibold text-slate-900 dark:text-slate-100">{subcontractor.contactPerson}</p>
-                                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{t("subcontractors.detail.dispatchManager")}</p>
-                                        </div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <a href={`mailto:${subcontractor.email}`} className="flex items-center gap-3 text-sm text-blue-600 hover:text-blue-700 transition-colors">
-                                            <Mail className="h-4 w-4 shrink-0 opacity-70" />
-                                            {subcontractor.email || "email@example.com"}
-                                        </a>
-                                        <a href={`tel:${subcontractor.phone}`} className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 transition-colors">
-                                            <Phone className="h-4 w-4 shrink-0 opacity-70" />
-                                            {subcontractor.phone}
-                                        </a>
-                                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                                            <Clock className="h-4 w-4 shrink-0 opacity-70" />
-                                            {t("subcontractors.detail.available")}: 08:00 - 18:00 CST
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Assigned Trucks Preview */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h3 className="font-semibold text-slate-900 dark:text-slate-100">{t("subcontractors.detail.assignedTrucks")}</h3>
-                                <Link href="#" className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
-                                    {t("subcontractors.detail.viewAllFleet")} <ArrowLeft className="h-3 w-3 rotate-180" />
-                                </Link>
-                            </div>
-                            <div className="bg-white dark:bg-card rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 font-medium">
-                                            <tr>
-                                                <th className="px-6 py-3">{t("subcontractors.detail.truckId")}</th>
-                                                <th className="px-6 py-3">{t("subcontractors.detail.truckType")}</th>
-                                                <th className="px-6 py-3">{t("subcontractors.detail.plate")}</th>
-                                                <th className="px-6 py-3">{t("subcontractors.table.status")}</th>
-                                                <th className="px-6 py-3">{t("subcontractors.detail.location")}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                            {trucks.slice(0, 3).map((truck) => (
-                                                <tr key={truck.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                                                    <td className="px-6 py-4 font-medium text-blue-600">TRK-{truck.id.substring(0, 4)}</td>
-                                                    <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{truck.type}</td>
-                                                    <td className="px-6 py-4 font-mono text-slate-600 dark:text-slate-400">{formatLicensePlate(truck.licensePlate)}</td>
-                                                    <td className="px-6 py-4">
-                                                        <Badge variant="secondary" className={cn(
-                                                            "font-normal uppercase text-[10px] tracking-wider",
-                                                            truck.status === 'active' ? "bg-green-100 text-green-700" :
-                                                            truck.status === 'maintenance' ? "bg-orange-100 text-orange-700" :
-                                                            "bg-slate-100 text-slate-600"
-                                                        )}>
-                                                            {truck.status}
-                                                        </Badge>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-slate-500">Bangkok, TH</td>
-                                                </tr>
-                                            ))}
-                                            {trucks.length === 0 && (
-                                                <tr>
-                                                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                                                        {t("subcontractors.detail.noTrucks")}
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Recent Documents */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h3 className="font-semibold text-slate-900 dark:text-slate-100">{t("subcontractors.detail.recentDocuments")}</h3>
-                                <Button variant="outline" size="sm" className="bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-900">
-                                    <Plus className="mr-2 h-3 w-3" /> {t("subcontractors.detail.uploadNew")}
-                                </Button>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                <div className="bg-white dark:bg-card border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex gap-4 hover:shadow-md transition-shadow">
-                                    <div className="h-10 w-10 bg-red-50 text-red-500 rounded-lg flex items-center justify-center shrink-0">
-                                        <FileText className="h-5 w-5" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">Master_Service_Agreement.pdf</h4>
-                                        <p className="text-xs text-slate-500 mt-0.5">{t("subcontractors.detail.added")}: Dec 12, 2023</p>
-                                        <div className="flex items-center gap-3 mt-2 text-xs font-medium">
-                                            <button className="text-blue-600 hover:underline">{t("subcontractors.detail.download")}</button>
-                                            <button className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">{t("subcontractors.detail.view")}</button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/50 rounded-xl p-4 flex gap-4">
-                                    <div className="h-10 w-10 bg-yellow-100 text-yellow-600 dark:bg-yellow-900/50 dark:text-yellow-400 rounded-lg flex items-center justify-center shrink-0">
-                                        <AlertTriangle className="h-5 w-5" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">COI_Insurance_GlobalLog.pdf</h4>
-                                        <p className="text-xs text-orange-600 font-medium mt-0.5">{t("subcontractors.detail.expiresIn")} 12 {t("subcontractors.detail.days")}</p>
-                                        <div className="flex items-center gap-3 mt-2 text-xs font-medium">
-                                            <button className="text-blue-600 hover:underline">{t("subcontractors.detail.renewNow")}</button>
-                                            <button className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">{t("subcontractors.detail.view")}</button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-white dark:bg-card border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex gap-4 hover:shadow-md transition-shadow">
-                                    <div className="h-10 w-10 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center shrink-0">
-                                        <CheckCircle2 className="h-5 w-5" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">W9_Tax_Form_Verified.pdf</h4>
-                                        <p className="text-xs text-slate-500 mt-0.5">{t("subcontractors.detail.verified")}: Jan 15, 2024</p>
-                                        <div className="flex items-center gap-3 mt-2 text-xs font-medium">
-                                            <button className="text-blue-600 hover:underline">{t("subcontractors.detail.download")}</button>
-                                            <button className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">{t("subcontractors.detail.audit")}</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
+            <div className="grid gap-section md:grid-cols-2">
+                <section className="rounded-xl border border-border bg-card p-6">
+                    <h2 className="text-base font-semibold">{t("subcontractors.detail.companyDetails")}</h2>
+                    <dl>
+                        <ProfileField label={t("subcontractors.detail.legalName")}>{subcontractor.nameTh}</ProfileField>
+                        <ProfileField label={t("subcontractors.form.taxId")}>{subcontractor.taxId || notSet}</ProfileField>
+                        <ProfileField label={t("subcontractors.detail.businessType")}>
+                            {subcontractor.legalType ? t(`subcontractors.form.type.${subcontractor.legalType}`) : notSet}
+                        </ProfileField>
+                        <ProfileField label={t("subcontractors.detail.headquarters")}>{subcontractor.address || notSet}</ProfileField>
+                        <ProfileField label={t("subcontractors.form.dispatchCenter")}>{subcontractor.dispatchCenter || notSet}</ProfileField>
+                        <ProfileField label={t("subcontractors.form.serviceRegions")}>{subcontractor.serviceRegions.join(", ") || notSet}</ProfileField>
+                    </dl>
+                </section>
+                <section className="rounded-xl border border-border bg-card p-6">
+                    <h2 className="text-base font-semibold">{t("subcontractors.detail.pointOfContact")}</h2>
+                    <dl>
+                        <ProfileField label={t("subcontractors.form.fullName")}>{subcontractor.contactPerson || notSet}</ProfileField>
+                        <ProfileField label={t("subcontractors.form.designation")}>{subcontractor.designation || notSet}</ProfileField>
+                        <ProfileField label={t("subcontractors.edit.email")}>
+                            {subcontractor.email ? <a className="text-primary underline underline-offset-4" href={`mailto:${subcontractor.email}`}>{subcontractor.email}</a> : notSet}
+                        </ProfileField>
+                        <ProfileField label={t("subcontractors.edit.phone")}>
+                            {subcontractor.phone ? <a className="text-primary underline underline-offset-4" href={`tel:${subcontractor.phone}`}>{subcontractor.phone}</a> : notSet}
+                        </ProfileField>
+                    </dl>
+                </section>
             </div>
+            <section className="min-w-0 space-y-4">
+                <h2 className="text-base font-semibold">{t("subcontractors.ui4.fleetPreview", { count: trucks.length })}</h2>
+                {truckPages.error && <Alert variant="destructive"><AlertDescription>{apiErrorText(truckPages.error, t)}</AlertDescription></Alert>}
+                <div className="overflow-hidden rounded-xl border border-border bg-card">
+                    <Table>
+                        <TableHeader><TableRow>
+                            <TableHead>{t("subcontractors.detail.truckType")}</TableHead>
+                            <TableHead>{t("subcontractors.detail.plate")}</TableHead>
+                            <TableHead>{t("subcontractors.table.status")}</TableHead>
+                        </TableRow></TableHeader>
+                        <TableBody>
+                            {trucks.map((truck) => (
+                                <TableRow key={truck.id}>
+                                    <TableCell>{truck.type || notSet}</TableCell>
+                                    <TableCell className="font-mono">{formatLicensePlate(truck.licensePlate)}</TableCell>
+                                    <TableCell><Badge variant={toneBadgeVariant(truckStatusTone(truck.status))}>
+                                        {truck.status === "in_transit" ? t("trucks.status.inTransit")
+                                            : truck.status === "insurance_claim" ? t("trucks.detail.status.insuranceClaim")
+                                            : ["active", "maintenance", "inactive"].includes(truck.status) ? t(`trucks.status.${truck.status}`)
+                                            : ["available", "sold"].includes(truck.status) ? t(`trucks.detail.status.${truck.status}`) : truck.status}
+                                    </Badge></TableCell>
+                                </TableRow>
+                            ))}
+                            {trucks.length === 0 && <TableRow><TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                                {truckPages.isPending ? t("common.loading") : truckPages.error ? notSet : t("subcontractors.detail.noTrucks")}
+                            </TableCell></TableRow>}
+                        </TableBody>
+                    </Table>
+                </div>
+            </section>
+            <section className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <h2 className="text-base font-semibold">{t("subcontractors.edit.documents")}</h2>
+                    {canEdit && <Button variant="outline" asChild><Link href={editHref} prefetch={false}>{t("subcontractors.ui4.manageDocuments")}</Link></Button>}
+                </div>
+                {subcontractor.documents.length === 0 ? (
+                    <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">{t("subcontractors.ui4.documentsEmpty")}</p>
+                ) : (
+                    <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+                        {subcontractor.documents.map((document, index) => {
+                            const href = documentHref(document.url);
+                            const documentName = document.kind === "id_card" ? t("subcontractors.edit.idCardCopy")
+                                : document.kind === "company_doc" ? t("subcontractors.edit.companyDocs")
+                                : t("subcontractors.file.document");
+                            return <li key={document.fileId} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
+                                <span className="min-w-0 break-words">{documentName}</span>
+                                {href ? <a href={href} target="_blank" rel="noopener noreferrer" aria-label={t("subcontractors.ui4.openDocumentNumber", { number: index + 1 })} className="text-primary underline underline-offset-4">{t("subcontractors.ui4.openDocument")}</a>
+                                    : <span className="text-muted-foreground">{t("subcontractors.ui4.documentUnavailable")}</span>}
+                            </li>;
+                        })}
+                    </ul>
+                )}
+            </section>
         </div>
     );
 }

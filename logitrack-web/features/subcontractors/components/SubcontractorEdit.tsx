@@ -19,6 +19,7 @@ import {
     FormLabel,
     FormMessage,
 } from "@/components/ui/form";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -119,7 +120,7 @@ export default function SubcontractorEdit() {
                     <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
                         <Card>
                             <CardHeader>
-                                <CardTitle>{t("subcontractors.edit.basicInfo")}</CardTitle>
+                                <CardTitle className="text-base">{t("subcontractors.edit.basicInfo")}</CardTitle>
                             </CardHeader>
                             <CardContent className="grid gap-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -175,9 +176,9 @@ export default function SubcontractorEdit() {
                                         name="idCardNumber"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>{t("subcontractors.edit.idCard")} <span className="text-red-500">*</span></FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.idCard")} <RequiredMark /></FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder={t("subcontractors.edit.idCard.placeholder")} maxLength={13} {...field} />
+                                                    <Input aria-required="true" placeholder={t("subcontractors.edit.idCard.placeholder")} maxLength={13} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -190,9 +191,9 @@ export default function SubcontractorEdit() {
                                         name="taxId"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>{t("subcontractors.edit.taxId")} <span className="text-red-500">*</span></FormLabel>
+                                                <FormLabel>{t("subcontractors.edit.taxId")} <RequiredMark /></FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder={t("subcontractors.edit.taxId.placeholder")} maxLength={13} {...field} />
+                                                    <Input aria-required="true" placeholder={t("subcontractors.edit.taxId.placeholder")} maxLength={13} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -315,7 +316,7 @@ export default function SubcontractorEdit() {
 
                         <Card>
                             <CardHeader>
-                                <CardTitle>{t("subcontractors.edit.documents")}</CardTitle>
+                                <CardTitle className="text-base">{t("subcontractors.edit.documents")}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 {form.watch("type") === "individual" ? (
@@ -329,7 +330,7 @@ export default function SubcontractorEdit() {
                                     />
                                 ) : (
                                     <div className="space-y-6">
-                                        <div className="bg-yellow-50 p-4 rounded-md border border-yellow-200 text-sm text-yellow-800 mb-4">
+                                        <div className="bg-muted p-4 rounded-md border border-border text-sm text-foreground mb-4">
                                             <strong>{t("subcontractors.edit.requiredDocs")}</strong>
                                             <ul className="list-disc pl-5 mt-1">
                                                 <li>{t("subcontractors.edit.pp20")}</li>
@@ -349,7 +350,7 @@ export default function SubcontractorEdit() {
                             </CardContent>
                         </Card>
 
-                        <div className="flex justify-end gap-4">
+                        <div className="sticky bottom-0 z-sticky flex flex-col gap-3 border-t border-border bg-background py-4 md:flex-row md:justify-end">
                             <Button variant="outline" type="button" onClick={() => router.back()}>
                                 {t("subcontractors.form.cancel")}
                             </Button>
