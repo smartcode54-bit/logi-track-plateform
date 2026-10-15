@@ -9,7 +9,7 @@ import { enUS, th as thLocale } from "date-fns/locale";
 import { Loader2 } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
-import { cn } from "@/lib/utils";
+import { type StatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,23 +29,23 @@ export function HrErrorAlert({ error, title, fieldLabels }: { error: unknown; ti
     );
 }
 
-const STATUS_CLASSES: Record<string, string> = {
-    draft: "bg-gray-500/10 text-gray-600 border-gray-500/20",
-    pending: "bg-yellow-500/10 text-yellow-700 border-yellow-500/20",
-    pending_approval: "bg-yellow-500/10 text-yellow-700 border-yellow-500/20",
-    partially_deducted: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-    approved: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-    paid: "bg-green-500/10 text-green-600 border-green-500/20",
-    cleared: "bg-green-500/10 text-green-600 border-green-500/20",
-    rejected: "bg-red-500/10 text-red-600 border-red-500/20",
-    cancelled: "bg-red-500/10 text-red-600 border-red-500/20",
+const STATUS_TONES: Record<string, StatusTone> = {
+    draft: "neutral",
+    pending: "warning",
+    pending_approval: "warning",
+    partially_deducted: "primary",
+    approved: "primary",
+    paid: "success",
+    cleared: "success",
+    rejected: "destructive",
+    cancelled: "destructive",
 };
 
 /** A status badge; `labelKey` is the catalogue key of the status's text. */
 export function StatusBadge({ status, labelKey, className }: { status: string; labelKey: string; className?: string }) {
     const { t } = useLanguage();
     return (
-        <Badge variant="outline" className={cn(STATUS_CLASSES[status] ?? STATUS_CLASSES.draft, className)}>
+        <Badge variant={toneBadgeVariant(STATUS_TONES[status] ?? "neutral")} className={className}>
             {t(labelKey, status)}
         </Badge>
     );

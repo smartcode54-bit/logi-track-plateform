@@ -116,9 +116,9 @@ function PendingQueue() {
 
     if (rows.length === 0) return null;
     return (
-        <Card className="overflow-hidden border-t-4 border-t-amber-500 shadow-md">
-            <CardHeader className="space-y-1 bg-amber-500/10">
-                <CardTitle className="flex items-center gap-2 text-amber-900">
+        <Card className="overflow-hidden">
+            <CardHeader className="space-y-1">
+                <CardTitle className="flex items-center gap-2">
                     <CalendarClock className="h-5 w-5" /> {t("maintenance.pendingSectionTitle")}
                 </CardTitle>
                 <CardDescription>{t("maintenance.pendingSectionSubtitle")}</CardDescription>
@@ -142,13 +142,13 @@ function PendingQueue() {
                             const d = draftOf(r.id);
                             const isBooking = r.status === "pm_booking";
                             return (
-                                <TableRow key={r.id} className={isBooking ? "bg-amber-50/60" : "bg-sky-50/50"}>
+                                <TableRow key={r.id}>
                                     <TableCell className="whitespace-nowrap font-mono text-xs">{formatDay(r.createdAt, "dd MMM yyyy")}</TableCell>
                                     <TableCell>
                                         <div className="font-semibold">{r.licensePlate}</div>
                                         <div className="text-xs text-muted-foreground">{r.truckBrand}</div>
                                     </TableCell>
-                                    <TableCell className="text-right font-bold">{r.currentMileage?.toLocaleString() ?? "—"}</TableCell>
+                                    <TableCell className="text-right font-semibold">{r.currentMileage?.toLocaleString() ?? "—"}</TableCell>
                                     <TableCell>
                                         <Badge variant="outline">{t(STATUS_KEY[r.status] ?? "", r.status)}</Badge>
                                     </TableCell>
@@ -166,7 +166,7 @@ function PendingQueue() {
                                                     <MapPin className="mr-1 h-3.5 w-3.5" />
                                                     {t("maintenance.bookingPickOnMap")}
                                                 </Button>
-                                                <span className={`text-xs ${d.lat != null ? "font-medium text-green-700" : "text-muted-foreground"}`}>
+                                                <span className={`text-xs ${d.lat != null ? "font-medium text-success" : "text-muted-foreground"}`}>
                                                     {d.lat != null ? t("maintenance.bookingCoordsOk") : t("maintenance.bookingNoCoordsYet")}
                                                 </span>
                                             </div>
@@ -199,7 +199,7 @@ function PendingQueue() {
                     const total = maintenanceStatusCounts(q.data?.pages)[status] ?? loaded;
                     return q.hasNextPage ? (
                         <div key={status} className="space-y-1 border-t p-3" data-testid={`pending-more-${status}`}>
-                            <p className="text-xs font-medium text-amber-900">
+                            <p className="text-xs font-medium text-muted-foreground">
                                 {t("maintenance.go.queueLoaded", { status: t(STATUS_KEY[status] ?? "", status), loaded, total })}
                             </p>
                             <LoadMore
@@ -317,29 +317,29 @@ export function MaintenanceOverviewPage() {
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{formatThb(totals.total)}</div>
+                        <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.total)}</div>
                         <p className="text-xs text-muted-foreground">{list.hasNextPage ? t("maintenance.go.ofLoaded") : t("maintenance.lifetimeSpend")}</p>
                     </CardContent>
                 </Card>
-                <Card className="border-l-4 border-l-blue-500">
+                <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-blue-700">{t("maintenance.pmCosts")}</CardTitle>
-                        <FileText className="h-4 w-4 text-blue-500" />
+                        <CardTitle className="text-sm font-medium text-muted-foreground">{t("maintenance.pmCosts")}</CardTitle>
+                        <FileText className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-blue-700">{formatThb(totals.pm)}</div>
+                        <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.pm)}</div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             {pct(totals.pm)}% {t("maintenance.ofTotal")}
                         </p>
                     </CardContent>
                 </Card>
-                <Card className="border-l-4 border-l-orange-500">
+                <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-orange-700">{t("maintenance.cmCosts")}</CardTitle>
-                        <Wrench className="h-4 w-4 text-orange-500" />
+                        <CardTitle className="text-sm font-medium text-muted-foreground">{t("maintenance.cmCosts")}</CardTitle>
+                        <Wrench className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-orange-700">{formatThb(totals.cm)}</div>
+                        <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.cm)}</div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             {pct(totals.cm)}% {t("maintenance.ofTotal")}
                         </p>
@@ -348,19 +348,19 @@ export function MaintenanceOverviewPage() {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">{t("maintenance.activeJobs")}</CardTitle>
-                        <Activity className="h-4 w-4 text-green-500" />
+                        <Activity className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{counts.in_progress ?? 0}</div>
+                        <div className="text-2xl font-semibold tabular-nums">{counts.in_progress ?? 0}</div>
                         <p className="text-xs text-muted-foreground">{t("maintenance.vehiclesInShop")}</p>
                         {(counts.pm_booking ?? 0) > 0 ? (
-                            <p className="mt-2 text-xs text-amber-800">
-                                <span className="text-lg font-bold text-amber-700">{counts.pm_booking}</span> {t("maintenance.pmBookingPending")}
+                            <p className="mt-2 text-xs text-muted-foreground">
+                                <span className="text-lg font-semibold tabular-nums text-foreground">{counts.pm_booking}</span> {t("maintenance.pmBookingPending")}
                             </p>
                         ) : null}
                         {(counts.scheduled ?? 0) > 0 ? (
-                            <p className="text-xs text-blue-800">
-                                <span className="text-lg font-bold text-blue-700">{counts.scheduled}</span> {t("maintenance.scheduledBadge")}
+                            <p className="text-xs text-muted-foreground">
+                                <span className="text-lg font-semibold tabular-nums text-foreground">{counts.scheduled}</span> {t("maintenance.scheduledBadge")}
                             </p>
                         ) : null}
                     </CardContent>

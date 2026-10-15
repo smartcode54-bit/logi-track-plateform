@@ -80,33 +80,33 @@ export function LeaveRequestsPage() {
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">{t("leaveRequests.stats.totalRequests")}</p>
-                            <h2 className="text-3xl font-bold" data-testid="leave-total">
+                            <h2 className="text-3xl font-semibold" data-testid="leave-total">
                                 {allCount !== undefined ? allCount.toLocaleString() : "—"}
                             </h2>
                         </div>
-                        <FileText className="h-8 w-8 text-blue-500" />
+                        <FileText className="h-8 w-8 text-muted-foreground" />
                     </CardContent>
                 </Card>
-                <Card className="border-yellow-500/20 bg-yellow-50/30 dark:bg-yellow-950/10">
+                <Card>
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
-                            <p className="text-sm font-medium text-yellow-600">{t("leaveRequests.stats.pendingReview")}</p>
-                            <h2 className="text-3xl font-bold text-yellow-600" data-testid="leave-pending">
+                            <p className="text-sm font-medium text-muted-foreground">{t("leaveRequests.stats.pendingReview")}</p>
+                            <h2 className="text-3xl font-semibold tabular-nums text-warning" data-testid="leave-pending">
                                 {counts ? counts.pending.toLocaleString() : "—"}
                             </h2>
                         </div>
-                        <Clock className="h-8 w-8 text-yellow-500" />
+                        <Clock className="h-8 w-8 text-muted-foreground" />
                     </CardContent>
                 </Card>
-                <Card className="border-green-500/20 bg-green-50/30 dark:bg-green-950/10">
+                <Card>
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
-                            <p className="text-sm font-medium text-green-600">{t("hr.leave.approvedTotal")}</p>
-                            <h2 className="text-3xl font-bold text-green-600" data-testid="leave-approved">
+                            <p className="text-sm font-medium text-muted-foreground">{t("hr.leave.approvedTotal")}</p>
+                            <h2 className="text-3xl font-semibold tabular-nums" data-testid="leave-approved">
                                 {counts ? counts.approved.toLocaleString() : "—"}
                             </h2>
                         </div>
-                        <CheckCircle2 className="h-8 w-8 text-green-500" />
+                        <CheckCircle2 className="h-8 w-8 text-muted-foreground" />
                     </CardContent>
                 </Card>
             </div>
@@ -171,7 +171,7 @@ export function LeaveRequestsPage() {
                                             </div>
                                         </TableCell>
                                         <TableCell>
-                                            <Badge variant="outline" className="text-[10px] font-bold">
+                                            <Badge variant="outline" className="text-xs font-semibold">
                                                 {t(`hr.leave.type.${req.type}`, req.type)}
                                             </Badge>
                                         </TableCell>
@@ -205,7 +205,7 @@ export function LeaveRequestsPage() {
                                                     {actions.map((a) => (
                                                         <DropdownMenuItem
                                                             key={a}
-                                                            className={a === "approve" ? "text-green-600" : a === "reject" ? "text-red-600" : "text-amber-600"}
+                                                            className={a === "reject" || a === "cancel" ? "text-destructive" : undefined}
                                                             onClick={() => setSelected({ request: req, action: a })}
                                                         >
                                                             {a === "approve" ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <XCircle className="mr-2 h-4 w-4" />}
@@ -297,7 +297,7 @@ function DecisionDialogBody({
             <DialogContent className="sm:max-w-[520px]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <FileText className="h-5 w-5 text-blue-600" />
+                        <FileText className="h-5 w-5 text-muted-foreground" />
                         {t("leaveRequests.dialog.title")}
                     </DialogTitle>
                     <DialogDescription>
@@ -308,14 +308,14 @@ function DecisionDialogBody({
                 <div className="space-y-5 py-2">
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
-                            <Label className="text-xs uppercase text-muted-foreground">{t("leaveRequests.dialog.driver")}</Label>
+                            <Label className="text-sm font-medium">{t("leaveRequests.dialog.driver")}</Label>
                             <div className="flex items-center gap-2">
                                 <User className="h-4 w-4 text-muted-foreground" />
                                 <span className="font-medium">{request.driverName ?? t("leaveRequests.unknownDriver")}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
-                            <Label className="text-xs uppercase text-muted-foreground">{t("leaveRequests.dialog.type")}</Label>
+                            <Label className="text-sm font-medium">{t("leaveRequests.dialog.type")}</Label>
                             <div className="flex items-center gap-2">
                                 <Badge variant="secondary">{t(`hr.leave.type.${request.type}`, request.type)}</Badge>
                                 <StatusBadge status={request.status} labelKey={`leaveRequests.status.${request.status}`} />
@@ -323,24 +323,24 @@ function DecisionDialogBody({
                         </div>
                     </div>
                     <div className="space-y-1 rounded-lg border bg-muted/50 p-3">
-                        <Label className="text-xs uppercase text-muted-foreground">{t("leaveRequests.dialog.duration")}</Label>
-                        <p className="text-sm font-bold">
+                        <Label className="text-sm font-medium">{t("leaveRequests.dialog.duration")}</Label>
+                        <p className="text-sm font-semibold">
                             {dayLabel(request.startDate, language)} – {dayLabel(request.endDate, language)} ({t("hr.leave.days", { days: request.days })})
                         </p>
                     </div>
                     <div className="space-y-1">
-                        <Label className="text-xs uppercase text-muted-foreground">{t("leaveRequests.dialog.reasonForLeave")}</Label>
+                        <Label className="text-sm font-medium">{t("leaveRequests.dialog.reasonForLeave")}</Label>
                         <p className="min-h-[60px] rounded-md border bg-background p-3 text-sm">{request.reason}</p>
                     </div>
                     {request.rejectionReason ? (
                         <div className="space-y-1">
-                            <Label className="text-xs uppercase text-red-600">{t("leaveRequests.dialog.reasonForRejection")}</Label>
-                            <p className="rounded-md border border-red-200 p-3 text-sm">{request.rejectionReason}</p>
+                            <Label className="text-sm font-medium text-destructive">{t("leaveRequests.dialog.reasonForRejection")}</Label>
+                            <p className="rounded-md border border-destructive p-3 text-sm">{request.rejectionReason}</p>
                         </div>
                     ) : null}
                     {request.attachments.length > 0 ? (
                         <div className="space-y-2">
-                            <Label className="text-xs uppercase text-muted-foreground">{t("leaveRequests.dialog.attachments")}</Label>
+                            <Label className="text-sm font-medium">{t("leaveRequests.dialog.attachments")}</Label>
                             <div className="flex flex-wrap gap-2">
                                 {request.attachments.map((a, i) =>
                                     evidenceHref(a.url) ? (
@@ -362,7 +362,7 @@ function DecisionDialogBody({
                     ) : null}
                     {rejecting ? (
                         <div className="space-y-2">
-                            <Label htmlFor="leave-rejection-reason" className="text-xs font-bold uppercase text-red-600">
+                            <Label htmlFor="leave-rejection-reason" className="text-destructive">
                                 {t("leaveRequests.dialog.reasonForRejection")}
                             </Label>
                             <Textarea
@@ -394,17 +394,17 @@ function DecisionDialogBody({
                                 {t("payroll.dialog.close")}
                             </Button>
                             {actions.includes("cancel") ? (
-                                <Button variant="outline" className="text-amber-600" onClick={() => void run("cancel")} disabled={decide.isPending}>
+                                <Button variant="outline" className="text-destructive" onClick={() => void run("cancel")} disabled={decide.isPending}>
                                     <Ban className="mr-2 h-4 w-4" /> {t("leaveRequests.cancelRequest")}
                                 </Button>
                             ) : null}
                             {actions.includes("reject") ? (
-                                <Button variant="outline" className="text-red-600" onClick={() => void run("reject")} disabled={decide.isPending}>
+                                <Button variant="outline" className="text-destructive" onClick={() => void run("reject")} disabled={decide.isPending}>
                                     <XCircle className="mr-2 h-4 w-4" /> {t("leaveRequests.reject")}
                                 </Button>
                             ) : null}
                             {actions.includes("approve") ? (
-                                <Button className="bg-green-600 text-white hover:bg-green-700" onClick={() => void run("approve")} disabled={decide.isPending}>
+                                <Button onClick={() => void run("approve")} disabled={decide.isPending}>
                                     {decide.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                                     {t("leaveRequests.dialog.approveRequest")}
                                 </Button>

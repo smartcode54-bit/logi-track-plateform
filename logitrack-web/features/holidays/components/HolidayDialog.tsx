@@ -220,7 +220,7 @@ function HolidayForm({
                             />
                         </div>
                     </div>
-                    <p className="text-[11px] italic text-muted-foreground">{t("hr.holidays.nameHint")}</p>
+                    <p className="text-xs italic text-muted-foreground">{t("hr.holidays.nameHint")}</p>
                     {nameTooLong ? (
                         <p id="holiday-name-too-long" className="text-xs text-destructive" data-testid="holiday-name-too-long">
                             {nameTooLong}
@@ -304,7 +304,7 @@ function HolidayForm({
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                             {t("holidays.dialog.cancel")}
                         </Button>
-                        <Button type="submit" disabled={busy} className="bg-blue-600 hover:bg-blue-700">
+                        <Button type="submit" disabled={busy}>
                             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             {edit ? t("holidays.dialog.updateButton") : t("holidays.dialog.saveButton")}
                         </Button>

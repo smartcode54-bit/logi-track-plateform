@@ -104,33 +104,33 @@ export function PayrollPage() {
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
                             <p className="text-sm font-medium text-muted-foreground">{t("hr.payroll.loadedNetPay")}</p>
-                            <h2 className="text-3xl font-bold" data-testid="payroll-loaded-net">
+                            <h2 className="text-3xl font-semibold" data-testid="payroll-loaded-net">
                                 {formatThb(loadedNet)}
                             </h2>
                         </div>
-                        <Banknote className="h-8 w-8 text-green-500" />
+                        <Banknote className="h-8 w-8 text-success" />
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
-                            <p className="text-sm font-medium text-yellow-600">{t("payroll.stats.pendingApproval")}</p>
-                            <h2 className="text-3xl font-bold text-yellow-600" data-testid="payroll-pending">
+                            <p className="text-sm font-medium text-warning">{t("payroll.stats.pendingApproval")}</p>
+                            <h2 className="text-3xl font-semibold text-warning" data-testid="payroll-pending">
                                 {counts ? counts.pending_approval.toLocaleString() : "—"}
                             </h2>
                         </div>
-                        <Clock className="h-8 w-8 text-yellow-500" />
+                        <Clock className="h-8 w-8 text-warning" />
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="flex items-center justify-between p-6">
                         <div>
-                            <p className="text-sm font-medium text-blue-600">{t("payroll.stats.successfullyPaid")}</p>
-                            <h2 className="text-3xl font-bold text-blue-600" data-testid="payroll-paid">
+                            <p className="text-sm font-medium text-success">{t("payroll.stats.successfullyPaid")}</p>
+                            <h2 className="text-3xl font-semibold text-success" data-testid="payroll-paid">
                                 {counts ? counts.paid.toLocaleString() : "—"}
                             </h2>
                         </div>
-                        <CheckCircle2 className="h-8 w-8 text-blue-500" />
+                        <CheckCircle2 className="h-8 w-8 text-success" />
                     </CardContent>
                 </Card>
             </div>
@@ -269,9 +269,9 @@ function PayrollRow({
                     <p className="text-muted-foreground">{t(`hr.payroll.round.${run.round}`)}</p>
                 </div>
             </TableCell>
-            <TableCell className="text-right text-sm font-medium text-green-700 tabular-nums">{formatThb(run.totalEarningsThb)}</TableCell>
-            <TableCell className="text-right text-sm font-medium text-red-700 tabular-nums">{formatThb(run.totalDeductionsThb)}</TableCell>
-            <TableCell className="text-right text-sm font-bold tabular-nums">{formatThb(run.netPayThb)}</TableCell>
+            <TableCell className="text-right text-sm font-medium text-success tabular-nums">{formatThb(run.totalEarningsThb)}</TableCell>
+            <TableCell className="text-right text-sm font-medium text-destructive tabular-nums">{formatThb(run.totalDeductionsThb)}</TableCell>
+            <TableCell className="text-right text-sm font-semibold tabular-nums">{formatThb(run.netPayThb)}</TableCell>
             <TableCell>
                 <StatusBadge status={run.status} labelKey={`payroll.status.${run.status}`} />
             </TableCell>
@@ -293,7 +293,7 @@ function PayrollRow({
                             <Eye className="mr-2 h-4 w-4" /> {t("payroll.viewDetails")}
                         </DropdownMenuItem>
                         {actionsFor.map((a) => (
-                            <DropdownMenuItem key={a} onClick={() => onAction(a)} className={a === "cancel" ? "text-red-600" : undefined}>
+                            <DropdownMenuItem key={a} onClick={() => onAction(a)} className={a === "cancel" ? "text-destructive" : undefined}>
                                 {t(`hr.payroll.action.${a}`)}
                             </DropdownMenuItem>
                         ))}
@@ -381,7 +381,7 @@ function GeneratePanel() {
                     </div>
                 ) : null}
                 {job.succeeded && job.result ? (
-                    <p className="text-sm text-green-700" role="status" data-testid="payroll-job-result">
+                    <p className="text-sm text-success" role="status" data-testid="payroll-job-result">
                         {t("payroll.generated", { written: job.result.written, skipped: job.result.skippedApproved })}
                     </p>
                 ) : null}

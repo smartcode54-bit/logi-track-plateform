@@ -83,7 +83,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                             className="flex items-start justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors group relative"
                         >
                             <div className="flex gap-4 cursor-pointer flex-1" onClick={() => onEditClick(record)}>
-                                <div className={`p-3 rounded-full ${record.type === 'PM' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
+                                <div className="p-3 rounded-md bg-muted text-muted-foreground">
                                     {record.type === 'PM' ? <History className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
                                 </div>
                                 <div>
@@ -95,7 +95,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                         </p>
                                         <Badge variant="outline" className="text-xs">{record.status.replace("_", " ")}</Badge>
                                         {record.driverSubmitted ? (
-                                            <Badge className="text-xs bg-amber-600 hover:bg-amber-600">
+                                            <Badge variant="secondary">
                                                 {t("maintenance.history.driverSubmittedBadge")}
                                             </Badge>
                                         ) : null}
@@ -133,7 +133,7 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                             </div>
                             <div className="flex items-center gap-4">
                                 <div className="text-right">
-                                    <p className="font-bold text-lg">฿{displayTotal.toLocaleString()}</p>
+                                    <p className="font-semibold text-lg tabular-nums">฿{displayTotal.toLocaleString()}</p>
                                     <p className="text-xs text-muted-foreground">
                                         {t("maintenance.history.labor")}: {record.costLabor || 0} | {t("maintenance.history.parts")}: {record.costParts || 0}
                                     </p>

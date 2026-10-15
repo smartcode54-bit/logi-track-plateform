@@ -1,0 +1,17 @@
+[
+  "features/maintenance/components/go/MaintenanceOverviewPage.tsx",
+  "features/maintenance/components/maintenance/MaintenanceStats.tsx",
+  "features/maintenance/components/maintenance/MaintenanceForm.tsx",
+  "features/maintenance/components/maintenance/MaintenanceHistoryList.tsx",
+  "features/driver-compensation/components/go/hrShared.tsx",
+  "features/driver-compensation/components/go/PayrollPage.tsx",
+  "features/driver-compensation/components/go/PayrollRunDialog.tsx",
+  "features/driver-compensation/components/go/PayrollConfigPage.tsx",
+  "features/leave/components/LeaveRequestsPage.tsx",
+  "features/standby/components/go/StandbyRecordsPage.tsx",
+  "features/holidays/components/HolidaysPage.tsx",
+  "features/holidays/components/holidayCalendar.css",
+  "features/holidays/components/ReviewGeneratedDialog.tsx",
+  "features/holidays/components/HolidayDialog.tsx",
+  "features/holidays/components/YearSelectDialog.tsx"
+]

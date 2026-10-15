@@ -6,13 +6,14 @@
     --fc-page-bg-color: transparent;
     --fc-neutral-bg-color: transparent;
     --fc-list-event-hover-bg-color: var(--accent);
+    --fc-event-text-color: var(--foreground);
     --fc-today-bg-color: color-mix(in srgb, var(--primary) 15%, transparent);
     color: var(--foreground);
 }
 
 /* Today Styling */
 .fc .fc-day-today {
-    background-color: #e0f2fe !important; /* sky-100 */
+    background-color: var(--fc-today-bg-color) !important;
     position: relative;
 }
 .fc .fc-day-today::after {
@@ -22,13 +23,13 @@
     left: 0;
     right: 0;
     bottom: 0;
-    border: 2px solid #38bdf8; /* sky-400 */
+    border: 2px solid var(--primary);
     pointer-events: none;
     z-index: 3;
 }
 .fc .fc-day-today .fc-daygrid-day-number {
-    background-color: #38bdf8; /* sky-400 */
-    color: white !important;
+    background-color: var(--card);
+    color: var(--foreground) !important;
     border-radius: 4px;
     padding: 0 4px;
     margin: 2px;
@@ -43,54 +44,43 @@
 
 /* Weekend Styling */
 .fc .weekend-sun {
-    background-color: rgba(239, 68, 68, 0.04) !important;
+    background-color: color-mix(in srgb, var(--muted-foreground) 5%, var(--card)) !important;
 }
 .fc .weekend-sat {
-    background-color: rgba(59, 130, 246, 0.04) !important;
+    background-color: color-mix(in srgb, var(--muted-foreground) 5%, var(--card)) !important;
 }
 .fc .fc-col-header-cell.fc-day-sun {
-    color: #ef4444;
+    color: var(--muted-foreground);
 }
 .fc .fc-col-header-cell.fc-day-sat {
-    color: #3b82f6;
+    color: var(--muted-foreground);
 }
 
 /* Holiday Cell Background */
 .holiday-cell {
-    background-color: rgba(239, 68, 68, 0.08) !important;
+    background-color: color-mix(in srgb, var(--primary) 8%, var(--card)) !important;
 }
 
 /* Year View Holiday Styling */
-.fc-multimonth-year-view .holiday-cell {
-    background-color: #ef4444 !important; /* red-500 fill */
+.fc-multiMonthYear-view .holiday-cell {
+    background-color: color-mix(in srgb, var(--primary) 12%, var(--card)) !important;
     position: relative;
 }
-.fc-multimonth-year-view .holiday-cell .fc-daygrid-day-number {
-    color: white !important;
-    font-weight: bold;
+.fc-multiMonthYear-view .holiday-cell .fc-daygrid-day-number {
+    color: var(--foreground);
+    font-weight: 600;
     position: relative;
     z-index: 2;
 }
-/* Hide event content in Year view to avoid clutter, using cell background instead */
-.fc-multimonth-year-view .fc-daygrid-event {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    opacity: 0; /* Hidden but interactive for hover */
-    z-index: 1;
-}
-
 /* Hover State: Only for Year view */
-.fc-multimonth-year-view .fc-daygrid-day:hover {
-    filter: brightness(1.1);
+.fc-multiMonthYear-view .fc-daygrid-day:hover {
+    background-color: var(--accent) !important;
     z-index: 5;
     cursor: pointer;
 }
 
 .fc .fc-toolbar-title {
-    font-size: 1.25rem;
+    font-size: 1rem;
     font-weight: 600;
 }
 .fc .fc-button-primary {
@@ -126,10 +116,10 @@
     padding: 0.5rem !important;
     border-bottom: 1px solid var(--border);
     color: var(--muted-foreground);
-    font-weight: 700;
+    font-weight: 600;
 }
 .fc-day-other {
-    opacity: 0.3;
+    color: var(--muted-foreground);
     background-color: transparent !important;
 }
 .fc-event-title {
@@ -140,17 +130,35 @@
 .fc-daygrid-event {
     border-radius: 4px;
     margin-bottom: 2px;
-    border-top: none !important;
-    border-right: none !important;
-    border-bottom: none !important;
+    border: 1px solid var(--border);
 }
 
 /* Highlight day cell if it has a holiday in month view */
-.fc-daygrid-month-view .holiday-cell {
-    background-color: rgba(239, 68, 68, 0.08) !important;
+.fc-dayGridMonth-view .holiday-cell {
+    background-color: color-mix(in srgb, var(--primary) 8%, var(--card)) !important;
 }
 
 /* Hide time element if any */
 .fc-event-time {
     display: none !important;
+}
+
+.fc .fc-daygrid-day-number,
+.fc .fc-col-header-cell,
+.fc .fc-button {
+    font-size: 0.875rem;
+}
+
+@media (max-width: 767px) {
+    .fc .fc-toolbar {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .fc .fc-toolbar-title {
+        font-size: 1rem;
+    }
+    .fc .fc-daygrid-day-top > div {
+        padding-inline: 0.25rem;
+        gap: 0.25rem;
+    }
 }
