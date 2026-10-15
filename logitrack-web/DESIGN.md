@@ -314,6 +314,31 @@ pills. Borders are 1 px hairlines; no side-tab accent borders (`border-l-4` stri
 ### Badges and status
 - **Style:** 6 px radius, 12 px medium text, `px-2 py-0.5`; `secondary` (mist) for neutral facts, `outline` for
   categories, status colours only for states (delivered, failed, expiring).
+- **Variants:** `Badge` keeps `default`, `secondary`, `outline` and `destructive`, and adds filled `success`
+  (`bg-success text-success-foreground`) and `warning` (`bg-warning text-warning-foreground`). The shared shape
+  and focus styles apply to all variants. Keep the existing destructive dark fill at 60%; success and warning
+  use their opaque foreground/background pairs, including on asChild links. `Alert` adds `success` and `warning`
+  text and borders on `bg-card`.
+- **Shared API:** `lib/statusPresentation.ts` exports `StatusTone`, `toneBadgeVariant(tone)` and
+  `toneTextClass(tone)`, plus `truckStatusTone`, `driverStatusTone`, `taskStatusTone` and `carrierStatusTone`.
+  These pure functions contain no React, translation or access logic. Callers keep translated labels and the
+  existing domain values and thresholds. Unknown values return `neutral`; existing form spellings are supported.
+
+| Tone | Badge variant | Text class | States |
+|---|---|---|---|
+| `success` | `success` | `text-success` | Active trucks, drivers and partners; on-duty drivers; completed tasks |
+| `warning` | `warning` | `text-warning` | Maintenance and in-transit trucks; in-transit tasks; pending partners; expiry warnings |
+| `destructive` | `destructive` | `text-destructive` | Insurance claim, overdue, error |
+| `primary` | `default` | `text-primary` | Assigned and checked-in tasks |
+| `neutral` | `secondary` | `text-muted-foreground` | Sold/inactive trucks; inactive drivers; pending/cancelled tasks; suspended partners; unknown states |
+
+- **Categories:** roles, vehicle classes, job categories, tenants and other ordinary categories use neutral
+  `outline` or `secondary` badges. Chart tokens belong only inside real, data-driven charts, with a textual legend.
+- **Caption floor:** 12 px (`text-xs`) is the minimum for badges, captions, metadata and table headings in both
+  languages. Do not use `text-[9px]`, `text-[10px]` or `text-[11px]` to make content fit.
+- **Contrast proof:** `lib/statusContrast.test.ts` reads the actual light/dark OKLCH tokens, converts them to
+  sRGB and checks at least 4.5:1 for filled success/warning pairs and success/warning/destructive/primary text
+  on both card and page backgrounds. Avoid translucent status fills that change those verified pairs.
 
 ### Cards / Containers
 - **Corner Style:** 12 px (`rounded-xl`). **Background:** paper (night surface in dark). **Shadow:** `sm`.
@@ -328,6 +353,14 @@ pills. Borders are 1 px hairlines; no side-tab accent borders (`border-l-4` stri
 - **Errors:** field-level, under the field (`FormMessage`, 14 px Signal Red) with `aria-invalid`; every form uses the
   shared `onInvalid` handler (ADR 0004), which focuses the first invalid field. Disabled is 50 % opacity.
 - **Focus:** the outline turns Route Blue with a 3 px ring at 50 %.
+
+### Form action bar
+- Keep the action bar inside the page column, after the form fields: `sticky bottom-0 z-sticky bg-background
+  border-t border-border`. Use an opaque background, the existing spacing steps and stacked buttons below `md`.
+- The bar follows the column when the sidebar changes width. Use no fixed positioning, left offset, assumed
+  sidebar width or `backdrop-blur`. Reserve enough space for its controls so it does not cover the final field.
+- `z-sticky` is part of the layering scale guarded by `lib/layering.test.ts`; use no arbitrary z-index.
+  UI4B and UI4C use this recipe for their wizard and edit-form actions. Keep ADR 0004's shared invalid handler.
 
 ### Pickers (the select rule)
 **Every pick-from-a-list control uses the shared SearchSelect** (`components/ui/search-select.tsx`, its compound
@@ -472,6 +505,33 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 ### Toasts
 - sonner on `z-toast`, in the popover colours and the app font, bottom-right, 5 s; typed toasts (success, error,
   warning, info) use sonner's rich colours. One toast per event; errors name what to do next.
+
+## Page-body style ratchet (UI4)
+
+`lib/ui4Palette.test.ts` scans production `.ts`, `.tsx` and `.css` files under `app/`, `components/` and
+`features/`, excluding tests. `scripts/ui-audit-metrics.mjs` shares its comment-free counters with
+`node scripts/ui-audit-counts.mjs .`: palette colours, hex/rgb literals, sub-12px text, `uppercase` class strings,
+side stripes, blur/glow/decorative pulses and invalid `hsl(var(--…))` wrappers around OKLCH tokens. Uppercase
+class-like strings in module-level constants (two or more tokens) count, including table header metadata. Pulse
+exemptions follow structural loading branches (including negation and short-circuit expressions) or explicit
+busy/status semantics; text labels do not exempt them. Uppercase record codes and `.toUpperCase()` are not class
+styling. The reporter preserves its legacy `.tsx`/`.css` file set and raw-source counts for old columns; only added
+UI4 columns use the parser counters.
+
+Each file/metric may only decrease from `lib/ui4Palette.baseline.json`; a new offending file fails. Deleted
+baseline paths are ignored. `components/ui/file-viewer.tsx` and `components/accounting/ImagePreviewGallery.tsx`
+are the colour-only allow-list for overlays on photos; their other metrics still ratchet. The sidebar retains
+its existing two tiny-text occurrences, capped at two even if the baseline is regenerated.
+
+After cleaning a slice, add `lib/ui4-clean/UI4B.json` (or the owning slice's name) as a JSON array of
+logitrack-web-relative production paths, for example `["features/trucks/components/TruckPreview.tsx"]`.
+Every listed path must exist and have zero counts on every metric, overriding the baseline and overlay
+exceptions. Add all cleaned production paths, including new ones; do not edit another slice's manifest or
+relax the baseline. The directory is optional until the first slice claims clean files.
+
+Regenerate deterministically from `logitrack-web` with `node scripts/ui-audit-metrics.mjs --write-baseline`.
+The JSON has sorted paths/metric keys and only non-zero allowances. The gatekeeper reruns this on the merged
+head if UI4F or UI4G lands first, reviews the diff and runs the guard; routine cleanups add manifests instead.
 
 ## Do's and Don'ts
 

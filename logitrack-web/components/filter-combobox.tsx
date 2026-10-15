@@ -74,7 +74,7 @@ export function FilterCombobox({
                 label: o.badge ? (
                     <>
                         {o.label}
-                        <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">{o.badge}</span>
+                        <span className="ml-2 text-xs text-warning">{o.badge}</span>
                     </>
                 ) : (
                     o.label
