@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -17,6 +17,7 @@ const icon = L.icon({
 
 interface LocationPickerProps {
     value?: { lat: number; lng: number };
+    searchPlaceholder?: string;
     onChange: (value: { lat: number; lng: number }) => void;
 }
 
@@ -40,7 +41,7 @@ function LocationMarker({ position, onChange }: { position: { lat: number; lng: 
 
 
 
-function SearchControl({ onChange }: { onChange: (pos: { lat: number; lng: number }) => void }) {
+function SearchControl({ onChange, searchPlaceholder }: { onChange: (pos: { lat: number; lng: number }) => void; searchPlaceholder: string }) {
     const map = useMap();
 
     useEffect(() => {
@@ -55,26 +56,29 @@ function SearchControl({ onChange }: { onChange: (pos: { lat: number; lng: numbe
             retainZoomLevel: false,
             animateZoom: true,
             keepResult: false,
-            searchLabel: 'Search for a place...',
+            searchLabel: searchPlaceholder,
         });
 
         map.addControl(searchControl);
 
-        map.on('geosearch/showlocation', (result: any) => {
+        const onLocation = (event: L.LeafletEvent) => {
+            const result = event as L.LeafletEvent & { location?: { x: number; y: number } };
             if (result.location) {
                 onChange({ lat: Number(result.location.y), lng: Number(result.location.x) });
             }
-        });
+        };
+        map.on('geosearch/showlocation', onLocation);
 
         return () => {
+            map.off('geosearch/showlocation', onLocation);
             map.removeControl(searchControl);
         };
-    }, [map, onChange]);
+    }, [map, onChange, searchPlaceholder]);
 
     return null;
 }
 
-export default function LocationPicker({ value, onChange }: LocationPickerProps) {
+export default function LocationPicker({ value, onChange, searchPlaceholder = "Search for a place..." }: LocationPickerProps) {
     // Default to Thailand center if no value
     const defaultCenter = { lat: 13.7563, lng: 100.5018 };
 
@@ -103,17 +107,24 @@ export default function LocationPicker({ value, onChange }: LocationPickerProps)
             >
                 <style jsx global>{`
                     .leaflet-control-geosearch form input {
-                        color: black !important;
+                        color: var(--foreground) !important;
+                        background: var(--background) !important;
                     }
                     .leaflet-control-geosearch .results {
-                        color: black !important;
+                        color: var(--foreground) !important;
+                        background: var(--background) !important;
+                    }
+                    .leaflet-control-geosearch .results > .active,
+                    .leaflet-control-geosearch .results > :hover {
+                        color: var(--accent-foreground) !important;
+                        background-color: var(--accent) !important;
                     }
                 `}</style>
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
-                <SearchControl onChange={onChange} />
+                <SearchControl onChange={onChange} searchPlaceholder={searchPlaceholder} />
                 <LocationMarker position={value || null} onChange={onChange} />
             </MapContainer>
         </div>

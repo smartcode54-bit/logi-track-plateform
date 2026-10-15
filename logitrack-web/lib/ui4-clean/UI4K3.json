@@ -1,0 +1,17 @@
+[
+  "components/map/LocationPicker.tsx",
+  "components/page-states.tsx",
+  "features/maintenance/api/maintenance.go.ts",
+  "features/maintenance/components/go/MaintenanceOverviewPage.tsx",
+  "features/maintenance/components/go/TruckMaintenancePage.tsx",
+  "features/maintenance/components/maintenance/MaintenanceForm.tsx",
+  "features/maintenance/components/maintenance/MaintenanceHistoryList.tsx",
+  "features/maintenance/components/maintenance/MaintenanceImagePreviewDialog.tsx",
+  "features/maintenance/components/maintenance/MaintenanceStats.tsx",
+  "features/maintenance/utils/buildMaintenanceGalleryUrls.ts",
+  "features/maintenance/utils/goRecord.ts",
+  "features/maintenance/utils/looksLikeImageUrl.ts",
+  "features/maintenance/utils/maintenanceDates.ts",
+  "features/maintenance/utils/maintenanceLabels.ts",
+  "features/maintenance/utils/maintenanceTransitions.ts"
+]
