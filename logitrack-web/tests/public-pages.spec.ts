@@ -24,7 +24,7 @@ test.describe("Public pages", () => {
 
   test("Join Network page loads", async ({ page }) => {
     await page.goto("/join-network");
-    await expect(page.getByRole("heading", { name: /partner|join|network/i }).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /partner|join|network|รถร่วม/i }).first()).toBeVisible({ timeout: 5000 });
   });
 
   test("navigation links work from home", async ({ page }) => {

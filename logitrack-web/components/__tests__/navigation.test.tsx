@@ -34,6 +34,11 @@ const navigated: string[] = [];
 
 describe("Navigation", () => {
   beforeEach(() => {
+    try {
+        window.localStorage.setItem("language", "en");
+    } catch {
+        // Storage may be unavailable in the test environment.
+    }
     mockPathname = "/about";
     navigated.length = 0;
     configureSignOutNavigation((url) => navigated.push(url));

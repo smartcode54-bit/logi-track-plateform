@@ -2,6 +2,10 @@ import { test, expect } from "@playwright/test";
 import { login, hasTestCredentials } from "./helpers/auth";
 
 test.describe("Auth", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("language", "en"));
+  });
+
   test.describe("Login page", () => {
     test("shows login form", async ({ page }) => {
       await page.goto("/login");

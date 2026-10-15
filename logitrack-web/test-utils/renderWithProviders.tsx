@@ -2,7 +2,7 @@
  * Renders a component under the client providers of app/providers.tsx (QueryClient, Language, Auth)
  * for the React tests, with the cache bound to the session as the providers' runtime binds it
  * (`bindQueryClientToSession`; unbound when the test unmounts). The language is English
- * (`localStorage.language` is cleared first).
+ * (`localStorage.language` is explicitly set to `en` first).
  */
 import React, { useEffect } from "react";
 import { render } from "@testing-library/react";
@@ -19,9 +19,9 @@ function SessionBinding({ client }: { client: QueryClient }) {
 
 export function renderWithProviders(ui: React.ReactElement, client: QueryClient = createQueryClient()) {
     try {
-        window.localStorage.removeItem("language");
+        window.localStorage.setItem("language", "en");
     } catch {
-        // storage unavailable: English is the default anyway
+        // Storage may be unavailable in the test environment.
     }
     const view = render(
         <QueryClientProvider client={client}>

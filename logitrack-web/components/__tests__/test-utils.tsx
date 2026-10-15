@@ -8,6 +8,11 @@ function AllTheProviders({ children }: { children: React.ReactNode }) {
 
 /** LanguageProvider renders children once its dictionary has loaded: query with `findBy*`. */
 function customRender(ui: React.ReactElement, options?: Omit<RenderOptions, "wrapper">) {
+  try {
+    window.localStorage.setItem("language", "en");
+  } catch {
+    // Storage may be unavailable in the test environment.
+  }
   return render(ui, {
     wrapper: AllTheProviders,
     ...options,
