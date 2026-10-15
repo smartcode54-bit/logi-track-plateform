@@ -39,9 +39,9 @@ export default function RootLayout({
 }>) {
   return (
     // next-themes (app/providers.tsx) sets the `dark` class before paint, hence suppressHydrationWarning.
-    // `lang` starts as English and follows the chosen language once it loads (context/language.tsx).
+    // `lang` starts as Thai and follows the chosen language once it loads (context/language.tsx).
     <html
-      lang="en"
+      lang="th"
       className={`${geistSans.variable} ${geistMono.variable} ${sarabun.variable}`}
       suppressHydrationWarning
     >

@@ -14,6 +14,7 @@ export async function login(page: Page): Promise<void> {
     );
   }
 
+  await page.addInitScript(() => localStorage.setItem("language", "en"));
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);

@@ -11,6 +11,11 @@ import { createQueryClient } from "@/lib/queryClient";
 import { makeMe } from "@/test-utils/fakeWeb";
 
 function renderTrail(pathname: string, capabilities: string[], recordName?: string) {
+    try {
+        window.localStorage.setItem("language", "en");
+    } catch {
+        // Storage may be unavailable in the test environment.
+    }
     const client = createQueryClient();
     client.setQueryData(["me"], makeMe({
         tenant: { id: "carrier", nameTh: "รถร่วม", nameEn: "Carrier", kind: "carrier", role: "tenant_admin" },

@@ -17,7 +17,7 @@ function renderSwitcher() {
 
 describe("LanguageSwitcher", () => {
   beforeEach(() => {
-    vi.spyOn(Storage.prototype, "getItem").mockReturnValue(null);
+    vi.spyOn(Storage.prototype, "getItem").mockReturnValue("en");
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {});
   });
 

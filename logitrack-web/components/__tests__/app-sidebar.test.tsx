@@ -53,6 +53,11 @@ let fetched: string[] = [];
 const scrolled: Array<{ element: Element; options: unknown }> = [];
 
 beforeEach(() => {
+    try {
+        window.localStorage.setItem("language", "en");
+    } catch {
+        // Storage may be unavailable in the test environment.
+    }
     fetched = [];
     scrolled.length = 0;
     mockPathname = "/app/dashboard";

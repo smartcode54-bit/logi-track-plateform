@@ -54,7 +54,7 @@ const { getQueryClient, resetQueryClientForTests } = await import("@/lib/queryCl
 let stored: string | null;
 
 beforeEach(() => {
-    stored = null;
+    stored = "en";
     loads.length = 0;
     failingChunks.clear();
     loadDictionary.mockClear();
