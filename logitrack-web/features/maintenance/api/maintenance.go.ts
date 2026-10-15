@@ -152,9 +152,13 @@ export interface MaintenanceInput {
     files?: Partial<MaintenanceFilesDTO>;
 }
 
+export function refreshMaintenance(client: QueryClient = getQueryClient()) {
+    return client.invalidateQueries({ queryKey: ["maintenance"] });
+}
+
 async function invalidateMaintenance(truckId: string | null | undefined, client: QueryClient) {
     await Promise.all([
-        client.invalidateQueries({ queryKey: queryKeys.maintenance() }),
+        refreshMaintenance(client),
         truckId ? client.invalidateQueries({ queryKey: queryKeys.trucks.detail(truckId) }) : null,
         client.invalidateQueries({ queryKey: ["trucks"], exact: false, refetchType: "none" }),
     ]);

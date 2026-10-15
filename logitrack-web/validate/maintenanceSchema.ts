@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { maintenanceDay } from "@/features/maintenance/utils/maintenanceDates";
 
 // Helper for optional numeric fields to handle empty strings
 const optionalNumber = (min: number, max: number, label: string) =>
@@ -58,6 +59,7 @@ export const maintenanceSchema = z.object({
     // Media
     images: z.array(z.string()).optional(),
     receipts: z.array(z.string()).optional(),
+    invoices: z.array(z.string()).optional(),
 
     // คนขับส่งจากแอปมือถือ (maintenance_repository)
     invoiceUrl: z.string().optional(),
@@ -79,7 +81,7 @@ export const maintenanceDefaultValues: MaintenanceFormValues = {
     truckId: "",
     type: "PM",
     serviceType: "",
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: maintenanceDay(new Date()),
     endDate: "",
     status: "in_progress",
     costLabor: undefined,

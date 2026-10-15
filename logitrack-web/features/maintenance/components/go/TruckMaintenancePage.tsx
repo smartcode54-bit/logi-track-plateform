@@ -14,7 +14,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Wrench } from "lucide-react";
+
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
@@ -25,14 +25,18 @@ import { goFetch, goPath } from "@/lib/goFetch";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { formatLicensePlate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { QueryError, QueryLoading } from "@/components/page-states";
+import { LoadMore } from "@/components/load-more";
+import { toneBadgeVariant, truckStatusTone } from "@/lib/statusPresentation";
+import { maintenanceDay } from "../../utils/maintenanceDates";
+import { maintenanceTruckStatusLabel } from "../../utils/maintenanceLabels";
 import { RecordState, recordUnavailable } from "@/components/record-state";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
 
 import { createMaintenance, maintenanceCostTotals, maintenanceQuery, maintenanceRows, updateMaintenance, type MaintenanceRecordDTO } from "../../api/maintenance.go";
 import { buildDriverReceiptUrls } from "../../utils/buildMaintenanceGalleryUrls";
-import { maintenanceInputOf, toMaintenanceData, type MaintenanceFormValuesGo } from "../../utils/goRecord";
+import { maintenanceCostInputOf, maintenanceInputOf, toMaintenanceData, type MaintenanceFormValuesGo } from "../../utils/goRecord";
 import { MaintenanceForm } from "../maintenance/MaintenanceForm";
 import { MaintenanceHistoryList } from "../maintenance/MaintenanceHistoryList";
 import { MaintenanceStats } from "../maintenance/MaintenanceStats";
@@ -53,7 +57,7 @@ function emptyForm(truck: TruckGo | undefined): MaintenanceFormValuesGo {
         type: "PM",
         serviceType: "",
         status: "in_progress",
-        startDate: new Date().toISOString().slice(0, 10),
+        startDate: maintenanceDay(new Date()),
         endDate: "",
         pickupAppointment: "",
         costLabor: "",
@@ -131,7 +135,7 @@ export function TruckMaintenancePage() {
         if (!truck.data) return;
         setSaving(true);
         const values = { ...form, serviceType: form.type === "PM" ? form.serviceType : customServiceType };
-        const input = maintenanceInputOf(values, truck.data.id, pmInterval);
+        const input = maintenanceInputOf(values, truck.data.id, pmInterval, selected ?? undefined);
         try {
             if (selected) {
                 // truckId is not editable on a record (Go refuses another truck).
@@ -162,15 +166,12 @@ export function TruckMaintenancePage() {
         return <RecordState error={truck.error} onRetry={() => void truck.refetch()} retrying={truck.isFetching} />;
     }
     if (!truck.data) {
-        return (
-            <div className="flex h-[50vh] items-center justify-center" role="status" aria-busy="true">
-                <Loader2 className="animate-spin" aria-hidden />
-                <span className="sr-only">{t("common.loading")}</span>
-            </div>
-        );
+        return <QueryLoading label={t("common.loading")} />;
     }
     const tr = truck.data;
     const editing = selected ? toMaintenanceData(selected) : null;
+    const costPatch = maintenanceCostInputOf(form, selected ?? undefined);
+    const displayedTotal = "totalCostThb" in costPatch ? costPatch.totalCostThb ?? 0 : selected?.totalCostThb ?? (selected?.costLaborThb ?? 0) + (selected?.costPartsThb ?? 0);
 
     return (
         <div className="flex max-w-5xl flex-col gap-section">
@@ -180,37 +181,27 @@ export function TruckMaintenancePage() {
                 back={{ href: `/app/trucks/view?id=${tr.id}`, label: t("trucks.edit.backToDetails"), history: true }}
                 description={`${t("maintenance.title")} · ${[tr.brand, tr.model].filter(Boolean).join(" ")}`}
                 status={
-                    <Badge variant={tr.status === "maintenance" ? "destructive" : "secondary"}>
-                        {tr.status === "maintenance" ? (
-                            <span className="flex items-center gap-1.5">
-                                <Wrench className="h-3.5 w-3.5" aria-hidden /> {t("maintenance.form.underMaintenance")}
-                            </span>
-                        ) : (
-                            <span className="flex items-center gap-1.5">
-                                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> {t(tr.status || "active")}
-                            </span>
-                        )}
+                    <Badge variant={toneBadgeVariant(truckStatusTone(tr.status))}>
+                        {maintenanceTruckStatusLabel(tr.status, t)}
                     </Badge>
                 }
             />
 
             {view === "list" ? (
                 <div className="space-y-6">
-                    <MaintenanceStats totalPMCost={totals.pm} totalCMCost={totals.cm} />
-                    {history.isPending ? (
-                        <div className="flex justify-center py-12">
-                            <Loader2 className="h-6 w-6 animate-spin" />
-                        </div>
+                    {history.isPending && !history.data ? (
+                        <QueryLoading label={t("maintenance.go.historyLoading")} />
+                    ) : history.isError && !history.data ? (
+                        <QueryError error={history.error} label={t("maintenance.go.historyError")} onRetry={() => void history.refetch()} retrying={history.isFetching} />
                     ) : (
-                        <MaintenanceHistoryList history={legacy} onNewClick={startNew} onEditClick={startEdit} />
+                        <>
+                            <MaintenanceStats totalPMCost={totals.pm} totalCMCost={totals.cm} loadedCount={records.length} />
+                            {history.isError ? <QueryError error={history.error} label={t("maintenance.go.historyError")} onRetry={() => void history.refetch()} retrying={history.isFetching} /> : null}
+                            <MaintenanceHistoryList history={legacy} onNewClick={startNew} onEditClick={startEdit} />
+                        </>
                     )}
-                    {history.hasNextPage ? (
-                        <div className="flex justify-center">
-                            <Button variant="outline" size="sm" onClick={() => void history.fetchNextPage()} disabled={history.isFetchingNextPage}>
-                                {history.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                {t("masterData.list.loadMore")}
-                            </Button>
-                        </div>
+                    {history.data ? (
+                        <LoadMore loaded={records.length} hasNextPage={history.hasNextPage} isFetchingNextPage={history.isFetchingNextPage} error={history.isFetchNextPageError} onLoadMore={() => void history.fetchNextPage()} />
                     ) : null}
                 </div>
             ) : (
@@ -237,6 +228,7 @@ export function TruckMaintenancePage() {
                     setPickupAppointment={set("pickupAppointment")}
                     endDate={form.endDate}
                     setEndDate={set("endDate")}
+                    totalCost={displayedTotal}
                     costLabor={form.costLabor}
                     setCostLabor={set("costLabor")}
                     costParts={form.costParts}

@@ -20,12 +20,15 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Activity, BellRing, CalendarClock, DollarSign, FileText, Loader2, MapPin, RotateCw, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
+import { QueryError, QueryLoading } from "@/components/page-states";
+import { maintenanceServiceLabel, maintenanceStatusLabel } from "../../utils/maintenanceLabels";
+import { canTransitionMaintenance } from "../../utils/maintenanceTransitions";
 import { PageHeader } from "@/components/page-header";
 import { apiErrorText } from "@/lib/apiError";
 import { LoadMore } from "@/components/load-more";
@@ -45,10 +48,11 @@ import {
     maintenanceRows,
     maintenanceStatusCounts,
     remindMaintenance,
+    refreshMaintenance,
     updateMaintenance,
     type MaintenanceRecordDTO,
 } from "../../api/maintenance.go";
-import { ApiErrorAlert, formatDay, formatThb, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
+import { formatDay, formatThb, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
 
 const LocationPicker = dynamic(() => import("@/components/map/LocationPicker"), { ssr: false });
 
@@ -62,13 +66,6 @@ interface Draft {
     lng?: number;
 }
 
-const STATUS_KEY: Record<string, string> = {
-    pm_booking: "maintenance.pmBookingBadge",
-    scheduled: "maintenance.scheduledBadge",
-    in_progress: "maintenance.form.inProgress",
-    completed: "maintenance.form.completed",
-    cancelled: "maintenance.form.cancelled",
-};
 
 function PendingQueue() {
     const { t } = useLanguage();
@@ -114,7 +111,6 @@ function PendingQueue() {
         }
     };
 
-    if (rows.length === 0) return null;
     return (
         <Card className="overflow-hidden">
             <CardHeader className="space-y-1">
@@ -123,8 +119,15 @@ function PendingQueue() {
                 </CardTitle>
                 <CardDescription>{t("maintenance.pendingSectionSubtitle")}</CardDescription>
             </CardHeader>
-            <CardContent className="overflow-x-auto p-0">
-                <Table>
+            <CardContent className="space-y-3">
+                {[{ q: booking, status: "pm_booking" }, { q: scheduled, status: "scheduled" }].map(({ q, status }) => (
+                    <div key={status}>
+                        {q.isPending ? <QueryLoading label={t("maintenance.go.queueLoading", { status: maintenanceStatusLabel(status, t).toLocaleLowerCase() })} /> : null}
+                        {q.isError ? <QueryError error={q.error} label={t("maintenance.go.queueError", { status: maintenanceStatusLabel(status, t).toLocaleLowerCase() })} onRetry={() => void q.refetch()} retrying={q.isFetching} /> : null}
+                    </div>
+                ))}
+                {booking.isSuccess && scheduled.isSuccess && rows.length === 0 ? <p className="py-4 text-sm text-muted-foreground">{t("maintenance.go.queueEmpty")}</p> : null}
+                {rows.length > 0 ? <div className="overflow-x-auto"><Table>
                     <TableHeader>
                         <TableRow>
                             <TableHead>{t("maintenance.col.triggerDate")}</TableHead>
@@ -140,28 +143,28 @@ function PendingQueue() {
                     <TableBody>
                         {rows.map((r) => {
                             const d = draftOf(r.id);
-                            const isBooking = r.status === "pm_booking";
+                            const isBooking = r.status === "pm_booking" && canTransitionMaintenance(r.status, "scheduled");
                             return (
                                 <TableRow key={r.id}>
-                                    <TableCell className="whitespace-nowrap font-mono text-xs">{formatDay(r.createdAt, "dd MMM yyyy")}</TableCell>
+                                    <TableCell className="whitespace-nowrap font-mono text-xs">{formatDay(r.createdAt)}</TableCell>
                                     <TableCell>
                                         <div className="font-semibold">{r.licensePlate}</div>
                                         <div className="text-xs text-muted-foreground">{r.truckBrand}</div>
                                     </TableCell>
                                     <TableCell className="text-right font-semibold">{r.currentMileage?.toLocaleString() ?? "—"}</TableCell>
                                     <TableCell>
-                                        <Badge variant="outline">{t(STATUS_KEY[r.status] ?? "", r.status)}</Badge>
+                                        <Badge variant="outline">{maintenanceStatusLabel(r.status, t)}</Badge>
                                     </TableCell>
                                     <TableCell>
-                                        {isBooking ? <Input type="date" className="h-9" value={d.date} onChange={(e) => patch(r.id, { date: e.target.value })} /> : <span className="font-mono text-sm">{r.startDate}</span>}
+                                        {isBooking ? <Input aria-label={`${t("maintenance.col.appointmentDate")} · ${r.licensePlate}`} type="date" className="h-9" value={d.date} onChange={(e) => patch(r.id, { date: e.target.value })} /> : <span className="font-mono text-sm">{r.startDate}</span>}
                                     </TableCell>
                                     <TableCell>
-                                        {isBooking ? <Input type="time" className="h-9" value={d.time} onChange={(e) => patch(r.id, { time: e.target.value })} /> : <span className="font-mono text-sm">{r.appointmentTime ?? "—"}</span>}
+                                        {isBooking ? <Input aria-label={`${t("maintenance.col.time")} · ${r.licensePlate}`} type="time" className="h-9" value={d.time} onChange={(e) => patch(r.id, { time: e.target.value })} /> : <span className="font-mono text-sm">{r.appointmentTime ?? "—"}</span>}
                                     </TableCell>
                                     <TableCell>
                                         {isBooking ? (
                                             <div className="flex flex-col gap-2">
-                                                <Input className="h-9" placeholder={t("maintenance.form.enterGarage")} value={d.location} onChange={(e) => patch(r.id, { location: e.target.value })} />
+                                                <Input aria-label={`${t("maintenance.col.place")} · ${r.licensePlate}`} className="h-9" placeholder={t("maintenance.form.enterGarage")} value={d.location} onChange={(e) => patch(r.id, { location: e.target.value })} />
                                                 <Button type="button" variant="outline" size="sm" className="h-8 justify-start" onClick={() => setMapFor(r.id)}>
                                                     <MapPin className="mr-1 h-3.5 w-3.5" />
                                                     {t("maintenance.bookingPickOnMap")}
@@ -190,7 +193,7 @@ function PendingQueue() {
                             );
                         })}
                     </TableBody>
-                </Table>
+                </Table></div> : null}
                 {[
                     { q: booking, status: "pm_booking" },
                     { q: scheduled, status: "scheduled" },
@@ -200,7 +203,7 @@ function PendingQueue() {
                     return q.hasNextPage ? (
                         <div key={status} className="space-y-1 border-t p-3" data-testid={`pending-more-${status}`}>
                             <p className="text-xs font-medium text-muted-foreground">
-                                {t("maintenance.go.queueLoaded", { status: t(STATUS_KEY[status] ?? "", status), loaded, total })}
+                                {t("maintenance.go.queueLoaded", { status: maintenanceStatusLabel(status, t), loaded, total })}
                             </p>
                             <LoadMore
                                 loaded={loaded}
@@ -220,6 +223,7 @@ function PendingQueue() {
                     </DialogHeader>
                     {mapFor ? (
                         <LocationPicker
+                            searchPlaceholder={t("maintenance.go.placeSearch")}
                             value={draftOf(mapFor).lat != null && draftOf(mapFor).lng != null ? { lat: draftOf(mapFor).lat!, lng: draftOf(mapFor).lng! } : undefined}
                             onChange={(pos) => patch(mapFor, { lat: pos.lat, lng: pos.lng })}
                         />
@@ -236,6 +240,7 @@ function PendingQueue() {
 }
 
 export function MaintenanceOverviewPage() {
+    const client = useQueryClient();
     const { t } = useLanguage();
     const [type, setType] = useState<"all" | "PM" | "CM">("all");
     const [status, setStatus] = useState<string>("all");
@@ -266,8 +271,8 @@ export function MaintenanceOverviewPage() {
                 header: () => t("maintenance.table.type"),
                 cell: (c) => <Badge variant="outline">{c.getValue() === "PM" ? t("maintenance.form.pm") : t("maintenance.form.cm")}</Badge>,
             }),
-            col.accessor("serviceType", { header: () => t("maintenance.table.service"), meta: { cellClassName: "max-w-[220px] truncate text-xs" } }),
-            col.accessor("status", { header: () => t("maintenance.table.status"), cell: (c) => <Badge variant="secondary">{t(STATUS_KEY[c.getValue()] ?? "", c.getValue())}</Badge> }),
+            col.accessor("serviceType", { header: () => t("maintenance.table.service"), cell: (c) => maintenanceServiceLabel(c.getValue(), t), meta: { cellClassName: "max-w-[220px] truncate text-xs" } }),
+            col.accessor("status", { header: () => t("maintenance.table.status"), cell: (c) => <Badge variant="secondary">{maintenanceStatusLabel(c.getValue(), t)}</Badge> }),
             col.accessor("costLaborThb", { header: () => t("maintenance.table.labor"), cell: (c) => formatThb(c.getValue()), meta: { headerClassName: "text-right", cellClassName: "text-right text-xs" } }),
             col.accessor("costPartsThb", { header: () => t("maintenance.table.parts"), cell: (c) => formatThb(c.getValue()), meta: { headerClassName: "text-right", cellClassName: "text-right text-xs" } }),
             col.accessor("displayCostThb", { header: () => t("maintenance.table.total"), cell: (c) => formatThb(c.getValue()), meta: { headerClassName: "text-right", cellClassName: "text-right font-semibold" } }),
@@ -296,10 +301,7 @@ export function MaintenanceOverviewPage() {
                     <>
                         <Button
                             variant="outline"
-                            onClick={() => {
-                                void list.refetch();
-                                void all.refetch();
-                            }}
+                            onClick={() => void refreshMaintenance(client)}
                         >
                             <RotateCw className="mr-1 h-4 w-4" aria-hidden /> {t("maintenance.refresh")}
                         </Button>
@@ -311,58 +313,66 @@ export function MaintenanceOverviewPage() {
             />
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">{t("maintenance.totalExpenses")}</CardTitle>
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.total)}</div>
-                        <p className="text-xs text-muted-foreground">{list.hasNextPage ? t("maintenance.go.ofLoaded") : t("maintenance.lifetimeSpend")}</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">{t("maintenance.pmCosts")}</CardTitle>
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.pm)}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            {pct(totals.pm)}% {t("maintenance.ofTotal")}
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">{t("maintenance.cmCosts")}</CardTitle>
-                        <Wrench className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.cm)}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            {pct(totals.cm)}% {t("maintenance.ofTotal")}
-                        </p>
-                    </CardContent>
-                </Card>
+                {list.isPending ? <div className="md:col-span-2 lg:col-span-3"><QueryLoading label={t("maintenance.go.statsLoading")} /></div> : list.isError && !list.data ? (
+                    <div className="md:col-span-2 lg:col-span-3"><QueryError error={list.error} label={t("maintenance.go.statsError")} onRetry={() => void list.refetch()} retrying={list.isFetching} /></div>
+                ) : <>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">{t("maintenance.totalExpenses")}</CardTitle>
+                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.total)}</div>
+                            <p className="text-xs text-muted-foreground">{t("maintenance.go.loadedCosts", { count: rows.length })}</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">{t("maintenance.pmCosts")}</CardTitle>
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.pm)}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {pct(totals.pm)}% {t("maintenance.ofTotal")}
+                            </p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">{t("maintenance.cmCosts")}</CardTitle>
+                            <Wrench className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-semibold tabular-nums">{formatThb(totals.cm)}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {pct(totals.cm)}% {t("maintenance.ofTotal")}
+                            </p>
+                        </CardContent>
+                    </Card>
+                </>}
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">{t("maintenance.activeJobs")}</CardTitle>
                         <Activity className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-semibold tabular-nums">{counts.in_progress ?? 0}</div>
-                        <p className="text-xs text-muted-foreground">{t("maintenance.vehiclesInShop")}</p>
-                        {(counts.pm_booking ?? 0) > 0 ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                                <span className="text-lg font-semibold tabular-nums text-foreground">{counts.pm_booking}</span> {t("maintenance.pmBookingPending")}
-                            </p>
-                        ) : null}
-                        {(counts.scheduled ?? 0) > 0 ? (
-                            <p className="text-xs text-muted-foreground">
-                                <span className="text-lg font-semibold tabular-nums text-foreground">{counts.scheduled}</span> {t("maintenance.scheduledBadge")}
-                            </p>
-                        ) : null}
+                        {all.isPending ? <QueryLoading label={t("maintenance.go.statsLoading")} /> : null}
+                        {all.isError ? <QueryError error={all.error} label={t("maintenance.go.statsError")} onRetry={() => void all.refetch()} retrying={all.isFetching} /> : null}
+                        {all.data ? <>
+                            <div className="text-2xl font-semibold tabular-nums">{counts.in_progress ?? 0}</div>
+                            <p className="text-xs text-muted-foreground">{t("maintenance.vehiclesInShop")}</p>
+                            {(counts.pm_booking ?? 0) > 0 ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                    <span className="text-lg font-semibold tabular-nums text-foreground">{counts.pm_booking}</span> {t("maintenance.pmBookingPending")}
+                                </p>
+                            ) : null}
+                            {(counts.scheduled ?? 0) > 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                    <span className="text-lg font-semibold tabular-nums text-foreground">{counts.scheduled}</span> {t("maintenance.scheduledBadge")}
+                                </p>
+                            ) : null}
+                        </> : null}
                     </CardContent>
                 </Card>
             </div>
@@ -391,7 +401,7 @@ export function MaintenanceOverviewPage() {
                                 <SelectItem value="all">{t("maintenance.go.allStatuses")}</SelectItem>
                                 {MAINTENANCE_STATUSES.map((s) => (
                                     <SelectItem key={s} value={s}>
-                                        {t(STATUS_KEY[s] ?? "", s)}
+                                        {maintenanceStatusLabel(s, t)}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -399,7 +409,7 @@ export function MaintenanceOverviewPage() {
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                    <ApiErrorAlert error={list.error} />
+                    {list.isError ? <QueryError error={list.error} label={t("maintenance.go.historyError")} onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null}
                     <VirtualTable
                         data={rows}
                         columns={columns}
@@ -407,17 +417,19 @@ export function MaintenanceOverviewPage() {
                         aria-label={t("maintenance.serviceHistory")}
                         infinite={list}
                         loading={list.isPending}
+                        loadingState={<QueryLoading label={t("maintenance.go.historyLoading")} />}
                         error={list.isError}
+                        errorState={<span className="sr-only">{t("maintenance.go.historyError")}</span>}
                         emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("maintenance.noRecords")}</p>}
                         resetScrollKey={JSON.stringify(filter)}
                     />
-                    <LoadMore
+                    {list.isPending || (list.isError && !list.data) ? null : <LoadMore
                         loaded={rows.length}
                         hasNextPage={list.hasNextPage}
                         isFetchingNextPage={list.isFetchingNextPage}
                         error={list.isFetchNextPageError}
                         onLoadMore={() => void list.fetchNextPage()}
-                    />
+                    />}
                 </CardContent>
             </Card>
 
@@ -429,6 +441,7 @@ export function MaintenanceOverviewPage() {
                     <p className="text-sm text-muted-foreground">{t("maintenance.go.pickTruck")}</p>
                     <SearchPicker kind="truck" value={truck} onChange={setTruck} placeholder={t("maintenance.table.vehicle")} className="w-full" />
                     <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setAdding(false)}>{t("maintenance.form.cancel")}</Button>
                         <Button asChild disabled={!truck}>
                             <Link href={truck ? `/app/trucks/maintenance?id=${encodeURIComponent(truck.id)}` : "#"} prefetch={false} aria-disabled={!truck}>
                                 {t("maintenance.go.openTruck")}

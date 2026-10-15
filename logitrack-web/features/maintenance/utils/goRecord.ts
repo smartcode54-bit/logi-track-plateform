@@ -4,7 +4,7 @@
  * `MaintenanceHistoryList`), and the form's values back onto the Go request (T42). Files become
  * `GET /v1/files?key=` URLs through the BFF.
  */
-import { format, isValid, parseISO } from "date-fns";
+import { bangkokWallTime, maintenanceDay } from "./maintenanceDates";
 import type { MaintenanceData } from "@/validate/maintenanceSchema";
 import { maintenanceFileHref, type MaintenanceInput, type MaintenanceRecordDTO, type MaintenanceStatus } from "../api/maintenance.go";
 
@@ -35,8 +35,7 @@ export function goStatus(status: MaintenanceData["status"] | string): Maintenanc
 /** A Bangkok wall time `yyyy-MM-dd'T'HH:mm` of an instant (the form's datetime-local value). */
 function wallTime(iso: string | null): string | undefined {
     if (!iso) return undefined;
-    const d = parseISO(iso);
-    return isValid(d) ? format(d, "yyyy-MM-dd'T'HH:mm") : undefined;
+    return bangkokWallTime(iso) || undefined;
 }
 
 const n = (v: number | null | undefined) => (v == null ? undefined : v);
@@ -78,6 +77,7 @@ export function toMaintenanceData(r: MaintenanceRecordDTO): MaintenanceData {
         nextServiceMileage: n(r.nextServiceMileage),
         images: href(r.files?.images),
         receipts: href(r.files?.receipts),
+        invoices: href(r.files?.invoices),
         invoiceUrl: href(r.files?.invoices)[0],
         driverSubmitted: r.driverSubmitted,
         invoiceAmount: n(r.invoiceAmountThb),
@@ -110,34 +110,29 @@ export interface MaintenanceFormValuesGo {
  * PM without a next-service mileage gets the current mileage plus the truck's PM interval (the Firestore
  * page's rule).
  */
-export function maintenanceInputOf(v: MaintenanceFormValuesGo, truckId: string, pmIntervalKm: number): MaintenanceInput {
+export function maintenanceInputOf(v: MaintenanceFormValuesGo, truckId: string, pmIntervalKm: number, original?: MaintenanceRecordDTO): MaintenanceInput {
     const num = (s: string) => {
         const x = parseFloat(s);
         return Number.isFinite(x) ? x : null;
     };
-    const labor = num(v.costLabor);
-    const parts = num(v.costParts);
-    const total = (labor ?? 0) + (parts ?? 0);
     const current = num(v.currentMileage);
     let next = num(v.nextServiceMileage);
     if (v.type === "PM" && v.status === "completed" && current != null && next == null) next = current + pmIntervalKm;
-    let appointmentTime: string | null = null;
-    if (v.pickupAppointment) {
-        const d = parseISO(v.pickupAppointment);
-        if (isValid(d)) appointmentTime = format(d, "HH:mm");
-    }
+    // A booking time and pickup time can differ. Keep the stored booking unless the pickup field changed.
+    const pickupUnchanged = original != null && v.pickupAppointment === (pickupAppointmentOf(original) ?? "");
+    const appointmentTime = pickupUnchanged
+        ? original.appointmentTime ?? null
+        : v.pickupAppointment.slice(11, 16) || null;
     return {
         truckId,
         type: v.type,
         serviceType: v.serviceType,
         status: goStatus(v.status),
-        startDate: v.startDate,
-        endDate: v.status === "completed" && v.endDate ? v.endDate : null,
+        startDate: maintenanceDay(v.startDate),
+        endDate: v.status === "completed" && v.endDate ? maintenanceDay(v.endDate) : null,
         pickupAppointmentAt: v.pickupAppointment ? `${v.pickupAppointment.length === 16 ? `${v.pickupAppointment}:00` : v.pickupAppointment}` : null,
         appointmentTime,
-        costLaborThb: labor != null && labor > 0 ? labor : null,
-        costPartsThb: parts != null && parts > 0 ? parts : null,
-        totalCostThb: total > 0 ? total : null,
+        ...maintenanceCostInputOf(v, original),
         provider: v.provider.trim() || null,
         providerLat: v.providerPos?.lat ?? null,
         providerLng: v.providerPos?.lng ?? null,
@@ -146,4 +141,16 @@ export function maintenanceInputOf(v: MaintenanceFormValuesGo, truckId: string, 
         nextServiceMileage: next != null ? Math.round(next) : null,
         notes: v.notes.trim() || null,
     };
+}
+
+/** An unrelated edit must not replace a stored total with a derived empty breakdown. */
+export function maintenanceCostInputOf(v: Pick<MaintenanceFormValuesGo, "costLabor" | "costParts">, original?: Pick<MaintenanceRecordDTO, "costLaborThb" | "costPartsThb" | "totalCostThb">): MaintenanceInput {
+    const number = (value: string) => value.trim() === "" ? null : Number(value);
+    const labor = number(v.costLabor);
+    const parts = number(v.costParts);
+    if (original && labor === original.costLaborThb && parts === original.costPartsThb) return {};
+    const out: MaintenanceInput = { totalCostThb: labor == null && parts == null ? null : (labor ?? 0) + (parts ?? 0) };
+    if (!original || labor !== original.costLaborThb) out.costLaborThb = labor;
+    if (!original || parts !== original.costPartsThb) out.costPartsThb = parts;
+    return out;
 }

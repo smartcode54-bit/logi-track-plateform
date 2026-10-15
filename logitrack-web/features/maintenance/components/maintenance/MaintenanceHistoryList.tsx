@@ -15,6 +15,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { buildMaintenanceGalleryUrls } from "@/features/maintenance/utils/buildMaintenanceGalleryUrls";
+import { maintenanceServiceLabel, maintenanceStatusLabel } from "../../utils/maintenanceLabels";
 import { maintenanceDisplayCost } from "@/features/maintenance/utils/maintenanceDisplayCost";
 import {
     MaintenanceImagePreviewDialog,
@@ -80,20 +81,19 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                         return (
                         <div
                             key={record.id}
-                            className="flex items-start justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors group relative"
+                            data-maintenance-id={record.id}
+                            className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors group relative"
                         >
-                            <div className="flex gap-4 cursor-pointer flex-1" onClick={() => onEditClick(record)}>
+                            <div className="flex min-w-0 flex-1 gap-4">
                                 <div className="p-3 rounded-md bg-muted text-muted-foreground">
                                     {record.type === 'PM' ? <History className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
                                 </div>
-                                <div>
+                                <div className="min-w-0 break-words">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <p className="font-semibold">
-                                            {t(`maintenance.service.${record.serviceType}`) !== `maintenance.service.${record.serviceType}` 
-                                                ? t(`maintenance.service.${record.serviceType}`) 
-                                                : record.serviceType}
+                                            {maintenanceServiceLabel(record.serviceType, t)}
                                         </p>
-                                        <Badge variant="outline" className="text-xs">{record.status.replace("_", " ")}</Badge>
+                                        <Badge variant="outline" className="text-xs">{maintenanceStatusLabel(record.status, t)}</Badge>
                                         {record.driverSubmitted ? (
                                             <Badge variant="secondary">
                                                 {t("maintenance.history.driverSubmittedBadge")}
@@ -107,7 +107,6 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                     {hasAttachments ? (
                                         <div
                                             className="mt-3 flex flex-wrap items-center gap-2"
-                                            onClick={(e) => e.stopPropagation()}
                                         >
                                             <Button
                                                 type="button"
@@ -131,17 +130,21 @@ export function MaintenanceHistoryList({ history, onNewClick, onEditClick }: Mai
                                     ) : null}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-4">
+                            <div className="flex shrink-0 items-center justify-end gap-4">
                                 <div className="text-right">
                                     <p className="font-semibold text-lg tabular-nums">฿{displayTotal.toLocaleString()}</p>
                                     <p className="text-xs text-muted-foreground">
                                         {t("maintenance.history.labor")}: {record.costLabor || 0} | {t("maintenance.history.parts")}: {record.costParts || 0}
                                     </p>
-                                    <p className="text-xs mt-1 text-muted-foreground">{record.currentMileage?.toLocaleString()} km</p>
+                                    <p className="text-xs mt-1 text-muted-foreground">{record.currentMileage?.toLocaleString() ?? "—"} {t("maintenance.go.km")}</p>
                                 </div>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <Button aria-label={t("common.actionsForRow")} variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
+                                        <Button
+                                            aria-label={t("common.actionsFor", { name: maintenanceServiceLabel(record.serviceType, t) || t("maintenance.table.service") })}
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0 max-md:size-11"
+                                        >
                                             <MoreHorizontal className="h-4 w-4" />
                                         </Button>
                                     </DropdownMenuTrigger>
