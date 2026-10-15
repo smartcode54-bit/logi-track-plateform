@@ -12,9 +12,9 @@ import { fakeWeb } from "@/test-utils/fakeWeb";
 
 function renderForm(strict: boolean) {
     try {
-        window.localStorage.removeItem("language");
+        window.localStorage.setItem("language", "en");
     } catch {
-        // English is the default anyway
+        // Storage may be unavailable in the test environment.
     }
     const tree = (
         <LanguageProvider>

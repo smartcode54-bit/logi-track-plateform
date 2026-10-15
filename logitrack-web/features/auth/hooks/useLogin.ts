@@ -7,7 +7,8 @@
  * Go session: only then can the `proxy.ts` gate let `/app` through, so a Firebase-only session never
  * bounces between this page and the gate.
  *
- * The destination is `?next=` when the URL carries one (a same-origin `/app` path, `safeNext`, else
+ * A driver-only principal with at most one membership goes to the driver-app panel at `/`.
+ * Otherwise the destination is `?next=` when the URL carries one (a same-origin `/app` path, `safeNext`, else
  * `/app`, whose edge gate picks the role's home), else the principal's home route (`homeRouteOf`, the
  * `proxy.ts` rule, R89), so a plain visit to `/login` lands where `/app` would without a second hop. A
  * signed-out visitor's Firebase session left from before the P0 switch is signed out by `AuthProvider`
@@ -18,12 +19,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { homeRouteOf } from "@/features/auth/api/homeRoute";
+import { homeRouteOf, isDriverOnly } from "@/features/auth/api/homeRoute";
 import type { MeDTO } from "@/features/auth/api/me";
 import { safeNext } from "@/lib/safeNext";
 
-/** Where a signed-in visitor of the login page goes: `?next=` when present (made safe), else the role's home. */
+/** Drivers with at most one membership go to `/`; others keep `?next=` (made safe) or the role's home. */
 export function loginDestination(next: string | null, me: MeDTO): string {
+    if (isDriverOnly(me) && me.tenants.length <= 1) return "/";
     return next !== null ? safeNext(next) : homeRouteOf(me);
 }
 

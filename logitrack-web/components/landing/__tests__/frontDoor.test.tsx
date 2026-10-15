@@ -106,8 +106,8 @@ describe("the tab title of each public page", () => {
     });
 
     for (const { route, layout, Page, en, th } of PAGES) {
-        it(`${route}: "${en}" from the server, then the active language ("${th}")`, async () => {
-            expect(layout.metadata).toEqual({ title: en });
+        it(`${route}: "${th}" from the server, then the active language`, async () => {
+            expect(layout.metadata).toEqual({ title: th });
             signedOut();
             const Layout = layout.default;
             renderWithProviders(
@@ -123,6 +123,9 @@ describe("the tab title of each public page", () => {
             await waitFor(() => expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1));
             await userEvent.setup().click(screen.getByRole("button", { name: "to-thai" }));
             await waitFor(() => expect(document.title).toBe(th));
+            if (route === "/join-network") {
+                expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ร่วมงานกับ GORATECH ในฐานะรถร่วม");
+            }
             // Next writes its metadata title back after a load; the page's title is put back.
             document.title = en;
             await waitFor(() => expect(document.title).toBe(th));

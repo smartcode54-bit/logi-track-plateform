@@ -100,7 +100,7 @@ const EMPTY_SET: ReadonlySet<SplitNamespace> = new Set();
 
 /**
  * Translation context. Only the active language's dictionary is ever loaded (`./locales/load.ts`,
- * developer-spec.md §10.11): the stored preference, else English, then the other language once the
+ * developer-spec.md §10.11): the stored preference, else Thai, then the other language once the
  * user toggles. Children render once that dictionary is in, so the server and the first client
  * render show the loading screen and hydration never depends on the stored language.
  *
@@ -192,7 +192,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const language = state?.language;
 
     // `<html lang>` follows the language on screen (UI3), so screen readers read Thai with a Thai voice and the
-    // browser picks Thai line breaking. app/layout.tsx renders `en` on the server; this runs after hydration, so
+    // browser picks Thai line breaking. app/layout.tsx renders `th` on the server; this runs after hydration, so
     // the server HTML and the first client render still agree.
     useEffect(() => {
         if (language) document.documentElement.lang = language;

@@ -9,6 +9,7 @@
  * Quiet by design (DESIGN.md: no icon tile above the heading, red only for state): ink heading, graphite text.
  */
 import { Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Home } from "lucide-react";
 
@@ -16,7 +17,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
-import { homeRouteOf } from "@/features/auth/api/homeRoute";
+import { homeRouteOf, isDriverOnly } from "@/features/auth/api/homeRoute";
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel";
 import { attemptedPageName, unauthorizedAudience } from "@/features/auth/utils/unauthorizedGuide";
 import { DASHBOARD_PATH } from "@/lib/routeCapabilities";
@@ -33,27 +34,39 @@ function UnauthorizedContent() {
     const from = searchParams.get("from") ?? "";
     const page = attemptedPageName(from, t, homeRoute);
     const audience = unauthorizedAudience(me, from);
+    const driverOnly = me !== null && isDriverOnly(me);
 
     return (
         <div data-testid="unauthorized" className="flex max-w-2xl flex-col gap-section">
             <PageHeader
-                title={t("unauthorized.title")}
+                title={t(driverOnly ? "landing.driver.title" : "unauthorized.title")}
                 description={
                     <div className="flex flex-col gap-2">
-                        <p>{page ? t("unauthorized.page", { page }) : t("unauthorized.description")}</p>
+                        {driverOnly ? null : <p>{page ? t("unauthorized.page", { page }) : t("unauthorized.description")}</p>}
                         <p data-testid="unauthorized-guide">{t(`unauthorized.guide.${audience}`)}</p>
                     </div>
                 }
             />
             <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={() => router.back()}>
-                    <ArrowLeft aria-hidden />
-                    {t("unauthorized.goBack")}
-                </Button>
-                <Button type="button" onClick={() => router.replace(homeRoute)}>
-                    <Home aria-hidden />
-                    {t("pageState.goHome")}
-                </Button>
+                {driverOnly ? (
+                    <Button asChild className="max-md:h-11">
+                        <Link href="/">
+                            <Home aria-hidden />
+                            {t("pageState.goHome")}
+                        </Link>
+                    </Button>
+                ) : (
+                    <>
+                        <Button type="button" variant="outline" onClick={() => router.back()}>
+                            <ArrowLeft aria-hidden />
+                            {t("unauthorized.goBack")}
+                        </Button>
+                        <Button type="button" onClick={() => router.replace(homeRoute)}>
+                            <Home aria-hidden />
+                            {t("pageState.goHome")}
+                        </Button>
+                    </>
+                )}
             </div>
             {scope ? <p className="text-xs text-muted-foreground">{t("unauthorized.roleHint", { role: scope })}</p> : null}
         </div>

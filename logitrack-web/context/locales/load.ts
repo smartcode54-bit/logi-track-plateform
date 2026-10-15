@@ -15,7 +15,7 @@
 
 export const LANGUAGES = ["en", "th"] as const;
 export type Language = (typeof LANGUAGES)[number];
-export const DEFAULT_LANGUAGE: Language = "en";
+export const DEFAULT_LANGUAGE: Language = "th";
 
 /** Translation key -> text, every namespace of one language merged. */
 export type Dictionary = Record<string, string>;
