@@ -14,6 +14,8 @@
  *    refresh may have been the BFF's no-op while `lt_at` still had more than 120 s left.
  * 3. Otherwise it calls `POST /api/auth/refresh` (body `{"force":true}` only when forced) and
  *    records the completion time.
+ *    Sign-in and logout share this lock so a late response cannot expire a new session's cookies;
+ *    work queued before a successful sign-in is discarded using the shared session generation.
  * 4. A forced refresh that succeeded (here, or in another tab and found through its marker) runs this
  *    tab's `onClaimsRefreshed` listeners once, after the lock is released and before the caller
  *    retries: TW4 invalidates `['me']` and the active queries, the AuthProvider waits for that
@@ -28,6 +30,7 @@
  * cookies.
  */
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
+import { assertSessionGeneration, sessionGeneration } from "./sessionGeneration";
 
 export const REFRESH_LOCK = "lt-refresh";
 export const AUTH_REFRESH_PATH = "/api/auth/refresh";
@@ -98,7 +101,8 @@ export function refreshedSince(since: number, force: boolean): boolean {
     return Math.max(lastRefreshAt, readMarker(LAST_REFRESH_KEY), forced) > since;
 }
 
-function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+/** Serialises cookie writers too: an old refresh/logout must settle before a new sign-in sets cookies. */
+export function withSessionLock<T>(fn: () => Promise<T>): Promise<T> {
     const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
     if (locks && typeof locks.request === "function") {
         return locks.request(REFRESH_LOCK, { mode: "exclusive" }, fn) as Promise<T>;
@@ -124,9 +128,11 @@ export interface SharedRefreshOptions {
  * with a superseded refresh token.
  */
 export async function sharedRefresh({ force = false, since }: SharedRefreshOptions): Promise<boolean> {
+    const generation = sessionGeneration();
     // The forced refresh's completion time when one served this caller, 0 when none did, false when
     // the BFF refused the refresh.
-    const result = await withRefreshLock(async (): Promise<number | false> => {
+    const result = await withSessionLock(async (): Promise<number | false> => {
+        assertSessionGeneration(generation);
         if (refreshedSince(since, force)) return force ? forcedRefreshAt() : 0;
         let res: Response;
         try {
@@ -139,6 +145,7 @@ export async function sharedRefresh({ force = false, since }: SharedRefreshOptio
         } catch (cause) {
             throw networkError(cause);
         }
+        assertSessionGeneration(generation);
         if (res.ok) {
             const at = Date.now();
             lastRefreshAt = at;
@@ -154,6 +161,7 @@ export async function sharedRefresh({ force = false, since }: SharedRefreshOptio
         const error: ApiError = await apiErrorFromResponse(res);
         throw error;
     });
+    assertSessionGeneration(generation);
     if (result === false) return false;
     if (force) notifyClaimsRefreshed(result);
     return true;
