@@ -9,7 +9,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer } from "lucide-react";
+import { useLanguage } from "@/context/language";
+import { ExternalLink, Printer } from "lucide-react";
 import { looksLikeImageUrl } from "@/features/maintenance/utils/looksLikeImageUrl";
 import { printImageUrl } from "@/lib/print-image-url";
 import {
@@ -47,6 +48,7 @@ export function MaintenanceImagePreviewDialog({
     notPreviewableLabel,
     printLabel,
 }: MaintenanceImagePreviewDialogProps) {
+    const { t } = useLanguage();
     const open = !!gallery && gallery.urls.length > 0;
     const urls = gallery?.urls ?? [];
     const startIndex = gallery?.startIndex ?? 0;
@@ -95,6 +97,14 @@ export function MaintenanceImagePreviewDialog({
                 />
 
                 <DialogFooter className="flex flex-wrap gap-2 border-t px-6 py-4 sm:justify-end">
+                    {footerUrl ? (
+                        <Button asChild variant="outline">
+                            <a href={footerUrl} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="mr-2 h-4 w-4" aria-hidden />
+                                {t("maintenance.preview.openDownload")}
+                            </a>
+                        </Button>
+                    ) : null}
                     {footerUrl && isPrintableImage ? (
                         <Button
                             type="button"

@@ -1,5 +1,12 @@
 "use client";
 
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { createInvalidHandler } from "@/lib/formInvalidHandler";
+import { maintenanceDay } from "../../utils/maintenanceDates";
+import { canTransitionMaintenance } from "../../utils/maintenanceTransitions";
+import { maintenanceServiceLabel, maintenanceStatusLabel } from "../../utils/maintenanceLabels";
 import { useState, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useLanguage } from "@/context/language";
@@ -32,12 +39,7 @@ import { DEFAULT_PM_INTERVAL_KM } from "@/features/trucks/constants";
 
 const LocationPicker = dynamic(() => import("@/components/map/LocationPicker"), { ssr: false });
 
-const SERVICE_TYPES_PM = [
-    { value: "periodic_check", label: "Periodic Maintenance" },
-    { value: "tire_change", label: "Tire Change" },
-    { value: "tire_rotation", label: "Tire Rotation" },
-    { value: "brake_service", label: "Brake Service" },
-];
+const SERVICE_TYPES_PM = ["periodic_check", "tire_change", "tire_rotation", "brake_service"];
 
 interface MaintenanceFormProps {
     selectedRecordId: string | null;
@@ -62,6 +64,7 @@ interface MaintenanceFormProps {
     setPickupAppointment?: (v: string) => void;
     endDate: string;
     setEndDate: (v: string) => void;
+    totalCost?: number;
     costLabor: string;
     setCostLabor: (v: string) => void;
     costParts: string;
@@ -81,7 +84,7 @@ interface MaintenanceFormProps {
     setView: (v: "list" | "form") => void;
     truckId?: string;
     setTruckId?: (v: string) => void;
-    trucksList?: any[]; // To avoid importing TruckData which might not be at file level
+    trucksList?: { id: string; licensePlate: string }[];
     /** Truck PM interval (km); legacy trucks without the field use DEFAULT_PM_INTERVAL_KM. */
     pmIntervalKm?: number;
     /** URLs already stored on this maintenance doc (admin uploads). */
@@ -99,6 +102,58 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
     const [previewGallery, setPreviewGallery] = useState<MaintenancePreviewGallery>(null);
     const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
     const formRef = useRef<HTMLFormElement>(null);
+    const schema = useMemo(() => {
+        const number = (max: number, whole = false) => z.string().refine((value) => {
+            if (!value.trim()) return true;
+            const n = Number(value);
+            return Number.isFinite(n) && n >= 0 && n <= max && (whole ? Number.isInteger(n) : Math.abs(n * 100 - Math.round(n * 100)) < 0.00001);
+        }, t("maintenance.go.invalidNumber", { max }));
+        return z.object({
+            serviceType: z.string().trim().min(1, t("maintenance.go.serviceRequired")).max(200, t("maintenance.go.serviceRequired")),
+            startDate: z.string().min(1, t("maintenance.go.dateRequired")),
+            endDate: z.string(),
+            costLabor: number(1000000), costParts: number(1000000),
+            currentMileage: number(2000000, true), nextServiceMileage: number(2000000, true),
+        }).refine((values) => !values.endDate || values.endDate >= values.startDate, { path: ["endDate"], message: t("maintenance.go.endBeforeStart") });
+    }, [t]);
+    const form = useForm({
+        resolver: zodResolver(schema),
+        values: {
+            serviceType: props.type === "PM" ? props.serviceType : props.customServiceType,
+            startDate: props.startDate, endDate: props.status === "completed" ? props.endDate : "",
+            costLabor: props.costLabor, costParts: props.costParts,
+            currentMileage: props.currentMileage, nextServiceMileage: props.nextServiceMileage,
+        },
+    });
+    type DateControl = "startDate" | "pickupAppointment" | "endDate";
+    const datePickerRefs = useRef<Partial<Record<DateControl, HTMLDivElement | null>>>({});
+    const connectDatePicker = (name: DateControl, label: string) => (node: HTMLDivElement | null) => {
+        datePickerRefs.current[name] = node;
+        const trigger = node?.querySelector<HTMLButtonElement>("button");
+        if (!trigger) return;
+        const error = name === "pickupAppointment" ? undefined : form.formState.errors[name];
+        trigger.setAttribute("aria-label", label);
+        trigger.setAttribute("aria-invalid", String(Boolean(error)));
+        if (error) trigger.setAttribute("aria-describedby", `maintenance-${name}-error`);
+        else trigger.removeAttribute("aria-describedby");
+    };
+    const invalidHandler = createInvalidHandler(form, t);
+    const handleInvalid = (errors: typeof form.formState.errors) => {
+        invalidHandler(errors);
+        const invalidDate = errors.startDate ? "startDate" : errors.endDate ? "endDate" : undefined;
+        if (invalidDate) datePickerRefs.current[invalidDate]?.querySelector<HTMLButtonElement>("button")?.focus();
+    };
+    const fieldError = (name: keyof z.infer<typeof schema>) => form.formState.errors[name] ? (
+        <p id={`maintenance-${name}-error`} className="text-sm text-destructive">{form.formState.errors[name]?.message}</p>
+    ) : null;
+    const fieldProps = (name: keyof z.infer<typeof schema>) => ({
+        ...form.register(name),
+        id: `maintenance-${name}`, "aria-invalid": Boolean(form.formState.errors[name]),
+        "aria-describedby": form.formState.errors[name] ? `maintenance-${name}-error` : undefined,
+    });
+    const canComplete = props.status !== "completed" && canTransitionMaintenance(props.status, "completed");
+    const buttonNotes = t(canComplete ? "maintenance.form.buttonNotes" : "maintenance.form.saveStatusNotes");
+
 
     const savedUrls = (props.existingReceiptUrls ?? []).filter((u): u is string => typeof u === "string" && u.length > 0);
     const driverUrls = useMemo(() => {
@@ -123,77 +178,66 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
             <CardHeader>
                 <CardTitle>{props.selectedRecordId ? t("maintenance.form.editTitle") : t("maintenance.form.addRecord")}</CardTitle>
                 <CardDescription>{props.selectedRecordId ? t("maintenance.form.editDesc") : t("maintenance.form.newDesc")}</CardDescription>
-                <CardDescription className="text-sm text-muted-foreground mt-2">{t("maintenance.form.buttonNotes")}</CardDescription>
+                <CardDescription className="text-sm text-muted-foreground mt-2">{buttonNotes}</CardDescription>
             </CardHeader>
             <CardContent>
-                <form ref={formRef} onSubmit={props.handleSave} className="space-y-8">
+                <form ref={formRef} noValidate onSubmit={(event) => void form.handleSubmit(() => props.handleSave(event), handleInvalid)(event)} className="space-y-8">
                     {props.trucksList && props.setTruckId && (
                         <div className="space-y-2 flex flex-col">
-                            <Label className="text-base font-semibold">เลือกรถบรรทุก (Select Truck)</Label>
+                            <Label className="text-base font-semibold">{t("maintenance.table.vehicle")}</Label>
                             <SearchSelect
-                                aria-label="เลือกรถบรรทุก (Select Truck)"
+                                aria-label={t("maintenance.table.vehicle")}
                                 value={props.truckId ?? ""}
                                 onValueChange={(id) => props.setTruckId?.(id)}
                                 options={props.trucksList.map((tr) => ({ value: tr.id, label: tr.licensePlate }))}
                                 searchable
-                                placeholder="ค้นหา / เลือกรถ"
-                                searchPlaceholder="ค้นหาทะเบียน..."
-                                emptyText="ไม่พบทะเบียนรถที่ค้นหา"
+                                placeholder={t("maintenance.table.vehicle")}
+                                searchPlaceholder={t("maintenance.searchPlaceholder")}
+                                emptyText={t("maintenance.go.noTruck")}
                                 className="w-full md:w-[400px]"
                             />
                         </div>
                     )}
-                    <div className="space-y-3">
-                        <Label className="text-base">{t("maintenance.form.type")}</Label>
-                        <div className="flex gap-4">
-                            <div
-                                onClick={() => !props.selectedRecordId && props.setType("PM")}
-                                className={`flex items-center space-x-2 border p-3 rounded-lg flex-1 transition-colors ${props.type === 'PM' ? 'border-primary bg-primary/10' : 'hover:bg-muted/50'} ${props.selectedRecordId ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-                            >
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${props.type === 'PM' ? 'border-primary' : 'border-muted-foreground'}`}>
-                                    {props.type === 'PM' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                                </div>
-                                <div className="flex-1">
-                                    <span className="font-semibold block">{t("maintenance.form.pm")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("maintenance.form.pmDesc")}</span>
-                                </div>
-                            </div>
-                            <div
-                                onClick={() => !props.selectedRecordId && props.setType("CM")}
-                                className={`flex items-center space-x-2 border p-3 rounded-lg flex-1 transition-colors ${props.type === 'CM' ? 'border-primary bg-primary/10' : 'hover:bg-muted/50'} ${props.selectedRecordId ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-                            >
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${props.type === 'CM' ? 'border-primary' : 'border-muted-foreground'}`}>
-                                    {props.type === 'CM' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                                </div>
-                                <div className="flex-1">
-                                    <span className="font-semibold block">{t("maintenance.form.cm")}</span>
-                                    <span className="text-xs text-muted-foreground">{t("maintenance.form.cmDesc")}</span>
-                                </div>
-                            </div>
+                    <fieldset className="space-y-3">
+                        <legend className="text-base font-medium">{t("maintenance.form.type")}</legend>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            {(["PM", "CM"] as const).map((type) => (
+                                <label key={type} className="flex items-center gap-3 rounded-lg border p-3">
+                                    <input type="radio" name="maintenanceType" value={type} checked={props.type === type} disabled={Boolean(props.selectedRecordId)} onChange={() => props.setType(type)} className="h-4 w-4 accent-primary" />
+                                    <span>
+                                        <span className="block font-semibold">{t(type === "PM" ? "maintenance.form.pm" : "maintenance.form.cm")}</span>
+                                        <span className="text-xs text-muted-foreground">{t(type === "PM" ? "maintenance.form.pmDesc" : "maintenance.form.cmDesc")}</span>
+                                    </span>
+                                </label>
+                            ))}
                         </div>
-                    </div>
+                    </fieldset>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                            <Label>{t("maintenance.form.issueService")}</Label>
+                            <Label htmlFor="maintenance-serviceType">{t("maintenance.form.issueService")} <span className="text-destructive">*</span></Label>
                             {props.type === "PM" ? (
                                 <Select value={props.serviceType} onValueChange={props.setServiceType}>
-                                    <SelectTrigger><SelectValue placeholder={t("maintenance.form.selectService")} /></SelectTrigger>
+                                    <SelectTrigger {...fieldProps("serviceType")}><SelectValue placeholder={t("maintenance.form.selectService")} /></SelectTrigger>
                                     <SelectContent>
-                                        {SERVICE_TYPES_PM.map(s => <SelectItem key={s.value} value={s.value}>{t(`maintenance.service.${s.value}`)}</SelectItem>)}
+                                        {SERVICE_TYPES_PM.map((service) => <SelectItem key={service} value={service}>{maintenanceServiceLabel(service, t)}</SelectItem>)}
+                                        {props.serviceType && !SERVICE_TYPES_PM.includes(props.serviceType) ? <SelectItem value={props.serviceType}>{props.serviceType}</SelectItem> : null}
                                     </SelectContent>
                                 </Select>
                             ) : (
                                 <Input
+                                    {...fieldProps("serviceType")}
                                     placeholder={t("maintenance.form.describeIssue")}
                                     value={props.customServiceType}
                                     onChange={e => props.setCustomServiceType(e.target.value)}
                                 />
                             )}
+                            {fieldError("serviceType")}
                         </div>
                         <div className="space-y-2">
-                            <Label>{t("maintenance.form.provider")}</Label>
+                            <Label htmlFor="maintenance-provider">{t("maintenance.form.provider")}</Label>
                             <Input
+                                id="maintenance-provider"
                                 placeholder={t("maintenance.form.enterGarage")}
                                 value={props.provider}
                                 onChange={e => props.setProvider(e.target.value)}
@@ -206,6 +250,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             <Label>{t("maintenance.form.providerMapTitle")}</Label>
                             <p className="text-xs text-muted-foreground">{t("maintenance.form.providerMapHint")}</p>
                             <LocationPicker
+                                searchPlaceholder={t("maintenance.go.placeSearch")}
                                 value={props.providerMapPosition ?? undefined}
                                 onChange={(pos) => props.onProviderMapPositionChange?.({ lat: pos.lat, lng: pos.lng })}
                             />
@@ -223,9 +268,9 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                     ) : null}
 
                     <div className="space-y-2">
-                        <Label>{t("maintenance.form.paymentMethod")}</Label>
+                        <Label htmlFor="maintenance-paymentMethod">{t("maintenance.form.paymentMethod")}</Label>
                         <Select value={props.paymentMethod} onValueChange={props.setPaymentMethod}>
-                            <SelectTrigger>
+                            <SelectTrigger id="maintenance-paymentMethod">
                                 <SelectValue placeholder={t("maintenance.form.selectPayment")} />
                             </SelectTrigger>
                             <SelectContent>
@@ -240,36 +285,62 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
 
                     <div className="p-4 bg-muted/20 rounded-lg space-y-4">
                         <h3 className="font-semibold text-sm text-foreground/80 flex items-center gap-2">
-                            <Clock className="w-4 h-4" /> {t("maintenance.form.statusValidation")}
+                            <Clock className="w-4 h-4" aria-hidden /> {t("maintenance.form.statusValidation")} · {maintenanceStatusLabel(props.status, t)}
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="space-y-2">
-                                <Label>{t("maintenance.form.startDate")}</Label>
-                                <DateTimePicker
-                                    value={props.startDate ? new Date(props.startDate) : undefined}
-                                    onChange={(date: any) => props.setStartDate(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
-                                    fromYear={new Date().getFullYear() - 1}
-                                    toYear={new Date().getFullYear() + 1}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>{t("maintenance.form.pickupAppointment")}</Label>
-                                <DateTimePicker
-                                    value={props.pickupAppointment ? new Date(props.pickupAppointment) : undefined}
-                                    onChange={(date: any) => props.setPickupAppointment && props.setPickupAppointment(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
-                                    fromYear={new Date().getFullYear() - 1}
-                                    toYear={new Date().getFullYear() + 1}
-                                />
-                            </div>
-                            {props.status === "completed" && (
-                                <div className="space-y-2">
-                                    <Label>{t("maintenance.form.endDate")}</Label>
-                                    <DateTimePicker
-                                        value={props.endDate ? new Date(props.endDate) : undefined}
-                                        onChange={(date: any) => props.setEndDate(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
+                                <div
+                                    ref={connectDatePicker("startDate", t("maintenance.form.startDate"))}
+                                    className="space-y-2"
+                                    role="group"
+                                    aria-labelledby="maintenance-startDate-label"
+                                >
+                                    <Label id="maintenance-startDate-label">{t("maintenance.form.startDate")} <span className="text-destructive">*</span></Label>
+                                    <DatePicker
+                                        placeholder={t("maintenance.form.startDate")}
+                                        value={props.startDate ? new Date(`${props.startDate.slice(0, 10)}T12:00:00`) : undefined}
+                                        onChange={(date) => props.setStartDate(date ? format(date, "yyyy-MM-dd") : "")}
                                         fromYear={new Date().getFullYear() - 1}
                                         toYear={new Date().getFullYear() + 1}
                                     />
+                                </div>
+                                {fieldError("startDate")}
+                            </div>
+                            <div className="space-y-2">
+                                <div
+                                    ref={connectDatePicker("pickupAppointment", t("maintenance.form.pickupAppointment"))}
+                                    className="space-y-2"
+                                    role="group"
+                                    aria-labelledby="maintenance-pickupAppointment-label"
+                                >
+                                    <Label id="maintenance-pickupAppointment-label">{t("maintenance.form.pickupAppointment")}</Label>
+                                    <DateTimePicker
+                                        placeholder={t("maintenance.form.pickupAppointment")}
+                                        value={props.pickupAppointment ? new Date(props.pickupAppointment) : undefined}
+                                        onChange={(date) => props.setPickupAppointment && props.setPickupAppointment(date ? format(date, "yyyy-MM-dd'T'HH:mm:ss") : "")}
+                                        fromYear={new Date().getFullYear() - 1}
+                                        toYear={new Date().getFullYear() + 1}
+                                    />
+                                </div>
+                            </div>
+                            {props.status === "completed" && (
+                                <div className="space-y-2">
+                                    <div
+                                        ref={connectDatePicker("endDate", t("maintenance.form.endDate"))}
+                                        className="space-y-2"
+                                        role="group"
+                                        aria-labelledby="maintenance-endDate-label"
+                                    >
+                                        <Label id="maintenance-endDate-label">{t("maintenance.form.endDate")}</Label>
+                                        <DatePicker
+                                            placeholder={t("maintenance.form.endDate")}
+                                            value={props.endDate ? new Date(`${props.endDate.slice(0, 10)}T12:00:00`) : undefined}
+                                            onChange={(date) => props.setEndDate(date ? format(date, "yyyy-MM-dd") : "")}
+                                            fromYear={new Date().getFullYear() - 1}
+                                            toYear={new Date().getFullYear() + 1}
+                                        />
+                                    </div>
+                                    {fieldError("endDate")}
                                 </div>
                             )}
                         </div>
@@ -277,39 +348,43 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="space-y-2">
-                            <Label>{t("maintenance.form.laborCost")}</Label>
-                            <Input type="number" placeholder="0.00" value={props.costLabor} onChange={e => props.setCostLabor(e.target.value)} />
+                            <Label htmlFor="maintenance-costLabor">{t("maintenance.form.laborCost")}</Label>
+                            <Input {...fieldProps("costLabor")} type="number" min="0" step="0.01" placeholder="0.00" value={props.costLabor} onChange={e => props.setCostLabor(e.target.value)} />
+                            {fieldError("costLabor")}
                         </div>
                         <div className="space-y-2">
-                            <Label>{t("maintenance.form.partsCost")}</Label>
-                            <Input type="number" placeholder="0.00" value={props.costParts} onChange={e => props.setCostParts(e.target.value)} />
+                            <Label htmlFor="maintenance-costParts">{t("maintenance.form.partsCost")}</Label>
+                            <Input {...fieldProps("costParts")} type="number" min="0" step="0.01" placeholder="0.00" value={props.costParts} onChange={e => props.setCostParts(e.target.value)} />
+                            {fieldError("costParts")}
                         </div>
                         <div className="space-y-2">
-                            <Label>{t("maintenance.form.totalCost")}</Label>
-                            <Input disabled value={((parseFloat(props.costLabor) || 0) + (parseFloat(props.costParts) || 0)).toFixed(2)} className="bg-muted font-semibold" />
+                            <Label htmlFor="maintenance-totalCost">{t("maintenance.form.totalCost")}</Label>
+                            <Input id="maintenance-totalCost" disabled value={(props.totalCost ?? ((parseFloat(props.costLabor) || 0) + (parseFloat(props.costParts) || 0))).toFixed(2)} className="bg-muted font-semibold" />
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <Label>{t("maintenance.form.odometer")}</Label>
-                                <Input type="number" value={props.currentMileage} onChange={e => {
+                                <Label htmlFor="maintenance-currentMileage">{t("maintenance.form.odometer")}</Label>
+                                <Input {...fieldProps("currentMileage")} type="number" min="0" step="1" value={props.currentMileage} onChange={e => {
                                     props.setCurrentMileage(e.target.value);
                                     if (props.type === 'PM' && e.target.value) {
                                         props.setNextServiceMileage((parseFloat(e.target.value) + pmStepKm).toString());
                                     }
                                 }} />
+                                {fieldError("currentMileage")}
                             </div>
                         {props.type === "PM" && (
                             <div className="space-y-2">
-                                <Label>{t("maintenance.form.nextServiceDistance")}</Label>
-                                <Input type="number" value={props.nextServiceMileage} onChange={e => props.setNextServiceMileage(e.target.value)} />
+                                <Label htmlFor="maintenance-nextServiceMileage">{t("maintenance.form.nextServiceDistance")}</Label>
+                                <Input {...fieldProps("nextServiceMileage")} type="number" min="0" step="1" value={props.nextServiceMileage} onChange={e => props.setNextServiceMileage(e.target.value)} />
+                                {fieldError("nextServiceMileage")}
                             </div>
                         )}
                     </div>
 
                     <div className="space-y-3">
-                        <Label>{t("maintenance.form.receipt")}</Label>
+                        <Label htmlFor="maintenance-file">{t("maintenance.form.receipt")}</Label>
 
                         <MaintenanceImagePreviewDialog
                             gallery={previewGallery}
@@ -400,7 +475,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                         )}
 
                         <div className="border border-dashed rounded-lg p-4 bg-background space-y-2">
-                            <Input type="file" accept={props.fileAccept ?? "image/*,.pdf"} onChange={props.handleFileChange} />
+                            <Input id="maintenance-file" type="file" accept={props.fileAccept ?? "image/*,.pdf"} onChange={props.handleFileChange} />
                             {props.selectedFile ? (
                                 <p className="text-xs text-muted-foreground">{props.selectedFile.name}</p>
                             ) : (
@@ -410,19 +485,19 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                     </div>
 
                     <div className="space-y-2">
-                        <Label>{t("maintenance.form.notes")}</Label>
-                        <Input value={props.notes} onChange={e => props.setNotes(e.target.value)} />
+                        <Label htmlFor="maintenance-notes">{t("maintenance.form.notes")}</Label>
+                        <Input id="maintenance-notes" value={props.notes} onChange={e => props.setNotes(e.target.value)} />
                     </div>
 
                     <div className="space-y-2 pt-6 border-t flex flex-col items-end">
                         <p className="text-xs text-muted-foreground">
-                            {t("maintenance.form.buttonNotes")}
+                            {buttonNotes}
                         </p>
-                        <div className="flex justify-end gap-2 w-full">
+                        <div className="flex w-full flex-wrap justify-end gap-2">
                             <Button type="button" variant="ghost" onClick={() => props.setView("list")}>
                                 {t("maintenance.form.cancel")}
                             </Button>
-                            <div className="flex gap-2 ml-auto">
+                            <div className="ml-auto flex flex-wrap justify-end gap-2">
                                 <Button
                                     type="submit"
                                     disabled={props.isSubmitting}
@@ -430,7 +505,7 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                                 >
                                     {props.isSubmitting ? <Loader2 className="animate-spin" /> : t("maintenance.form.save")}
                                 </Button>
-                                {props.status !== 'completed' && (
+                                {canComplete && (
                                     <Button
                                         type="button"
                                         variant="outline"
@@ -461,9 +536,11 @@ export function MaintenanceForm(props: MaintenanceFormProps) {
                             </Button>
                             <Button
                                 type="button"
-                                disabled={props.isSubmitting}
+                                disabled={props.isSubmitting || !canComplete}
                                 onClick={() => {
+                                    if (!canComplete) return;
                                     setCompleteConfirmOpen(false);
+                                    if (!props.endDate) props.setEndDate(maintenanceDay(new Date()));
                                     props.setStatus("completed");
                                     setTimeout(() => formRef.current?.requestSubmit(), 0);
                                 }}
