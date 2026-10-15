@@ -295,7 +295,7 @@ export function BroadcastComposerGo() {
                         {mode === "selected" && (
                             <div className="mt-3 space-y-2">
                                 <DriverPicker picked={picked} setPicked={setPicked} />
-                                {picked.length === 0 && <p className="text-sm text-amber-600 dark:text-amber-500">{t("chat.broadcast.pickDrivers")}</p>}
+                                {picked.length === 0 && <p className="text-sm text-warning">{t("chat.broadcast.pickDrivers")}</p>}
                             </div>
                         )}
                     </div>
@@ -340,7 +340,7 @@ export function BroadcastComposerGo() {
                             {sendErrorText(send.error, t)}
                         </p>
                     )}
-                    {sentCount !== null && <p className="text-sm text-green-600 dark:text-green-400">{t("chat.broadcast.sent", { count: sentCount })}</p>}
+                    {sentCount !== null && <p className="text-sm text-success">{t("chat.broadcast.sent", { count: sentCount })}</p>}
 
                     <div className="flex items-center justify-between pt-2">
                         <span className="text-sm text-muted-foreground">

@@ -17,16 +17,14 @@ interface StatCardProps {
     value: React.ReactNode;
     hint?: string;
     icon: React.ElementType;
-    iconBgColor: string;
-    iconColor: string;
     testId: string;
 }
 
-function StatCard({ title, value, hint, icon: Icon, iconBgColor, iconColor, testId }: StatCardProps) {
+function StatCard({ title, value, hint, icon: Icon, testId }: StatCardProps) {
     return (
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm" data-testid={testId}>
             <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-lg ${iconBgColor} ${iconColor}`}>
+                <div className="text-muted-foreground">
                     <Icon className="w-6 h-6" />
                 </div>
             </div>
@@ -68,8 +66,6 @@ export function DashboardStatCards({ usersByRole, drivers, trips }: { usersByRol
                     value={(people.operations + people.others).toLocaleString()}
                     hint={t("dashboard.stats.webUsers")}
                     icon={Users}
-                    iconBgColor="bg-blue-500/10"
-                    iconColor="text-blue-500"
                 />
             )}
             {drivers && (
@@ -79,8 +75,6 @@ export function DashboardStatCards({ usersByRole, drivers, trips }: { usersByRol
                     value={activeDrivers(drivers).toLocaleString()}
                     hint={t("dashboard.stats.allDrivers", { total: drivers.total.toLocaleString() })}
                     icon={MapPin}
-                    iconBgColor="bg-sky-500/10"
-                    iconColor="text-sky-500"
                 />
             )}
             {trips && (
@@ -89,13 +83,11 @@ export function DashboardStatCards({ usersByRole, drivers, trips }: { usersByRol
                     title={t("dashboard.stats.tripsAndPackages")}
                     value={
                         <span>
-                            {trips.delivered.toLocaleString()} <span className="text-indigo-400 font-semibold">/ {trips.parcels.toLocaleString()}</span>
+                            {trips.delivered.toLocaleString()} <span className="text-muted-foreground font-semibold">/ {trips.parcels.toLocaleString()}</span>
                         </span>
                     }
                     hint={t("dashboard.stats.inPeriod")}
                     icon={Package}
-                    iconBgColor="bg-indigo-500/10"
-                    iconColor="text-indigo-500"
                 />
             )}
             {trips && (
@@ -107,14 +99,12 @@ export function DashboardStatCards({ usersByRole, drivers, trips }: { usersByRol
                             "—"
                         ) : (
                             <span>
-                                {pctText(trips.onTimePct)} <span className="text-yellow-400 font-semibold">/ {pctText(trips.delayPct)}</span>
+                                {pctText(trips.onTimePct)} <span className="text-warning font-semibold">/ {pctText(trips.delayPct)}</span>
                             </span>
                         )
                     }
                     hint={t("dashboard.stats.inPeriod")}
                     icon={Zap}
-                    iconBgColor="bg-yellow-500/10"
-                    iconColor="text-yellow-500"
                 />
             )}
         </div>

@@ -397,8 +397,8 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                     <div className="flex flex-col gap-4 h-full min-h-0">
                         <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
                             <div className="flex items-center gap-3">
-                                <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded">
-                                    <FileSpreadsheet className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                <div className="bg-success/10 p-2 rounded">
+                                    <FileSpreadsheet className="h-5 w-5 text-success" />
                                 </div>
                                 <div>
                                     <p className="font-medium text-sm">{file.name}</p>
@@ -482,7 +482,7 @@ export function PickupLocationImportDialog({ onSuccess, open, setOpen }: PickupI
                                                     </TableCell>
                                                     <TableCell>
                                                         {row.isValid ? (
-                                                            <Check className="h-4 w-4 text-green-500" />
+                                                            <Check className="h-4 w-4 text-success" />
                                                         ) : (
                                                             <span className="text-xs text-destructive font-medium">
                                                                 {row.invalidDetail ?? t("firstMile.sourcesImport.invalid")}

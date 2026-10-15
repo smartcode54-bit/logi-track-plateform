@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { addDays, activeDrivers, dashboardSummaryKey, periodRange } from "./summary";
 import { mergeVehiclePositions, parsePositions, type VehicleLocationDTO } from "./vehicleLocationEvents";
 import { hasIncident, incidentTrucks } from "./incidentMarkers";
+import { default as en } from "@/context/locales/en/dashboard";
+import { default as th } from "@/context/locales/th/dashboard";
 import { chartPaths } from "../components/DeliveryActivityChart";
 
 function location(truckId: string, over: Partial<VehicleLocationDTO> = {}): VehicleLocationDTO {
@@ -116,4 +118,29 @@ describe("the activity chart", () => {
         expect(line).toBe("M 20 180 L 350 100 L 680 20");
         expect(area).toBe(`${line} L 680 180 L 20 180 Z`);
     });
+});
+
+
+describe("the fleet map HTML", () => {
+    for (const [language, dictionary] of [["en", en], ["th", th]] as const) {
+        it(`uses theme tokens and escaped, readable status text in ${language}`, async () => {
+            const { fleetMarkerHtml, fleetPopupHtml } = await import("../components/FleetMapClient");
+            const t = (key: string) => dictionary[key as keyof typeof dictionary] ?? key;
+            for (const engineOn of [true, false]) {
+                const v = location("a", { licensePlate: '<plate>"&', engineOn, speedKmh: 42, odometerKm: 1234, fuelLevel: 8, fuelPercentage: 25 });
+                const marker = fleetMarkerHtml(v.licensePlate!, engineOn, true);
+                const popup = fleetPopupHtml(v, true, t);
+                for (const html of [marker, popup]) {
+                    expect(html).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+                    expect(html).not.toMatch(/\p{Extended_Pictographic}/u);
+                    expect(html).toContain("font-size:12px");
+                    expect(html).toContain("&lt;plate&gt;&quot;&amp;");
+                    expect(html).toContain("var(--card)");
+                    expect(html).toContain("var(--foreground)");
+                }
+                expect(popup).toContain(t(engineOn ? "dashboard.vehicleMap.engineOn" : "dashboard.vehicleMap.engineOff"));
+                expect(popup).toContain("var(--destructive)");
+            }
+        });
+    }
 });

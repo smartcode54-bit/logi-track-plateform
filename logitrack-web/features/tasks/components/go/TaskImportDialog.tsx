@@ -370,7 +370,7 @@ export function TaskImportDialog({ kind, onClose }: { kind: TaskBoardType; onClo
                                             <TableCell className="max-w-[260px] text-xs">
                                                 {res ? (
                                                     res.ok ? (
-                                                        <span className="flex items-center gap-1 text-emerald-600"><Check className="h-3 w-3" />{t("taskBoard.import.valid")}</span>
+                                                        <span className="flex items-center gap-1 text-success"><Check className="h-3 w-3" />{t("taskBoard.import.valid")}</span>
                                                     ) : (
                                                         <span className="text-destructive">{res.text}</span>
                                                     )

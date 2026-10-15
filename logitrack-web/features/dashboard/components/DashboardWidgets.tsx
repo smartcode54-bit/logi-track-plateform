@@ -11,6 +11,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle, CheckCircle2, ClipboardCheck, ExternalLink, Loader2, MapPin, MessageCircle, RefreshCw, ShieldAlert, Truck, Wrench, type LucideIcon } from "lucide-react";
 
 import { useLanguage } from "@/context/language";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ComplianceBlockDTO, ComplianceItemDTO, RecentItemDTO } from "../api/summary";
@@ -54,10 +55,10 @@ export function VehiclePositionList({ vehicles, loading, error, onRetry }: { veh
                 ) : error ? (
                     <div className="py-4 px-2 text-center space-y-2">
                         <p className="text-sm text-muted-foreground">{t("dashboard.vehiclePosition.loadError")}</p>
-                        <button type="button" onClick={onRetry} className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+                        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
                             <RefreshCw className="h-3.5 w-3.5" />
                             {t("dashboard.vehiclePosition.retry")}
-                        </button>
+                        </Button>
                     </div>
                 ) : vehicles.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">{t("dashboard.vehiclePosition.noVehicles")}</p>
@@ -67,7 +68,9 @@ export function VehiclePositionList({ vehicles, loading, error, onRetry }: { veh
                             <li key={v.truckId} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors">
                                 <div className="min-w-0 flex-1">
                                     <p className="text-sm font-medium text-foreground truncate flex items-center gap-1.5">
-                                        {v.engineOn === true ? "🟢" : "⚪"}
+                                        {typeof v.engineOn === "boolean" && (
+                                            <span className="text-xs text-muted-foreground">{t(v.engineOn ? "dashboard.vehicleMap.engineOn" : "dashboard.vehicleMap.engineOff")}</span>
+                                        )}
                                         {v.licensePlate?.trim() || "—"}
                                     </p>
                                     <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -102,7 +105,7 @@ export function ExpenseAuditCard({ pending }: { pending: number }) {
         <Card className="shadow-sm" data-testid="expense-audit">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+                    <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
                     {t("dashboard.expenses.title")}
                 </CardTitle>
                 <Link href="/app/accounting/audit" className="text-xs text-primary hover:underline flex items-center gap-1">
@@ -112,10 +115,10 @@ export function ExpenseAuditCard({ pending }: { pending: number }) {
             <CardContent>
                 <div className="flex items-center justify-between">
                     <div className="space-y-1">
-                        <p className="text-3xl font-bold tracking-tight tabular-nums">{pending.toLocaleString()}</p>
+                        <p className="text-3xl font-semibold tabular-nums">{pending.toLocaleString()}</p>
                         <p className="text-xs text-muted-foreground">{t("dashboard.expenses.pendingApproval")}</p>
                     </div>
-                    <div className={`p-3 rounded-full ${pending > 0 ? "bg-amber-100 dark:bg-amber-950 text-amber-600" : "bg-muted text-muted-foreground"}`}>
+                    <div className={`p-3 rounded-md ${pending > 0 ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"}`}>
                         <ClipboardCheck className="h-6 w-6" />
                     </div>
                 </div>
@@ -129,15 +132,15 @@ export function ChatStatusCard({ unassigned, urgent }: { unassigned: number; urg
     const row = (icon: LucideIcon, tone: string, title: string, subtitle: string, value: number, testId: string) => {
         const Icon = icon;
         return (
-            <Link href="/app/chat" className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors" data-testid={testId}>
-                <div className={`p-2 rounded-full ${tone}`}>
+            <Link href="/app/chat" className="flex items-center gap-3 p-3 rounded-lg bg-card hover:bg-card transition-colors" data-testid={testId}>
+                <div className={`p-2 rounded-md ${tone}`}>
                     <Icon className="h-4 w-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{title}</p>
+                    <p className={`text-sm font-medium ${tone}`}>{title}</p>
                     <p className="text-xs text-muted-foreground">{subtitle}</p>
                 </div>
-                <span className="text-lg font-bold tabular-nums">{value}</span>
+                <span className={`text-lg font-semibold tabular-nums ${tone}`}>{value}</span>
             </Link>
         );
     };
@@ -152,8 +155,8 @@ export function ChatStatusCard({ unassigned, urgent }: { unassigned: number; urg
                 </div>
             </CardHeader>
             <CardContent className="space-y-3">
-                {row(MessageCircle, "bg-amber-500/10 text-amber-600 dark:text-amber-400", t("dashboard.chats.pending"), t("dashboard.chats.unassigned"), unassigned, "chats-unassigned")}
-                {row(AlertTriangle, "bg-red-500/10 text-red-600 dark:text-red-400", t("dashboard.chats.urgent"), t("dashboard.chats.needsAttention"), urgent, "chats-urgent")}
+                {row(MessageCircle, "text-warning", t("dashboard.chats.pending"), t("dashboard.chats.unassigned"), unassigned, "chats-unassigned")}
+                {row(AlertTriangle, "text-destructive", t("dashboard.chats.urgent"), t("dashboard.chats.needsAttention"), urgent, "chats-urgent")}
             </CardContent>
         </Card>
     );
@@ -162,10 +165,10 @@ export function ChatStatusCard({ unassigned, urgent }: { unassigned: number; urg
 // --- recent updates (summary.recent) ---------------------------------------------------------------
 
 const RECENT_STYLE: Record<RecentItemDTO["type"], { icon: LucideIcon; bg: string; color: string; link: string }> = {
-    delivered: { icon: Truck, bg: "bg-green-500/10", color: "text-green-500", link: "/app/driver-monitor" },
-    driver: { icon: CheckCircle, bg: "bg-blue-500/10", color: "text-blue-500", link: "/app/drivers" },
-    incident: { icon: AlertTriangle, bg: "bg-yellow-500/10", color: "text-yellow-500", link: "/app/incident-reports" },
-    maintenance: { icon: Wrench, bg: "bg-gray-500/10", color: "text-gray-500", link: "/app/maintenance" },
+    delivered: { icon: Truck, bg: "bg-muted", color: "text-muted-foreground", link: "/app/driver-monitor" },
+    driver: { icon: CheckCircle, bg: "bg-muted", color: "text-muted-foreground", link: "/app/drivers" },
+    incident: { icon: AlertTriangle, bg: "bg-muted", color: "text-muted-foreground", link: "/app/incident-reports" },
+    maintenance: { icon: Wrench, bg: "bg-muted", color: "text-muted-foreground", link: "/app/maintenance" },
 };
 
 /** The title and the detail line of one feed entry (the old widget's wording). */
@@ -200,11 +203,11 @@ export function RecentUpdatesFeed({ items }: { items: readonly RecentItemDTO[] }
                         return (
                             <Link key={`${item.type}-${item.id}`} href={style.link} className="block hover:bg-muted/50 rounded-lg -m-2 p-2 transition-colors">
                                 <div className="flex gap-4">
-                                    <div className={`p-3 rounded-full h-fit ${style.bg} ${style.color}`}>
+                                    <div className={`p-3 rounded-md h-fit ${style.bg} ${style.color}`}>
                                         <Icon className="w-5 h-5" />
                                     </div>
                                     <div>
-                                        <h3 className="font-medium text-sm text-foreground">{title}</h3>
+                                        <h3 className={`font-medium text-sm ${item.type === "incident" ? "text-warning" : "text-foreground"}`}>{title}</h3>
                                         <p className="text-xs text-muted-foreground mt-0.5">{[timeAgo(item.at, t), detail].filter(Boolean).join(" · ")}</p>
                                     </div>
                                 </div>
@@ -220,10 +223,10 @@ export function RecentUpdatesFeed({ items }: { items: readonly RecentItemDTO[] }
 // --- compliance (summary.compliance) ---------------------------------------------------------------
 
 const KIND_STYLE: Record<ComplianceItemDTO["kind"], { icon: LucideIcon; bg: string; color: string }> = {
-    tax: { icon: AlertTriangle, bg: "bg-orange-100", color: "text-orange-600" },
-    insurance: { icon: ShieldAlert, bg: "bg-blue-100", color: "text-blue-600" },
-    service_date: { icon: CalendarDays, bg: "bg-purple-100", color: "text-purple-600" },
-    service_km: { icon: Wrench, bg: "bg-purple-100", color: "text-purple-600" },
+    tax: { icon: AlertTriangle, bg: "bg-muted", color: "text-muted-foreground" },
+    insurance: { icon: ShieldAlert, bg: "bg-muted", color: "text-muted-foreground" },
+    service_date: { icon: CalendarDays, bg: "bg-muted", color: "text-muted-foreground" },
+    service_km: { icon: Wrench, bg: "bg-muted", color: "text-muted-foreground" },
 };
 
 /** `yyyy-MM-dd` as dd/MM/yyyy (the old widget's en-GB form), with no time zone shift. */
@@ -237,7 +240,7 @@ function DueBadge({ item }: { item: ComplianceItemDTO }) {
     if (item.kmRemaining !== undefined) {
         const overdue = item.kmRemaining < 0;
         return (
-            <Badge variant={item.kmRemaining < 500 ? "destructive" : "secondary"} className={overdue ? "bg-red-600 hover:bg-red-700" : ""}>
+            <Badge variant={item.kmRemaining < 500 ? "destructive" : "secondary"}>
                 {overdue
                     ? t("dashboard.compliance.kmOverdue", { km: Math.abs(item.kmRemaining).toLocaleString() })
                     : t("dashboard.compliance.kmLeft", { km: item.kmRemaining.toLocaleString() })}
@@ -247,7 +250,7 @@ function DueBadge({ item }: { item: ComplianceItemDTO }) {
     if (item.daysRemaining !== undefined) {
         const overdue = item.daysRemaining < 0;
         return (
-            <Badge variant={item.daysRemaining < 7 ? "destructive" : "secondary"} className={overdue ? "bg-red-600 hover:bg-red-700" : ""}>
+            <Badge variant={item.daysRemaining < 7 ? "destructive" : "secondary"}>
                 {overdue ? t("dashboard.compliance.daysOverdue", { days: Math.abs(item.daysRemaining) }) : t("dashboard.compliance.daysLeft", { days: item.daysRemaining })}
             </Badge>
         );
@@ -297,7 +300,7 @@ export function ComplianceCard({ compliance }: { compliance: ComplianceBlockDTO 
                                 className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
                             >
                                 <div className="flex items-start gap-3">
-                                    <div className={`mt-0.5 p-1.5 rounded-full ${style.bg}`}>
+                                    <div className={`mt-0.5 p-1.5 rounded-md ${style.bg}`}>
                                         <Icon className={`h-4 w-4 ${style.color}`} />
                                     </div>
                                     <div className="space-y-1">

@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   Select,
   SelectContent,
@@ -90,7 +91,6 @@ export default function CompanyProfilePage() {
     setValue,
     watch,
     reset,
-    formState: { errors },
   } = form;
 
   const branchType = watch("branchType");
@@ -158,7 +158,7 @@ export default function CompanyProfilePage() {
         <div className="flex items-center gap-4">
           {state.url && (
             <div className="relative w-28 h-16 border rounded-md overflow-hidden bg-muted/40 shrink-0">
-              <Image src={state.url} alt={label} fill style={{ objectFit: "contain" }} unoptimized />
+              <Image src={state.url} alt={label} fill className="object-contain" unoptimized />
             </div>
           )}
           <div className="flex flex-col gap-1.5">
@@ -211,241 +211,272 @@ export default function CompanyProfilePage() {
           description={t("company.profile.subtitle")}
           status={
             companyId ? (
-              <Badge variant="outline" className="text-green-600 border-green-300">
+              <Badge variant="success">
                 {t("company.status.active")}
               </Badge>
             ) : null
           }
         />
 
-        <form onSubmit={handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
+        <Form {...form}>
+          <form onSubmit={handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-6">
 
-          {/* ── Section 1: Corporate Identity ── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-base">{t("company.section.corporateIdentity")}</CardTitle>
-              </div>
-              <CardDescription>{t("company.section.corporateIdentityDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="nameTh">{t("company.field.nameTh")} *</Label>
-                  <Input
-                    id="nameTh"
-                    placeholder={t("company.placeholder.nameTh")}
-                    {...register("nameTh")}
-                  />
-                  {errors.nameTh && <p className="text-xs text-red-500">{errors.nameTh.message}</p>}
+            {/* ── Section 1: Corporate Identity ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-base">{t("company.section.corporateIdentity")}</CardTitle>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="nameEn">{t("company.field.nameEn")}</Label>
-                  <Input
-                    id="nameEn"
-                    placeholder={t("company.placeholder.nameEn")}
-                    {...register("nameEn")}
+                <CardDescription>{t("company.section.corporateIdentityDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="nameTh"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("company.field.nameTh")} *</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t("company.placeholder.nameTh")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="shortName">{t("company.field.shortName")}</Label>
-                  <Input
-                    id="shortName"
-                    placeholder={t("company.placeholder.shortName")}
-                    {...register("shortName")}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="taxId">{t("company.field.taxId")} *</Label>
-                  <Input
-                    id="taxId"
-                    placeholder={t("company.placeholder.taxId")}
-                    maxLength={13}
-                    {...register("taxId")}
-                  />
-                  {errors.taxId && <p className="text-xs text-red-500">{errors.taxId.message}</p>}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label>{t("company.field.branchType")}</Label>
-                    <Select
-                      value={branchType}
-                      onValueChange={(v) => setValue("branchType", v as "headquarters" | "branch")}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="headquarters">{t("company.branchType.headquarters")}</SelectItem>
-                        <SelectItem value="branch">{t("company.branchType.branch")}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="nameEn">{t("company.field.nameEn")}</Label>
+                    <Input
+                      id="nameEn"
+                      placeholder={t("company.placeholder.nameEn")}
+                      {...register("nameEn")}
+                    />
                   </div>
-                  {branchType === "branch" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="shortName">{t("company.field.shortName")}</Label>
+                    <Input
+                      id="shortName"
+                      placeholder={t("company.placeholder.shortName")}
+                      {...register("shortName")}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="taxId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("company.field.taxId")} *</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t("company.placeholder.taxId")}
+                            maxLength={13}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="branchNumber">{t("company.field.branchNumber")}</Label>
-                      <Input
-                        id="branchNumber"
-                        placeholder={t("company.placeholder.branchNumber")}
-                        maxLength={5}
-                        {...register("branchNumber")}
-                      />
+                      <Label>{t("company.field.branchType")}</Label>
+                      <Select
+                        value={branchType}
+                        onValueChange={(v) => setValue("branchType", v as "headquarters" | "branch")}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="headquarters">{t("company.branchType.headquarters")}</SelectItem>
+                          <SelectItem value="branch">{t("company.branchType.branch")}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+                    {branchType === "branch" && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="branchNumber">{t("company.field.branchNumber")}</Label>
+                        <Input
+                          id="branchNumber"
+                          placeholder={t("company.placeholder.branchNumber")}
+                          maxLength={5}
+                          {...register("branchNumber")}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("company.field.address")} *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={t("company.placeholder.address")}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="address">{t("company.field.address")} *</Label>
-                <Input
-                  id="address"
-                  placeholder={t("company.placeholder.address")}
-                  {...register("address")}
                 />
-                {errors.address && <p className="text-xs text-red-500">{errors.address.message}</p>}
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="phone">{t("company.field.phone")}</Label>
-                  <Input id="phone" type="tel" {...register("phone")} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">{t("company.field.email")}</Label>
-                  <Input id="email" type="email" {...register("email")} />
-                  {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="signatoryName">{t("company.field.signatoryName")}</Label>
-                <Input
-                  id="signatoryName"
-                  placeholder={t("company.placeholder.signatoryName")}
-                  {...register("signatoryName")}
-                />
-                <p className="text-xs text-muted-foreground">{t("masterData.companies.signatoryHint")}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Section 2: Documents & Assets ── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-base">{t("company.section.documents")}</CardTitle>
-              </div>
-              <CardDescription>{t("company.section.documentsDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <AssetField
-                type="logo"
-                label={t("company.field.logo")}
-                hint={t("company.asset.logo.hint")}
-              />
-              <Separator />
-              <AssetField
-                type="stamp"
-                label={t("company.field.stamp")}
-                hint={t("company.asset.stamp.hint")}
-              />
-              <Separator />
-              <AssetField
-                type="signature"
-                label={t("company.field.signature")}
-                hint={t("company.asset.signature.hint")}
-              />
-            </CardContent>
-          </Card>
-
-          {/* ── Section 3: Banking ── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-base">{t("company.section.banking")}</CardTitle>
-              </div>
-              <CardDescription>{t("company.section.bankingDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="bankName">{t("company.field.bankName")}</Label>
-                  <Input
-                    id="bankName"
-                    placeholder={t("company.placeholder.bankName")}
-                    {...register("bankName")}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="phone">{t("company.field.phone")}</Label>
+                    <Input id="phone" type="tel" {...register("phone")} />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("company.field.email")}</FormLabel>
+                        <FormControl>
+                          <Input type="email" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="accountNumber">{t("company.field.accountNumber")}</Label>
-                  <Input
-                    id="accountNumber"
-                    placeholder={t("company.placeholder.accountNumber")}
-                    {...register("accountNumber")}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="accountName">{t("company.field.accountName")}</Label>
-                  <Input
-                    id="accountName"
-                    placeholder={t("company.placeholder.accountName")}
-                    {...register("accountName")}
-                  />
-                </div>
-              </div>
-              <div className="max-w-xs space-y-1.5">
-                <Label htmlFor="withholdingTaxRate">{t("company.field.withholdingTax")}</Label>
-                <Input
-                  id="withholdingTaxRate"
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="100"
-                  {...register("withholdingTaxRate", { valueAsNumber: true })}
-                />
-                <p className="text-xs text-muted-foreground">{t("masterData.companies.whtHint")}</p>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* ── Section 4: Status (owner type locked) ── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Settings2 className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-base">{t("masterData.companies.statusTitle")}</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3">
-                <Switch
-                  id="isActive"
-                  checked={watch("isActive")}
-                  onCheckedChange={(v) => setValue("isActive", v)}
-                />
-                <Label htmlFor="isActive">{t("company.field.isActive")}</Label>
-              </div>
-              <input type="hidden" value="owner" {...register("companyType")} />
-            </CardContent>
-          </Card>
+                <div className="space-y-1.5">
+                  <Label htmlFor="signatoryName">{t("company.field.signatoryName")}</Label>
+                  <Input
+                    id="signatoryName"
+                    placeholder={t("company.placeholder.signatoryName")}
+                    {...register("signatoryName")}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("masterData.companies.signatoryHint")}</p>
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Save button */}
-          <div className="flex justify-end">
-            <Button type="submit" disabled={saving} className="min-w-32">
-              {saving ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("company.saving")}</>
-              ) : (
-                t("company.save")
-              )}
-            </Button>
-          </div>
-        </form>
+            {/* ── Section 2: Documents & Assets ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-base">{t("company.section.documents")}</CardTitle>
+                </div>
+                <CardDescription>{t("company.section.documentsDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <AssetField
+                  type="logo"
+                  label={t("company.field.logo")}
+                  hint={t("company.asset.logo.hint")}
+                />
+                <Separator />
+                <AssetField
+                  type="stamp"
+                  label={t("company.field.stamp")}
+                  hint={t("company.asset.stamp.hint")}
+                />
+                <Separator />
+                <AssetField
+                  type="signature"
+                  label={t("company.field.signature")}
+                  hint={t("company.asset.signature.hint")}
+                />
+              </CardContent>
+            </Card>
+
+            {/* ── Section 3: Banking ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-base">{t("company.section.banking")}</CardTitle>
+                </div>
+                <CardDescription>{t("company.section.bankingDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bankName">{t("company.field.bankName")}</Label>
+                    <Input
+                      id="bankName"
+                      placeholder={t("company.placeholder.bankName")}
+                      {...register("bankName")}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="accountNumber">{t("company.field.accountNumber")}</Label>
+                    <Input
+                      id="accountNumber"
+                      placeholder={t("company.placeholder.accountNumber")}
+                      {...register("accountNumber")}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="accountName">{t("company.field.accountName")}</Label>
+                    <Input
+                      id="accountName"
+                      placeholder={t("company.placeholder.accountName")}
+                      {...register("accountName")}
+                    />
+                  </div>
+                </div>
+                <div className="max-w-xs space-y-1.5">
+                  <Label htmlFor="withholdingTaxRate">{t("company.field.withholdingTax")}</Label>
+                  <Input
+                    id="withholdingTaxRate"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="100"
+                    {...register("withholdingTaxRate", { valueAsNumber: true })}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("masterData.companies.whtHint")}</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── Section 4: Status (owner type locked) ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Settings2 className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-base">{t("masterData.companies.statusTitle")}</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="isActive"
+                    checked={watch("isActive")}
+                    onCheckedChange={(v) => setValue("isActive", v)}
+                  />
+                  <Label htmlFor="isActive">{t("company.field.isActive")}</Label>
+                </div>
+                <input type="hidden" value="owner" {...register("companyType")} />
+              </CardContent>
+            </Card>
+
+            {/* Save button */}
+            <div className="flex justify-end">
+              <Button type="submit" disabled={saving} className="min-w-32">
+                {saving ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("company.saving")}</>
+                ) : (
+                  t("company.save")
+                )}
+              </Button>
+            </div>
+          </form>
+        </Form>
       </div>
     </PagePermissionGuard>
   );

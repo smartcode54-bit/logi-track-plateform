@@ -18,7 +18,7 @@ import { hubPicksQuery, type HubPick } from "@/features/accounting/api/pickers.g
 import { fieldViolations } from "@/features/auth/utils/fieldErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { fieldReasonText } from "@/lib/formServerErrors";
-import { cn } from "@/lib/utils";
+import { taskStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,39 +84,21 @@ export function goHubFilterOptions(hubs: readonly HubPick[]): { value: string; l
     return out;
 }
 
-const TASK_STATUS_STYLE: Record<TaskStatus, string> = {
-    pending: "bg-slate-500/10 text-slate-700 border-slate-500/25 dark:text-slate-300",
-    assigned: "bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-300",
-    checked_in: "bg-teal-500/10 text-teal-700 border-teal-500/25 dark:text-teal-300",
-    in_transit: "bg-amber-500/15 text-amber-700 border-amber-500/25 dark:text-amber-300",
-    completed: "bg-emerald-500/15 text-emerald-700 border-emerald-500/25 dark:text-emerald-300",
-    cancelled: "bg-zinc-500/15 text-zinc-500 border-zinc-500/25",
-};
-
 export function TaskStatusBadge({ status }: { status: TaskStatus | string }) {
     const { t } = useLanguage();
     return (
-        <Badge variant="outline" className={cn("font-medium", TASK_STATUS_STYLE[status as TaskStatus])}>
+        <Badge variant={toneBadgeVariant(taskStatusTone(status))}>
             {t(`taskBoard.status.${status}`, status)}
         </Badge>
     );
 }
 
-const VEHICLE_CLASS_STYLE: Record<string, string> = {
-    "4W": "bg-green-50 text-green-700 ring-green-600/20",
-    "4WJ": "bg-cyan-50 text-cyan-700 ring-cyan-600/20",
-    "6WH": "bg-purple-50 text-purple-700 ring-purple-600/20",
-    "10WH": "bg-gray-50 text-gray-600 ring-gray-500/10",
-    "18WH": "bg-orange-50 text-orange-700 ring-orange-600/20",
-    VAN: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
-};
-
 export function VehicleClassChip({ value }: { value: string | null | undefined }) {
     if (!value) return <span className="text-muted-foreground">—</span>;
     return (
-        <span className={cn("inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset", VEHICLE_CLASS_STYLE[value] ?? "bg-muted")}>
+        <Badge variant="outline">
             {value}
-        </span>
+        </Badge>
     );
 }
 
