@@ -8,16 +8,17 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
+import { LoadingState, QueryErrorState } from "./PartnerQueryStates";
 
 // Sub-components
 import { SubcontractorStats } from "./SubcontractorStats";
-import { SubcontractorFilter } from "./SubcontractorFilter";
+import { SubcontractorFilter, UNSPECIFIED_REGION } from "./SubcontractorFilter";
 import { SubcontractorTable } from "./SubcontractorTable";
 
 export default function SubcontractorsListDashboard() {
     const { t } = useLanguage();
-    // `['subcontractors', {view:'full'}]` (T25): Go `GET /v1/subcontractors` or Firestore by the flag.
-    const { rows: subcontractors, isPending: loading } = useSubcontractorList();
+    const query = useSubcontractorList();
+    const { rows: subcontractors } = query;
 
     // Filter States
     const [searchQuery, setSearchQuery] = useState("");
@@ -28,6 +29,10 @@ export default function SubcontractorsListDashboard() {
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
+    const changeFilter = (setFilter: (value: string) => void) => (value: string) => {
+        setFilter(value);
+        setCurrentPage(1);
+    };
 
     // Sort State
     const [sortConfig, setSortConfig] = useState<{ key: keyof SubcontractorSummaryDTO; direction: 'asc' | 'desc' } | null>(null);
@@ -42,7 +47,7 @@ export default function SubcontractorsListDashboard() {
 
     // Unique Regions for Filter
     const regions = useMemo(() => {
-        const unique = new Set(subcontractors.map(s => s.serviceArea || "Unknown"));
+        const unique = new Set(subcontractors.flatMap(s => s.serviceRegions ?? []));
         return Array.from(unique).sort();
     }, [subcontractors]);
 
@@ -56,12 +61,14 @@ export default function SubcontractorsListDashboard() {
                 sub.id.toLowerCase().includes(searchQuery.toLowerCase());
 
             const matchesStatus = statusFilter === 'all' || sub.status === statusFilter;
-            const matchesRegion = regionFilter === 'all' || sub.serviceArea === regionFilter;
+            const serviceRegions = sub.serviceRegions ?? [];
+            const matchesRegion = regionFilter === 'all' || (regionFilter === UNSPECIFIED_REGION
+                ? serviceRegions.length === 0 : serviceRegions.includes(regionFilter));
 
             let matchesFleet = true;
             if (fleetSizeFilter === 'small') matchesFleet = (sub.fleetSize || 0) < 20;
-            if (fleetSizeFilter === 'medium') matchesFleet = (sub.fleetSize || 0) >= 20 && (sub.fleetSize || 0) < 50;
-            if (fleetSizeFilter === 'large') matchesFleet = (sub.fleetSize || 0) >= 50;
+            if (fleetSizeFilter === 'medium') matchesFleet = (sub.fleetSize || 0) >= 20 && (sub.fleetSize || 0) <= 50;
+            if (fleetSizeFilter === 'large') matchesFleet = (sub.fleetSize || 0) > 50;
 
             return matchesSearch && matchesStatus && matchesRegion && matchesFleet;
         });
@@ -84,10 +91,12 @@ export default function SubcontractorsListDashboard() {
     }, [filteredSubs, sortConfig]);
 
     // Pagination Logic
+    const page = Math.max(1, Math.min(currentPage, Math.ceil(sortedSubs.length / itemsPerPage)));
+    if (currentPage !== page) setCurrentPage(page);
     const paginatedSubs = useMemo(() => {
-        const startIndex = (currentPage - 1) * itemsPerPage;
+        const startIndex = (page - 1) * itemsPerPage;
         return sortedSubs.slice(startIndex, startIndex + itemsPerPage);
-    }, [sortedSubs, currentPage]);
+    }, [sortedSubs, page]);
 
     const handleSort = (key: keyof SubcontractorSummaryDTO) => {
         let direction: 'asc' | 'desc' = 'asc';
@@ -112,33 +121,40 @@ export default function SubcontractorsListDashboard() {
                 }
             />
 
-            {/* Stats */}
-            <SubcontractorStats stats={stats} loading={loading} />
+            {query.error && <QueryErrorState title={t("subcontractors.loadError.list")} error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />}
+            {query.isPending && <LoadingState label={t("subcontractors.loading")} />}
+            {query.data !== undefined && (
+                <>
+                    {/* Stats */}
+                    <SubcontractorStats stats={stats} loading={false} />
 
-            {/* Filter */}
-            <SubcontractorFilter
-                searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
-                regionFilter={regionFilter}
-                setRegionFilter={setRegionFilter}
-                fleetSizeFilter={fleetSizeFilter}
-                setFleetSizeFilter={setFleetSizeFilter}
-                regions={regions}
-            />
+                    {/* Filter */}
+                    <SubcontractorFilter
+                        searchQuery={searchQuery}
+                        setSearchQuery={changeFilter(setSearchQuery)}
+                        statusFilter={statusFilter}
+                        setStatusFilter={changeFilter(setStatusFilter)}
+                        regionFilter={regionFilter}
+                        setRegionFilter={changeFilter(setRegionFilter)}
+                        fleetSizeFilter={fleetSizeFilter}
+                        setFleetSizeFilter={changeFilter(setFleetSizeFilter)}
+                        regions={regions}
+                        hasUnspecifiedRegion={subcontractors.some(sub => !sub.serviceRegions?.length)}
+                    />
 
-            {/* Table */}
-            <SubcontractorTable
-                subcontractors={paginatedSubs}
-                loading={loading}
-                currentPage={currentPage}
-                setCurrentPage={setCurrentPage}
-                itemsPerPage={itemsPerPage}
-                filteredCount={filteredSubs.length}
-                sortConfig={sortConfig}
-                handleSort={handleSort}
-            />
+                    {/* Table */}
+                    <SubcontractorTable
+                        subcontractors={paginatedSubs}
+                        loading={false}
+                        currentPage={page}
+                        setCurrentPage={setCurrentPage}
+                        itemsPerPage={itemsPerPage}
+                        filteredCount={filteredSubs.length}
+                        sortConfig={sortConfig}
+                        handleSort={handleSort}
+                    />
+                </>
+            )}
         </div>
     );
 }

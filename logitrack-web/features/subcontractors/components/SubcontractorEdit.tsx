@@ -4,12 +4,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { subcontractorSchema, SubcontractorFormValues, subcontractorDefaultValues } from "@/validate/subcontractorSchema";
+import { SubcontractorFormMessage as FormMessage, subcontractorFormTranslate } from "./form/SubcontractorFormMessage";
 import { documentPreviewUrls, subcontractorFormValues } from "../api/subcontractors";
 import { useSaveSubcontractor, useSubcontractor } from "../api/useSubcontractors";
 import { useCan } from "@/features/auth/api/useMe";
 import { applyServerFieldErrors, toastSaveError } from "@/lib/formServerErrors";
 import { useRouter, useParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -17,7 +18,6 @@ import {
     FormField,
     FormItem,
     FormLabel,
-    FormMessage,
 } from "@/components/ui/form";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,7 @@ import FileUploader from "./FileUploader";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
+import { LoadingState } from "./PartnerQueryStates";
 
 export default function SubcontractorEdit() {
     const router = useRouter();
@@ -49,7 +50,18 @@ export default function SubcontractorEdit() {
     // A carrier's status is a tenant column (`PATCH /v1/tenants/{id}`, platform admins).
     const { allowed: canSetStatus } = useCan("platform:manage_tenants");
     const statusLocked = !canSetStatus;
-    const [previews, setPreviews] = useState<Record<string, string>>({});
+    const [previews, setPreviews] = useState<Record<string, string | null>>({});
+    const [contentTypes, setContentTypes] = useState<Record<string, string>>({});
+    const [pendingUploads, setPendingUploads] = useState(0);
+    const pendingUploadsRef = useRef(0);
+    const saving = useRef(false);
+    const previewObjects = useRef(new Set<string>());
+    const busy = isSubmitting || pendingUploads > 0;
+
+    useEffect(() => {
+        const objects = previewObjects.current;
+        return () => objects.forEach(url => URL.revokeObjectURL(url));
+    }, []);
 
     const form = useForm<SubcontractorFormValues>({
         resolver: zodResolver(subcontractorSchema),
@@ -72,22 +84,34 @@ export default function SubcontractorEdit() {
 
     const uploadDocument = (variant: "id_card" | "company_doc") => (file: File) =>
         upload.mutateAsync({ subcontractorId: id, file, variant });
-    const addDocument = (ref: string, previewUrl: string) => {
+    const uploadPendingChanged = (pending: boolean) => {
+        pendingUploadsRef.current += pending ? 1 : -1;
+        setPendingUploads(pendingUploadsRef.current);
+    };
+    const addDocument = (ref: string, previewUrl: string, contentType: string) => {
+        if (previewUrl.startsWith("blob:")) previewObjects.current.add(previewUrl);
         setPreviews((p) => ({ ...p, [ref]: previewUrl }));
-        form.setValue("documents", [...(form.getValues("documents") || []), ref]);
+        setContentTypes((types) => ({ ...types, [ref]: contentType }));
+        form.setValue("documents", [...(form.getValues("documents") || []), ref], { shouldDirty: true });
     };
     const removeDocument = (ref: string) => {
-        form.setValue("documents", (form.getValues("documents") || []).filter((u) => u !== ref));
+        form.setValue("documents", (form.getValues("documents") || []).filter((u) => u !== ref), { shouldDirty: true });
+        const preview = previews[ref];
+        if (preview && previewObjects.current.delete(preview)) URL.revokeObjectURL(preview);
     };
 
     const onSubmit = async (data: SubcontractorFormValues) => {
+        if (pendingUploadsRef.current > 0 || saving.current) return;
+        saving.current = true;
         try {
-            await update.mutateAsync({ id, values: data, statusChanged: data.status !== loadedStatus });
+            await update.mutateAsync({ id, values: { ...data, documents: form.getValues("documents") }, statusChanged: data.status !== loadedStatus });
             toast.success(t("subcontractors.toast.updateSuccess"));
             router.push(`/app/subcontractors/${id}`);
         } catch (error) {
             applyServerFieldErrors(form, error, t, { nameTh: "name", legalType: "type", documentKeys: "documents" });
             toastSaveError(error, t, "subcontractors.toast.updateError");
+        } finally {
+            saving.current = false;
         }
     };
 
@@ -99,12 +123,7 @@ export default function SubcontractorEdit() {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex items-center justify-center min-h-[400px]" role="status" aria-busy="true">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
-                <span className="sr-only">{t("common.loading")}</span>
-            </div>
-        );
+        return <LoadingState />;
     }
 
     return (
@@ -113,11 +132,11 @@ export default function SubcontractorEdit() {
                 title={t("nav.partners")}
                 recordName={query.data?.nameTh}
                 description={t("subcontractors.edit.title")}
-                back={{ href: `/app/subcontractors/${id}`, label: t("subcontractors.edit.backToDetails") }}
+                back={busy ? undefined : { href: `/app/subcontractors/${id}`, label: t("subcontractors.edit.backToDetails") }}
             />
             <div>
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-8">
+                    <form noValidate onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, subcontractorFormTranslate(t)))} className="space-y-8">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="text-base">{t("subcontractors.edit.basicInfo")}</CardTitle>
@@ -130,7 +149,7 @@ export default function SubcontractorEdit() {
                                         render={({ field }) => (
                                             <FormItem>
                                                 <FormLabel>{t("subcontractors.form.type")}</FormLabel>
-                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                <Select onValueChange={field.onChange} value={field.value} disabled={busy}>
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder={t("subcontractors.form.type.placeholder")} />
@@ -325,6 +344,9 @@ export default function SubcontractorEdit() {
                                         upload={uploadDocument("id_card")}
                                         currentUrls={form.watch("documents")}
                                         previews={previews}
+                                        contentTypes={contentTypes}
+                                        onUploadPendingChange={uploadPendingChanged}
+                                        disabled={isSubmitting}
                                         onUploadComplete={addDocument}
                                         onRemove={removeDocument}
                                     />
@@ -342,6 +364,9 @@ export default function SubcontractorEdit() {
                                             upload={uploadDocument("company_doc")}
                                             currentUrls={form.watch("documents")}
                                             previews={previews}
+                                            contentTypes={contentTypes}
+                                            onUploadPendingChange={uploadPendingChanged}
+                                            disabled={isSubmitting}
                                             onUploadComplete={addDocument}
                                             onRemove={removeDocument}
                                         />
@@ -351,10 +376,10 @@ export default function SubcontractorEdit() {
                         </Card>
 
                         <div className="sticky bottom-0 z-sticky flex flex-col gap-3 border-t border-border bg-background py-4 md:flex-row md:justify-end">
-                            <Button variant="outline" type="button" onClick={() => router.back()}>
+                            <Button variant="outline" type="button" disabled={busy} onClick={() => router.back()} className="max-md:min-h-11">
                                 {t("subcontractors.form.cancel")}
                             </Button>
-                            <Button type="submit" disabled={isSubmitting}>
+                            <Button type="submit" disabled={busy} className="max-md:min-h-11">
                                 {isSubmitting ? (
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 ) : (

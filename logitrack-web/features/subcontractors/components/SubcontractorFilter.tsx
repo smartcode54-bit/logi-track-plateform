@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search } from "lucide-react";
 
+export const UNSPECIFIED_REGION = "__not_specified__";
+
 interface SubcontractorFilterProps {
     searchQuery: string;
     setSearchQuery: (v: string) => void;
@@ -15,6 +17,7 @@ interface SubcontractorFilterProps {
     fleetSizeFilter: string;
     setFleetSizeFilter: (v: string) => void;
     regions: string[];
+    hasUnspecifiedRegion: boolean;
 }
 
 export function SubcontractorFilter(props: SubcontractorFilterProps) {
@@ -25,15 +28,16 @@ export function SubcontractorFilter(props: SubcontractorFilterProps) {
             <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
+                    aria-label={t("subcontractors.search")}
                     placeholder={t("subcontractors.search")}
-                    className="pl-10 bg-background/50 border-border/50 focus-visible:ring-1"
+                    className="max-md:h-11 pl-10 bg-background/50 border-border/50 focus-visible:ring-1"
                     value={props.searchQuery}
                     onChange={(e) => props.setSearchQuery(e.target.value)}
                 />
             </div>
             <div className="flex gap-3 overflow-x-auto pb-1 lg:pb-0">
                 <Select value={props.statusFilter} onValueChange={props.setStatusFilter}>
-                    <SelectTrigger className="w-[140px] bg-background/50 border-border/50">
+                    <SelectTrigger aria-label={t("subcontractors.filter.status")} className="max-md:h-11 min-w-36 bg-background/50 border-border/50">
                         <SelectValue placeholder={t("subcontractors.filter.allStatuses")} />
                     </SelectTrigger>
                     <SelectContent>
@@ -45,11 +49,12 @@ export function SubcontractorFilter(props: SubcontractorFilterProps) {
                 </Select>
 
                 <Select value={props.regionFilter} onValueChange={props.setRegionFilter}>
-                    <SelectTrigger className="w-[160px] bg-background/50 border-border/50">
+                    <SelectTrigger aria-label={t("subcontractors.filter.region")} className="max-md:h-11 min-w-40 bg-background/50 border-border/50">
                         <SelectValue placeholder={t("subcontractors.filter.allRegions")} />
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">{t("subcontractors.filter.allRegions")}</SelectItem>
+                        {props.hasUnspecifiedRegion && <SelectItem value={UNSPECIFIED_REGION}>{t("subcontractors.filter.notSpecified")}</SelectItem>}
                         {props.regions.map(r => (
                             <SelectItem key={r} value={r}>{r}</SelectItem>
                         ))}
@@ -57,7 +62,7 @@ export function SubcontractorFilter(props: SubcontractorFilterProps) {
                 </Select>
 
                 <Select value={props.fleetSizeFilter} onValueChange={props.setFleetSizeFilter}>
-                    <SelectTrigger className="w-[140px] bg-background/50 border-border/50">
+                    <SelectTrigger aria-label={t("subcontractors.filter.fleetSize")} className="max-md:h-11 min-w-36 bg-background/50 border-border/50">
                         <SelectValue placeholder={t("subcontractors.filter.fleetSize")} />
                     </SelectTrigger>
                     <SelectContent>

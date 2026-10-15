@@ -16,7 +16,7 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { goFetch, goPath } from "@/lib/goFetch";
 import { fetchAllPages } from "@/lib/goPages";
-import { uploadToGo } from "@/lib/goUpload";
+import { uploadContentType, uploadToGo } from "@/lib/goUpload";
 import { getQueryClient } from "@/lib/queryClient";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import type { SubcontractorFormValues } from "@/validate/subcontractorSchema";
@@ -53,8 +53,8 @@ export interface SubcontractorSummaryDTO {
     billingPartyId: string | null;
     billingDateBasis: "delivered" | "plan" | null;
     createdAt: string | null;
-    /** Unset: Go keeps the regions on the profile (the retired Firestore list showed them). */
-    serviceArea?: string | null;
+    /** Optional while older Go responses are still in the query cache. */
+    serviceRegions?: string[] | null;
 }
 
 /** One document of a carrier profile (`tenant_files`). */
@@ -139,12 +139,12 @@ export function subcontractorFormValues(s: SubcontractorDTO): SubcontractorFormV
     };
 }
 
-/** Preview URL of each document ref of a stored profile (a key on Go; a legacy URL is shown as it is). */
-export function documentPreviewUrls(s: SubcontractorDTO): Record<string, string> {
-    const out: Record<string, string> = {};
+/** Preview URL of each document ref; null means the stored object is unavailable. */
+export function documentPreviewUrls(s: SubcontractorDTO): Record<string, string | null> {
+    const out: Record<string, string | null> = {};
     for (const d of s.documents) {
         const ref = d.key ?? d.url;
-        if (ref && d.url) out[ref] = d.url;
+        if (ref) out[ref] = d.url;
     }
     return out;
 }
@@ -212,9 +212,9 @@ export async function uploadSubcontractorDocument({
     subcontractorId: string;
     file: File;
     variant: "id_card" | "company_doc";
-}): Promise<{ ref: string; previewUrl: string }> {
+}): Promise<{ ref: string; previewUrl: string; contentType: string }> {
     const key = await uploadToGo(file, { purpose: "tenant_document", entityId: subcontractorId, variant });
-    return { ref: key, previewUrl: URL.createObjectURL(file) };
+    return { ref: key, previewUrl: URL.createObjectURL(file), contentType: uploadContentType(file) };
 }
 
 /** Creates a carrier profile; returns its id. */

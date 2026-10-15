@@ -71,6 +71,7 @@ type SubcontractorSummary struct {
 	Phone              *string    `json:"phone"`
 	Email              *string    `json:"email"`
 	FleetSize          int32      `json:"fleetSize"`
+	ServiceRegions     []string   `json:"serviceRegions"`
 	LineGroupID        *string    `json:"lineGroupId"`
 	ContractorTenantID *uuid.UUID `json:"contractorTenantId"`
 	BillingPartyID     *uuid.UUID `json:"billingPartyId"`
@@ -225,12 +226,20 @@ func (a *Admin) ListSubcontractors(c call, in ListSubcontractorsInput) (any, str
 	}
 	out := make([]SubcontractorSummary, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, SubcontractorSummary{ID: r.ID, Code: r.Code, NameTh: r.NameTh, NameEn: r.NameEn,
-			LegalType: r.LegalType, Status: r.Status, ContactPerson: r.ContactPerson, Phone: r.Phone, Email: r.Email,
-			FleetSize: r.FleetSize, LineGroupID: r.LineGroupID, ContractorTenantID: r.ContractorTenantID,
-			BillingPartyID: r.BillingPartyID, BillingDateBasis: r.BillingDateBasis, CreatedAt: r.CreatedAt})
+		out = append(out, subcontractorSummary(r))
 	}
 	return out, next, nil
+}
+
+func subcontractorSummary(r iamdb.ListCarrierProfilesRow) SubcontractorSummary {
+	regions := r.ServiceRegions
+	if regions == nil {
+		regions = []string{}
+	}
+	return SubcontractorSummary{ID: r.ID, Code: r.Code, NameTh: r.NameTh, NameEn: r.NameEn,
+		LegalType: r.LegalType, Status: r.Status, ContactPerson: r.ContactPerson, Phone: r.Phone, Email: r.Email,
+		FleetSize: r.FleetSize, ServiceRegions: regions, LineGroupID: r.LineGroupID, ContractorTenantID: r.ContractorTenantID,
+		BillingPartyID: r.BillingPartyID, BillingDateBasis: r.BillingDateBasis, CreatedAt: r.CreatedAt}
 }
 
 // GetSubcontractor is GET /v1/subcontractors/{id}: the visibility rule of GET /v1/tenants/{id} (platform, a steward

@@ -30,18 +30,21 @@ export default {
 
     // Filters
     "subcontractors.filter.allStatuses": "สถานะทั้งหมด",
+    "subcontractors.filter.status": "สถานะรถร่วม",
     "subcontractors.filter.active": "ใช้งาน",
     "subcontractors.filter.onTrial": "รอดำเนินการ",
     "subcontractors.filter.terminated": "ระงับ",
-    "subcontractors.filter.allRegions": "ภูมิภาคทั้งหมด",
-    "subcontractors.filter.fleetSize": "ขนาดฝูงรถ",
+    "subcontractors.filter.allRegions": "พื้นที่ทั้งหมด",
+    "subcontractors.filter.region": "พื้นที่ให้บริการ",
+    "subcontractors.filter.notSpecified": "ยังไม่ระบุ",
+    "subcontractors.filter.fleetSize": "จำนวนรถ",
     "subcontractors.filter.allSizes": "ทุกขนาด",
-    "subcontractors.filter.small": "เล็ก (<20)",
-    "subcontractors.filter.medium": "กลาง (20-50)",
-    "subcontractors.filter.large": "ใหญ่ (>50)",
+    "subcontractors.filter.small": "น้อยกว่า 20 คัน",
+    "subcontractors.filter.medium": "20-50 คัน",
+    "subcontractors.filter.large": "มากกว่า 50 คัน",
 
     // Table Headers
-    "subcontractors.table.companyName": "ชื่อบริษัท",
+    "subcontractors.table.companyName": "ชื่อรถร่วม",
     "subcontractors.table.primaryContact": "ผู้ติดต่อหลัก",
     "subcontractors.table.fleetSize": "จำนวนรถ",
     "subcontractors.table.serviceArea": "พื้นที่ให้บริการ",
@@ -54,8 +57,12 @@ export default {
     "subcontractors.loading": "กำลังโหลดข้อมูลรถร่วม...",
     "subcontractors.noData": "ไม่พบรถร่วมที่ตรงกับตัวกรอง",
 
+    // Query Errors
+    "subcontractors.loadError.list": "ไม่สามารถโหลดรายชื่อรถร่วมได้",
+    "subcontractors.loadError.fleet": "ไม่สามารถโหลดข้อมูลรถในสังกัดได้",
+
     // Dropdown Actions
-    "subcontractors.action.viewProfile": "ดูโปรไฟล์",
+    "subcontractors.action.viewProfile": "ดูข้อมูลรถร่วม",
     "subcontractors.action.suspendPartner": "ระงับรถร่วม",
 
     // Pagination
@@ -73,21 +80,21 @@ export default {
     "subcontractors.new.of": "จาก",
 
     // Steps
-    "subcontractors.step1.title": "โปรไฟล์บริษัท",
-    "subcontractors.step1.description": "ข้อมูลบริษัทและกฎหมาย",
+    "subcontractors.step1.title": "ข้อมูลรถร่วม",
+    "subcontractors.step1.description": "ข้อมูลบุคคลหรือนิติบุคคล",
     "subcontractors.step2.title": "ข้อมูลติดต่อ",
     "subcontractors.step2.description": "ผู้ติดต่อและการสื่อสาร",
-    "subcontractors.step3.title": "ฝูงรถและบริการ",
-    "subcontractors.step3.description": "ความจุและพื้นที่ครอบคลุม",
+    "subcontractors.step3.title": "รถและการให้บริการ",
+    "subcontractors.step3.description": "จำนวนรถและพื้นที่ให้บริการ",
 
     // Tips
-    "subcontractors.tips": "เคล็ดลับ",
+    "subcontractors.tips": "คำแนะนำ",
     "subcontractors.tips.taxId": "ตรวจสอบให้แน่ใจว่าเลขประจำตัวผู้เสียภาษีตรงกับเอกสารทางการเพื่อหลีกเลี่ยงความล่าช้าในการยืนยัน",
 
     // Step 1 - Company Profile
-    "subcontractors.form.companyProfile": "โปรไฟล์บริษัท",
-    "subcontractors.form.companyProfile.desc": "กรอกข้อมูลทางกฎหมายและธุรกิจ",
-    "subcontractors.form.legalName": "ชื่อธุรกิจตามกฎหมาย",
+    "subcontractors.form.companyProfile": "ข้อมูลรถร่วม",
+    "subcontractors.form.companyProfile.desc": "กรอกข้อมูลบุคคลหรือนิติบุคคลตามเอกสาร",
+    "subcontractors.form.legalName": "ชื่อบุคคล / ชื่อนิติบุคคล",
     "subcontractors.form.legalName.placeholder": "เช่น บริษัท สวิฟท์โลจิสติกส์ จำกัด",
     "subcontractors.form.type": "ประเภท",
     "subcontractors.form.type.placeholder": "เลือกประเภท",
@@ -104,7 +111,7 @@ export default {
 
     // Step 2 - Contact Details
     "subcontractors.form.contactInfo": "ข้อมูลผู้ติดต่อ",
-    "subcontractors.form.contactInfo.desc": "ผู้ติดต่อหลักสำหรับการจัดส่ง",
+    "subcontractors.form.contactInfo.desc": "ผู้ติดต่อหลักสำหรับประสานงานขนส่ง",
     "subcontractors.form.fullName": "ชื่อ-นามสกุล",
     "subcontractors.form.fullName.placeholder": "เช่น สมชาย ใจดี",
     "subcontractors.form.designation": "ตำแหน่ง",
@@ -113,21 +120,20 @@ export default {
     "subcontractors.form.mobilePhone.placeholder": "08x-xxx-xxxx",
     "subcontractors.form.workEmail": "อีเมลที่ทำงาน",
     "subcontractors.form.workEmail.placeholder": "example@company.com",
-    "subcontractors.form.lineGroupId": "LINE Group ID",
+    "subcontractors.form.lineGroupId": "รหัสกลุ่ม LINE",
     "subcontractors.form.lineGroupId.placeholder": "เช่น Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "subcontractors.form.lineGroupId.desc": "ต้องเชิญ Official Account (Wanpenradchada) เข้ากลุ่มนี้ก่อน — เว้นว่าง = ปิดการแจ้งเตือนเช็คอิน/จบงาน",
+    "subcontractors.form.lineGroupId.desc": "เชิญ Official Account (Wanpenradchada) เข้ากลุ่มนี้ก่อน เว้นว่างเพื่อปิดการแจ้งเตือนเช็คอินและจบงาน",
 
     // Step 3 - Fleet & Service
-    "subcontractors.form.fleetService": "ฝูงรถและพื้นที่ให้บริการ",
-    "subcontractors.form.fleetService.desc": "ความสามารถในการปฏิบัติงานและพื้นที่ครอบคลุม",
-    "subcontractors.form.fleetCapacity": "ความจุฝูงรถ",
+    "subcontractors.form.fleetService": "รถและพื้นที่ให้บริการ",
+    "subcontractors.form.fleetService.desc": "ระบุจำนวนรถ ประเภทรถ และพื้นที่ให้บริการ",
+    "subcontractors.form.fleetCapacity": "จำนวนรถ",
     "subcontractors.form.totalTrucks": "จำนวนรถทั้งหมดที่พร้อมใช้งาน",
-    "subcontractors.form.totalTrucks.desc": "จำนวนรถที่พร้อมจัดส่ง",
-    "subcontractors.form.totalTrucks.integer": "กรุณาระบุจำนวนรถเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป",
-    "subcontractors.form.dispatchCenter": "ศูนย์จัดส่งหลัก",
+    "subcontractors.form.totalTrucks.desc": "จำนวนรถที่พร้อมรับงาน",
+    "subcontractors.form.dispatchCenter": "ศูนย์ประสานงานหลัก",
     "subcontractors.form.serviceRegions": "จังหวัดและภูมิภาคที่ให้บริการ",
     "subcontractors.form.serviceRegions.search": "คั่นจังหวัดหรือภูมิภาคด้วยเครื่องหมายจุลภาค (,)",
-    "subcontractors.form.vehicleTypes": "ประเภทรถและความเชี่ยวชาญ",
+    "subcontractors.form.vehicleTypes": "ประเภทรถและบริการเฉพาะทาง",
     "subcontractors.form.vehicle.4wheeler": "4 ล้อ (LDT)",
     "subcontractors.form.vehicle.4wheeler.desc": "รถบรรทุกเบา",
     "subcontractors.form.vehicle.6wheeler": "6 ล้อ (MDT)",
@@ -136,10 +142,10 @@ export default {
     "subcontractors.form.vehicle.10wheeler.desc": "รถบรรทุกหนัก",
     "subcontractors.form.vehicle.coldChain": "ห้องเย็น",
     "subcontractors.form.vehicle.coldChain.desc": "ขนส่งสินค้าแช่เย็น",
-    "subcontractors.form.vehicle.flatbed": "พื้นเรียบ",
+    "subcontractors.form.vehicle.flatbed": "รถพื้นเรียบ",
     "subcontractors.form.vehicle.flatbed.desc": "สินค้าขนาดใหญ่",
-    "subcontractors.form.vehicle.hazmat": "สารอันตราย",
-    "subcontractors.form.vehicle.hazmat.desc": "ขนส่งสินค้าอันตราย",
+    "subcontractors.form.vehicle.hazmat": "วัตถุอันตราย",
+    "subcontractors.form.vehicle.hazmat.desc": "ขนส่งวัตถุอันตราย",
 
     // Step 4 - Documents
     "subcontractors.form.companyDetails": "รายละเอียดบริษัท",
@@ -159,7 +165,7 @@ export default {
     "subcontractors.form.back": "ย้อนกลับ",
     "subcontractors.form.nextStep": "ขั้นตอนถัดไป",
     "subcontractors.form.saving": "กำลังบันทึก...",
-    "subcontractors.form.completeRegistration": "ลงทะเบียนเสร็จสิ้น",
+    "subcontractors.form.completeRegistration": "ลงทะเบียนรถร่วม",
 
     // Toast Messages
     "subcontractors.toast.registerSuccess": "ลงทะเบียนรถร่วมสำเร็จ",
@@ -171,14 +177,15 @@ export default {
     "subcontractors.toast.uploadError": "ไม่สามารถอัปโหลดไฟล์ได้",
 
     // Detail Page
-    "subcontractors.detail.joined": "เข้าร่วม",
-    "subcontractors.detail.editProfile": "แก้ไขโปรไฟล์",
+    "subcontractors.detail.joined": "ลงทะเบียนเมื่อ",
+    "subcontractors.detail.editProfile": "แก้ไขข้อมูลรถร่วม",
     "subcontractors.detail.companyDetails": "รายละเอียดบริษัท",
     "subcontractors.detail.legalName": "ชื่อตามกฎหมาย",
-    "subcontractors.detail.businessType": "ประเภทธุรกิจ",
+    "subcontractors.detail.businessType": "ประเภทผู้ประกอบการ",
     "subcontractors.detail.headquarters": "สำนักงานใหญ่",
     "subcontractors.detail.pointOfContact": "ผู้ติดต่อ",
-    "subcontractors.detail.noTrucks": "ยังไม่มีรถที่ได้รับมอบหมาย",
+    "subcontractors.detail.noTrucks": "ยังไม่มีรถในสังกัด",
+    "subcontractors.detail.fleet": "รถในสังกัด",
 
     // Detail - Truck Table
     "subcontractors.detail.truckType": "ประเภท",
@@ -212,12 +219,26 @@ export default {
     "subcontractors.edit.documents": "เอกสาร",
     "subcontractors.edit.idCardCopy": "สำเนาบัตรประชาชน",
     "subcontractors.edit.companyDocs": "เอกสารบริษัท (ภพ.20, หนังสือจดทะเบียน)",
-    "subcontractors.edit.requiredDocs": "เอกสารที่ต้องการ:",
+    "subcontractors.edit.requiredDocs": "เอกสารที่ต้องใช้:",
     "subcontractors.edit.pp20": "ภพ.20",
     "subcontractors.edit.companyReg": "หนังสือรับรองบริษัท (กรมพัฒนาธุรกิจการค้า)",
     "subcontractors.edit.saveChanges": "บันทึกการเปลี่ยนแปลง",
 
     // FileUploader
-    "subcontractors.file.acceptedFormats": "รูปแบบที่รองรับ: JPG, PNG, PDF",
+    "subcontractors.file.acceptedFormats": "รูปแบบที่รองรับ: JPG, PNG, WebP, PDF",
     "subcontractors.file.document": "เอกสาร",
+    "subcontractors.file.uploading": "กำลังอัปโหลดเอกสาร...",
+
+    // Validation
+    "subcontractors.validation.nameRequired": "กรุณากรอกชื่อรถร่วมหรือชื่อบริษัท",
+    "subcontractors.validation.contactRequired": "กรุณากรอกชื่อผู้ติดต่อ",
+    "subcontractors.validation.phoneRequired": "กรุณากรอกเบอร์โทรศัพท์",
+    "subcontractors.validation.email": "กรุณากรอกอีเมลให้ถูกต้อง",
+    "subcontractors.validation.website": "กรุณากรอก URL เว็บไซต์ให้ถูกต้อง",
+    "subcontractors.validation.type": "กรุณาเลือกบุคคลธรรมดาหรือนิติบุคคล",
+    "subcontractors.validation.status": "กรุณาเลือกสถานะรถร่วมให้ถูกต้อง",
+    "subcontractors.validation.fleetSize": "กรุณาระบุจำนวนรถเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป",
+    "subcontractors.validation.idCardNumber": "กรุณากรอกเลขบัตรประชาชน 13 หลักให้ถูกต้อง",
+    "subcontractors.validation.taxId": "กรุณากรอกเลขประจำตัวผู้เสียภาษี 13 หลักให้ถูกต้อง",
+    "subcontractors.validation.billingDateBasis": "กรุณาเลือกวันที่ส่งงานหรือวันที่วางแผน",
 };

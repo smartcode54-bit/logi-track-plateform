@@ -130,7 +130,7 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
                                     </div>
                                 </TableCell>
                                 <TableCell>
-                                    <span className="text-sm text-foreground/80">{sub.serviceArea || t("subcontractors.ui4.notSet")}</span>
+                                    <span className="text-sm text-foreground/80">{sub.serviceRegions?.join(", ") || t("subcontractors.filter.notSpecified")}</span>
                                 </TableCell>
                                 <TableCell>
                                     {getStatusBadge(sub.status)}

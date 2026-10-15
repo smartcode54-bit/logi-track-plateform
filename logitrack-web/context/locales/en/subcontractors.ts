@@ -30,10 +30,13 @@ export default {
 
     // Filters
     "subcontractors.filter.allStatuses": "All statuses",
+    "subcontractors.filter.status": "Partner status",
     "subcontractors.filter.active": "Active",
     "subcontractors.filter.onTrial": "Pending",
     "subcontractors.filter.terminated": "Suspended",
     "subcontractors.filter.allRegions": "All regions",
+    "subcontractors.filter.region": "Service region",
+    "subcontractors.filter.notSpecified": "Not specified",
     "subcontractors.filter.fleetSize": "Fleet size",
     "subcontractors.filter.allSizes": "All sizes",
     "subcontractors.filter.small": "Small (<20)",
@@ -53,6 +56,10 @@ export default {
     // Table Loading/Empty
     "subcontractors.loading": "Loading partners...",
     "subcontractors.noData": "No partners match your filters.",
+
+    // Query Errors
+    "subcontractors.loadError.list": "Could not load the partner list",
+    "subcontractors.loadError.fleet": "Could not load the partner fleet",
 
     // Dropdown Actions
     "subcontractors.action.viewProfile": "View profile",
@@ -123,7 +130,6 @@ export default {
     "subcontractors.form.fleetCapacity": "Fleet capacity",
     "subcontractors.form.totalTrucks": "Total available trucks",
     "subcontractors.form.totalTrucks.desc": "Active fleet count ready for dispatch.",
-    "subcontractors.form.totalTrucks.integer": "Enter a whole number of trucks greater than or equal to zero.",
     "subcontractors.form.dispatchCenter": "Primary dispatch center",
     "subcontractors.form.serviceRegions": "Service provinces & regions",
     "subcontractors.form.serviceRegions.search": "Separate provinces or regions with commas",
@@ -179,6 +185,7 @@ export default {
     "subcontractors.detail.headquarters": "Headquarters",
     "subcontractors.detail.pointOfContact": "Point of contact",
     "subcontractors.detail.noTrucks": "No trucks assigned yet.",
+    "subcontractors.detail.fleet": "Partner fleet",
 
     // Detail - Truck Table
     "subcontractors.detail.truckType": "Type",
@@ -218,6 +225,20 @@ export default {
     "subcontractors.edit.saveChanges": "Save changes",
 
     // FileUploader
-    "subcontractors.file.acceptedFormats": "Accepted formats: JPG, PNG, PDF",
+    "subcontractors.file.acceptedFormats": "Accepted formats: JPG, PNG, WebP, PDF",
     "subcontractors.file.document": "Document",
+    "subcontractors.file.uploading": "Uploading document...",
+
+    // Validation
+    "subcontractors.validation.nameRequired": "Enter the partner’s name.",
+    "subcontractors.validation.contactRequired": "Enter a contact person.",
+    "subcontractors.validation.phoneRequired": "Enter a phone number.",
+    "subcontractors.validation.email": "Enter a valid email address.",
+    "subcontractors.validation.website": "Enter a valid website URL.",
+    "subcontractors.validation.type": "Select an individual or a company.",
+    "subcontractors.validation.status": "Select a valid partner status.",
+    "subcontractors.validation.fleetSize": "Enter a whole number of trucks greater than or equal to zero.",
+    "subcontractors.validation.idCardNumber": "Enter a valid 13-digit national ID number.",
+    "subcontractors.validation.taxId": "Enter a valid 13-digit tax ID.",
+    "subcontractors.validation.billingDateBasis": "Select the delivery date or planned date.",
 };
