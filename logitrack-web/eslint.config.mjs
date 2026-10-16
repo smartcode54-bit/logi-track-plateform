@@ -1,6 +1,7 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import { supportAccessPlugin } from "./scripts/check-masked-money.mjs";
 
 // Bundle guard (TW9, developer-spec.md §10.11 and Appendix E §E.7). Heavy browser-only libraries
 // load lazily: they may be imported statically only inside the modules below, and those modules
@@ -121,6 +122,17 @@ const eslintConfig = defineConfig([
         { paths: [...BANNED_PATHS, ...SELECT_PATHS], patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] },
       ],
     },
+  },
+  {
+    files: ["features/{dashboard,trucks,drivers,maintenance,subcontractors}/**/*.{ts,tsx}", "app/app/{dashboard,trucks,truck-assignment,drivers,renewals,maintenance,subcontractors}/**/*.{ts,tsx}", "app/app/page.tsx"],
+    ignores: ["**/*.test.*", "**/__tests__/**"],
+    plugins: { "support-access": supportAccessPlugin },
+    rules: { "support-access/checked-money-import": "error" },
+  },
+  {
+    // Existing imports are P1.6's migration TODOs; the standalone checker limits each to one site.
+    files: ["features/maintenance/components/go/MaintenanceOverviewPage.tsx", "features/drivers/components/go/TripDetailDialog.tsx"],
+    rules: { "support-access/checked-money-import": "warn" },
   },
   {
     files: ["**/*.tsx", "**/*.jsx"],

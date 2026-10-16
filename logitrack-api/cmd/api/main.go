@@ -21,28 +21,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/billing"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/broadcasts"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/chats"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/expenses"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hr"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/hubs"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/linenotify"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/parties"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
 )
 
 func main() {
@@ -79,39 +62,7 @@ func main() {
 // only register handlers and never read a service, so the table needs no database, Redis or signing
 // key.
 func newAPI(cfg *app.APIConfig, log zerolog.Logger, deps app.APIDeps, extra ...ingress.Group) (*app.API, error) {
-	groups := append(deps.Auth.Groups(), app.JobGroups(deps)...)
-	// GET /v1/roles also admits integration and script API keys (the catalog a script picks capabilities
-	// from); the role matrix of T51 and every other route here admit people only (T32K).
-	groups = append(groups, iam.RoleGroups(deps.Admin, deps.Auth.RequireAuth(),
-		deps.Auth.RequireAuth(auth.AllowAPIKeys(authz.KeyIntegration, authz.KeyScript)))...)
-	groups = append(groups, iam.AdminGroups(deps.Admin, deps.Auth.RequireAuth())...)
-	groups = append(groups, iam.APIKeyGroups(deps.APIKeys, deps.Auth.RequireAuth())...)
-	groups = append(groups, parties.Groups(deps.Parties, deps.Auth.RequireAuth())...)
-	groups = append(groups, hubs.Groups(deps.Hubs, deps.Auth.RequireAuth())...)
-	groups = append(groups, fleet.Groups(deps.Fleet, deps.Auth.RequireAuth(),
-		maintenance.TruckRoutes(deps.Maintenance, deps.Auth.RequireAuth()))...)
-	groups = append(groups, drivers.Groups(deps.Drivers, deps.Auth.RequireAuth())...)
-	groups = append(groups, expenses.Groups(deps.Expenses, deps.Auth.RequireAuth())...)
-	groups = append(groups, maintenance.Groups(deps.Maintenance, deps.Auth.RequireAuth())...)
-	groups = append(groups, billing.Groups(deps.Billing, deps.Auth.RequireAuth())...)
-	groups = append(groups, billing.JobGroups(deps.Billing, deps.Auth.RequireAuth())...)
-	groups = append(groups, operations.Groups(deps.Operations, deps.Auth.RequireAuth(), operations.Mounts{
-		Tasks: []func(fiber.Router){linenotify.TaskRoutes(deps.LineNotify, deps.Auth.RequireAuth())},
-		Trips: []func(fiber.Router){billing.TripRoutes(deps.Billing, deps.Auth.RequireAuth()),
-			linenotify.TripRoutes(deps.LineNotify, deps.Auth.RequireAuth())},
-		Standby: []func(fiber.Router){billing.StandbyRoutes(deps.Billing, deps.Auth.RequireAuth()),
-			linenotify.StandbyRoutes(deps.LineNotify, deps.Auth.RequireAuth())},
-	})...)
-	groups = append(groups, hr.Groups(deps.HR, deps.Auth.RequireAuth())...)
-	groups = append(groups, chats.Groups(deps.Chats, deps.Auth.RequireAuth())...)
-	groups = append(groups, broadcasts.Groups(deps.Broadcasts, deps.Auth.RequireAuth())...)
-	groups = append(groups, webcfg.Group(cfg.WebFlags))
-	groups = append(groups, app.StorageGroups(deps)...)
-	groups = append(groups, app.EventGroups(deps)...)
-	groups = append(groups, app.MobileGroups(deps)...)
-	groups = append(groups, app.MobileReleaseGroups(deps)...)
-	groups = append(groups, app.DashboardGroups(deps)...)
-	return app.NewAPI(cfg, log, append(groups, extra...)...)
+	return app.FullAPI(cfg, log, deps, extra...)
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {

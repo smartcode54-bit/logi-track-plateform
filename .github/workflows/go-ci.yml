@@ -100,6 +100,8 @@ jobs:
       - run: make gen-check
       # .env.example and the compose environments against developer-spec.md §16.1.
       - run: make env-check
+      - name: Support policy seed and discovered response admission
+        run: make support-ratchet-check
       - name: Nothing else was generated or changed
         run: |
           git status --porcelain

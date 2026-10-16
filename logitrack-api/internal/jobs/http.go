@@ -21,13 +21,13 @@ import (
 )
 
 // Caller is the authenticated principal of a jobs request, as the auth middleware resolved it: owners
-// read their jobs, platform principals every job, and staff of a job's tenant the jobs of the types
-// whose capability they hold (TypeCapabilities; developer-spec.md §7.5, T21 first).
+// read their jobs, and other jobs require the caller's own tenant and a capability for the job type
+// (TypeCapabilities; developer-spec.md §7.5, T21 first).
 type Caller struct {
 	UserID uuid.UUID
-	// PlatformAdmin holds platform_admin: every job, and the queue replay (Appendix B §B.1.4 `platform`).
+	// PlatformAdmin holds platform_admin and authorizes the queue replay.
 	PlatformAdmin bool
-	// PlatformSupport holds support: every job, read only.
+	// PlatformSupport holds support; non-owned raw jobs still require the caller's own tenant.
 	PlatformSupport bool
 	// TenantID is the caller's effective tenant (authz.Principal.EffectiveTenant), nil without one.
 	TenantID *uuid.UUID
@@ -35,7 +35,7 @@ type Caller struct {
 	Can func(authz.Cap) bool
 }
 
-func (c Caller) readsAll() bool { return c.PlatformAdmin || c.PlatformSupport }
+func (c Caller) platform() bool { return c.PlatformAdmin || c.PlatformSupport }
 
 // readerTypes are the job types the caller reads in its tenant: those whose capability it holds.
 func (c Caller) readerTypes() []string {
@@ -52,14 +52,15 @@ func (c Caller) readerTypes() []string {
 	return out
 }
 
-// canRead is the rule of GET /v1/jobs/{id}: platform principals, the owner, and staff of the job's
-// tenant holding its type's capability.
+// canRead preserves owner access and bounds non-owned platform payloads to their own tenant.
 func (c Caller) canRead(j Job) bool {
+	if j.OwnerUserID != nil && *j.OwnerUserID == c.UserID {
+		return true
+	}
+	if c.platform() && (c.TenantID == nil || j.TenantID == nil || *c.TenantID != *j.TenantID) {
+		return false
+	}
 	switch {
-	case c.readsAll():
-		return true
-	case j.OwnerUserID != nil && *j.OwnerUserID == c.UserID:
-		return true
 	case j.TenantID != nil && c.TenantID != nil && *j.TenantID == *c.TenantID:
 		return slices.Contains(c.readerTypes(), j.Type)
 	}
@@ -143,7 +144,7 @@ func decodeCursor(s string) (cursor, bool) {
 	return c, true
 }
 
-// list is GET /v1/jobs?type&cursor&limit: the caller's own jobs, every job for platform principals.
+// list is GET /v1/jobs?type&cursor&limit: owned jobs and authorized types in the caller's tenant.
 func (h handlers) list(c fiber.Ctx) error {
 	cl, err := h.caller(c)
 	if err != nil {
@@ -154,13 +155,8 @@ func (h handlers) list(c fiber.Ctx) error {
 			return httpx.ErrBadRequest("unknown query parameter " + k)
 		}
 	}
-	p := jobsdb.ListJobsParams{RowLimit: DefaultLimit + 1, ReaderTypes: []string{}}
-	if !cl.readsAll() {
-		p.OwnerUserID = &cl.UserID
-		if types := cl.readerTypes(); len(types) > 0 {
-			p.ReaderTenantID, p.ReaderTypes = cl.TenantID, types
-		}
-	}
+	p := jobsdb.ListJobsParams{RowLimit: DefaultLimit + 1, OwnerUserID: &cl.UserID,
+		ReaderTenantID: cl.TenantID, ReaderTypes: cl.readerTypes(), RestrictTenant: cl.platform()}
 	if t := c.Query("type"); t != "" {
 		if !typeRx.MatchString(t) {
 			return errInvalid("type", "invalid")

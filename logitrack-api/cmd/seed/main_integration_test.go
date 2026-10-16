@@ -235,13 +235,34 @@ func TestDemoLoadVerify(t *testing.T) {
 	if n := len(passLine.FindAllString(v.stdout, -1)); n != 12 {
 		t.Fatalf("%d of 12 invariants pass:\n%s", n, v.stdout)
 	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	var readable, systemOnly int
+	var systemNames string
+	if err := conn.QueryRow(ctx, `WITH readable AS (
+		SELECT c.relname, (SELECT count(*) = 1 AND bool_and(p.polname = 'p_system')
+			FROM pg_policy p WHERE p.polrelid = c.oid) AS system_only
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relrowsecurity
+			AND has_table_privilege('logitrack_app', c.oid, 'SELECT'))
+		SELECT count(*), count(*) FILTER (WHERE system_only),
+			coalesce(string_agg(relname, ', ' ORDER BY relname) FILTER (WHERE system_only), '') FROM readable`).
+		Scan(&readable, &systemOnly, &systemNames); err != nil {
+		t.Fatal(err)
+	}
 	// Staff, one per tenant and role: NWR tenant_admin, manager, operation_staff, operator, user (nwr.user, T26);
 	// TTP tenant_admin, operation_staff. Drivers, one per tenant: d12 (NWR) and d14 (TTP); and the brokers D6 (NWR ->
 	// TTP) and d13 (TTP -> NWR, T26), each with its own history in the tenant it left: d13's TTP work of the 42 days
 	// before its move (T35: tasks, trips, photos and their objects, an incident, a standby wait; T43: its expenses on the
 	// TTP truck and their receipts). Every readable RLS table is classified.
 	for _, want := range []string{
-		"11 carrier principal(s) (7 staff, 4 driver(s)) over 62 RLS tables (33 by tenant_id, 29 by owner; 6 shared master tables skipped)",
+		fmt.Sprintf("11 carrier principal(s) (7 staff, 4 driver(s)) across %d readable RLS tables "+
+			"(%d role-played: 33 by tenant_id, 29 by owner, %d system-only (%s); 6 shared master tables skipped)",
+			readable, readable-6, systemOnly, systemNames),
 		"d13.thawisak@logitrack.test (NWR, driver): file_objects 190, incident_reports 1, memberships 1, standby_records 1, " +
 			"tasks 42, trip_photos 183, trip_records 42, truck_assignments 1, vehicle_expenses 10",
 		"d6.amnat@logitrack.test (TTP, driver): memberships 1, tasks 1, trip_records 1, truck_assignments 1",
@@ -250,12 +271,6 @@ func TestDemoLoadVerify(t *testing.T) {
 			t.Errorf("the demo carriers are not all role-played over every RLS table (no %q):\n%s", want, v.stdout)
 		}
 	}
-	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, s.d.SuperURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
 	var perTenant string
 	if err := conn.QueryRow(ctx, `SELECT string_agg(t.code || ':' || m.role, ',' ORDER BY t.code, m.role)
 		FROM (SELECT DISTINCT tenant_id, role FROM memberships WHERE status = 'active') m JOIN tenants t ON t.id = m.tenant_id`).
@@ -727,6 +742,53 @@ func TestVerifyFailsOnUnclassifiedTable(t *testing.T) {
 		`GRANT SELECT ON seed_test_unclassified TO logitrack_app`)
 	if !strings.Contains(r.stdout, "10e: RLS table seed_test_unclassified is readable by logitrack_app but has no isolation rule") {
 		t.Errorf("the unclassified table is not reported:\n%s", r.stdout)
+	}
+}
+
+// Even a carrier's own private support rows must stay invisible. Extra SELECT policies must not turn
+// these tables into ordinary tenant-stamped tables or remove them from verification.
+func TestVerifyFailsOnSystemOnlyLeak(t *testing.T) {
+	r := leakVerify(t,
+		`INSERT INTO sessions (user_id, platform, amr, absolute_expires_at)
+			SELECT user_id, 'web', 'pwd', now() + interval '1 day' FROM user_platform_roles
+			WHERE role = 'platform_admin' ORDER BY user_id LIMIT 1`,
+		`INSERT INTO support_visits (session_id, actor_user_id, tenant_id, consent_version_at_entry)
+			SELECT s.id, s.user_id, t.id, 0 FROM sessions s JOIN user_platform_roles p ON p.user_id = s.user_id
+			CROSS JOIN tenants t WHERE p.role = 'platform_admin' AND t.code = 'NWR' ORDER BY s.id LIMIT 1`,
+		`CREATE POLICY seed_test_leak ON membership_provenance_history FOR SELECT TO logitrack_app USING (tenant_id = app_tenant_id())`,
+		`CREATE POLICY seed_test_leak ON support_visits FOR SELECT TO logitrack_app USING (tenant_id = app_tenant_id())`)
+	for _, table := range []string{"membership_provenance_history", "support_visits"} {
+		if !regexp.MustCompile(`carrier nwr\.admin@logitrack\.test .*reads [1-9][0-9]* row\(s\).*in ` + table + ` \(owner through system-only\)`).MatchString(r.stdout) {
+			t.Errorf("private rows in %s were not reported as a carrier leak:\n%s", table, r.stdout)
+		}
+	}
+}
+
+// Newly added p_system-only tables need no registry update, including tables without tenant_id.
+func TestVerifyDiscoversSystemOnlyTable(t *testing.T) {
+	s := newStack(t, "local")
+	s.mustSeed(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, s.d.SuperURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if _, err := conn.Exec(ctx, `CREATE TABLE seed_test_system_only (id uuid PRIMARY KEY);
+		ALTER TABLE seed_test_system_only ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY;
+		GRANT SELECT ON seed_test_system_only TO logitrack_app;
+		CREATE POLICY p_system ON seed_test_system_only USING (app_role() = 'system' AND app_bypass());
+		INSERT INTO seed_test_system_only VALUES (uuidv7())`); err != nil {
+		t.Fatal(err)
+	}
+	s.mustSeed(t, "--verify")
+	if _, err := conn.Exec(ctx, `ALTER POLICY p_system ON seed_test_system_only USING (true)`); err != nil {
+		t.Fatal(err)
+	}
+	r := s.seed(t, "--verify")
+	if r.code != exitViolation || !strings.Contains(r.stdout, "10 FAIL") ||
+		!strings.Contains(r.stdout, "in seed_test_system_only (owner through system-only)") {
+		t.Fatalf("a visible row in a discovered system-only table must fail verification:\n%s\n%s", r.stdout, r.stderr)
 	}
 }
 

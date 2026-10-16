@@ -304,6 +304,8 @@ func TestAPIKeyCreateValidation(t *testing.T) {
 		t.Fatalf("%d keys written by refused requests", n)
 	}
 	// Each scope of the CHECK list is accepted in its valid form.
+	// A platform-created tenant key additionally requires the target admin's consent.
+	supportFixtureConsent(w, w.O, true)
 	for _, b := range []map[string]any{
 		{"name": "i", "scope": "integration", "capabilities": []string{"users:view"}, "tenantId": w.O},
 		{"name": "s", "scope": "script", "capabilities": []string{"fleet:manage_customers", "mobile:view_tasks"}},
@@ -472,9 +474,9 @@ func TestAPIKeyScopeEnforcement(t *testing.T) {
 	scopeRefusal(w.call(w.internal, http.MethodGet, "/v1/roles", pa, auth.HeaderAPIKey, shim))
 	scopeRefusal(w.call(w.public, http.MethodGet, "/v1/mobile/keytest", "", auth.HeaderAPIKey, shim))
 
-	// X-Act-On-Tenant is for platform people, never for a key.
+	// The retired header is refused for machine credentials too.
 	expect(t, w.keyed(http.MethodGet, "/v1/keytest/whoami", platformKey, authz.HeaderActOnTenant, "*"),
-		http.StatusForbidden, authz.CodePermissionDenied)
+		http.StatusBadRequest, "header_not_allowed")
 }
 
 func toCounts(m map[string]any) map[string]int {
@@ -486,9 +488,10 @@ func toCounts(m map[string]any) map[string]int {
 }
 
 // Reach (Appendix B §B.2.6): a tenant caller manages its tenant's keys only and grants only what it holds; a
-// platform_admin manages every key, creates the platform keys and reads other tenants through X-Act-On-Tenant.
+// platform_admin manages every key and reads projected metadata through the platform endpoint.
 func TestAPIKeyReach(t *testing.T) {
 	w := newWorld(t)
+	supportFixtureConsent(w, w.A, true) // Platform-originated tenant-key creation/revocation requires D2 consent.
 	taA, taC, pa := w.login("ta.a@example.test"), w.login("ta.c@example.test"), w.login("pa@example.test")
 	mgA, opO := w.login("mg.a@example.test"), w.login("op.o@example.test")
 	keyA, _ := w.mustKey(taA, map[string]any{"name": "a", "scope": "script", "capabilities": []string{"users:view"}, "tenantId": w.A})
@@ -529,10 +532,10 @@ func TestAPIKeyReach(t *testing.T) {
 	expect(t, w.get("/v1/api-keys", opO), http.StatusForbidden, authz.CodePermissionDenied)
 
 	// Lists.
-	all := w.get("/v1/api-keys", pa, authz.HeaderActOnTenant, "*")
+	all := w.get("/v1/platform/api-keys", pa)
 	expect(t, all, http.StatusOK, "")
 	if n := len(keyIDs(all)); n != 5 {
-		t.Fatalf("X-Act-On-Tenant: * lists %d keys, want 5", n)
+		t.Fatalf("platform endpoint lists %d keys, want 5", n)
 	}
 	if got := keyIDs(w.get("/v1/api-keys", pa)); !slices.Equal(got, sorted(keyP)) {
 		t.Fatalf("platform admin without the header lists %v, want the platform key", got)
@@ -540,7 +543,7 @@ func TestAPIKeyReach(t *testing.T) {
 	if got := keyIDs(w.get("/v1/api-keys", taC)); !slices.Equal(got, sorted(keyC)) {
 		t.Fatalf("C lists %v", got)
 	}
-	actA := keyIDs(w.get("/v1/api-keys", pa, authz.HeaderActOnTenant, w.A))
+	actA := keyIDs(w.get("/v1/platform/api-keys?tenantId="+w.A, pa))
 	if len(actA) != 3 || !slices.Contains(actA, keyA) || !slices.Contains(actA, keyA2) || slices.Contains(actA, keyC) {
 		t.Fatalf("acting as A lists %v", actA)
 	}
@@ -552,11 +555,11 @@ func TestAPIKeyReach(t *testing.T) {
 	var seen []string
 	cursor := ""
 	for range 5 {
-		path := "/v1/api-keys?limit=2"
+		path := "/v1/platform/api-keys?limit=2"
 		if cursor != "" {
 			path += "&cursor=" + cursor
 		}
-		p := w.get(path, pa, authz.HeaderActOnTenant, "*")
+		p := w.get(path, pa)
 		expect(t, p, http.StatusOK, "")
 		seen = append(seen, keyIDs(p)...)
 		next, _ := p.body["nextCursor"].(string)

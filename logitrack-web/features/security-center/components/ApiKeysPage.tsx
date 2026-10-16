@@ -1,12 +1,10 @@
 "use client";
 
 /**
- * API keys over Go (T54S; routes of T32K `GET`/`POST`/`DELETE /v1/api-keys`, Appendix B §B.2.6,
- * Appendix C §C.4.11; Appendix E §E.2.4 row `/app/security-center/api-keys`: a new UI, not a
- * migration). Lists the keys in reach (a platform_admin every key, through `X-Act-On-Tenant: *`), creates
- * one with its secret shown once (`CreateApiKeyDialog`), and revokes (effective on the key's next
- * request). Keys are managed by people only; `security:manage_api_keys` gates the route and every call.
+ * API key metadata, one-time creation secrets and revocation through Go. Platform reads use
+ * projected DTOs; every mutation remains subject to the dedicated server control policy.
  */
+import { MaskedValue } from "@/components/masked-value";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Key, Loader2, Plus, ShieldOff } from "lucide-react";
@@ -117,13 +115,13 @@ export function ApiKeysPage() {
                                     {rows.map((k) => (
                                         <TableRow key={k.id} data-testid="api-key-row">
                                             <TableCell>
-                                                <span className="font-medium">{k.name}</span>
-                                                <span className="block font-mono text-xs text-muted-foreground">{k.keyPrefix}…</span>
+                                                <span className="font-medium"><MaskedValue value={k.name} source={k} path="name" /></span>
+                                                <span className="block font-mono text-xs text-muted-foreground"><MaskedValue value={k.keyPrefix} source={k} path="keyPrefix" format={(v) => `${v}…`} /></span>
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant="secondary">{t(`securityCenter.apiKeys.scopes.${k.scope}`, k.scope)}</Badge>
                                             </TableCell>
-                                            <TableCell className="text-sm">{tenantLabel(k)}</TableCell>
+                                            <TableCell className="text-sm"><MaskedValue value={tenantLabel(k)} /></TableCell>
                                             <TableCell className="text-xs">
                                                 <span title={k.capabilities.join("\n")}>
                                                     {t("securityCenter.apiKeys.capabilityCount", { count: k.capabilities.length })}
@@ -139,7 +137,7 @@ export function ApiKeysPage() {
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap text-xs">
                                                 {formatDateTime(k.createdAt, language)}
-                                                <span className="block text-muted-foreground">{k.createdByEmail}</span>
+                                                <span className="block text-muted-foreground"><MaskedValue value={k.createdByEmail} source={k} path="createdByEmail" /></span>
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap text-xs">
                                                 {k.lastUsedAt ? formatRelative(k.lastUsedAt, language) : t("securityCenter.apiKeys.never")}
@@ -179,8 +177,8 @@ export function ApiKeysPage() {
                     </DialogHeader>
                     {revoking ? (
                         <p className="text-sm">
-                            <span className="font-medium">{revoking.name}</span>{" "}
-                            <span className="font-mono text-xs text-muted-foreground">{revoking.keyPrefix}…</span>
+                            <span className="font-medium"><MaskedValue value={revoking.name} source={revoking} path="name" /></span>{" "}
+                            <span className="font-mono text-xs text-muted-foreground"><MaskedValue value={revoking.keyPrefix} source={revoking} path="keyPrefix" format={(v) => `${v}…`} /></span>
                         </p>
                     ) : null}
                     <DialogFooter>

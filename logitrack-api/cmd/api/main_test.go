@@ -226,8 +226,8 @@ func TestRoutesRefusesAPublicGroupOutsideTheAllowList(t *testing.T) {
 	}
 	// An internal group of any name is fine and shows up as internal only.
 	var stdout, stderr bytes.Buffer
-	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/v1/admin", Mount: func(r fiber.Router) { r.Post("/queues/:queue/replay", nop) }})
-	if code != app.ExitOK || !strings.Contains(stdout.String(), "POST /v1/admin/queues/:queue/replay internal\n") {
+	code := routes(nil, &stdout, &stderr, ingress.Group{Prefix: "/v1/admin", Mount: func(r fiber.Router) { r.Post("/support-policy-probe", nop) }})
+	if code != app.ExitOK || !strings.Contains(stdout.String(), "POST /v1/admin/support-policy-probe internal\n") {
 		t.Fatalf("exit %d, stderr %q, table:\n%s", code, stderr.String(), stdout.String())
 	}
 }

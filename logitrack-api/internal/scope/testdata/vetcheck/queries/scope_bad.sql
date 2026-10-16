@@ -17,3 +17,9 @@ WITH r AS (SELECT id FROM customer_rate_entries) SELECT id FROM r;
 
 -- name: WritesThroughTheView :exec
 UPDATE scope_tasks SET status = 'cancelled' WHERE id = sqlc.arg(id);
+
+-- name: SupportVisitBaseTable :many
+SELECT id FROM public.support_visits;
+
+-- name: MembershipProvenanceBaseTable :many
+WITH history AS (SELECT id FROM "membership_provenance_history") SELECT id FROM history;

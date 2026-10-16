@@ -31,8 +31,14 @@ type FirebaseToken struct {
 // An own-fleet user or platform admin created in Go gets users.id as its Firebase uid at the first mint;
 // Firebase creates the account at the first signInWithCustomToken.
 func (s *Service) FirebaseCustomToken(ctx context.Context, p *authz.Principal) (*FirebaseToken, error) {
+	if authz.IsSupport(p) || (p != nil && p.AccessMode == "support") {
+		return nil, errPermissionDenied("Firebase tokens are unavailable in support view")
+	}
 	if !s.fb.Mode.Web() {
 		return nil, httpx.ErrNotFound()
+	}
+	if err := s.CheckSession(ctx, p); err != nil {
+		return nil, err
 	}
 	var uid string
 	var claims map[string]any

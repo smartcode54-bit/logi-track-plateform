@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -19,7 +20,7 @@ import (
 //     joins this group.
 //   - /v1/me (internal only): GET/PATCH /v1/me, GET /v1/me/tenants, GET /v1/me/sessions,
 //     DELETE /v1/me/sessions/{sid}, PUT /v1/me/devices and DELETE /v1/me/devices/{installId} (T13). The
-//     driver-app aliases under /v1/mobile/me* come with the mobile group (T55; MountDevices serves both).
+//     driver-app aliases under /v1/mobile/me* come with the mobile group (T55; the handlers are shared).
 //   - /v1/bridge (internal only, T08): POST /v1/bridge/firebase-token, 404 unless the Firebase bridge
 //     mode includes web (removed with TW7).
 //   - /.well-known (internal only, TW3): GET /.well-known/jwks.json, the public keys the web edge gate
@@ -56,23 +57,24 @@ func (s *Service) mountAuth(r fiber.Router) {
 	r.Get("/google/nonce", s.handleGoogleNonce)
 	r.Post("/google", s.handleGoogle)
 	r.Post("/refresh", s.handleRefresh)
-	r.Post("/logout", s.refuseAPIKeys, s.handleLogout)
-	r.Post("/logout-all", s.RequireAuth(), s.handleLogoutAll)
-	r.Post("/tenant", s.RequireAuth(), s.handleTenant)
+	bindOwn(r, http.MethodPost, "/logout", "/v1/auth/logout", "empty", httpx.PolicySession, s.refuseAPIKeys, s.handleLogout)
+	bindOwn(r, http.MethodPost, "/logout-all", "/v1/auth/logout-all", "empty", httpx.PolicySession, s.RequireAuth(), s.handleLogoutAll)
+	bindOwn(r, http.MethodPost, "/tenant", "/v1/auth/tenant", "auth.access", httpx.PolicySession, s.RequireAuth(), s.handleTenant)
 	r.Post("/password/forgot", s.handleForgot)
 	r.Post("/password/reset", s.handleReset)
-	r.Post("/password/change", s.refuseAPIKeys, s.handleChange)
-	r.Post("/sse-ticket", s.RequireAuth(), s.handleSSETicket)
+	bindOwn(r, http.MethodPost, "/password/change", "/v1/auth/password/change", "empty", httpx.PolicySession, s.refuseAPIKeys, s.handleChange)
+	bindOwn(r, http.MethodPost, "/sse-ticket", "/v1/auth/sse-ticket", "auth.sse_ticket", httpx.PolicySession, s.RequireAuth(), s.handleSSETicket)
 }
 
 func (s *Service) mountMe(r fiber.Router) {
 	r.Use(noStore, s.RequireAuth())
-	r.Get("", s.handleMe)
-	r.Patch("", s.handlePatchMe)
-	r.Get("/tenants", s.handleMyTenants)
-	r.Get("/sessions", s.handleMySessions)
-	r.Delete("/sessions/:sid", s.handleRevokeMySession)
-	s.MountDevices(r)
+	bindOwn(r, "GET", "", "/v1/me", "auth.me", httpx.PolicyOwnAccount, s.handleMe)
+	bindOwn(r, "PATCH", "", "/v1/me", "auth.me", httpx.PolicyOwnAccount, s.handlePatchMe)
+	bindOwn(r, "GET", "/tenants", "/v1/me/tenants", "auth.tenant_label", httpx.PolicyOwnAccount, s.handleMyTenants)
+	bindOwn(r, "GET", "/sessions", "/v1/me/sessions", "auth.sessions", httpx.PolicyOwnAccount, s.handleMySessions)
+	bindOwn(r, "DELETE", "/sessions/:sid", "/v1/me/sessions/:sid", "empty", httpx.PolicyOwnAccount, s.handleRevokeMySession)
+	bindOwn(r, http.MethodPut, "/devices", "/v1/me/devices", "empty", httpx.PolicyOwnAccount, s.handlePutDevice)
+	bindOwn(r, http.MethodDelete, "/devices/:installId", "/v1/me/devices/:installId", "empty", httpx.PolicyOwnAccount, s.handleDeleteDevice)
 }
 
 // noStore keeps tokens and identity out of every cache, and sets Retry-After on 423 and 429.
@@ -158,7 +160,7 @@ func (s *Service) handleLogout(c fiber.Ctx) error {
 				return err
 			}
 			if he.Code == CodeSessionRevoked && in.RefreshToken == "" {
-				return c.SendStatus(http.StatusNoContent) // already signed out
+				return completedSessionEmpty(c) // already signed out
 			}
 			if in.RefreshToken == "" {
 				return err
@@ -171,29 +173,58 @@ func (s *Service) handleLogout(c fiber.Ctx) error {
 	if err := s.Logout(c.Context(), p, in); err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return completedSessionEmpty(c)
 }
 
 func (s *Service) handleLogoutAll(c fiber.Ctx) error {
 	if err := s.LogoutAll(c.Context(), PrincipalFrom(c), httpx.RequestIDFrom(c)); err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return completedSessionEmpty(c)
 }
 
 func (s *Service) handleTenant(c fiber.Ctx) error {
-	var in struct {
-		TenantID string `json:"tenantId"`
-	}
-	if err := httpx.DecodeJSON(c, &in); err != nil {
+	in, err := httpx.StrictBody[tenantContextBody](c)
+	if err != nil {
+		if he, ok := errors.AsType[*httpx.Error](err); ok && he.Message == "unknown request field" {
+			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "body", Reason: "unknown_field"})
+		}
 		return err
 	}
-	tid, err := uuid.Parse(in.TenantID)
-	if err != nil {
-		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "uuid"})
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(c.Body(), &fields); err != nil {
+		return httpx.ErrBadRequest("malformed JSON body")
 	}
-	res, err := s.SwitchTenant(c.Context(), PrincipalFrom(c), tid, httpx.RequestIDFrom(c))
+	if _, ok := fields["mode"]; ok && (in.Mode == nil || *in.Mode == "") {
+		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "mode", Reason: "enum"})
+	}
+	mode := AccessModeMember
+	if in.Mode != nil {
+		mode = *in.Mode
+	}
+	var tid *uuid.UUID
+	switch mode {
+	case "leave":
+		if _, supplied := fields["tenantId"]; supplied {
+			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "not_allowed"})
+		}
+	case AccessModeMember, AccessModeSupport:
+		if in.TenantID == nil {
+			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "required"})
+		}
+		id, err := uuid.Parse(*in.TenantID)
+		if err != nil || id == uuid.Nil {
+			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "uuid"})
+		}
+		tid = &id
+	default:
+		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "mode", Reason: "enum"})
+	}
+	res, err := s.ChangeTenantContext(c.Context(), PrincipalFrom(c), mode, tid, httpx.RequestIDFrom(c))
 	if err != nil {
+		return err
+	}
+	if err := s.publishContext(c, res.AccessToken); err != nil {
 		return err
 	}
 	return httpx.JSON(c, http.StatusOK, res)
@@ -221,7 +252,7 @@ func (s *Service) handleReset(c fiber.Ctx) error {
 	if err := s.Reset(c.Context(), in); err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return completedSessionEmpty(c)
 }
 
 // handleChange serves both forms of POST /v1/auth/password/change (R79). The form is chosen from the
@@ -256,7 +287,7 @@ func (s *Service) handleChange(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return completedSessionEmpty(c)
 }
 
 func (s *Service) handleSSETicket(c fiber.Ctx) error {
@@ -272,7 +303,7 @@ func (s *Service) handleMe(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(c, http.StatusOK, me)
+	return writeMe(c, me)
 }
 
 func (s *Service) handlePatchMe(c fiber.Ctx) error {
@@ -284,7 +315,7 @@ func (s *Service) handlePatchMe(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(c, http.StatusOK, me)
+	return writeMe(c, me)
 }
 
 func (s *Service) handleMyTenants(c fiber.Ctx) error {
@@ -292,7 +323,7 @@ func (s *Service) handleMyTenants(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(c, http.StatusOK, ts)
+	return writeTenantLabels(c, ts)
 }
 
 func (s *Service) handleMySessions(c fiber.Ctx) error {
@@ -311,5 +342,5 @@ func (s *Service) handleRevokeMySession(c fiber.Ctx) error {
 	if err := s.RevokeMySession(c.Context(), PrincipalFrom(c), sid, httpx.RequestIDFrom(c)); err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return completedSessionEmpty(c)
 }

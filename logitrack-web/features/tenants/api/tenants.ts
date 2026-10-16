@@ -14,7 +14,6 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { goFetch, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { fetchAllPages } from "@/lib/goPages";
-import { ACT_ON_TENANT_HEADER } from "@/features/users/api/users";
 import { queryKeys } from "@/lib/queryKeys";
 
 export type TenantKind = "own_fleet" | "carrier" | "quarantine";
@@ -96,23 +95,17 @@ export function useAllTenants(enabled: boolean) {
     });
 }
 
-export function tenantMembersKey(tenantId: string, role: string, actOnTenant = false) {
-    return queryKeys.tenants.members(tenantId, { role, actOnTenant });
+export function tenantMembersKey(tenantId: string, role: string, platform = false) {
+    return queryKeys.tenants.members(tenantId, { role, platform });
 }
 
-/**
- * `['tenants', id, 'members', {role, actOnTenant}]`: the members of one tenant (all pages). A platform
- * principal (`actOnTenant`, `isPlatformPrincipal(me)`) reads them as that tenant's `tenant_admin`
- * through `X-Act-On-Tenant: <id>` (Appendix C §C.3.9, §C.8: `platform:cross_tenant_read`, one audit
- * row naming the tenant); without it RLS would show only the members of its own tenant reach.
- */
-export function useTenantMembers(tenantId: string | null, role: string, actOnTenant = false) {
+/** Members of an explicit target tenant; platform reads return projected fields. */
+export function useTenantMembers(tenantId: string | null, role: string, platform = false) {
     return useQuery({
-        queryKey: tenantMembersKey(tenantId ?? "", role, actOnTenant),
+        queryKey: tenantMembersKey(tenantId ?? "", role, platform),
         queryFn: ({ signal }) =>
-            fetchAllPages<TenantMemberDTO>(goPath`/v1/tenants/${tenantId ?? ""}/members`, role ? { role } : {}, {
+            fetchAllPages<TenantMemberDTO>(platform ? goPath`/v1/platform/tenants/${tenantId ?? ""}/members` : goPath`/v1/tenants/${tenantId ?? ""}/members`, role ? { role } : {}, {
                 signal,
-                headers: actOnTenant && tenantId ? { [ACT_ON_TENANT_HEADER]: tenantId } : undefined,
             }),
         enabled: Boolean(tenantId),
         staleTime: 30_000,

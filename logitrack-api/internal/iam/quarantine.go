@@ -22,7 +22,7 @@ import (
 // The quarantine review of P1 (Appendix B §B.2.4, Appendix C §C.3.10, R11, R71): rows whose tenant chain ran out at the
 // ETL load live in the quarantine tenant, invisible to every tenant; a platform principal lists them with the
 // resolver trace (GET /v1/tenants/quarantine/rows, platform:cross_tenant_read) and a platform admin re-homes one with
-// its children and their files (POST /v1/tenants/quarantine/rows/{table}/{id}/rehome, platform:cross_tenant_write,
+// its children and their files (POST /v1/tenants/quarantine/rows/{table}/{id}/rehome, quarantine maintenance,
 // tenancy.Rehome under app.tenant_move, tenant_rehomed in the same transaction). Both run in the system context: the
 // quarantine tenant is readable only under bypass. The api login cannot reach schema etl, so the trace is what the
 // rows themselves carry (the raw legacy references and how they matched, R12) plus where each linked row is now; the
@@ -242,7 +242,7 @@ type RehomeInput struct {
 	TenantID *uuid.UUID `json:"tenantId"`
 }
 
-// RehomeQuarantineRow is POST /v1/tenants/quarantine/rows/{table}/{id}/rehome (platform:cross_tenant_write, a
+// RehomeQuarantineRow is POST /v1/tenants/quarantine/rows/{table}/{id}/rehome (quarantine maintenance, a
 // platform admin: no API key holds a platform key): tenancy.Rehome moves the row to tenantId (tenant_source 'form'), its children
 // with the link they follow and the files they own, under app.tenant_move, and tenant_rehomed and the domain events of
 // the moved drivers, trucks and companies (tenancy.RehomeEvents: their projected documents change) are appended in the
@@ -253,6 +253,9 @@ type RehomeInput struct {
 // quarantine tenant (its driver or truck did not resolve: needs_reference) or a link it keeps is still quarantined
 // (re-home the parent task or trip first: linked_row_quarantined).
 func (a *Admin) RehomeQuarantineRow(c call, table string, id uuid.UUID, in RehomeInput) ([]tenancy.Moved, error) {
+	if err := quarantineMaintenance(c.p); err != nil {
+		return nil, err
+	}
 	if _, ok := quarantineQueries[table]; !ok {
 		return nil, httpx.ErrNotFound()
 	}
@@ -279,6 +282,9 @@ func (a *Admin) RehomeQuarantineRow(c call, table string, id uuid.UUID, in Rehom
 	to := *in.TenantID
 	var moved []tenancy.Moved
 	err := db.WithSystem(c.ctx, a.pool, nil, func(tx pgx.Tx) error {
+		if err := liveIAMContext(c, tx); err != nil {
+			return err
+		}
 		var err error
 		moved, err = tenancy.Rehome(c.ctx, tx, table, id, to)
 		switch {

@@ -160,21 +160,23 @@ func TestTruckTenantIsolation(t *testing.T) {
 		t.Fatalf("a tenant outside the reach lists %v", got)
 	}
 
-	// A platform admin reads every tenant under X-Act-On-Tenant: * (read-only) and acts as one tenant with its id.
+	// A platform-only principal has no tenant capabilities in the wildcard view.
 	pa := w.login("pa")
 	all := w.send(http.MethodGet, "/v1/trucks", "", "", nil)
 	expect(t, all, http.StatusUnauthorized, "")
 	req := func(method, path, act string, body any) resp {
 		return w.do(method, path, pa, body, authz.HeaderActOnTenant, act)
 	}
-	if r := req(http.MethodGet, "/v1/trucks", "*", nil); r.status != http.StatusOK || len(r.list()) != 3 {
-		t.Fatalf("platform read-all: %d %s", r.status, r.raw)
+	expect(t, req(http.MethodGet, "/v1/trucks", "*", nil), http.StatusBadRequest, "header_not_allowed")
+	expect(t, req(http.MethodPost, "/v1/trucks", "*", newTruck("กค-1999", nil)), http.StatusBadRequest, "header_not_allowed")
+	if n := w.count(`SELECT count(*) FROM trucks WHERE license_plate = 'กค-1999'`); n != 0 {
+		t.Fatalf("a refused header request created a truck: %d rows", n)
 	}
-	if r := req(http.MethodPost, "/v1/trucks", "*", newTruck("กค-1999", nil)); r.status != http.StatusForbidden {
-		t.Fatalf("a write under X-Act-On-Tenant: * must be refused: %d %s", r.status, r.raw)
-	}
-	if r := req(http.MethodPatch, "/v1/trucks/"+tC, w.C, map[string]any{"notes": "platform"}); r.status != http.StatusOK {
-		t.Fatalf("platform acting as C: %d %s", r.status, r.raw)
+	// UUID headers are refused by the same D1 boundary.
+	expect(t, req(http.MethodGet, "/v1/trucks", w.C, nil), http.StatusBadRequest, "header_not_allowed")
+	expect(t, req(http.MethodPatch, "/v1/trucks/"+tC, w.C, map[string]any{"notes": "platform"}), http.StatusBadRequest, "header_not_allowed")
+	if n := w.count(`SELECT count(*) FROM trucks WHERE id = $1 AND notes = 'platform'`, tC); n != 0 {
+		t.Fatalf("a refused header request changed the carrier truck notes: %d rows", n)
 	}
 }
 

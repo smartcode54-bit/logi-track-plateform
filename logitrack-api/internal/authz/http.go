@@ -8,9 +8,11 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
-// HeaderActOnTenant is the platform cross-tenant header (Appendix C §C.3.9): <tenant uuid> or *. The
-// public listener refuses it with 400 header_not_allowed.
+// HeaderActOnTenant is retired. Both listeners refuse it with 400 header_not_allowed.
 const HeaderActOnTenant = "X-Act-On-Tenant"
+
+// The refusal is also a reviewed support-mode error, before any endpoint is admitted.
+func init() { httpx.RegisterSafeErrorCode(httpx.CodeHeaderNotAllowed) }
 
 // Stable error codes of authorization (Appendix B §B.1.5).
 const (
@@ -64,7 +66,8 @@ func principal(c fiber.Ctx) (*Principal, error) {
 // RequireCap passes when the principal holds at least one of caps (any-of; chain two guards for
 // both-of). Global keys are only ever in the set of a steward, so a carrier tenant_admin is refused a
 // global key even when an override grants it (R60). Otherwise 403 permission_denied with
-// details.missingCapability = caps.
+// details.missingCapability = caps. Only Phase 1 endpoints classified in the platform plane
+// also consider PlatformCapabilities; tenant and self endpoints use Caps alone.
 func RequireCap(caps ...Cap) fiber.Handler {
 	if len(caps) == 0 {
 		panic("authz: RequireCap needs at least one capability")
@@ -79,8 +82,13 @@ func RequireCap(caps ...Cap) fiber.Handler {
 		if err != nil {
 			return err
 		}
+		set := p.Caps
+		policy := httpx.EndpointPolicyFrom(c)
+		if policy.Plane == "platform" && policy.Class == httpx.PolicyPlatform && policy.Phase == 1 {
+			set = set.Union(p.PlatformCapabilities)
+		}
 		for _, k := range caps {
-			if p.Can(k) {
+			if set.Has(k) {
 				return c.Next()
 			}
 		}
@@ -88,15 +96,15 @@ func RequireCap(caps ...Cap) fiber.Handler {
 	}
 }
 
-// RequireTenant passes when the request acts in a tenant (EffectiveTenant, or the read-only bypass of
-// X-Act-On-Tenant: *); otherwise 403 tenant_required.
+// RequireTenant passes when the request has an active tenant (EffectiveTenant); otherwise
+// 403 tenant_required. The retired header never supplies a tenant.
 func RequireTenant() fiber.Handler {
 	return func(c fiber.Ctx) error {
 		p, err := principal(c)
 		if err != nil {
 			return err
 		}
-		if p.EffectiveTenant() == nil && !p.ActOnAll {
+		if p.EffectiveTenant() == nil {
 			return ErrTenantRequired()
 		}
 		return c.Next()
@@ -130,4 +138,13 @@ func RequireSteward() fiber.Handler {
 		}
 		return c.Next()
 	}
+}
+
+// RefuseTenantHeader closes the former human tenant override before any reach is constructed.
+func RefuseTenantHeader(c fiber.Ctx) error {
+	if len(c.Request().Header.PeekAll(HeaderActOnTenant)) != 0 {
+		return httpx.NewError(http.StatusBadRequest, httpx.CodeHeaderNotAllowed, "header not allowed").
+			WithDetails(map[string]any{"header": HeaderActOnTenant})
+	}
+	return nil
 }

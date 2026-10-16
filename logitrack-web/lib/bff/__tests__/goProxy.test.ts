@@ -120,7 +120,7 @@ describe("proxyToGo", () => {
         expect(seen.headers["x-forwarded-for"]).toBe("203.0.113.7");
         expect(seen.headers["accept-language"]).toBe("th");
         expect(seen.headers["if-none-match"]).toBe('"v0"');
-        expect(seen.headers["x-act-on-tenant"]).toBe("*");
+        expect(seen.headers["x-act-on-tenant"]).toBeUndefined();
         expect(seen.headers["x-custom"]).toBeUndefined();
         expect(seen.headers["accept-encoding"]).toBe("identity");
     });

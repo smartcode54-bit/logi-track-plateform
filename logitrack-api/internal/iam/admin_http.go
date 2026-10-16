@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/supportprojection"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
@@ -34,24 +35,24 @@ func (f *Field[T]) UnmarshalJSON(b []byte) error {
 
 // AdminGroups are the route groups of T19 on the internal listener (Appendix B §B.2.4, §B.2.5): /v1/users*
 // and /v1/tenants* (with the quarantine review of T24) behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
-// RBAC.Authorize, X-Act-On-Tenant included), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
+// RBAC.Authorize), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
 // of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview, /v1/security/status
 // and /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
 func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 	h := adminHTTP{a}
 	need := authz.RequireCap
-	return []ingress.Group{
+	groups := []ingress.Group{
 		{Prefix: "/v1/users", Mount: func(r fiber.Router) {
-			r.Get("", requireAuth, need(authz.UsersView), h.listUsers)
-			r.Post("", requireAuth, need(authz.UsersManage), h.createUser)
-			r.Get("/:id", requireAuth, need(authz.UsersView), h.getUser)
-			r.Patch("/:id", requireAuth, need(authz.UsersManage), h.patchUser)
+			ingress.Bind(r, "", iamPolicy(http.MethodGet, "/v1/users", "iam.platform-user"), requireAuth, h.projection, need(authz.UsersView), h.listUsers)
+			ingress.Bind(r, "", iamMutationPolicy("POST", "/v1/users", "iam.created-user"), requireAuth, h.projection, need(authz.UsersManage), h.createUser)
+			ingress.Bind(r, "/:id", iamPolicy(http.MethodGet, "/v1/users/:id", "iam.platform-user"), requireAuth, h.projection, need(authz.UsersView), h.getUser)
+			ingress.Bind(r, "/:id", iamMutationPolicy("PATCH", "/v1/users/:id", "iam.platform-user"), requireAuth, h.projection, need(authz.UsersManage), h.patchUser)
 			r.Delete("/:id", requireAuth, authz.RequirePlatform(authz.PlatformAdmin), h.deleteUser)
 			r.Post("/:id/invite", requireAuth, need(authz.UsersManage), h.invite)
 			r.Post("/:id/disable", requireAuth, need(authz.UsersManage), h.disable)
 			r.Post("/:id/enable", requireAuth, need(authz.UsersManage), h.enable)
 			r.Post("/:id/password/temporary", requireAuth, need(authz.UsersManage), h.temporaryPassword)
-			r.Get("/:id/sessions", requireAuth, need(authz.UsersRevokeSessions), h.sessions)
+			ingress.Bind(r, "/:id/sessions", iamPolicy(http.MethodGet, "/v1/users/:id/sessions", "iam.platform-session"), requireAuth, h.projection, need(authz.UsersRevokeSessions), h.sessions)
 			r.Delete("/:id/sessions", requireAuth, need(authz.UsersRevokeSessions), h.revokeSessions)
 			r.Delete("/:id/sessions/:sid", requireAuth, need(authz.UsersRevokeSessions), h.revokeSession)
 			// customer: users:assign_role (+ steward); dispatcher: platform:manage_platform_roles (checked per kind).
@@ -63,14 +64,32 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Delete("/:id/platform-roles/:role", requireAuth, need(authz.PlatformManageRoles), h.revokePlatformRole)
 		}},
 		{Prefix: "/v1/tenants", Mount: func(r fiber.Router) {
+			searchPolicy := iamPolicy(http.MethodGet, "/v1/tenants/support-options", "iam.support-option")
+			searchPolicy.CursorID = "iam.support-options"
+			searchPolicy.ValidateCursor = func(s string, aud httpx.ProjectionAudience) bool {
+				if a == nil {
+					return false
+				}
+				actor, err := uuid.Parse(aud.Actor)
+				if err != nil {
+					return false
+				}
+				cur, ok := a.readSupportCursor(s)
+				return ok && cur.Actor == actor
+			}
+			ingress.Bind(r, "/support-options", searchPolicy, requireAuth, h.projection, h.supportOptions)
+			statePolicy := iamPolicy(http.MethodGet, "/v1/tenants/:id/support-access", "iam.support-access")
+			ingress.Bind(r, "/:id/support-access", statePolicy, requireAuth, h.projection, h.getSupportAccess)
+			r.Put("/:id/support-access", requireAuth, h.putSupportAccess)
+			r.Post("/:id/members/:userId/ratify", requireAuth, h.ratify)
 			// The quarantine review of P1 (T24): platform principals only, in the system context.
 			r.Get("/quarantine/rows", requireAuth, need(authz.PlatformCrossTenantRead), h.listQuarantineRows)
-			r.Post("/quarantine/rows/:table/:id/rehome", requireAuth, need(authz.PlatformCrossTenantWrite), h.rehomeQuarantineRow)
-			r.Get("", requireAuth, need(authz.PlatformManageTenants, authz.FleetManageSubcontractors), h.listTenants)
-			r.Post("", requireAuth, need(authz.PlatformManageTenants), h.createTenant)
-			r.Get("/:id", requireAuth, h.getTenant)
-			r.Patch("/:id", requireAuth, need(authz.PlatformManageTenants), h.patchTenant)
-			r.Get("/:id/members", requireAuth, need(authz.UsersView), h.listMembers)
+			r.Post("/quarantine/rows/:table/:id/rehome", requireAuth, requireQuarantineMaintenance, h.rehomeQuarantineRow)
+			ingress.Bind(r, "", iamPolicy(http.MethodGet, "/v1/tenants", "iam.tenant"), requireAuth, h.projection, need(authz.PlatformManageTenants, authz.FleetManageSubcontractors), h.listTenants)
+			ingress.Bind(r, "", provisioningPolicy(), requireAuth, h.projection, platformOrMemberCap(authz.PlatformManageTenants), h.createTenant)
+			ingress.Bind(r, "/:id", iamPolicy(http.MethodGet, "/v1/tenants/:id", "iam.tenant-detail"), requireAuth, h.projection, h.getTenant)
+			ingress.Bind(r, "/:id", tenantPatchPolicy(), requireAuth, h.projection, platformOrMemberCap(authz.PlatformManageTenants), h.patchTenant)
+			ingress.Bind(r, "/:id/members", iamPolicy(http.MethodGet, "/v1/tenants/:id/members", "iam.member"), requireAuth, h.projection, need(authz.UsersView), h.listMembers)
 			// T62: a person by email, existing account or invite; the same answer either way.
 			r.Post("/:id/members", requireAuth, need(authz.UsersAssignRole), need(authz.UsersManage), h.addMember)
 			r.Put("/:id/members/:userId", requireAuth, need(authz.UsersAssignRole), h.setMember)
@@ -79,12 +98,11 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 		// fields=minimal: any authenticated principal (RLS rows); the full list, GET {id} and PATCH check their
 		// rule in the service (fleet:manage_subcontractors, a member, the tenant's own tenant_admin).
 		{Prefix: "/v1/subcontractors", Mount: func(r fiber.Router) {
-			r.Get("", requireAuth, h.listSubcontractors)
-			r.Post("", requireAuth, need(authz.FleetManageSubcontractors, authz.PlatformManageTenants), h.createSubcontractor)
-			r.Get("/:id", requireAuth, h.getSubcontractor)
-			r.Patch("/:id", requireAuth, h.patchSubcontractor)
+			ingress.Bind(r, "", partnerPolicy(http.MethodGet, "/v1/subcontractors", "iam.subcontractor-summary"), requireAuth, h.projection, h.listSubcontractors)
+			ingress.Bind(r, "", iamMutationPolicy("POST", "/v1/subcontractors", "iam.subcontractor"), requireAuth, h.projection, need(authz.FleetManageSubcontractors, authz.PlatformManageTenants), h.createSubcontractor)
+			ingress.Bind(r, "/:id", partnerPolicy(http.MethodGet, "/v1/subcontractors/:id", "iam.subcontractor"), requireAuth, h.projection, h.getSubcontractor)
+			ingress.Bind(r, "/:id", iamMutationPolicy("PATCH", "/v1/subcontractors/:id", "iam.subcontractor"), requireAuth, h.projection, h.patchSubcontractor)
 		}},
-		// The Security Center reads (T51) need a tenant context: a platform principal sends X-Act-On-Tenant.
 		{Prefix: "/v1/security-events", Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.SecurityViewAudit), authz.RequireTenant(), h.listEvents)
 		}},
@@ -92,12 +110,13 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/overview", requireAuth, need(authz.SecurityViewOverview), authz.RequireTenant(), h.overview)
 			// The status page: platform-wide counters with no tenant data, so no tenant context (support holds
 			// security:view_status but not security:view_overview).
-			r.Get("/status", requireAuth, need(authz.SecurityViewStatus), h.status)
+			ingress.Bind(r, "/status", iamPolicy(http.MethodGet, "/v1/security/status", "iam.system-status"), requireAuth, h.projection, platformOrMemberCap(authz.SecurityViewStatus), h.status)
 		}},
 		{Prefix: "/v1/stats", Mount: func(r fiber.Router) {
 			r.Get("/users-by-role", requireAuth, need(authz.SecurityViewOverview), authz.RequireTenant(), h.usersByRole)
 		}},
 	}
+	return append(groups, h.supportGroups(requireAuth)...)
 }
 
 type adminHTTP struct{ a *Admin }
@@ -107,7 +126,9 @@ func (adminHTTP) call(c fiber.Ctx) (call, error) {
 	if p == nil {
 		return call{}, httpx.ErrUnauthenticated()
 	}
-	return call{ctx: c.Context(), p: p, rid: httpx.RequestIDFrom(c)}, nil
+	httpx.ResolveProjectionAudience(c)
+	version := strconv.FormatInt(p.ContextVersion, 10)
+	return call{ctx: c.Context(), p: p, rid: httpx.RequestIDFrom(c), contextVersion: version, labels: map[uuid.UUID]platformLabel{}, labelVersions: supportprojection.LabelVersions(c)}, nil
 }
 
 // pathID parses a uuid path parameter; anything else is 404 (no such resource).
@@ -155,6 +176,12 @@ func queryLimit(c fiber.Ctx) (int, error) {
 func noStore(c fiber.Ctx) { c.Set(fiber.HeaderCacheControl, "no-store") }
 
 func (h adminHTTP) listUsers(c fiber.Ctx) error {
+	if authz.IsSupport(authz.PrincipalFrom(c)) {
+		return httpx.ErrSupportViewUnavailable()
+	}
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() {
+		return h.platformUsers(c)
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -176,6 +203,12 @@ func (h adminHTTP) listUsers(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) getUser(c fiber.Ctx) error {
+	if authz.IsSupport(authz.PrincipalFrom(c)) {
+		return httpx.ErrSupportViewUnavailable()
+	}
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() {
+		return h.platformUser(c)
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -206,6 +239,11 @@ func (h adminHTTP) createUser(c fiber.Ctx) error {
 		return err
 	}
 	noStore(c) // the temporary password is shown once (R29)
+	rows := []User{res.User}
+	if err := h.a.projectUserLabels(cl, rows); err != nil {
+		return err
+	}
+	res.User = rows[0]
 	return httpx.JSON(c, http.StatusCreated, res)
 }
 
@@ -226,6 +264,11 @@ func (h adminHTTP) patchUser(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	rows := []User{*u}
+	if err := h.a.projectUserLabels(cl, rows); err != nil {
+		return err
+	}
+	*u = rows[0]
 	return httpx.JSON(c, http.StatusOK, u)
 }
 
@@ -292,6 +335,9 @@ func (h adminHTTP) temporaryPassword(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) sessions(c fiber.Ctx) error {
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() {
+		return h.platformSessions(c)
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -460,6 +506,9 @@ func (h adminHTTP) revokePlatformRole(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) listTenants(c fiber.Ctx) error {
+	if authz.IsSupport(authz.PrincipalFrom(c)) {
+		return httpx.ErrSupportViewUnavailable()
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -479,6 +528,9 @@ func (h adminHTTP) listTenants(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) getTenant(c fiber.Ctx) error {
+	if authz.IsSupport(authz.PrincipalFrom(c)) {
+		return httpx.ErrSupportViewUnavailable()
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -520,7 +572,10 @@ func (h adminHTTP) patchTenant(c fiber.Ctx) error {
 		return err
 	}
 	var in PatchTenantInput
-	if err := httpx.DecodeJSON(c, &in); err != nil {
+	if lifecycle, ok := httpx.PolicyInput[httpx.LifecycleRequest](c); ok {
+		in.Status = Field[string]{Set: true, V: lifecycle.Status}
+		in.Reason = Field[string]{Set: true, V: lifecycle.Reason}
+	} else if err := httpx.DecodeJSON(c, &in); err != nil {
 		return err
 	}
 	t, err := h.a.PatchTenant(cl, id, in)
@@ -531,6 +586,12 @@ func (h adminHTTP) patchTenant(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) listMembers(c fiber.Ctx) error {
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() {
+		if authz.IsSupport(p) {
+			return httpx.ErrSupportViewUnavailable()
+		}
+		return h.platformMembers(c)
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -634,7 +695,14 @@ func (h adminHTTP) listSubcontractors(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return httpx.Page(c, out, next, nil)
+	switch rows := out.(type) {
+	case []SubcontractorMinimal:
+		return httpx.PageAs(c, "iam.subcontractor-minimal", rows, next, nil)
+	case []SubcontractorSummary:
+		return httpx.Page(c, rows, next, nil)
+	default:
+		return httpx.ErrSupportProjectionUnavailable()
+	}
 }
 
 func (h adminHTTP) getSubcontractor(c fiber.Ctx) error {
@@ -729,6 +797,9 @@ func (h adminHTTP) listEvents(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) overview(c fiber.Ctx) error {
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() && (p.AccessMode != "member" || p.EffectiveTenant() == nil) {
+		return httpx.ErrSupportViewUnavailable()
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err
@@ -761,6 +832,9 @@ func (h adminHTTP) status(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) usersByRole(c fiber.Ctx) error {
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() && (p.AccessMode != "member" || p.EffectiveTenant() == nil) {
+		return httpx.ErrSupportViewUnavailable()
+	}
 	cl, err := h.call(c)
 	if err != nil {
 		return err

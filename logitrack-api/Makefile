@@ -27,7 +27,7 @@ MIGRATE      := $(COMPOSE) run --rm --build migrate
 SQLC_OUT      = $(shell awk '$$1 == "out:" {print $$2}' sqlc.yaml)
 # Every generated file or directory that is committed; gen-check fails when one is stale or new.
 # ../shared-docs/schemas/capabilities.ts is the web copy of the capability catalog (T07, R27).
-GEN_OUT       = deploy/rabbitmq-definitions.json api/routes.txt ../shared-docs/schemas/capabilities.ts $(SQLC_OUT)
+GEN_OUT       = deploy/rabbitmq-definitions.json api/routes.txt api/support-policies.json api/support-discovery.json ../shared-docs/schemas/capabilities.ts ../shared-docs/schemas/supportAccess.ts $(SQLC_OUT)
 # Negative fixture of the sqlc vet rule scope-views-only (Appendix C §C.3.7).
 SCOPE_VETCHECK = internal/scope/testdata/vetcheck
 # The secret-scan workflow (.github/scripts/secret-scan.sh) reads it through `make print-gitleaks-img`.
@@ -157,6 +157,7 @@ lint: ## gofmt, go mod tidy, go vet, the WithSystem allow-list, golangci-lint (i
 	go mod tidy -diff
 	go vet -tags=integration ./...
 	go run ./tools/analyzers/withsystem
+	go run ./tools/analyzers/supportprojection
 	$(GOLANGCI) run --build-tags=integration ./...
 	$(GOVULNCHECK) -tags=integration ./...
 
@@ -164,7 +165,9 @@ gen: ## regenerate generated files (RabbitMQ definitions, api/routes.txt, capabi
 	go generate ./...
 	$(SQLC) generate
 
-gen-check: ## fail when generated files are stale, orphaned or uncommitted, a public route leaves the allow-list, the scope vet rule stops biting, or the migration rules break (go-ci gen-check)
+gen-check: support-release-check ## fail when generated files are stale, orphaned or uncommitted, a public route leaves the allow-list, the scope vet rule stops biting, or the migration rules break (go-ci gen-check)
+	go run ./cmd/supportcontracts
+	go run ./tools/analyzers/supportprojection
 	$(SQLC) diff
 	$(SQLC) vet
 	@# scope-views-only must still report every query of its negative fixture (one line per query).
@@ -223,3 +226,23 @@ print-gitleaks-img: ## the pinned gitleaks image (also read by .github/scripts/s
 smoke: .env ## verify the T02 and T03 acceptance checks against the running stack (EDGE=1 adds the TW2 edge checks)
 	./deploy/smoke.sh
 	$(if $(EDGE),./deploy/edge-smoke.sh)
+
+.PHONY: support-check
+support-check: ## verify Phase 1 seed, unknown registrations and discovered projection coverage
+	go run ./cmd/supportcontracts
+	go run ./tools/analyzers/supportprojection
+
+.PHONY: gen-verify
+gen-verify: ## verify generated output without requiring a commit (gen-check also pins HEAD in CI)
+	$(SQLC) diff
+	$(SQLC) vet
+	go run ./cmd/migrate check -dir migrations
+	go run ./cmd/supportcontracts -verify-generation
+
+.PHONY: support-release-check
+support-release-check: support-check ## atomic D1 gate (P1.1-P1.4 consumer migrations required)
+	go run ./tools/analyzers/supportprojection -human-overrides
+
+.PHONY: support-ratchet-check
+support-ratchet-check: support-check ## no new D1 consumers; remove resolved baseline entries
+	go run ./tools/analyzers/supportprojection -human-overrides-baseline tools/analyzers/supportprojection/testdata/human-overrides-baseline.json

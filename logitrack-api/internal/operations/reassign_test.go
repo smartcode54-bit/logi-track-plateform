@@ -91,7 +91,7 @@ func TestReassignAuthorization(t *testing.T) {
 		"dispatcher":                      {&authz.Principal{TenantID: &tid, TenantRole: authz.OperationStaff, Dispatcher: true, Caps: manage}, true, false},
 		"dispatcher without manage_tasks": {&authz.Principal{TenantID: &tid, TenantRole: authz.Operator, Dispatcher: true}, false, false},
 		"tenant admin, no grant":          {&authz.Principal{TenantID: &tid, TenantRole: authz.TenantAdmin, Steward: true, Caps: manage}, false, false},
-		"platform admin":                  {&authz.Principal{Platform: []authz.PlatformRole{authz.PlatformAdmin}, Caps: authz.NewCapSet(authz.PlatformCrossTenantWrite)}, true, true},
+		"platform admin":                  {&authz.Principal{Platform: []authz.PlatformRole{authz.PlatformAdmin}, Caps: authz.NewCapSet(authz.PlatformCrossTenantWrite)}, false, false},
 		"platform admin without write":    {&authz.Principal{Platform: []authz.PlatformRole{authz.PlatformAdmin}, Caps: authz.NewCapSet(authz.PlatformCrossTenantRead)}, false, false},
 		"support with write":              {&authz.Principal{Platform: []authz.PlatformRole{authz.Support}, Caps: authz.NewCapSet(authz.PlatformCrossTenantWrite)}, false, false},
 		"an API key":                      {&authz.Principal{AMR: authz.AMRAPIKey, TenantID: &tid, Dispatcher: true, Caps: manage}, false, false},

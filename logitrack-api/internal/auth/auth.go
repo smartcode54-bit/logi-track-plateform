@@ -66,10 +66,12 @@ const (
 // FIREBASE_SCRYPT_*; main spec §16.1). RATE_LIMIT_ENABLED and RATE_LIMIT_LOGIN are parsed once, by
 // ratelimit.Config in the process configuration, which hands their values over.
 type Config struct {
-	RefreshTTLWeb    time.Duration          // REFRESH_TOKEN_TTL_WEB: sliding, capped by WebAbsoluteTTL
-	RefreshTTLMobile time.Duration          // REFRESH_TOKEN_TTL_MOBILE: absolute, no sliding
-	PasswordResetTTL time.Duration          // PASSWORD_RESET_TTL
-	Scrypt           *firebasescrypt.Params // nil: legacy hashes cannot be verified
+	// SupportEntryEnabled is default-OFF; app wiring keeps it off until the Phase 1 release gate.
+	SupportEntryEnabled bool
+	RefreshTTLWeb       time.Duration          // REFRESH_TOKEN_TTL_WEB: sliding, capped by WebAbsoluteTTL
+	RefreshTTLMobile    time.Duration          // REFRESH_TOKEN_TTL_MOBILE: absolute, no sliding
+	PasswordResetTTL    time.Duration          // PASSWORD_RESET_TTL
+	Scrypt              *firebasescrypt.Params // nil: legacy hashes cannot be verified
 	// RateLimitEnabled is RATE_LIMIT_ENABLED: it switches the request buckets of the auth routes; the
 	// login_fail lockout applies whatever it says (C.4.12).
 	RateLimitEnabled bool

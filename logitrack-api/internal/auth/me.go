@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,9 +16,24 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
-	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/security"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
+
+// SessionContextView identifies the live session mode and context version.
+type SessionContextView struct {
+	Mode    string `json:"mode"`
+	Version string `json:"version"`
+}
+
+// SupportAccessView describes the selected tenant's consent and read-only support visit.
+type SupportAccessView struct {
+	TenantID uuid.UUID `json:"tenantId"`
+	Enabled  bool      `json:"enabled"`
+	Masked   bool      `json:"masked"`
+	Version  string    `json:"version"`
+	ReadOnly bool      `json:"readOnly"`
+	VisitID  uuid.UUID `json:"visitId"`
+}
 
 // Me is the body of GET /v1/me (Appendix C §C.8). photoUrl is a short-lived URL of the profile photo signed by
 // the storage service (S3_PRESIGN_GET_TTL; null without a photo or when storage cannot sign); legacyAuthUid (the user's Firebase uid) is present only while the
@@ -25,20 +41,23 @@ import (
 // the signed-in Firebase uid and asks for a new custom token when they differ; capabilities come from
 // the CapabilityResolver (T07).
 type Me struct {
-	ID                 uuid.UUID       `json:"id"`
-	Email              *string         `json:"email"`
-	DisplayName        *string         `json:"displayName"`
-	PhotoURL           *string         `json:"photoUrl"`
-	Tenant             *Tenant         `json:"tenant"`
-	Tenants            []Tenant        `json:"tenants"`
-	PlatformRoles      []string        `json:"platformRoles"`
-	Dispatcher         bool            `json:"dispatcher"`
-	Steward            bool            `json:"steward"`
-	Driver             *DriverRef      `json:"driver"`
-	CustomerScopes     []CustomerScope `json:"customerScopes"`
-	Capabilities       []string        `json:"capabilities"`
-	MustChangePassword bool            `json:"mustChangePassword"`
-	LegacyAuthUID      *string         `json:"legacyAuthUid,omitempty"`
+	SessionContext       SessionContextView `json:"sessionContext"`
+	SupportAccess        *SupportAccessView `json:"supportAccess"`
+	PlatformCapabilities []string           `json:"platformCapabilities"`
+	ID                   uuid.UUID          `json:"id"`
+	Email                *string            `json:"email"`
+	DisplayName          *string            `json:"displayName"`
+	PhotoURL             *string            `json:"photoUrl"`
+	Tenant               *Tenant            `json:"tenant"`
+	Tenants              []Tenant           `json:"tenants"`
+	PlatformRoles        []string           `json:"platformRoles"`
+	Dispatcher           bool               `json:"dispatcher"`
+	Steward              bool               `json:"steward"`
+	Driver               *DriverRef         `json:"driver"`
+	CustomerScopes       []CustomerScope    `json:"customerScopes"`
+	Capabilities         []string           `json:"capabilities"`
+	MustChangePassword   bool               `json:"mustChangePassword"`
+	LegacyAuthUID        *string            `json:"legacyAuthUid,omitempty"`
 }
 
 // DriverRef is the linked driver of a driver principal.
@@ -56,7 +75,7 @@ type CustomerScope struct {
 func (s *Service) Me(ctx context.Context, p *authz.Principal) (*Me, error) {
 	var out *Me
 	var photo *uuid.UUID
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		u, err := q.GetUser(ctx, p.UserID)
 		if err != nil {
 			return err
@@ -70,6 +89,8 @@ func (s *Service) Me(ctx context.Context, p *authz.Principal) (*Me, error) {
 			ID: u.ID, Email: u.Email, DisplayName: u.DisplayName, Tenants: a.tenants(),
 			PlatformRoles: a.platform, Dispatcher: p.Dispatcher, MustChangePassword: u.MustChangePassword,
 			CustomerScopes: []CustomerScope{}, Capabilities: []string{},
+			SessionContext:       SessionContextView{Mode: AccessModeMember, Version: strconv.FormatInt(p.ContextVersion, 10)},
+			PlatformCapabilities: authz.PlatformCaps(p).Strings(),
 		}
 		if tid := p.EffectiveTenant(); tid != nil {
 			for _, t := range m.Tenants {
@@ -96,6 +117,23 @@ func (s *Service) Me(ctx context.Context, p *authz.Principal) (*Me, error) {
 		for _, sc := range a.scopes {
 			if sc.Kind == "customer" {
 				m.CustomerScopes = append(m.CustomerScopes, CustomerScope{BillingPartyID: sc.BillingPartyID, Name: sc.PartyName})
+			}
+		}
+		if authz.IsSupport(p) {
+			m.SessionContext.Mode = AccessModeSupport
+			m.Steward, m.Dispatcher, m.Driver, m.CustomerScopes, m.LegacyAuthUID = false, false, nil, []CustomerScope{}, nil
+			m.SupportAccess = &SupportAccessView{TenantID: *p.TenantID, Enabled: p.SupportAccessEnabled, Masked: !p.SupportAccessEnabled, Version: strconv.FormatInt(p.SupportAccessVersion, 10), ReadOnly: true, VisitID: p.SupportVisitID}
+			t, err := supportTenantLabel(ctx, tx, p, *p.TenantID, string(authz.SupportReadOnly))
+			if err != nil {
+				return err
+			}
+			m.Tenant = &t
+			for i := range m.Tenants {
+				t, err := supportTenantLabel(ctx, tx, p, m.Tenants[i].ID, m.Tenants[i].Role)
+				if err != nil {
+					return err
+				}
+				m.Tenants[i] = t
 			}
 		}
 		out = m
@@ -185,7 +223,7 @@ func (s *Service) PatchMe(ctx context.Context, p *authz.Principal, in PatchMeInp
 // MyTenants is GET /v1/me/tenants: every active membership with the tenant status, for the switcher.
 func (s *Service) MyTenants(ctx context.Context, p *authz.Principal) ([]Tenant, error) {
 	var out []Tenant
-	err := s.system(ctx, func(q *authdb.Queries) error {
+	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		rows, err := q.ListMemberships(ctx, p.UserID)
 		if err != nil {
 			return err
@@ -193,6 +231,15 @@ func (s *Service) MyTenants(ctx context.Context, p *authz.Principal) ([]Tenant, 
 		out = make([]Tenant, 0, len(rows))
 		for _, m := range rows {
 			out = append(out, Tenant{ID: m.TenantID, NameTh: m.NameTh, NameEn: m.NameEn, Kind: m.Kind, Role: m.Role, Status: m.TenantStatus})
+		}
+		if authz.IsSupport(p) {
+			for i := range out {
+				t, err := supportTenantLabel(ctx, tx, p, out[i].ID, out[i].Role)
+				if err != nil {
+					return err
+				}
+				out[i] = t
+			}
 		}
 		return nil
 	})
@@ -358,63 +405,7 @@ const EventTenantSwitched = "tenant_switched"
 // (users.last_tenant_id, T62). The refresh token is unchanged. A switch to another tenant records
 // tenant_switched in the same transaction. Locks the user, then the session (lock order of C.4.4).
 func (s *Service) SwitchTenant(ctx context.Context, p *authz.Principal, tenantID uuid.UUID, requestID string) (*AccessToken, error) {
-	var out *AccessToken
-	pc := newPostCommit()
-	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
-		now := s.clock()
-		u, err := q.LockUser(ctx, p.UserID)
-		if err != nil {
-			return err
-		}
-		// Read after the user lock: a revocation that held it has committed and is visible here.
-		sess, err := q.GetSession(ctx, p.SessionID)
-		if err != nil {
-			return err
-		}
-		if sess.RevokedAt != nil || u.Status != "active" {
-			return errSessionRevoked()
-		}
-		a, err := loadAxes(ctx, q, p.UserID)
-		if err != nil {
-			return err
-		}
-		m := a.pickTenant(&tenantID)
-		if m == nil || m.TenantID != tenantID {
-			return errPermissionDenied("not an active member of that tenant").WithDetails(map[string]any{"tenantId": tenantID})
-		}
-		c, err := a.claims(p.SessionID, u.AuthVersion, sess.Amr, m)
-		if err != nil {
-			return err
-		}
-		if err := q.SetActiveTenant(ctx, authdb.SetActiveTenantParams{TenantID: &m.TenantID, ID: p.SessionID}); err != nil {
-			return err
-		}
-		if err := q.SetLastTenant(ctx, authdb.SetLastTenantParams{TenantID: m.TenantID, ID: p.UserID}); err != nil {
-			return err
-		}
-		if sess.ActiveTenantID == nil || *sess.ActiveTenantID != m.TenantID {
-			uid, tid := p.UserID, m.TenantID
-			if err := security.Append(ctx, tx, security.Event{
-				EventType: EventTenantSwitched, Severity: security.SeverityInfo, Summary: "active tenant switched",
-				Details:     map[string]any{"tenantId": tid, "role": m.Role, "sessionId": p.SessionID},
-				ActorUserID: &uid, TargetUserID: &uid, TenantID: &tid, RequestID: requestID, OccurredAt: now,
-			}); err != nil {
-				return err
-			}
-		}
-		access, err := s.signAccess(c, p.UserID, now)
-		if err != nil {
-			return err
-		}
-		pc.issue(p.UserID, u.AuthVersion)
-		out = &AccessToken{AccessToken: access, ExpiresIn: s.expiresIn()}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	s.Apply(ctx, pc)
-	return out, nil
+	return s.ChangeTenantContext(ctx, p, AccessModeMember, &tenantID, requestID)
 }
 
 // SSETicket is the body of POST /v1/auth/sse-ticket.
@@ -431,6 +422,9 @@ type sseTicket struct {
 // IssueSSETicket is POST /v1/auth/sse-ticket (driver app only, C.4.6): 403 unless the session platform
 // is android or ios; the ticket is single use and lives 60 s (auth:sse:{ticket}).
 func (s *Service) IssueSSETicket(ctx context.Context, p *authz.Principal) (*SSETicket, error) {
+	if authz.IsSupport(p) || p.AccessMode == AccessModeSupport {
+		return nil, errPermissionDenied("support cannot use mobile SSE tickets")
+	}
 	var platform string
 	if err := s.system(ctx, func(q *authdb.Queries) error {
 		sess, err := q.GetSession(ctx, p.SessionID)

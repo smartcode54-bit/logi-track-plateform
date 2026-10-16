@@ -171,6 +171,10 @@ func sorted(s []string) []string {
 func TestRLSCatalogMatchesAppendixC(t *testing.T) {
 	doc := appendixC(t)
 	want := parseCoverage(t, doc)
+	// ADR 0030 adds private operational tables after the Appendix C baseline.
+	for _, name := range []string{"support_visits", "membership_provenance_history", "support_request_limits"} {
+		want[name] = coverage{rls: true, policies: []string{"p_system"}}
+	}
 	exempt := parseExemptGrants(t, doc)
 
 	ctx := context.Background()
@@ -247,16 +251,16 @@ func TestRLSCatalogMatchesAppendixC(t *testing.T) {
 			t.Errorf("§C.3.0 lists %s, the database has no such table", name)
 		}
 	}
-	if nRLS != 70 {
-		t.Errorf("%d tables with ENABLE + FORCE ROW LEVEL SECURITY, want 70", nRLS)
+	if nRLS != 73 {
+		t.Errorf("%d tables with ENABLE + FORCE ROW LEVEL SECURITY, want 73", nRLS)
 	}
 
 	// logitrack_app: DML on the RLS tables minus the append-only / void-only REVOKEs of Appendix A
 	// §A.1.8, nothing on the counters, exactly §C.3.2 on the exempt tables, nothing in schema etl.
 	// Effective privileges (has_table_privilege: direct, through PUBLIC or inherited from a role the
 	// login is a member of), keyed like want, so a grant to PUBLIC or on an etl table cannot hide.
-	appendOnly := []string{"status_history", "trip_no_history", "billing_statement_lines", "transactions", "security_events"}
-	noDelete := []string{"customer_rate_entries", "customer_fuel_rate_adjustments", "standby_rate_entries"}
+	appendOnly := []string{"status_history", "trip_no_history", "billing_statement_lines", "transactions", "security_events", "membership_provenance_history"}
+	noDelete := []string{"customer_rate_entries", "customer_fuel_rate_adjustments", "standby_rate_entries", "support_visits", "support_request_limits"}
 	privs := map[string][]string{}
 	for _, row := range rows(t, c, `SELECT CASE n.nspname WHEN 'public' THEN '' ELSE n.nspname || '.' END || c.relname || ' ' ||
 			coalesce(string_agg(p.priv, ' ' ORDER BY p.priv) FILTER (WHERE has_table_privilege('logitrack_app', c.oid, p.priv)), '')

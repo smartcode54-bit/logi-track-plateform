@@ -1,0 +1,26 @@
+{
+  "actions": {
+    "api_key_create": "Created a company API key",
+    "api_key_revoke": "Revoked a company API key",
+    "membership_set": "Changed a company membership",
+    "membership_add": "Added a company membership",
+    "membership_remove": "Removed a company membership",
+    "user_create": "Created an account",
+    "user_delete": "Deleted an account",
+    "profile": "Changed account details",
+    "invite": "Sent an account invitation",
+    "temporary_password": "Issued a temporary password",
+    "disable": "Disabled an account",
+    "enable": "Enabled an account",
+    "driver_link": "Linked a driver account",
+    "driver_unlink": "Unlinked a driver account",
+    "platform_role_grant": "Granted a platform role",
+    "platform_role_remove": "Removed a platform role",
+    "scopes_set": "Changed account access",
+    "scopes_remove": "Removed account access"
+  },
+  "bases": {
+    "onboarding": "Initial company setup (no active company administrator)",
+    "consent": "Company support access is enabled"
+  }
+}

@@ -390,14 +390,15 @@ func jobCategoryOf(v string) (string, bool) {
 
 // --- authorization ------------------------------------------------------------------------------------------------
 
-// ReasonActOnTenantRequired is details.reason of the 403 of a platform admin writing an operations row without
-// X-Act-On-Tenant: the ordinary writes run under the caller's RLS, as that tenant's tenant_admin (Appendix C §C.3.9,
-// audited per request); only the R13 reassignment takes platform:cross_tenant_write alone.
-const ReasonActOnTenantRequired = "act_on_tenant_required"
+// ReasonActOnTenantRequired is retained as a source compatibility alias for callers.
+// Human header impersonation is no longer a way to acquire tenant write rights.
+const ReasonActOnTenantRequired = "tenant_membership_required"
 
-// requireCap checks a write capability: 403 permission_denied naming it; a platform principal without
-// X-Act-On-Tenant also gets details.reason act_on_tenant_required. An API key never writes these rows.
+// requireCap checks tenant write rights. An API key never writes these rows.
 func requireCap(p *authz.Principal, c authz.Cap) error {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return err
+	}
 	if p.IsMachine() {
 		return authz.ErrPermissionDenied("an API key does not write operations rows", c)
 	}
@@ -405,7 +406,7 @@ func requireCap(p *authz.Principal, c authz.Cap) error {
 		return nil
 	}
 	e := authz.ErrPermissionDenied("missing capability", c)
-	if p.IsPlatform() && p.ActOnTenant == nil {
+	if p.IsPlatform() && p.TenantID == nil {
 		e = e.WithDetails(map[string]any{"reason": ReasonActOnTenantRequired})
 	}
 	return e

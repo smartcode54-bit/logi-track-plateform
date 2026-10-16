@@ -59,6 +59,10 @@ describe("hub dialog: the customer link by search and by id (UI8)", () => {
         const u = userEvent.setup();
         await u.click(picker);
         await u.type(await screen.findByPlaceholderText("Search..."), "C0005");
+        // C0005 is also on the unfiltered first page. Wait for the debounced search to finish:
+        // otherwise its loading render can detach that old row between userEvent's pointer events.
+        await waitFor(() => expect(web.calls.some((c) => new URL(c.url, "http://web.test").searchParams.get("q") === "C0005")).toBe(true));
+        await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
         await u.click(await screen.findByRole("option", { name: /ลูกค้า 0005/ }));
         // The trigger names the pick through the label lookup (a render after the pick), so wait for it: a slow CI
         // runner saw the previous label at this point (mv-go c9e044f4).

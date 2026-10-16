@@ -133,7 +133,14 @@ func prune(ctx context.Context, batch func(context.Context) (int64, error)) (int
 // expired reset and invite links. The identity tables are RLS-forced, so it runs under WithSystem.
 func TokenCleanup(ctx context.Context, b db.Beginner, now time.Time) (map[string]int64, error) {
 	out := map[string]int64{}
-	err := db.WithSystem(ctx, b, nil, func(tx pgx.Tx) error {
+	n, err := closeEndedSupportVisits(ctx, b, now)
+	if err != nil {
+		return out, err
+	}
+	if n > 0 {
+		out["supportVisits"] = n
+	}
+	err = db.WithSystem(ctx, b, nil, func(tx pgx.Tx) error {
 		q := schedulerdb.New(tx)
 		var err error
 		if out["sessions"], err = q.DeleteEndedSessions(ctx, now.Add(-EndedSessionRetained)); err != nil {

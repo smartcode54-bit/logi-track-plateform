@@ -42,6 +42,7 @@ const tenants: Record<string, string> = {
     "tenants.admins.none": "องค์กรนี้ยังไม่มีผู้ดูแล",
     "tenants.admins.remove": "นำผู้ดูแลออก",
     "tenants.admins.removed": "นำผู้ดูแลออกแล้ว",
+    "tenants.admins.assignUser": "ตั้งผู้ใช้ {id} เป็นผู้ดูแล",
     "tenants.admins.assignExisting": "ตั้งผู้ใช้ที่มีอยู่เป็นผู้ดูแล",
     "tenants.admins.searchUsers": "ค้นหาผู้ใช้ด้วยชื่อหรืออีเมล",
     "tenants.admins.noUsers": "ไม่พบผู้ใช้ที่ตรงกัน",

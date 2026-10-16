@@ -195,8 +195,8 @@ func TestMaintenanceRecords(t *testing.T) {
 	}
 }
 
-// A record the ETL quarantined (its truck did not resolve: no truck, the plate snapshot only, no brand snapshot) is
-// listed in the platform's read-all view with its snapshot plate and an empty brand, and never in a tenant's list.
+// Quarantine is not a tenant destination; platform-only principals have no maintenance capability.
+// TestMaintenanceQuarantineReview in internal/iam covers its header-free review DTO and snapshot plate.
 func TestMaintenanceQuarantinedRecord(t *testing.T) {
 	w := newWorld(t)
 	id := w.id(`INSERT INTO maintenance_records (tenant_id, tenant_source, truck_id, truck_license_plate_snapshot,
@@ -204,15 +204,13 @@ func TestMaintenanceQuarantinedRecord(t *testing.T) {
 		VALUES (app_quarantine_tenant_id(), 'quarantine', NULL, 'zz-9999', 'CM', 'เบรก', '2026-09-02', 'in_progress', 'mnt2')
 		RETURNING id::text`)
 	r := w.do(http.MethodGet, "/v1/maintenance", w.login("pa"), nil, "X-Act-On-Tenant", "*")
-	expect(t, r, http.StatusOK, "")
-	var got map[string]any
-	for _, m := range r.list() {
-		if m["id"] == id {
-			got = m
-		}
-	}
-	if got == nil || got["licensePlate"] != "zz-9999" || got["truckBrand"] != "" || got["truckId"] != nil {
-		t.Fatalf("the quarantined record in the read-all list: %s", r.raw)
+	// D1 refuses wildcard headers before reaching quarantined data.
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
+	r = w.do(http.MethodPatch, "/v1/maintenance/"+id, w.login("pa"), map[string]any{"serviceType": "changed"},
+		"X-Act-On-Tenant", "*")
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
+	if n := w.count(`SELECT count(*) FROM maintenance_records WHERE id = $1 AND service_type = 'เบรก'`, id); n != 1 {
+		t.Fatalf("a refused header request changed the quarantined record: %d rows", n)
 	}
 	for _, m := range w.get("/v1/maintenance", w.login("op.o")).list() {
 		if m["id"] == id {

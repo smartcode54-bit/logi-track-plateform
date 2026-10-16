@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/context/language";
 import { ConfirmDialog } from "@/features/users/components/dialogs";
+import { isMaskedValue, MASKED_VALUE } from "@/lib/maskedValue";
 import { apiErrorText } from "@/lib/apiError";
 import { createTenant, TENANT_STATUSES, updateTenant, type LegalType, type TenantDTO, type TenantStatus, type UpdateTenantInput } from "../api/tenants";
 
@@ -40,19 +41,21 @@ export function TenantFormDialog({
     const editing = tenant !== null;
     // Only a carrier's status is edited here (see the module comment).
     const statusEditable = tenant?.kind === "carrier";
+    const nameThMasked = isMaskedValue(tenant?.nameTh, { source: tenant, path: "nameTh" });
+    const nameEnMasked = isMaskedValue(tenant?.nameEn, { source: tenant, path: "nameEn" });
     const [code, setCode] = useState(tenant?.code ?? "");
-    const [nameTh, setNameTh] = useState(tenant?.nameTh ?? "");
-    const [nameEn, setNameEn] = useState(tenant?.nameEn ?? "");
+    const [nameTh, setNameTh] = useState(nameThMasked ? "" : tenant?.nameTh ?? "");
+    const [nameEn, setNameEn] = useState(nameEnMasked ? "" : tenant?.nameEn ?? "");
     const [legalType, setLegalType] = useState<LegalType>(tenant?.legalType ?? "company");
     const [status, setStatus] = useState<TenantStatus>(tenant?.status ?? "active");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
     const [confirmSuspend, setConfirmSuspend] = useState(false);
 
-    /** The PATCH body: the names, and `status` only for a carrier whose status changed. */
+    /** PATCH only changed, visible fields; projected placeholders must never become stored names. */
     const patch = (): UpdateTenantInput => ({
-        nameTh,
-        nameEn,
+        ...(!nameThMasked && nameTh.trim() !== MASKED_VALUE && nameTh.trim() !== (tenant?.nameTh ?? "") ? { nameTh } : {}),
+        ...(!nameEnMasked && nameEn.trim() !== MASKED_VALUE && nameEn.trim() !== (tenant?.nameEn ?? "") ? { nameEn } : {}),
         ...(statusEditable && tenant && status !== tenant.status ? { status } : {}),
     });
 
@@ -75,7 +78,7 @@ export function TenantFormDialog({
     const submit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError("");
-        if (!nameTh.trim() || (!editing && !code.trim())) {
+        if ((!nameThMasked && !nameTh.trim()) || nameTh.trim() === MASKED_VALUE || nameEn.trim() === MASKED_VALUE || (!editing && !code.trim())) {
             setError(t("users.toast.fillRequired"));
             return;
         }
@@ -101,11 +104,11 @@ export function TenantFormDialog({
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="tenant-name-th">{t("tenants.form.nameTh")}</Label>
-                        <Input id="tenant-name-th" value={nameTh} onChange={(e) => setNameTh(e.target.value)} disabled={saving} required />
+                        <Input id="tenant-name-th" value={nameTh} onChange={(e) => setNameTh(e.target.value)} disabled={saving || nameThMasked} placeholder={nameThMasked ? MASKED_VALUE : undefined} required={!nameThMasked} />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="tenant-name-en">{t("tenants.form.nameEn")}</Label>
-                        <Input id="tenant-name-en" value={nameEn} onChange={(e) => setNameEn(e.target.value)} disabled={saving} />
+                        <Input id="tenant-name-en" value={nameEn} onChange={(e) => setNameEn(e.target.value)} disabled={saving || nameEnMasked} placeholder={nameEnMasked ? MASKED_VALUE : undefined} />
                     </div>
                     {!editing ? (
                         <div className="space-y-2">

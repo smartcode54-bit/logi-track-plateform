@@ -10,18 +10,20 @@ export const DEFAULT_MAX_PAGES = 20;
 
 export interface FetchAllPagesOptions {
     signal?: AbortSignal;
+    requireProjection?: boolean;
     /** Page bound (default `DEFAULT_MAX_PAGES`). */
     maxPages?: number;
-    /** Request headers of every page (`X-Act-On-Tenant` for a platform read, Appendix C §C.3.9). */
+    /** Conditional request headers, applied to every page. */
     headers?: Record<string, string>;
 }
 
 export async function fetchAllPages<T>(path: string, query: QueryParams = {}, options: FetchAllPagesOptions = {}): Promise<T[]> {
-    const { signal, maxPages = DEFAULT_MAX_PAGES, headers } = options;
+    const { signal, maxPages = DEFAULT_MAX_PAGES, headers, requireProjection } = options;
     const out: T[] = [];
     let cursor: string | undefined;
     for (let i = 0; i < maxPages; i++) {
-        const page = await goFetchEnvelope<T[]>(path, { signal, headers, query: { ...query, limit: PAGE_LIMIT, cursor } });
+        const page = await goFetchEnvelope<T[]>(path, { signal, headers, requireProjection, query: { ...query, limit: PAGE_LIMIT, cursor } });
+        // goFetchEnvelope associates relative redaction paths with each row before flattening.
         if (Array.isArray(page.data)) out.push(...page.data);
         cursor = page.nextCursor;
         if (!cursor) break;

@@ -48,7 +48,7 @@ func TestLoginIssuesExactClaimSet(t *testing.T) {
 		t.Fatalf("header = %v", hd)
 	}
 	c := payload(t, at)
-	want := []string{"amr", "aud", "cs", "drv", "dsp", "exp", "iat", "iss", "jti", "nbf", "plt", "rol", "sid", "sub", "tid", "ver"}
+	want := []string{"amr", "aud", "cs", "drv", "dsp", "exp", "iat", "iss", "jti", "nbf", "plt", "rol", "scv", "sid", "sub", "tid", "ver"}
 	if got := keys(c); !slices.Equal(got, want) {
 		t.Fatalf("claims = %v, want %v", got, want)
 	}
@@ -80,7 +80,7 @@ func TestLoginIssuesExactClaimSet(t *testing.T) {
 	staff := h.user("staff@logitrack.test")
 	h.member(staff, own, "manager")
 	s := h.mustLogin("staff@logitrack.test", "web", "")
-	if got := keys(payload(t, s.access)); !slices.Equal(got, []string{"amr", "aud", "exp", "iat", "iss", "jti", "nbf", "rol", "sid", "sub", "tid", "ver"}) {
+	if got := keys(payload(t, s.access)); !slices.Equal(got, []string{"amr", "aud", "exp", "iat", "iss", "jti", "nbf", "rol", "scv", "sid", "sub", "tid", "ver"}) {
 		t.Fatalf("staff claims = %v", got)
 	}
 
@@ -88,7 +88,7 @@ func TestLoginIssuesExactClaimSet(t *testing.T) {
 	cust := h.user("customer@logitrack.test")
 	h.exec(`INSERT INTO user_scopes (user_id, kind, billing_party_id) VALUES ($1, 'customer', $2)`, cust, x)
 	s = h.mustLogin("customer@logitrack.test", "web", "")
-	if got := keys(payload(t, s.access)); !slices.Equal(got, []string{"amr", "aud", "cs", "exp", "iat", "iss", "jti", "nbf", "sid", "sub", "ver"}) {
+	if got := keys(payload(t, s.access)); !slices.Equal(got, []string{"amr", "aud", "cs", "exp", "iat", "iss", "jti", "nbf", "scv", "sid", "sub", "ver"}) {
 		t.Fatalf("customer claims = %v", got)
 	}
 }
@@ -302,7 +302,8 @@ func TestTenantSwitchAndDeviceRelogin(t *testing.T) {
 	if got := scalar[string](h, `SELECT active_tenant_id::text FROM sessions WHERE id = $1`, s.sid); got != carrier {
 		t.Fatalf("active_tenant_id = %s", got)
 	}
-	if c := payload(t, h.mustRefresh(s).access); c["tid"] != carrier || c["rol"] != "tenant_admin" {
+	s = h.mustRefresh(s)
+	if c := payload(t, s.access); c["tid"] != carrier || c["rol"] != "tenant_admin" {
 		t.Fatalf("refresh re-issued %v", c)
 	}
 	expectError(t, h.post("/v1/auth/tenant", s.access, map[string]any{"tenantId": other}), http.StatusForbidden, auth.CodePermissionDenied)
@@ -711,6 +712,9 @@ func TestRevocationFallsBackToPostgres(t *testing.T) {
 	if _, err := svc.Authenticate(ctx, s.access); err != nil {
 		t.Fatalf("live session through PostgreSQL: %v", err)
 	}
+	if v := counterValue(t, reg, "auth_revocation_fallback_total"); v != 1 {
+		t.Fatalf("live Redis-outage fallback count = %v, want 1", v)
+	}
 	// A claims change is seen without Redis...
 	if _, err := svc.Revoke(ctx, auth.Revocation{UserID: uuid.MustParse(u), Reason: auth.RevokeClaimsChanged, BumpVersion: true}); err != nil {
 		t.Fatal(err)
@@ -726,8 +730,9 @@ func TestRevocationFallsBackToPostgres(t *testing.T) {
 	if _, err := svc.Authenticate(ctx, next.access); err == nil || !strings.Contains(err.Error(), auth.CodeSessionRevoked) {
 		t.Fatalf("want session_revoked, got %v", err)
 	}
-	if v := counterValue(t, reg, "auth_revocation_fallback_total"); v < 3 {
-		t.Fatalf("auth_revocation_fallback_total = %v", v)
+	// PostgreSQL-first context admission rejects stale/revoked tokens before Redis is queried.
+	if v := counterValue(t, reg, "auth_revocation_fallback_total"); v != 1 {
+		t.Fatalf("early rejections reached the Redis fallback: count = %v, want 1", v)
 	}
 	// The dead Redis also lost the post-commit writes of both revocations; they are counted.
 	if v := counterValue(t, reg, "auth_postcommit_failures_total"); v < 2 {

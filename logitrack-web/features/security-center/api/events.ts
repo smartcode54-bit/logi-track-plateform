@@ -1,27 +1,17 @@
 /**
- * `['security','events',{...}]`: the security events feed over Go (T54S; `GET /v1/security-events`,
- * T51, Appendix B §B.2.6; developer-spec.md §10.7, §10.10; Appendix E §E.5 row 31). Replaces the
- * `onSnapshot` of 150 documents (`hooks/useSecurityEventsFeed.ts`) and the audit page's 500-row
- * `getDocs` (`audit/page.tsx:94-130`): a keyset list, newest first, 100 per page with "load more",
- * the type, severity and date range in the key and in the request (RLS decides the rows). Polled every
- * 30 s while the tab is visible (no web topic carries `security.event` to tenant staff, Appendix B
- * §B.4.2; a platform principal's `platform:security` stream has no producer yet), only while one page is
- * loaded (`pollHeadWhileVisible`), and every 5 min for a platform principal (`reachPollMs`).
- *
- * A platform principal reads with `X-Act-On-Tenant: *`, so each of its requests adds one
- * `platform_cross_tenant_access` warning row that the next read returns (the row commits before the
- * handler reads). `isOwnCrossTenantRead` names those rows of the viewer, so the pages can hide them by
- * default behind a visible toggle with a count (never a silent drop); the server counters of
- * `GET /v1/security/overview` still include them (developer-spec.md §19.2 question 20).
+ * The paginated security feed over Go. Endpoint plane and filters are part of the query key.
+ * Platform reads use projected rows; historical cross-tenant events retain their visible toggle.
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
 
+import { isMaskedValue, maskedValueText, maskedJsonText } from "@/lib/maskedValue";
 import { neutraliseCsvFormula } from "@/lib/csv";
 import type { GoPage } from "@/lib/goQuery";
 import { goInfiniteQueryFn, goNextPageParam } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { pollHeadWhileVisible } from "@/lib/realtime/polling";
-import { reachHeaders, reachPollMs, type SecurityReach } from "./reach";
+import { SECURITY_EVENT_TYPES } from "./eventTypes";
+import { readEndpoint, reachPollMs, type SecurityReach } from "./reach";
 
 export const SECURITY_EVENTS_PATH = "/v1/security-events";
 /** Rows per page of the audit list (developer-spec.md §10.10). */
@@ -104,9 +94,8 @@ export function useSecurityEvents(
 ) {
     return useInfiniteQuery({
         queryKey: securityEventsKey(filter, reach ?? "tenant", pageSize),
-        queryFn: goInfiniteQueryFn<SecurityEventDTO, EventsKey>(SECURITY_EVENTS_PATH, {
+        queryFn: goInfiniteQueryFn<SecurityEventDTO, EventsKey>(([, , p]) => readEndpoint(SECURITY_EVENTS_PATH, p.reach), {
             query: ([, , p]) => securityEventsQuery(p),
-            headers: ([, , p]) => reachHeaders(p.reach),
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
@@ -117,19 +106,12 @@ export function useSecurityEvents(
     });
 }
 
-/** The audit row Go writes for each `X-Act-On-Tenant` request (Appendix C §C.3.9). */
+/** Historical cross-tenant access events remain readable in the audit feed. */
 export const CROSS_TENANT_ACCESS = "platform_cross_tenant_access";
 
-/**
- * Whether `e` records one of the viewer's own accepted cross-tenant reads (a `GET` or `HEAD` that a
- * Security Center page of theirs sent with `X-Act-On-Tenant`). A refused, repeated or malformed
- * attempt, a write, and anyone else's access are never matched.
- */
+/** Whether an event records the viewer's own historically accepted read across tenants. */
 export function isOwnCrossTenantRead(e: Pick<SecurityEventDTO, "type" | "actorUserId" | "details">, viewerId: string | null | undefined): boolean {
-    if (!viewerId || e.type !== CROSS_TENANT_ACCESS || e.actorUserId !== viewerId) return false;
-    const d = e.details ?? {};
-    const method = typeof d.method === "string" ? d.method.toUpperCase() : "";
-    return (method === "GET" || method === "HEAD") && d.outcome === "accepted";
+    return Boolean(viewerId) && e.type === CROSS_TENANT_ACCESS && e.actorUserId === viewerId;
 }
 
 /**
@@ -153,7 +135,7 @@ export function eventRows(pages: readonly GoPage<SecurityEventDTO>[] | undefined
 /** The type catalogue of the feed (`meta.types` of the first page), for the type filter. */
 export function eventTypesOf(pages: readonly GoPage<SecurityEventDTO>[] | undefined): string[] {
     const types = pages?.[0]?.meta?.types;
-    return Array.isArray(types) ? types.filter((t): t is string => typeof t === "string") : [];
+    return Array.isArray(types) ? types.filter((t): t is string => typeof t === "string") : [...SECURITY_EVENT_TYPES];
 }
 
 /** The date ranges of the audit page. */
@@ -175,11 +157,16 @@ export function rangeStart(range: EventRange, now: Date = new Date()): string {
 
 /** The person (or principal) behind an event, for display: email, else the legacy uid, else the user id. */
 export function eventActor(e: Pick<SecurityEventDTO, "actorEmail" | "actorLegacyUid" | "actorUserId">): string {
-    return e.actorEmail || e.actorLegacyUid || e.actorUserId || "";
+    for (const path of ["actorEmail", "actorLegacyUid", "actorUserId"] as const) {
+        if (isMaskedValue(e[path], { source: e, path })) return "****";
+        if (e[path]) return e[path];
+    }
+    return "";
 }
 
 /** The target of an event, for display: an email or name in the details, else the target user id. */
 export function eventTarget(e: Pick<SecurityEventDTO, "details" | "targetUserId">): string {
+    if (isMaskedValue(e.targetUserId, { source: e, path: "targetUserId" }) || isMaskedValue(e.details, { source: e, path: "details" })) return "****";
     const d = e.details ?? {};
     for (const k of ["email", "targetEmail", "name", "keyPrefix", "targetUid"]) {
         const v = d[k];
@@ -195,10 +182,12 @@ export function eventTypeLabel(type: string, t: Translate): string {
 }
 
 export function eventActorLabel(e: SecurityEventDTO, t: Translate): string {
+    if (isMaskedValue(e.actorEmail, { source: e, path: "actorEmail" }) || isMaskedValue(e.actorUserId, { source: e, path: "actorUserId" })) return "****";
     return e.actorEmail || t(e.actorUserId || e.actorLegacyUid ? "securityCenter.ui4.unknownUser" : "securityCenter.audit.system");
 }
 
 export function eventTargetLabel(e: SecurityEventDTO, t: Translate): string {
+    if (eventTarget(e) === "****") return "****";
     for (const key of ["email", "targetEmail", "name", "keyPrefix"]) {
         const value = e.details?.[key];
         if (typeof value === "string" && value) return value;
@@ -222,10 +211,10 @@ export function eventsCsv(rows: readonly SecurityEventDTO[], t: Translate): stri
                 r.type,
                 r.severity,
                 eventActor(r),
-                r.actorUserId ?? "",
+                maskedValueText(r.actorUserId, { source: r, path: "actorUserId", missing: "" }),
                 eventTarget(r),
-                r.summary,
-                JSON.stringify(r.details ?? {}),
+                maskedValueText(r.summary, { source: r, path: "summary" }),
+                maskedJsonText(r.details ?? {}, { source: r, path: "details" }),
                 r.tenantId ?? "",
                 r.requestId ?? "",
                 eventTypeLabel(r.type, t),

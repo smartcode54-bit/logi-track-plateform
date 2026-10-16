@@ -117,7 +117,7 @@ func checkPlanShapes(t *testing.T, s *stack) {
 	staffOwn := &authz.Principal{UserID: ownAdmin, TenantID: &own, TenantRole: authz.TenantAdmin, TenantKind: "own_fleet",
 		Steward: true, SubtenantIDs: subs}
 	staffCarrier := &authz.Principal{UserID: carrierAdmin, TenantID: &carrier, TenantRole: authz.TenantAdmin, TenantKind: "carrier"}
-	all := &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnAll: true}
+	all := &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}}
 	reachOwn := append([]uuid.UUID{own}, subs...)
 
 	// Arguments taken from the loaded rows.

@@ -22,6 +22,7 @@ import (
 func TripRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 	h := handlers{s}
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/:id/billing/compute", requireAuth, h.computeTrip)
 		r.Put("/:id/billing/manual", requireAuth, authz.RequireCap(authz.AccountingOverridePrice), authz.RequireTenant(), h.manualPrice)
 		r.Post("/:id/job-category", requireAuth, authz.RequireCap(authz.AccountingEditRateCard), authz.RequireTenant(), h.jobCategory)
@@ -35,6 +36,7 @@ func TripRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 func StandbyRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 	h := handlers{s}
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/:id/billing/compute", requireAuth, h.computeStandby)
 		r.Patch("/:id/customer", requireAuth, authz.RequireCap(authz.AccountingEditRateCard), authz.RequireTenant(), h.standbyCustomer)
 	}
@@ -47,6 +49,7 @@ func StandbyRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 func MobileRoutes(s *Service, requireShim fiber.Handler) func(r fiber.Router) {
 	h := handlers{s}
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/trips/:id/billing/compute", requireShim, authz.RequireCap(authz.MobileSubmitTrip), h.computeTripShim)
 	}
 }
@@ -61,6 +64,7 @@ func JobGroups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	group := func(typ string) ingress.Group {
 		return ingress.Group{Prefix: "/v1/jobs/" + typ, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Post("", requireAuth, authz.RequireCap(jobs.TypeCapabilities[typ]), authz.RequireTenant(), h.submitBillingJob(typ))
 		}}
 	}

@@ -575,12 +575,12 @@ func TestDriverTenantMove(t *testing.T) {
 	if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = 'driver_tenant_moved'`); n != 1 {
 		t.Errorf("events after a no-op move: %d", n)
 	}
-	// A platform admin acting as B moves it out of B's reach: 204.
+	// A platform header cannot move a driver out of its tenant.
 	pa := w.login("pa")
 	r = w.patch("/v1/drivers/"+drv, pa, map[string]any{"tenantId": w.C}, "X-Act-On-Tenant", w.B)
-	expect(t, r, http.StatusNoContent, "")
-	if v := w.id(`SELECT tenant_id::text FROM drivers WHERE id = $1`, drv); v != w.C {
-		t.Errorf("tenant %s after the platform move", v)
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
+	if v := w.id(`SELECT tenant_id::text FROM drivers WHERE id = $1`, drv); v != w.B {
+		t.Errorf("refused platform override moved driver to %s", v)
 	}
 }
 

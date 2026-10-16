@@ -79,9 +79,8 @@ export interface HeadPollOptions {
  * `pollWhileVisible` for a keyset list (an infinite query) that polls only while it holds its first
  * page (T54S). TanStack refetches every loaded page in turn on each interval and focus refetch, one
  * request per page; once "load more" was used, the list stops refreshing by itself (the page's Refresh
- * button and an invalidation still refetch). That bounds what a poll costs where each request is
- * audited (a platform principal's `X-Act-On-Tenant`, developer-spec.md §19.2 question 20) to one
- * request per interval. Not `maxPages`: with forward paging it drops the pages "load more" added.
+ * button and an invalidation still refetch). This bounds background polling to one request per
+ * interval. Not `maxPages`: with forward paging it drops the pages "load more" added.
  */
 export function pollHeadWhileVisible(intervalMs: number = POLL_INTERVAL_MS): HeadPollOptions {
     const focus = refetchOnFocusOlderThan(intervalMs);

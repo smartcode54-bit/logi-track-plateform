@@ -14,6 +14,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
 // Platforms of a session (sessions.platform). Mobile sessions carry an install id and a 90-day
@@ -29,12 +30,15 @@ func isMobile(platform string) bool { return platform == PlatformAndroid || plat
 
 // Tenant is one membership as the login response and GET /v1/me/tenants show it.
 type Tenant struct {
-	ID     uuid.UUID `json:"id"`
-	NameTh string    `json:"nameTh"`
-	NameEn *string   `json:"nameEn"`
-	Kind   string    `json:"kind"`
-	Role   string    `json:"role"`
-	Status string    `json:"status,omitempty"` // tenant status; GET /v1/me/tenants only
+	redacted  []httpx.RedactedField
+	Code      *string   `json:"code"`
+	Reference string    `json:"reference,omitempty"`
+	ID        uuid.UUID `json:"id"`
+	NameTh    string    `json:"nameTh"`
+	NameEn    *string   `json:"nameEn"`
+	Kind      string    `json:"kind"`
+	Role      string    `json:"role"`
+	Status    string    `json:"status,omitempty"` // tenant status; GET /v1/me/tenants only
 }
 
 // TokenPair is the token part of the login and refresh responses (R48: camelCase, tokens in the body).
@@ -124,7 +128,7 @@ func (a axes) tenants() []Tenant {
 // claims builds the private claims for a session acting in tenant m (nil: no tid / rol). A driver
 // membership needs the linked drivers row of that tenant (C.1.4): otherwise 403 driver_profile_required.
 func (a axes) claims(sid uuid.UUID, ver int32, amr string, m *authdb.ListMembershipsRow) (token.Claims, error) {
-	c := token.Claims{SessionID: sid.String(), Version: ver, AMR: amr}
+	c := token.Claims{SessionID: sid.String(), Version: ver, AMR: amr, ContextVersion: "0"}
 	if m != nil {
 		c.TenantID, c.Role = m.TenantID.String(), m.Role
 		if authz.TenantRole(m.Role) == authz.Driver {

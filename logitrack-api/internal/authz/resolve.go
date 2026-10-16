@@ -24,7 +24,7 @@ type Override struct {
 // stripped later for non-stewards, so an override can never make one effective outside the own fleet
 // (R60). The matrix API (T51) rejects the same rows with 422 capability_not_overridable.
 func Overridable(role TenantRole, key Cap, tenantRow bool) bool {
-	if role == TenantAdmin || !role.Valid() {
+	if role == TenantAdmin || !role.Valid() || isDerivedRead(key) {
 		return false
 	}
 	switch ClassOf(key) {
@@ -57,12 +57,12 @@ func RoleCaps(role TenantRole, steward bool, overrides []Override) CapSet {
 			}
 		}
 	}
-	return ApplySteward(s, steward)
+	return deriveTenantReads(ApplySteward(s, steward))
 }
 
 // roleSetRules is the version of the rules RoleCaps and Overridable apply. Bump it with any change to
 // their logic that leaves every default set and every key class as it was, so RoleSetFingerprint moves.
-const roleSetRules = 1
+const roleSetRules = 2
 
 // RoleSetFingerprint versions a cached role set (rbac:caps, Appendix C §C.2.5) by the code that computes
 // it: the first 8 hex digits of sha256 over roleSetRules, the default set of every tenant role and the
@@ -99,20 +99,23 @@ func PlatformCaps(p *Principal) CapSet {
 	for _, r := range p.Platform {
 		s = s.Union(platformDefaults[r])
 	}
-	return s
+	return derivePlatformReads(s)
 }
 
 var globalSet = NewCapSet(GlobalCaps()...)
 
 // IsSteward decides the steward flag of a principal whose effective tenant has kind tenantKind (R60):
-// platform_admin; a principal acting as a tenant through X-Act-On-Tenant: <uuid> (C.3.9); a staff role
+// platform_admin; a staff role
 // in the own-fleet tenant; a platform-level API key (C.4.11). Drivers, carrier staff, scope principals
 // and tenant API keys are not.
 func IsSteward(p *Principal, tenantKind string) bool {
+	if IsSupport(p) {
+		return false
+	}
 	switch {
 	case p.IsMachine():
 		return p.TenantID == nil
-	case p.HasPlatform(PlatformAdmin), p.ActOnTenant != nil:
+	case p.HasPlatform(PlatformAdmin):
 		return true
 	}
 	return tenantKind == TenantKindOwnFleet && p.EffectiveRole().IsStaff()
@@ -120,8 +123,7 @@ func IsSteward(p *Principal, tenantKind string) bool {
 
 // Effective is the effective capability set of p (Appendix C §C.2.4): roleCaps (RoleCaps of
 // p.EffectiveRole() in p.EffectiveTenant(), the caller loads the overrides) ∪ the fixed scope sets ∪
-// the fixed platform sets. Under X-Act-On-Tenant: * a platform_admin also holds the tenant_admin set
-// (reads only: the guard admits GET and HEAD and the transaction is READ ONLY), support only its own.
+// the fixed platform sets. Legacy human header fields never contribute capabilities.
 // The customer-scope set goes only to a customer-scope principal (IsCustomerScope: no membership,
 // C.1.2), the same test Principal.RLS uses for app.role = customer: a member's customer-kind scopes are
 // ignored, because RLS would serve those keys with the member's staff reach, never with the scope's
@@ -129,9 +131,18 @@ func IsSteward(p *Principal, tenantKind string) bool {
 // allows: tenant keys only tenant keys, platform keys only global and mobile keys, never platform or
 // scope keys (C.4.11).
 func Effective(p *Principal, roleCaps CapSet) CapSet {
+	if IsSupport(p) {
+		if p.IsMachine() || p.AMR == AMRFirebase || p.SessionID == uuid.Nil || p.TenantID == nil || !p.HasPlatform(PlatformAdmin) {
+			return CapSet{}
+		}
+		return TenantSupportReads()
+	}
 	if p.IsMachine() {
 		var s CapSet
 		for _, k := range p.APIKeyCaps {
+			if DerivedRead(k) {
+				continue
+			}
 			switch ClassOf(k) {
 			case ClassTenant:
 				if p.TenantID != nil {
@@ -143,12 +154,10 @@ func Effective(p *Principal, roleCaps CapSet) CapSet {
 				}
 			}
 		}
-		return s
+		return deriveTenantReads(s)
 	}
 	s := roleCaps
-	if p.ActOnAll && p.HasPlatform(PlatformAdmin) {
-		s = s.Union(tenantDefaults[TenantAdmin])
-	}
+
 	if p.IsCustomerScope() {
 		s = s.Union(scopeDefaults[ScopeCustomer])
 	}

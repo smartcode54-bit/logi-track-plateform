@@ -227,7 +227,7 @@ func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTru
 		tenant = &id
 	}
 	limit := pageLimit(&ck, in.Limit)
-	scoped := (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll
+	scoped := p.IsCustomerScope() || p.Dispatcher
 	var after cursor
 	if in.Cursor != "" {
 		var ok bool
@@ -481,7 +481,7 @@ func (s *Service) heldKeys(ctx context.Context, keys []string) (map[string][]uui
 }
 
 // fileOf resolves one key of a request in tx: a file the truck already links (held: the payload's keys go back in a
-// PATCH, and an editor in contractor reach or a platform admin acting as a tenant is neither the uploader nor in its
+// PATCH, and an editor in contractor reach may be neither the uploader nor in its
 // tenant, the rule of storage.Commit), else the key committed to the truck.
 func (s *Service) fileOf(ctx context.Context, tx pgx.Tx, p *authz.Principal, key, field string, purposes []string,
 	truck uuid.UUID, linked map[uuid.UUID]bool, held map[string][]uuid.UUID) (uuid.UUID, error) {
@@ -967,7 +967,7 @@ func note(in Field[string], def string) *string {
 
 // checkGPS applies the steward rule of the GPS vehicle id: it is the key the platform's one Cartrack account resolves
 // vehicles by (trucks_gps is unique across tenants, so cartrack.sync maps each Cartrack vehicle to one truck), so only
-// a steward (own-fleet staff, or a platform admin acting as a tenant) sets or changes it. Anyone else who edits the
+// a steward in its real tenant context sets or changes it. Anyone else who edits the
 // truck may send its stored value back or clear it; a new or different value is 422 gpsVehicleId not_editable before
 // any write, so the unique index never answers for a truck outside the caller's reach (no probing, no squatting).
 // The field is then dropped from the request so merge does not report it twice.

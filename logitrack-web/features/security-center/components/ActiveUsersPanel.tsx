@@ -10,6 +10,7 @@
  * sign-in map and the "sync users from Auth" callable have no Go counterpart: Go records the IP and
  * the user agent per session instead of a location.
  */
+import { MaskedValue } from "@/components/masked-value";
 import Link from "next/link";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,10 +51,12 @@ export function ActiveUsersPanel() {
     const me = useMe().data;
     const reach = useSecurityReach();
     const canView = useCan("users:view").allowed;
+    const canViewSessions = useCan("users:view_sessions").allowed;
     const canRevoke = useCan("users:revoke_sessions").allowed;
+    const canOpenSessions = reach === "all" ? canViewSessions : canRevoke;
     const users = useUsers(ACTIVE_FILTER, canView && reach !== undefined, reach ?? "tenant", reachPollMs(reach, USERS_POLL_MS));
     const [selected, setSelected] = useState<UserDTO | null>(null);
-    const sessions = useUserSessions(canRevoke ? (selected?.id ?? null) : null, reach);
+    const sessions = useUserSessions(canOpenSessions ? (selected?.id ?? null) : null, reach);
     const [busy, setBusy] = useState<string | null>(null);
 
     if (!canView) {
@@ -136,7 +139,7 @@ export function ActiveUsersPanel() {
                             <TableRow className="bg-muted/50">
                                 <TableHead className="text-sm font-medium">{t("users.table.user")}</TableHead>
                                 <TableHead className="text-sm font-medium">{t("users.table.lastSignIn")}</TableHead>
-                                {canRevoke ? (
+                                {canOpenSessions ? (
                                     <TableHead className="w-[140px] text-right text-sm font-medium">{t("users.table.actions")}</TableHead>
                                 ) : null}
                             </TableRow>
@@ -146,21 +149,21 @@ export function ActiveUsersPanel() {
                                 <TableRow key={u.id} data-testid="active-user-row">
                                     <TableCell>
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-medium">{u.displayName || "—"}</span>
-                                            <span className="text-xs text-muted-foreground">{u.email ?? "—"}</span>
+                                            <span className="text-sm font-medium"><MaskedValue value={u.displayName} source={u} path="displayName" /></span>
+                                            <span className="text-xs text-muted-foreground"><MaskedValue value={u.email} source={u} path="email" /></span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-sm text-muted-foreground">
                                         {u.lastLoginAt ? formatRelative(u.lastLoginAt, language) : "—"}
                                     </TableCell>
-                                    {canRevoke ? (
+                                    {canOpenSessions ? (
                                         <TableCell className="text-right">
                                             <Button
                                                 type="button"
                                                 variant="ghost"
                                                 size="sm"
                                                 className="gap-1"
-                                                disabled={isSelf(u) || u.manageAccount === false}
+                                                disabled={reach !== "all" && (isSelf(u) || u.manageAccount === false)}
                                                 title={
                                                     isSelf(u)
                                                         ? t("users.revokeSessionsSelf")
@@ -187,7 +190,7 @@ export function ActiveUsersPanel() {
                     <DialogHeader>
                         <DialogTitle>{t("securityCenter.sessions.title")}</DialogTitle>
                         <DialogDescription>
-                            {selected ? `${selected.displayName || "—"} (${selected.email ?? "—"})` : null}
+                            {selected ? <><MaskedValue value={selected.displayName} source={selected} path="displayName" /> (<MaskedValue value={selected.email} source={selected} path="email" />)</> : null}
                         </DialogDescription>
                     </DialogHeader>
                     {sessions.isPending ? (
@@ -214,14 +217,14 @@ export function ActiveUsersPanel() {
                                         <TableRow key={s.id} data-testid="session-row">
                                             <TableCell className="text-sm">
                                                 <span className="font-medium">
-                                                    {s.platform === "mobile" ? (s.deviceLabel ?? t("securityCenter.sessions.mobile")) : t("securityCenter.sessions.web")}
+                                                    <MaskedValue value={s.deviceLabel} source={s} path="deviceLabel" format={(v) => s.platform === "mobile" ? v : t("securityCenter.sessions.web")} missing={t(s.platform === "mobile" ? "securityCenter.sessions.mobile" : "securityCenter.sessions.web")} />
                                                 </span>
                                                 <span className="block max-w-[260px] truncate text-xs text-muted-foreground" title={s.userAgent ?? ""}>
                                                     {s.appVersion ? `${s.appVersion} · ` : ""}
-                                                    {userAgentLabel(s.userAgent, t("securityCenter.ui4.unknownBrowser"))}
+                                                    <MaskedValue value={s.userAgent} source={s} path="userAgent" format={(v) => userAgentLabel(v, t("securityCenter.ui4.unknownBrowser"))} missing={t("securityCenter.ui4.unknownBrowser")} />
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="font-mono text-xs">{s.ip ?? "—"}</TableCell>
+                                            <TableCell className="font-mono text-xs"><MaskedValue value={s.ip} source={s} path="ip" /></TableCell>
                                             <TableCell className="whitespace-nowrap text-xs">
                                                 {formatDateTime(s.lastSeenAt, language)}
                                                 <span className="block text-muted-foreground">
@@ -233,7 +236,7 @@ export function ActiveUsersPanel() {
                                                     type="button"
                                                     variant="ghost"
                                                     size="sm"
-                                                    disabled={busy !== null}
+                                                    disabled={busy !== null || !canRevoke || !selected || isSelf(selected) || selected.manageAccount === false}
                                                     onClick={() => selected && void revokeOne(selected.id, s.id)}
                                                 >
                                                     {busy === s.id ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <LogOut className="h-4 w-4 text-muted-foreground" />}
@@ -253,7 +256,7 @@ export function ActiveUsersPanel() {
                         <Button
                             type="button"
                             variant="destructive"
-                            disabled={busy !== null || !selected}
+                            disabled={busy !== null || !canRevoke || !selected || isSelf(selected) || selected.manageAccount === false}
                             onClick={() => selected && void revokeAll(selected.id)}
                         >
                             {busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}

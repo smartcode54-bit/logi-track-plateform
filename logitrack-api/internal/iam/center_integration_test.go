@@ -215,7 +215,7 @@ func TestRoleMatrixTenant(t *testing.T) {
 
 // The platform-wide layer (tenant_id NULL, platform_admin only): users:assign_role is overridable there, a save
 // reaches every tenant (roles.changed on each non-quarantine tenant:{tid}:config) and a platform admin edits any
-// tenant's layer with ?tenantId or through X-Act-On-Tenant.
+// tenant's layer with an explicit tenantId.
 func TestRoleMatrixPlatform(t *testing.T) {
 	w := newWorld(t)
 	pa, su, mgA := w.login("pa@example.test"), w.login("su@example.test"), w.login("mg.a@example.test")
@@ -252,7 +252,7 @@ func TestRoleMatrixPlatform(t *testing.T) {
 		t.Fatalf("inherited cell %+v", c)
 	}
 
-	// ?tenantId and X-Act-On-Tenant name a tenant layer.
+	// An explicit tenantId names a tenant layer.
 	w.oneEvent("role_matrix_saved", func() resp {
 		return w.send(http.MethodPut, "/v1/roles/matrix?tenantId="+w.C, pa, overrides([3]any{"operator", "fleet:create_truck", true}))
 	}, http.StatusOK)
@@ -284,15 +284,15 @@ func TestRoleMatrixPlatform(t *testing.T) {
 	if n := w.count(`SELECT count(*) FROM role_capability_overrides WHERE tenant_id = $1`, w.C); n != 1 {
 		t.Fatalf("%d rows in C", n)
 	}
-	r = w.get("/v1/roles/matrix", pa, "X-Act-On-Tenant", w.C)
+	r = w.get("/v1/roles/matrix?layer=tenant&tenantId="+w.C, pa)
 	if m := decodeData[iam.Matrix](t, r); m.TenantID == nil || m.TenantID.String() != w.C ||
 		!cellOf(t, m, "operator", "fleet:create_truck").Overridden {
-		t.Fatalf("matrix through X-Act-On-Tenant: %s", r.raw)
+		t.Fatalf("matrix with explicit target: %s", r.raw)
 	}
 	expect(t, w.get("/v1/roles/matrix?tenantId="+w.Q, pa), http.StatusNotFound, "not_found")
 	expect(t, w.get("/v1/roles/matrix?tenantId=nope", pa), http.StatusUnprocessableEntity, "invalid_argument")
 	// support holds no security:manage_roles.
-	expect(t, w.get("/v1/roles/matrix", su, "X-Act-On-Tenant", "*"), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/roles/matrix?layer=platform", su), http.StatusForbidden, "permission_denied")
 
 	// A platform admin who is also a member reaches its tenant by default and the platform-wide layer with
 	// ?layer=platform; nobody else does.
@@ -374,20 +374,20 @@ func TestSecurityEventsFeed(t *testing.T) {
 	// Platform: a tenant context is required; * reads every row, the platform-level ones included.
 	pa := w.login("pa@example.test")
 	expect(t, w.get("/v1/security-events", pa), http.StatusForbidden, "tenant_required")
-	r = w.get("/v1/security-events?limit=500", pa, "X-Act-On-Tenant", "*")
+	r = w.get("/v1/platform/security-events?limit=100", pa)
 	expect(t, r, http.StatusOK, "")
 	seen := map[string]bool{}
 	for _, row := range decodeData[[]security.Row](t, r) {
 		seen[row.Type] = true
 	}
 	for _, want := range []string{"role_matrix_saved", "user_role_changed", "user_created", "user_sessions_revoked",
-		"refresh_token_reuse", "login_failed", "platform_cross_tenant_access"} {
+		"refresh_token_reuse", "login_failed"} {
 		if !seen[want] {
-			t.Errorf("X-Act-On-Tenant: * does not list %s", want)
+			t.Errorf("platform event endpoint does not list %s", want)
 		}
 	}
 	// support reads the audit too (read-only platform role).
-	expect(t, w.get("/v1/security-events", w.login("su@example.test"), "X-Act-On-Tenant", "*"), http.StatusOK, "")
+	expect(t, w.get("/v1/platform/security-events", w.login("su@example.test")), http.StatusOK, "")
 
 	// user_sessions_revoked written by Go through the real endpoint lands in the tenant of the admin who revoked,
 	// with the actor's email; a row appended before the email was recorded at write time is named on read.
@@ -454,17 +454,17 @@ func TestAdminEventsInTenantFeed(t *testing.T) {
 	if rows := decodeData[[]security.Row](t, w.get("/v1/security-events?type=user_disabled", taA)); len(rows) != 0 {
 		t.Fatalf("a platform-level row in A's feed: %+v", rows)
 	}
-	// Acting as A (X-Act-On-Tenant), the row is A's.
+	// Headerless platform administration stays platform-level; it cannot impersonate A.
 	w.oneEvent("user_enabled", func() resp {
-		return w.send(http.MethodPost, "/v1/users/"+opA+"/enable", pa, map[string]any{}, "X-Act-On-Tenant", w.A)
+		return w.send(http.MethodPost, "/v1/users/"+opA+"/enable", pa, map[string]any{})
 	}, http.StatusNoContent)
 	r = w.get("/v1/security-events?type=user_enabled", taA)
-	if rows := decodeData[[]security.Row](t, r); len(rows) != 1 || rows[0].ActorEmail == nil || *rows[0].ActorEmail != "pa@example.test" {
-		t.Fatalf("A's feed of the platform admin acting as A: %s", r.raw)
+	if rows := decodeData[[]security.Row](t, r); len(rows) != 0 {
+		t.Fatalf("headerless platform event leaked into A's feed: %s", r.raw)
 	}
 	// Platform roles are platform-level whatever tenant the platform admin acts as.
 	w.oneEvent("platform_role_granted", func() resp {
-		return w.send(http.MethodPost, "/v1/users/"+opA+"/platform-roles", pa, map[string]any{"role": "support"}, "X-Act-On-Tenant", w.A)
+		return w.send(http.MethodPost, "/v1/users/"+opA+"/platform-roles", pa, map[string]any{"role": "support"})
 	}, http.StatusNoContent)
 	if _, tenant := w.lastEventDetails("platform_role_granted"); tenant != "" {
 		t.Fatalf("platform_role_granted belongs to tenant %s", tenant)
@@ -537,14 +537,14 @@ func TestRoleMatrixPinnedTenantRow(t *testing.T) {
 func TestSecurityStatus(t *testing.T) {
 	w := newWorld(t)
 	su, taO, taA, mgO := w.login("su@example.test"), w.login("ta.o@example.test"), w.login("ta.a@example.test"), w.login("mg.o@example.test")
-	for _, h := range [][]string{nil, {"X-Act-On-Tenant", "*"}} {
+	for _, h := range [][]string{nil} {
 		r := w.get("/v1/security/status", su, h...)
 		expect(t, r, http.StatusOK, "")
 		if s := decodeData[iam.SystemStatus](t, r); s.Database != "ok" || s.Redis != "ok" || s.Scheduler.LeaderPresent {
 			t.Fatalf("status for support (%v): %s", h, r.raw)
 		}
 	}
-	expect(t, w.get("/v1/security/overview", su, "X-Act-On-Tenant", "*"), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/platform/security/overview", su), http.StatusForbidden, "permission_denied")
 	expect(t, w.get("/v1/security/status", taO), http.StatusOK, "")
 	expect(t, w.get("/v1/security/status", taA), http.StatusForbidden, "permission_denied")
 	expect(t, w.get("/v1/security/status", mgO), http.StatusForbidden, "permission_denied")
@@ -633,7 +633,7 @@ func TestSecurityOverview(t *testing.T) {
 	// Platform: a tenant context is required; * covers everyone and adds the quarantine rows.
 	pa := w.login("pa@example.test")
 	expect(t, w.get("/v1/security/overview", pa), http.StatusForbidden, "tenant_required")
-	r = w.get("/v1/security/overview", pa, "X-Act-On-Tenant", "*")
+	r = w.get("/v1/platform/security/overview", pa)
 	expect(t, r, http.StatusOK, "")
 	o = decodeData[iam.Overview](t, r)
 	if !o.Scope.All || o.Users.Total != 11 || o.Logins.Failed24h != 3 || o.Quarantine == nil || o.Quarantine.ByTable["tasks"] != 2 {
@@ -649,10 +649,41 @@ func TestSecurityOverview(t *testing.T) {
 		u.TenantRoles["driver"] != 0 || u.Scopes["customer"] != 1 || u.PlatformRoles["platform_admin"] != 0 || u.None != 0 {
 		t.Errorf("own fleet users by role: %s", r.raw)
 	}
-	u = decodeData[iam.UsersByRole](t, w.get("/v1/stats/users-by-role", pa, "X-Act-On-Tenant", "*"))
+	u = decodeData[iam.UsersByRole](t, w.get("/v1/platform/stats/users-by-role", pa))
 	if u.Total != 11 || u.TenantRoles["operator"] != 3 || u.Scopes["dispatcher"] != 1 || u.PlatformRoles["platform_admin"] != 1 ||
 		u.PlatformRoles["support"] != 1 {
 		t.Errorf("platform users by role: %+v", u)
+	}
+}
+
+func TestPlatformMemberModeKeepsLegacySecurityReadContract(t *testing.T) {
+	w := newWorld(t)
+	platformID := w.userID("pa@example.test")
+	platformOnly := w.login("pa@example.test")
+	// A platform-only session keeps the existing tenant-required response on these member routes.
+	expect(t, w.get("/v1/security/overview", platformOnly), http.StatusForbidden, "tenant_required")
+	expect(t, w.get("/v1/stats/users-by-role", platformOnly), http.StatusForbidden, "tenant_required")
+
+	w.member(platformID, w.O, "tenant_admin")
+	memberMode := w.login("pa@example.test")
+	if claims := claimsOf(t, memberMode); claims["tid"] != w.O || claims["rol"] != "tenant_admin" {
+		t.Fatalf("platform member session claims do not identify the real membership: %v", claims)
+	}
+	if mode := w.id(`SELECT access_mode FROM sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1`, platformID); mode != "member" {
+		t.Fatalf("platform session mode is %q, want member", mode)
+	}
+	overviewResp := w.get("/v1/security/overview", memberMode)
+	expect(t, overviewResp, http.StatusOK, "")
+	overview := decodeData[iam.Overview](t, overviewResp)
+	if overview.Scope.All || overview.Scope.TenantID == nil || *overview.Scope.TenantID != w.O {
+		t.Fatalf("platform member overview lost tenant scope: %+v", overview.Scope)
+	}
+
+	rolesResp := w.get("/v1/stats/users-by-role", memberMode)
+	expect(t, rolesResp, http.StatusOK, "")
+	roles := decodeData[iam.UsersByRole](t, rolesResp)
+	if roles.Scope.All || roles.Scope.TenantID == nil || *roles.Scope.TenantID != w.O || roles.Total == 0 {
+		t.Fatalf("platform member role stats lost tenant scope: %+v", roles)
 	}
 }
 
@@ -699,7 +730,7 @@ func TestUserSoftDelete(t *testing.T) {
 	// The address can go to a new account.
 	w.user("mg.a@example.test")
 	// The deleted user is listed only on request.
-	r := w.get("/v1/users?status=deleted", pa, "X-Act-On-Tenant", "*")
+	r := w.get("/v1/platform/users?status=deleted", pa)
 	if users := decodeData[[]iam.User](t, r); len(users) != 1 || users[0].ID.String() != id {
 		t.Fatalf("deleted users: %s", r.raw)
 	}
@@ -715,8 +746,9 @@ func TestUserSoftDelete(t *testing.T) {
 
 	// A deleted account leaves every tenant's and steward's reach (Appendix C §C.8 "Reach"): the own fleet's staff
 	// read neither the deleted tenant_admin of the independent carrier C (outside the own fleet's contractor reach)
-	// nor the deleted members of its carrier A; only X-Act-On-Tenant: * lists them.
+	// nor the deleted members of its carrier A; only the platform endpoint lists them.
 	taO, mgO := w.login("ta.o@example.test"), w.login("mg.o@example.test")
+	supportFixtureConsent(w, w.C, true)
 	taC := w.userID("ta.c@example.test")
 	w.login("ta.c@example.test") // a live session, revoked by the delete
 	for _, tok := range []string{taO, mgO} {
@@ -737,11 +769,11 @@ func TestUserSoftDelete(t *testing.T) {
 	if o.Users.ByStatus["deleted"] != 0 || o.Sessions.RevokedByReason24h["disabled"] != 0 {
 		t.Fatalf("the own fleet's overview counts deleted accounts: users %+v sessions %+v", o.Users, o.Sessions)
 	}
-	r = w.get("/v1/users?status=deleted", pa, "X-Act-On-Tenant", "*")
+	r = w.get("/v1/platform/users?status=deleted", pa)
 	if users := decodeData[[]iam.User](t, r); len(users) != 3 {
 		t.Fatalf("the platform lists every deleted account: %s", r.raw)
 	}
-	if o := decodeData[iam.Overview](t, w.get("/v1/security/overview", pa, "X-Act-On-Tenant", "*")); o.Users.ByStatus["deleted"] != 3 {
+	if o := decodeData[iam.Overview](t, w.get("/v1/platform/security/overview", pa)); o.Users.ByStatus["deleted"] != 3 {
 		t.Fatalf("platform overview: %+v", o.Users)
 	}
 }

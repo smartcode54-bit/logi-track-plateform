@@ -126,7 +126,7 @@ func newWriteWorld(t *testing.T, opt writeOptions) *writeWorld {
 			Dispatcher: true, PartyIDs: []uuid.UUID{w.partyX},
 			Caps: caps(authz.TenantDefaults(authz.OperationStaff), authz.ScopeDefaults(authz.ScopeDispatcher))},
 		"platform": {UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, Caps: platform},
-		"platformO": {UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnTenant: &w.O,
+		"platformMemberO": {UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, TenantID: &w.O, TenantRole: authz.TenantAdmin,
 			TenantKind: "own_fleet", Steward: true, SubtenantIDs: []uuid.UUID{w.A}, Caps: caps(admin, platform)},
 		"apikey": {UserID: uuid.New(), AMR: authz.AMRAPIKey, TenantID: &w.O, Caps: admin},
 		// Drivers acting as themselves (the shim targets below /v1/mobile, T32): driverO1 as the APK 4.x calls (a Go
@@ -539,19 +539,19 @@ func TestPatchTask(t *testing.T) {
 	r.refused(409, operations.ReasonTaskInProgress, "staffO", "PATCH", path, map[string]any{"driverId": r.dO2.String()})
 
 	// Appendix C §C.9.2 #12: a dispatcher on another carrier's task changes 0 rows (404); a platform admin needs
-	// X-Act-On-Tenant; with it the update runs as that tenant's admin.
+	// real membership; its own tenant membership keeps the ordinary write contract.
 	var updated time.Time
 	_ = r.etl.QueryRow(context.Background(), `SELECT updated_at FROM tasks WHERE id = $1`, id).Scan(&updated)
 	r.refused(404, "not_found", "dispatcher", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"})
 	r.refused(404, "not_found", "dispatcher", "PATCH", path, map[string]any{"tenantId": r.O.String(), "jobCategory": "SUPPLEMENTARY"})
-	r.refused(403, operations.ReasonActOnTenantRequired, "platform", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"})
+	r.refused(403, "permission_denied", "platform", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"})
 	var after time.Time
 	_ = r.etl.QueryRow(context.Background(), `SELECT updated_at FROM tasks WHERE id = $1`, id).Scan(&after)
 	if !after.Equal(updated) {
 		t.Fatal("a refused update changed the task")
 	}
-	if d = r.must(200, "platformO", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"}); d["jobCategory"] != "SUPPLEMENTARY" {
-		t.Fatalf("platform with X-Act-On-Tenant: %v", d)
+	if d = r.must(200, "platformMemberO", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"}); d["jobCategory"] != "SUPPLEMENTARY" {
+		t.Fatalf("platform actor with real membership: %v", d)
 	}
 	r.refused(403, "permission_denied", "user", "PATCH", path, map[string]any{"jobCategory": "PRIMARY"})
 }
@@ -1467,8 +1467,8 @@ func TestWriteBackTripsAndRecords(t *testing.T) {
 		t.Fatalf("incident document %v", doc)
 	}
 	// A login born in Go has no Firebase uid: its users.id (the mirror resolves either).
-	ic = r.must(202, "platformO", "POST", "/v1/incidents", map[string]any{"driverId": r.dO1.String(), "description": "x"})
-	if doc, _ := mem.Doc("incidentReport", ic["id"].(string)); doc["reportedByUid"] != r.ps["platformO"].UserID.String() {
+	ic = r.must(202, "platformMemberO", "POST", "/v1/incidents", map[string]any{"driverId": r.dO1.String(), "description": "x"})
+	if doc, _ := mem.Doc("incidentReport", ic["id"].(string)); doc["reportedByUid"] != r.ps["platformMemberO"].UserID.String() {
 		t.Fatalf("incident of a Go login %v", doc)
 	}
 	// Bulk cancel of a mirrored in-transit trip.

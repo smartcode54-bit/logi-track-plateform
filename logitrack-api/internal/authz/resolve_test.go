@@ -75,11 +75,11 @@ func TestRoleCapsPrecedenceAndStewardRule(t *testing.T) {
 	}
 	// tenant_admin ignores every override and keeps its 64 keys only as a steward.
 	ta := RoleCaps(TenantAdmin, false, []Override{{TenantID: ptr(carrier), Cap: SecurityManageRoles, Allowed: false}})
-	if !ta.Has(SecurityManageRoles) || ta.Len() != 57 {
-		t.Errorf("carrier tenant_admin holds %d keys (want the 64 defaults minus the 7 global keys)", ta.Len())
+	if !ta.Has(SecurityManageRoles) || ta.Len() != 58 {
+		t.Errorf("carrier tenant_admin holds %d keys (want the 66 effective keys minus the 8 global keys)", ta.Len())
 	}
-	if n := RoleCaps(TenantAdmin, true, nil).Len(); n != 64 {
-		t.Errorf("own-fleet tenant_admin holds %d keys, want 64", n)
+	if n := RoleCaps(TenantAdmin, true, nil).Len(); n != 66 {
+		t.Errorf("own-fleet tenant_admin holds %d keys, want 66", n)
 	}
 	if RoleCaps("", true, ov).Len() != 0 {
 		t.Error("no role, no keys")
@@ -99,7 +99,7 @@ func TestIsSteward(t *testing.T) {
 		{"carrier tenant_admin", Principal{TenantID: ptr(carrier), TenantRole: TenantAdmin}, TenantKindCarrier, false},
 		{"platform_admin", Principal{Platform: []PlatformRole{PlatformAdmin}}, "", true},
 		{"support", Principal{Platform: []PlatformRole{Support}}, "", false},
-		{"acting as a carrier", Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnTenant: ptr(carrier)}, TenantKindCarrier, true},
+		{"acting as a carrier", Principal{Platform: []PlatformRole{PlatformAdmin}}, TenantKindCarrier, true},
 		{"customer scope", Principal{PartyIDs: []uuid.UUID{carrier}}, "", false},
 		{"platform API key", Principal{AMR: AMRAPIKey}, "", true},
 		{"own-fleet API key", Principal{AMR: AMRAPIKey, TenantID: ptr(ownFleet)}, TenantKindOwnFleet, false},
@@ -141,20 +141,20 @@ func TestEffective(t *testing.T) {
 	})
 	t.Run("platform roles", func(t *testing.T) {
 		pa := Effective(&Principal{Platform: []PlatformRole{PlatformAdmin}}, CapSet{})
-		if pa != PlatformDefaults(PlatformAdmin) || pa.Has(FleetViewTrucks) {
+		if pa != derivePlatformReads(PlatformDefaults(PlatformAdmin)) || pa.Has(FleetViewTrucks) {
 			t.Errorf("platform_admin without the header %v", pa.Keys())
 		}
 		both := Effective(&Principal{Platform: []PlatformRole{PlatformAdmin, Support}}, CapSet{})
-		if both != PlatformDefaults(PlatformAdmin).Union(PlatformDefaults(Support)) {
+		if both != derivePlatformReads(PlatformDefaults(PlatformAdmin).Union(PlatformDefaults(Support))) {
 			t.Errorf("two platform roles %v", both.Keys())
 		}
 	})
 	t.Run("X-Act-On-Tenant: *", func(t *testing.T) {
-		pa := Effective(&Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnAll: true}, CapSet{})
-		if !pa.Has(OperationsViewFirstMile) || !pa.Has(PlatformCrossTenantRead) || pa.Len() != 64+4 {
+		pa := Effective(&Principal{Platform: []PlatformRole{PlatformAdmin}}, CapSet{})
+		if pa.Has(OperationsViewFirstMile) || !pa.Has(PlatformCrossTenantRead) || pa != PlatformCaps(&Principal{Platform: []PlatformRole{PlatformAdmin}}) {
 			t.Errorf("platform_admin with * holds %d keys, want the tenant_admin set and the platform set", pa.Len())
 		}
-		su := Effective(&Principal{Platform: []PlatformRole{Support}, ActOnAll: true}, CapSet{})
+		su := Effective(&Principal{Platform: []PlatformRole{Support}}, CapSet{})
 		if su != PlatformDefaults(Support) {
 			t.Errorf("support with * %v, want its own read-only set", su.Keys())
 		}

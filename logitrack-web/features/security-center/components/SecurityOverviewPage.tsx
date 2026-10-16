@@ -1,18 +1,10 @@
 "use client";
 
 /**
- * The Security Center overview over Go (T54S; developer-spec.md §10.13; Appendix E §E.2.4 row
- * `/app/security-center`). One `GET /v1/security/overview` holds the cards and the event histogram
- * (counted in PostgreSQL, no 150-document listener), `GET /v1/stats/users-by-role` the RBAC
- * distribution (no seven count queries), `GET /v1/security-events?limit=8` the recent events (30 s
- * poll), and the active-users panel `GET /v1/users` (60 s poll). Permission checks are selectors over
- * `['me']` (no `permissions_config` read).
- *
- * A platform principal reads every tenant with `X-Act-On-Tenant: *`, and each such request is a
- * `platform_cross_tenant_access` warning row that the next feed read returns. For it the page polls
- * every 5 min, reads the 50 newest events and shows the 8 newest that are not its own cross-tenant
- * reads (a toggle with their count shows them), and says that the server counters include them.
+ * The Security Center overview over Go: counters, role distribution, projected recent events and
+ * active users. Historical cross-tenant reads remain behind the counted, visible toggle.
  */
+import { MaskedValue } from "@/components/masked-value";
 import Link from "next/link";
 import { useState } from "react";
 import { Activity, AlertTriangle, Check, Loader2, LogIn, Smartphone, Users } from "lucide-react";
@@ -255,11 +247,11 @@ export function SecurityOverviewPage() {
                                                     <SeverityBadge severity={ev.severity} t={t} />
                                                 </div>
                                                 <p className="text-xs text-muted-foreground">
-                                                    {eventActorLabel(ev, t)}
+                                                    <MaskedValue value={eventActorLabel(ev, t)} source={ev} path="actorEmail" />
                                                 </p>
                                                 <details className="mt-1 text-xs text-muted-foreground">
                                                     <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
-                                                    <p className="mt-1 break-words">{ev.summary}</p>
+                                                    <p className="mt-1 break-words"><MaskedValue value={ev.summary} source={ev} path="summary" /></p>
                                                     <p className="mt-1 break-all font-mono">{ev.type}</p>
                                                     {ev.details && Object.keys(ev.details).length > 0 ? (
                                                         <pre className="mt-1 whitespace-pre-wrap break-all">{JSON.stringify(ev.details, null, 2)}</pre>

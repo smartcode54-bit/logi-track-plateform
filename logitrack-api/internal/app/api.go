@@ -26,8 +26,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 )
 
-// HeaderActOnTenant is the platform cross-tenant header; it is refused on the
-// public listener (Appendix B §B.1.5) and applied by iam.RBAC on the internal one.
+// HeaderActOnTenant is retained for the rejection boundary and its regression tests.
 const HeaderActOnTenant = authz.HeaderActOnTenant
 
 // API is the api process: two Fiber listeners built from one route registry
@@ -40,6 +39,7 @@ type API struct {
 
 	internal *fiber.App
 	public   *fiber.App
+	policies map[string]*ingress.PolicyRegistry
 
 	internalLn net.Listener
 	publicLn   net.Listener
@@ -89,8 +89,10 @@ func NewAPI(cfg *APIConfig, log zerolog.Logger, extra ...ingress.Group) (*API, e
 	fiberlog.SetOutput(fiberLogWriter{log: log})
 	a.internal = a.newFiber(ingress.Internal)
 	a.public = a.newFiber(ingress.Public)
-	ingress.Mount(a.internal, ingress.Internal, groups, nil)
-	ingress.Mount(a.public, ingress.Public, groups, cfg.PublicRouteGroups)
+	a.policies = map[string]*ingress.PolicyRegistry{
+		ingress.Internal: ingress.Mount(a.internal, ingress.Internal, groups, nil),
+		ingress.Public:   ingress.Mount(a.public, ingress.Public, groups, cfg.PublicRouteGroups),
+	}
 	a.uploadLimit(a.internal, ingress.Uploads(ingress.Internal, groups, nil))
 	a.uploadLimit(a.public, ingress.Uploads(ingress.Public, groups, cfg.PublicRouteGroups))
 	return a, nil
@@ -180,7 +182,15 @@ func (a *API) Routes() map[string][]ingress.Route {
 
 // CheckRoutes applies the route-level ingress check to the public listener.
 func (a *API) CheckRoutes() error {
-	return ingress.CheckPublicRoutes(ingress.Routes(a.public))
+	if err := ingress.CheckPublicRoutes(ingress.Routes(a.public)); err != nil {
+		return err
+	}
+	for _, registry := range a.policies {
+		if err := registry.Check(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RootMiddleware returns, per listener, the number of handlers registered with Use at "/"
@@ -210,6 +220,7 @@ func (a *API) newFiber(listener string) *fiber.App {
 	// pins the number of these handlers (TestRootMiddlewareIsPinned).
 	app.Use(
 		httpx.RequestID(),
+		httpx.AdmissionGuard(resolveSupportAudience),
 		httpx.Listener(listener),
 		httpx.ClientIP(a.cfg.TrustedProxies),
 		httpx.Logger(a.log),

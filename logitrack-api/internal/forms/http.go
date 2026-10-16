@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/supportprojection"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
@@ -45,12 +46,23 @@ func Groups(s *Service, o Options) []ingress.Group {
 		}
 		return []any{handler}
 	}
-	view := authz.RequireCap(authz.WaitlistView)
+	view := func(c fiber.Ctx) error {
+		p := authz.PrincipalFrom(c)
+		if authz.IsSupport(p) {
+			if !authz.PlatformCaps(p).Has(authz.WaitlistView) {
+				return authz.ErrPermissionDenied("missing platform read capability")
+			}
+			return c.Next()
+		}
+		return authz.RequireCap(authz.WaitlistView)(c)
+	}
 	return []ingress.Group{
 		{Prefix: WaitlistPrefix, Mount: func(r fiber.Router) {
 			hs := post(h.joinWaitlist)
 			r.Post("", hs[0], hs[1:]...)
-			r.Get("", o.Auth, view, h.listWaitlist)
+			p := supportprojection.Policy(http.MethodGet, WaitlistPrefix, "forms.waitlist-counts")
+			p.MetaSchemaID = "forms.waitlist-counts"
+			ingress.Bind(r, "", p, o.Auth, h.projection, view, h.listWaitlist)
 			r.Delete("/:id", o.Auth, view, h.deleteWaitlist)
 		}},
 		{Prefix: PartnerInterestPrefix, Mount: func(r fiber.Router) {
@@ -93,6 +105,9 @@ func (h handlers) partnerInterest(c fiber.Ctx) error {
 
 // listWaitlist is GET /v1/waitlist?cursor&limit (meta.total: every entry).
 func (h handlers) listWaitlist(c fiber.Ctx) error {
+	if p := authz.PrincipalFrom(c); authz.IsSupport(p) {
+		return h.waitlistCounts(c)
+	}
 	p := authz.PrincipalFrom(c)
 	if p == nil {
 		return httpx.ErrUnauthenticated()
@@ -116,7 +131,7 @@ func (h handlers) listWaitlist(c fiber.Ctx) error {
 		return err
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")
-	return httpx.Page(c, items, next, map[string]any{"total": total})
+	return httpx.PageAs(c, "forms.waitlist-entry", items, next, WaitlistCounts{Total: total})
 }
 
 // deleteWaitlist is DELETE /v1/waitlist/{id}: 204, or 404 for an unknown id.

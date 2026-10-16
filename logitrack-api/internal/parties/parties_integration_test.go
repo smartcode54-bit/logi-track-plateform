@@ -840,28 +840,18 @@ func TestCompaniesReachAndOwner(t *testing.T) {
 	}
 	expect(t, w.patch("/v1/companies/"+owner, taO, map[string]any{"withholdingTaxRate": 1.234}), http.StatusUnprocessableEntity, "invalid_argument")
 	expect(t, w.patch("/v1/companies/"+sub, taA, map[string]any{"companyType": "owner"}), http.StatusUnprocessableEntity, "invalid_argument")
-	// Capabilities: an operator holds neither company:view nor company:manage; a platform admin acts through
-	// X-Act-On-Tenant.
+	// D1: ordinary reach is unchanged; human UUID and all-tenant overrides are refused.
 	op := w.login("op.o")
 	expect(t, w.get("/v1/companies", op), http.StatusForbidden, "permission_denied")
 	expect(t, w.post("/v1/companies", op, company(nil)), http.StatusForbidden, "permission_denied")
 	pa := w.login("pa")
 	expect(t, w.get("/v1/companies", pa), http.StatusForbidden, "permission_denied")
-	if r := w.get("/v1/companies", pa, authz.HeaderActOnTenant, w.A); r.status != http.StatusOK || len(r.list()) != 1 {
-		t.Fatalf("platform acting as A: %d %s", r.status, r.raw)
+	for _, target := range []string{w.A, "*"} {
+		expect(t, w.get("/v1/companies", pa, authz.HeaderActOnTenant, target), http.StatusBadRequest, "header_not_allowed")
+		expect(t, w.get("/v1/companies/owner", pa, authz.HeaderActOnTenant, target), http.StatusBadRequest, "header_not_allowed")
 	}
-
-	// X-Act-On-Tenant: * reads every tenant's companies and the owner company (the read-only bypass).
 	r = w.post("/v1/companies", w.login("ta.c"), company(map[string]any{"nameTh": "บริษัท ซี"}))
 	expect(t, r, http.StatusCreated, "")
-	all := []string{owner, sub, str(r.data()["id"])}
-	slices.Sort(all)
-	if got := ids(pa, authz.HeaderActOnTenant, "*"); !slices.Equal(got, all) {
-		t.Errorf("X-Act-On-Tenant: * lists %v, want %v", got, all)
-	}
-	if r := w.get("/v1/companies/owner", pa, authz.HeaderActOnTenant, "*"); r.status != http.StatusOK || r.data()["id"] != owner {
-		t.Fatalf("owner under X-Act-On-Tenant: *: %d %s", r.status, r.raw)
-	}
 	if got := ids(taO); !slices.Equal(got, both) {
 		t.Errorf("own fleet after C's company: %v", got)
 	}
@@ -930,10 +920,12 @@ func TestCompanyPatchKeepsLinkedKeys(t *testing.T) {
 	if loaded == nil || loaded["logoKey"] != keys["logoKey"] || loaded["signatureKey"] != keys["signatureKey"] {
 		t.Fatalf("own fleet's view of A's company: %s", r.raw)
 	}
+
+	expect(t, w.patch("/v1/companies/"+id, pa, with(nil), authz.HeaderActOnTenant, w.O), http.StatusBadRequest, "header_not_allowed")
 	for _, who := range []struct {
 		name, tok string
 		headers   []string
-	}{{"ta.o", taO, nil}, {"pa as O", pa, []string{authz.HeaderActOnTenant, w.O}}, {"ta.a", taA, nil}} {
+	}{{"ta.o", taO, nil}, {"ta.a", taA, nil}} {
 		r = w.patch("/v1/companies/"+id, who.tok, with(nil), who.headers...)
 		expect(t, r, http.StatusOK, "")
 		if r.data()["logoKey"] != keys["logoKey"] || r.data()["stampKey"] != keys["stampKey"] || r.data()["signatureKey"] != keys["signatureKey"] {
@@ -988,15 +980,16 @@ func TestCustomerPatchKeepsLinkedLogo(t *testing.T) {
 	}
 	n := events(w.custY)
 	actA := []string{authz.HeaderActOnTenant, w.A}
-	r := w.patch("/v1/customers/"+w.custY, pa, map[string]any{"name": "Y Co.", "logoKey": logo}, actA...)
+	expect(t, w.patch("/v1/customers/"+w.custY, pa, map[string]any{"name": "Y Co.", "logoKey": logo}, actA...), http.StatusBadRequest, "header_not_allowed")
+	r := w.patch("/v1/customers/"+w.custY, mgO, map[string]any{"name": "Y Co.", "logoKey": logo})
 	expect(t, r, http.StatusOK, "")
 	if r.data()["logoKey"] != logo || events(w.custY) != n {
-		t.Fatalf("pa as A sending Y back: %s (events %d -> %d)", r.raw, n, events(w.custY))
+		t.Fatalf("member sending Y back: %s (events %d -> %d)", r.raw, n, events(w.custY))
 	}
-	r = w.patch("/v1/customers/"+w.custY, pa, map[string]any{"name": "Y Holdings", "logoKey": logo}, actA...)
+	r = w.patch("/v1/customers/"+w.custY, mgO, map[string]any{"name": "Y Holdings", "logoKey": logo})
 	expect(t, r, http.StatusOK, "")
 	if r.data()["name"] != "Y Holdings" || r.data()["logoKey"] != logo || events(w.custY) != n+1 {
-		t.Fatalf("pa as A changing Y: %s", r.raw)
+		t.Fatalf("member changing Y: %s", r.raw)
 	}
 
 	const etlKey = "customers/legacy-x/logo.png"
@@ -1160,7 +1153,8 @@ func TestSubcontractorOnboarding(t *testing.T) {
 	expect(t, r, http.StatusForbidden, "permission_denied")
 	r = w.post("/v1/subcontractors", w.login("pa"), map[string]any{"nameTh": "แพลตฟอร์ม", "legalType": "individual", "idCardNumber": idOK})
 	expect(t, r, http.StatusCreated, "")
-	if r.data()["contractorTenantId"] != w.O || r.data()["idCardNumber"] != idOK {
+	// D1 projects the new carrier's OFF consent even on a provisioning response.
+	if r.data()["contractorTenantId"] != w.O || r.data()["idCardNumber"] != "****" {
 		t.Fatalf("platform onboarding: %s", r.raw)
 	}
 	// Own-fleet staff without fleet:manage_subcontractors (an operator) cannot either.

@@ -1,7 +1,7 @@
 //go:build integration
 
 // Tests of the jobs endpoints and the dead-letter replay (issue T10) on postgres:18-alpine, Redis and
-// RabbitMQ: GET /v1/jobs (own jobs, platform sees all, keyset paging), GET /v1/jobs/{id}, and
+// RabbitMQ: GET /v1/jobs (owned jobs and authorized own-tenant jobs, keyset paging), GET /v1/jobs/{id}, and
 // POST /v1/admin/queues/{queue}/replay -> queue.replay job + queue_replayed audit row -> the
 // scheduler's replayer moves {queue}.dead back to {queue} with a fresh retry budget.
 package jobs_test
@@ -27,6 +27,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/asynctest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
@@ -72,7 +73,13 @@ func testAuth(c fiber.Ctx) error {
 		return httpx.ErrUnauthenticated()
 	}
 	role := c.Get("X-Test-Platform")
-	c.Locals(callerKey{}, jobs.Caller{UserID: id, PlatformAdmin: role == "platform_admin", PlatformSupport: role == "support"})
+	cl := jobs.Caller{UserID: id, PlatformAdmin: role == "platform_admin", PlatformSupport: role == "support"}
+	if tenant, err := uuid.Parse(c.Get("X-Test-Tenant")); err == nil {
+		cl.TenantID = &tenant
+	}
+	capability := c.Get("X-Test-Capability")
+	cl.Can = func(cap authz.Cap) bool { return capability == string(cap) }
+	c.Locals(callerKey{}, cl)
 	return c.Next()
 }
 
@@ -125,7 +132,7 @@ type response struct {
 	body   map[string]any
 }
 
-func (f *fixture) do(t *testing.T, method, path string, user *uuid.UUID, platform string) response {
+func (f *fixture) do(t *testing.T, method, path string, user *uuid.UUID, platform string, headers ...string) response {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
 	if user != nil {
@@ -133,6 +140,9 @@ func (f *fixture) do(t *testing.T, method, path string, user *uuid.UUID, platfor
 	}
 	if platform != "" {
 		req.Header.Set("X-Test-Platform", platform)
+	}
+	for i := 0; i < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
 	}
 	resp, err := f.app.Test(req)
 	if err != nil {
@@ -192,8 +202,10 @@ func TestListAndGetJobs(t *testing.T) {
 	if got := ids(f.do(t, "GET", "/v1/jobs?type=payroll.run", &alice, "")); len(got) != 2 {
 		t.Fatalf("type filter %v", got)
 	}
-	if got := ids(f.do(t, "GET", "/v1/jobs", &bob, "support")); len(got) != 5 {
-		t.Fatalf("a platform principal sees %d jobs, want 5", len(got))
+	for _, role := range []string{"platform_admin", "support"} {
+		if got := ids(f.do(t, "GET", "/v1/jobs", &bob, role)); len(got) != 1 || got[0] != b1.ID.String() {
+			t.Fatalf("%s without a tenant sees %v, want only its owned job", role, got)
+		}
 	}
 	for _, bad := range []struct {
 		path, code string
@@ -230,8 +242,8 @@ func TestListAndGetJobs(t *testing.T) {
 	if r := f.do(t, "GET", "/v1/jobs/not-a-uuid", &alice, ""); r.status != 404 {
 		t.Fatalf("malformed id: %d", r.status)
 	}
-	if r := f.do(t, "GET", "/v1/jobs/"+cron.ID.String(), &bob, "platform_admin"); r.status != 200 {
-		t.Fatalf("platform sees scheduler jobs: %d", r.status)
+	if r := f.do(t, "GET", "/v1/jobs/"+cron.ID.String(), &bob, "platform_admin"); r.status != 404 {
+		t.Fatalf("platform sees raw scheduler payload: %d", r.status)
 	}
 }
 
@@ -292,6 +304,12 @@ func TestQueueReplay(t *testing.T) {
 	jobID, _ := r.body["data"].(map[string]any)["jobId"].(string)
 	if r.status != http.StatusAccepted || jobID == "" {
 		t.Fatalf("replay: %d %v", r.status, r.body)
+	}
+	if r := f.do(t, "GET", "/v1/jobs/"+jobID, &admin, "platform_admin"); r.status != http.StatusOK {
+		t.Fatalf("replay owner cannot read its tenantless job: %d %v", r.status, r.body)
+	}
+	if r := f.do(t, "GET", "/v1/jobs/"+jobID, &staff, "platform_admin"); r.status != http.StatusNotFound {
+		t.Fatalf("another platform user can read the replay payload: %d %v", r.status, r.body)
 	}
 	if again := f.do(t, "POST", "/v1/admin/queues/billing.compute/replay", &admin, "platform_admin"); again.status != 409 ||
 		code(again) != "already_exists" || again.body["error"].(map[string]any)["details"].(map[string]any)["jobId"] != jobID {

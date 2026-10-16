@@ -254,6 +254,11 @@ func (s *Service) SetTemporaryPasswordInTx(ctx context.Context, tx pgx.Tx, in Te
 	if err != nil {
 		return nil, err
 	}
+	if in.ActorID != nil {
+		if _, err := tx.Exec(ctx, supportStampPlatformCredentialResetSQL, u.ID, now, in.ActorID); err != nil {
+			return nil, err
+		}
+	}
 	pc.version(u.ID, v)
 	if _, err := s.revokeTx(ctx, tx, Revocation{UserID: u.ID, Reason: RevokePasswordReset, RevokedBy: in.ActorID,
 		RequestID: in.RequestID}, now, pc); err != nil {

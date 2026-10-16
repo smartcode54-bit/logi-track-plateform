@@ -28,7 +28,7 @@ const (
 	ClassPlatform Class = "platform"
 )
 
-// The 81 keys of Appendix C §C.2.3 (77 tenant/scope keys incl. mobile:create_hub, plus 4 platform keys;
+// The original 81 keys of Appendix C §C.2.3 (77 tenant/scope keys incl. mobile:create_hub, plus 4 platform keys;
 // R73), in the order of that table.
 const (
 	FleetViewTrucks            Cap = "fleet:view_trucks"
@@ -112,6 +112,13 @@ const (
 	PlatformManageRoles        Cap = "platform:manage_platform_roles"
 	PlatformCrossTenantRead    Cap = "platform:cross_tenant_read"
 	PlatformCrossTenantWrite   Cap = "platform:cross_tenant_write"
+)
+
+// Phase 1 additions (ADR 0030); derived from effective old grants, never editable overrides.
+const (
+	FleetViewMaintenance    Cap = "fleet:view_maintenance"
+	FleetViewSubcontractors Cap = "fleet:view_subcontractors"
+	UsersViewSessions       Cap = "users:view_sessions"
 )
 
 // CapInfo is one catalog entry as GET /v1/roles serves it (Appendix B, /v1/roles row).
@@ -206,6 +213,9 @@ var catalog = []CapInfo{
 	{PlatformManageRoles, "", ClassPlatform, "Manage platform roles", "จัดการบทบาทระดับแพลตฟอร์ม"},
 	{PlatformCrossTenantRead, "", ClassPlatform, "Cross-tenant read", "อ่านข้อมูลข้ามผู้ให้บริการ"},
 	{PlatformCrossTenantWrite, "", ClassPlatform, "Cross-tenant write", "แก้ไขข้อมูลข้ามผู้ให้บริการ"},
+	{FleetViewMaintenance, "", ClassTenant, "View maintenance", "ดูงานซ่อมบำรุง"},
+	{FleetViewSubcontractors, "", ClassGlobal, "View subcontractors", "ดูผู้รับเหมาช่วง"},
+	{UsersViewSessions, "", ClassTenant, "View sessions", "ดูเซสชัน"},
 }
 
 // index maps a key to its position in catalog (its CapSet bit).

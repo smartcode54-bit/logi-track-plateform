@@ -206,6 +206,8 @@ func TestVerifier(t *testing.T) {
 		raw    string
 		reason string
 	}{
+		"support mode":           {edit(func(c map[string]any) { c["sm"] = "support" }), firebase.ReasonClaims},
+		"support virtual role":   {edit(func(c map[string]any) { c["rol"] = "support_readonly" }), firebase.ReasonClaims},
 		"other project audience": {edit(func(c map[string]any) { c["aud"] = "other-project-01" }), firebase.ReasonInvalid},
 		"other issuer":           {edit(func(c map[string]any) { c["iss"] = "https://securetoken.google.com/other-project-01" }), firebase.ReasonInvalid},
 		"google issuer":          {edit(func(c map[string]any) { c["iss"] = "https://accounts.google.com" }), firebase.ReasonInvalid},

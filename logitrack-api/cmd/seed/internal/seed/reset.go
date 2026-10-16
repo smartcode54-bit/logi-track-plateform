@@ -81,9 +81,9 @@ type ResetResult struct {
 
 // Reset purges seeded state before a load (Appendix D §D.1.7): (1) every object listed in file_objects is
 // removed from its backend; (2) through MIGRATE_DATABASE_URL every public table except tenants and goose's
-// goose_db_version, and the etl tables, are truncated in one statement with RESTART IDENTITY CASCADE (the
-// ETL login holds no TRUNCATE), then through ETL_DATABASE_URL every tenant but the quarantine row of
-// migration 0002 is deleted; (3) Redis keys under the prefix are unlinked with SCAN, never FLUSHDB.
+// goose_db_version, and the etl tables, are truncated with RESTART IDENTITY CASCADE. The consent actor FK
+// also reaches tenants, so preserve migration 0002's quarantine row in the same transaction (the ETL
+// login holds no TRUNCATE); (3) Redis keys under the prefix are unlinked with SCAN, never FLUSHDB.
 func Reset(ctx context.Context, etl, migrator *pgxpool.Pool, rdb redis.UniversalClient, prefix string, be Backends) (ResetResult, error) {
 	var res ResetResult
 	type obj struct{ bucket, key, backend string }
@@ -136,18 +136,24 @@ func Reset(ctx context.Context, etl, migrator *pgxpool.Pool, rdb redis.Universal
 	if len(tables) == 0 {
 		return res, errors.New("seed: reset: no table to truncate: run make migrate first")
 	}
-	if _, err := migrator.Exec(ctx, "TRUNCATE "+strings.Join(tables, ", ")+" RESTART IDENTITY CASCADE"); err != nil {
-		return res, fmt.Errorf("seed: reset: truncate: %w", err)
-	}
-	res.Tables = len(tables)
-	err = db.WithSystem(ctx, etl, nil, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `DELETE FROM tenants WHERE id <> app_quarantine_tenant_id()`)
-		res.Tenants = int(tag.RowsAffected())
+	err = db.WithSystem(ctx, migrator, nil, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM tenants WHERE id <> app_quarantine_tenant_id()`).Scan(&res.Tenants); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `CREATE TEMPORARY TABLE seed_quarantine_snapshot ON COMMIT DROP AS
+ SELECT * FROM tenants WHERE id = app_quarantine_tenant_id()`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "TRUNCATE "+strings.Join(tables, ", ")+", public.tenants RESTART IDENTITY CASCADE"); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO tenants SELECT * FROM seed_quarantine_snapshot`)
 		return err
 	})
 	if err != nil {
-		return res, fmt.Errorf("seed: reset: delete tenants: %w", err)
+		return res, fmt.Errorf("seed: reset: truncate and preserve quarantine: %w", err)
 	}
+	res.Tables = len(tables) + 1
 	n, err := PurgeRedis(ctx, rdb, prefix)
 	res.RedisKeys = n
 	if err != nil {

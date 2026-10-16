@@ -4,7 +4,7 @@
 // (Appendix B §B.2.4, §B.2.5, Appendix C §C.8): keyset paging past 1000 users, claims changes that keep the
 // session and status / password events that end it, the not-self rule, every write gated by its capability
 // and recorded by exactly one named security_events row in its transaction, 422 for an unknown scope kind,
-// the platform reads through X-Act-On-Tenant, and the owner additions: a platform admin onboards a carrier
+// projected platform reads, and the owner additions: a platform admin onboards a carrier
 // tenant and its tenant_admin, who then sees only its tenant (RLS) and switches only among its memberships.
 package iam_test
 
@@ -95,16 +95,20 @@ func (w *world) auditCount() int {
 func (w *world) oneEvent(eventType string, write func() resp, status int) resp {
 	w.t.Helper()
 	before, typed := w.auditCount(), w.securityEvents(eventType)
+	d2Before := w.d2AuditCount()
 	r := write()
 	if r.status != status {
 		w.t.Fatalf("%s: want %d, got %d %s", eventType, status, r.status, r.raw)
 	}
-	if got := w.auditCount() - before; got != 1 || w.securityEvents(eventType) != typed+1 {
+	if got := w.auditCount() - before - (w.d2AuditCount() - d2Before); got != 1 || w.securityEvents(eventType) != typed+1 {
 		w.t.Fatalf("%s: %d security_events rows appended, want exactly one of that type", eventType, got)
 	}
 	return r
 }
 
+func (w *world) d2AuditCount() int {
+	return w.count(`SELECT count(*) FROM security_events WHERE event_type IN ('platform_membership_granted','platform_account_reset','platform_account_invited','platform_admin_account_changed')`)
+}
 func (w *world) noEvent(write func() resp) resp {
 	w.t.Helper()
 	before := w.auditCount()
@@ -456,8 +460,8 @@ func TestUserAdministration(t *testing.T) {
 }
 
 // Owner additions: a platform admin creates a carrier tenant and its tenant_admin; that admin sees only its
-// tenant's rows (RLS) and switches tenants only among its memberships. Platform reads go through X-Act-On-Tenant
-// (one platform_cross_tenant_access row each), platform writes need no header.
+// tenant's rows (RLS) and switches tenants only among its memberships. Platform reads use projected endpoints;
+// platform IAM writes need target consent after onboarding.
 func TestTenantOnboarding(t *testing.T) {
 	w := newWorld(t)
 	pa := w.login("pa@example.test")
@@ -521,6 +525,8 @@ func TestTenantOnboarding(t *testing.T) {
 	// Switching: only among memberships. The platform admin adds one in C (no header), then C works, O not.
 	ntaID := w.userID("admin@new.example.test")
 	expect(t, w.send(http.MethodPost, "/v1/auth/tenant", nta, map[string]any{"tenantId": w.O}), http.StatusForbidden, "permission_denied")
+	supportFixtureConsent(w, w.C, true)
+	supportFixtureConsent(w, newT, true)
 	w.oneEvent("membership_added", func() resp {
 		return w.send(http.MethodPut, "/v1/tenants/"+w.C+"/members/"+ntaID, pa, map[string]any{"role": "manager"})
 	}, http.StatusOK)
@@ -532,31 +538,34 @@ func TestTenantOnboarding(t *testing.T) {
 		t.Errorf("after the switch to C: %v", got)
 	}
 
-	// Platform reads: X-Act-On-Tenant (one audit row each); members of the new tenant, every user with *.
+	// Platform endpoints project each identity using its own attributable tenant; shared identities stay masked.
 	audits := w.securityEvents("platform_cross_tenant_access")
-	r = w.get("/v1/tenants/"+newT+"/members?role=tenant_admin", pa, "X-Act-On-Tenant", newT)
+	r = w.get("/v1/platform/tenants/"+newT+"/members?role=tenant_admin", pa)
 	expect(t, r, http.StatusOK, "")
 	ms := r.data().([]any)
-	if len(ms) != 1 || ms[0].(map[string]any)["user"].(map[string]any)["email"] != "admin@new.example.test" {
+	if len(ms) != 1 || ms[0].(map[string]any)["user"].(map[string]any)["email"] != "****" {
 		t.Errorf("members %v", ms)
 	}
-	r = w.get("/v1/users?limit=500", pa, "X-Act-On-Tenant", "*")
+	r = w.get("/v1/platform/users?limit=100", pa)
 	expect(t, r, http.StatusOK, "")
 	var all []string
 	for _, it := range r.data().([]any) {
 		all = append(all, it.(map[string]any)["email"].(string))
 	}
-	for _, e := range []string{"cu@example.test", "ds@example.test", "ta.c@example.test", "admin@new.example.test"} {
+	for _, e := range []string{"ta.c@example.test", "****"} {
 		if !slices.Contains(all, e) {
 			t.Errorf("GET /v1/users with * lacks %s", e)
 		}
 	}
-	if got := w.securityEvents("platform_cross_tenant_access") - audits; got != 2 {
-		t.Errorf("%d cross-tenant audit rows for two platform reads", got)
+	if got := w.securityEvents("platform_cross_tenant_access") - audits; got != 0 {
+		t.Errorf("%d legacy header audit rows for headerless platform reads", got)
 	}
-	// Without the header the platform admin's read reach holds no tenant.
+	// Legacy routes use the same projected platform read contract.
 	r = w.get("/v1/tenants/"+newT+"/members", pa)
-	expect(t, r, http.StatusNotFound, "not_found")
+	expect(t, r, http.StatusOK, "")
+	if members := r.data().([]any); len(members) != 1 || members[0].(map[string]any)["user"].(map[string]any)["email"] != "****" {
+		t.Fatalf("unprojected legacy members: %s", r.raw)
+	}
 
 	// Tenants list and patch rules.
 	r = w.get("/v1/tenants?kind=carrier&limit=2", pa)
@@ -605,8 +614,9 @@ func TestTenantOnboarding(t *testing.T) {
 	if h := r.data().(map[string]any)["statusHistory"].([]any); len(h) != 2 {
 		t.Errorf("status history %v", h)
 	}
-	if strings.Contains(string(r.raw), `"idCardNumber"`) {
-		t.Error("an empty idCardNumber is serialised")
+	// The projected platform contract retains an absent optional identifier as null.
+	if value, exists := r.data().(map[string]any)["idCardNumber"]; !exists || value != nil {
+		t.Errorf("absent personal identifier is not null: %v (present=%t)", value, exists)
 	}
 }
 
@@ -783,6 +793,15 @@ func TestAdminOutranksTarget(t *testing.T) {
 		http.StatusNoContent)
 	w.oneEvent("user_enabled", func() resp { return w.send(http.MethodPost, "/v1/users/"+suID+"/enable", pa, map[string]any{}) },
 		http.StatusNoContent)
+	expect(t, w.noEvent(func() resp {
+		return w.send(http.MethodPost, "/v1/users/"+taoID+"/password/temporary", pa, map[string]any{})
+	}), 403, "support_access_required")
+	supportFixtureConsent(w, w.O, true)
+	// This shared account also belongs to A; O's consent cannot authorize its reset.
+	expect(t, w.noEvent(func() resp {
+		return w.send(http.MethodPost, "/v1/users/"+taoID+"/password/temporary", pa, map[string]any{})
+	}), 403, "support_access_required")
+	supportFixtureConsent(w, w.A, true)
 	w.oneEvent("user_password_temporary_issued", func() resp {
 		return w.send(http.MethodPost, "/v1/users/"+taoID+"/password/temporary", pa, map[string]any{})
 	}, http.StatusOK)
@@ -791,32 +810,28 @@ func TestAdminOutranksTarget(t *testing.T) {
 	}
 }
 
-// Review panel (T19): GET /v1/users/{id}/sessions is a read, so a platform admin reads it under X-Act-On-Tenant: *
-// (one audit row), as GET /v1/users/{id}; without the header the user is outside its read reach (404), and * stays
-// read-only for the revocation.
+// Platform session and user reads are projected without a tenant header. The header remains refused for writes.
 func TestSessionsPlatformRead(t *testing.T) {
 	w := newWorld(t)
 	pa := w.login("pa@example.test")
 	mgID := w.userID("mg.o@example.test")
 	w.login("mg.o@example.test")
 	audits := w.securityEvents("platform_cross_tenant_access")
-	expect(t, w.get("/v1/users/"+mgID, pa, "X-Act-On-Tenant", "*"), http.StatusOK, "")
-	r := w.get("/v1/users/"+mgID+"/sessions", pa, "X-Act-On-Tenant", "*")
+	expect(t, w.get("/v1/platform/users/"+mgID, pa), http.StatusOK, "")
+	r := w.get("/v1/platform/users/"+mgID+"/sessions", pa)
 	expect(t, r, http.StatusOK, "")
 	if len(r.data().([]any)) == 0 {
-		t.Fatal("no live session listed under X-Act-On-Tenant: *")
+		t.Fatal("no live session listed by platform endpoint")
 	}
-	if got := w.securityEvents("platform_cross_tenant_access") - audits; got != 2 {
-		t.Errorf("%d cross-tenant audit rows for two platform reads", got)
+	if got := w.securityEvents("platform_cross_tenant_access") - audits; got != 0 {
+		t.Errorf("%d legacy header audit rows for headerless platform reads", got)
 	}
-	expect(t, w.get("/v1/users/"+mgID, pa), http.StatusNotFound, "not_found")
-	expect(t, w.get("/v1/users/"+mgID+"/sessions", pa), http.StatusNotFound, "not_found")
+	expect(t, w.get("/v1/users/"+mgID, pa), http.StatusOK, "")
+	expect(t, w.get("/v1/users/"+mgID+"/sessions", pa), http.StatusOK, "")
 	r = w.noEvent(func() resp {
 		return w.send(http.MethodDelete, "/v1/users/"+mgID+"/sessions", pa, nil, "X-Act-On-Tenant", "*")
 	})
-	if r.status != http.StatusForbidden {
-		t.Errorf("a revocation under X-Act-On-Tenant: *: %d %s", r.status, r.raw)
-	}
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
 }
 
 // Review panel (T19): PUT /v1/users/{id}/driver-link never clears a driver row of a tenant outside the caller's
@@ -902,6 +917,9 @@ func TestTenantSuspensionClaims(t *testing.T) {
 // PLATFORM_ADMIN_EMAILS before its owner has an account gets nothing.
 func TestBootstrapEligibility(t *testing.T) {
 	w := newWorld(t)
+	// The platform grants below require each existing administrator's tenant consent.
+	supportFixtureConsent(w, w.O, true)
+	supportFixtureConsent(w, w.C, true)
 	tac, pa := w.login("ta.c@example.test"), w.login("pa@example.test")
 	created := func(bearer string, body map[string]any) string {
 		t.Helper()

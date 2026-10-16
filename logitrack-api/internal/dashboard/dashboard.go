@@ -73,10 +73,9 @@ func New(d Deps) (*Service, error) {
 	return &Service{pool: d.Pool, log: d.Log, now: d.Now}, nil
 }
 
-// scoped reports whether p reads the scope_* projections: a dispatcher or a customer-scope principal (never under
-// X-Act-On-Tenant: *, which reads as staff).
+// scoped reports whether p reads the scope_* projections: a dispatcher or a customer-scope principal.
 func scoped(p *authz.Principal) bool {
-	return (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll
+	return p.IsCustomerScope() || p.Dispatcher
 }
 
 // Period is the summary window: Bangkok calendar days from..to, both included.
@@ -344,12 +343,9 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 		out.Chats = &Chats{Unassigned: c.Unassigned, Urgent: c.Urgent}
 	}
 	if p.Can(authz.FleetViewTrucks) {
-		var tenant *uuid.UUID
-		if !p.ActOnAll {
-			tenant = p.EffectiveTenant()
-			if tenant == nil { // no tenant to call "own": nothing is due
-				out.Compliance = &Compliance{Items: []ComplianceItem{}}
-			}
+		tenant := p.EffectiveTenant()
+		if tenant == nil { // no tenant to call "own": nothing is due
+			out.Compliance = &Compliance{Items: []ComplianceItem{}}
 		}
 		if out.Compliance == nil {
 			rows, err := q.ComplianceTrucks(ctx, dashboarddb.ComplianceTrucksParams{TenantID: tenant,

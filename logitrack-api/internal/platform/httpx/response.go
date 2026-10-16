@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
@@ -48,17 +49,67 @@ func WriteRawError(rc *fasthttp.RequestCtx, e *Error, requestID string) {
 
 // JSON writes {"data": v} with the given status.
 func JSON(c fiber.Ctx, status int, v any) error {
+	if projectionRequired(c) {
+		return projectResponse(c, status, v, "", nil)
+	}
 	return c.Status(status).JSON(dataBody{Data: v})
 }
 
 // Page writes a keyset page {"data": items, "nextCursor": cursor}.
 func Page(c fiber.Ctx, items any, nextCursor string, meta any) error {
+	if projectionRequired(c) {
+		return projectResponse(c, fiber.StatusOK, items, nextCursor, meta)
+	}
 	return c.Status(fiber.StatusOK).JSON(dataBody{Data: items, NextCursor: nextCursor, Meta: meta})
 }
 
 // WriteError renders e. Details is always an object so the envelope always has
 // exactly four fields.
 func WriteError(c fiber.Ctx, e *Error) error {
+	if projectionRequired(c) {
+		retryAfter := c.GetRespHeader(fiber.HeaderRetryAfter)
+		cleanProjectionHeaders(c)
+		// Error codes require review; messages and free text never cross projection.
+		code, status := e.Code, e.Status
+		message := "request refused"
+		switch code {
+		case CodeSupportReadOnly:
+			message = "support access is read-only"
+		case CodeSupportViewUnavailable:
+			message = "not yet available in support view"
+		case CodeSupportProjectionUnavailable:
+			message = "support projection unavailable"
+		case CodeSupportAccessMasked:
+			message = "support access is masked"
+		case CodeInternal:
+			status, message = fiber.StatusInternalServerError, "internal error"
+		case CodeNotFound, CodeUnauthenticated, "permission_denied", CodeBadRequest, CodeInvalidArgument, "token_expired", CodeResourceExhaust:
+		default:
+			if _, reviewed := safeErrorCodes.Load(code); !reviewed {
+				code, status, message = CodeSupportProjectionUnavailable, 503, "support projection unavailable"
+			}
+		}
+		if status == 429 {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 && seconds <= 3600 {
+				c.Set(fiber.HeaderRetryAfter, strconv.Itoa(seconds))
+			}
+		}
+		details := map[string]any{}
+		_, registered := safeErrorCodes.Load(code)
+		if code == CodeInvalidArgument || registered {
+			if fields := projectedErrorFields(e.Details["fields"]); len(fields) > 0 {
+				details["fields"] = fields
+			}
+		}
+		if code == "token_expired" && e.Details["reason"] == "claims_changed" {
+			details["reason"] = "claims_changed"
+		}
+		if err := c.Status(status).JSON(errorBody{Error: errorPayload{Code: code, Message: message, Details: details, RequestID: RequestIDFrom(c)}}); err != nil {
+			return err
+		}
+		sealResponse(c)
+		return nil
+	}
 	details := e.Details
 	if details == nil {
 		details = map[string]any{}

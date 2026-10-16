@@ -1,11 +1,13 @@
+import { SUPPORT_ERROR_TEXT } from "@/lib/globalErrorText";
+
 // Text of the Go API error codes (Appendix B §B.1.5, R48, R76), keyed `apiError.<code>`; rendered by
 // lib/apiError.ts `apiErrorText`. Go's `message` is only a fallback for a code missing here.
 const apiErrors: Record<string, string> = {
+    ...SUPPORT_ERROR_TEXT.en,
     "apiError.unknown": "Something went wrong. Please try again.",
     "apiError.network_error": "Cannot reach the server. Check your connection and try again.",
     "apiError.bad_response": "The server sent an unexpected response. Please try again.",
     "apiError.bad_request": "The request was not valid.",
-    "apiError.header_not_allowed": "This request is not allowed here.",
     "apiError.unauthenticated": "Please sign in to continue.",
     "apiError.invalid_credentials": "Incorrect email or password.",
     "apiError.token_expired": "Your session has expired. Please sign in again.",

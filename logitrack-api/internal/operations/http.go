@@ -63,6 +63,7 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 	need := authz.RequireCap
 	return []ingress.Group{
 		{Prefix: TasksPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul, authz.DispatchViewOperations),
 				h.listTasks)
 			r.Post("", requireAuth, need(authz.OperationsManageTasks), h.write(h.s.CreateTaskAPI))
@@ -71,7 +72,7 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 				h.tasksByNumber)
 			r.Get("/:id", requireAuth, staffOrDriver(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul), h.getTask)
 			r.Get("/:id/trip", requireAuth, need(authz.OperationsViewFirstMile, authz.OperationsViewLineHaul), h.taskTrip)
-			r.Patch("/:id", requireAuth, need(authz.OperationsManageTasks, authz.PlatformCrossTenantWrite), h.writeID(h.s.PatchTaskAPI))
+			r.Patch("/:id", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.PatchTaskAPI))
 			r.Post("/:id/cancel", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.CancelTaskAPI))
 			r.Post("/:id/stops", requireAuth, need(authz.OperationsManageTasks), h.writeID(h.s.AddTaskStopAPI))
 			for _, m := range more {
@@ -81,6 +82,7 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 			}
 		}},
 		{Prefix: TripsPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.AccountingViewIncome, authz.DispatchViewOperations),
 				h.listTrips)
 			r.Get("/monitor", requireAuth, need(authz.OperationsViewDriverMon, authz.DispatchViewOperations), h.monitor)
@@ -99,6 +101,7 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 			}
 		}},
 		{Prefix: StandbyPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.OperationsViewDriverMon, authz.DispatchViewOperations), h.listStandby)
 			r.Post("/backfill", requireAuth, need(authz.OperationsCreateStandby), h.write(h.s.StandbyBackfillAPI))
 			for _, m := range more {
@@ -108,6 +111,7 @@ func Groups(s *Service, requireAuth fiber.Handler, more ...Mounts) []ingress.Gro
 			}
 		}},
 		{Prefix: IncidentsPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.OperationsViewIncidents, authz.DispatchViewOperations), h.listIncidents)
 			r.Post("", requireAuth, need(authz.OperationsEditTripDetails), h.write(h.s.CreateIncidentAPI))
 		}},

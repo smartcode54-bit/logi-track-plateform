@@ -229,14 +229,6 @@ func retryableDeviceWrite(err error) bool {
 	return false
 }
 
-// MountDevices registers PUT /devices and DELETE /devices/{installId} on a router whose group already
-// requires authentication: /v1/me here, and /v1/mobile/me when the driver-app group lands (T55, P7a,
-// R42; same handlers).
-func (s *Service) MountDevices(r fiber.Router) {
-	r.Put("/devices", s.handlePutDevice)
-	r.Delete("/devices/:installId", s.handleDeleteDevice)
-}
-
 func (s *Service) handlePutDevice(c fiber.Ctx) error {
 	var in DeviceInput
 	if err := httpx.DecodeJSON(c, &in); err != nil {
@@ -246,7 +238,7 @@ func (s *Service) handlePutDevice(c fiber.Ctx) error {
 	if err := s.RegisterDevice(c.Context(), PrincipalFrom(c), in); err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return httpx.Empty(c, http.StatusNoContent)
 }
 
 func (s *Service) handleDeleteDevice(c fiber.Ctx) error {
@@ -257,5 +249,5 @@ func (s *Service) handleDeleteDevice(c fiber.Ctx) error {
 	if err := s.UnregisterDevice(c.Context(), PrincipalFrom(c), id); err != nil {
 		return err
 	}
-	return c.SendStatus(http.StatusNoContent)
+	return httpx.Empty(c, http.StatusNoContent)
 }

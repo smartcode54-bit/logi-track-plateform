@@ -131,19 +131,20 @@ func parseID(v json.RawMessage) (uuid.UUID, bool) {
 
 // ReassignTask authorizes a reassignment and hands it to the Reassigner: a dispatcher holding operations:manage_tasks
 // (the task must be one it reads, which the Reassigner checks under its RLS, and one its own RLS lets it update: 403
-// task_not_in_reach for another carrier's task it only reads through its parties' scope), or a platform admin holding
-// platform:cross_tenant_write; anyone else is 403 with details.reason dispatcher_or_platform_only. An API key never
-// reassigns.
+// task_not_in_reach for another carrier's task it only reads through its parties' scope).
+// Platform capabilities never substitute for this grant. An API key never reassigns.
 func (s *Service) ReassignTask(ctx context.Context, p *authz.Principal, rid string, taskID uuid.UUID, in Reassign) (Reassigned, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return Reassigned{}, err
+	}
 	if s.mover == nil {
 		return Reassigned{}, errors.New("operations: no task reassigner is wired")
 	}
-	platform := !p.IsMachine() && p.HasPlatform(authz.PlatformAdmin) && p.Can(authz.PlatformCrossTenantWrite)
 	dispatcher := !p.IsMachine() && p.Dispatcher && p.Can(authz.OperationsManageTasks)
-	if !platform && !dispatcher {
-		return Reassigned{}, authz.ErrPermissionDenied("a task moves to another tenant only by a dispatcher or a platform admin").
+	if !dispatcher {
+		return Reassigned{}, authz.ErrPermissionDenied("a task moves to another tenant only by an authorized dispatcher").
 			WithDetails(map[string]any{"reason": ReasonDispatcherOrPlatform})
 	}
-	in.Platform = platform
+	in.Platform = false // D1: platform capabilities never authorize tenant reassignment.
 	return s.mover.ReassignTask(ctx, p, rid, taskID, in)
 }

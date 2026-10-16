@@ -122,13 +122,15 @@ func (s *Service) Refresh(ctx context.Context, in RefreshInput) (*TokenPair, err
 		if err != nil {
 			return err
 		}
-		m := a.pickTenant(rt.ActiveTenantID)
-		if !sameTenant(m, rt.ActiveTenantID) {
-			if err := q.SetActiveTenant(ctx, authdb.SetActiveTenantParams{TenantID: tenantOf(m), ID: rt.SessionID}); err != nil {
-				return err
-			}
+		st, err := readSessionContext(ctx, tx, rt.UserID, rt.SessionID, true)
+		if err != nil {
+			return err
 		}
-		c, err := a.claims(rt.SessionID, ver, rt.Amr, m)
+		lastTenant, err := q.LastActiveTenant(ctx, rt.UserID)
+		if err != nil {
+			return err
+		}
+		c, err := s.contextClaims(ctx, tx, q, rt.UserID, rt.SessionID, ver, a, &st, lastTenant, now)
 		if err != nil {
 			return err
 		}

@@ -14,10 +14,10 @@ import (
 // The DDL CHECK of role_capability_overrides.capability (Appendix A 0002_identity).
 var colonKey = regexp.MustCompile(`^[a-z]+:[a-z_]+$`)
 
-func TestCatalogHas81ColonKeys(t *testing.T) {
+func TestCatalogHas84ColonKeys(t *testing.T) {
 	cat := Catalog()
-	if len(cat) != 81 {
-		t.Fatalf("catalog has %d keys, want 81 (77 + 4 platform, R73)", len(cat))
+	if len(cat) != 84 {
+		t.Fatalf("catalog has %d keys, want 84 (81 baseline + 3 Phase 1 reads)", len(cat))
 	}
 	if len(cat) > capWords*64 {
 		t.Fatalf("CapSet holds %d keys, the catalog has %d: raise capWords", capWords*64, len(cat))
@@ -43,20 +43,20 @@ func TestCatalogHas81ColonKeys(t *testing.T) {
 			t.Errorf("%s: Lookup/Known/ClassOf disagree with the catalog", e.Key)
 		}
 	}
-	want := map[Class]int{ClassTenant: 57, ClassGlobal: 7, ClassSelf: 12, ClassScope: 1, ClassPlatform: 4}
+	want := map[Class]int{ClassTenant: 59, ClassGlobal: 8, ClassSelf: 12, ClassScope: 1, ClassPlatform: 4}
 	for c, n := range want {
 		if classes[c] != n {
 			t.Errorf("class %s: %d keys, want %d", c, classes[c], n)
 		}
 	}
-	if platform := classes[ClassPlatform]; len(cat)-platform != 77 {
-		t.Errorf("%d non-platform keys, want 77", len(cat)-platform)
+	if platform := classes[ClassPlatform]; len(cat)-platform != 80 {
+		t.Errorf("%d non-platform keys, want 80", len(cat)-platform)
 	}
 	if !Known(MobileCreateHub) {
 		t.Error("mobile:create_hub (R5) is missing")
 	}
 	globals := []Cap{FleetManageCustomers, FleetManageSubcontractors, OperationsManageSources, OperationsCalcDistances,
-		SecurityViewStatus, SecurityManageMobileRel, WaitlistView}
+		SecurityViewStatus, SecurityManageMobileRel, WaitlistView, FleetViewSubcontractors}
 	if got := GlobalCaps(); !sameKeys(got, globals) {
 		t.Errorf("global keys %v, want the seven steward keys of R60 %v", got, globals)
 	}
@@ -165,7 +165,8 @@ func TestCatalogMatchesAppendixC(t *testing.T) {
 			}
 		}
 	}
-	if n != len(cat) {
+	// ADR 0030 appends three derived reads; the 81-row baseline stays frozen.
+	if n != len(cat)-3 {
 		t.Errorf("§C.2.3 lists %d keys, the catalog %d", n, len(cat))
 	}
 }

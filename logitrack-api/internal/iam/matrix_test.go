@@ -231,25 +231,21 @@ func TestDesiredRows(t *testing.T) {
 func TestResolveLayerNoTenant(t *testing.T) {
 	a := &Admin{}
 	pa := &authz.Principal{UserID: uuid.New(), AMR: authz.AMRPassword, Platform: []authz.PlatformRole{authz.PlatformAdmin}}
-	all := &authz.Principal{UserID: uuid.New(), AMR: authz.AMRPassword, Platform: []authz.PlatformRole{authz.PlatformAdmin},
-		ActOnAll: true}
-	for _, p := range []*authz.Principal{pa, all} {
-		for _, write := range []bool{false, true} {
-			c := call{ctx: t.Context(), p: p}
-			_, err := a.resolveLayer(c, nil, MatrixTarget{Layer: LayerTenant}, write)
-			var he *httpx.Error
-			if !errors.As(err, &he) || he.Status != http.StatusForbidden || he.Code != authz.CodeTenantRequired {
-				t.Errorf("?layer=tenant (actOnAll %t, write %t): want 403 tenant_required, got %v", p.ActOnAll, write, err)
+	for _, write := range []bool{false, true} {
+		c := call{ctx: t.Context(), p: pa}
+		_, err := a.resolveLayer(c, nil, MatrixTarget{Layer: LayerTenant}, write)
+		var he *httpx.Error
+		if !errors.As(err, &he) || he.Status != http.StatusForbidden || he.Code != authz.CodeTenantRequired {
+			t.Errorf("?layer=tenant (write %t): want 403 tenant_required, got %v", write, err)
+		}
+		for _, layer := range []string{"", LayerPlatform} {
+			if l, err := a.resolveLayer(c, nil, MatrixTarget{Layer: layer}, write); err != nil || l.tenant != nil {
+				t.Errorf("?layer=%q (write %t): want the platform-wide layer, got %+v %v", layer, write, l, err)
 			}
-			for _, layer := range []string{"", LayerPlatform} {
-				if l, err := a.resolveLayer(c, nil, MatrixTarget{Layer: layer}, write); err != nil || l.tenant != nil {
-					t.Errorf("?layer=%q (actOnAll %t, write %t): want the platform-wide layer, got %+v %v", layer, p.ActOnAll, write, l, err)
-				}
-			}
-			if _, err := a.resolveLayer(c, nil, MatrixTarget{Layer: "world"}, write); !errors.As(err, &he) ||
-				he.Status != http.StatusUnprocessableEntity {
-				t.Errorf("?layer=world: %v", err)
-			}
+		}
+		if _, err := a.resolveLayer(c, nil, MatrixTarget{Layer: "world"}, write); !errors.As(err, &he) ||
+			he.Status != http.StatusUnprocessableEntity {
+			t.Errorf("?layer=world: %v", err)
 		}
 	}
 }

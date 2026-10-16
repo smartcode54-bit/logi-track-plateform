@@ -336,8 +336,8 @@ func TestReassignRules(t *testing.T) {
 		"platform without cross-tenant write":   {w.paR, open, moveTo(w.B), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
 		"an API key":                            {machine, open, moveTo(w.B), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
 		"a task outside the dispatcher's scope": {w.disp, outOfScope, moveTo(w.B), httpx.CodeNotFound, ""},
-		"an unknown task":                       {w.pa, uuid.New(), moveTo(w.B), httpx.CodeNotFound, ""},
-		"a quarantined task":                    {w.pa, quarantined, moveTo(w.B), httpx.CodeNotFound, ""},
+		"an unknown task":                       {w.pa, uuid.New(), moveTo(w.B), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
+		"a quarantined task":                    {w.pa, quarantined, moveTo(w.B), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
 		"the quarantine tenant":                 {w.disp, open, moveTo(q), httpx.CodeInvalidArgument, "tenantId not_found"},
 		"an unknown tenant":                     {w.disp, open, moveTo(uuid.New()), httpx.CodeInvalidArgument, "tenantId not_found"},
 		"a suspended tenant":                    {w.disp, open, moveTo(w.S), iam.CodeFailedPrecondition, iam.ReasonTargetTenantClosed},
@@ -356,10 +356,10 @@ func TestReassignRules(t *testing.T) {
 		"a carrier's driver removed in place":           {w.disp, carrierA, withDriver(w.A, nil), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
 		"a carrier's task, nothing to change":           {w.disp, carrierA, moveTo(w.A), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
 		"a driver change without a move (dispatcher)":   {w.disp, open, withDriver(w.D, &w.dD1), httpx.CodeInvalidArgument, "tenantId same_tenant"},
-		"a driver change without a move (platform)":     {w.pa, carrierA, withDriver(w.A, &w.dA2), httpx.CodeInvalidArgument, "tenantId same_tenant"},
-		"an unassignment without a move (platform)":     {w.pa, carrierA, withDriver(w.A, nil), httpx.CodeInvalidArgument, "tenantId same_tenant"},
-		"a driver given without a move (platform)":      {w.pa, inB, withDriver(w.B, &w.dB1), httpx.CodeInvalidArgument, "tenantId same_tenant"},
-		"an unknown driver without a move (platform)":   {w.pa, inB, withDriver(w.B, idp(uuid.New())), httpx.CodeInvalidArgument, "tenantId same_tenant"},
+		"a driver change without a move (platform)":     {w.pa, carrierA, withDriver(w.A, &w.dA2), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
+		"an unassignment without a move (platform)":     {w.pa, carrierA, withDriver(w.A, nil), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
+		"a driver given without a move (platform)":      {w.pa, inB, withDriver(w.B, &w.dB1), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
+		"an unknown driver without a move (platform)":   {w.pa, inB, withDriver(w.B, idp(uuid.New())), authz.CodePermissionDenied, operations.ReasonDispatcherOrPlatform},
 		"a driver change of another carrier's call-out": {w.disp, inB, withDriver(w.B, &w.dB1), authz.CodePermissionDenied, iam.ReasonTaskNotInReach},
 	} {
 		_, err := w.reassign(c.p, c.task, c.in)
@@ -386,45 +386,18 @@ func TestReassignRules(t *testing.T) {
 		t.Fatal("a refused driver change without a move assigned a driver")
 	}
 
-	t.Run("platform admin unassigns while moving; a helper of a linked tenant stays", func(t *testing.T) {
-		ofA := w.task(tmTask{tenant: w.A, source: "driver", status: "assigned", driver: &w.dA1, runOrder: ptr(int32(3)),
-			legacyDriverRef: ptr("legacyDriverDoc"), party: &w.partyY, helper: &w.dB1}) // B is linked to O
-		out, err := w.reassign(w.pa, ofA, withDriver(w.O, nil))
-		if err != nil {
-			t.Fatal(err)
+	t.Run("platform capabilities cannot move or unassign", func(t *testing.T) {
+		ofA := w.task(tmTask{tenant: w.A, source: "driver", status: "assigned", driver: &w.dA1, runOrder: ptr(int32(3)), party: &w.partyY, helper: &w.dB1})
+		audits, events := w.count(`SELECT count(*) FROM security_events`), w.count(`SELECT count(*) FROM outbox_events`)
+		_, err := w.reassign(w.pa, ofA, withDriver(w.O, nil))
+		if code, reason := tmCode(err); code != authz.CodePermissionDenied || reason != operations.ReasonDispatcherOrPlatform {
+			t.Fatalf("platform move: %v", err)
 		}
-		if out.TenantID != w.O || out.Status != operations.TaskPending || out.DriverID != nil || out.RunOrder != nil ||
-			out.PreviousDriverID == nil || *out.PreviousDriverID != w.dA1 {
-			t.Fatalf("reassigned %+v", out)
+		if w.count(`SELECT count(*) FROM security_events`) != audits || w.count(`SELECT count(*) FROM outbox_events`) != events {
+			t.Fatal("refused platform move wrote events")
 		}
-		var ref *string
-		if err := w.etl.QueryRow(ctx, `SELECT legacy_driver_ref FROM tasks WHERE id = $1`, ofA).Scan(&ref); err != nil || ref != nil {
-			t.Fatalf("legacy driver ref kept: %v %v", ref, err)
-		}
-		var det []byte
-		if err := w.etl.QueryRow(ctx, `SELECT details FROM security_events WHERE event_type = $1 AND details->>'taskId' = $2
-			AND tenant_id = $3`, iam.EventTaskTenantReassigned, ofA.String(), w.O).Scan(&det); err != nil {
-			t.Fatal(err)
-		}
-		// carrier A, which lost the task to a platform admin's move, reads it in its own feed too
-		if n := w.count(`SELECT count(*) FROM security_events WHERE event_type = $1 AND details->>'taskId' = $2 AND tenant_id = $3
-			AND actor_user_id = $4`, iam.EventTaskTenantReassigned, ofA.String(), w.A, w.pa.UserID); n != 1 {
-			t.Fatalf("%d task_tenant_reassigned rows for the source tenant A", n)
-		}
-		var m map[string]any
-		_ = json.Unmarshal(det, &m)
-		if m["by"] != "platform_admin" || m["previousDriverId"] != w.dA1.String() || m["driverId"] != nil {
-			t.Fatalf("details %s", det)
-		}
-		var payload []byte
-		if err := w.etl.QueryRow(ctx, `SELECT payload FROM outbox_events WHERE routing_key = 'task.reassigned' AND aggregate_id = $1`,
-			ofA.String()).Scan(&payload); err != nil {
-			t.Fatal(err)
-		}
-		var pl map[string]any
-		_ = json.Unmarshal(payload, &pl)
-		if v, ok := pl["driverId"]; !ok || v != nil || pl["previousDriverId"] != w.dA1.String() {
-			t.Fatalf("payload %s", payload)
+		if w.count(`SELECT count(*) FROM tasks WHERE id=$1 AND tenant_id=$2 AND driver_id=$3`, ofA, w.A, w.dA1) != 1 {
+			t.Fatal("refused platform move changed task")
 		}
 	})
 
@@ -436,8 +409,7 @@ func TestReassignRules(t *testing.T) {
 			in   operations.Reassign
 			want uuid.UUID
 		}{
-			"platform admin, tenant only":         {w.pa, inB, moveTo(w.B), w.B},
-			"platform admin, the same driver":     {w.pa, carrierA, withDriver(w.A, &w.dA1), w.A},
+
 			"dispatcher, its call-out, no driver": {w.disp, open, withDriver(w.D, nil), w.D},
 		} {
 			out, err := w.reassign(c.p, c.task, c.in)
@@ -461,7 +433,7 @@ func TestReassignRules(t *testing.T) {
 			p  *authz.Principal
 			in operations.Reassign
 		}{
-			"platform admin, no driverId":         {w.pa, moveTo(w.B)},
+			"dispatcher, no driverId":             {w.disp, moveTo(w.B)},
 			"dispatcher, driverId = the same one": {w.disp, withDriver(w.B, &w.dB1)},
 		} {
 			drifted := w.task(tmTask{tenant: w.D, source: "driver", status: "assigned", driver: &w.dB1, runOrder: ptr(int32(1)),

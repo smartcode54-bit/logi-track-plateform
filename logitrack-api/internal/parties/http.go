@@ -36,12 +36,14 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	need := authz.RequireCap
 	return []ingress.Group{
 		{Prefix: CustomersPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, h.listCustomers)
 			r.Post("", requireAuth, need(authz.FleetManageCustomers), h.createCustomer)
 			r.Get("/:id", requireAuth, need(authz.FleetManageCustomers), h.getCustomer)
 			r.Patch("/:id", requireAuth, need(authz.FleetManageCustomers), h.patchCustomer)
 		}},
 		{Prefix: CompaniesPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.CompanyView), h.listCompanies)
 			r.Get("/owner", requireAuth, need(authz.CompanyView), h.ownerCompany)
 			r.Post("", requireAuth, need(authz.CompanyManage), authz.RequireTenant(), h.createCompany)

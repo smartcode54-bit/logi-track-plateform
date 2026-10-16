@@ -35,6 +35,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	view, send := authz.RequireCap(authz.ChatView), authz.RequireCap(authz.ChatSend)
 	return []ingress.Group{{Prefix: Prefix, Mount: func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Get("", requireAuth, view, h.list)
 		r.Post("", requireAuth, send, h.open)
 		r.Get("/:id", requireAuth, view, h.get)

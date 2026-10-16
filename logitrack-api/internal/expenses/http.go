@@ -33,6 +33,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
 	return []ingress.Group{{Prefix: Prefix, Mount: func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Get("", requireAuth, need(authz.AccountingViewFuel, authz.AccountingViewOther, authz.AccountingAuditExpense), h.list)
 		r.Post("", requireAuth, need(authz.AccountingEditFuel, authz.AccountingEditOther), h.create)
 		r.Post("/bulk-status", requireAuth, need(authz.AccountingAuditExpense), h.bulkStatus)

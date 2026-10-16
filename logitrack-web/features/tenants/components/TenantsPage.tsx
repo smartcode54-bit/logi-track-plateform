@@ -6,6 +6,7 @@
  * names and status, and assigns or removes their `tenant_admin`s. The route is gated by
  * `platform:manage_tenants` (proxy.ts, lib/routeCapabilities.ts); Go checks every call again.
  */
+import { MaskedValue } from "@/components/masked-value";
 import { useMemo, useState } from "react";
 import { Edit, Loader2, MoreHorizontal, Plus, RefreshCw, UserCog } from "lucide-react";
 
@@ -131,11 +132,11 @@ export function TenantsPage() {
                                 <TableRow key={tenant.id} data-testid="tenant-row">
                                     <TableCell className="pl-6">
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-semibold">{tenant.nameTh}</span>
-                                            {tenant.nameEn ? <span className="text-xs text-muted-foreground">{tenant.nameEn}</span> : null}
+                                            <span className="text-sm font-semibold"><MaskedValue value={tenant.nameTh} source={tenant} path="nameTh" /></span>
+                                            {tenant.nameEn ? <span className="text-xs text-muted-foreground"><MaskedValue value={tenant.nameEn} source={tenant} path="nameEn" /></span> : null}
                                         </div>
                                     </TableCell>
-                                    <TableCell className="font-mono text-xs">{tenant.code ?? "—"}</TableCell>
+                                    <TableCell className="font-mono text-xs"><MaskedValue value={tenant.code} source={tenant} path="code" /></TableCell>
                                     <TableCell>
                                         <Badge variant="outline">{t(`tenants.kind.${tenant.kind}`, tenant.kind)}</Badge>
                                     </TableCell>

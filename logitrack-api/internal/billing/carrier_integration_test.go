@@ -79,14 +79,12 @@ func TestBillingWritesAreOwnFleetOnly(t *testing.T) {
 			refused(user, w.do(c.method, c.path, w.login(user), c.body), c)
 		}
 	}
-	// A platform admin acting on a carrier is that carrier's tenant_admin: refused too; acting on the own fleet bills.
+	// Platform authority cannot supply membership or tenant-write authority through a header.
 	pa := w.login("pa")
-	refused("pa as C", w.post("/v1/billing/standby-rates", pa, calls[8].body, "X-Act-On-Tenant", w.C), calls[8])
-	r := w.post("/v1/billing/standby-rates", pa, calls[8].body, "X-Act-On-Tenant", w.O)
-	expect(t, r, http.StatusCreated, "")
-	if str(r.data()["tenantId"]) != w.O {
-		t.Fatalf("platform admin as O: %s", r.raw)
+	for _, target := range []string{w.C, w.O, "*"} {
+		expect(t, w.post("/v1/billing/standby-rates", pa, calls[8].body, "X-Act-On-Tenant", target), http.StatusBadRequest, "header_not_allowed")
 	}
+	expect(t, w.post("/v1/billing/standby-rates", pa, calls[8].body), http.StatusForbidden, "permission_denied")
 	for _, tbl := range []string{"customer_rate_entries", "customer_fuel_rate_adjustments", "customer_service_fees",
 		"standby_rate_entries", "billing_statements", "billing_counters"} {
 		if n := scan[int](w, `SELECT count(*) FROM `+tbl+` WHERE tenant_id <> $1`, w.O); n != 0 {

@@ -1,4 +1,5 @@
 export default {
+    "common.maskedValue": "ปกปิดข้อมูลส่วนบุคคลหรือข้อมูลทางการเงิน",
     // Task / trip shared
     "task.helpers": "ผู้ช่วย",
     "task.helper.label": "ผู้ช่วย (ขึ้นฝึก / ช่วยงาน)",

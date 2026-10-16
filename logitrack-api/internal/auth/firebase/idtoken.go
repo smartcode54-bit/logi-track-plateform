@@ -116,9 +116,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (*IDToken, error) {
 		return nil, invalid(ReasonInvalid, err)
 	}
 	var c struct {
-		AuthTime *int64 `json:"auth_time"`
-		Email    string `json:"email"`
-		Firebase struct {
+		AccessMode string `json:"sm"`
+		Role       string `json:"rol"`
+		AuthTime   *int64 `json:"auth_time"`
+		Email      string `json:"email"`
+		Firebase   struct {
 			SignInProvider string `json:"sign_in_provider"`
 			Tenant         string `json:"tenant"`
 		} `json:"firebase"`
@@ -134,6 +136,8 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (*IDToken, error) {
 		return nil, invalid(ReasonClaims, errors.New("iat missing or in the future"))
 	case c.AuthTime == nil || time.Unix(*c.AuthTime, 0).After(now.Add(clockSkew)):
 		return nil, invalid(ReasonClaims, errors.New("auth_time missing or in the future"))
+	case c.AccessMode != "" || c.Role == "support_readonly":
+		return nil, invalid(ReasonClaims, errors.New("support claims are not Firebase credentials"))
 	case c.Firebase.Tenant != "":
 		return nil, invalid(ReasonClaims, errors.New("token of an Identity Platform tenant"))
 	}

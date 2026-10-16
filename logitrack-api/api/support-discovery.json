@@ -1,0 +1,139 @@
+[
+  {
+    "source": "internal/billing/http_reads.go",
+    "registrationPath": "/rows",
+    "mutationCapabilityReferences": [
+      "accounting:billing_document"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/billing/http_reads.go",
+    "registrationPath": "/rows/missing-billing-date",
+    "mutationCapabilityReferences": [
+      "accounting:billing_document"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/billing/http_reads.go",
+    "registrationPath": "/standby-diagnostics",
+    "mutationCapabilityReferences": [
+      "accounting:billing_document"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/chats/http.go",
+    "registrationPath": "/chat",
+    "mutationCapabilityReferences": [
+      "mobile:chat"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/chats/http.go",
+    "registrationPath": "/chat/messages",
+    "mutationCapabilityReferences": [
+      "mobile:chat"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/chats/http.go",
+    "registrationPath": "/chat/unread-count",
+    "mutationCapabilityReferences": [
+      "mobile:chat"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/expenses/http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "accounting:audit_expense"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/hr/http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "hr:manage_payroll"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/hr/http.go",
+    "registrationPath": "/config",
+    "mutationCapabilityReferences": [
+      "hr:manage_payroll"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/iam/admin_http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "fleet:manage_subcontractors",
+      "platform:manage_tenants"
+    ],
+    "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
+  },
+  {
+    "source": "internal/iam/admin_http.go",
+    "registrationPath": "/:id/sessions",
+    "mutationCapabilityReferences": [
+      "users:revoke_sessions"
+    ],
+    "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
+  },
+  {
+    "source": "internal/iam/apikeys_http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "security:manage_api_keys"
+    ],
+    "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
+  },
+  {
+    "source": "internal/iam/apikeys_http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "security:manage_api_keys"
+    ],
+    "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
+  },
+  {
+    "source": "internal/iam/http.go",
+    "registrationPath": "/matrix",
+    "mutationCapabilityReferences": [
+      "security:manage_roles"
+    ],
+    "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
+  },
+  {
+    "source": "internal/maintenance/http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "fleet:manage_maintenance"
+    ],
+    "disposition": "P1.3 pending read-key/projection binding; denied until bound"
+  },
+  {
+    "source": "internal/mobileapp/http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "security:manage_mobile_release"
+    ],
+    "disposition": "P1.2 pending platform release read binding; existing ordinary authorization retained"
+  },
+  {
+    "source": "internal/parties/http.go",
+    "registrationPath": "/:id",
+    "mutationCapabilityReferences": [
+      "fleet:manage_customers"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  }
+]

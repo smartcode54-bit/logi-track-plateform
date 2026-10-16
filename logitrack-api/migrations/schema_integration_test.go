@@ -236,6 +236,7 @@ func TestSchemaCatalog(t *testing.T) {
 		if len(want) != 85 {
 			t.Fatalf("Appendix A declares %d tables, main spec §3.3 counts 85", len(want))
 		}
+		want = append(want, "support_visits", "membership_provenance_history", "support_request_limits") // ADR 0030, migration 0027
 		sameSet(t, "tables", got, want)
 	})
 

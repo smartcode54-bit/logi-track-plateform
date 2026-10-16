@@ -30,6 +30,9 @@ func ErrInvalidArgument(fields ...FieldViolation) *Error {
 // DecodeJSON reads a JSON object body into v. An empty body leaves v unchanged (every field absent);
 // malformed JSON, a non-object or trailing data is 400 bad_request. Unknown fields are ignored.
 func DecodeJSON(c fiber.Ctx, v any) error {
+	if copied, err := copyPolicyInput(c, v); copied {
+		return err
+	}
 	body := bytes.TrimSpace(c.Body())
 	if len(body) == 0 {
 		return nil

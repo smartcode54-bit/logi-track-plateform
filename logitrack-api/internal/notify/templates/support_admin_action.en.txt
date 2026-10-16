@@ -1,0 +1,14 @@
+{{define "subject"}}Platform administration — {{.Company}}{{end}}
+{{define "text"}}Hello,
+
+The platform team performed an administrative action for {{.Company}}.
+Action: {{.Action}}
+Authorization: {{.Basis}}
+
+Actor reference: {{.Actor}}
+Record reference: {{.Target}}
+Company reference: {{.Tenant}}
+
+Review this event in your company's Security Center.
+LogiTrack
+{{end}}

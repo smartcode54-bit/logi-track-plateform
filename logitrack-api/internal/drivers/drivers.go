@@ -178,8 +178,7 @@ func actor(p *authz.Principal) (user *uuid.UUID, label *string) {
 	return &id, nil
 }
 
-// writeTenant is the tenant a write acts in; writes are refused without one (a customer-scope principal, a
-// platform principal without X-Act-On-Tenant, or the read-only X-Act-On-Tenant: *).
+// writeTenant is the tenant a write acts in; writes are refused without an effective tenant.
 func writeTenant(p *authz.Principal) (uuid.UUID, error) {
 	t := p.EffectiveTenant()
 	if t == nil {
@@ -189,7 +188,7 @@ func writeTenant(p *authz.Principal) (uuid.UUID, error) {
 }
 
 // scoped: a dispatcher or a customer-scope principal reads the scope_drivers projection (Appendix C §C.3.7, R85).
-func scoped(p *authz.Principal) bool { return (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll }
+func scoped(p *authz.Principal) bool { return p.IsCustomerScope() || p.Dispatcher }
 
 // --- request helpers ---------------------------------------------------------------------------------------
 

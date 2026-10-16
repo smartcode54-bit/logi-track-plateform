@@ -139,11 +139,10 @@ func TestWebTopicsOfScopeDriverAndPlatformPrincipals(t *testing.T) {
 	if got := WebTopics(pa); !slices.Equal(got, want) {
 		t.Fatalf("platform admin: %v", got)
 	}
-	// Acting as a tenant (X-Act-On-Tenant: <uuid>) gives that tenant's topics; "*" none.
-	pa.ActOnTenant = &own
+	// Tenant capabilities alone do not add tenant topics without a tenant membership context.
 	pa.TenantKind = authz.TenantKindOwnFleet
 	pa.Caps = pa.Caps.Union(authz.TenantDefaults(authz.TenantAdmin))
-	if got := WebTopics(pa); !slices.Contains(got, rt.TenantTopic(own.String(), rt.FamilyTrips)) {
-		t.Fatalf("acting as the own fleet: %v", got)
+	if got := WebTopics(pa); !slices.Equal(got, want) {
+		t.Fatalf("tenant capabilities without a tenant added topics: %v", got)
 	}
 }

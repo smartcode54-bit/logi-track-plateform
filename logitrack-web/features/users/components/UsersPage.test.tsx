@@ -1,3 +1,4 @@
+import { fakeD1Web as fakeWeb } from "@/features/security-center/test-utils/platformWeb";
 // T18 (R49, R81; Appendix E §E.5 row 14, §E.10): the Security Center users page on Go. The web has no
 // Firebase SDK since TW7, and every request goes to the BFF (/api/go/v1/users*,
 // /api/go/v1/tenants/{id}/members/*).
@@ -13,7 +14,7 @@ import { renderInLanguage } from "@/features/security-center/test-utils/renderIn
 import { UsersPage } from "./UsersPage";
 import { USERS_PAGE_SIZE, useUsers, type UserDTO } from "../api/users";
 import { createQueryClient } from "@/lib/queryClient";
-import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { queryKeys } from "@/lib/queryKeys";
 
@@ -91,6 +92,20 @@ describe("useUsers", () => {
         expect(urls).toHaveLength(21);
     });
 
+    it("browses platform users without sensitive q even when given a stale search", async () => {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(1)] }));
+        const client = createQueryClient();
+        const { result } = renderHook(() => useUsers({ q: " ann ", role: "manager", status: "active" }, true, "all"), {
+            wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+        });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(web.calls[0].url).toBe("/api/go/v1/platform/users?role=manager&status=active&sort=last_login_at&limit=50");
+        const refusal = await fetch("/api/go/v1/platform/users?q=ann");
+        expect(refusal.status).toBe(403);
+        expect(await refusal.json()).toMatchObject({ error: { code: "support_access_masked" } });
+    });
+
     it("sends search, role and status to Go (never filters in the browser)", async () => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/users", () => json(200, { data: [] }));
@@ -122,6 +137,13 @@ describe("UsersPage", () => {
         expect(screen.getByTestId("users-count")).toHaveTextContent("60 users shown");
         expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
         expect(web.calls.every((c) => c.url.startsWith("/api/go/") || c.url.startsWith("/api/auth/"))).toBe(true);
+    });
+
+    it("shows the no-name fallback for a blank display name", async () => {
+        const { web } = setup();
+        web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(1, { displayName: "  " })] }));
+        renderWithProviders(<UsersPage />);
+        expect(await screen.findByText("No name")).toBeInTheDocument();
     });
 
     it("creates a user and shows the temporary password once (R29)", async () => {
@@ -217,7 +239,7 @@ describe("UsersPage", () => {
         expect(web.calls.find((c) => c.method === "PUT")?.body).toEqual({ role: "operator", status: "suspended" });
     });
 
-    it("a tenant principal lists its own reach (no X-Act-On-Tenant); a platform principal lists every tenant with X-Act-On-Tenant: *", async () => {
+    it("a tenant principal lists its own reach (no X-Act-On-Tenant); a platform principal lists every tenant through explicit platform endpoints", async () => {
         const tenantStaff = setup();
         tenantStaff.web.on("GET", "/api/go/v1/users", () => json(200, { data: [user(4)] }));
         const first = renderWithProviders(<UsersPage />);
@@ -232,13 +254,17 @@ describe("UsersPage", () => {
         // The bootstrap platform admin: platform role only, no membership, so no `tid`.
         const platform = setup({ tenant: null, tenants: [], platformRoles: ["platform_admin"] });
         const customer = user(5, { memberships: [], scopes: [{ kind: "customer", billingPartyId: "bp-1", name: "CJSF" }] });
-        platform.web.on("GET", "/api/go/v1/users", (c) => json(200, { data: c.headers["x-act-on-tenant"] === "*" ? [user(4), customer] : [] }));
+        platform.web.on("GET", "/api/go/v1/users", (c) => json(200, { data: c.url.includes("/v1/platform/") ? [user(4), customer] : [] }));
         const { client } = renderWithProviders(<UsersPage />);
         await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(2));
         expect(screen.getByTestId("scope-caption")).toHaveTextContent("All organisations");
         expect(screen.getAllByTestId("user-row")[0]).toHaveTextContent("Own fleet");
-        const all = platform.web.calls.filter((c) => c.url.startsWith("/api/go/v1/users"));
-        expect(all.every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+        const all = platform.web.calls.filter((c) => c.url.startsWith("/api/go/v1/platform/users"));
+        expect(all.length).toBeGreaterThan(0);
+        expect(all.every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
+        expect(platform.web.calls.filter((c) => c.url.startsWith("/api/go/v1/users"))).toHaveLength(0);
+        expect(screen.getByRole("textbox", { name: "Search users..." })).toBeDisabled();
+        expect(screen.getByText("Search or sorting by masked data is unavailable. Use visible fields instead.")).toBeInTheDocument();
         // The reach is part of the key, so a tenant-reach page is never cached under the platform reach.
         const loaded = client.getQueryCache().findAll({ queryKey: ["users"] }).filter((q) => q.state.data !== undefined);
         expect(loaded.map((q) => (q.queryKey[1] as { reach: string }).reach)).toEqual(["all"]);
@@ -412,8 +438,9 @@ describe.each(["en", "th"] as const)("UI4 user scope in %s", (language) => {
             expect(caption).toHaveTextContent(language === "th" ? "บัญชีที่ไม่มีสมาชิกภาพในองค์กร" : "accounts without organisation memberships");
             expect(screen.getAllByTestId("user-row")).toHaveLength(3);
         }
-        expect(web.calls.filter((call) => call.url.startsWith("/api/go/v1/users")).every((call) =>
-            call.headers["x-act-on-tenant"] === (platform ? "*" : undefined)
-        )).toBe(true);
+        const reads = web.calls.filter((call) => call.url.startsWith(platform ? "/api/go/v1/platform/users" : "/api/go/v1/users"));
+        expect(reads.length).toBeGreaterThan(0);
+        expect(reads.every((call) => call.headers["x-act-on-tenant"] === undefined)).toBe(true);
+        if (platform) expect(web.calls.filter((call) => call.url.startsWith("/api/go/v1/users"))).toHaveLength(0);
     });
 });

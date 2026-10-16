@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/supportprojection"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
@@ -64,10 +65,13 @@ func (s *Service) Groups(o StaffOptions) []ingress.Group {
 	h := mobileHTTP{s}
 	view := authz.RequireCap(authz.SecurityViewMobileClients)
 	manage := authz.RequireCap(authz.SecurityManageMobileRel)
-	return []ingress.Group{
+	groups := []ingress.Group{
 		{Prefix: InstallationsPrefix, Mount: func(r fiber.Router) {
-			r.Get("", o.Auth, authz.RequireTenant(), view, h.installations)
-			r.Get("/stats", o.Auth, authz.RequireTenant(), view, h.stats)
+			p := supportprojection.Policy(http.MethodGet, InstallationsPrefix, "mobileapp.installation")
+			p.MetaSchemaID = "mobileapp.installation-meta"
+			p.ValidateCursor = func(s string, _ httpx.ProjectionAudience) bool { _, ok := decodeInstallCursor(s); return ok }
+			ingress.Bind(r, "", p, o.Auth, h.projection, authz.RequireTenant(), view, h.installations)
+			ingress.Bind(r, "/stats", supportprojection.Policy(http.MethodGet, InstallationsPrefix+"/stats", "mobileapp.installation-stats"), o.Auth, h.projection, authz.RequireTenant(), view, h.stats)
 		}},
 		{Prefix: ReleasesPrefix, Mount: func(r fiber.Router) {
 			r.Get("", o.Auth, authz.RequireCap(authz.SecurityManageMobileRel, authz.SecurityViewMobileClients), h.releases)
@@ -76,6 +80,14 @@ func (s *Service) Groups(o StaffOptions) []ingress.Group {
 			r.Post("", o.PublisherAuth, manage, h.publish)
 		}},
 	}
+	groups = append(groups, ingress.Group{Prefix: "/v1/platform/app-installations", Mount: func(r fiber.Router) {
+		p := supportprojection.Policy(http.MethodGet, "/v1/platform/app-installations", "mobileapp.installation")
+		p.MetaSchemaID = "mobileapp.installation-meta"
+		p.ValidateCursor = func(s string, _ httpx.ProjectionAudience) bool { _, ok := decodePlatformInstallCursor(s); return ok }
+		ingress.Bind(r, "", p, o.Auth, h.projection, platformInstallRead, h.installations)
+		ingress.Bind(r, "/stats", supportprojection.Policy(http.MethodGet, "/v1/platform/app-installations/stats", "mobileapp.installation-stats"), o.Auth, h.projection, platformInstallRead, h.stats)
+	}})
+	return groups
 }
 
 // HeartbeatSubject is the heartbeat_install rate-limit subject: the caller's driver id and the body's install id, so
@@ -96,6 +108,15 @@ func HeartbeatSubject(c fiber.Ctx) string {
 }
 
 type mobileHTTP struct{ s *Service }
+
+func (h mobileHTTP) projection(c fiber.Ctx) error { return supportprojection.Middleware(h.s.pool)(c) }
+func platformInstallRead(c fiber.Ctx) error {
+	p := authz.PrincipalFrom(c)
+	if p == nil || p.IsMachine() || !p.IsPlatform() || !authz.PlatformCaps(p).Has(authz.SecurityViewMobileClients) {
+		return authz.ErrPermissionDenied("missing platform read capability")
+	}
+	return c.Next()
+}
 
 func onlyQuery(c fiber.Ctx, allowed ...string) error {
 	for k := range c.Queries() {

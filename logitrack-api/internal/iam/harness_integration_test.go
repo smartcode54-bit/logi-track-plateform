@@ -293,12 +293,10 @@ func (w *world) fixture() {
 // --- test routes (handlers run their SQL in db.WithPrincipal) -------------------------------------------
 
 type whoami struct {
-	Caps        []string `json:"caps"`
-	Steward     bool     `json:"steward"`
-	TenantKind  string   `json:"tenantKind"`
-	Subtenants  []string `json:"subtenants"`
-	ActOnTenant string   `json:"actOnTenant"`
-	ActOnAll    bool     `json:"actOnAll"`
+	Caps       []string `json:"caps"`
+	Steward    bool     `json:"steward"`
+	TenantKind string   `json:"tenantKind"`
+	Subtenants []string `json:"subtenants"`
 }
 
 // tableCounts are SELECT count(*) of tables a test may name (no caller-supplied SQL).
@@ -314,12 +312,9 @@ func (w *world) testRoutes(requireAuth fiber.Handler) func(r fiber.Router) {
 		r.Use(requireAuth)
 		r.Get("/whoami", func(c fiber.Ctx) error {
 			p := authz.PrincipalFrom(c)
-			out := whoami{Caps: p.Caps.Strings(), Steward: p.Steward, TenantKind: p.TenantKind, ActOnAll: p.ActOnAll}
+			out := whoami{Caps: p.Caps.Strings(), Steward: p.Steward, TenantKind: p.TenantKind}
 			for _, s := range p.SubtenantIDs {
 				out.Subtenants = append(out.Subtenants, s.String())
-			}
-			if p.ActOnTenant != nil {
-				out.ActOnTenant = p.ActOnTenant.String()
 			}
 			return httpx.JSON(c, http.StatusOK, out)
 		})

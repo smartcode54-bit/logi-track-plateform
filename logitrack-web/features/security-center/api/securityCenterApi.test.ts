@@ -12,6 +12,7 @@ import { fakeWeb, json } from "@/test-utils/fakeWeb";
 import { grantableCapabilities, RELEASE_PUBLISHER_CAPABILITY, expiresAtFromInput } from "./apiKeys";
 import {
     eventActor,
+    eventTypesOf,
     eventsCsv,
     eventTarget,
     isOwnCrossTenantRead,
@@ -255,7 +256,7 @@ describe("the viewer's own cross-tenant reads", () => {
         type: "platform_cross_tenant_access",
         severity: "warning",
         summary: "platform principal used X-Act-On-Tenant",
-        details: { method: "GET", path: "/v1/security-events", act_on_tenant: "*", outcome: "accepted", ...details },
+        details: { outcome: "accepted", version: "1", ...details },
         actorUserId: "u-me",
         actorEmail: "me@platform.test",
         actorLegacyUid: null,
@@ -265,15 +266,22 @@ describe("the viewer's own cross-tenant reads", () => {
         ...over,
     });
 
-    it("matches only the viewer's own accepted GET/HEAD rows", () => {
+    it("matches the viewer's historical access type with projected or absent details", () => {
         expect(isOwnCrossTenantRead(access(), "u-me")).toBe(true);
-        expect(isOwnCrossTenantRead(access({}, { method: "HEAD" }), "u-me")).toBe(true);
-        expect(isOwnCrossTenantRead(access({ actorUserId: "u-other" }), "u-me")).toBe(false); // someone else's access
-        expect(isOwnCrossTenantRead(access({}, { outcome: "refused" }), "u-me")).toBe(false); // a refused attempt
-        expect(isOwnCrossTenantRead(access({}, { method: "POST", outcome: "refused" }), "u-me")).toBe(false);
-        expect(isOwnCrossTenantRead(access({}, { outcome: undefined }), "u-me")).toBe(false);
-        expect(isOwnCrossTenantRead(access({ type: "login_failed" }), "u-me")).toBe(false);
+        expect(isOwnCrossTenantRead(access({ details: null }), "u-me")).toBe(true);
+        expect(isOwnCrossTenantRead(access({ details: {} }), "u-me")).toBe(true);
+        expect(isOwnCrossTenantRead(access({ actorUserId: "u-other" }), "u-me")).toBe(false);
+        expect(isOwnCrossTenantRead(access({ actorUserId: null }), "u-me")).toBe(false);
+        expect(isOwnCrossTenantRead(access({ type: "platform_support_denied" }), "u-me")).toBe(false);
         expect(isOwnCrossTenantRead(access(), undefined)).toBe(false);
+    });
+
+    it("falls back to the event catalogue when platform metadata omits types", () => {
+        const types = eventTypesOf([{ data: [], meta: { redacted: [] } }]);
+        expect(types).toContain("user_created");
+        expect(types).toContain("platform_cross_tenant_access");
+        expect(types.every((type) => `securityCenter.securityEvents.types.${type}` in en)).toBe(true);
+        expect(eventTypesOf([{ data: [], meta: { types: ["legacy_type"] } }])).toEqual(["legacy_type"]);
     });
 
     it("hides them unless asked, and counts them either way", () => {

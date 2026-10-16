@@ -1,0 +1,20 @@
+PSAG1GO slice specification addendum: tenant API-key revocation
+
+Scope: shared-docs/specs/mv-go/platform-support-access.md sections 4.3 and 4.4,
+and PSAG1GO's tenant-bound API-key D2 work.
+
+The gatekeeper decision on 2026-10-16 is that a platform actor may revoke a
+tenant-owned API key with consent OFF. Revocation reduces access, so the action is
+audited as `access_reduction` and tenant admins are notified. Creating or editing a
+tenant API key remains D2-gated: platform actors need consent when the target
+tenant has an active tenant_admin. Disabled admin accounts still count.
+Repeated revocation of an already-revoked key is a no-op.
+
+Ordinary tenant members retain their existing authorized key-management behavior
+regardless of support consent; platform-owned keys retain their independent
+authorization.
+
+Regression: TestGate1TenantAPIKeysRequireConsentAndNotifyAdmins verifies refusal
+to create a tenant key with consent OFF and an existing admin, success with consent
+ON, then successful OFF revocation with an access-reduction audit and exactly one
+tenant-admin notification across an idempotent retry.

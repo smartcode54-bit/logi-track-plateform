@@ -44,6 +44,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	need := authz.RequireCap
 	return []ingress.Group{
 		{Prefix: HubsPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, h.list)
 			r.Get("/maps", requireAuth, h.maps) // before /:id, which would take "maps" for a code
 			r.Get("/:id", requireAuth, h.lookup)
@@ -52,11 +53,13 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Patch("/:id", requireAuth, need(authz.OperationsManageSources), h.patch)
 		}},
 		{Prefix: DistancesPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, h.listDistances)
 			r.Get("/meta", requireAuth, h.meta)
 			r.Get("/:originId/:destinationId", requireAuth, h.pair)
 		}},
 		{Prefix: JobPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Post("", requireAuth, need(jobs.TypeCapabilities[jobs.TypeDistancesCompute]), h.computeDistances)
 		}},
 	}

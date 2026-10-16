@@ -359,7 +359,7 @@ func TestRootMiddlewareIsPinned(t *testing.T) {
 	}
 	// request id, listener, client ip, access log, tracing, metrics, recover; public adds the
 	// X-Act-On-Tenant refusal.
-	want := map[string]int{ingress.Internal: 7, ingress.Public: 8}
+	want := map[string]int{ingress.Internal: 8, ingress.Public: 9}
 	if got := a.RootMiddleware(); !maps.Equal(got, want) {
 		t.Fatalf("listener-wide middleware per listener = %v, want %v", got, want)
 	}

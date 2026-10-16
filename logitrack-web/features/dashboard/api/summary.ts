@@ -14,9 +14,8 @@
  *   blocks of this one answer: `/app/analytics` and `/app/packages` have no page (developer-spec.md
  *   §10.5).
  *
- * The dashboard reads in the caller's own tenant context, never with `X-Act-On-Tenant`: it is the
- * operations home of the active tenant, and the cross-tenant view is the Security Center (each `*` read
- * is an audit row, §19.2 question 20).
+ * The dashboard summary describes the active tenant. Platform user counts use the explicit
+ * platform statistics endpoint through the shared users-by-role hook.
  */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
