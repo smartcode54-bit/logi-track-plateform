@@ -230,10 +230,7 @@ export const queryKeys = {
     /** `GET /v1/broadcasts` (keyset, newest first, voided ones left out; T50). */
     broadcasts: () => ["broadcasts"] as const,
 
-    /**
-     * The Security Center reads (T51 routes, T54S pages). The params hold the reach (`{reach}`: a
-     * platform principal reads with `X-Act-On-Tenant: *`), so another reach never reuses a cached body.
-     */
+    /** Security reads include the endpoint plane (`reach`) in their cache identity. */
     security: {
         all: () => ["security"] as const,
         overview: optionalParamsKey("security", "overview"),

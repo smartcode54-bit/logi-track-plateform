@@ -10,7 +10,7 @@
  *   sessions and go through `/api/auth/*`, so no token ever reaches browser JavaScript.
  *   `v1/auth/google/nonce` and `v1/auth/password/*` pass.
  * - Headers out: an allow-list (`Accept`, `Accept-Language`, `Content-Type`, `If-None-Match`,
- *   `If-Match`, `Range`, `Idempotency-Key`, `Last-Event-ID`, `User-Agent`, `X-Act-On-Tenant`); then
+ *   `If-Match`, `Range`, `Idempotency-Key`, `Last-Event-ID`, `User-Agent`), plus
  *   `Authorization: Bearer <lt_at>` (a browser `Authorization` is dropped), `X-Request-Id`,
  *   `X-Forwarded-For` (Caddy's chain) and `Accept-Encoding: identity`.
  * - Mutations need the Origin check (lib/bff/http.ts `sameOrigin`), else 403 before Go is called.
@@ -60,7 +60,6 @@ const FORWARDED_REQUEST_HEADERS = [
     "idempotency-key",
     "last-event-id",
     "user-agent",
-    "x-act-on-tenant",
 ];
 
 const DROPPED_RESPONSE_HEADERS = [

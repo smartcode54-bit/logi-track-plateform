@@ -96,22 +96,21 @@ describe("goInfiniteQueryFn", () => {
         expect(goNextPageParam(result.pages[1])).toBeUndefined();
     });
 
-    it("sends the headers derived from the key on every page (X-Act-On-Tenant of a platform read)", async () => {
+    it("selects the endpoint plane from the key on every page", async () => {
         handler = (c) =>
-            new URL(c.url, "http://web").searchParams.get("cursor") === null ? json(200, { data: [1], nextCursor: "c2" }) : json(200, { data: [2] });
+            new URL(c.url, "http://web").searchParams.get("cursor") === null ? json(200, { data: [1], meta: { redacted: [] }, nextCursor: "c2" }) : json(200, { data: [2], meta: { redacted: [] } });
         const client = newClient();
         type Key = readonly ["users", { reach: "all" | "tenant" }];
         const options = {
             queryKey: ["users", { reach: "all" }] as Key,
-            queryFn: goInfiniteQueryFn<number, Key>("/v1/users", {
-                headers: ([, p]) => (p.reach === "all" ? { "X-Act-On-Tenant": "*" } : undefined),
-            }),
+            queryFn: goInfiniteQueryFn<number, Key>(([, p]) => p.reach === "all" ? "/v1/platform/users" : "/v1/users"),
             initialPageParam: undefined as string | undefined,
             getNextPageParam: goNextPageParam,
         };
         await client.fetchInfiniteQuery({ ...options, pages: 2 });
         expect(calls).toHaveLength(2);
-        expect(calls.map((c) => c.headers.get("X-Act-On-Tenant"))).toEqual(["*", "*"]);
+        expect(calls.every((c) => c.url.startsWith("/api/go/v1/platform/users"))).toBe(true);
+        expect(calls.every((c) => !c.headers.has("X-Act-On-Tenant"))).toBe(true);
 
         calls.length = 0;
         await client.fetchInfiniteQuery({ ...options, queryKey: ["users", { reach: "tenant" }] as Key });

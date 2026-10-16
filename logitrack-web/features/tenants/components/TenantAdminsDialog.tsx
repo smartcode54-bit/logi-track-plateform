@@ -3,12 +3,12 @@
 /**
  * The `tenant_admin`s of one tenant (T18 owner addition; Appendix B §B.2.4): listed with
  * `GET /v1/tenants/{id}/members?role=tenant_admin`, removed with `DELETE /v1/tenants/{id}/members/{userId}`,
- * assigned from an existing user (`GET /v1/users?q=` then `PUT /v1/tenants/{id}/members/{userId}
+ * assigned from an existing user (projected platform browsing or member `GET /v1/users?q=` then `PUT /v1/tenants/{id}/members/{userId}
  * {role: "tenant_admin"}`) or created (`POST /v1/users {role: "tenant_admin", tenantId}`, temporary
  * password shown once). The new admin signs in and sees only that tenant (RLS; its only membership).
- * The two reads cross tenants, so a platform principal sends `X-Act-On-Tenant` (`<id>` for the
- * members, `*` for the user search; Appendix C §C.3.9); the writes need no header.
+ * Platform reads use projected members and users; writes keep their dedicated endpoints.
  */
+import { MaskedValue } from "@/components/masked-value";
 import { useEffect, useState } from "react";
 import { Loader2, Plus, Search, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -33,6 +33,7 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
     const { t, language } = useLanguage();
     const auth = useAuth();
     const me = auth?.me ?? null;
+    const reach = usersReach(me);
     const invalidateTenants = useInvalidateTenants();
     const invalidateUsers = useInvalidateUsers();
     const admins = useTenantMembers(tenant?.id ?? null, ADMIN_ROLE, isPlatformPrincipal(me));
@@ -46,11 +47,11 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
         const id = setTimeout(() => setQ(search.trim()), 300);
         return () => clearTimeout(id);
     }, [search]);
-    const candidates = useUsers({ q, role: "", status: "active" }, Boolean(tenant) && q.length >= 2, usersReach(me));
+    const candidates = useUsers({ q, role: "", status: "active" }, Boolean(tenant) && (reach === "all" || q.length >= 2), reach);
 
     if (!tenant) return null;
     const adminIds = new Set((admins.data ?? []).map((m) => m.user.id));
-    const found = (candidates.data?.pages.flatMap((p) => p.data ?? []) ?? []).filter((u) => !adminIds.has(u.id)).slice(0, 10);
+    const found = (candidates.data?.pages.flatMap((p) => p.data ?? []) ?? []).filter((u) => !adminIds.has(u.id)).slice(0, reach === "all" ? undefined : 10);
 
     const changed = () => {
         void invalidateTenants();
@@ -95,7 +96,7 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
                 <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>{t("tenants.admins.title")}</DialogTitle>
-                        <DialogDescription>{tenantName(tenant, language)}</DialogDescription>
+                        <DialogDescription><MaskedValue value={tenantName(tenant, language)} /></DialogDescription>
                     </DialogHeader>
 
                     <section className="space-y-2">
@@ -111,8 +112,8 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
                             (admins.data ?? []).map((m) => (
                                 <div key={m.user.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2" data-testid="tenant-admin">
                                     <div className="flex flex-col">
-                                        <span className="text-sm font-medium">{m.user.displayName || m.user.email}</span>
-                                        <span className="text-xs text-muted-foreground">{m.user.email}</span>
+                                        <span className="text-sm font-medium"><MaskedValue value={m.user.displayName || m.user.email} source={m.user} path="displayName" /></span>
+                                        <span className="text-xs text-muted-foreground"><MaskedValue value={m.user.email} source={m.user} path="email" /></span>
                                     </div>
                                     <Button
                                         type="button"
@@ -133,11 +134,11 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
 
                     <section className="space-y-2">
                         <h3 className="text-sm font-semibold">{t("tenants.admins.assignExisting")}</h3>
-                        <div className="relative">
+                        {reach === "all" ? <p className="text-xs text-muted-foreground">{t("apiError.support_access_masked")}</p> : <div className="relative">
                             <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("tenants.admins.searchUsers")} className="h-9 pl-7" />
-                        </div>
-                        {q.length >= 2 ? (
+                        </div>}
+                        {reach === "all" || q.length >= 2 ? (
                             candidates.isFetching && found.length === 0 ? (
                                 <Loader2 className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
                             ) : candidates.isError ? (
@@ -148,10 +149,11 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
                                 found.map((u) => (
                                     <div key={u.id} className="flex items-center justify-between gap-2 px-1">
                                         <span className="text-sm">
-                                            {u.displayName || u.email}
-                                            <span className="ml-1 text-xs text-muted-foreground">{u.email}</span>
+                                            <MaskedValue value={u.displayName || u.email} source={u} path="displayName" />
+                                            <span className="ml-1 text-xs text-muted-foreground"><MaskedValue value={u.email} source={u} path="email" /></span>
+                                            {reach === "all" ? <span className="block font-mono text-xs text-muted-foreground">{u.id}</span> : null}
                                         </span>
-                                        <Button type="button" size="sm" variant="outline" disabled={busy !== null} onClick={() => void assign(u.id)}>
+                                        <Button type="button" size="sm" variant="outline" aria-label={reach === "all" ? t("tenants.admins.assignUser", { id: u.id }) : undefined} disabled={busy !== null} onClick={() => void assign(u.id)}>
                                             {busy === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
                                             {t("tenants.admins.assign")}
                                         </Button>
@@ -159,6 +161,7 @@ export function TenantAdminsDialog({ tenant, onOpenChange }: { tenant: TenantDTO
                                 ))
                             )
                         ) : null}
+                        {reach === "all" && candidates.hasNextPage ? <Button type="button" variant="outline" size="sm" disabled={candidates.isFetchingNextPage} onClick={() => void candidates.fetchNextPage()}>{t("users.loadMore")}</Button> : null}
                     </section>
 
                     <Separator />

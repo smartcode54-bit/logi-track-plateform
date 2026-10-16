@@ -10,6 +10,8 @@
  * cross-tenant reads (`isOwnCrossTenantRead`, one audit row per request of a platform principal) are
  * hidden from the list, the KPIs and the export by default, behind a toggle with their count.
  */
+import { maskedJsonText } from "@/lib/maskedValue";
+import { MaskedValue } from "@/components/masked-value";
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ChevronDown, FileDown, Loader2, RefreshCw, Search, Shield, TrendingUp, Users } from "lucide-react";
@@ -250,17 +252,17 @@ export function SecurityAuditPage() {
                                             <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                                                 {formatDateTime(r.createdAt, language)}
                                             </TableCell>
-                                            <TableCell className="font-medium" title={r.actorUserId || r.actorLegacyUid || undefined}>{eventActorLabel(r, t)}</TableCell>
+                                            <TableCell className="font-medium" title={r.actorUserId || r.actorLegacyUid || undefined}><MaskedValue value={eventActorLabel(r, t)} source={r} path="actorEmail" /></TableCell>
                                             <TableCell>{eventTypeLabel(r.type, t)}</TableCell>
                                             <TableCell>
                                                 <SeverityBadge severity={r.severity} t={t} />
                                             </TableCell>
-                                            <TableCell className="text-sm" title={r.targetUserId || String(r.details?.targetUid ?? "")}>{eventTargetLabel(r, t)}</TableCell>
+                                            <TableCell className="text-sm" title={r.targetUserId || String(r.details?.targetUid ?? "")}><MaskedValue value={eventTargetLabel(r, t)} source={r} path="targetUserId" /></TableCell>
                                             <TableCell className="max-w-md text-sm">
                                                 <details>
                                                     <DisclosureSummary>{t("securityCenter.ui4.technicalDetails")}</DisclosureSummary>
-                                                    <p className="mt-2 break-words">{r.summary}</p>
-                                                    <pre className="mt-2 whitespace-pre-wrap break-all text-xs">{JSON.stringify({ type: r.type, details: r.details, actorUserId: r.actorUserId, targetUserId: r.targetUserId, tenantId: r.tenantId, requestId: r.requestId }, null, 2)}</pre>
+                                                    <p className="mt-2 break-words"><MaskedValue value={r.summary} source={r} path="summary" /></p>
+                                                    <pre className="mt-2 whitespace-pre-wrap break-all text-xs">{maskedJsonText({ type: r.type, details: r.details, actorUserId: r.actorUserId, targetUserId: r.targetUserId, tenantId: r.tenantId, requestId: r.requestId }, { source: r }, 2)}</pre>
                                                 </details>
                                             </TableCell>
                                         </TableRow>

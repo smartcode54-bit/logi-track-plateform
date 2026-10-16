@@ -25,6 +25,7 @@
 import { ApiError, apiErrorFromResponse, networkError } from "./apiError";
 import { endSession, onProtectedPage } from "./sessionEnd";
 import { sharedRefresh } from "./sharedRefresh";
+import { adaptProjection } from "./projectionMeta";
 
 export { ApiError, isApiError } from "./apiError";
 
@@ -45,13 +46,15 @@ export interface GoFetchOptions {
     signal?: AbortSignal;
     /** `true` sends a fresh uuid; a string must already be a uuid (Go refuses anything else, 400). */
     idempotencyKey?: string | true;
-    /** Extra request headers (`If-None-Match`, `If-Match`, `X-Act-On-Tenant`, ...). */
+    /** Conditional request headers and other approved transport headers. */
     headers?: Record<string, string>;
     /**
      * The call needs no session (the password forgot / reset / change forms, R79): a 401 is returned
      * as an ApiError like any other error, with no refresh and no sign-out.
      */
     anonymous?: boolean;
+    /** Require projection metadata for an admitted support response. Platform GETs require it automatically. */
+    requireProjection?: boolean;
 }
 
 export interface GoEnvelope<T> {
@@ -180,15 +183,19 @@ async function send(url: string, init: RequestInit, signal?: AbortSignal): Promi
     }
 }
 
-async function readEnvelope<T>(res: Response, method: string): Promise<GoEnvelope<T>> {
+async function readEnvelope<T>(res: Response, method: string, requireProjection = false): Promise<GoEnvelope<T>> {
     // 304 answers a caller's own If-None-Match: no body, the caller keeps its copy.
-    if (res.status === 304) return { data: undefined as T };
+    if (res.status === 304 && !requireProjection) return { data: undefined as T };
+    if (res.status === 304 && requireProjection) return adaptProjection({ data: undefined as T }, true, res.headers.get("X-Request-Id") ?? "");
     if (!res.ok) throw await apiErrorFromResponse(res);
-    if (method === "HEAD" || res.status === 204 || res.status === 205) {
+    if (method === "HEAD" || (!requireProjection && (res.status === 204 || res.status === 205))) {
         return { data: undefined as T };
     }
     const text = await res.text();
-    if (text === "") return { data: undefined as T };
+    if (text === "" && !requireProjection) return { data: undefined as T };
+    if (requireProjection && text === "") {
+        return adaptProjection({ data: undefined as T }, true, res.headers.get("X-Request-Id") ?? "");
+    }
     let body: unknown;
     try {
         body = JSON.parse(text);
@@ -204,11 +211,11 @@ async function readEnvelope<T>(res: Response, method: string): Promise<GoEnvelop
         });
     }
     const env = body as { data: T; nextCursor?: unknown; meta?: unknown };
-    return {
+    return adaptProjection({
         data: env.data,
         ...(typeof env.nextCursor === "string" && env.nextCursor !== "" ? { nextCursor: env.nextCursor } : {}),
         ...(typeof env.meta === "object" && env.meta !== null ? { meta: env.meta as Record<string, unknown> } : {}),
-    };
+    }, requireProjection, res.headers.get("X-Request-Id") ?? "");
 }
 
 /** Calls Go through the BFF and returns the whole success envelope (`data`, `nextCursor`, `meta`). */
@@ -217,9 +224,10 @@ export async function goFetchEnvelope<T>(path: string, options: GoFetchOptions =
     const init = buildInit(options);
     const method = init.method as string;
     const startedAt = Date.now();
+    const requireProjection = options.requireProjection === true || (method === "GET" && path.startsWith("/v1/platform/"));
 
     let res = await send(url, init, options.signal);
-    if (res.status !== 401 || options.anonymous) return readEnvelope<T>(res, method);
+    if (res.status !== 401 || options.anonymous) return readEnvelope<T>(res, method, requireProjection);
 
     const first = await apiErrorFromResponse(res);
     if (!REFRESHABLE.has(first.code)) {
@@ -243,7 +251,7 @@ export async function goFetchEnvelope<T>(path: string, options: GoFetchOptions =
         endSession(second);
         throw second;
     }
-    return readEnvelope<T>(res, method);
+    return readEnvelope<T>(res, method, requireProjection);
 }
 
 /** Calls Go through the BFF and returns `data` (`undefined` for 204). */

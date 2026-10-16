@@ -11,6 +11,7 @@
  * - driver link: `PUT|DELETE /v1/users/{id}/driver-link {driverId}` (`drivers:edit` + `users:manage`);
  * - platform roles: `POST /v1/users/{id}/platform-roles`, `DELETE .../{role}` (`platform:manage_platform_roles`, not self).
  */
+import { MaskedValue } from "@/components/masked-value";
 import { useEffect, useMemo, useState } from "react";
 import { Link2, Loader2, PauseCircle, PlayCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -117,8 +118,8 @@ export function EditUserDialog({
                 <DialogHeader>
                     <DialogTitle>{t("users.editRole")}</DialogTitle>
                     <DialogDescription>
-                        <span className="font-medium text-foreground">{user.displayName || user.email}</span>
-                        {user.displayName && user.email ? <span className="block">{user.email}</span> : null}
+                        <span className="font-medium text-foreground"><MaskedValue value={user.displayName || user.email} source={user} path="displayName" /></span>
+                        {user.displayName && user.email ? <span className="block"><MaskedValue value={user.email} source={user} path="email" /></span> : null}
                     </DialogDescription>
                 </DialogHeader>
 

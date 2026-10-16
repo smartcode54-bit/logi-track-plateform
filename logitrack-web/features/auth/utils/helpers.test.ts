@@ -176,10 +176,10 @@ describe("findUserForLegacyAccount", () => {
         expect(await findUserForLegacyAccount({ uid: "fb-c", email: "c@y.test" })).toBeNull();
     });
 
-    it("a platform principal searches every tenant with X-Act-On-Tenant: *", async () => {
+    it("does not search masked legacy identities using platform authority", async () => {
         const requests = stub([{ id: "b", email: "x@y.test", legacyAuthUid: "fb-b" }]);
-        expect((await findUserForLegacyAccount({ uid: "fb-b", email: "x@y.test" }, usersReach(makeMe({ platformRoles: ["platform_admin"] }))))?.id).toBe("b");
-        expect(requests[0].headers.get("X-Act-On-Tenant")).toBe("*");
+        expect(await findUserForLegacyAccount({ uid: "fb-b", email: "x@y.test" }, usersReach(makeMe({ platformRoles: ["platform_admin"] })))).toBeNull();
+        expect(requests).toHaveLength(0);
         expect(usersReach(makeMe({ platformRoles: ["support"] }))).toBe("all");
         expect(usersReach(makeMe())).toBe("tenant");
     });

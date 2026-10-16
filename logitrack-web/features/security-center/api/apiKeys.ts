@@ -1,12 +1,6 @@
 /**
- * API keys over Go (T54S; routes of T32K, Appendix B §B.2.6, Appendix C §C.4.11, §C.8, R2, R49, R82):
- * `GET /v1/api-keys` (keyset, newest first), `POST /v1/api-keys` (the secret is in this response only,
- * never stored, never cached) and `DELETE /v1/api-keys/{id}` (revoke; effective on the key's next
- * request). Every route needs `security:manage_api_keys`; keys are managed by people only.
- *
- * Reach: a tenant caller manages its tenant's keys; a platform_admin lists every key through
- * `X-Act-On-Tenant: *` and creates platform keys (`tenantId` null: the only form of the `cf_shim` and
- * `release_publisher` scopes, and the only keys that may hold global and `mobile:*` capabilities).
+ * API key metadata over Go. Platform lists use projected DTOs; creation and revocation keep their
+ * dedicated controls. Secrets are returned once on creation and never cached in a list.
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
 
@@ -14,7 +8,7 @@ import { CAPABILITY_CATALOG, type CapabilityClass, type CapabilityInfo } from "s
 import { goFetch, goPath } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
-import { reachHeaders, reachPollMs, type SecurityReach } from "./reach";
+import { readEndpoint, reachPollMs, type SecurityReach } from "./reach";
 
 export const API_KEYS_PATH = "/v1/api-keys";
 export const API_KEYS_PAGE_SIZE = 50;
@@ -78,9 +72,8 @@ type ApiKeysKey = ReturnType<typeof apiKeysKey>;
 export function useApiKeys(reach: SecurityReach | undefined, enabled = true) {
     return useInfiniteQuery({
         queryKey: apiKeysKey(reach ?? "tenant"),
-        queryFn: goInfiniteQueryFn<ApiKeyDTO, ApiKeysKey>(API_KEYS_PATH, {
+        queryFn: goInfiniteQueryFn<ApiKeyDTO, ApiKeysKey>(([, p]) => readEndpoint(API_KEYS_PATH, p.reach), {
             query: { limit: API_KEYS_PAGE_SIZE },
-            headers: ([, p]) => reachHeaders(p.reach),
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,

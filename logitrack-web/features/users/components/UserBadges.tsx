@@ -1,5 +1,6 @@
 "use client";
 
+import { MaskedValue } from "@/components/masked-value";
 import { Link2, Shield, Truck, User, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,7 @@ export function UserRoleBadges({ user, activeTenantId, showOrganisation = false 
                     <Badge key={m.tenantId} variant="outline">
                         <Icon className="mr-1 h-3 w-3 text-muted-foreground" />
                         {organisationRoleLabel(m.role, t)}
-                        {showOrganisation || m.tenantId !== activeTenantId ? <span className="ml-1 opacity-80">· {membershipName(m, language)}</span> : null}
+                        {showOrganisation || m.tenantId !== activeTenantId ? <span className="ml-1 opacity-80">· <MaskedValue value={membershipName(m, language)} /></span> : null}
                     </Badge>
                 );
             })}
@@ -56,7 +57,7 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
         parts.push(
             <span key="customer" className="flex items-center gap-1 text-xs">
                 <Users className="h-3 w-3 text-muted-foreground" />
-                {t("users.scopeKind.customer")}: {customers.map((s) => s.name).join(", ")}
+                {t("users.scopeKind.customer")}: {customers.map((s, i) => <span key={s.billingPartyId}>{i > 0 ? ", " : ""}<MaskedValue value={s.name} source={s} path="name" /></span>)}
             </span>
         );
     }
@@ -64,7 +65,7 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
         parts.push(
             <span key="dispatcher" className="flex items-center gap-1 text-xs">
                 <Users className="h-3 w-3 text-muted-foreground" />
-                {t("users.scopeKind.dispatcher")}: {dispatcher.map((s) => s.name).join(", ")}
+                {t("users.scopeKind.dispatcher")}: {dispatcher.map((s, i) => <span key={s.billingPartyId}>{i > 0 ? ", " : ""}<MaskedValue value={s.name} source={s} path="name" /></span>)}
             </span>
         );
     }
@@ -72,7 +73,7 @@ export function UserScopeCell({ user }: { user: UserDTO }) {
         parts.push(
             <span key="driver" className="flex items-center gap-1 text-xs">
                 <Link2 className="h-3 w-3 text-muted-foreground" />
-                {user.driver.displayName || user.driver.id}
+                <MaskedValue value={user.driver.displayName || user.driver.id} source={user.driver} path="displayName" />
             </span>
         );
     } else if (driverRole) {

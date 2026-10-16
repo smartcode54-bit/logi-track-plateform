@@ -117,6 +117,17 @@ const queryOf = (call: FakeCall) => Object.fromEntries(new URL(call.url, "http:/
 const callsTo = (web: ReturnType<typeof fakeWeb>, path: string) => web.calls.filter((c) => c.url.split("?")[0] === `/api/go${path}`);
 
 describe("the dashboard over Go", () => {
+    it("counts platform users via the projected role-stats endpoint", async () => {
+        const { web } = setup(["security:view_overview"], { tenant: null, tenants: [], platformRoles: ["platform_admin"] });
+        web.on("GET", "/api/go/v1/platform/stats/users-by-role", () => json(200, { data: { ...BY_ROLE, total: 42 }, meta: { redacted: [] } }));
+        renderWithProviders(<DashboardPage />);
+        await waitFor(() => expect(screen.getByTestId("stat-users")).toHaveTextContent("30"));
+        const counts = callsTo(web, "/v1/platform/stats/users-by-role");
+        expect(counts).toHaveLength(1);
+        expect(counts[0].headers["x-act-on-tenant"]).toBeUndefined();
+        expect(callsTo(web, "/v1/stats/users-by-role")).toHaveLength(0);
+    });
+
     it.each([
         [{ engineOn: true }, "Engine ON"],
         [{ engineOn: false }, "Engine OFF"],

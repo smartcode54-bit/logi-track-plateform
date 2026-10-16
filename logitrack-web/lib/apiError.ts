@@ -63,6 +63,11 @@ export const API_ERROR_CODES = [
     // 403
     "permission_denied",
     "tenant_required",
+    "support_read_only",
+    "support_view_unavailable",
+    "support_access_required",
+    "support_access_masked",
+    "masked_query_not_allowed",
     "not_task_owner",
     "truck_not_in_tenant",
     "no_account",
@@ -102,6 +107,7 @@ export const API_ERROR_CODES = [
     "version_blocked",
     "resource_exhausted",
     // 500, 503
+    "support_projection_unavailable",
     "internal",
     "unavailable",
     "bridge_unavailable",

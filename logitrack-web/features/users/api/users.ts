@@ -1,22 +1,6 @@
 /**
- * Users administration over Go (T18 web side; developer-spec.md §4 "PostgreSQL is the users writer
- * from P0", R49, R81; Appendix B §B.2.4, §B.2.5; Appendix C §C.8). Every read and write of the Security
- * Center users page goes through the BFF (`/api/go/v1/users*`, `/api/go/v1/tenants/{id}/members/*`):
- * none of `getUsers`, `createUser`, `updateUserRole`, `setUserDisabled`, `revokeUserRefreshTokens`,
- * `linkDriverToUser` or `syncExistingUsers` is called any more, and the list pages by keyset cursor
- * (no 50-row cap, no `listUsers(1000)`).
- *
- * Go authorises every call (`users:view|manage|assign_role|revoke_sessions`, `drivers:edit`,
- * `platform:manage_platform_roles`), refuses actions on the caller itself, bumps `auth_version` on
- * role, scope, driver-link and platform-role changes (the user's tabs refresh and stay signed in, R50)
- * and ends the sessions on disable and temporary password. The UI hides what `['me']` does not allow.
- *
- * Reach (Appendix C §C.3.9, §C.8): a tenant principal reads the users of its tenant reach. A platform
- * principal (`platform_admin`, `support`) reads every tenant's users only through `X-Act-On-Tenant: *`
- * (read-only bypass, one `platform_cross_tenant_access` audit row per request), so the users reads of
- * such a principal (`GET /v1/users`, the admin search of the tenants page, the legacy-account lookup)
- * carry it. Writes never do: `PUT/DELETE /v1/tenants/{id}/members/{userId}` and
- * `POST /v1/users {tenantId}` are authorised for platform admins without it.
+ * Users administration over Go. Member reads retain their tenant contract; platform reads use
+ * projected list/detail DTOs. Writes retain their dedicated routes and server authorization.
  */
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -107,34 +91,28 @@ export const USERS_PAGE_SIZE = 50;
 /** The list is polled every 60 s while the tab is visible (Appendix E §E.5 row 14). */
 export const USERS_POLL_MS = POLL_INTERVAL_MS;
 
-/** The cross-tenant header of a platform principal (Appendix C §C.3.9; the BFF forwards it). */
-export const ACT_ON_TENANT_HEADER = "X-Act-On-Tenant";
-/** Its read-only "every tenant" form (`GET`/`HEAD` only). */
-export const ACT_ON_ALL_TENANTS = "*";
-
-/** Whose users a read covers: `all` (a platform principal, with `X-Act-On-Tenant: *`) or the caller's tenant reach. */
+/** The endpoint plane is part of every users query identity. */
 export type UsersReach = "all" | "tenant";
 
 export function usersReach(me: Pick<MeDTO, "platformRoles"> | null | undefined): UsersReach {
     return isPlatformPrincipal(me) ? "all" : "tenant";
 }
 
-/** The request headers of a users read with this reach. */
-export function usersReachHeaders(reach: UsersReach): Record<string, string> | undefined {
-    return reach === "all" ? { [ACT_ON_TENANT_HEADER]: ACT_ON_ALL_TENANTS } : undefined;
+export function usersReadPath(reach: UsersReach): string {
+    return reach === "all" ? "/v1/platform/users" : USERS_PATH;
 }
 
 /** `['users', {q, role, status, reach}]`: the reach is in the key, so a changed reach never shows another's rows. */
 export function usersQueryKey(filter: UsersFilter, reach: UsersReach = "tenant") {
-    return queryKeys.users.list({ q: filter.q, role: filter.role, status: filter.status, reach });
+    return queryKeys.users.list({ q: reach === "all" ? "" : filter.q, role: filter.role, status: filter.status, reach });
 }
 
 type UsersKey = ReturnType<typeof usersQueryKey>;
 
 /** The query of `GET /v1/users` for a filter (only the documented parameters are sent). */
-export function usersQuery(filter: Pick<UsersFilter, "q" | "role" | "status">) {
+export function usersQuery(filter: Pick<UsersFilter, "q" | "role" | "status">, reach: UsersReach = "tenant") {
     return {
-        q: filter.q.trim() || undefined,
+        q: reach === "all" ? undefined : filter.q.trim() || undefined,
         role: filter.role || undefined,
         status: filter.status || undefined,
         sort: "last_login_at",
@@ -143,18 +121,13 @@ export function usersQuery(filter: Pick<UsersFilter, "q" | "role" | "status">) {
 }
 
 /**
- * `['users', filter]`: the keyset list, newest sign-in first, 50 per page, polled while visible. A
- * platform principal passes `reach: "all"` (`usersReach(me)`): every poll then writes one
- * `platform_cross_tenant_access` audit row in Go (Appendix B §B.2.5 web contract). `pollMs` (also the
- * stale time) lets a caller poll less often, e.g. the Security Center's active-users panel for a
- * platform principal (T54S).
+ * The keyset list, newest sign-in first, polled while visible. Platform reads use their own DTO.
  */
 export function useUsers(filter: UsersFilter, enabled = true, reach: UsersReach = "tenant", pollMs: number = USERS_POLL_MS) {
     return useInfiniteQuery({
         queryKey: usersQueryKey(filter, reach),
-        queryFn: goInfiniteQueryFn<UserDTO, UsersKey>(USERS_PATH, {
-            query: ([, f]) => usersQuery(f),
-            headers: ([, f]) => usersReachHeaders(f.reach),
+        queryFn: goInfiniteQueryFn<UserDTO, UsersKey>(([, f]) => usersReadPath(f.reach), {
+            query: ([, f]) => usersQuery(f, f.reach),
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
@@ -277,10 +250,9 @@ export function setPlatformRole(userId: string, role: PlatformRole, granted: boo
  */
 export async function findUserForLegacyAccount(legacy: { uid: string; email: string }, reach: UsersReach = "tenant"): Promise<UserDTO | null> {
     const email = legacy.email.trim();
-    if (!email || !legacy.uid) return null;
+    if (!email || !legacy.uid || reach === "all") return null;
     const page = await goFetchEnvelope<UserDTO[]>(USERS_PATH, {
         query: { q: email, limit: USERS_PAGE_SIZE },
-        headers: usersReachHeaders(reach),
     });
     return (page.data ?? []).find((u) => u.legacyAuthUid === legacy.uid) ?? null;
 }

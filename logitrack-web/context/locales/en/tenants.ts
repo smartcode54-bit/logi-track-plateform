@@ -42,6 +42,7 @@ const tenants: Record<string, string> = {
     "tenants.admins.none": "This organisation has no administrator yet.",
     "tenants.admins.remove": "Remove administrator",
     "tenants.admins.removed": "Administrator removed.",
+    "tenants.admins.assignUser": "Make user {id} admin",
     "tenants.admins.assignExisting": "Make an existing user an administrator",
     "tenants.admins.searchUsers": "Search users by name or email",
     "tenants.admins.noUsers": "No matching users.",

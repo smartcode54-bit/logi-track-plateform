@@ -20,7 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { goQueryFn } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { POLL_INTERVAL_MS, pollWhileVisible } from "@/lib/realtime/polling";
-import { reachHeaders, reachPollMs, type SecurityReach } from "./reach";
+import { readEndpoint, reachPollMs, type SecurityReach } from "./reach";
 
 export const SECURITY_OVERVIEW_PATH = "/v1/security/overview";
 export const USERS_BY_ROLE_PATH = "/v1/stats/users-by-role";
@@ -28,7 +28,7 @@ export const SECURITY_STATUS_PATH = "/v1/security/status";
 /** The status page's poll while the tab is visible (Appendix E §E.6). */
 export const SECURITY_STATUS_POLL_MS = POLL_INTERVAL_MS;
 
-/** What the counters cover: every tenant (`X-Act-On-Tenant: *`) or one tenant's reach. */
+
 export interface OverviewScopeDTO {
     all: boolean;
     tenantId: string | null;
@@ -74,7 +74,7 @@ export interface SecurityOverviewDTO {
         minAllowedVersion: string | null;
         latestVersion: string | null;
     } | null;
-    /** Null outside `X-Act-On-Tenant: *` (`platform:cross_tenant_read`). */
+    /** Platform quarantine counts, absent when the caller cannot inspect them. */
     quarantine: { rows: number; byTable: Record<string, number> } | null;
     /** Null without `security:view_status`. */
     system: SystemStatusDTO | null;
@@ -107,7 +107,7 @@ type UsersByRoleKey = ReturnType<typeof usersByRoleKey>;
 export function useSecurityOverview(reach: SecurityReach | undefined, enabled = true) {
     return useQuery({
         queryKey: securityOverviewKey(reach ?? "tenant"),
-        queryFn: goQueryFn<SecurityOverviewDTO, OverviewKey>(SECURITY_OVERVIEW_PATH, { headers: ([, , p]) => reachHeaders(p.reach) }),
+        queryFn: goQueryFn<SecurityOverviewDTO, OverviewKey>(([, , p]) => readEndpoint(SECURITY_OVERVIEW_PATH, p.reach)),
         gcTime: QUERY_POLICY.list.gcTime,
         staleTime: reachPollMs(reach, QUERY_POLICY.list.staleTime),
         refetchOnWindowFocus: true,
@@ -119,7 +119,7 @@ export function useSecurityOverview(reach: SecurityReach | undefined, enabled = 
 export function useUsersByRole(reach: SecurityReach | undefined, enabled = true) {
     return useQuery({
         queryKey: usersByRoleKey(reach ?? "tenant"),
-        queryFn: goQueryFn<UsersByRoleDTO, UsersByRoleKey>(USERS_BY_ROLE_PATH, { headers: ([, , p]) => reachHeaders(p.reach) }),
+        queryFn: goQueryFn<UsersByRoleDTO, UsersByRoleKey>(([, , p]) => readEndpoint(USERS_BY_ROLE_PATH, p.reach)),
         gcTime: QUERY_POLICY.list.gcTime,
         staleTime: reachPollMs(reach, QUERY_POLICY.list.staleTime),
         refetchOnWindowFocus: true,

@@ -1,3 +1,4 @@
+import { fakeD1Web as fakeWeb } from "@/features/security-center/test-utils/platformWeb";
 // T54S (issue #74, security-center slice): mobile-clients and mobile-release over Go (T52S routes). The web
 // has no Firebase SDK since TW7 (features/security-center/firebaseImports.test.ts walks the graph). The ADR 0007 guards are kept (no floor without a download link, none
 // above the latest release, a typed confirmation with the impact before a floor that blocks more drivers).
@@ -6,7 +7,7 @@ import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { fakeWeb, json, makeMe } from "@/test-utils/fakeWeb";
+import { json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
 import { renderInLanguage } from "@/features/security-center/test-utils/renderInLanguage";
@@ -207,9 +208,12 @@ describe("Mobile clients (Go)", () => {
         expect(within(rows[1]).getByText("Test build")).toHaveClass("bg-destructive");
         expect(await screen.findByTestId("mobile-summary")).toHaveTextContent("30 devices · 2 blocked · 6 outdated · 20 on the latest build");
         expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
-        const list = web.calls.find((c) => c.url.startsWith("/api/go/v1/app-installations?"));
-        expect(list?.url).toBe("/api/go/v1/app-installations?limit=100");
-        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/app-installations")).every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+        const list = web.calls.find((c) => c.url.startsWith("/api/go/v1/platform/app-installations?"));
+        expect(list?.url).toBe("/api/go/v1/platform/app-installations?limit=100");
+        const projected = web.calls.filter((c) => c.url.startsWith("/api/go/v1/platform/app-installations"));
+        expect(projected).toHaveLength(2);
+        expect(projected.every((c) => c.headers["x-act-on-tenant"] === undefined)).toBe(true);
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/app-installations"))).toHaveLength(0);
     });
 });
 

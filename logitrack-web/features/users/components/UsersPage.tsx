@@ -13,6 +13,7 @@
  * disable, sign out everywhere) are greyed out on a user Go marks `manageAccount: false` (a membership outside the
  * caller's reach); the user's role here stays editable.
  */
+import { MaskedValue } from "@/components/masked-value";
 import { useEffect, useMemo, useState } from "react";
 import { Edit, KeyRound, Loader2, LogOut, Mail, MoreHorizontal, Plus, RefreshCw, Search, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
 import { TENANT_ROLES } from "@/features/auth/api/me";
+import { isMaskedValue } from "@/lib/maskedValue";
 import { apiErrorText } from "@/lib/apiError";
 import {
     inviteUser,
@@ -59,6 +61,7 @@ type Pending =
     | null;
 
 function initials(user: UserDTO): string {
+    if (isMaskedValue(user.displayName, { source: user, path: "displayName" }) || isMaskedValue(user.email, { source: user, path: "email" })) return "****";
     const base = user.displayName?.trim() || user.email || "?";
     return base.substring(0, 2).toUpperCase();
 }
@@ -67,6 +70,7 @@ export function UsersPage() {
     const { t, language } = useLanguage();
     const auth = useAuth();
     const me = auth?.me ?? null;
+    const reach = usersReach(me);
     const actions = useMemo(() => userActions(me), [me]);
     const invalidate = useInvalidateUsers();
 
@@ -79,8 +83,7 @@ export function UsersPage() {
         return () => clearTimeout(id);
     }, [search]);
 
-    // A platform principal lists every tenant's users (`X-Act-On-Tenant: *`), a tenant principal its reach.
-    const users = useUsers({ q, role, status }, Boolean(me), usersReach(me));
+    const users = useUsers({ q, role, status }, Boolean(me), reach);
     const rows = useMemo(() => users.data?.pages.flatMap((p) => p.data ?? []) ?? [], [users.data]);
 
     const [createOpen, setCreateOpen] = useState(false);
@@ -206,9 +209,11 @@ export function UsersPage() {
                 </Select>
                 <div className="relative flex-1 min-w-[200px] max-w-[320px]">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder={t("users.searchPlaceholder")} aria-label={t("users.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
+                    <Input placeholder={t("users.searchPlaceholder")} aria-label={t("users.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} disabled={reach === "all"} aria-describedby={reach === "all" ? "users-search-hint" : undefined} className="pl-9 h-9" />
                 </div>
             </div>
+
+            {reach === "all" ? <p id="users-search-hint" className="text-sm text-muted-foreground">{t("apiError.support_access_masked")}</p> : null}
 
             <Card className="bg-card border-border shadow-sm">
                 <div className="rounded-md overflow-x-auto">
@@ -255,12 +260,12 @@ export function UsersPage() {
                                             <TableCell className="pl-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <Avatar className="h-9 w-9 border border-border shadow-sm">
-                                                        <AvatarImage src={user.photoUrl ?? undefined} alt={user.displayName ?? ""} />
-                                                        <AvatarFallback className="text-xs font-medium bg-muted">{initials(user)}</AvatarFallback>
+                                                        {!isMaskedValue(user.photoUrl, { source: user, path: "photoUrl" }) ? <AvatarImage src={user.photoUrl ?? undefined} alt="" /> : null}
+                                                        <AvatarFallback className="text-xs font-medium bg-muted"><MaskedValue value={initials(user)} /></AvatarFallback>
                                                     </Avatar>
                                                     <div className="flex flex-col">
-                                                        <span className="font-semibold text-sm text-foreground">{user.displayName || t("users.noName")}</span>
-                                                        <span className="text-xs text-muted-foreground">{user.email}</span>
+                                                        <span className="font-semibold text-sm text-foreground"><MaskedValue value={user.displayName} source={user} path="displayName" missing={t("users.noName")} /></span>
+                                                        <span className="text-xs text-muted-foreground"><MaskedValue value={user.email} source={user} path="email" /></span>
                                                     </div>
                                                 </div>
                                             </TableCell>
@@ -391,7 +396,7 @@ export function UsersPage() {
                         </span>
                         {pending ? (
                             <span className="block font-medium text-foreground">
-                                {pending.user.displayName} ({pending.user.email})
+                                <MaskedValue value={pending.user.displayName} source={pending.user} path="displayName" /> (<MaskedValue value={pending.user.email} source={pending.user} path="email" />)
                             </span>
                         ) : null}
                     </>
