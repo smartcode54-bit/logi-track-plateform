@@ -29,10 +29,20 @@ func platformRead(p *authz.Principal, cap authz.Cap) error {
 	return nil
 }
 func userOwner(u User) string {
-	if len(u.Memberships) == 1 && len(u.PlatformRoles) == 0 {
+	if u.projectionOwner != nil {
+		return *u.projectionOwner
+	}
+	if len(u.Memberships) == 1 {
 		return u.Memberships[0].TenantID.String()
 	}
+	if len(u.Memberships) == 0 && len(u.Scopes) == 0 && hasPlatformPlaneRole(u.PlatformRoles) {
+		return supportprojection.PlatformOwner
+	}
 	return ""
+}
+
+func hasPlatformPlaneRole(roles []string) bool {
+	return slices.Contains(roles, "platform_admin") || slices.Contains(roles, "support")
 }
 
 func (a *Admin) PlatformUsers(c call, in ListUsersInput) ([]User, string, error) {
@@ -297,6 +307,9 @@ func platformUserPageSize(users []User, p *authz.Principal) int {
 	}
 	for i, u := range users {
 		candidate := map[string]bool{}
+		if owner := userOwner(u); owner != "" {
+			candidate[owner] = true
+		}
 		for _, m := range u.Memberships {
 			candidate[m.TenantID.String()] = true
 		}
