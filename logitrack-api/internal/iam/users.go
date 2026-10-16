@@ -64,6 +64,7 @@ type Scope struct {
 type DriverRef struct {
 	ID          uuid.UUID `json:"id"`
 	DisplayName *string   `json:"displayName"`
+	owner       string
 }
 
 type userRow struct {
@@ -124,7 +125,7 @@ func (a *Admin) enrich(ctx context.Context, q *iamdb.Queries, r reach, rows []us
 	}
 	for _, d := range ds {
 		name := d.DisplayName
-		out[idx[d.UserID]].Driver = &DriverRef{ID: d.ID, DisplayName: &name}
+		out[idx[d.UserID]].Driver = &DriverRef{ID: d.ID, DisplayName: &name, owner: d.TenantID.String()}
 	}
 	return out, nil
 }
@@ -188,7 +189,9 @@ func (a *Admin) loadUser(ctx context.Context, p *authz.Principal, r reach, id uu
 		return nil, httpx.ErrNotFound()
 	}
 	us := []User{u}
-	a.signPhotos(ctx, us)
+	if !p.IsPlatform() && !authz.IsSupport(p) {
+		a.signPhotos(ctx, us)
+	}
 	return &us[0], nil
 }
 
@@ -209,8 +212,11 @@ var userStatuses = []string{"active", "disabled", "reset_required", "deleted"}
 // past the legacy listUsers(1000) cap (W9). role filters by a tenant role (inside the reach), a scope kind
 // (customer, dispatcher) or a platform role.
 func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersInput) ([]User, string, error) {
+	return a.listUsers(ctx, p, readReach(p), in)
+}
+
+func (a *Admin) listUsers(ctx context.Context, p *authz.Principal, r reach, in ListUsersInput) ([]User, string, error) {
 	var bad []httpx.FieldViolation
-	r := readReach(p)
 	var status, memberRole, scopeKind, platformRole *string
 	var q []string // the folded words of q as LIKE patterns (searchtext, the web's lib/searchText.ts); nil: no search
 	if s := strings.TrimSpace(in.Q); s != "" {
@@ -309,7 +315,22 @@ func (a *Admin) ListUsers(ctx context.Context, p *authz.Principal, in ListUsersI
 	if err != nil {
 		return nil, "", err
 	}
-	a.signPhotos(ctx, users)
+	if p.IsPlatform() || authz.IsSupport(p) {
+		if n := platformUserPageSize(users, p); n < len(users) {
+			if n == 0 {
+				return nil, "", errInvalid(violation("limit", "owner_limit"))
+			}
+			users = users[:n]
+			last := users[n-1]
+			if sort == "last_login_at" {
+				next = encodeCursor(last.LastLoginAt, last.ID)
+			} else {
+				next = encodeCursor(&last.CreatedAt, last.ID)
+			}
+		}
+	} else {
+		a.signPhotos(ctx, users)
+	}
 	return users, next, nil
 }
 
@@ -381,6 +402,10 @@ type userCreatedPayload struct {
 // (R29). One transaction writes the user, its membership, driver link or scopes, the Firebase account (while
 // the bridge mirrors), user_created and outbox user.created.
 func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	p := c.p
 	var bad []httpx.FieldViolation
 	email, ok := normalizeEmail(in.Email)
@@ -487,8 +512,8 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 		now := a.clock()
 		var tenantPtr *uuid.UUID
 		if !customer {
-			t, err := q.TenantForMembership(c.ctx, tenant)
-			if errors.Is(err, pgx.ErrNoRows) || (err == nil && t.Kind == "quarantine") {
+			_, err := q.GetSupportAccess(c.ctx, tenant)
+			if errors.Is(err, pgx.ErrNoRows) {
 				return errInvalid(violation("tenantId", "not_found"))
 			}
 			if err != nil {
@@ -512,6 +537,14 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 		if uid, err = q.InsertAdminUser(c.ctx, ins); err != nil {
 			return err
 		}
+		if !customer {
+			if err := a.supportIAM(c, tx, uid, []uuid.UUID{tenant}, "user_create", true); err != nil {
+				return err
+			}
+		}
+		if err := a.platformCredential(c, tx, uid); err != nil {
+			return err
+		}
 		actor := p.UserID
 		details := map[string]any{"role": in.Role, "invite": in.SendInvite}
 		var linked *iamdb.GetLinkDriverRow
@@ -526,6 +559,9 @@ func (a *Admin) CreateUser(c call, in CreateUserInput) (*CreateUserResult, error
 		} else {
 			if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: tenant, Role: string(role),
 				Status: MembershipActive, CreatedBy: &actor}); err != nil {
+				return err
+			}
+			if err := a.platformGrant(c, tx, uid, tenant); err != nil {
 				return err
 			}
 			details["tenantId"] = tenant
@@ -728,6 +764,9 @@ func (a *Admin) visible(c call, q *iamdb.Queries, id uuid.UUID, r reach) error {
 // caller (403). The users row is the first lock of the transaction after the tenant of a membership write
 // (tenants -> users -> sessions -> refresh_tokens, C.4.4).
 func (a *Admin) target(c call, q *iamdb.Queries, id uuid.UUID) (iamdb.LockAdminUserRow, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return iamdb.LockAdminUserRow{}, err
+	}
 	r := writeReach(c.p)
 	if err := a.inReach(c, q, id, r); err != nil {
 		return iamdb.LockAdminUserRow{}, err
@@ -757,6 +796,10 @@ type PatchUserInput struct {
 // auth_version (claims_changed: the user's clients refresh and stay signed in) and is mirrored to the
 // Firebase account; user_updated records which fields changed, never the addresses.
 func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	var bad []httpx.FieldViolation
 	var name *string
 	if in.DisplayName.Set && !in.DisplayName.Null {
@@ -784,6 +827,7 @@ func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error
 		if err != nil {
 			return err
 		}
+
 		var fields []string
 		params := iamdb.UpdateAdminUserParams{ID: id}
 		if in.DisplayName.Set && !equalPtr(u.DisplayName, name) {
@@ -792,17 +836,42 @@ func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error
 		}
 		emailChanged := in.Email.Set && (u.Email == nil || !strings.EqualFold(*u.Email, email))
 		if emailChanged {
+
 			params.SetEmail, params.Email = true, &email
 			fields = append(fields, "email")
 		}
 		if len(fields) == 0 {
-			return nil
+			return a.supportIAM(c, tx, id, nil, "", false)
+		}
+		if err := a.supportIAM(c, tx, id, nil, "profile", false); err != nil {
+			return err
+		}
+		if emailChanged {
+			if c.p.IsPlatform() && !c.p.IsMachine() {
+				var admin bool
+				if err := tx.QueryRow(c.ctx, `SELECT EXISTS(SELECT 1 FROM memberships WHERE user_id=$1 AND role='tenant_admin')`, id).Scan(&admin); err != nil {
+					return err
+				}
+				if admin {
+					return authz.ErrPermissionDenied("platform actors cannot replace a tenant administrator's email")
+				}
+			}
 		}
 		if err := q.UpdateAdminUser(c.ctx, params); err != nil {
 			return err
 		}
 		if emailChanged {
-			if err := a.claimsChanged(c, tx, id, keep); err != nil {
+			if c.p.IsPlatform() {
+				if err := a.platformCredential(c, tx, id); err != nil {
+					return err
+				}
+				actor := c.p.UserID
+				pc, _, err := a.auth.RevokeInTx(c.ctx, tx, auth.Revocation{UserID: id, Reason: auth.RevokePasswordReset, RevokedBy: &actor, BumpVersion: true, RequestID: c.rid})
+				if err != nil {
+					return err
+				}
+				keep(pc)
+			} else if err := a.claimsChanged(c, tx, id, keep); err != nil {
 				return err
 			}
 			if err := a.auth.MirrorEmailInTx(c.ctx, tx, id); err != nil {
@@ -831,13 +900,31 @@ func equalPtr(a, b *string) bool {
 // notify.email (R29; outbox user.invited) and records user_invited. The user must be able to sign in with
 // a new password: active or reset_required, with an email.
 func (a *Admin) Invite(c call, id uuid.UUID, locale string) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	if !validLocale(locale) {
 		return errInvalid(violation("locale", "invalid"))
 	}
-	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, _ func(*auth.PostCommit)) error {
+	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		u, err := a.target(c, q, id)
 		if err != nil {
 			return err
+		}
+		if err := a.supportIAM(c, tx, id, nil, "invite", true); err != nil {
+			return err
+		}
+		if err := a.platformCredential(c, tx, id); err != nil {
+			return err
+		}
+		if c.p.IsPlatform() {
+			actor := c.p.UserID
+			pc, _, err := a.auth.RevokeInTx(c.ctx, tx, auth.Revocation{UserID: id, Reason: auth.RevokePasswordReset, RevokedBy: &actor, BumpVersion: true, RequestID: c.rid})
+			if err != nil {
+				return err
+			}
+			keep(pc)
 		}
 		if u.Email == nil {
 			return errFailedPrecondition("no_email", "the user has no email to send an invite to")
@@ -857,12 +944,31 @@ func (a *Admin) Invite(c call, id uuid.UUID, locale string) error {
 // (reason disabled) and bumps auth_version; both follow on the Firebase account (auth.SetStatusInTx), and
 // user_disabled / user_enabled is recorded with the reason.
 func (a *Admin) SetDisabled(c call, id uuid.UUID, disabled bool, reason string) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	reason = strings.TrimSpace(reason)
 	if utf8.RuneCountInString(reason) > 500 {
 		return errInvalid(violation("reason", "too_long"))
 	}
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
-		if _, err := a.target(c, q, id); err != nil {
+		u, err := a.target(c, q, id)
+		if err != nil {
+			return err
+		}
+		desired := "active"
+		if disabled {
+			desired = "disabled"
+		}
+		if c.p.IsPlatform() && u.Status == desired {
+			return a.supportIAM(c, tx, id, nil, "", false)
+		}
+		action := "enable"
+		if disabled {
+			action = "disable"
+		}
+		if err := a.supportIAM(c, tx, id, nil, action, false); err != nil {
 			return err
 		}
 		actor := c.p.UserID
@@ -884,6 +990,10 @@ func (a *Admin) SetDisabled(c call, id uuid.UUID, disabled bool, reason string) 
 // every session revoked (reason password_reset), the Firebase account updated, and
 // user_password_temporary_issued recorded.
 func (a *Admin) TemporaryPassword(c call, id uuid.UUID) (string, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return "", err
+	}
+
 	// The checks that need no lock first, so a refused request hashes nothing.
 	var isDriver bool
 	err := a.read(c.ctx, func(q *iamdb.Queries) error {
@@ -906,6 +1016,12 @@ func (a *Admin) TemporaryPassword(c call, id uuid.UUID) (string, error) {
 	}
 	err = a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, id); err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, id, nil, "temporary_password", true); err != nil {
+			return err
+		}
+		if err := a.platformCredential(c, tx, id); err != nil {
 			return err
 		}
 		actor := c.p.UserID
@@ -936,6 +1052,7 @@ type Session struct {
 	UserAgent   *string   `json:"userAgent"`
 	CreatedAt   time.Time `json:"createdAt"`
 	LastSeenAt  time.Time `json:"lastSeenAt"`
+	owner       string
 }
 
 // Sessions is GET /v1/users/{id}/sessions (users:revoke_sessions, not self): the live sessions. A read, so the
@@ -970,8 +1087,15 @@ func (a *Admin) Sessions(c call, id uuid.UUID) ([]Session, error) {
 // session, or the one named (404 when it is not a live session of the user), ends with reason admin_revoke;
 // user_sessions_revoked is recorded. Revoking every session also sets validSince on the Firebase account.
 func (a *Admin) RevokeSessions(c call, id uuid.UUID, sid *uuid.UUID) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, id); err != nil {
+			return err
+		}
+		if err := liveIAMContext(c, tx); err != nil {
 			return err
 		}
 		actor := c.p.UserID

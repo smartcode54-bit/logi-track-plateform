@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/iamdb"
 )
 
@@ -20,9 +21,16 @@ import (
 // and steward's read reach: only a platform principal under X-Act-On-Tenant: * lists it (C.8 "Reach"). Not self
 // (403); an unknown or already deleted user is 404.
 func (a *Admin) DeleteUser(c call, id uuid.UUID) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		u, err := a.target(c, q, id) // locks the users row first (C.4.4)
 		if err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, id, nil, "user_delete", false); err != nil {
 			return err
 		}
 		details := map[string]any{"previousStatus": u.Status}

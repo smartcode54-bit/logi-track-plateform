@@ -74,7 +74,7 @@ SELECT mi.driver_id, mi.install_id, mi.tenant_id, mi.platform, mi.app_version, m
        mi.first_seen_at, mi.last_seen_at,
        d.first_name, d.last_name, d.full_name_th, t.name_th AS tenant_name_th, t.name_en AS tenant_name_en
 FROM mobile_installations mi
-LEFT JOIN drivers d ON d.id = mi.driver_id
+LEFT JOIN drivers d ON d.id = mi.driver_id AND d.tenant_id = mi.tenant_id
 LEFT JOIN tenants t ON t.id = mi.tenant_id
 WHERE (sqlc.narg(tenant_id)::uuid IS NULL OR mi.tenant_id = sqlc.narg(tenant_id)::uuid)
   AND (sqlc.narg(since)::timestamptz IS NULL OR mi.last_seen_at >= sqlc.narg(since)::timestamptz)

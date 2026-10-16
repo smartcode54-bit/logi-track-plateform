@@ -1,0 +1,14 @@
+{{define "subject"}}Platform account administration — {{.Company}}{{end}}
+{{define "text"}}Hello,
+
+The platform team performed an account action for {{.Company}}.
+Action: {{.Action}}
+Authorization: {{.Basis}}
+
+Actor reference: {{.Actor}}
+Account reference: {{.Target}}
+Company reference: {{.Tenant}}
+
+Review this event in your company's Security Center.
+LogiTrack
+{{end}}

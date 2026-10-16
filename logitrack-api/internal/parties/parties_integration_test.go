@@ -1153,7 +1153,8 @@ func TestSubcontractorOnboarding(t *testing.T) {
 	expect(t, r, http.StatusForbidden, "permission_denied")
 	r = w.post("/v1/subcontractors", w.login("pa"), map[string]any{"nameTh": "แพลตฟอร์ม", "legalType": "individual", "idCardNumber": idOK})
 	expect(t, r, http.StatusCreated, "")
-	if r.data()["contractorTenantId"] != w.O || r.data()["idCardNumber"] != idOK {
+	// D1 projects the new carrier's OFF consent even on a provisioning response.
+	if r.data()["contractorTenantId"] != w.O || r.data()["idCardNumber"] != "****" {
 		t.Fatalf("platform onboarding: %s", r.raw)
 	}
 	// Own-fleet staff without fleet:manage_subcontractors (an operator) cannot either.

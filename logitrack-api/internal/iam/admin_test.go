@@ -95,8 +95,8 @@ func TestReach(t *testing.T) {
 	}
 	all := principal("", nil, authz.Support)
 	all.ActOnAll = true
-	if r := readReach(all); !r.all {
-		t.Fatal("X-Act-On-Tenant: * reads everyone")
+	if r := readReach(all); r.all {
+		t.Fatal("a retired header cannot widen reads")
 	}
 	if r := writeReach(all); r.all || len(r.tenants) != 0 {
 		t.Fatal("X-Act-On-Tenant: * is read-only")

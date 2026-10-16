@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/tenancy"
@@ -253,6 +254,9 @@ type RehomeInput struct {
 // quarantine tenant (its driver or truck did not resolve: needs_reference) or a link it keeps is still quarantined
 // (re-home the parent task or trip first: linked_row_quarantined).
 func (a *Admin) RehomeQuarantineRow(c call, table string, id uuid.UUID, in RehomeInput) ([]tenancy.Moved, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
 	if _, ok := quarantineQueries[table]; !ok {
 		return nil, httpx.ErrNotFound()
 	}

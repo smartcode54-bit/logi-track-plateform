@@ -5,6 +5,8 @@
 SELECT set_config('app.role', 'system', true), set_config('app.bypass_tenant', 'on', true);
 
 ALTER TABLE tenants
+  ADD COLUMN support_code_reviewed boolean NOT NULL DEFAULT false,
+  ADD COLUMN support_label_version bigint NOT NULL DEFAULT 0 CHECK (support_label_version >= 0),
   ADD COLUMN support_access_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN support_access_version bigint NOT NULL DEFAULT 0 CHECK (support_access_version >= 0),
   ADD COLUMN support_access_changed_at timestamptz,
@@ -185,12 +187,18 @@ FROM original h WHERE t.id = h.tenant_id;
 -- +goose StatementBegin
 CREATE FUNCTION trg_support_consent_columns() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF NEW.code IS DISTINCT FROM OLD.code THEN NEW.support_code_reviewed := false; END IF;
+  IF (NEW.kind, NEW.legal_type, NEW.code, NEW.name_th, NEW.name_en, NEW.support_code_reviewed, NEW.support_access_enabled) IS DISTINCT FROM
+     (OLD.kind, OLD.legal_type, OLD.code, OLD.name_th, OLD.name_en, OLD.support_code_reviewed, OLD.support_access_enabled) THEN
+    NEW.support_label_version := OLD.support_label_version + 1;
+  ELSE NEW.support_label_version := OLD.support_label_version;
+  END IF;
   IF (NEW.support_access_enabled, NEW.support_access_version, NEW.support_access_changed_at,
       NEW.support_access_changed_by, NEW.support_first_admin_grant_id, NEW.support_first_admin_revoked_at,
-      NEW.support_bootstrap_consumed) IS DISTINCT FROM
+      NEW.support_bootstrap_consumed, NEW.support_code_reviewed) IS DISTINCT FROM
      (OLD.support_access_enabled, OLD.support_access_version, OLD.support_access_changed_at,
       OLD.support_access_changed_by, OLD.support_first_admin_grant_id, OLD.support_first_admin_revoked_at,
-      OLD.support_bootstrap_consumed) THEN
+      OLD.support_bootstrap_consumed, OLD.support_code_reviewed) THEN
     IF app_role() IS DISTINCT FROM 'system' OR NOT app_bypass() THEN
       RAISE EXCEPTION 'support consent requires an authorized system transaction' USING ERRCODE = 'insufficient_privilege';
     END IF;
@@ -306,6 +314,7 @@ ALTER TABLE support_visits ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY;
 CREATE POLICY p_system ON support_visits
   USING (app_role() = 'system' AND app_bypass()) WITH CHECK (app_role() = 'system' AND app_bypass());
 GRANT SELECT, INSERT, UPDATE ON support_visits TO logitrack_app;
+GRANT SELECT ON support_visits TO logitrack_etl;
 
 -- +goose StatementBegin
 CREATE FUNCTION trg_support_visit_lifecycle() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -335,7 +344,28 @@ REVOKE ALL ON FUNCTION trg_support_consent_columns(), trg_membership_provenance_
   trg_membership_provenance_history(), trg_support_visit_lifecycle(), trg_support_first_admin_status() FROM PUBLIC;
 SELECT set_config('app.role', '', true), set_config('app.bypass_tenant', '', true);
 
+
+CREATE TABLE support_request_limits (
+  bucket text NOT NULL CHECK (bucket IN ('support_options','support_consent')),
+  subject text NOT NULL,
+  theoretical_at timestamptz NOT NULL,
+  PRIMARY KEY (bucket,subject)
+);
+ALTER TABLE support_request_limits ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY;
+CREATE POLICY p_system ON support_request_limits
+  USING (app_role() = 'system' AND app_bypass()) WITH CHECK (app_role() = 'system' AND app_bypass());
+GRANT SELECT, INSERT, UPDATE ON support_request_limits TO logitrack_app;
+GRANT SELECT ON support_request_limits TO logitrack_etl;
+
+-- Safe pagination IDs for the platform projection; device identifiers never enter cursors.
+ALTER TABLE mobile_installations ADD COLUMN support_page_id uuid NOT NULL DEFAULT uuidv7();
+CREATE UNIQUE INDEX mobile_installations_support_page_id ON mobile_installations(support_page_id);
+CREATE INDEX mobile_installations_support_seen ON mobile_installations(last_seen_at DESC,driver_id DESC,support_page_id DESC);
+
 -- +goose Down
+ALTER TABLE mobile_installations DROP COLUMN support_page_id;
+DROP TABLE support_request_limits;
+ALTER TABLE tenants DROP COLUMN support_code_reviewed, DROP COLUMN support_label_version;
 DROP TABLE support_visits;
 DROP FUNCTION trg_support_visit_lifecycle();
 DROP TRIGGER t_membership_provenance_history ON memberships;

@@ -569,8 +569,8 @@ func TestInstallationsStatsAndBelowVersion(t *testing.T) {
 	w.installation(w.D2, w.A, "dev-build", "2.10.0", "dev", w.now.Add(-30*time.Minute))
 	w.installation(w.D2, w.A, "gone", "1.0.0", "prod", w.now.Add(-10*24*time.Hour))
 	pa := w.login("pa@example.test")
-	all := []string{"X-Act-On-Tenant", "*"}
-	r := w.get("/v1/app-installations/stats?belowVersion=2.9.3", pa, all...)
+	all := []string{}
+	r := w.get("/v1/platform/app-installations/stats?belowVersion=2.9.3", pa, all...)
 	expect(t, r, http.StatusOK, "")
 	d := r.data()
 	byStatus := d["byStatus"].(map[string]any)
@@ -587,7 +587,7 @@ func TestInstallationsStatsAndBelowVersion(t *testing.T) {
 		t.Fatalf("byFlavor %v", d["byFlavor"])
 	}
 	// The list's SQL filter agrees with the port.
-	r = w.get("/v1/app-installations?belowVersion=2.9.3&limit=50", pa, all...)
+	r = w.get("/v1/platform/app-installations?belowVersion=2.9.3&limit=50", pa, all...)
 	expect(t, r, http.StatusOK, "")
 	var versions []string
 	for _, it := range r.list() {
@@ -598,14 +598,14 @@ func TestInstallationsStatsAndBelowVersion(t *testing.T) {
 		t.Fatalf("below 2.9.3: %v", versions)
 	}
 	// Each row carries its status and the meta the references.
-	r = w.get("/v1/app-installations?since=7d&flavor=dev", pa, all...)
-	if l := r.list(); len(l) != 1 || l[0].(map[string]any)["versionStatus"] != "ahead" || l[0].(map[string]any)["driverName"] != "สมหญิง ใจงาม" ||
+	r = w.get("/v1/platform/app-installations?since=7d&flavor=dev", pa, all...)
+	if l := r.list(); len(l) != 1 || l[0].(map[string]any)["versionStatus"] != "ahead" || l[0].(map[string]any)["driverName"] != "****" ||
 		r.meta()["latestVersion"] != "2.9.3" || r.meta()["minAllowedVersion"] != "2.9.0" {
 		t.Fatalf("dev rows %s", r.raw)
 	}
-	expect(t, w.get("/v1/app-installations?belowVersion=v2", pa, all...), http.StatusUnprocessableEntity, "invalid_argument")
-	expect(t, w.get("/v1/app-installations?since=yesterday", pa, all...), http.StatusUnprocessableEntity, "invalid_argument")
-	expect(t, w.get("/v1/app-installations?sort=x", pa, all...), http.StatusBadRequest, "bad_request")
+	expect(t, w.get("/v1/platform/app-installations?belowVersion=v2", pa, all...), http.StatusUnprocessableEntity, "invalid_argument")
+	expect(t, w.get("/v1/platform/app-installations?since=yesterday", pa, all...), http.StatusUnprocessableEntity, "invalid_argument")
+	expect(t, w.get("/v1/platform/app-installations?sort=x", pa, all...), http.StatusBadRequest, "bad_request")
 }
 
 func TestInstallationsReachAndPaging(t *testing.T) {
@@ -615,9 +615,13 @@ func TestInstallationsReachAndPaging(t *testing.T) {
 	}
 	w.installation(w.D2, w.A, "a0", "3.5.0", "prod", w.now.Add(-10*time.Minute))
 	w.installation(w.D3, w.C, "c0", "3.5.0", "prod", w.now.Add(-11*time.Minute))
-	tenantsOf := func(tok string, headers ...string) map[string]int {
+	tenantsOf := func(tok string, platform ...bool) map[string]int {
 		t.Helper()
-		r := w.get("/v1/app-installations", tok, headers...)
+		path := "/v1/app-installations"
+		if len(platform) > 0 && platform[0] {
+			path = "/v1/platform/app-installations"
+		}
+		r := w.get(path, tok)
 		expect(t, r, http.StatusOK, "")
 		out := map[string]int{}
 		for _, it := range r.list() {
@@ -642,20 +646,24 @@ func TestInstallationsReachAndPaging(t *testing.T) {
 	}
 	pa := w.login("pa@example.test")
 	expect(t, w.get("/v1/app-installations", pa), http.StatusForbidden, "tenant_required")
-	if got := tenantsOf(pa, "X-Act-On-Tenant", "*"); got[w.O] != 5 || got[w.A] != 1 || got[w.C] != 1 {
+	if got := tenantsOf(pa, true); got[w.O] != 5 || got[w.A] != 1 || got[w.C] != 1 {
 		t.Fatalf("platform: %v", got)
 	}
-	expect(t, w.get("/v1/app-installations", w.login("op.o@example.test")), http.StatusForbidden, "permission_denied")
-	expect(t, w.get("/v1/app-installations", w.login("d1@example.test")), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/platform/app-installations", w.login("op.o@example.test")), http.StatusForbidden, "permission_denied")
+	expect(t, w.get("/v1/platform/app-installations", w.login("d1@example.test")), http.StatusForbidden, "permission_denied")
+	// ON reveals installation identifiers for paging assertions; OFF is checked in the cursor leak regression.
+	setSupportConsent(t, w, w.O, true)
+	setSupportConsent(t, w, w.A, true)
+	setSupportConsent(t, w, w.C, true)
 	// Keyset pages, newest heartbeat first, no row twice.
 	var seen []string
 	cursor := ""
 	for range 10 {
-		path := "/v1/app-installations?limit=2"
+		path := "/v1/platform/app-installations?limit=2"
 		if cursor != "" {
 			path += "&cursor=" + cursor
 		}
-		r := w.get(path, pa, "X-Act-On-Tenant", "*")
+		r := w.get(path, pa)
 		expect(t, r, http.StatusOK, "")
 		for _, it := range r.list() {
 			seen = append(seen, it.(map[string]any)["installId"].(string))
@@ -669,8 +677,8 @@ func TestInstallationsReachAndPaging(t *testing.T) {
 	if !slices.Equal(seen, []string{"o0", "o1", "o2", "o3", "o4", "a0", "c0"}) {
 		t.Fatalf("pages %v", seen)
 	}
-	expect(t, w.get("/v1/app-installations?cursor=zzz", pa, "X-Act-On-Tenant", "*"), http.StatusUnprocessableEntity, "invalid_argument")
-	expect(t, w.get("/v1/app-installations?limit=501", pa, "X-Act-On-Tenant", "*"), http.StatusUnprocessableEntity, "invalid_argument")
+	expect(t, w.get("/v1/platform/app-installations?cursor=zzz", pa), http.StatusUnprocessableEntity, "invalid_argument")
+	expect(t, w.get("/v1/platform/app-installations?limit=501", pa), http.StatusUnprocessableEntity, "invalid_argument")
 }
 
 func TestReleasesList(t *testing.T) {

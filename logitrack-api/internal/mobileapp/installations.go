@@ -242,6 +242,9 @@ func tenantName(th, en *string) *string {
 // principal reaches under RLS (a carrier's tenant_admin its own tenant, own-fleet staff their carriers too, a
 // platform principal every row under X-Act-On-Tenant: *), newest heartbeat first.
 func (s *Service) Installations(ctx context.Context, p *authz.Principal, in InstallationQuery) ([]Installation, string, InstallationMeta, error) {
+	if p.IsPlatform() {
+		return s.platformInstallations(ctx, p, in)
+	}
 	limit, err := pageLimit(in.Limit)
 	if err != nil {
 		return nil, "", InstallationMeta{}, err
@@ -266,7 +269,13 @@ func (s *Service) Installations(ctx context.Context, p *authz.Principal, in Inst
 		return nil, "", InstallationMeta{}, err
 	}
 	var rows []mobileappdb.ListInstallationsRow
-	err = db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
+	read := func(fn func(pgx.Tx) error) error {
+		if p.IsPlatform() && !p.IsMachine() {
+			return db.WithSystem(ctx, s.pool, nil, fn)
+		}
+		return db.WithPrincipal(ctx, s.pool, p, fn)
+	}
+	err = read(func(tx pgx.Tx) error {
 		rows, err = mobileappdb.New(tx).ListInstallations(ctx, params)
 		return err
 	})
@@ -327,7 +336,16 @@ func (s *Service) Stats(ctx context.Context, p *authz.Principal, since time.Time
 		return nil, err
 	}
 	var rows []mobileappdb.InstallationVersionCountsRow
-	err = db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
+	if p.IsPlatform() && !authz.PlatformCaps(p).Has(authz.SecurityViewMobileClients) {
+		return nil, authz.ErrPermissionDenied("missing platform read capability")
+	}
+	read := func(fn func(pgx.Tx) error) error {
+		if p.IsPlatform() && !p.IsMachine() {
+			return db.WithSystem(ctx, s.pool, nil, fn)
+		}
+		return db.WithPrincipal(ctx, s.pool, p, fn)
+	}
+	err = read(func(tx pgx.Tx) error {
 		rows, err = mobileappdb.New(tx).InstallationVersionCounts(ctx, mobileappdb.InstallationVersionCountsParams{Since: since, TenantID: tenantID})
 		return err
 	})

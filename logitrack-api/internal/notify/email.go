@@ -67,6 +67,9 @@ func (e *Email) Registration() mq.Registration {
 
 // Handle implements mq.Handler.
 func (e *Email) Handle(ctx context.Context, d *mq.Delivery) error {
+	if d.RoutingKey == RouteSupportAdminAction {
+		return e.supportAdminAction(ctx, d)
+	}
 	if d.RoutingKey == RouteJob {
 		return e.handleJob(ctx, d)
 	}
