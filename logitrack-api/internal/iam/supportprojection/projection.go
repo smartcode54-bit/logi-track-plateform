@@ -16,6 +16,9 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
+// PlatformOwner marks account data that belongs to the platform plane rather than a tenant.
+const PlatformOwner = "__platform_plane__"
+
 // PlatformProjection installs live serialization authorization for the owned platform DTOs.
 // It preserves the audience/context versions installed by the authentication boundary.
 func Middleware(pool db.Beginner) fiber.Handler {
@@ -96,6 +99,13 @@ func Middleware(pool db.Beginner) fiber.Handler {
 				ids = slices.Compact(ids)
 				consents := map[string]httpx.Consent{}
 				for _, id := range ids {
+					if id == PlatformOwner {
+						if !audience.Platform {
+							return httpx.ErrSupportProjectionUnavailable()
+						}
+						consents[id] = httpx.Consent{Enabled: true}
+						continue
+					}
 					uid, err := uuid.Parse(id)
 					if err != nil {
 						return httpx.ErrSupportProjectionUnavailable()

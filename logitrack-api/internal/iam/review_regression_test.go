@@ -95,6 +95,17 @@ func TestReviewPlatformPageCountsNestedOwners(t *testing.T) {
 	if n := platformUserPageSize(users, p); n != 50 {
 		t.Fatalf("page=%d want 50", n)
 	}
+	staff := User{PlatformRoles: []string{"support"}}
+	if n := platformUserPageSize(append(users[:50:50], staff), p); n != 50 {
+		t.Fatalf("staff after 100 nested owners: page=%d want 50", n)
+	}
+	mixed := append([]User{staff}, users...)
+	if n := platformUserPageSize(mixed, p); n != 50 {
+		t.Fatalf("staff before nested owners: page=%d want 50", n)
+	}
+	if n := platformUserPageSize([]User{staff, staff}, p); n != 2 {
+		t.Fatalf("shared platform owner: page=%d want 2", n)
+	}
 }
 
 func TestReviewSupportCursorContinuesAcrossInstances(t *testing.T) {

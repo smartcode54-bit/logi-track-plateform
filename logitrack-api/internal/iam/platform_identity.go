@@ -2,13 +2,24 @@ package iam
 
 import (
 	"context"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam/supportprojection"
 )
 
-// A person is attributable only to one tenant. Platform and shared accounts have no tenant owner.
+// attributableUserOwners returns the sole membership's tenant ID, PlatformOwner for platform
+// staff without memberships or scopes, or an empty string for shared or unknown ownership (masked).
 func attributableUserOwners(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID]string, error) {
-	rows, err := tx.Query(ctx, `SELECT u.id, CASE WHEN count(DISTINCT m.tenant_id)=1 AND NOT EXISTS(SELECT 1 FROM user_platform_roles p WHERE p.user_id=u.id) THEN min(m.tenant_id::text) ELSE '' END FROM users u LEFT JOIN memberships m ON m.user_id=u.id WHERE u.id=ANY($1::uuid[]) GROUP BY u.id`, ids)
+	rows, err := tx.Query(ctx, `SELECT u.id, CASE
+		WHEN count(DISTINCT m.tenant_id)=1
+			THEN min(m.tenant_id::text)
+		WHEN count(DISTINCT m.tenant_id)=0 AND NOT EXISTS(SELECT 1 FROM user_scopes s WHERE s.user_id=u.id)
+			AND EXISTS(SELECT 1 FROM user_platform_roles p WHERE p.user_id=u.id AND p.role IN ('platform_admin','support'))
+			THEN $2::text
+		ELSE '' END
+		FROM users u LEFT JOIN memberships m ON m.user_id=u.id WHERE u.id=ANY($1::uuid[]) GROUP BY u.id`, ids, supportprojection.PlatformOwner)
 	if err != nil {
 		return nil, err
 	}

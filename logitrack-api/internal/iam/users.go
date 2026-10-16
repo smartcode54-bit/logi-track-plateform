@@ -41,6 +41,8 @@ type User struct {
 	AccountReason string `json:"accountReason,omitempty"`
 
 	photoFileID *uuid.UUID
+	// projectionOwner captures full ownership before account-action redaction; nil means not captured.
+	projectionOwner *string
 }
 
 // Membership is one memberships row of a user with its tenant.
@@ -126,6 +128,12 @@ func (a *Admin) enrich(ctx context.Context, q *iamdb.Queries, r reach, rows []us
 	for _, d := range ds {
 		name := d.DisplayName
 		out[idx[d.UserID]].Driver = &DriverRef{ID: d.ID, DisplayName: &name, owner: d.TenantID.String()}
+	}
+	if r.all {
+		for i := range out {
+			owner := userOwner(out[i])
+			out[i].projectionOwner = &owner
+		}
 	}
 	return out, nil
 }
