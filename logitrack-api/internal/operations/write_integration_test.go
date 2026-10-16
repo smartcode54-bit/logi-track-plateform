@@ -544,7 +544,7 @@ func TestPatchTask(t *testing.T) {
 	_ = r.etl.QueryRow(context.Background(), `SELECT updated_at FROM tasks WHERE id = $1`, id).Scan(&updated)
 	r.refused(404, "not_found", "dispatcher", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"})
 	r.refused(404, "not_found", "dispatcher", "PATCH", path, map[string]any{"tenantId": r.O.String(), "jobCategory": "SUPPLEMENTARY"})
-	r.refused(403, operations.ReasonActOnTenantRequired, "platform", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"})
+	r.refused(403, "permission_denied", "platform", "PATCH", path, map[string]any{"jobCategory": "SUPPLEMENTARY"})
 	var after time.Time
 	_ = r.etl.QueryRow(context.Background(), `SELECT updated_at FROM tasks WHERE id = $1`, id).Scan(&after)
 	if !after.Equal(updated) {

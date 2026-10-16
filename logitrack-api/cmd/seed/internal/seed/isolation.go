@@ -17,14 +17,15 @@ import (
 // The per-carrier part of invariant 10 (Appendix D §D.3 #10e, owner addition to issue #36): every carrier
 // principal, staff and drivers, reads no row of another tenant in any row-level-security table logitrack_app
 // may SELECT. Every such table is classified, deny by default: a tenant_id stamp, an owner found through a
-// parent or a user (ownershipRules), or shared master data (sharedTables). A readable RLS table nothing
-// classifies is itself a violation, so a new table cannot slip past the check.
+// parent or a user (ownershipRules), shared master data (sharedTables), or system-only state (zero visible rows).
+// A readable RLS table nothing classifies is itself a violation, so a new table cannot slip past the check.
 
 // rlsTable is one RLS table logitrack_app may read, with the columns its ownership is derived from.
 type rlsTable struct {
 	name                         string
 	tenantID, driverID, helperID bool
 	hasVisibility, hasUploadedBy bool
+	systemOnly                   bool // its sole policy is p_system
 }
 
 // ownership says which visible rows of one RLS table are in order for the role-played principal. Both
@@ -48,6 +49,12 @@ type ownership struct {
 // instead of stamping an owner (Appendix C §C.3.0).
 var sharedTables = []string{"billing_parties", "customer_driver_id_types", "customers", "hub_name_aliases",
 	"hub_soc_distances", "hubs"}
+
+// systemOnlyTables hold private operational state and must expose zero rows to every carrier principal. The database
+// grants the application role table privileges so authorized system transactions can use them; FORCE RLS and the
+// p_system policy still make them invisible to ordinary tenant role-play. Keep these explicit expectations even if
+// a policy changes; rlsTables also discovers new tables whose sole policy is p_system.
+var systemOnlyTables = []string{"membership_provenance_history", "support_visits"}
 
 // memberOfTenant holds when the user has a membership (any status) in the principal's tenant. It runs under the
 // principal's RLS, where staff see their tenant's memberships (p_staff_read) and a driver its own (p_self_read).
@@ -176,21 +183,32 @@ type isolationPlan struct {
 	checks         []isolationCheck
 	stamped, owned int
 	shared         []string
+	systemOnly     []string
 	problems       []string // unclassified tables, stale rules: invariant 10 violations
 }
 
-// classify maps every readable RLS table onto its check: an ownership rule wins, then the shared list, then a
-// tenant_id stamp; anything else is a problem, and so is a rule or shared entry for a table that is not a
-// readable RLS table any more (the schema moved under the check).
+// classify maps every readable RLS table onto its check: system-only tables must expose zero rows;
+// otherwise an ownership rule wins, then the shared list, then a tenant_id stamp. Anything else is a problem,
+// and so is a rule or registry entry for a table that is not a readable RLS table any more (the schema moved
+// under the check).
 func classify(tables []rlsTable) isolationPlan {
 	var p isolationPlan
 	seen := map[string]bool{}
 	shared := map[string]bool{}
+	systemOnly := map[string]bool{}
 	for _, s := range sharedTables {
 		shared[s] = true
 	}
+	for _, s := range systemOnlyTables {
+		systemOnly[s] = true
+	}
 	for _, t := range tables {
 		seen[t.name] = true
+		if systemOnly[t.name] || t.systemOnly {
+			p.systemOnly = append(p.systemOnly, t.name)
+			p.checks = append(p.checks, isolationCheck{table: t.name, own: ownership{via: "system-only", tenant: "false"}})
+			continue
+		}
 		if o, ok := ownershipRules[t.name]; ok {
 			p.checks = append(p.checks, isolationCheck{table: t.name, own: o})
 			p.owned++
@@ -219,6 +237,11 @@ func classify(tables []rlsTable) isolationPlan {
 			stale = append(stale, name)
 		}
 	}
+	for _, name := range systemOnlyTables {
+		if !seen[name] {
+			stale = append(stale, name)
+		}
+	}
 	sort.Strings(stale)
 	for _, name := range stale {
 		p.problems = append(p.problems, fmt.Sprintf("isolation rule for %s, which is not an RLS table logitrack_app may read", name))
@@ -238,7 +261,8 @@ func (v *Verifier) rlsTables(ctx context.Context) ([]rlsTable, error) {
 			EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'driver_id' AND NOT a.attisdropped),
 			EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'helper_driver_id' AND NOT a.attisdropped),
 			EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'visibility' AND NOT a.attisdropped),
-			EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'uploaded_by' AND NOT a.attisdropped)
+			EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'uploaded_by' AND NOT a.attisdropped),
+			(SELECT count(*) = 1 AND bool_and(p.polname = 'p_system') FROM pg_policy p WHERE p.polrelid = c.oid)
 			FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
 			WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity AND has_table_privilege('logitrack_app', c.oid, 'SELECT')
 			ORDER BY 1`)
@@ -247,7 +271,7 @@ func (v *Verifier) rlsTables(ctx context.Context) ([]rlsTable, error) {
 		}
 		return scanAll(rows, func(r pgx.Rows) error {
 			var t rlsTable
-			if err := r.Scan(&t.name, &t.tenantID, &t.driverID, &t.helperID, &t.hasVisibility, &t.hasUploadedBy); err != nil {
+			if err := r.Scan(&t.name, &t.tenantID, &t.driverID, &t.helperID, &t.hasVisibility, &t.hasUploadedBy, &t.systemOnly); err != nil {
 				return err
 			}
 			out = append(out, t)
