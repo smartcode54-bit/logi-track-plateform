@@ -81,6 +81,8 @@ func WriteError(c fiber.Ctx, e *Error) error {
 			message = "support projection unavailable"
 		case CodeSupportAccessMasked:
 			message = "support access is masked"
+		case CodeInternal:
+			status, message = fiber.StatusInternalServerError, "internal error"
 		case CodeNotFound, CodeUnauthenticated, "permission_denied", CodeBadRequest, CodeInvalidArgument, "token_expired", CodeResourceExhaust:
 		default:
 			if _, reviewed := safeErrorCodes.Load(code); !reviewed {

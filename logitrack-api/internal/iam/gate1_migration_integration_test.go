@@ -29,7 +29,7 @@ func TestGate1LegacyAdminlessBootstrapAndMigrationGrants(t *testing.T) {
 		if _, err := tx.Exec(ctx, `INSERT INTO users(id)VALUES($1),($2)`, holder, actor); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO tenants(id,kind,name_th)VALUES($1,'carrier','No admin yet'),($2,'carrier','Former admin')`, empty, removed); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO tenants(id,kind,name_th,legal_type)VALUES($1,'carrier','No admin yet','company'),($2,'carrier','Former admin','company')`, empty, removed); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO security_events(event_type,summary,tenant_id,target_user_id,details)VALUES('membership_removed','former admin removed',$1,$2,'{"previousRole":"tenant_admin"}')`, removed, holder)

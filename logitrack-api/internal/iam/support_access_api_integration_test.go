@@ -69,6 +69,58 @@ func TestSupportD2OffBlocksEveryAdminTakeoverPath(t *testing.T) {
 	}
 }
 
+func TestSupportD2PlatformEmailChangeGatesNonAdminCredentialChange(t *testing.T) {
+	w := newWorld(t)
+	platformID, targetID := w.userID("pa@example.test"), w.userID("mg.o@example.test")
+	if n := w.count(`SELECT count(*) FROM memberships WHERE user_id=$1`, platformID); n != 0 {
+		t.Fatalf("platform admin has %d memberships, want none", n)
+	}
+	if n := w.count(`SELECT count(*) FROM memberships m JOIN users u ON u.id=m.user_id
+		WHERE m.tenant_id=$1 AND m.role='tenant_admin' AND m.status='active' AND u.status='active'`, w.O); n == 0 {
+		t.Fatal("target tenant has no active tenant_admin")
+	}
+	if w.id(`SELECT support_access_enabled::text FROM tenants WHERE id=$1`, w.O) != "false" {
+		t.Fatal("target tenant consent is not OFF")
+	}
+	platform := w.login("pa@example.test")
+	w.login("mg.o@example.test") // Keep a live target session to detect revocation.
+	if n := w.count(`SELECT count(*) FROM sessions WHERE user_id=$1 AND revoked_at IS NULL`, targetID); n == 0 {
+		t.Fatal("target has no active session before the request")
+	}
+	beforeEmail := w.id(`SELECT email::text FROM users WHERE id=$1`, targetID)
+	beforeMarkers := w.id(`SELECT concat_ws('|', email_verified, auth_version, must_change_password,
+		coalesce(credential_reset_by_platform_at::text,''), coalesce(credential_self_chosen_at::text,''))
+		FROM users WHERE id=$1`, targetID)
+	beforeSessions := w.id(`SELECT coalesce(string_agg(id::text || ':' || coalesce(revoked_at::text,''), ',' ORDER BY id), '')
+		FROM sessions WHERE user_id=$1`, targetID)
+	beforeRefresh := w.id(`SELECT coalesce(string_agg(id::text || ':' || coalesce(revoked_at::text,''), ',' ORDER BY id), '')
+		FROM refresh_tokens WHERE session_id IN (SELECT id FROM sessions WHERE user_id=$1)`, targetID)
+	beforeAudit := w.auditCount()
+	beforeNotify := w.count(`SELECT count(*) FROM outbox_events WHERE routing_key='tenant.support_admin_action'`)
+
+	r := w.send(http.MethodPatch, "/v1/users/"+targetID, platform, map[string]any{"email": "manager.changed@example.test"})
+	expect(t, r, http.StatusForbidden, "support_access_required")
+	if got := w.id(`SELECT email::text FROM users WHERE id=$1`, targetID); got != beforeEmail {
+		t.Errorf("target email changed from %q to %q", beforeEmail, got)
+	}
+	if got := w.id(`SELECT concat_ws('|', email_verified, auth_version, must_change_password,
+		coalesce(credential_reset_by_platform_at::text,''), coalesce(credential_self_chosen_at::text,''))
+		FROM users WHERE id=$1`, targetID); got != beforeMarkers {
+		t.Errorf("credential markers changed from %q to %q", beforeMarkers, got)
+	}
+	if got := w.id(`SELECT coalesce(string_agg(id::text || ':' || coalesce(revoked_at::text,''), ',' ORDER BY id), '')
+		FROM sessions WHERE user_id=$1`, targetID); got != beforeSessions {
+		t.Errorf("target sessions changed from %q to %q", beforeSessions, got)
+	}
+	if got := w.id(`SELECT coalesce(string_agg(id::text || ':' || coalesce(revoked_at::text,''), ',' ORDER BY id), '')
+		FROM refresh_tokens WHERE session_id IN (SELECT id FROM sessions WHERE user_id=$1)`, targetID); got != beforeRefresh {
+		t.Errorf("target refresh tokens changed from %q to %q", beforeRefresh, got)
+	}
+	if w.auditCount() != beforeAudit || w.count(`SELECT count(*) FROM outbox_events WHERE routing_key='tenant.support_admin_action'`) != beforeNotify {
+		t.Error("refused email change created audit or tenant-admin notification")
+	}
+}
+
 func TestSupportConsentCASNoOpAndEligibility(t *testing.T) {
 	w := newWorld(t)
 	token := w.login("ta.a@example.test")

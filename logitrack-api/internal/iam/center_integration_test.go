@@ -656,6 +656,37 @@ func TestSecurityOverview(t *testing.T) {
 	}
 }
 
+func TestPlatformMemberModeKeepsLegacySecurityReadContract(t *testing.T) {
+	w := newWorld(t)
+	platformID := w.userID("pa@example.test")
+	platformOnly := w.login("pa@example.test")
+	// A platform-only session keeps the existing tenant-required response on these member routes.
+	expect(t, w.get("/v1/security/overview", platformOnly), http.StatusForbidden, "tenant_required")
+	expect(t, w.get("/v1/stats/users-by-role", platformOnly), http.StatusForbidden, "tenant_required")
+
+	w.member(platformID, w.O, "tenant_admin")
+	memberMode := w.login("pa@example.test")
+	if claims := claimsOf(t, memberMode); claims["tid"] != w.O || claims["rol"] != "tenant_admin" {
+		t.Fatalf("platform member session claims do not identify the real membership: %v", claims)
+	}
+	if mode := w.id(`SELECT access_mode FROM sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1`, platformID); mode != "member" {
+		t.Fatalf("platform session mode is %q, want member", mode)
+	}
+	overviewResp := w.get("/v1/security/overview", memberMode)
+	expect(t, overviewResp, http.StatusOK, "")
+	overview := decodeData[iam.Overview](t, overviewResp)
+	if overview.Scope.All || overview.Scope.TenantID == nil || *overview.Scope.TenantID != w.O {
+		t.Fatalf("platform member overview lost tenant scope: %+v", overview.Scope)
+	}
+
+	rolesResp := w.get("/v1/stats/users-by-role", memberMode)
+	expect(t, rolesResp, http.StatusOK, "")
+	roles := decodeData[iam.UsersByRole](t, rolesResp)
+	if roles.Scope.All || roles.Scope.TenantID == nil || *roles.Scope.TenantID != w.O || roles.Total == 0 {
+		t.Fatalf("platform member role stats lost tenant scope: %+v", roles)
+	}
+}
+
 // DELETE /v1/users/{id}: platform_admin only, a soft delete that revokes every session, removes every grant,
 // unlinks the driver, frees the email and records user_deleted; not self; a deleted user is 404.
 func TestUserSoftDelete(t *testing.T) {

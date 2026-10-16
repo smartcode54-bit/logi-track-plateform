@@ -597,8 +597,17 @@ func TestSupportAccessMigrationLegacyBootstrap(t *testing.T) {
 					return err
 				}
 				wantOriginal := change != "no_admin" && change != "prior_deleted_admin"
-				if original != wantOriginal || revoked != (wantOriginal && change != "original") || !consumed {
+				if original != wantOriginal || revoked != (wantOriginal && change != "original") || consumed != (change != "no_admin") {
 					t.Fatalf("%s: original=%t revoked=%t consumed=%t", change, original, revoked, consumed)
+				}
+				// No admin history preserves initial onboarding; only recording the first grant consumes it.
+				if change == "no_admin" {
+					if n, err := q.RecordFirstSupportOnboardingAdmin(ctx, iamdb.RecordFirstSupportOnboardingAdminParams{UserID: holder, TenantID: tenant}); err != nil || n != 1 {
+						t.Fatalf("legacy adminless bootstrap: %d (%v)", n, err)
+					}
+					if err := tx.QueryRow(ctx, `SELECT support_bootstrap_consumed, support_first_admin_grant_id IS NOT NULL FROM tenants WHERE id=$1`, tenant).Scan(&consumed, &original); err != nil || !consumed || !original {
+						t.Fatalf("first grant not recorded: consumed=%t original=%t (%v)", consumed, original, err)
+					}
 				}
 				if n, err := q.RecordFirstSupportOnboardingAdmin(ctx, iamdb.RecordFirstSupportOnboardingAdminParams{UserID: holder, TenantID: tenant}); err != nil || n != 0 {
 					t.Fatalf("legacy bootstrap replaced: %d (%v)", n, err)

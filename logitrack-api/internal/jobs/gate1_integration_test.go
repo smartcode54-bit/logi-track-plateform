@@ -21,7 +21,7 @@ func TestGate1PlatformJobPayloadsStayInOwnTenant(t *testing.T) {
 	own, foreign := uuid.New(), uuid.New()
 	var local, remote, global, ownedGlobal, ownedRemote jobs.Job
 	err := db.WithSystem(t.Context(), f.pool, nil, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(t.Context(), `INSERT INTO tenants(id,kind,name_th)VALUES($1,'carrier','Own'),($2,'carrier','Foreign')`, own, foreign); err != nil {
+		if _, err := tx.Exec(t.Context(), `INSERT INTO tenants(id,kind,name_th,legal_type)VALUES($1,'carrier','Own','company'),($2,'carrier','Foreign','company')`, own, foreign); err != nil {
 			return err
 		}
 		for _, item := range []struct {

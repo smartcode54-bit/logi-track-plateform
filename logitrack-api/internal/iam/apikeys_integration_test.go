@@ -304,6 +304,8 @@ func TestAPIKeyCreateValidation(t *testing.T) {
 		t.Fatalf("%d keys written by refused requests", n)
 	}
 	// Each scope of the CHECK list is accepted in its valid form.
+	// A platform-created tenant key additionally requires the target admin's consent.
+	supportFixtureConsent(w, w.O, true)
 	for _, b := range []map[string]any{
 		{"name": "i", "scope": "integration", "capabilities": []string{"users:view"}, "tenantId": w.O},
 		{"name": "s", "scope": "script", "capabilities": []string{"fleet:manage_customers", "mobile:view_tasks"}},

@@ -113,3 +113,24 @@ func TestProjectedErrorFields(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectedInternalErrorPreservesStatusWithoutDetails(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		app := setup(audience(on), func(r fiber.Router) {
+			ingress.Bind(r, "/error", policy("GET", "/v1/error", "test.personal"), func(c fiber.Ctx) error {
+				return httpx.ErrInternal().WithDetails(map[string]any{"value": "SECRET_SENTINEL"})
+			})
+		})
+		status, body := request(t, app, "GET", "/v1/error", "")
+		var wire struct {
+			Error struct {
+				Code    string         `json:"code"`
+				Message string         `json:"message"`
+				Details map[string]any `json:"details"`
+			} `json:"error"`
+		}
+		if status != 500 || json.Unmarshal([]byte(body), &wire) != nil || wire.Error.Code != httpx.CodeInternal || wire.Error.Message != "internal error" || len(wire.Error.Details) != 0 || strings.Contains(body, "SENTINEL") {
+			t.Fatal(status, body)
+		}
+	}
+}

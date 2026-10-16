@@ -1172,8 +1172,8 @@ func TestDistanceJob(t *testing.T) {
 	expect(t, w.get("/v1/distances/"+spk[0]+"/"+soce, ta), http.StatusNotFound, "not_found")   // never computed
 	expect(t, w.get("/v1/distances/NOPE/SOCE", ta), http.StatusNotFound, "not_found")
 
-	// The job's readers: owner, staff of its tenant holding calculate_distances, platform; nobody else.
-	for u, want := range map[string]int{"ta.o": 200, "ta2.o": 200, "pa": 200, "mg.o": 404, "ta.a": 404, "op.a": 404} {
+	// Raw job payloads require ownership or capability in the caller's own tenant, including platform actors.
+	for u, want := range map[string]int{"ta.o": 200, "ta2.o": 200, "pa": 404, "mg.o": 404, "ta.a": 404, "op.a": 404} {
 		if r := w.get("/v1/jobs/"+jobID, w.login(u)); r.status != want {
 			t.Errorf("%s reads the job: %d", u, r.status)
 		}

@@ -62,7 +62,9 @@ func (a *Admin) supportIAMTenants(c call, tx pgx.Tx, user, key *uuid.UUID, tenan
 		if err != nil {
 			return err
 		}
-		if len(admins) > 0 && !t.SupportAccessEnabled {
+		// Revoking a stored key reduces access; consent still gates grants and account changes.
+		revokingKey := key != nil && action == "api_key_revoke"
+		if len(admins) > 0 && !t.SupportAccessEnabled && !revokingKey {
 			return httpx.NewError(403, "support_access_required", "tenant consent is required for platform IAM")
 		}
 		if action == "" {
@@ -71,6 +73,9 @@ func (a *Admin) supportIAMTenants(c call, tx pgx.Tx, user, key *uuid.UUID, tenan
 		basis := "onboarding"
 		if len(admins) > 0 {
 			basis = "consent"
+		}
+		if revokingKey {
+			basis = "access_reduction"
 		}
 		event := "platform_admin_account_changed"
 		switch action {

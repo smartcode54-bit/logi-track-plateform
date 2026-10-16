@@ -797,7 +797,7 @@ func (h adminHTTP) listEvents(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) overview(c fiber.Ctx) error {
-	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() {
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() && (p.AccessMode != "member" || p.EffectiveTenant() == nil) {
 		return httpx.ErrSupportViewUnavailable()
 	}
 	cl, err := h.call(c)
@@ -832,7 +832,7 @@ func (h adminHTTP) status(c fiber.Ctx) error {
 }
 
 func (h adminHTTP) usersByRole(c fiber.Ctx) error {
-	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() {
+	if p := authz.PrincipalFrom(c); p != nil && p.IsPlatform() && (p.AccessMode != "member" || p.EffectiveTenant() == nil) {
 		return httpx.ErrSupportViewUnavailable()
 	}
 	cl, err := h.call(c)

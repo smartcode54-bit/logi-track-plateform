@@ -68,15 +68,16 @@ func TestGate1TenantAPIKeysRequireConsentAndNotifyAdmins(t *testing.T) {
 		t.Fatal("disabled existing admin was not notified of key creation")
 	}
 	supportFixtureConsent(w, w.A, false)
-	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+key, pa, nil), 403, "support_access_required")
-	if w.count(`SELECT count(*) FROM api_keys WHERE id=$1 AND revoked_at IS NOT NULL`, key) != 0 {
-		t.Fatal("OFF key revocation committed")
+	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+key, pa, nil), 204, "")
+	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+key, pa, nil), 204, "")
+	if w.count(`SELECT count(*) FROM api_keys WHERE id=$1 AND revoked_at IS NOT NULL`, key) != 1 {
+		t.Fatal("OFF key revocation did not commit")
 	}
-	supportFixtureConsent(w, w.A, true)
-	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+key, pa, nil), 204, "")
-	expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+key, pa, nil), 204, "")
-	if w.count(`SELECT count(*) FROM outbox_events WHERE routing_key='tenant.support_admin_action' AND payload->>'action'='api_key_revoke' AND payload->>'targetApiKeyId'=$1`, key) != 1 {
+	if w.count(`SELECT count(*) FROM outbox_events WHERE routing_key='tenant.support_admin_action' AND payload->>'action'='api_key_revoke' AND payload->>'basis'='access_reduction' AND payload->>'targetApiKeyId'=$1 AND payload->'recipientUserIds' @> to_jsonb(ARRAY[$2::text])`, key, admin) != 1 {
 		t.Fatal("revocation notification missing or duplicated")
+	}
+	if w.count(`SELECT count(*) FROM security_events WHERE event_type='api_key_revoked' AND details->>'keyId'=$1`, key) != 1 {
+		t.Fatal("revocation security event missing or duplicated")
 	}
 	// Onboarding and platform-only keys preserve their independent authorization.
 	w.exec(`DELETE FROM memberships WHERE tenant_id=$1`, w.B)
@@ -108,6 +109,13 @@ func TestGate1TenantAPIKeyNotificationFailureRollsBack(t *testing.T) {
 			expect(t, w.createKey(pa, map[string]any{"name": "rollback", "scope": "script", "tenantId": w.A, "capabilities": []string{"users:view"}}), 500, "internal")
 			if w.count(`SELECT count(*) FROM api_keys`) != before {
 				t.Fatal("key survived failed D2 append")
+			}
+			// Revocation reduces access even OFF, but still requires atomic audit/notification.
+			key, _ := w.mustKey(w.login("ta.a@example.test"), map[string]any{"name": "revoke-rollback", "scope": "script", "tenantId": w.A, "capabilities": []string{"users:view"}})
+			supportFixtureConsent(w, w.A, false)
+			expect(t, w.send(http.MethodDelete, "/v1/api-keys/"+key, pa, nil), 500, "internal")
+			if w.count(`SELECT count(*) FROM api_keys WHERE id=$1 AND revoked_at IS NULL`, key) != 1 || w.count(`SELECT count(*) FROM security_events WHERE event_type='api_key_revoked' AND details->>'keyId'=$1`, key) != 0 {
+				t.Fatal("revocation survived failed D2 append")
 			}
 		})
 	}

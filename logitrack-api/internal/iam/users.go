@@ -836,14 +836,14 @@ func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error
 		}
 		emailChanged := in.Email.Set && (u.Email == nil || !strings.EqualFold(*u.Email, email))
 		if emailChanged {
-
 			params.SetEmail, params.Email = true, &email
 			fields = append(fields, "email")
 		}
 		if len(fields) == 0 {
 			return a.supportIAM(c, tx, id, nil, "", false)
 		}
-		if err := a.supportIAM(c, tx, id, nil, "profile", false); err != nil {
+		generalCredentialChange := emailChanged && c.p.IsPlatform() && !c.p.IsMachine()
+		if err := a.supportIAM(c, tx, id, nil, "profile", generalCredentialChange); err != nil {
 			return err
 		}
 		if emailChanged {
