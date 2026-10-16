@@ -94,7 +94,7 @@ func TestReach(t *testing.T) {
 		t.Fatal("a platform admin writes everywhere without the header")
 	}
 	all := principal("", nil, authz.Support)
-	all.ActOnAll = true
+
 	if r := readReach(all); r.all {
 		t.Fatal("a retired header cannot widen reads")
 	}

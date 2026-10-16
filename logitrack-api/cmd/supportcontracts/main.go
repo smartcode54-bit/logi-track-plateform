@@ -181,6 +181,11 @@ export const SUPPORT_ENTRY_ENABLED = false as const;
 		return nil, err
 	}
 	for _, schema := range schemas {
+		// Raw lead rows retain their ordinary platform contract and are never a support response.
+		// Keep their server-side classification in discovery without publishing a support client DTO.
+		if schema.Name == "ResponseFormsWaitlistEntry" {
+			continue
+		}
 		fmt.Fprintf(&out, "export interface %s {\n", schema.Name)
 		for _, field := range schema.Fields {
 			optional := ""

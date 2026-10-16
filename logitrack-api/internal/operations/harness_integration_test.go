@@ -131,7 +131,7 @@ func (w *world) fixture() {
 	w.staffC = &authz.Principal{UserID: uuid.New(), TenantID: &w.C, TenantRole: authz.Manager, TenantKind: "carrier"}
 	w.driverO1 = &authz.Principal{UserID: uuid.New(), TenantID: &w.O, TenantRole: authz.Driver, DriverID: &w.dO1, TenantKind: "own_fleet"}
 	w.driverO2 = &authz.Principal{UserID: uuid.New(), TenantID: &w.O, TenantRole: authz.Driver, DriverID: &w.dO2, TenantKind: "own_fleet"}
-	w.all = &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnAll: true}
+	w.all = &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}}
 }
 
 // tx runs fn in a request transaction of p (db.WithPrincipal on the app pool; operations.MapError on the result).

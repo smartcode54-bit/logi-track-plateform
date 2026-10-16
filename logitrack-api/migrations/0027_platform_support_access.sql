@@ -10,7 +10,7 @@ ALTER TABLE tenants
   ADD COLUMN support_access_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN support_access_version bigint NOT NULL DEFAULT 0 CHECK (support_access_version >= 0),
   ADD COLUMN support_access_changed_at timestamptz,
-  ADD COLUMN support_access_changed_by uuid,
+  ADD COLUMN support_access_changed_by uuid REFERENCES users(id),
   ADD CONSTRAINT tenants_support_access_quarantine CHECK (kind <> 'quarantine' OR NOT support_access_enabled),
   ADD CONSTRAINT tenants_support_access_actor CHECK
     ((support_access_version = 0 AND NOT support_access_enabled
@@ -140,8 +140,14 @@ ALTER TABLE tenants
   ADD COLUMN support_bootstrap_consumed boolean NOT NULL DEFAULT false,
   ADD CONSTRAINT tenants_support_first_admin_revoked CHECK
     (support_first_admin_revoked_at IS NULL OR support_first_admin_grant_id IS NOT NULL);
--- A legacy tenant cannot acquire a new "first" admin merely because old memberships disappeared.
-UPDATE tenants SET support_bootstrap_consumed = true;
+-- Preserve a first-admin bootstrap for legacy tenants with no admin history. Missing current
+-- membership alone cannot reopen onboarding when a retained audit records an earlier admin.
+UPDATE tenants t SET support_bootstrap_consumed = true
+WHERE EXISTS (SELECT 1 FROM membership_provenance_history h WHERE h.tenant_id=t.id AND h.role='tenant_admin')
+  OR EXISTS (SELECT 1 FROM security_events e
+    WHERE (e.tenant_id=t.id AND (e.details->>'role'='tenant_admin' OR e.details->>'previousRole'='tenant_admin'))
+      OR (e.event_type='user_deleted' AND e.details->'memberships' @>
+        jsonb_build_array(jsonb_build_object('tenantId',t.id,'role','tenant_admin'))));
 
 -- Retained tenant-creation and original admin-creation audits anchor initial onboarding. Any
 -- earlier/conflicting admin evidence makes it ambiguous. Keep an immutable original snapshot,
@@ -356,6 +362,7 @@ CREATE POLICY p_system ON support_request_limits
   USING (app_role() = 'system' AND app_bypass()) WITH CHECK (app_role() = 'system' AND app_bypass());
 GRANT SELECT, INSERT, UPDATE ON support_request_limits TO logitrack_app;
 GRANT SELECT ON support_request_limits TO logitrack_etl;
+GRANT SELECT ON support_visits, membership_provenance_history, support_request_limits TO logitrack_readonly;
 
 -- Safe pagination IDs for the platform projection; device identifiers never enter cursors.
 ALTER TABLE mobile_installations ADD COLUMN support_page_id uuid NOT NULL DEFAULT uuidv7();

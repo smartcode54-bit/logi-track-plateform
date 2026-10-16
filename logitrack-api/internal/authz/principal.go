@@ -115,10 +115,6 @@ type Principal struct {
 	SubtenantIDs []uuid.UUID
 	// Caps is the effective capability set.
 	Caps CapSet
-	// Deprecated compatibility fields for pending owner-local consumer migrations. Authentication
-	// never sets them; effective tenant, role, capabilities and RLS ignore them.
-	ActOnTenant *uuid.UUID
-	ActOnAll    bool
 
 	resolved bool
 }

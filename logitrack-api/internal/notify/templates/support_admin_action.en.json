@@ -1,5 +1,7 @@
 {
   "actions": {
+    "api_key_create": "Created a company API key",
+    "api_key_revoke": "Revoked a company API key",
     "membership_set": "Changed a company membership",
     "membership_add": "Added a company membership",
     "membership_remove": "Removed a company membership",

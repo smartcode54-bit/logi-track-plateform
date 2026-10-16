@@ -1,5 +1,7 @@
 {
   "actions": {
+    "api_key_create": "สร้างคีย์ API ของบริษัท",
+    "api_key_revoke": "เพิกถอนคีย์ API ของบริษัท",
     "membership_set": "เปลี่ยนแปลงสิทธิ์สมาชิกบริษัท",
     "membership_add": "เพิ่มสมาชิกบริษัท",
     "membership_remove": "นำสมาชิกออกจากบริษัท",

@@ -19,6 +19,12 @@ type WaitlistCounts struct {
 
 var _ = httpx.NewSchema[WaitlistCounts]("forms.waitlist-counts", map[string]httpx.Field{"total": {Kind: httpx.Safe}})
 
+// Lead identity is an existing platform control contract, available only outside support sessions.
+var _ = httpx.NewSchema[Entry]("forms.waitlist-entry", map[string]httpx.Field{
+	"id": {Kind: httpx.Safe}, "email": {Kind: httpx.Safe}, "name": {Kind: httpx.Safe},
+	"countryCode": {Kind: httpx.Safe}, "phone": {Kind: httpx.Safe}, "createdAt": {Kind: httpx.Safe},
+})
+
 func (s *Service) WaitlistCounts(ctx context.Context, p *authz.Principal) (WaitlistCounts, error) {
 	var out WaitlistCounts
 	if p == nil || (!p.Can(authz.WaitlistView) && (!p.IsPlatform() || !authz.PlatformCaps(p).Has(authz.WaitlistView))) {

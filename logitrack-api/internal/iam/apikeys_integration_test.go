@@ -489,6 +489,7 @@ func toCounts(m map[string]any) map[string]int {
 // platform_admin manages every key and reads projected metadata through the platform endpoint.
 func TestAPIKeyReach(t *testing.T) {
 	w := newWorld(t)
+	supportFixtureConsent(w, w.A, true) // Platform-originated tenant-key creation/revocation requires D2 consent.
 	taA, taC, pa := w.login("ta.a@example.test"), w.login("ta.c@example.test"), w.login("pa@example.test")
 	mgA, opO := w.login("mg.a@example.test"), w.login("op.o@example.test")
 	keyA, _ := w.mustKey(taA, map[string]any{"name": "a", "scope": "script", "capabilities": []string{"users:view"}, "tenantId": w.A})

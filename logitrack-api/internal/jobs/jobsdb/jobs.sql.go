@@ -147,16 +147,20 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 
 const listJobs = `-- name: ListJobs :many
 SELECT id, type, status, owner_user_id, tenant_id, params, progress, result, error, created_at, started_at, finished_at FROM jobs
- WHERE ($1::uuid IS NULL OR owner_user_id = $1::uuid
-        OR (tenant_id = $2::uuid AND type = ANY ($3::text[])))
-   AND ($4::text IS NULL OR type = $4::text)
-   AND ($5::timestamptz IS NULL
-        OR (created_at, id) < ($5::timestamptz, $6::uuid))
+ WHERE (NOT $1::boolean
+        OR owner_user_id = $2::uuid
+        OR tenant_id = $3::uuid)
+   AND (owner_user_id = $2::uuid
+        OR (tenant_id = $3::uuid AND type = ANY ($4::text[])))
+   AND ($5::text IS NULL OR type = $5::text)
+   AND ($6::timestamptz IS NULL
+        OR (created_at, id) < ($6::timestamptz, $7::uuid))
  ORDER BY created_at DESC, id DESC
- LIMIT $7::int
+ LIMIT $8::int
 `
 
 type ListJobsParams struct {
+	RestrictTenant  bool
 	OwnerUserID     *uuid.UUID
 	ReaderTenantID  *uuid.UUID
 	ReaderTypes     []string
@@ -166,11 +170,12 @@ type ListJobsParams struct {
 	RowLimit        int32
 }
 
-// GET /v1/jobs: keyset on (created_at DESC, id DESC); owner NULL = every job (platform callers). Otherwise the
-// caller's own jobs and, as a staff reader, the jobs of its tenant (reader_tenant_id) whose type's capability it holds
+// GET /v1/jobs: keyset on (created_at DESC, id DESC); non-owned platform reads require the caller's own tenant.
+// The caller's own jobs and, as a staff reader, the jobs of its tenant (reader_tenant_id) whose type's capability it holds
 // (reader_types, jobs.TypeCapabilities; developer-spec.md §7.5).
 func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error) {
 	rows, err := q.db.Query(ctx, listJobs,
+		arg.RestrictTenant,
 		arg.OwnerUserID,
 		arg.ReaderTenantID,
 		arg.ReaderTypes,

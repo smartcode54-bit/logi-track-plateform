@@ -1,12 +1,12 @@
-{{define "subject"}}Platform account administration — {{.Company}}{{end}}
+{{define "subject"}}Platform administration — {{.Company}}{{end}}
 {{define "text"}}Hello,
 
-The platform team performed an account action for {{.Company}}.
+The platform team performed an administrative action for {{.Company}}.
 Action: {{.Action}}
 Authorization: {{.Basis}}
 
 Actor reference: {{.Actor}}
-Account reference: {{.Target}}
+Record reference: {{.Target}}
 Company reference: {{.Tenant}}
 
 Review this event in your company's Security Center.

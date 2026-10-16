@@ -95,9 +95,8 @@ func TestRequireTenant(t *testing.T) {
 	}{
 		{"member", &Principal{TenantID: ptr(carrier), TenantRole: User}, http.StatusNoContent},
 		{"customer scope", &Principal{PartyIDs: []uuid.UUID{uuid.New()}}, http.StatusForbidden},
-		{"platform without header", &Principal{Platform: []PlatformRole{PlatformAdmin}}, http.StatusForbidden},
-		{"platform acting as a tenant", &Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnTenant: ptr(carrier)}, http.StatusForbidden},
-		{"platform with *", &Principal{Platform: []PlatformRole{Support}, ActOnAll: true}, http.StatusForbidden},
+		{"platform admin without tenant", &Principal{Platform: []PlatformRole{PlatformAdmin}}, http.StatusForbidden},
+		{"support without tenant", &Principal{Platform: []PlatformRole{Support}}, http.StatusForbidden},
 	} {
 		code, env := serve(t, tc.p, RequireTenant())
 		if code != tc.want || (code == http.StatusForbidden && env.Error.Code != CodeTenantRequired) {

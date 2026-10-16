@@ -29,10 +29,9 @@ func (a *analyzer) overrideCounts(root string) map[string]int {
 					return true
 				}
 				obj := object(selector, pkg.info)
-				if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != module+"/internal/authz" {
-					return true
-				}
-				if !slices.Contains([]string{"ActOnAll", "ActOnTenant", "PlatformCrossTenantWrite"}, selector.Sel.Name) {
+				retiredField := slices.Contains([]string{"ActOnAll", "ActOnTenant"}, selector.Sel.Name) && humanPrincipalType(pkg.info.TypeOf(selector.X))
+				retiredKey := selector.Sel.Name == "PlatformCrossTenantWrite" && obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == module+"/internal/authz"
+				if !retiredField && !retiredKey {
 					return true
 				}
 				counts[filepath.ToSlash(relative)+":"+selector.Sel.Name]++
@@ -41,6 +40,37 @@ func (a *analyzer) overrideCounts(root string) map[string]int {
 		}
 	}
 	return counts
+}
+
+// Wrapping Principal must not hide a reintroduced compatibility field from the release gate.
+func humanPrincipalType(t types.Type) bool {
+	return humanPrincipalTypeSeen(t, map[types.Type]bool{})
+}
+
+func humanPrincipalTypeSeen(t types.Type, seen map[types.Type]bool) bool {
+	if t == nil {
+		return false
+	}
+	t = types.Unalias(t)
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	if ptr, ok := t.(*types.Pointer); ok {
+		return humanPrincipalTypeSeen(ptr.Elem(), seen)
+	}
+	if named, ok := t.(*types.Named); ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == module+"/internal/authz" && named.Obj().Name() == "Principal" {
+		return true
+	}
+	if fields, ok := t.Underlying().(*types.Struct); ok {
+		for i := 0; i < fields.NumFields(); i++ {
+			field := fields.Field(i)
+			if field.Embedded() && humanPrincipalTypeSeen(field.Type(), seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // A positive override flag that unconditionally returns a known refusal cannot

@@ -17,10 +17,6 @@ func (a *Admin) supportIAM(c call, tx pgx.Tx, user uuid.UUID, extra []uuid.UUID,
 	if err := authz.RequireTenantWrite(c.p); err != nil {
 		return err
 	}
-	if err := liveIAMContext(c, tx); err != nil {
-		return err
-	}
-	platform := c.p.IsPlatform() && !c.p.IsMachine()
 	tenants := slices.Clone(extra)
 	rows, err := tx.Query(c.ctx, `SELECT tenant_id FROM memberships WHERE user_id=$1 AND ($2 OR EXISTS (SELECT 1 FROM memberships admin WHERE admin.user_id=$1 AND admin.role='tenant_admin')) ORDER BY tenant_id`, user, general)
 	if err != nil {
@@ -41,9 +37,18 @@ func (a *Admin) supportIAM(c call, tx pgx.Tx, user uuid.UUID, extra []uuid.UUID,
 	}
 	slices.SortFunc(tenants, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
 	tenants = slices.Compact(tenants)
-	if platform && general && len(tenants) == 0 {
-		return authz.ErrPermissionDenied("platform IAM target requires a tenant")
+	return a.supportIAMTenants(c, tx, &user, nil, tenants, action)
+}
+
+// Explicit tenant targets share the D2 lock, audit and notification boundary with account actions.
+func (a *Admin) supportIAMTenants(c call, tx pgx.Tx, user, key *uuid.UUID, tenants []uuid.UUID, action string) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
 	}
+	if err := liveIAMContext(c, tx); err != nil {
+		return err
+	}
+	platform := c.p.IsPlatform() && !c.p.IsMachine()
 	q := iamdb.New(tx)
 	for _, tenant := range tenants {
 		t, err := q.LockSupportAccess(c.ctx, tenant)
@@ -77,11 +82,14 @@ func (a *Admin) supportIAM(c call, tx pgx.Tx, user uuid.UUID, extra []uuid.UUID,
 			event = "platform_account_invited"
 		}
 		details := map[string]any{"action": action, "basis": basis, "outcome": "allowed", "grantorUserId": c.p.UserID, "consentVersion": t.SupportAccessVersion}
-		if err := a.audit(c, tx, event, "platform account administration", &user, &tenant, details); err != nil {
+		if key != nil {
+			details["apiKeyId"] = *key
+		}
+		if err := a.audit(c, tx, event, "platform access administration", user, &tenant, details); err != nil {
 			return err
 		}
 		for _, recipient := range admins {
-			if err := emit(c, tx, "tenant.support_admin_action", "tenant", tenant.String(), &tenant, map[string]any{"tenantId": tenant, "actorUserId": c.p.UserID, "targetUserId": user, "action": action, "basis": basis, "recipientUserIds": []uuid.UUID{recipient}}); err != nil {
+			if err := emit(c, tx, "tenant.support_admin_action", "tenant", tenant.String(), &tenant, map[string]any{"tenantId": tenant, "actorUserId": c.p.UserID, "targetUserId": user, "targetApiKeyId": key, "action": action, "basis": basis, "recipientUserIds": []uuid.UUID{recipient}}); err != nil {
 				return err
 			}
 		}

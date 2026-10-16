@@ -1,0 +1,22 @@
+PSAG1GO slice specification addendum: tenant API-key revocation
+
+Scope: shared-docs/specs/mv-go/platform-support-access.md sections 4.3 and 4.4,
+and PSAG1GO's tenant-bound API-key D2 work.
+
+The base specification explicitly classifies revocation by the stored key owner,
+but does not clearly decide whether revocation is exempt from D2 outside support.
+PSAG1GO currently applies the same conservative restriction to tenant-key creation
+and revocation: a platform human must leave support and the target tenant must
+have no active tenant_admin membership or have support access enabled. Disabled
+admin accounts still count. Allowed platform actions atomically audit and notify
+the pre-operation admins. Repeated revocation of an already-revoked key is a no-op.
+
+The review preserves this behavior; it does not introduce an incident-response
+exemption or claim that the base specification explicitly requires this extension.
+Any exemption needs a separate owner decision. Ordinary tenant members retain
+their existing authorized key-management behavior regardless of support consent;
+platform-owned keys retain their independent authorization.
+
+Regression: TestGate1TenantAPIKeysRequireConsentAndNotifyAdmins verifies refusal
+with consent OFF and an existing admin, success with consent ON, rollback of the
+refused action, and exactly one notification across an idempotent revoke retry.

@@ -54,9 +54,22 @@ func equalTenant(a, b *uuid.UUID) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
-// checkContext deliberately has no negative cache: even old member tokens read live state.
+// Ordinary members compare one live row. Support/platform contexts and changed versions retain the full check.
 func (s *Service) checkContext(ctx context.Context, p *authz.Principal) error {
 	return s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
+		if !p.IsPlatform() && !authz.IsSupport(p) {
+			st, err := q.MemberSessionAdmission(ctx, authdb.MemberSessionAdmissionParams{SessionID: p.SessionID, UserID: p.UserID})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errInvalidToken()
+			}
+			if err != nil {
+				return err
+			}
+			member := st.ActiveTenantID == nil && p.TenantRole == "" || st.ActiveTenantID != nil && st.MemberStatus == "active" && st.MemberRole == string(p.TenantRole)
+			if !st.HasPlatformRole && st.AccessMode == AccessModeMember && (p.AccessMode == "" || p.AccessMode == AccessModeMember) && st.ContextVersion == p.ContextVersion && equalTenant(st.ActiveTenantID, p.TenantID) && member && st.UserStatus == "active" && st.AuthVersion == p.AuthVersion && st.RevokedAt == nil && st.ExpiresAt.After(s.clock()) {
+				return nil
+			}
+		}
 		st, err := readSessionContext(ctx, tx, p.UserID, p.SessionID, false)
 		if err != nil {
 			return err

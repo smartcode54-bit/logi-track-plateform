@@ -129,11 +129,11 @@ type Location struct {
 	FuelPercentage      *float64 `json:"fuelPercentage"`
 }
 
-// scoped reports whether p reads the scope_* projections: a dispatcher or a customer-scope principal (never under
-// X-Act-On-Tenant: *, which reads as staff). The route admits no customer-scope principal; a dispatcher reads
+// scoped reports whether p reads the scope_* projections: a dispatcher or a customer-scope principal.
+// The route admits no customer-scope principal; a dispatcher reads
 // scope_vehicle_locations (Appendix C §C.3.7, R85).
 func scoped(p *authz.Principal) bool {
-	return (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll
+	return p.IsCustomerScope() || p.Dispatcher
 }
 
 // List is GET /v1/vehicle-locations: the positions p's RLS admits, or only those of truckIDs. Staff get []Location from

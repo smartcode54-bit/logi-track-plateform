@@ -312,10 +312,10 @@ func edgePrincipals() map[string]*Principal {
 		"CU":    mk(Principal{PartyIDs: []uuid.UUID{party}}, ""),
 		"DS":    mk(Principal{TenantID: ptr(carrier), TenantRole: User, Dispatcher: true, PartyIDs: []uuid.UUID{party}}, TenantKindCarrier),
 		"PA":    mk(Principal{Platform: pa}, ""),
-		"PAt":   mk(Principal{Platform: pa, ActOnTenant: ptr(carrier)}, TenantKindCarrier),
-		"PAall": mk(Principal{Platform: pa, ActOnAll: true}, ""),
+		"PAt":   mk(Principal{Platform: pa}, TenantKindCarrier),
+		"PAall": mk(Principal{Platform: pa}, ""),
 		"SU":    mk(Principal{Platform: su}, ""),
-		"SUall": mk(Principal{Platform: su, ActOnAll: true}, ""),
+		"SUall": mk(Principal{Platform: su}, ""),
 	}
 }
 

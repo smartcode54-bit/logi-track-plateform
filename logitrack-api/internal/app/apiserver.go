@@ -127,7 +127,7 @@ func EventGroups(d APIDeps) []ingress.Group {
 func SSELease(ping time.Duration) time.Duration { return 3 * ping }
 
 // JobGroups are GET /v1/jobs, GET /v1/jobs/{id} and POST /v1/admin/queues/{queue}/replay (T10) behind
-// auth.RequireAuth: owners read their jobs, platform_admin and support read all, staff of a job's tenant
+// auth.RequireAuth: owners read their jobs, platform humans are bounded to their own tenant, staff of a job's tenant
 // read the jobs whose type's capability they hold (jobs.TypeCapabilities, T21), platform_admin replays
 // (Appendix B §B.2.20).
 func JobGroups(d APIDeps) []ingress.Group {

@@ -33,8 +33,8 @@ func liveIAMContext(c call, tx pgx.Tx) error {
 	if err != nil {
 		return err
 	}
-	// An HTTP call resolves legacy claims to an explicit "0". Service-only adapters such as
-	// MoveDriver have no HTTP audience and rely on their already verified admission version.
+	// HTTP calls carry the verified principal's version (zero for legacy claims). Service-only
+	// adapters such as MoveDriver rely on their already verified admission version.
 	expected := c.contextVersion
 	if mode != "member" || expected != "" && strconv.FormatInt(scv, 10) != expected || !equalID(tenant, c.p.TenantID) || revoked != nil || !expires.After(time.Now()) || version != c.p.AuthVersion || status != "active" {
 		return stale()

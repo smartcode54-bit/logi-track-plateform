@@ -35,7 +35,7 @@ func (f *Field[T]) UnmarshalJSON(b []byte) error {
 
 // AdminGroups are the route groups of T19 on the internal listener (Appendix B §B.2.4, §B.2.5): /v1/users*
 // and /v1/tenants* (with the quarantine review of T24) behind requireAuth (auth.Service.RequireAuth, which resolves the principal through
-// RBAC.Authorize, X-Act-On-Tenant included), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
+// RBAC.Authorize), the carrier profiles /v1/subcontractors* of T20 (§B.2.10), and those
 // of T51 (§B.2.5, §B.2.6): DELETE /v1/users/{id}, /v1/security-events, /v1/security/overview, /v1/security/status
 // and /v1/stats/users-by-role (the role matrix is in RoleGroups). a may be nil while the route table is only listed.
 func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
@@ -84,7 +84,7 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			r.Post("/:id/members/:userId/ratify", requireAuth, h.ratify)
 			// The quarantine review of P1 (T24): platform principals only, in the system context.
 			r.Get("/quarantine/rows", requireAuth, need(authz.PlatformCrossTenantRead), h.listQuarantineRows)
-			r.Post("/quarantine/rows/:table/:id/rehome", requireAuth, need(authz.PlatformCrossTenantWrite), h.rehomeQuarantineRow)
+			r.Post("/quarantine/rows/:table/:id/rehome", requireAuth, requireQuarantineMaintenance, h.rehomeQuarantineRow)
 			ingress.Bind(r, "", iamPolicy(http.MethodGet, "/v1/tenants", "iam.tenant"), requireAuth, h.projection, need(authz.PlatformManageTenants, authz.FleetManageSubcontractors), h.listTenants)
 			ingress.Bind(r, "", provisioningPolicy(), requireAuth, h.projection, platformOrMemberCap(authz.PlatformManageTenants), h.createTenant)
 			ingress.Bind(r, "/:id", iamPolicy(http.MethodGet, "/v1/tenants/:id", "iam.tenant-detail"), requireAuth, h.projection, h.getTenant)
@@ -103,7 +103,6 @@ func AdminGroups(a *Admin, requireAuth fiber.Handler) []ingress.Group {
 			ingress.Bind(r, "/:id", partnerPolicy(http.MethodGet, "/v1/subcontractors/:id", "iam.subcontractor"), requireAuth, h.projection, h.getSubcontractor)
 			ingress.Bind(r, "/:id", iamMutationPolicy("PATCH", "/v1/subcontractors/:id", "iam.subcontractor"), requireAuth, h.projection, h.patchSubcontractor)
 		}},
-		// The Security Center reads (T51) need a tenant context: a platform principal sends X-Act-On-Tenant.
 		{Prefix: "/v1/security-events", Mount: func(r fiber.Router) {
 			r.Get("", requireAuth, need(authz.SecurityViewAudit), authz.RequireTenant(), h.listEvents)
 		}},
@@ -128,11 +127,7 @@ func (adminHTTP) call(c fiber.Ctx) (call, error) {
 		return call{}, httpx.ErrUnauthenticated()
 	}
 	httpx.ResolveProjectionAudience(c)
-	audience := httpx.ProjectionAudienceFrom(c)
-	version := audience.ContextVersion
-	if version == "" {
-		version = "0"
-	}
+	version := strconv.FormatInt(p.ContextVersion, 10)
 	return call{ctx: c.Context(), p: p, rid: httpx.RequestIDFrom(c), contextVersion: version, labels: map[uuid.UUID]platformLabel{}, labelVersions: supportprojection.LabelVersions(c)}, nil
 }
 

@@ -99,7 +99,7 @@ func TestIsSteward(t *testing.T) {
 		{"carrier tenant_admin", Principal{TenantID: ptr(carrier), TenantRole: TenantAdmin}, TenantKindCarrier, false},
 		{"platform_admin", Principal{Platform: []PlatformRole{PlatformAdmin}}, "", true},
 		{"support", Principal{Platform: []PlatformRole{Support}}, "", false},
-		{"acting as a carrier", Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnTenant: ptr(carrier)}, TenantKindCarrier, true},
+		{"acting as a carrier", Principal{Platform: []PlatformRole{PlatformAdmin}}, TenantKindCarrier, true},
 		{"customer scope", Principal{PartyIDs: []uuid.UUID{carrier}}, "", false},
 		{"platform API key", Principal{AMR: AMRAPIKey}, "", true},
 		{"own-fleet API key", Principal{AMR: AMRAPIKey, TenantID: ptr(ownFleet)}, TenantKindOwnFleet, false},
@@ -150,11 +150,11 @@ func TestEffective(t *testing.T) {
 		}
 	})
 	t.Run("X-Act-On-Tenant: *", func(t *testing.T) {
-		pa := Effective(&Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnAll: true}, CapSet{})
+		pa := Effective(&Principal{Platform: []PlatformRole{PlatformAdmin}}, CapSet{})
 		if pa.Has(OperationsViewFirstMile) || !pa.Has(PlatformCrossTenantRead) || pa != PlatformCaps(&Principal{Platform: []PlatformRole{PlatformAdmin}}) {
 			t.Errorf("platform_admin with * holds %d keys, want the tenant_admin set and the platform set", pa.Len())
 		}
-		su := Effective(&Principal{Platform: []PlatformRole{Support}, ActOnAll: true}, CapSet{})
+		su := Effective(&Principal{Platform: []PlatformRole{Support}}, CapSet{})
 		if su != PlatformDefaults(Support) {
 			t.Errorf("support with * %v, want its own read-only set", su.Keys())
 		}

@@ -75,7 +75,12 @@ func iamPolicy(method, route, schema string) httpx.EndpointPolicy {
 	return supportprojection.Policy(method, route, schema)
 }
 
-func (h adminHTTP) projection(c fiber.Ctx) error { return PlatformProjection(h.a.pool)(c) }
+func (h adminHTTP) projection(c fiber.Ctx) error {
+	if err := h.memberReadContext(c); err != nil {
+		return err
+	}
+	return PlatformProjection(h.a.pool)(c)
+}
 
 func (h adminHTTP) supportGroups(requireAuth fiber.Handler) []ingress.Group {
 	return []ingress.Group{{Prefix: "/v1/platform", Mount: func(r fiber.Router) {

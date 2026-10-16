@@ -8,11 +8,14 @@ RETURNING *;
 SELECT * FROM jobs WHERE id = @id;
 
 -- name: ListJobs :many
--- GET /v1/jobs: keyset on (created_at DESC, id DESC); owner NULL = every job (platform callers). Otherwise the
--- caller's own jobs and, as a staff reader, the jobs of its tenant (reader_tenant_id) whose type's capability it holds
+-- GET /v1/jobs: keyset on (created_at DESC, id DESC); non-owned platform reads require the caller's own tenant.
+-- The caller's own jobs and, as a staff reader, the jobs of its tenant (reader_tenant_id) whose type's capability it holds
 -- (reader_types, jobs.TypeCapabilities; developer-spec.md §7.5).
 SELECT * FROM jobs
- WHERE (sqlc.narg(owner_user_id)::uuid IS NULL OR owner_user_id = sqlc.narg(owner_user_id)::uuid
+ WHERE (NOT sqlc.arg(restrict_tenant)::boolean
+        OR owner_user_id = sqlc.narg(owner_user_id)::uuid
+        OR tenant_id = sqlc.narg(reader_tenant_id)::uuid)
+   AND (owner_user_id = sqlc.narg(owner_user_id)::uuid
         OR (tenant_id = sqlc.narg(reader_tenant_id)::uuid AND type = ANY (sqlc.arg(reader_types)::text[])))
    AND (sqlc.narg(job_type)::text IS NULL OR type = sqlc.narg(job_type)::text)
    AND (sqlc.narg(before_created_at)::timestamptz IS NULL

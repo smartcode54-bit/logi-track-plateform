@@ -52,7 +52,7 @@ func decimalVersion(s string) (int64, bool) {
 }
 
 func eligibilityBasis(m iamdb.GetSupportMembershipAuthorityRow) string {
-	if m.Role != string(authz.TenantAdmin) || m.Status != MembershipActive || m.UserStatus != "active" || m.HasPlatformRole || !m.CredentialEligible {
+	if m.Role != string(authz.TenantAdmin) || m.Status != MembershipActive || m.UserStatus != "active" || !m.CredentialEligible {
 		return "pending"
 	}
 	if !m.GrantedByPlatform {
@@ -68,7 +68,7 @@ func eligibilityBasis(m iamdb.GetSupportMembershipAuthorityRow) string {
 }
 
 func consentMember(p *authz.Principal, tenant uuid.UUID) bool {
-	return p != nil && !p.IsMachine() && !authz.IsSupport(p) && !p.IsPlatform() && p.TenantID != nil && *p.TenantID == tenant
+	return p != nil && !p.IsMachine() && !authz.IsSupport(p) && p.TenantID != nil && *p.TenantID == tenant
 }
 
 // Lock users before tenants and memberships, matching credential/session writers.
@@ -174,7 +174,7 @@ func (a *Admin) Ratify(c call, tenant, user uuid.UUID, in RatifyInput) (*Ratific
 	denied := func() error {
 		return httpx.NewError(http.StatusForbidden, CodeRatificationNotAllowed, "ratification not allowed")
 	}
-	if !consentMember(c.p, tenant) || user == c.p.UserID {
+	if !consentMember(c.p, tenant) || c.p.IsPlatform() || user == c.p.UserID {
 		return nil, denied()
 	}
 	expected, ok := decimalVersion(in.ExpectedGrantVersion)
@@ -199,7 +199,7 @@ func (a *Admin) Ratify(c call, tenant, user uuid.UUID, in RatifyInput) (*Ratific
 		if err != nil {
 			return err
 		}
-		if eligibilityBasis(actor) == "pending" {
+		if actor.HasPlatformRole || eligibilityBasis(actor) == "pending" {
 			return denied()
 		}
 		target, err := q.GetSupportRatificationTarget(c.ctx, iamdb.GetSupportRatificationTargetParams{UserID: user, TenantID: tenant})
@@ -252,7 +252,7 @@ func (a *Admin) memberEligibility(c call, tenant uuid.UUID, members []Member) er
 			row.User.owner = owners[row.User.ID]
 			row.GrantedByPlatform, row.RatifiedAt, row.GrantVersion = m.GrantedByPlatform, m.RatifiedAt, strconv.FormatInt(m.GrantVersion, 10)
 			row.EligibilityBasis = eligibilityBasis(m)
-			row.EligibleToRatify = consentMember(c.p, tenant) && eligibilityBasis(actor) != "pending" && row.User.ID != c.p.UserID && m.GrantedByPlatform && m.RatifiedAt == nil && m.PlatformGrantedAt != nil && actor.CreatedAt.Before(*m.PlatformGrantedAt)
+			row.EligibleToRatify = consentMember(c.p, tenant) && !c.p.IsPlatform() && !actor.HasPlatformRole && eligibilityBasis(actor) != "pending" && row.User.ID != c.p.UserID && m.GrantedByPlatform && m.RatifiedAt == nil && m.PlatformGrantedAt != nil && actor.CreatedAt.Before(*m.PlatformGrantedAt)
 		}
 		return nil
 	})

@@ -165,7 +165,7 @@ gen: ## regenerate generated files (RabbitMQ definitions, api/routes.txt, capabi
 	go generate ./...
 	$(SQLC) generate
 
-gen-check: ## fail when generated files are stale, orphaned or uncommitted, a public route leaves the allow-list, the scope vet rule stops biting, or the migration rules break (go-ci gen-check)
+gen-check: support-release-check ## fail when generated files are stale, orphaned or uncommitted, a public route leaves the allow-list, the scope vet rule stops biting, or the migration rules break (go-ci gen-check)
 	go run ./cmd/supportcontracts
 	go run ./tools/analyzers/supportprojection
 	$(SQLC) diff

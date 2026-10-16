@@ -1,7 +1,1 @@
-{
-  "internal/dashboard/dashboard.go:ActOnAll": 2,
-  "internal/drivers/drivers.go:ActOnAll": 1,
-  "internal/fleet/locations/locations.go:ActOnAll": 1,
-  "internal/fleet/trucks.go:ActOnAll": 1,
-  "internal/iam/admin_http.go:PlatformCrossTenantWrite": 1
-}
+{}

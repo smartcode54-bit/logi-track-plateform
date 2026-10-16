@@ -2,13 +2,64 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 )
+
+func TestOrdinaryMemberAdmissionReadsOneLiveRow(t *testing.T) {
+	for _, hasTenant := range []bool{false, true} {
+		svc, tx, p := supportReadFixture(t)
+		p.Platform, p.AccessMode, p.TenantRole = nil, AccessModeMember, authz.Manager
+		if !hasTenant {
+			p.TenantID, p.TenantRole = nil, ""
+		}
+		tx.row = func(sql string, _ ...any) pgx.Row {
+			if !strings.Contains(sql, "-- name: MemberSessionAdmission") {
+				t.Fatalf("ordinary admission reloaded axes: %s", sql)
+			}
+			return supportTestRow{values: []any{AccessModeMember, p.ContextVersion, p.TenantID, (*time.Time)(nil), svc.clock().Add(time.Hour), p.AuthVersion, "active", string(p.TenantRole), "active", false}}
+		}
+		if err := svc.checkContext(t.Context(), p); err != nil {
+			t.Fatal(err)
+		}
+		reads := 0
+		for _, sql := range tx.statements {
+			if strings.Contains(sql, "-- name:") {
+				reads++
+			}
+		}
+		if reads != 1 {
+			t.Fatalf("ordinary admission: %d queries, want one", reads)
+		}
+	}
+}
+
+func TestMemberContextChangeFallsBackToFullAdmission(t *testing.T) {
+	svc, tx, p := supportReadFixture(t)
+	p.Platform, p.AccessMode, p.TenantRole = nil, AccessModeMember, authz.Manager
+	oldRow := tx.row
+	full := false
+	tx.row = func(sql string, args ...any) pgx.Row {
+		if strings.Contains(sql, "-- name: MemberSessionAdmission") {
+			return supportTestRow{values: []any{AccessModeMember, p.ContextVersion + 1, p.TenantID, (*time.Time)(nil), svc.clock().Add(time.Hour), p.AuthVersion, "active", string(p.TenantRole), "active", false}}
+		}
+		if sql == supportReadSessionContextSQL {
+			full = true
+			return supportTestRow{values: []any{AccessModeMember, p.ContextVersion + 1, p.TenantID, (*uuid.UUID)(nil), PlatformWeb, AMRPassword, svc.clock().Add(time.Hour), (*time.Time)(nil)}}
+		}
+		return oldRow(sql, args...)
+	}
+	if err := svc.checkContext(t.Context(), p); err == nil || !full {
+		t.Fatalf("changed version bypassed full admission: %v", err)
+	}
+}
 
 func TestSupportClaimsAndLegacyContext(t *testing.T) {
 	uid, sid, tid := uuid.New(), uuid.New(), uuid.New()

@@ -61,6 +61,7 @@ func Groups(s *Service, o Options) []ingress.Group {
 			hs := post(h.joinWaitlist)
 			r.Post("", hs[0], hs[1:]...)
 			p := supportprojection.Policy(http.MethodGet, WaitlistPrefix, "forms.waitlist-counts")
+			p.MetaSchemaID = "forms.waitlist-counts"
 			ingress.Bind(r, "", p, o.Auth, h.projection, view, h.listWaitlist)
 			r.Delete("/:id", o.Auth, view, h.deleteWaitlist)
 		}},
@@ -104,7 +105,7 @@ func (h handlers) partnerInterest(c fiber.Ctx) error {
 
 // listWaitlist is GET /v1/waitlist?cursor&limit (meta.total: every entry).
 func (h handlers) listWaitlist(c fiber.Ctx) error {
-	if p := authz.PrincipalFrom(c); p != nil && (authz.IsSupport(p) || p.IsPlatform()) {
+	if p := authz.PrincipalFrom(c); authz.IsSupport(p) {
 		return h.waitlistCounts(c)
 	}
 	p := authz.PrincipalFrom(c)
@@ -130,7 +131,7 @@ func (h handlers) listWaitlist(c fiber.Ctx) error {
 		return err
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")
-	return httpx.OrdinaryPage(c, items, next, map[string]any{"total": total})
+	return httpx.PageAs(c, "forms.waitlist-entry", items, next, WaitlistCounts{Total: total})
 }
 
 // deleteWaitlist is DELETE /v1/waitlist/{id}: 204, or 404 for an unknown id.

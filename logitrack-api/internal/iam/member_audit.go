@@ -10,11 +10,15 @@ import (
 
 // Audit access in member mode is derived from the live membership and its overrides alone.
 func (a *Admin) memberAuditPrincipal(c call) (*authz.Principal, error) {
+	return a.memberPrincipal(c, authz.SecurityViewAudit)
+}
+
+func (a *Admin) memberPrincipal(c call, capability authz.Cap) (*authz.Principal, error) {
 	p := c.p
 	if p == nil {
 		return nil, httpx.ErrUnauthenticated()
 	}
-	if authz.IsSupport(p) || p.TenantID == nil || p.ActOnAll || p.ActOnTenant != nil {
+	if authz.IsSupport(p) || p.TenantID == nil {
 		return nil, httpx.ErrSupportViewUnavailable()
 	}
 	var role, status, kind string
@@ -50,13 +54,14 @@ func (a *Admin) memberAuditPrincipal(c call) (*authz.Principal, error) {
 	}
 	member := *p
 	member.Platform = nil
+	member.PlatformCapabilities = authz.CapSet{}
 	member.TenantRole = authz.TenantRole(role)
 	member.TenantKind = kind
 	member.Steward = authz.IsSteward(&member, kind)
 	member.SubtenantIDs = subs
 	member.Caps = authz.RoleCaps(member.TenantRole, member.Steward, overrides)
-	if !member.Can(authz.SecurityViewAudit) {
-		return nil, authz.ErrPermissionDenied("missing tenant audit capability", authz.SecurityViewAudit)
+	if !member.Can(capability) {
+		return nil, authz.ErrPermissionDenied("missing tenant read capability", capability)
 	}
 	return &member, nil
 }

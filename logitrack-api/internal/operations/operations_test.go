@@ -136,7 +136,7 @@ func TestReachOf(t *testing.T) {
 	if r := ReachOf(driver); r.All || len(r.Tenants) != 0 || r.Driver == nil || *r.Driver != drv {
 		t.Errorf("driver reach %+v", r)
 	}
-	all := &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnAll: true}
+	all := &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}}
 	if r := ReachOf(all); r.All || len(r.Tenants) != 0 || r.Driver != nil {
 		t.Errorf("retired human override granted reach %+v", r)
 	}
@@ -156,7 +156,7 @@ func TestStandbyBillingProjection(t *testing.T) {
 	carrierStaff := &authz.Principal{UserID: uuid.New(), TenantID: &carrier, TenantRole: authz.TenantAdmin, TenantKind: "carrier"}
 	driver := &authz.Principal{UserID: uuid.New(), TenantID: &own, TenantRole: authz.Driver, DriverID: ptr(uuid.New()), TenantKind: "own_fleet"}
 	dispatcher := &authz.Principal{UserID: uuid.New(), TenantID: &own, TenantRole: authz.Manager, Dispatcher: true, TenantKind: "own_fleet"}
-	all := &authz.Principal{UserID: uuid.New(), ActOnAll: true}
+	all := &authz.Principal{UserID: uuid.New()}
 
 	priced := Standby{BillingEstimateThb: ptr(500.0), BillingRateSource: ptr("standby_rate"), BillingPartyID: ptr(uuid.New()),
 		BillingRateEntryID: ptr(uuid.New())}

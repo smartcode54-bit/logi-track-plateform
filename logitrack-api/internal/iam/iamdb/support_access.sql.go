@@ -369,7 +369,7 @@ type RecordFirstSupportOnboardingAdminParams struct {
 
 // Explicit initial-onboarding evidence only. Historical admin rows, including deleted ones, prevent
 // a replacement from acquiring bootstrap. The reference points to an immutable snapshot, never a live row.
-// Migration consumes bootstrap for every legacy tenant and separately backfills evidenced original grants.
+// Migration consumes bootstrap only when legacy admin history exists and backfills evidenced original grants.
 func (q *Queries) RecordFirstSupportOnboardingAdmin(ctx context.Context, arg RecordFirstSupportOnboardingAdminParams) (int64, error) {
 	result, err := q.db.Exec(ctx, recordFirstSupportOnboardingAdmin, arg.TenantID, arg.UserID)
 	if err != nil {

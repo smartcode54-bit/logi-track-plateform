@@ -24,6 +24,7 @@ type SupportAdminAction struct {
 	TenantID         uuid.UUID   `json:"tenantId"`
 	ActorUserID      uuid.UUID   `json:"actorUserId"`
 	TargetUserID     uuid.UUID   `json:"targetUserId"`
+	TargetAPIKeyID   *uuid.UUID  `json:"targetApiKeyId,omitempty"`
 	Action           string      `json:"action"`
 	Basis            string      `json:"basis"`
 	Locale           string      `json:"locale,omitempty"`
@@ -35,7 +36,12 @@ func (e *Email) supportAdminAction(ctx context.Context, d *mq.Delivery) error {
 	if err := d.Decode(&req); err != nil {
 		return err
 	}
-	if req.TenantID == uuid.Nil || req.ActorUserID == uuid.Nil || req.TargetUserID == uuid.Nil || d.TenantID == nil || *d.TenantID != req.TenantID {
+	keyAction := req.Action == "api_key_create" || req.Action == "api_key_revoke"
+	validTarget := req.TargetUserID != uuid.Nil && req.TargetAPIKeyID == nil
+	if keyAction {
+		validTarget = req.TargetUserID == uuid.Nil && req.TargetAPIKeyID != nil && *req.TargetAPIKeyID != uuid.Nil
+	}
+	if req.TenantID == uuid.Nil || req.ActorUserID == uuid.Nil || !validTarget || d.TenantID == nil || *d.TenantID != req.TenantID {
 		return mq.Permanent(errors.New("notify.email: invalid support action"))
 	}
 	if !e.Enabled {
@@ -114,7 +120,11 @@ func supportActionMail(to, locale, company string, req SupportAdminAction) (emai
 		return email.Message{}, fmt.Errorf("notify.email: invalid support action or basis")
 	}
 	company = strings.Join(strings.Fields(company), " ")
-	data := struct{ Company, Action, Basis, Actor, Target, Tenant string }{company, action, basis, req.ActorUserID.String(), req.TargetUserID.String(), req.TenantID.String()}
+	target := req.TargetUserID.String()
+	if req.TargetAPIKeyID != nil {
+		target = req.TargetAPIKeyID.String()
+	}
+	data := struct{ Company, Action, Basis, Actor, Target, Tenant string }{company, action, basis, req.ActorUserID.String(), target, req.TenantID.String()}
 	tpl := templates["support_admin_action."+locale]
 	var subject, body, html bytes.Buffer
 	if err := tpl.text.ExecuteTemplate(&subject, "subject", data); err != nil {

@@ -93,8 +93,8 @@ type CreateAPIKeyInput struct {
 // Reach. A tenant caller (tenant_admin, or a role an override grants the key) manages the keys of its effective
 // tenant; a platform_admin manages every key and creates the platform keys (tenant_id NULL; the only ones that
 // may hold global and mobile:* capabilities, and the only form of the cf_shim and release_publisher scopes).
-// Without X-Act-On-Tenant a platform_admin lists the platform keys and those of its own tenant; with
-// X-Act-On-Tenant: <uuid> that tenant's, with * every key. Keys are managed by people only: an API key never
+// A platform_admin lists the platform keys and those of its own tenant; platform-wide metadata uses
+// the explicit projected platform endpoint. Keys are managed by people only: an API key never
 // reaches these routes (created_by and revoked_by name a users row).
 type APIKeys struct {
 	pool   db.Beginner
@@ -151,8 +151,8 @@ func apiKeyOf(r iamdb.ListAPIKeysRow, now time.Time) APIKey {
 		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, LastUsedAt: r.LastUsedAt, RevokedAt: r.RevokedAt, RevokedBy: r.RevokedBy}
 }
 
-// keyReach is the set of keys a request lists: every key under X-Act-On-Tenant: *; the platform keys for a
-// platform_admin not acting as a tenant; the keys of the effective tenant.
+// keyReach is the set of keys a request lists: platform keys for a platform_admin and keys of the
+// effective tenant. The explicit projected platform endpoint may select all keys.
 type keyReach struct {
 	all      bool
 	platform bool
@@ -411,12 +411,20 @@ func (k *APIKeys) Create(c call, in CreateAPIKeyInput) (*CreatedAPIKey, error) {
 				case t.Status != "active":
 					return errFailedPrecondition(ReasonTenantInactive, "the tenant is not active")
 				}
+				if err := (&Admin{now: k.now}).supportIAMTenants(c, tx, nil, nil, []uuid.UUID{*req.tenant}, ""); err != nil {
+					return err
+				}
 			}
 			id, err := q.InsertAPIKey(c.ctx, iamdb.InsertAPIKeyParams{Name: req.name, Scope: string(req.scope),
 				KeyPrefix: key.Prefix, KeyHash: key.Hash, TenantID: req.tenant, Capabilities: caps, CreatedBy: p.UserID,
 				ExpiresAt: req.expires})
 			if err != nil {
 				return err
+			}
+			if req.tenant != nil {
+				if err := (&Admin{now: k.now}).supportIAMTenants(c, tx, nil, &id, []uuid.UUID{*req.tenant}, "api_key_create"); err != nil {
+					return err
+				}
 			}
 			actor := p.UserID
 			if err := security.Append(c.ctx, tx, security.Event{
@@ -472,6 +480,11 @@ func (k *APIKeys) Revoke(c call, id uuid.UUID) error {
 		}
 		if row.RevokedAt != nil {
 			return nil
+		}
+		if row.TenantID != nil {
+			if err := (&Admin{now: k.now}).supportIAMTenants(c, tx, nil, &id, []uuid.UUID{*row.TenantID}, "api_key_revoke"); err != nil {
+				return err
+			}
 		}
 		if err := q.RevokeAPIKey(c.ctx, iamdb.RevokeAPIKeyParams{ID: id, RevokedAt: now, RevokedBy: &p.UserID}); err != nil {
 			return err

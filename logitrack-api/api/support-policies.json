@@ -2735,6 +2735,7 @@
         "schema": "forms.waitlist-counts",
         "owner": "P1.2",
         "allowHead": false,
+        "metaSchema": "forms.waitlist-counts",
         "cursor": "iam.keyset"
       },
       {
@@ -4969,6 +4970,7 @@
     "auth.support_access",
     "auth.tenant_label",
     "forms.waitlist-counts",
+    "forms.waitlist-entry",
     "iam.activity",
     "iam.created-api-key",
     "iam.created-user",

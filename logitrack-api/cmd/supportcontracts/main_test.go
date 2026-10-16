@@ -79,3 +79,13 @@ func TestMixedOwnershipAndProvisioningRequirePredicates(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportWireContractExcludesOrdinaryLeadRows(t *testing.T) {
+	data, err := wireTypes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "ResponseFormsWaitlistCounts") || strings.Contains(string(data), "ResponseFormsWaitlistEntry") {
+		t.Fatal("support client contract admitted raw lead rows")
+	}
+}

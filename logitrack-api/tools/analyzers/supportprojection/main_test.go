@@ -214,7 +214,8 @@ import (
  "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 var _ = httpx.ErrSupportViewUnavailable
-func read(p *authz.Principal) (any,error) { ` + tc.body + ` }`
+type legacyPrincipal struct { authz.Principal; ActOnAll bool; ActOnTenant *string }
+func read(p *legacyPrincipal) (any,error) { ` + strings.ReplaceAll(tc.body, "authz.IsSupport(p)", "authz.IsSupport(&p.Principal)") + ` }`
 			file, err := parser.ParseFile(a.fset, filepath.Join(root, "fixture.go"), source, 0)
 			if err != nil {
 				t.Fatal(err)

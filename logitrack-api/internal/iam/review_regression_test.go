@@ -41,17 +41,20 @@ func TestReviewEventCannotUseEventTenantForUnresolvedActor(t *testing.T) {
 	}
 }
 
-func TestReviewCallResolvesAudienceBeforeReadingContextVersion(t *testing.T) {
+func TestReviewCallResolvesAudienceAndKeepsVerifiedContextVersion(t *testing.T) {
 	app := fiber.New()
 	app.Use(httpx.AdmissionGuard(func(c fiber.Ctx) { httpx.SetProjectionAudience(c, httpx.ProjectionAudience{ContextVersion: "7"}) }))
 	app.Get("/call", func(c fiber.Ctx) error {
-		authz.SetPrincipal(c, &authz.Principal{UserID: uuid.New()})
+		authz.SetPrincipal(c, &authz.Principal{UserID: uuid.New(), ContextVersion: 3})
 		cl, err := (adminHTTP{}).call(c)
 		if err != nil {
 			return err
 		}
-		if cl.contextVersion != "7" {
+		if cl.contextVersion != "3" {
 			t.Errorf("context version=%q", cl.contextVersion)
+		}
+		if got := httpx.ProjectionAudienceFrom(c).ContextVersion; got != "7" {
+			t.Errorf("projection audience was not resolved: context version=%q", got)
 		}
 		return c.SendStatus(204)
 	})

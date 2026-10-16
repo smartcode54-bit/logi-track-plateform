@@ -148,6 +148,8 @@ func supportReadFixture(t *testing.T) (*Service, *supportTestTx, *authz.Principa
 	tx := &supportTestTx{}
 	tx.row = func(sql string, args ...any) pgx.Row {
 		switch {
+		case strings.Contains(sql, "-- name: MemberSessionAdmission"):
+			return supportTestRow{values: []any{p.AccessMode, p.ContextVersion, p.TenantID, (*time.Time)(nil), now.Add(time.Hour), p.AuthVersion, "active", string(p.TenantRole), "active", p.IsPlatform()}}
 		case sql == supportReadSessionContextSQL || sql == supportLockSessionContextSQL:
 			return supportTestRow{values: []any{p.AccessMode, p.ContextVersion, p.TenantID, (*uuid.UUID)(nil), PlatformWeb, AMRPassword, now.Add(time.Hour), (*time.Time)(nil)}}
 		case strings.Contains(sql, "-- name: GetUser :one"):

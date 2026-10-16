@@ -139,11 +139,10 @@ func TestWebTopicsOfScopeDriverAndPlatformPrincipals(t *testing.T) {
 	if got := WebTopics(pa); !slices.Equal(got, want) {
 		t.Fatalf("platform admin: %v", got)
 	}
-	// Retired human overrides never add tenant topics, even with forged tenant capabilities.
-	pa.ActOnTenant = &own
+	// Tenant capabilities alone do not add tenant topics without a tenant membership context.
 	pa.TenantKind = authz.TenantKindOwnFleet
 	pa.Caps = pa.Caps.Union(authz.TenantDefaults(authz.TenantAdmin))
 	if got := WebTopics(pa); !slices.Equal(got, want) {
-		t.Fatalf("retired override added tenant topics: %v", got)
+		t.Fatalf("tenant capabilities without a tenant added topics: %v", got)
 	}
 }

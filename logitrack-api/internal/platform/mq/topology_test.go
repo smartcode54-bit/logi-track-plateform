@@ -23,6 +23,15 @@ func TestCommittedDefinitionsAreUpToDate(t *testing.T) {
 	}
 }
 
+func TestSupportAdminNotificationBinding(t *testing.T) {
+	for _, binding := range mq.BuildDefinitions().Bindings {
+		if binding.Source == mq.ExchangeEvents && binding.RoutingKey == "tenant.support_admin_action" && binding.Destination == "notify.email" && binding.DestinationType == "queue" {
+			return
+		}
+	}
+	t.Fatal("support admin actions are not routed to notify.email")
+}
+
 func TestTopologyMatchesAppendixB(t *testing.T) {
 	if len(mq.Queues) != 16 {
 		t.Fatalf("Appendix B §B.5.3 lists 16 work queues, got %d", len(mq.Queues))

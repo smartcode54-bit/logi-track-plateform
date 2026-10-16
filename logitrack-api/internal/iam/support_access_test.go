@@ -29,7 +29,8 @@ func TestConsentEligibilityUsesLiveCredentialAndGrantFacts(t *testing.T) {
 		{"disabled admin", "pending", func(m *iamdb.GetSupportMembershipAuthorityRow) { m.UserStatus = "disabled" }},
 		{"suspended membership", "pending", func(m *iamdb.GetSupportMembershipAuthorityRow) { m.Status = "suspended" }},
 		{"non admin", "pending", func(m *iamdb.GetSupportMembershipAuthorityRow) { m.Role = "manager" }},
-		{"platform actor with membership", "pending", func(m *iamdb.GetSupportMembershipAuthorityRow) { m.HasPlatformRole = true }},
+		{"platform actor with native membership", "member", func(m *iamdb.GetSupportMembershipAuthorityRow) { m.HasPlatformRole = true }},
+		{"platform actor with unratified grant", "pending", func(m *iamdb.GetSupportMembershipAuthorityRow) { m.HasPlatformRole = true; m.GrantedByPlatform = true }},
 		{"reset after ratification", "pending", func(m *iamdb.GetSupportMembershipAuthorityRow) {
 			m.GrantedByPlatform = true
 			m.RatifiedAt = &now
@@ -84,13 +85,20 @@ func TestConsentVersionsAreCanonicalDecimals(t *testing.T) {
 		}
 	}
 }
-func TestConsentCannotUseVirtualOrPlatformAuthority(t *testing.T) {
+func TestConsentRequiresMemberContextBeforeLiveAuthorityCheck(t *testing.T) {
 	tenant := uuid.New()
 	p := &authz.Principal{UserID: uuid.New(), TenantID: &tenant, TenantRole: authz.TenantAdmin}
 	if !consentMember(p, tenant) {
 		t.Fatal("ordinary member refused")
 	}
-	for _, mutate := range []func(*authz.Principal){func(p *authz.Principal) { p.Platform = []authz.PlatformRole{authz.PlatformAdmin} }, func(p *authz.Principal) { p.Platform = []authz.PlatformRole{authz.Support} }, func(p *authz.Principal) { p.AMR = authz.AMRAPIKey }, func(p *authz.Principal) { p.TenantRole = authz.SupportReadOnly }, func(p *authz.Principal) { p.TenantID = nil }} {
+	for _, role := range []authz.PlatformRole{authz.PlatformAdmin, authz.Support} {
+		copy := *p
+		copy.Platform = []authz.PlatformRole{role}
+		if !consentMember(&copy, tenant) {
+			t.Fatal("platform role erased real member context")
+		}
+	}
+	for _, mutate := range []func(*authz.Principal){func(p *authz.Principal) { p.AMR = authz.AMRAPIKey }, func(p *authz.Principal) { p.TenantRole = authz.SupportReadOnly }, func(p *authz.Principal) { p.TenantID = nil }} {
 		copy := *p
 		mutate(&copy)
 		if consentMember(&copy, tenant) {

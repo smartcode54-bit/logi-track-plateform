@@ -61,7 +61,7 @@ RETURNING support_membership_id, grant_version;
 -- name: RecordFirstSupportOnboardingAdmin :execrows
 -- Explicit initial-onboarding evidence only. Historical admin rows, including deleted ones, prevent
 -- a replacement from acquiring bootstrap. The reference points to an immutable snapshot, never a live row.
--- Migration consumes bootstrap for every legacy tenant and separately backfills evidenced original grants.
+-- Migration consumes bootstrap only when legacy admin history exists and backfills evidenced original grants.
 UPDATE tenants t SET support_first_admin_grant_id = h.id, support_bootstrap_consumed = true
 FROM membership_provenance_history h JOIN memberships m ON m.support_membership_id = h.membership_id
   AND m.grant_version = h.grant_version
