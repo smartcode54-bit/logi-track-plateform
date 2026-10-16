@@ -180,8 +180,8 @@ func TestScopeRuleNamesEveryTable(t *testing.T) {
 	}
 	slices.Sort(tables)
 	slices.Sort(inRule)
-	if len(tables) != 87 {
-		t.Errorf("migrations create %d tables, Appendix A plus ADR 0030 has 87", len(tables))
+	if len(tables) != 88 {
+		t.Errorf("migrations create %d tables, Appendix A plus ADR 0030 has 88", len(tables))
 	}
 	if !slices.Equal(tables, inRule) {
 		t.Errorf("scope-views-only names\n%v\nmigrations create\n%v", inRule, tables)

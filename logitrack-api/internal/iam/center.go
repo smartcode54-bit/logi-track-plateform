@@ -52,6 +52,12 @@ type EventsMeta struct {
 // ListEvents is GET /v1/security-events (security:view_audit): a keyset page, newest first, read under the
 // principal so RLS decides the rows (security.List).
 func (a *Admin) ListEvents(c call, in EventsInput) ([]security.Row, string, error) {
+	member, err := a.memberAuditPrincipal(c)
+	if err != nil {
+		return nil, "", err
+	}
+	c.p = member
+
 	var bad []httpx.FieldViolation
 	f := security.Filter{Limit: in.Limit}
 	if s := strings.TrimSpace(in.Type); s != "" {
@@ -108,7 +114,7 @@ func (a *Admin) ListEvents(c call, in EventsInput) ([]security.Row, string, erro
 	}
 	var rows []security.Row
 	var next string
-	err := db.WithPrincipal(c.ctx, a.pool, c.p, func(tx pgx.Tx) (err error) {
+	err = db.WithPrincipal(c.ctx, a.pool, c.p, func(tx pgx.Tx) (err error) {
 		rows, next, err = security.List(c.ctx, tx, f)
 		return err
 	})
@@ -257,10 +263,12 @@ var overviewStatuses = []string{"active", "disabled", "reset_required", "deleted
 
 // Overview is GET /v1/security/overview.
 func (a *Admin) Overview(c call) (*Overview, error) {
+	return a.overview(c, readReach(c.p))
+}
+func (a *Admin) overview(c call, r reach) (*Overview, error) {
 	p := c.p
 	now := a.clock()
 	day := now.Add(-24 * time.Hour)
-	r := readReach(p)
 	o := &Overview{GeneratedAt: now, Scope: OverviewScope{All: r.all},
 		Users:    UserCounts{ByStatus: map[string]int{}},
 		Sessions: SessionCounts{RevokedByReason24h: map[string]int{}}}
@@ -312,7 +320,13 @@ func (a *Admin) Overview(c call) (*Overview, error) {
 		return nil, mapDBError(err)
 	}
 	// Events and installations: RLS tables, read under the principal.
-	err = db.WithPrincipal(c.ctx, a.pool, p, func(tx pgx.Tx) error {
+	read := func(fn func(pgx.Tx) error) error {
+		if r.all {
+			return db.WithSystem(c.ctx, a.pool, nil, fn)
+		}
+		return db.WithPrincipal(c.ctx, a.pool, p, fn)
+	}
+	err = read(func(tx pgx.Tx) error {
 		var err error
 		if o.Events, err = security.ReadActivity(c.ctx, tx, now); err != nil {
 			return err
@@ -468,7 +482,9 @@ type UsersByRole struct {
 
 // StatsUsersByRole is GET /v1/stats/users-by-role.
 func (a *Admin) StatsUsersByRole(c call) (*UsersByRole, error) {
-	r := readReach(c.p)
+	return a.statsUsersByRole(c, readReach(c.p))
+}
+func (a *Admin) statsUsersByRole(c call, r reach) (*UsersByRole, error) {
 	out := &UsersByRole{Scope: OverviewScope{All: r.all}, TenantRoles: map[string]int{}, Scopes: map[string]int{}, PlatformRoles: map[string]int{}}
 	if t := c.p.EffectiveTenant(); t != nil && !r.all {
 		s := t.String()

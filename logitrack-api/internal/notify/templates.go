@@ -25,7 +25,7 @@ const (
 	PurposeInvite = auth.PurposeInvite
 )
 
-//go:embed templates/*.txt templates/*.html
+//go:embed templates/*.txt templates/*.html templates/*.json
 var templateFS embed.FS
 
 type mailTemplate struct {
@@ -36,7 +36,7 @@ type mailTemplate struct {
 // templates holds every (purpose, locale) pair; a missing file fails at start-up, not on a send.
 var templates = func() map[string]mailTemplate {
 	out := map[string]mailTemplate{}
-	for _, purpose := range []string{PurposeReset, PurposeInvite} {
+	for _, purpose := range []string{PurposeReset, PurposeInvite, "support_admin_action"} {
 		for _, locale := range []string{LocaleTH, LocaleEN} {
 			name := purpose + "." + locale
 			out[name] = mailTemplate{

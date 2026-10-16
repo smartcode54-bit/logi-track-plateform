@@ -470,6 +470,11 @@ func (a *Admin) GetMatrix(c call, target MatrixTarget) (*Matrix, error) {
 // role set be computed again on the next request (Appendix C §C.2.5). It returns the new matrix and the number of
 // rows that changed.
 func (a *Admin) SaveMatrix(c call, target MatrixTarget, in SaveMatrixInput) (*Matrix, int, error) {
+	if target.Layer != LayerPlatform || target.TenantID != "" {
+		if err := authz.RequireTenantWrite(c.p); err != nil {
+			return nil, 0, err
+		}
+	}
 	var m Matrix
 	var changes []MatrixChange
 	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, _ func(*auth.PostCommit)) error {

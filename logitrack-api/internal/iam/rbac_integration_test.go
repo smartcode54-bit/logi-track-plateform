@@ -423,13 +423,13 @@ func TestMeAndRoles(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := capsOf("mg.o@example.test"), authz.TenantDefaults(authz.Manager).Strings(); !slices.Equal(got, want) {
-		t.Errorf("own-fleet manager: %d keys, want the 45 defaults", len(got))
+	if got, want := capsOf("mg.o@example.test"), authz.RoleCaps(authz.Manager, true, nil).Strings(); !slices.Equal(got, want) {
+		t.Errorf("own-fleet manager: %d keys, want the defaults plus derived read keys", len(got))
 	}
-	if got := capsOf("mg.a@example.test"); len(got) != 41 || slices.Contains(got, string(authz.FleetManageCustomers)) {
-		t.Errorf("carrier manager: %d keys, want 45 minus the 4 global keys a manager holds", len(got))
+	if got := capsOf("mg.a@example.test"); len(got) != 42 || slices.Contains(got, string(authz.FleetManageCustomers)) {
+		t.Errorf("carrier manager: %d keys, want 41 existing keys plus the maintenance read key", len(got))
 	}
-	if got := capsOf("pa@example.test"); !slices.Equal(got, authz.PlatformDefaults(authz.PlatformAdmin).Strings()) {
+	if got := capsOf("pa@example.test"); !slices.Equal(got, authz.PlatformCaps(&authz.Principal{Platform: []authz.PlatformRole{authz.PlatformAdmin}}).Strings()) {
 		t.Errorf("platform_admin: %v", got)
 	}
 	r := w.get("/v1/roles", w.login("op.a@example.test"))
@@ -437,7 +437,7 @@ func TestMeAndRoles(t *testing.T) {
 		t.Fatalf("roles: %d %s", r.status, r.raw)
 	}
 	body := r.data().(map[string]any)
-	if n := len(body["capabilities"].([]any)); n != 81 {
+	if n := len(body["capabilities"].([]any)); n != len(authz.Catalog()) {
 		t.Errorf("GET /v1/roles lists %d keys", n)
 	}
 	if n := len(body["roles"].([]any)); n != 10 {

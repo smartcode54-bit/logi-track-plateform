@@ -311,6 +311,9 @@ func decodeCursor(s string) (cursor, bool) {
 // ListWaitlist is GET /v1/waitlist: newest first, keyset pages of limit (DefaultLimit when 0); the total is the
 // count of every entry (meta.total).
 func (s *Service) ListWaitlist(ctx context.Context, p *authz.Principal, limit int, after string) ([]Entry, string, int64, error) {
+	if authz.IsSupport(p) {
+		return nil, "", 0, httpx.ErrSupportViewUnavailable()
+	}
 	if limit == 0 {
 		limit = DefaultLimit
 	}
@@ -357,6 +360,9 @@ func (s *Service) ListWaitlist(ctx context.Context, p *authz.Principal, limit in
 
 // DeleteWaitlist is DELETE /v1/waitlist/{id}: 404 when no such entry exists.
 func (s *Service) DeleteWaitlist(ctx context.Context, p *authz.Principal, id uuid.UUID) error {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return err
+	}
 	var n int64
 	err := db.WithPrincipal(ctx, s.pool, p, func(tx pgx.Tx) error {
 		var err error

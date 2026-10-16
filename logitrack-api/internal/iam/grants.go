@@ -24,10 +24,16 @@ import (
 
 // Member is one row of GET /v1/tenants/{id}/members (Appendix B §B.2.4 web contract).
 type Member struct {
-	User        MemberUser `json:"user"`
-	Role        string     `json:"role"`
-	Status      string     `json:"status"`
-	LastLoginAt *time.Time `json:"lastLoginAt"`
+	User              MemberUser `json:"user"`
+	Role              string     `json:"role"`
+	Status            string     `json:"status"`
+	LastLoginAt       *time.Time `json:"lastLoginAt"`
+	GrantedByPlatform bool       `json:"grantedByPlatform"`
+	RatifiedAt        *time.Time `json:"ratifiedAt"`
+	GrantVersion      string     `json:"grantVersion"`
+	EligibilityBasis  string     `json:"eligibilityBasis"`
+	EligibleToRatify  bool       `json:"eligibleToRatify"`
+	tenantID          uuid.UUID
 }
 
 // MemberUser identifies the member.
@@ -35,11 +41,15 @@ type MemberUser struct {
 	ID          uuid.UUID `json:"id"`
 	Email       *string   `json:"email"`
 	DisplayName *string   `json:"displayName"`
+	owner       string
 }
 
 // Members is GET /v1/tenants/{id}/members (users:view with the tenant in reach, or a platform principal
 // through X-Act-On-Tenant: <id> or *): keyset page, newest membership first.
 func (a *Admin) Members(c call, tenant uuid.UUID, role string, limit int, cur string) ([]Member, string, error) {
+	return a.members(c, tenant, role, limit, cur, false)
+}
+func (a *Admin) members(c call, tenant uuid.UUID, role string, limit int, cur string, platform bool) ([]Member, string, error) {
 	var bad []httpx.FieldViolation
 	var rolePtr *string
 	if role != "" {
@@ -64,7 +74,7 @@ func (a *Admin) Members(c call, tenant uuid.UUID, role string, limit int, cur st
 	if len(bad) > 0 {
 		return nil, "", errInvalid(bad...)
 	}
-	if !readReach(c.p).hasTenant(tenant) {
+	if !platform && !readReach(c.p).hasTenant(tenant) {
 		return nil, "", httpx.ErrNotFound()
 	}
 	var out []Member
@@ -89,10 +99,13 @@ func (a *Admin) Members(c call, tenant uuid.UUID, role string, limit int, cur st
 		out = make([]Member, 0, len(rows))
 		for _, r := range rows {
 			out = append(out, Member{User: MemberUser{ID: r.UserID, Email: r.Email, DisplayName: r.DisplayName},
-				Role: r.Role, Status: r.Status, LastLoginAt: r.LastLoginAt})
+				Role: r.Role, Status: r.Status, LastLoginAt: r.LastLoginAt, tenantID: tenant})
 		}
 		return nil
 	})
+	if err == nil {
+		err = a.memberEligibility(c, tenant, out)
+	}
 	return out, next, err
 }
 
@@ -111,13 +124,13 @@ type MembershipResult struct {
 }
 
 // lockMemberTenant checks the tenant of a membership write: in the write reach (403 otherwise) and existing, not
-// quarantine (it holds no memberships, C.1.8; 404), key-share locked before the user (the lock order of PatchTenant).
+// quarantine (it holds no memberships, C.1.8; 404). The D2 guard takes the tenant mutation lock after the user.
 func (a *Admin) lockMemberTenant(c call, q *iamdb.Queries, tenant uuid.UUID) error {
 	if !writeReach(c.p).hasTenant(tenant) {
 		return authz.ErrPermissionDenied("the tenant is outside the caller's reach").WithDetails(map[string]any{"tenantId": tenant})
 	}
-	t, err := q.TenantForMembership(c.ctx, tenant)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && t.Kind == authz.TenantKindQuarantine) {
+	_, err := q.GetSupportAccess(c.ctx, tenant)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return httpx.ErrNotFound()
 	}
 	return err
@@ -131,10 +144,10 @@ func (a *Admin) lockMemberTenant(c call, q *iamdb.Queries, tenant uuid.UUID) err
 // membership of a user who also belongs to A; tenant_admin in this tenant stays with canAssign. The account-wide
 // routes (password, email, disable, sessions, invite) keep target and its full outranks check.
 func (a *Admin) memberTarget(c call, q *iamdb.Queries, tenant, user uuid.UUID) error {
-	if err := notSelf(c.p, user); err != nil {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
 		return err
 	}
-	if err := a.lockMemberTenant(c, q, tenant); err != nil {
+	if err := notSelf(c.p, user); err != nil {
 		return err
 	}
 	if err := a.inReach(c, q, user, writeReach(c.p)); err != nil {
@@ -145,6 +158,9 @@ func (a *Admin) memberTarget(c call, q *iamdb.Queries, tenant, user uuid.UUID) e
 		return httpx.ErrNotFound()
 	}
 	if err != nil {
+		return err
+	}
+	if err := a.lockMemberTenant(c, q, tenant); err != nil {
 		return err
 	}
 	return a.membershipOutranks(c, q, user)
@@ -189,6 +205,10 @@ type SetMemberInput struct {
 // reactivates it (T62), then claims_changed and membership_added or membership_role_changed. Only this membership
 // changes (memberTarget). A linked driver keeps its active driver membership (409 driver_linked; unlink first).
 func (a *Admin) SetMember(c call, tenant, user uuid.UUID, in SetMemberInput) (*MembershipResult, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	var bad []httpx.FieldViolation
 	if in.Role == "" && in.Status == "" {
 		bad = append(bad, violation("role", "required"))
@@ -228,7 +248,10 @@ func (a *Admin) SetMember(c call, tenant, user uuid.UUID, in SetMemberInput) (*M
 		}
 		out = &MembershipResult{TenantID: tenant, UserID: user, Role: role, Status: status}
 		if found && cur.Role == role && cur.Status == status {
-			return nil // unchanged
+			return a.supportIAM(c, tx, user, []uuid.UUID{tenant}, "", true)
+		}
+		if err := a.supportIAM(c, tx, user, []uuid.UUID{tenant}, "membership_set", true); err != nil {
+			return err
 		}
 		if found && cur.Role == string(authz.Driver) && (role != string(authz.Driver) || status != MembershipActive) {
 			linked, err := linkedInTenant(c, q, user, tenant)
@@ -242,6 +265,9 @@ func (a *Admin) SetMember(c call, tenant, user uuid.UUID, in SetMemberInput) (*M
 		actor := c.p.UserID
 		if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: user, TenantID: tenant, Role: role,
 			Status: status, CreatedBy: &actor}); err != nil {
+			return err
+		}
+		if err := a.platformGrant(c, tx, user, tenant); err != nil {
 			return err
 		}
 		if err := a.claimsChanged(c, tx, user, keep); err != nil {
@@ -264,6 +290,10 @@ func (a *Admin) SetMember(c call, tenant, user uuid.UUID, in SetMemberInput) (*M
 // membership. Removing the user's last usable membership leaves the account without tenant claims: its next
 // refresh carries no tid (C.4.4) and tenant data answers nothing.
 func (a *Admin) RemoveMember(c call, tenant, user uuid.UUID) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if err := a.memberTarget(c, q, tenant, user); err != nil {
 			return err
@@ -282,6 +312,9 @@ func (a *Admin) RemoveMember(c call, tenant, user uuid.UUID) error {
 			return err
 		} else if linked {
 			return errFailedPrecondition("driver_linked", "the user is linked to a driver of this tenant; unlink it first")
+		}
+		if err := a.supportIAM(c, tx, user, []uuid.UUID{tenant}, "membership_remove", false); err != nil {
+			return err
 		}
 		if _, err := q.DeleteMembership(c.ctx, iamdb.DeleteMembershipParams{UserID: user, TenantID: tenant}); err != nil {
 			return err
@@ -314,6 +347,10 @@ type AddMemberInput struct {
 // (membershipOutranks, as PUT/DELETE). driver is not
 // offered: a driver works through its one drivers profile (drivers.user_id is unique, driver link routes).
 func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*MembershipResult, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	p := c.p
 	var bad []httpx.FieldViolation
 	email, ok := normalizeEmail(in.Email)
@@ -376,6 +413,9 @@ func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*Members
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return err
 			}
+			if err := a.supportIAM(c, tx, uid, []uuid.UUID{tenant}, "membership_add", true); err != nil {
+				return err
+			}
 			if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: tenant, Role: string(role),
 				Status: MembershipActive, CreatedBy: &actor}); err != nil {
 				return err
@@ -387,8 +427,14 @@ func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*Members
 			if uid, err = q.InsertAdminUser(c.ctx, iamdb.InsertAdminUserParams{Email: email, DisplayName: name}); err != nil {
 				return err
 			}
+			if err := a.supportIAM(c, tx, uid, []uuid.UUID{tenant}, "membership_add", true); err != nil {
+				return err
+			}
 			if err := q.UpsertMembership(c.ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: tenant, Role: string(role),
 				Status: MembershipActive, CreatedBy: &actor}); err != nil {
+				return err
+			}
+			if err := a.platformCredential(c, tx, uid); err != nil {
 				return err
 			}
 			if err := a.auth.MirrorNewUserInTx(c.ctx, tx, uid, ""); err != nil {
@@ -408,6 +454,9 @@ func (a *Admin) AddMember(c call, tenant uuid.UUID, in AddMemberInput) (*Members
 				return err
 			}
 		default:
+			return err
+		}
+		if err := a.platformGrant(c, tx, uid, tenant); err != nil {
 			return err
 		}
 		return a.audit(c, tx, EventMembershipAdded, "tenant membership added by an admin", &uid, &tenant, details)
@@ -451,6 +500,10 @@ func scopeAllowed(p *authz.Principal, kind string) error {
 // scopes, else 422 too_many_scopes): replaces the user's scopes of that kind. A dispatcher grant needs a
 // membership in the dispatcher's own organisation (R13, 409 otherwise).
 func (a *Admin) SetScopes(c call, user uuid.UUID, kind string, raw []string) (*ScopeResult, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	if err := checkScopeKind(kind); err != nil {
 		return nil, err
 	}
@@ -468,6 +521,9 @@ func (a *Admin) SetScopes(c call, user uuid.UUID, kind string, raw []string) (*S
 	}
 	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, user, nil, "scopes_set", false); err != nil {
 			return err
 		}
 		if kind == string(authz.ScopeDispatcher) {
@@ -523,6 +579,10 @@ func (a *Admin) SetScopes(c call, user uuid.UUID, kind string, raw []string) (*S
 
 // DeleteScopes is DELETE /v1/users/{id}/scopes/{kind}: removes every scope of that kind.
 func (a *Admin) DeleteScopes(c call, user uuid.UUID, kind string) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	if err := checkScopeKind(kind); err != nil {
 		return err
 	}
@@ -531,6 +591,9 @@ func (a *Admin) DeleteScopes(c call, user uuid.UUID, kind string) error {
 	}
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, user, nil, "scopes_remove", false); err != nil {
 			return err
 		}
 		prev, err := q.ListScopeParties(c.ctx, iamdb.ListScopePartiesParams{UserID: user, Kind: kind})
@@ -569,10 +632,15 @@ func sameSet(a, b []uuid.UUID) bool {
 // driver_linked and driver.updated (changed: userId, for the driver and for the one the link left) are recorded. A driver linked to another user is 409; the driver must be in the caller's reach, and
 // so must the user's current driver row (409 failed_precondition linked_in_other_tenant otherwise).
 func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
 			return err
 		}
+
 		d, err := q.GetLinkDriver(c.ctx, driver)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !writeReach(c.p).hasTenant(d.TenantID)) {
 			return errInvalid(violation("driverId", "not_found"))
@@ -581,12 +649,21 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 			return err
 		}
 		if d.UserID != nil && *d.UserID == user {
-			return nil // already linked
+			return a.supportIAM(c, tx, user, nil, "", false) // already linked
 		}
+
 		if d.UserID != nil {
 			return errAlreadyExists("driverId", "linked_to_another_user")
 		}
 		m, err := q.GetMembership(c.ctx, iamdb.GetMembershipParams{UserID: user, TenantID: d.TenantID})
+		general := errors.Is(err, pgx.ErrNoRows)
+		var extra []uuid.UUID
+		if general {
+			extra = []uuid.UUID{d.TenantID}
+		}
+		if gate := a.supportIAM(c, tx, user, extra, "driver_link", general); gate != nil {
+			return gate
+		}
 		switch {
 		case errors.Is(err, pgx.ErrNoRows), err == nil && m.Role == string(authz.Driver):
 		case err != nil:
@@ -620,6 +697,9 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 			Role: string(authz.Driver), Status: MembershipActive, CreatedBy: &actor}); err != nil {
 			return err
 		}
+		if err := a.platformGrant(c, tx, user, d.TenantID); err != nil {
+			return err
+		}
 		if err := q.SetDriverUser(c.ctx, iamdb.SetDriverUserParams{UserID: &user, ID: d.ID}); err != nil {
 			return err
 		}
@@ -638,8 +718,15 @@ func (a *Admin) LinkDriver(c call, user, driver uuid.UUID) error {
 // the driver membership stays (a role change is a separate act); driver_unlinked and driver.updated (changed:
 // userId) are recorded.
 func (a *Admin) UnlinkDriver(c call, user uuid.UUID) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, user, nil, "driver_unlink", false); err != nil {
 			return err
 		}
 		d, err := q.DriverOfUser(c.ctx, user)
@@ -673,11 +760,18 @@ func checkPlatformRole(role string) error {
 
 // GrantPlatformRole is POST /v1/users/{id}/platform-roles {role} (platform:manage_platform_roles, not self).
 func (a *Admin) GrantPlatformRole(c call, user uuid.UUID, role string) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	if err := checkPlatformRole(role); err != nil {
 		return err
 	}
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, user, nil, "platform_role_grant", false); err != nil {
 			return err
 		}
 		actor := c.p.UserID
@@ -695,11 +789,18 @@ func (a *Admin) GrantPlatformRole(c call, user uuid.UUID, role string) error {
 
 // RevokePlatformRole is DELETE /v1/users/{id}/platform-roles/{role}: 404 when the user does not hold it.
 func (a *Admin) RevokePlatformRole(c call, user uuid.UUID, role string) error {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return err
+	}
+
 	if err := checkPlatformRole(role); err != nil {
 		return err
 	}
 	return a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
 		if _, err := a.target(c, q, user); err != nil {
+			return err
+		}
+		if err := a.supportIAM(c, tx, user, nil, "platform_role_remove", false); err != nil {
 			return err
 		}
 		n, err := q.DeletePlatformRole(c.ctx, iamdb.DeletePlatformRoleParams{UserID: user, Role: role})

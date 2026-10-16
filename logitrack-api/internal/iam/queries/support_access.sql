@@ -72,7 +72,9 @@ WHERE t.id = sqlc.arg(tenant_id) AND t.id = m.tenant_id AND m.user_id = sqlc.arg
     WHERE previous.tenant_id = t.id AND previous.role = 'tenant_admin'
       AND (previous.membership_id <> m.support_membership_id OR previous.operation = 'baseline'
         OR previous.operation = 'DELETE' OR previous.platform_granted_at IS DISTINCT FROM m.platform_granted_at
-          AND previous.granted_by_platform));
+          AND previous.granted_by_platform
+        OR NOT previous.granted_by_platform
+          AND previous.xmin::text::numeric <> mod(pg_current_xact_id()::text::numeric, 4294967296)));
 
 -- name: GetSupportRatificationTarget :one
 SELECT support_membership_id, role, status, created_at, granted_by_platform, platform_granted_at,
@@ -92,9 +94,9 @@ RETURNING support_membership_id, grant_version, ratified_by_user_id, ratified_at
 
 -- name: RecordPlatformCredentialReset :execrows
 -- Called together with the credential write and its normal invalidation/audit path, including invites.
-UPDATE users SET credential_reset_by_platform_at = sqlc.arg(reset_at)::timestamptz, must_change_password = true
-WHERE id = sqlc.arg(user_id)
-  AND (credential_reset_by_platform_at IS NULL OR credential_reset_by_platform_at < sqlc.arg(reset_at));
+UPDATE users SET credential_reset_by_platform_at = greatest(sqlc.arg(reset_at)::timestamptz,
+  credential_reset_by_platform_at + interval '1 microsecond', credential_self_chosen_at + interval '1 microsecond'), must_change_password = true
+WHERE id = sqlc.arg(user_id);
 
 -- name: RecordSupportHolderPasswordChoice :execrows
 -- P1.1 calls only from an actual holder password submission, never an administrative credential write.

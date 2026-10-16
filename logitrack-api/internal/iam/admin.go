@@ -104,16 +104,19 @@ type Files interface {
 // (outranks, 403): no platform role or dispatcher grant, every membership in reach, tenant_admin only where the
 // caller administers. Admin routes never act on the caller itself (Appendix C §C.4.7).
 type Admin struct {
-	pool  db.Beginner
-	auth  *auth.Service
-	files Files
-	rbac  *RBAC
-	log   zerolog.Logger
-	now   func() time.Time
+	pool      db.Beginner
+	auth      *auth.Service
+	files     Files
+	rbac      *RBAC
+	log       zerolog.Logger
+	cursorKey []byte
+	now       func() time.Time
 }
 
 // AdminDeps are the collaborators of the administration.
 type AdminDeps struct {
+	// CursorKey overrides the shared SUPPORT_CURSOR_KEY / JWT_SIGNING_KEY_FILE configuration.
+	CursorKey []byte
 	// Pool is the logitrack_app pool; identity tables are read and written in db.WithSystem.
 	Pool db.Beginner
 	// Auth performs the revocations, status and password changes and the Firebase mirror.
@@ -132,6 +135,11 @@ func NewAdmin(d AdminDeps) (*Admin, error) {
 		return nil, errors.New("iam: the administration needs a pool and the auth service")
 	}
 	a := &Admin{pool: d.Pool, auth: d.Auth, files: d.Files, rbac: d.RBAC, log: d.Log, now: d.Now}
+	var err error
+	a.cursorKey, err = supportCursorKey(d.CursorKey)
+	if err != nil {
+		return nil, err
+	}
 	if a.now == nil {
 		a.now = time.Now
 	}
@@ -142,9 +150,12 @@ func (a *Admin) clock() time.Time { return a.now().UTC().Truncate(time.Microseco
 
 // call is one request: its principal and request id.
 type call struct {
-	ctx context.Context
-	p   *authz.Principal
-	rid string
+	ctx            context.Context
+	p              *authz.Principal
+	rid            string
+	contextVersion string
+	labels         map[uuid.UUID]platformLabel
+	labelVersions  map[uuid.UUID]int64
 }
 
 // reach is the set of users a request may see or change (see Admin).
@@ -158,8 +169,11 @@ type reach struct {
 // (the effective tenant plus contractor reach) and, for a steward, the accounts without a membership that are not
 // deleted.
 func readReach(p *authz.Principal) reach {
-	if p.ActOnAll {
-		return reach{all: true}
+	if authz.IsSupport(p) {
+		if p.TenantID == nil {
+			return reach{tenants: []uuid.UUID{}}
+		}
+		return reach{tenants: []uuid.UUID{*p.TenantID}}
 	}
 	r := reach{scopeOnly: p.Steward && !p.IsMachine(), tenants: []uuid.UUID{}}
 	if t := p.EffectiveTenant(); t != nil && p.EffectiveRole().IsStaff() {
@@ -171,7 +185,7 @@ func readReach(p *authz.Principal) reach {
 // writeReach: a platform_admin writes everywhere without X-Act-On-Tenant (Appendix B §B.1.4); X-Act-On-Tenant:
 // * is read-only (Authorize refused the write already); everyone else writes inside its read reach.
 func writeReach(p *authz.Principal) reach {
-	if p.ActOnAll {
+	if authz.IsSupport(p) {
 		return reach{tenants: []uuid.UUID{}}
 	}
 	if p.HasPlatform(authz.PlatformAdmin) && !p.IsMachine() {
@@ -195,6 +209,9 @@ func isTenantAdminOf(p *authz.Principal, t uuid.UUID) bool {
 // canAssign is CanAssignRole (Appendix C §C.8): users:assign_role, and tenant_admin granted or changed only by
 // a tenant_admin of that tenant or a platform_admin.
 func canAssign(p *authz.Principal, t uuid.UUID, newRole, oldRole authz.TenantRole) error {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return err
+	}
 	if !p.Can(authz.UsersAssignRole) {
 		return authz.ErrPermissionDenied("missing capability", authz.UsersAssignRole)
 	}
@@ -271,13 +288,13 @@ func (a *Admin) claimsChanged(c call, tx pgx.Tx, uid uuid.UUID, keep func(*auth.
 // X-Act-On-Tenant: *, without a tenant context (a platform admin acting without the header) and for platform-level
 // grants: platform roles and dispatcher scopes (Appendix C §C.4.13).
 func (a *Admin) audit(c call, tx pgx.Tx, eventType, summary string, target *uuid.UUID, tenant *uuid.UUID, details map[string]any) error {
-	if tenant == nil && !platformLevelEvent(eventType, details) {
+	if tenant == nil && !c.p.IsPlatform() && !platformLevelEvent(eventType, details) {
 		tenant = c.p.EffectiveTenant()
 	}
 	actor := c.p.UserID
 	sev := security.SeverityInfo
 	switch eventType {
-	case EventPlatformRoleGranted, EventPlatformRoleRevoked, EventUserDisabled, EventUserDeleted, EventUserSessionsRevoked,
+	case "support_access_enabled", "support_access_disabled", "platform_membership_granted", "platform_account_reset", "platform_account_invited", "platform_admin_account_changed", EventPlatformRoleGranted, EventPlatformRoleRevoked, EventUserDisabled, EventUserDeleted, EventUserSessionsRevoked,
 		EventUserTemporaryPassword:
 		sev = security.SeverityWarning
 	}

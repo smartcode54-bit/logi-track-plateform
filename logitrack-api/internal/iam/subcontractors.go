@@ -134,6 +134,9 @@ func (a *Admin) readAs(ctx context.Context, p *authz.Principal, fn func(tx pgx.T
 // ListSubcontractors is GET /v1/subcontractors: []SubcontractorMinimal with fields=minimal, else
 // []SubcontractorSummary; ordered by Thai name.
 func (a *Admin) ListSubcontractors(c call, in ListSubcontractorsInput) (any, string, error) {
+	if c.p.IsPlatform() || authz.IsSupport(c.p) {
+		return a.projectedSubcontractors(c, in)
+	}
 	var bad []httpx.FieldViolation
 	minimal := in.Fields == "minimal"
 	if in.Fields != "" && !minimal {
@@ -178,7 +181,7 @@ func (a *Admin) ListSubcontractors(c call, in ListSubcontractorsInput) (any, str
 		afterName = &after.S
 	}
 	// A scope principal reads carrier names through its projection only (Appendix C §C.3.7, R85).
-	if minimal && (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll {
+	if minimal && (p.IsCustomerScope() || p.Dispatcher) {
 		if status != nil {
 			return nil, "", errInvalid(violation("status", "not_available"))
 		}
@@ -268,7 +271,7 @@ func (a *Admin) GetSubcontractor(c call, id uuid.UUID) (*Subcontractor, error) {
 		}
 		key := r.ObjectKey
 		doc := TenantDocument{FileID: r.FileID, Key: &key, Kind: r.Kind, Position: r.Position}
-		if a.files != nil {
+		if a.files != nil && !c.p.IsPlatform() && !authz.IsSupport(c.p) {
 			_, u, err := a.files.SignedFile(c.ctx, r.FileID, 0)
 			if err != nil && !errors.Is(err, storage.ErrObjectNotFound) {
 				a.log.Warn().Err(err).Str("file_id", r.FileID.String()).Msg("tenant document: cannot sign its URL")
@@ -337,6 +340,10 @@ func writer(p *authz.Principal) error {
 // platform:manage_tenants): a carrier working for the own fleet (contractor reach, R60), its billing party, first
 // status entry, documents, tenant_created and outbox tenant.created in one transaction.
 func (a *Admin) CreateSubcontractor(c call, in CreateSubcontractorInput) (*Subcontractor, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	p := c.p
 	if err := writer(p); err != nil {
 		return nil, err
@@ -434,6 +441,10 @@ func optField(f Field[string]) *string {
 // PatchSubcontractor is PATCH /v1/subcontractors/{id}. tenant_updated and outbox tenant.updated in the same
 // transaction; a request that changes nothing writes nothing.
 func (a *Admin) PatchSubcontractor(c call, id uuid.UUID, in PatchSubcontractorInput) (*Subcontractor, error) {
+	if err := authz.RequireTenantWrite(c.p); err != nil {
+		return nil, err
+	}
+
 	p := c.p
 	if err := writer(p); err != nil {
 		return nil, err

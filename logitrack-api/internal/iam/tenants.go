@@ -97,7 +97,7 @@ func (a *Admin) ListTenants(c call, kind, status string, limit int, cur string) 
 	if limit == 0 {
 		limit = DefaultLimit
 	}
-	if limit < 1 || limit > MaxLimit {
+	if limit < 1 || limit > MaxLimit || (c.p.IsPlatform() && limit > 100) {
 		bad = append(bad, violation("limit", "out_of_range"))
 	}
 	var k cursor
@@ -130,6 +130,21 @@ func (a *Admin) ListTenants(c call, kind, status string, limit int, cur string) 
 		}
 		return nil
 	})
+	if err == nil && (c.p.IsPlatform() || authz.IsSupport(c.p)) {
+		ids := make([]uuid.UUID, len(out))
+		for i := range out {
+			ids[i] = out[i].ID
+		}
+		c.labels, err = a.loadPlatformLabels(c, ids)
+		if err != nil {
+			return nil, "", err
+		}
+		for i := range out {
+			if e := a.projectTenantLabels(c, &out[i]); e != nil {
+				return nil, "", e
+			}
+		}
+	}
 	return out, next, err
 }
 
@@ -146,9 +161,12 @@ func (a *Admin) GetTenant(c call, id uuid.UUID) (*TenantDetail, error) {
 			return err
 		}
 		p := c.p
-		manage := p.Can(authz.PlatformManageTenants)
-		steward := p.Can(authz.FleetManageSubcontractors) && t.Kind == authz.TenantKindCarrier
-		acting := p.ActOnTenant != nil && *p.ActOnTenant == id
+		if authz.IsSupport(p) && (p.TenantID == nil || *p.TenantID != id) {
+			return httpx.ErrNotFound()
+		}
+		manage := !authz.IsSupport(p) && p.Can(authz.PlatformManageTenants)
+		steward := !authz.IsSupport(p) && p.Can(authz.FleetManageSubcontractors) && t.Kind == authz.TenantKindCarrier
+		acting := authz.IsSupport(p) && p.TenantID != nil && *p.TenantID == id
 		member := false
 		if !manage && !steward && !acting && t.Kind != authz.TenantKindQuarantine {
 			if member, err = q.IsActiveMember(c.ctx, iamdb.IsActiveMemberParams{UserID: p.UserID, TenantID: id}); err != nil {
@@ -180,12 +198,18 @@ func (a *Admin) GetTenant(c call, id uuid.UUID) (*TenantDetail, error) {
 		out = d
 		return nil
 	})
+	if err == nil && out != nil {
+		err = a.projectTenantLabels(c, &out.Tenant)
+	}
 	return out, err
 }
 
 // seesTenantPII: an individual carrier's ID card (number and documents) is shown to platform admins, stewards with
 // fleet:manage_subcontractors and the tenant's own tenant_admin only (Appendix C §C.8).
 func seesTenantPII(p *authz.Principal, id uuid.UUID, kind string) bool {
+	if authz.IsSupport(p) {
+		return p.TenantID != nil && *p.TenantID == id
+	}
 	if p.Can(authz.PlatformManageTenants) || (p.Can(authz.FleetManageSubcontractors) && kind == authz.TenantKindCarrier) {
 		return true
 	}
@@ -196,7 +220,7 @@ func seesTenantPII(p *authz.Principal, id uuid.UUID, kind string) bool {
 // X-Act-On-Tenant: <id> included).
 func isOwnTenantAdmin(p *authz.Principal, id uuid.UUID) bool {
 	eff := p.EffectiveTenant()
-	return eff != nil && *eff == id && p.EffectiveRole() == authz.TenantAdmin
+	return !authz.IsSupport(p) && !p.IsMachine() && eff != nil && *eff == id && p.EffectiveRole() == authz.TenantAdmin
 }
 
 // CreateTenantInput is the body of POST /v1/tenants: a carrier tenant with its profile.
@@ -274,6 +298,10 @@ func checkName(field, s string, required bool, bad *[]httpx.FieldViolation) {
 // transaction. A platform admin then makes a user its tenant_admin with POST /v1/users {tenantId} or
 // PUT /v1/tenants/{id}/members/{userId}.
 func (a *Admin) CreateTenant(c call, in CreateTenantInput) (*Tenant, error) {
+	if err := platformRead(c.p, authz.PlatformManageTenants); err != nil {
+		return nil, err
+	}
+
 	var bad []httpx.FieldViolation
 	if in.Kind != authz.TenantKindCarrier {
 		bad = append(bad, violation("kind", "invalid"))
@@ -307,6 +335,11 @@ func (a *Admin) CreateTenant(c call, in CreateTenantInput) (*Tenant, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if out != nil {
+		if err := a.projectTenantLabels(c, out); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
@@ -490,6 +523,13 @@ type PatchTenantInput struct {
 // active member (claims_changed: their tokens lose or regain the tid at once, C.4.7). tenant_updated and outbox
 // tenant.updated in the same transaction; a request that changes nothing writes nothing.
 func (a *Admin) PatchTenant(c call, id uuid.UUID, in PatchTenantInput) (*Tenant, error) {
+	if authz.IsSupport(c.p) && !lifecycleOnly(in) {
+		return nil, httpx.ErrSupportReadOnly()
+	}
+	if err := platformRead(c.p, authz.PlatformManageTenants); err != nil {
+		return nil, err
+	}
+
 	var bad []httpx.FieldViolation
 	var code *string
 	if in.Code.Set {
@@ -533,12 +573,33 @@ func (a *Admin) PatchTenant(c call, id uuid.UUID, in PatchTenantInput) (*Tenant,
 	}
 	var out *Tenant
 	err := a.tx(c.ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
+		// Lock the membership snapshot's users before the tenant, as on consent and D2 paths.
+		var statusMembers []uuid.UUID
+		if in.Status.Set {
+			var err error
+			statusMembers, err = q.ActiveTenantMembers(c.ctx, id)
+			if err != nil {
+				return err
+			}
+			if err := lockSupportUsers(c, q, statusMembers...); err != nil {
+				return err
+			}
+		}
 		cur, err := q.LockTenant(c.ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpx.ErrNotFound()
 		}
 		if err != nil {
 			return err
+		}
+		if in.Status.Set {
+			current, err := q.ActiveTenantMembers(c.ctx, id)
+			if err != nil {
+				return err
+			}
+			if !slices.Equal(current, statusMembers) {
+				return errFailedPrecondition("memberships_changed", "tenant memberships changed; retry")
+			}
 		}
 		structural := cur.Kind == authz.TenantKindOwnFleet || cur.Kind == authz.TenantKindQuarantine
 		if in.Kind.Set && in.Kind.V != cur.Kind {
@@ -635,6 +696,11 @@ func (a *Admin) PatchTenant(c call, id uuid.UUID, in PatchTenantInput) (*Tenant,
 	})
 	if err != nil {
 		return nil, err
+	}
+	if out != nil {
+		if err := a.projectTenantLabels(c, out); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

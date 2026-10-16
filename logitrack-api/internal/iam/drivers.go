@@ -54,6 +54,9 @@ const ReasonDriverHoldsTruck = "driver_holds_truck"
 // It reports false, writing nothing, when the driver is already in the target tenant.
 func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, driverID, to uuid.UUID) (bool, error) {
 	c := call{ctx: ctx, p: p, rid: rid}
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return false, err
+	}
 	if p.IsMachine() || (!p.Steward && !p.HasPlatform(authz.PlatformAdmin)) {
 		return false, authz.ErrPermissionDenied("a driver moves to another tenant only by a steward or a platform admin").
 			WithDetails(map[string]any{"reason": ReasonStewardOnly})
@@ -64,7 +67,7 @@ func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, 
 	}
 	moved := false
 	err := a.tx(ctx, func(tx pgx.Tx, q *iamdb.Queries, keep func(*auth.PostCommit)) error {
-		t, err := q.TenantForMembership(ctx, to)
+		t, err := q.GetTenant(ctx, to)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows), err == nil && t.Kind == authz.TenantKindQuarantine:
 			return errInvalid(violation("tenantId", "not_found"))
@@ -99,6 +102,11 @@ func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, 
 			return errFailedPrecondition("driver_link_changed", "the driver's login changed meanwhile; retry")
 		}
 		from := d.TenantID
+		if user != nil {
+			if err := a.supportIAM(c, tx, *user, []uuid.UUID{from, to}, "driver_link", false); err != nil {
+				return err
+			}
+		}
 		if from == to {
 			return nil
 		}
@@ -149,6 +157,9 @@ func (a *Admin) MoveDriver(ctx context.Context, p *authz.Principal, rid string, 
 			actor := p.UserID
 			if err := q.UpsertMembership(ctx, iamdb.UpsertMembershipParams{UserID: uid, TenantID: to,
 				Role: string(authz.Driver), Status: MembershipActive, CreatedBy: &actor}); err != nil {
+				return err
+			}
+			if err := a.platformGrant(c, tx, uid, to); err != nil {
 				return err
 			}
 			if err := a.claimsChanged(c, tx, uid, keep); err != nil {

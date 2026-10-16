@@ -160,10 +160,7 @@ type keyReach struct {
 }
 
 func listReach(p *authz.Principal) keyReach {
-	if p.ActOnAll {
-		return keyReach{all: true}
-	}
-	r := keyReach{platform: p.HasPlatform(authz.PlatformAdmin) && p.ActOnTenant == nil, tenants: []uuid.UUID{}}
+	r := keyReach{platform: p.HasPlatform(authz.PlatformAdmin), tenants: []uuid.UUID{}}
 	if t := p.EffectiveTenant(); t != nil {
 		r.tenants = append(r.tenants, *t)
 	}
@@ -185,6 +182,9 @@ func mayManage(p *authz.Principal, tenant *uuid.UUID) bool {
 
 // List is GET /v1/api-keys, newest first (created_at DESC, id DESC), keyset paged (Appendix B §B.1.5).
 func (k *APIKeys) List(c call, limit int, cur string) ([]APIKey, string, error) {
+	return k.list(c, limit, cur, listReach(c.p))
+}
+func (k *APIKeys) list(c call, limit int, cur string, r keyReach) ([]APIKey, string, error) {
 	var bad []httpx.FieldViolation
 	if limit == 0 {
 		limit = DefaultLimit
@@ -202,7 +202,6 @@ func (k *APIKeys) List(c call, limit int, cur string) ([]APIKey, string, error) 
 	if len(bad) > 0 {
 		return nil, "", errInvalid(bad...)
 	}
-	r := listReach(c.p)
 	now := k.clock()
 	var out []APIKey
 	var next string
@@ -220,10 +219,30 @@ func (k *APIKeys) List(c call, limit int, cur string) ([]APIKey, string, error) 
 		}
 		out = make([]APIKey, 0, len(rows))
 		for _, row := range rows {
-			out = append(out, apiKeyOf(row, now))
+			key := apiKeyOf(row, now)
+			out = append(out, key)
 		}
 		return nil
 	})
+	if err == nil && c.p.IsPlatform() {
+		err = db.WithSystem(c.ctx, k.pool, nil, func(tx pgx.Tx) error {
+			ids := make([]uuid.UUID, len(out))
+			for i := range out {
+				ids[i] = out[i].CreatedBy
+			}
+			owners, err := attributableUserOwners(c.ctx, tx, ids)
+			if err != nil {
+				return err
+			}
+			for i := range out {
+				key := &out[i]
+				if key.TenantID == nil || owners[key.CreatedBy] != key.TenantID.String() {
+					key.CreatedByEmail = "****"
+				}
+			}
+			return nil
+		})
+	}
 	return out, next, err
 }
 
@@ -334,6 +353,9 @@ func validateCreate(in CreateAPIKeyInput, now time.Time) (apiKeyRequest, []httpx
 // 422 for an unknown tenant or the quarantine row, 409 failed_precondition for a pending or suspended
 // tenant; 503 while API_KEY_PEPPER is unset.
 func (k *APIKeys) Create(c call, in CreateAPIKeyInput) (*CreatedAPIKey, error) {
+	if authz.IsSupport(c.p) && in.TenantID != nil {
+		return nil, httpx.ErrSupportReadOnly()
+	}
 	p := c.p
 	if p.IsMachine() {
 		return nil, authz.ErrPermissionDenied("API keys are managed by people").WithDetails(map[string]any{"reason": ReasonMachineCaller})
@@ -428,6 +450,9 @@ func (k *APIKeys) Create(c call, in CreateAPIKeyInput) (*CreatedAPIKey, error) {
 // api_key_revoked in the transaction; the key is refused from its next request (401 invalid_token, reason
 // revoked). A key outside the caller's reach is 404; revoking a revoked key again is a no-op (204, no event).
 func (k *APIKeys) Revoke(c call, id uuid.UUID) error {
+	if authz.IsSupport(c.p) {
+		return httpx.ErrSupportReadOnly()
+	}
 	p := c.p
 	if p.IsMachine() {
 		return authz.ErrPermissionDenied("API keys are managed by people").WithDetails(map[string]any{"reason": ReasonMachineCaller})

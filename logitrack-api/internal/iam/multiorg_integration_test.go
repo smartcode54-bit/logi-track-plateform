@@ -270,6 +270,10 @@ func TestMultiOrgAddMemberByEmail(t *testing.T) {
 			t.Fatalf("a refused add gave %s a B membership", c.email)
 		}
 	}
+	// Existing B admins must consent before the platform adds this shared account.
+	expect(t, w.send(http.MethodPost, path, w.login("pa@example.test"), map[string]any{"email": "ds@example.test", "role": "user"}),
+		http.StatusForbidden, "support_access_required")
+	supportFixtureConsent(w, w.B, true)
 	expect(t, w.send(http.MethodPost, path, w.login("pa@example.test"), map[string]any{"email": "ds@example.test", "role": "user"}),
 		http.StatusCreated, "")
 	// B now reaches ds but does not manage it, and reads nothing of its grant over another organisation's party.
