@@ -526,9 +526,12 @@ func (v *Verifier) isolation(ctx context.Context) ([]string, string, error) {
 			history = append(history, cp.label+": "+strings.Join(res.own, ", "))
 		}
 	}
+	readableTables := len(plan.checks) + len(plan.shared)
 	detail := fmt.Sprintf("SQL 10a, 10b; role-play on DATABASE_URL: 10c x3, 10d, %d carrier principal(s) (%d staff, %d driver(s)) "+
-		"over %d RLS tables (%d by tenant_id, %d by owner; %d shared master tables skipped)",
-		len(carriers), len(carriers)-drivers, drivers, len(plan.checks), plan.stamped, plan.owned, len(plan.shared))
+		"across %d readable RLS tables (%d role-played: %d by tenant_id, %d by owner, %d system-only (%s); "+
+		"%d shared master tables skipped)",
+		len(carriers), len(carriers)-drivers, drivers, readableTables, len(plan.checks), plan.stamped, plan.owned,
+		len(plan.systemOnly), strings.Join(plan.systemOnly, ", "), len(plan.shared))
 	if len(history) > 0 {
 		detail += "; R24 own history in other tenants: " + strings.Join(history, "; ")
 	}
