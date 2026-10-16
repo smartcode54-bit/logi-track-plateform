@@ -390,6 +390,7 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 		"/app/companies":                        taMg,
 		"/app/companies/new":                    taMg, // entry removed (no page): /app/companies governs it
 		"/app/settings/company-profile":         taMg,
+		"/app/settings/support-access":          secTA,
 		"/app/analytics":                        none,
 		"/app/payroll":                          taOnly,
 		"/app/payroll/config":                   taOnly,

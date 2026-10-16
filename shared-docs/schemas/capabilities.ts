@@ -258,6 +258,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[
   "/app/security-center/tenants": ["platform:manage_tenants"],
   "/app/security-center/users": ["users:view"],
   "/app/settings/company-profile": ["company:manage"],
+  "/app/settings/support-access": ["users:assign_role"],
   "/app/sources": ["operations:manage_sources"],
   "/app/standby-records": ["operations:view_driver_monitor"],
   "/app/subcontractors": ["fleet:manage_subcontractors","fleet:view_subcontractors"],

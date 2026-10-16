@@ -69,11 +69,12 @@ const WAITLIST_PATH = "/app/waitlist"
 export function AppSidebar() {
     const { t } = useLanguage()
     const pathname = usePathname()
+    const { data: me } = useMe()
     const { data: capabilities = NO_CAPABILITIES } = useMe(selectCapabilities)
     const { data: homeHref = DASHBOARD_PATH } = useMe(selectHome)
     const { data: profile = "staff" } = useMe(navigationProfileOf)
     const held = useMemo(() => new Set(capabilities), [capabilities])
-    const { main, footer } = useMemo(() => menuFor(held, homeHref, profile), [held, homeHref, profile])
+    const { main, footer } = useMemo(() => menuFor(held, homeHref, profile, me), [held, homeHref, profile, me])
     const { data: waitlistCount = 0 } = useBadges(selectWaitlistCount)
     const scope = useScopeLabel()
     const closeOnPhone = useCloseSidebarOnPhone()

@@ -14,6 +14,7 @@
 import type { SplitNamespace } from "./load";
 
 export const ROUTE_NAMESPACES: ReadonlyArray<{ prefix: string; namespaces: readonly SplitNamespace[] }> = [
+    { prefix: "/app/settings/support-access", namespaces: ["supportAccess"] },
     { prefix: "/app/accounting", namespaces: ["accounting"] },
     { prefix: "/app/utilities", namespaces: ["accounting"] },
     { prefix: "/app/driver-monitor", namespaces: ["driverMonitor"] },

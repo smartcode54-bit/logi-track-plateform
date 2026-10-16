@@ -19,7 +19,7 @@ export function quickJumpLinks(me: MeDTO | null | undefined, pathname: string) {
     const home = homeRouteOf(me);
     return menuLinksFor(pathname.startsWith(SECURITY_CENTER_PATH)
         ? securityMenuFor(held, home)
-        : menuFor(held, home, navigationProfileOf(me)));
+        : menuFor(held, home, navigationProfileOf(me), me));
 }
 
 const isApple = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);

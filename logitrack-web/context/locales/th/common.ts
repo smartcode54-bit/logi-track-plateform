@@ -1,4 +1,5 @@
 export default {
+    "nav.supportAccess": "สิทธิ์การเข้าถึงของทีม LogiTrack",
     "common.maskedValue": "ปกปิดข้อมูลส่วนบุคคลหรือข้อมูลทางการเงิน",
     // Task / trip shared
     "task.helpers": "ผู้ช่วย",
