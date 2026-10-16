@@ -62,13 +62,14 @@ const expected: Record<string, readonly boolean[]> = fixture.routes;
 describe("UI3F access baseline (dd2de92a, before navigation presentation changes)", () => {
     it("covers every discovered app page and every BEFORE/additional principal", () => {
         expect(fixture.principals).toEqual(Object.keys(principals));
-        expect(Object.keys(expected).sort()).toEqual(pages(appDir));
+        // This post-baseline route has its own role/eligibility tests; the frozen decisions remain intact.
+        expect(Object.keys(expected).sort()).toEqual(pages(appDir).filter((route) => route !== "/app/settings/support-access"));
         for (const decisions of Object.values(expected)) expect(decisions).toHaveLength(fixture.principals.length);
     });
 
     for (const [index, [who, capabilities]] of Object.entries(principals).entries()) {
         it(`${who}: preserves every frozen allow/deny decision`, () => {
-            for (const route of pages(appDir)) {
+            for (const route of Object.keys(expected)) {
                 expect(routeAllowed(capabilities, route), `${who} -> ${route}`).toBe(expected[route][index]);
             }
         });

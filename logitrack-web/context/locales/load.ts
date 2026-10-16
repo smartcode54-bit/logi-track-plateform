@@ -21,7 +21,7 @@ export const DEFAULT_LANGUAGE: Language = "th";
 export type Dictionary = Record<string, string>;
 
 /** Namespaces left out of the base dictionary and loaded per route group (`./routes.ts`). */
-export const SPLIT_NAMESPACES = ["accounting", "driverMonitor"] as const;
+export const SPLIT_NAMESPACES = ["accounting", "driverMonitor", "supportAccess"] as const;
 export type SplitNamespace = (typeof SPLIT_NAMESPACES)[number];
 
 type Loader = () => Promise<{ default: Dictionary }>;
@@ -35,10 +35,12 @@ const namespaceLoaders: Record<Language, Record<SplitNamespace, Loader>> = {
     en: {
         accounting: () => import(/* webpackChunkName: "locale-en-accounting" */ "./en/accounting"),
         driverMonitor: () => import(/* webpackChunkName: "locale-en-driverMonitor" */ "./en/driverMonitor"),
+        supportAccess: () => import(/* webpackChunkName: "locale-en-supportAccess" */ "./en/supportAccess"),
     },
     th: {
         accounting: () => import(/* webpackChunkName: "locale-th-accounting" */ "./th/accounting"),
         driverMonitor: () => import(/* webpackChunkName: "locale-th-driverMonitor" */ "./th/driverMonitor"),
+        supportAccess: () => import(/* webpackChunkName: "locale-th-supportAccess" */ "./th/supportAccess"),
     },
 };
 

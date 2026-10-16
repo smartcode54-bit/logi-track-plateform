@@ -1,4 +1,5 @@
 export default {
+    "nav.supportAccess": "Support access",
     "common.maskedValue": "Personal or financial data masked",
     // Task / trip shared
     "task.helpers": "Helpers",

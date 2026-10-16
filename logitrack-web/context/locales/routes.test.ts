@@ -13,6 +13,8 @@ import enAccounting from "./en/accounting";
 import thAccounting from "./th/accounting";
 import enDriverMonitor from "./en/driverMonitor";
 import thDriverMonitor from "./th/driverMonitor";
+import enSupportAccess from "./en/supportAccess";
+import thSupportAccess from "./th/supportAccess";
 
 const root = path.resolve(__dirname, "../..");
 const IMPORT_RX = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
@@ -21,6 +23,7 @@ const NS_RX = new RegExp(`["'\`]((${SPLIT_NAMESPACES.join("|")})\\.[A-Za-z][A-Za
 const SPLIT_KEYS: Record<SplitNamespace, string[]> = {
     accounting: Object.keys(enAccounting),
     driverMonitor: Object.keys(enDriverMonitor),
+    supportAccess: Object.keys(enSupportAccess),
 };
 
 /**
@@ -154,8 +157,8 @@ describe("route namespaces (./routes.ts)", () => {
 describe("split dictionaries", () => {
     it("the base dictionaries hold none of the split namespaces' keys", () => {
         for (const [base, parts] of [
-            [enBase, [enAccounting, enDriverMonitor]],
-            [thBase, [thAccounting, thDriverMonitor]],
+            [enBase, [enAccounting, enDriverMonitor, enSupportAccess]],
+            [thBase, [thAccounting, thDriverMonitor, thSupportAccess]],
         ] as const) {
             const overlap = parts.flatMap((part) => Object.keys(part).filter((k) => k in base));
             expect(overlap).toEqual([]);
@@ -166,6 +169,7 @@ describe("split dictionaries", () => {
         for (const [en, th] of [
             [enAccounting, thAccounting],
             [enDriverMonitor, thDriverMonitor],
+            [enSupportAccess, thSupportAccess],
         ] as const) {
             expect(Object.keys(th).filter((k) => !(k in en))).toEqual([]);
             expect(Object.keys(en).filter((k) => !(k in th))).toEqual([]);

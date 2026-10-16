@@ -377,7 +377,7 @@ describe("one name per page (UI3B)", () => {
     const pages = [...new Set([...urlsOf(MAIN_NAV), ...SECURITY_NAV.map((l) => l.url), "/app/payroll/config", "/app/payroll/penalties", "/app/utilities/billing-impact"])];
 
     it("every menu page's primary H1, its PageHeader's title, reads the key of its menu entry (= its crumb and its tab title)", () => {
-        expect(pages.length).toBe(44);
+        expect(pages.length).toBe(45);
         for (const url of pages) {
             if (REDIRECTS.has(url)) continue;
             const { crumbs } = breadcrumbTrail(url);

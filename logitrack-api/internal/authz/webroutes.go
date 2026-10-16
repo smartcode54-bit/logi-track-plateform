@@ -84,6 +84,7 @@ var webRoutes = map[string][]Cap{
 
 	"/app/companies":                {CompanyView},
 	"/app/settings/company-profile": {CompanyManage},
+	"/app/settings/support-access":  {UsersAssignRole},
 	"/app/payroll":                  {HRViewPayroll},
 	"/app/payroll/config":           {HRManagePayroll},
 	"/app/payroll/penalties":        {HRManagePayroll},

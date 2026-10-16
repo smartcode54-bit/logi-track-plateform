@@ -59,7 +59,7 @@ afterEach(() => {
 
 describe("palette destinations", () => {
     it.each([customer, partner, staff])("equals the resolved active main menu, including collapsed groups and Support", (me) => {
-        const expected = menuLinksFor(menuFor(new Set(me.capabilities), homeRouteOf(me), navigationProfileOf(me)));
+        const expected = menuLinksFor(menuFor(new Set(me.capabilities), homeRouteOf(me), navigationProfileOf(me), me));
         expect(quickJumpLinks(me, "/app/support")).toEqual(expected);
         expect(new Set(expected.map((entry) => entry.href)).size).toBe(expected.length);
         expect(expected.at(-1)?.href).toBe("/app/support");
@@ -222,7 +222,7 @@ describe("search and selection", () => {
         await user.click(trigger());
         const input = await screen.findByRole("combobox", { name: "ค้นหาหน้า" });
         await user.type(input, "ตังคา");
-        expect(screen.getAllByRole("option")).toHaveLength(2);
+        expect(screen.getAllByRole("option")).toHaveLength(3);
         expect(screen.getByRole("dialog")).toHaveAccessibleName("ไปยังหน้า");
     });
 

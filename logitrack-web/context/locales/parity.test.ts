@@ -5,11 +5,13 @@ import enAccounting from "./en/accounting";
 import thAccounting from "./th/accounting";
 import enDriverMonitor from "./en/driverMonitor";
 import thDriverMonitor from "./th/driverMonitor";
+import enSupportAccess from "./en/supportAccess";
+import thSupportAccess from "./th/supportAccess";
 import { LANGUAGES, loadDictionary, loadNamespace, SPLIT_NAMESPACES } from "./load";
 
 // Every key of a language: the base dictionary plus the namespaces loaded per route group (TW4).
-const enAll = { ...en, ...enAccounting, ...enDriverMonitor };
-const thAll = { ...th, ...thAccounting, ...thDriverMonitor };
+const enAll = { ...en, ...enAccounting, ...enDriverMonitor, ...enSupportAccess };
+const thAll = { ...th, ...thAccounting, ...thDriverMonitor, ...thSupportAccess };
 
 describe("translation dictionaries", () => {
     it("have the same keys in English and Thai", () => {
@@ -30,7 +32,9 @@ describe("translation dictionaries", () => {
     });
 
     it("load the split namespaces per language through load.ts", async () => {
-        expect(SPLIT_NAMESPACES).toEqual(["accounting", "driverMonitor"]);
+        expect(SPLIT_NAMESPACES).toEqual(["accounting", "driverMonitor", "supportAccess"]);
+        expect(await loadNamespace("en", "supportAccess")).toBe(enSupportAccess);
+        expect(await loadNamespace("th", "supportAccess")).toBe(thSupportAccess);
         expect(await loadNamespace("en", "accounting")).toBe(enAccounting);
         expect(await loadNamespace("th", "accounting")).toBe(thAccounting);
         expect(await loadNamespace("en", "driverMonitor")).toBe(enDriverMonitor);

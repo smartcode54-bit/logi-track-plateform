@@ -31,6 +31,7 @@ import {
 
 import { CUSTOMER_MENU_HREFS, PARTNER_MENU, profileRouteLabelKey, type NavigationProfile } from "@/features/auth/utils/navigationProfile";
 import { DASHBOARD_PATH, DRIVER_MONITOR_PATH, routeAllowed } from "@/lib/routeCapabilities";
+import { canViewSupportAccess, SUPPORT_ACCESS_PATH, type SupportAccessPrincipal } from "@/features/support-access/access";
 
 export interface NavLink {
     url: string;
@@ -137,6 +138,7 @@ const SETTINGS: NavGroup = {
     items: [
         { url: "/app/companies", labelKey: "nav.companies", icon: Landmark },
         { url: "/app/settings/company-profile", labelKey: "nav.companyProfile", icon: IdCard },
+        { url: SUPPORT_ACCESS_PATH, labelKey: "nav.supportAccess", icon: Shield },
     ],
 };
 
@@ -213,10 +215,10 @@ export const SECURITY_NAV: readonly NavLink[] = [
 ];
 
 /** The complete capability-filtered menu, independently of a principal's presentation profile. */
-export function allowedMenuFor(held: ReadonlySet<string>, home: string | null | undefined): NavMenu {
+export function allowedMenuFor(held: ReadonlySet<string>, home: string | null | undefined, principal?: SupportAccessPrincipal | null): NavMenu {
     const main = mainNavFor(home).flatMap((entry): NavEntry[] => {
         if (isNavGroup(entry)) {
-            const items = entry.items.filter((link) => routeAllowed(held, link.url));
+            const items = entry.items.filter((link) => routeAllowed(held, link.url) && (link.url !== SUPPORT_ACCESS_PATH || canViewSupportAccess(principal)));
             return items.length > 0 ? [{ ...entry, items }] : [];
         }
         return routeAllowed(held, entry.url) ? [entry] : [];
@@ -255,8 +257,15 @@ function profileMenu(menu: NavMenu, home: string | null | undefined, profile: Na
 }
 
 /** Profile allowlists change presentation only, after intersecting the complete catalog with capabilities. */
-export function menuFor(held: ReadonlySet<string>, home: string | null | undefined, profile: NavigationProfile = "staff"): NavMenu {
-    return profileMenu(allowedMenuFor(held, home), home, profile);
+export function menuFor(held: ReadonlySet<string>, home: string | null | undefined, profile: NavigationProfile = "staff", principal?: SupportAccessPrincipal | null): NavMenu {
+    const allowed = allowedMenuFor(held, home, principal);
+    const menu = profileMenu(allowed, home, profile);
+    if (profile !== "staff" && canViewSupportAccess(principal)) {
+        const settings = allowed.main.find((entry) => isNavGroup(entry) && entry.labelKey === SETTINGS.labelKey);
+        const support = settings && isNavGroup(settings) ? settings.items.filter((link) => link.url === SUPPORT_ACCESS_PATH) : [];
+        if (support.length) return { ...menu, main: [...menu.main, { ...SETTINGS, items: support }] };
+    }
+    return menu;
 }
 
 /** Security Center's own allowed pages, followed by the return home and Support links. */

@@ -14,8 +14,8 @@ const base: Record<Language, Dictionary> = {
     th: { "greeting": "สวัสดี", "shell.reload": "โหลดใหม่", "trucks.detail.notFound": "ไม่พบ" },
 };
 const split: Record<Language, Record<SplitNamespace, Dictionary>> = {
-    en: { accounting: { "accounting.title": "Accounting" }, driverMonitor: { "driverMonitor.title": "Monitor" } },
-    th: { accounting: { "accounting.title": "บัญชี" }, driverMonitor: { "driverMonitor.title": "ติดตาม" } },
+    en: { accounting: { "accounting.title": "Accounting" }, driverMonitor: { "driverMonitor.title": "Monitor" }, supportAccess: {} },
+    th: { accounting: { "accounting.title": "บัญชี" }, driverMonitor: { "driverMonitor.title": "ติดตาม" }, supportAccess: {} },
 };
 const loads: string[] = [];
 // Namespace chunks (`<language>:<ns>`) whose request fails, as a flaky network would.
