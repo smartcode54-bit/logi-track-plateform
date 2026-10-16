@@ -96,8 +96,8 @@ func TestRequireTenant(t *testing.T) {
 		{"member", &Principal{TenantID: ptr(carrier), TenantRole: User}, http.StatusNoContent},
 		{"customer scope", &Principal{PartyIDs: []uuid.UUID{uuid.New()}}, http.StatusForbidden},
 		{"platform without header", &Principal{Platform: []PlatformRole{PlatformAdmin}}, http.StatusForbidden},
-		{"platform acting as a tenant", &Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnTenant: ptr(carrier)}, http.StatusNoContent},
-		{"platform with *", &Principal{Platform: []PlatformRole{Support}, ActOnAll: true}, http.StatusNoContent},
+		{"platform acting as a tenant", &Principal{Platform: []PlatformRole{PlatformAdmin}, ActOnTenant: ptr(carrier)}, http.StatusForbidden},
+		{"platform with *", &Principal{Platform: []PlatformRole{Support}, ActOnAll: true}, http.StatusForbidden},
 	} {
 		code, env := serve(t, tc.p, RequireTenant())
 		if code != tc.want || (code == http.StatusForbidden && env.Error.Code != CodeTenantRequired) {
@@ -121,5 +121,31 @@ func TestRequirePlatformAndSteward(t *testing.T) {
 	carrierTA := &Principal{TenantID: ptr(carrier), TenantRole: TenantAdmin}
 	if code, _ := serve(t, carrierTA, RequireSteward()); code != http.StatusForbidden {
 		t.Errorf("carrier tenant_admin on a steward route: %d", code)
+	}
+}
+
+func TestPlatformCapabilitiesStayInClassifiedPlane(t *testing.T) {
+	for _, plane := range []string{"tenant", "platform", ""} {
+		app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler(zerolog.Nop())})
+		app.Use(func(c fiber.Ctx) error {
+			SetPrincipal(c, &Principal{TenantRole: SupportReadOnly, PlatformCapabilities: NewCapSet(PlatformManageTenants)})
+			if err := httpx.EndpointGate(c, httpx.EndpointPolicy{Plane: plane, Class: httpx.PolicyPlatform, Phase: 1}); err != nil {
+				return err
+			}
+			return c.Next()
+		})
+		app.Get("/control", RequireCap(PlatformManageTenants), func(c fiber.Ctx) error { return c.SendStatus(http.StatusNoContent) })
+		res, err := app.Test(httptest.NewRequest(http.MethodGet, "/control", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		want := http.StatusForbidden
+		if plane == "platform" {
+			want = http.StatusNoContent
+		}
+		if res.StatusCode != want {
+			t.Fatalf("plane %q: %d, want %d", plane, res.StatusCode, want)
+		}
 	}
 }

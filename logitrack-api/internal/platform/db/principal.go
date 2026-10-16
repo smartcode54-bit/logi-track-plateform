@@ -41,7 +41,7 @@ var ErrNoPrincipal = errors.New("db: WithPrincipal needs a principal (use WithSy
 // outside WithSystem the bypass exists only for the read-only X-Act-On-Tenant: * (Appendix C §C.3.2).
 var ErrBypassNeedsReadOnly = errors.New("db: app.bypass_tenant outside WithSystem needs a READ ONLY transaction")
 
-// readOnlySQL opens the read-only transaction of X-Act-On-Tenant: * before anything else runs in it.
+// readOnlySQL opens a read-only request transaction before setting its GUCs or running queries.
 const readOnlySQL = `SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY`
 
 // WithPrincipal runs fn in a request transaction: right after BEGIN one round trip sets the nine GUCs

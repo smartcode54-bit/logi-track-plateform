@@ -150,7 +150,7 @@ func policyError(v *password.Violation) *httpx.Error {
 // reset_required user, revokes every session (reason password_reset), bumps auth_version and appends
 // password_reset_completed, all in one transaction. A bad token is 422 invalid_argument (field token).
 // The token is checked before the new password is hashed, and the hash is computed before the
-// transaction, so the users row is never held during a memory-hard computation.
+// transaction; the stored-credential equality check repeats under the user lock.
 func (s *Service) Reset(ctx context.Context, in ResetInput) error {
 	if err := s.limit(ctx, ratelimit.ResetIP, ipSubject(in.IP)); err != nil {
 		return err
@@ -318,8 +318,28 @@ func (s *Service) checkPolicy(ctx context.Context, uid uuid.UUID, pw string) err
 		if err != nil {
 			return err
 		}
-		return s.policyCheck(ctx, q, uid, deref(u.Email), pw)
+		if err := s.policyCheck(ctx, q, uid, deref(u.Email), pw); err != nil {
+			return err
+		}
+		return s.requireDifferentPassword(ctx, authdb.GetUserForLoginRow{ID: u.ID, PasswordHash: u.PasswordHash,
+			LegacyScryptHash: u.LegacyScryptHash, LegacyScryptSalt: u.LegacyScryptSalt}, pw)
 	})
+}
+
+// Check the stored credential, not its salted hash string. The early check preserves a rejected
+// ticket; setPassword repeats it under the user lock so a concurrent reset cannot certify it.
+func (s *Service) requireDifferentPassword(ctx context.Context, u authdb.GetUserForLoginRow, pw string) error {
+	if u.PasswordHash == nil && len(u.LegacyScryptHash) == 0 {
+		return nil
+	}
+	match, _, err := s.verify(ctx, pw, &u)
+	if err != nil {
+		return kdfError(err)
+	}
+	if match {
+		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "newPassword", Reason: "not_allowed"})
+	}
+	return nil
 }
 
 func (s *Service) policyCheck(ctx context.Context, q *authdb.Queries, uid uuid.UUID, email, pw string) error {
@@ -395,11 +415,18 @@ func (s *Service) changePassword(ctx context.Context, uid uuid.UUID, in ChangeIn
 // password stays unchanged in both stores.
 func (s *Service) setPassword(ctx context.Context, tx pgx.Tx, q *authdb.Queries, u authdb.LockUserRow, pw, hash string, keep *uuid.UUID,
 	reason, requestID string, now time.Time, pc *PostCommit) error {
+	if err := s.requireDifferentPassword(ctx, authdb.GetUserForLoginRow{ID: u.ID, PasswordHash: u.PasswordHash,
+		LegacyScryptHash: u.LegacyScryptHash, LegacyScryptSalt: u.LegacyScryptSalt}, pw); err != nil {
+		return err
+	}
 	if err := s.policyCheck(ctx, q, u.ID, deref(u.Email), pw); err != nil {
 		return err
 	}
 	v, err := q.SetPassword(ctx, authdb.SetPasswordParams{PasswordHash: hash, ChangedAt: now, ID: u.ID})
 	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, supportCompleteHolderCredentialSQL, u.ID, now); err != nil {
 		return err
 	}
 	pc.version(u.ID, v)

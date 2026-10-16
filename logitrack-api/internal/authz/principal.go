@@ -2,7 +2,7 @@
 // the resolution of a principal's effective capability set (Appendix C §C.2), the route map of the web
 // edge gate (§C.2.7), and the Fiber guards RequireCap, RequireTenant, RequirePlatform and RequireSteward
 // (§C.2.8). It does no I/O: internal/iam loads the inputs (overrides, the own-fleet tenant, contractor
-// reach), resolves every authenticated request and handles X-Act-On-Tenant.
+// reach), resolves every authenticated request and refuses retired tenant headers.
 //
 // Layers (§C.3.1): capabilities decide which verbs a principal may perform; PostgreSQL RLS decides which
 // rows. Principal.RLS turns a resolved principal into the GUCs db.WithPrincipal sets.
@@ -67,7 +67,7 @@ const (
 // access token (claims sub, sid, ver, tid, rol, plt, dsp, drv, cs, amr, jti; Appendix C §C.4.1) or,
 // from T32, from an api_keys row; capabilities are never in the token. The rest is resolved per
 // request by internal/iam (Resolved reports it): the tenant kind and steward flag, contractor reach,
-// the effective capability set, and cross-tenant acting through X-Act-On-Tenant.
+// the effective capability set and live support context.
 type Principal struct {
 	UserID      uuid.UUID // sub; the key id for a machine principal without a user (AMRAPIKey)
 	SessionID   uuid.UUID // sid; zero for amr=firebase and amr=apikey
@@ -86,6 +86,15 @@ type Principal struct {
 	DriverID   *uuid.UUID     // drv; set only when TenantRole is driver
 	PartyIDs   []uuid.UUID    // cs: billing_parties.id of the customer scopes or the dispatcher grant
 
+	// Session context and consent are verified against PostgreSQL on every session-backed request.
+	AccessMode           string // member | support (sm)
+	ContextVersion       int64  // scv; absent legacy claims mean zero
+	SupportAccessVersion int64  // sacv
+	SupportAccessEnabled bool
+	SupportLabelVersions map[string]int64
+	SupportVisitID       uuid.UUID
+	PlatformCapabilities CapSet
+
 	// APIKeyID is set when the request carried X-Api-Key (T32): the key of a machine principal, or the
 	// attribution of a cf_shim request made for an end user.
 	APIKeyID *uuid.UUID
@@ -99,19 +108,17 @@ type Principal struct {
 
 	// TenantKind is the kind of EffectiveTenant(): own_fleet | carrier | quarantine, "" without one.
 	TenantKind string
-	// Steward is (own-fleet tenant and a staff role) or platform_admin, or acting as a tenant through
-	// X-Act-On-Tenant (R60, C.3.9). GUC app.steward.
+	// Steward is own-fleet staff or platform_admin outside support. GUC app.steward.
 	Steward bool
 	// SubtenantIDs are the carrier tenants whose contractor_tenant_id is the effective tenant (contractor
 	// reach, R60, C.3.4); staff only. GUC app.subtenant_ids.
 	SubtenantIDs []uuid.UUID
 	// Caps is the effective capability set.
 	Caps CapSet
-	// ActOnTenant is the target of X-Act-On-Tenant: <uuid> (platform_admin acting as that tenant's
-	// tenant_admin).
+	// Deprecated compatibility fields for pending owner-local consumer migrations. Authentication
+	// never sets them; effective tenant, role, capabilities and RLS ignore them.
 	ActOnTenant *uuid.UUID
-	// ActOnAll is X-Act-On-Tenant: * (read-only bypass of a platform principal, GET and HEAD only).
-	ActOnAll bool
+	ActOnAll    bool
 
 	resolved bool
 }
@@ -128,27 +135,13 @@ func (p *Principal) IsPlatform() bool { return len(p.Platform) > 0 }
 // IsMachine reports whether the principal is an API key without an end user (amr=apikey).
 func (p *Principal) IsMachine() bool { return p.AMR == AMRAPIKey }
 
-// EffectiveTenant is the tenant the request acts in: the X-Act-On-Tenant target, else the token's
-// tid. nil for customer-scope and platform-only principals and under X-Act-On-Tenant: *.
+// EffectiveTenant is the verified token tenant; nil for scope/platform-only principals.
 func (p *Principal) EffectiveTenant() *uuid.UUID {
-	if p.ActOnTenant != nil {
-		return p.ActOnTenant
-	}
-	if p.ActOnAll {
-		return nil
-	}
 	return p.TenantID
 }
 
-// EffectiveRole is the tenant role the request acts with: tenant_admin under X-Act-On-Tenant: <uuid>,
-// else the membership role ("" without one).
+// EffectiveRole is the verified membership or support role (empty without a tenant).
 func (p *Principal) EffectiveRole() TenantRole {
-	if p.ActOnTenant != nil {
-		return TenantAdmin
-	}
-	if p.ActOnAll {
-		return ""
-	}
 	return p.TenantRole
 }
 

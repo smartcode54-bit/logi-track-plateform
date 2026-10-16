@@ -11,6 +11,7 @@ import (
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/authdb"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 )
 
 // PostCommit collects the Redis writes that follow a committed transaction (Appendix C §C.4.7
@@ -332,6 +333,11 @@ func (s *Service) revokeTx(ctx context.Context, tx pgx.Tx, r Revocation, now tim
 		}
 		pc.version(r.UserID, v)
 	}
+	if r.Reason == RevokeClaimsChanged {
+		if err := s.endSupportAfterRoleRemoval(ctx, tx, q, r.UserID, now); err != nil {
+			return nil, err
+		}
+	}
 	var sids []uuid.UUID
 	if r.Reason != RevokeClaimsChanged {
 		rows, err := q.RevokeSessions(ctx, authdb.RevokeSessionsParams{
@@ -343,6 +349,21 @@ func (s *Service) revokeTx(ctx context.Context, tx pgx.Tx, r Revocation, now tim
 		}
 		for _, row := range rows {
 			sids = append(sids, row.ID)
+			reason := db.SupportVisitRevoked
+			if r.Reason == RevokeLogout || r.Reason == RevokeLogoutAll {
+				reason = db.SupportVisitLogout
+			}
+			st, err := readSessionContext(ctx, tx, r.UserID, row.ID, false)
+			if err != nil {
+				return nil, err
+			}
+			effective := now
+			if st.expires.Before(effective) {
+				effective, reason = st.expires, db.SupportVisitExpired
+			}
+			if err := CloseSupportVisit(ctx, tx, row.ID, reason, r.RequestID, effective, now); err != nil {
+				return nil, err
+			}
 		}
 		if len(sids) > 0 {
 			hashes, err := q.RevokeSessionTokens(ctx, authdb.RevokeSessionTokensParams{At: now, Reason: r.Reason, SessionIds: sids})

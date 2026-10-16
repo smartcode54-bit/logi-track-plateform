@@ -1,8 +1,8 @@
 // Package iam owns identity and access management beyond sign-in: tenants, memberships, roles, scopes
 // and users (main spec §2.3). From T07 it holds the per-request authorization of every authenticated
 // request (RBAC): the capability resolution of Appendix C §C.2 with role overrides cached under the
-// matrix version rbac:ver, the steward flag and contractor reach of §C.3.4 (R60), and cross-tenant
-// acting through X-Act-On-Tenant with its audit row (§C.3.9). T19 adds the users and tenants administration
+// matrix version rbac:ver, the steward flag and contractor reach of §C.3.4 (R60), and retired tenant
+// header refusal with platform-attempt auditing (D1). T19 adds the users and tenants administration
 // (Admin, AdminGroups: /v1/users*, /v1/tenants*, Appendix C §C.8) and the platform bootstrap of cmd/seed
 // (BootstrapPlatformAdmins, ApplyBootstrapAdmin). T51 adds the Security Center: the role matrix over the override
 // rows (GET/PUT /v1/roles/matrix), the security events feed, the overview and status counters, users by role and
@@ -110,10 +110,11 @@ func (r *RBAC) Resolve(ctx context.Context, p *authz.Principal) error {
 		}
 	}
 	p.TenantKind = kind
+	p.PlatformCapabilities = authz.PlatformCaps(p)
 	p.Steward = authz.IsSteward(p, kind)
 	p.SubtenantIDs = nil
 	var roleCaps authz.CapSet
-	if role := p.EffectiveRole(); tid != nil && role != "" && !p.IsMachine() {
+	if role := p.EffectiveRole(); tid != nil && role != "" && !p.IsMachine() && !authz.IsSupport(p) {
 		if role.IsStaff() {
 			subs, err := r.subtenants(ctx, *tid)
 			if err != nil {
@@ -136,7 +137,7 @@ func (r *RBAC) Resolve(ctx context.Context, p *authz.Principal) error {
 // else own_fleet when the tenant is the own-fleet row (cache:tenant:own_fleet) and carrier otherwise
 // (quarantine holds no memberships, C.1.8).
 func (r *RBAC) tenantKind(ctx context.Context, p *authz.Principal, tid uuid.UUID) (string, error) {
-	if p.ActOnTenant != nil && p.TenantKind != "" {
+	if authz.IsSupport(p) && p.TenantKind != "" {
 		return p.TenantKind, nil
 	}
 	own, ok, err := r.ownFleet(ctx)

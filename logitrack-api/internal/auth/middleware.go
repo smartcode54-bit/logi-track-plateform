@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 // RequireAuth accepts exactly one credential (Appendix C §C.4.3): a Go access token as
 // `Authorization: Bearer`, or an api_keys secret as X-Api-Key on a route whose options admit its scope
 // (AllowAPIKeys; none by default, so every route without the option refuses keys with 403
-// permission_denied). Then the Authorizer (iam.RBAC, T07) completes the principal: X-Act-On-Tenant,
+// permission_denied). Then the Authorizer (iam.RBAC, T07) refuses the retired tenant header and completes the principal:
 // steward flag, contractor reach and capabilities (a machine principal holds its key's capabilities
 // only). The principal is stored for authz.PrincipalFrom. No credential is 401 unauthenticated; a
 // Firebase ID token or any other non-Go token is 401 invalid_token on every route. (The cf_shim
@@ -51,10 +52,18 @@ func (s *Service) RequireAuth(opts ...AuthOption) fiber.Handler {
 			return err
 		}
 		setPrincipal(c, p)
+		if authz.IsSupport(p) {
+			a := httpx.ProjectionAudienceFrom(c)
+			a.Finalize = s.finalizeSupportAudience(p)
+			httpx.SetProjectionAudience(c, a)
+		}
 		if s.gate != nil {
 			if err := s.gate.Authorize(c, p); err != nil {
 				return err
 			}
+		}
+		if err := authz.RefuseTenantHeader(c); err != nil {
+			return err
 		}
 		return c.Next()
 	}
@@ -82,6 +91,8 @@ func (s *Service) refuseAPIKeys(c fiber.Ctx) error {
 
 func setPrincipal(c fiber.Ctx, p *authz.Principal) {
 	authz.SetPrincipal(c, p)
+	installSupportAudience(c, p)
+
 	lc := zerolog.Ctx(c.Context()).With()
 	if p.IsMachine() && p.APIKeyID != nil {
 		lc = lc.Str("api_key_id", p.APIKeyID.String()).Str("api_key_scope", string(p.APIKeyScope))
@@ -106,12 +117,12 @@ func bearer(c fiber.Ctx) (string, bool) {
 	return strings.Clone(strings.TrimSpace(tok)), true
 }
 
-// Authenticate verifies an access token and its revocation state (C.4.3): signature, iss, aud and exp in
-// memory, then one Redis pipeline (auth:sess:revoked:{sid}, auth:user:ver:{sub}). A version miss, and
+// Authenticate verifies signature, iss, aud and exp in memory, then reads live session/context and
+// user state in PostgreSQL before the Redis revocation pipeline (auth:sess:revoked:{sid}, auth:user:ver:{sub}). A version miss, and
 // a token whose ver is newer than the cached version (the cache lags a bump whose post-commit raise
 // was lost or is still in flight), read sessions.revoked_at and users.auth_version in PostgreSQL and
 // rebuild both keys; with Redis unreachable the same read decides and auth_revocation_fallback_total
-// counts it: the check never fails open.
+// counts it. Tokens already rejected by PostgreSQL admission never reach that pipeline or counter.
 //
 // Outcomes: a revoked session is session_revoked; a ver older than users.auth_version is token_expired
 // with details.reason claims_changed (the refresh issues the new claims, R50, R78); an expired token is
@@ -144,6 +155,21 @@ func (s *Service) Authenticate(ctx context.Context, raw string) (*authz.Principa
 // revocation published before this call is visible to it. A ticket principal (SSETicketPrincipal)
 // carries the version read at redemption.
 func (s *Service) CheckSession(ctx context.Context, p *authz.Principal) error {
+	if p == nil {
+		return errInvalidToken()
+	}
+	if p.IsMachine() {
+		return nil
+	}
+	if p.SessionID == uuid.Nil {
+		if p.AMR == AMRFirebase && p.AccessMode != "support" && !authz.IsSupport(p) {
+			return nil
+		}
+		return errInvalidToken()
+	}
+	if err := s.checkContext(ctx, p); err != nil {
+		return err
+	}
 	revoked, current, err := s.revocation(ctx, p)
 	if err != nil {
 		return err
@@ -217,7 +243,7 @@ var tenantRoles = []authz.TenantRole{authz.TenantAdmin, authz.Manager, authz.Ope
 func principalFromClaims(c *token.Claims) (*authz.Principal, bool) {
 	uid, err1 := uuid.Parse(c.Subject)
 	sid, err2 := uuid.Parse(c.SessionID)
-	if err1 != nil || err2 != nil || c.ID == "" || c.Version < 1 || (c.AMR != AMRPassword && c.AMR != "google") {
+	if err1 != nil || err2 != nil || uid == uuid.Nil || c.ID == "" || c.Version < 1 || (c.AMR != AMRPassword && c.AMR != "google") {
 		return nil, false
 	}
 	p := &authz.Principal{UserID: uid, SessionID: sid, AuthVersion: c.Version, AMR: c.AMR, TokenID: c.ID,
@@ -228,7 +254,7 @@ func principalFromClaims(c *token.Claims) (*authz.Principal, bool) {
 	if c.TenantID != "" {
 		tid, err := uuid.Parse(c.TenantID)
 		role := authz.TenantRole(c.Role)
-		if err != nil || !slices.Contains(tenantRoles, role) {
+		if err != nil || (!slices.Contains(tenantRoles, role) && !(c.AccessMode == "support" && role == authz.SupportReadOnly)) {
 			return nil, false
 		}
 		p.TenantID, p.TenantRole = &tid, role
@@ -256,5 +282,33 @@ func principalFromClaims(c *token.Claims) (*authz.Principal, bool) {
 		}
 		p.PartyIDs = append(p.PartyIDs, id)
 	}
+	p.AccessMode = "member"
+	if c.AccessMode != "" && c.AccessMode != "support" {
+		return nil, false
+	}
+	if c.ContextVersion != "" {
+		v, err := parseVersion(c.ContextVersion)
+		if err != nil {
+			return nil, false
+		}
+		p.ContextVersion = v
+	}
+	if c.AccessMode == "support" {
+		v, err := parseVersion(c.SupportAccessVersion)
+		if err != nil || c.ContextVersion == "" || p.TenantID == nil || p.TenantRole != authz.SupportReadOnly || !p.HasPlatform(authz.PlatformAdmin) || p.Dispatcher || p.DriverID != nil || len(p.PartyIDs) != 0 {
+			return nil, false
+		}
+		p.AccessMode, p.SupportAccessVersion = "support", v
+	} else if c.SupportAccessVersion != "" {
+		return nil, false
+	}
 	return p, true
+}
+
+func parseVersion(s string) (int64, error) {
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v < 0 || strconv.FormatInt(v, 10) != s {
+		return 0, errors.New("invalid context version")
+	}
+	return v, nil
 }

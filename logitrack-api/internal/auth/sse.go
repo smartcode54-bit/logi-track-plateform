@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,7 +37,7 @@ func (s *Service) SSETicketPrincipal(ctx context.Context, ticket string) (*authz
 	}
 	now := s.clock()
 	var p *authz.Principal
-	err = s.system(ctx, func(q *authdb.Queries) error {
+	err = s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
 		sess, err := q.GetSession(ctx, sid)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errInvalidToken()
@@ -61,10 +62,18 @@ func (s *Service) SSETicketPrincipal(ctx context.Context, ticket string) (*authz
 		if err != nil {
 			return err
 		}
+		st, err := readSessionContext(ctx, tx, uid, sid, false)
+		if err != nil {
+			return err
+		}
+		if st.mode != AccessModeMember {
+			return errInvalidToken()
+		}
 		c, err := a.claims(sid, u.AuthVersion, sess.Amr, a.pickTenant(sess.ActiveTenantID))
 		if err != nil {
 			return err
 		}
+		c.ContextVersion = strconv.FormatInt(st.version, 10)
 		jti, err := uuid.NewV7()
 		if err != nil {
 			return err

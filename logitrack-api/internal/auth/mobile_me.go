@@ -34,6 +34,9 @@ type MobileDriver struct {
 // MobileMe is GET /v1/mobile/me for p: GET /v1/me plus the driver's tenant and Firestore doc id (driver null for a
 // principal without a linked driver).
 func (s *Service) MobileMe(ctx context.Context, p *authz.Principal) (*MobileMe, error) {
+	if authz.IsSupport(p) || p.AccessMode == AccessModeSupport {
+		return nil, errPermissionDenied("support has no mobile context")
+	}
 	me, err := s.Me(ctx, p)
 	if err != nil {
 		return nil, err

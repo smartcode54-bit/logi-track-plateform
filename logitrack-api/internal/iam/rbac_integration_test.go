@@ -199,142 +199,20 @@ func TestScopePrincipals(t *testing.T) {
 // X-Act-On-Tenant (acceptance criterion 7, §C.3.9, §C.9.2 #16, #17).
 func TestActOnTenant(t *testing.T) {
 	w := newWorld(t)
-	audit := func() int { return w.securityEvents(iam.EventCrossTenantAccess) }
-	const hdr = authz.HeaderActOnTenant
-
-	// Anyone but a platform principal: 403, and no audit row (no access was granted).
-	opA := w.login("op.a@example.test")
-	expect(t, w.get("/v1/rbactest/whoami", opA, hdr, w.A), http.StatusForbidden, authz.CodePermissionDenied)
-	expect(t, w.get("/v1/rbactest/whoami", opA, hdr, "*"), http.StatusForbidden, authz.CodePermissionDenied)
-	if n := audit(); n != 0 {
-		t.Fatalf("%d audit rows for a refused non-platform principal", n)
-	}
-
-	pa := w.login("pa@example.test")
-	// <uuid>: platform_admin acts as tenant_admin of A; exactly one committed row per request.
-	for i := 1; i <= 2; i++ {
-		who := w.whoami(pa, hdr, w.A)
-		if who.ActOnTenant != w.A || !who.Steward || !slices.Contains(who.Caps, string(authz.HRManagePayroll)) {
-			t.Fatalf("acting as A: %+v", who)
-		}
-		if n := audit(); n != i {
-			t.Fatalf("after %d requests %d audit rows", i, n)
+	for _, email := range []string{"op.a@example.test", "pa@example.test", "su@example.test"} {
+		tok := w.login(email)
+		for _, value := range []string{w.A, "*", "not-a-uuid", "0199c000-0000-7000-8000-0000000000ff"} {
+			for _, method := range []string{http.MethodGet, http.MethodPost} {
+				expect(t, w.call(w.internal, method, "/v1/rbactest/tasks", tok, authz.HeaderActOnTenant, value), http.StatusBadRequest, "header_not_allowed")
+			}
 		}
 	}
-	var tenant, actor, method, path string
-	if err := w.etl.QueryRow(context.Background(), `SELECT tenant_id::text, actor_user_id::text, details->>'method',
-		details->>'path' FROM security_events WHERE event_type = $1 ORDER BY created_at DESC, id DESC LIMIT 1`,
-		iam.EventCrossTenantAccess).Scan(&tenant, &actor, &method, &path); err != nil {
-		t.Fatal(err)
+	if w.securityEvents(iam.EventCrossTenantAccess) != 16 {
+		t.Fatal("only platform principals generate refused-header audit rows")
 	}
-	if tenant != w.A || actor != w.id(`SELECT id::text FROM users WHERE email = 'pa@example.test'`) ||
-		method != http.MethodGet || path != "/v1/rbactest/whoami" {
-		t.Errorf("audit row tenant %s actor %s %s %s", tenant, actor, method, path)
-	}
-	if got := keysOf(named(w, w.perTenant(pa, "", hdr, w.A))); got != "A" {
-		t.Errorf("acting as A reads %s", got)
-	}
-	if got := keysOf(named(w, w.perTenant(pa, "", hdr, w.O))); got != "A B O" {
-		t.Errorf("acting as the own fleet reads %s (contractor reach of the target)", got)
-	}
-	expect(t, w.post("/v1/rbactest/tasks", pa, hdr, w.A), http.StatusNoContent, "") // platform:cross_tenant_write
-	if got := keysOf(named(w, w.perTenant(pa, ""))); got != "" {
-		t.Errorf("platform_admin without the header reads %s", got)
-	}
-
-	// *: read-only bypass, every tenant including quarantine; writes refused, and the attempt is on record.
-	before := audit()
-	r := w.get("/v1/rbactest/tasks?write=1", pa, hdr, "*")
-	if r.status != http.StatusOK {
-		t.Fatalf("GET with *: %d %s", r.status, r.raw)
-	}
-	data := r.data().(map[string]any)
-	if got := keysOf(named(w, toInts(data["perTenant"]))); got != "A B C D O Q" {
-		t.Errorf("* reads %s", got)
-	}
-	if data["writeSQLState"] != "25006" {
-		t.Errorf("a write inside the * transaction: sqlstate %v, want 25006 read_only_sql_transaction", data["writeSQLState"])
-	}
-	expect(t, w.post("/v1/rbactest/tasks", pa, hdr, "*"), http.StatusForbidden, authz.CodePermissionDenied)
-	if n := audit(); n != before+2 {
-		t.Errorf("audit rows %d, want %d (the refused write is recorded too)", n, before+2)
-	}
-	var nullTenant bool
-	if err := w.etl.QueryRow(context.Background(), `SELECT tenant_id IS NULL FROM security_events WHERE event_type = $1
-		ORDER BY created_at DESC, id DESC LIMIT 1`, iam.EventCrossTenantAccess).Scan(&nullTenant); err != nil || !nullTenant {
-		t.Errorf("the * audit row names a tenant (%v)", err)
-	}
-
-	// support: reads with * only.
-	su := w.login("su@example.test")
-	if got := keysOf(named(w, w.perTenant(su, "", hdr, "*"))); got != "A B C D O Q" {
-		t.Errorf("support with * reads %s", got)
-	}
-	before = audit()
-	expect(t, w.get("/v1/rbactest/whoami", su, hdr, w.A), http.StatusForbidden, authz.CodePermissionDenied)
-	expect(t, w.post("/v1/rbactest/tasks", su, hdr, "*"), http.StatusForbidden, authz.CodePermissionDenied)
-	if n := audit(); n != before+2 {
-		t.Errorf("support's refused attempts: %d audit rows, want 2", n-before)
-	}
-
-	// Malformed, repeated, unknown: refused, and each attempt of a platform principal is on record with
-	// tenant_id NULL and its outcome (B.5.7: every X-Act-On-Tenant request).
-	const unknown = "0199c000-0000-7000-8000-0000000000ff"
-	for _, tc := range []struct {
-		headers           []string
-		status            int
-		code, outcome, as string
-	}{
-		{[]string{hdr, "not-a-uuid"}, http.StatusBadRequest, "bad_request", "malformed", "not-a-uuid"},
-		{[]string{hdr, w.A, hdr, w.B}, http.StatusBadRequest, "bad_request", "repeated", w.A + ", " + w.B},
-		{[]string{hdr, unknown}, http.StatusNotFound, "not_found", "unknown_tenant", unknown},
-		{[]string{hdr, strings.Repeat("x", 300)}, http.StatusBadRequest, "bad_request", "malformed", strings.Repeat("x", 128)},
-	} {
-		before := audit()
-		expect(t, w.get("/v1/rbactest/whoami", pa, tc.headers...), tc.status, tc.code)
-		if n := audit(); n != before+1 {
-			t.Errorf("%s: %d audit rows, want 1", tc.outcome, n-before)
-		}
-		var nullTenant bool
-		var outcome, value string
-		if err := w.etl.QueryRow(context.Background(), `SELECT tenant_id IS NULL, details->>'outcome', details->>'act_on_tenant'
-			FROM security_events WHERE event_type = $1 ORDER BY created_at DESC, id DESC LIMIT 1`,
-			iam.EventCrossTenantAccess).Scan(&nullTenant, &outcome, &value); err != nil {
-			t.Fatal(err)
-		}
-		if !nullTenant || outcome != tc.outcome || value != tc.as {
-			t.Errorf("%s: audit row tenant NULL %v, outcome %q, act_on_tenant %q (want %q)", tc.outcome, nullTenant, outcome, value, tc.as)
-		}
-	}
-	// The outcome of the requests above that reached the method and capability checks.
-	outcomes := map[string]int{}
-	rows, err := w.etl.Query(context.Background(), `SELECT details->>'outcome', count(*) FROM security_events
-		WHERE event_type = $1 GROUP BY 1`, iam.EventCrossTenantAccess)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var o string
-		var n int
-		if err := rows.Scan(&o, &n); err != nil {
-			t.Fatal(err)
-		}
-		outcomes[o] = n
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	// accepted: 2 whoami + 2 perTenant + POST as A + GET * + perTenant * (support); refused: POST * (pa),
-	// whoami as A (support), POST * (support).
-	if outcomes["accepted"] != 7 || outcomes["refused"] != 3 {
-		t.Errorf("audit outcomes %v, want 7 accepted and 3 refused", outcomes)
-	}
-
-	// Not audited: the public listener refuses the header before anything is decided.
-	before = audit()
-	expect(t, w.call(w.public, http.MethodPost, "/v1/auth/logout-all", pa, hdr, w.A), http.StatusBadRequest, "header_not_allowed")
-	if n := audit(); n != before {
-		t.Errorf("the public listener wrote %d audit rows", n-before)
+	var accepted int
+	if err := w.etl.QueryRow(context.Background(), `SELECT count(*) FROM security_events WHERE event_type=$1 AND details->>'outcome'='accepted'`, iam.EventCrossTenantAccess).Scan(&accepted); err != nil || accepted != 0 {
+		t.Fatalf("accepted retired override: %d %v", accepted, err)
 	}
 }
 

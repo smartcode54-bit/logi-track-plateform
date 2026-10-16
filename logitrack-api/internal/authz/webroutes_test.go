@@ -430,7 +430,7 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 		allowed := strings.Fields(holders)
 		for name, p := range principals {
 			expected := slices.Contains(allowed, name)
-			if name == "PAall" {
+			if name == "PAall" || name == "PAt" {
 				expected = slices.Contains(allowed, "PA")
 			} // D1 removes human all-tenant reach.
 			if got := RouteAllowed(p.Caps, path); got != expected {

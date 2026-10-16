@@ -33,15 +33,18 @@ var (
 // plt / dsp / drv / cs and a customer-scope token has no tid / rol. No capabilities, email, name or
 // tenant list: GET /v1/me serves them.
 type Claims struct {
-	SessionID      string   `json:"sid"`
-	Version        int32    `json:"ver"`
-	TenantID       string   `json:"tid,omitempty"`
-	Role           string   `json:"rol,omitempty"`
-	Platform       []string `json:"plt,omitempty"`
-	Dispatcher     bool     `json:"dsp,omitempty"`
-	DriverID       string   `json:"drv,omitempty"`
-	CustomerScopes []string `json:"cs,omitempty"`
-	AMR            string   `json:"amr"`
+	SessionID            string   `json:"sid"`
+	AccessMode           string   `json:"sm,omitempty"`
+	ContextVersion       string   `json:"scv,omitempty"`
+	SupportAccessVersion string   `json:"sacv,omitempty"`
+	Version              int32    `json:"ver"`
+	TenantID             string   `json:"tid,omitempty"`
+	Role                 string   `json:"rol,omitempty"`
+	Platform             []string `json:"plt,omitempty"`
+	Dispatcher           bool     `json:"dsp,omitempty"`
+	DriverID             string   `json:"drv,omitempty"`
+	CustomerScopes       []string `json:"cs,omitempty"`
+	AMR                  string   `json:"amr"`
 	jwt.RegisteredClaims
 }
 

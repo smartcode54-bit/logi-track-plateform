@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
@@ -73,6 +74,9 @@ func (s *Service) RequireShim(callable string) fiber.Handler {
 			if err := s.gate.Authorize(c, p); err != nil {
 				return err
 			}
+		}
+		if err := authz.RefuseTenantHeader(c); err != nil {
+			return err
 		}
 		return c.Next()
 	}

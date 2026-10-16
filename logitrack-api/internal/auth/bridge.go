@@ -144,6 +144,7 @@ var legacyClaimKeys = []string{"admin", "role", "driverId", "customerScopeId", "
 // legacyContext is the principal context a legacy claim object describes: the active context of a Go
 // session (custom tokens), or the user's default context (the account mirror).
 type legacyContext struct {
+	support       bool
 	tenantID      *uuid.UUID
 	role          authz.TenantRole
 	platformAdmin bool
@@ -166,6 +167,8 @@ var ownFleetStaffRoles = []authz.TenantRole{authz.Manager, authz.OperationStaff,
 // legacy rules (C.3.1). A driver's claims are written by the mirror only; drivers have no web access.
 func legacyClaims(ctx context.Context, q *authdb.Queries, u authdb.GetBridgeUserRow, lc legacyContext) (legacyGrant, error) {
 	switch {
+	case lc.support || lc.role == authz.SupportReadOnly:
+		return legacyGrant{}, nil
 	case lc.platformAdmin:
 		return legacyGrant{claims: map[string]any{"admin": true, "role": "admin"}, mint: true}, nil
 	case lc.dispatcher:
@@ -211,6 +214,7 @@ func legacyClaims(ctx context.Context, q *authdb.Queries, u authdb.GetBridgeUser
 // principalContext is the active context of a Go session (its access token's claims).
 func principalContext(p *authz.Principal) legacyContext {
 	return legacyContext{
+		support:  authz.IsSupport(p) || p.AccessMode == "support",
 		tenantID: p.TenantID, role: p.TenantRole, platformAdmin: p.HasPlatform(authz.PlatformAdmin),
 		dispatcher: p.Dispatcher, customerScope: p.TenantID == nil && len(p.PartyIDs) > 0,
 	}
