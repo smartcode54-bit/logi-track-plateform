@@ -89,6 +89,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: .
 
+      - name: Support transport and masked-money contracts
+        run: pnpm check:support && pnpm test:support-lint
+
       - name: Build with the analyzer and check the budget
         run: pnpm run bundle:check
 

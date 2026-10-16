@@ -108,11 +108,8 @@ type StandbyView struct {
 //     replaced or deleted and re-created by another tenant, so resolving it through customer_service_fees would hand
 //     the columns to whoever holds the fee now.
 //
-// X-Act-On-Tenant: * reads everything; a driver, a customer scope or a dispatcher never.
+// A driver, customer scope or dispatcher never receives these billing columns.
 func BillingVisible(p *authz.Principal, rec Standby, entryTenant uuid.UUID) bool {
-	if p.ActOnAll {
-		return true
-	}
 	t := p.EffectiveTenant()
 	if t == nil || !p.EffectiveRole().IsStaff() || p.Dispatcher {
 		return false

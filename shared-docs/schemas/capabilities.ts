@@ -3,7 +3,7 @@
 
 export type CapabilityClass = "tenant" | "global" | "self" | "scope" | "platform";
 
-/** The 81 capability keys (77 + 4 platform, R73), colon form. */
+/** The 84 capability keys, including derived reads, colon form. */
 export const CAPABILITY_KEYS = [
   "fleet:view_trucks",
   "fleet:create_truck",
@@ -86,6 +86,9 @@ export const CAPABILITY_KEYS = [
   "platform:manage_platform_roles",
   "platform:cross_tenant_read",
   "platform:cross_tenant_write",
+  "fleet:view_maintenance",
+  "fleet:view_subcontractors",
+  "users:view_sessions",
 ] as const;
 
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
@@ -181,6 +184,9 @@ export const CAPABILITY_CATALOG: readonly CapabilityInfo[] = [
   { key: "platform:manage_platform_roles", module: "platform", class: "platform", titleEn: "Manage platform roles", titleTh: "จัดการบทบาทระดับแพลตฟอร์ม" },
   { key: "platform:cross_tenant_read", module: "platform", class: "platform", titleEn: "Cross-tenant read", titleTh: "อ่านข้อมูลข้ามผู้ให้บริการ" },
   { key: "platform:cross_tenant_write", module: "platform", class: "platform", titleEn: "Cross-tenant write", titleTh: "แก้ไขข้อมูลข้ามผู้ให้บริการ" },
+  { key: "fleet:view_maintenance", module: "fleet", class: "tenant", titleEn: "View maintenance", titleTh: "ดูงานซ่อมบำรุง" },
+  { key: "fleet:view_subcontractors", module: "fleet", class: "global", titleEn: "View subcontractors", titleTh: "ดูผู้รับเหมาช่วง" },
+  { key: "users:view_sessions", module: "users", class: "tenant", titleEn: "View sessions", titleTh: "ดูเซสชัน" },
 ];
 
 export type RoleAxis = "tenant" | "scope" | "platform";
@@ -200,7 +206,7 @@ export const ROLE_DEFAULT_CAPABILITIES: readonly { role: string; axis: RoleAxis;
 ];
 
 /** Global keys: effective only for own-fleet staff and platform_admin (R60). */
-export const STEWARD_CAPABILITIES: readonly CapabilityKey[] = ["fleet:manage_subcontractors","fleet:manage_customers","operations:manage_sources","operations:calculate_distances","security:view_status","security:manage_mobile_release","waitlist:view"];
+export const STEWARD_CAPABILITIES: readonly CapabilityKey[] = ["fleet:manage_subcontractors","fleet:manage_customers","operations:manage_sources","operations:calculate_distances","security:view_status","security:manage_mobile_release","waitlist:view","fleet:view_subcontractors"];
 
 /**
  * The web edge gate (proxy.ts, R39): exact path, else the longest mapped prefix; an unmapped path is
@@ -222,6 +228,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[
   "/app/chat/with-driver": ["chat:send"],
   "/app/companies": ["company:view"],
   "/app/customers": ["fleet:manage_customers"],
+  "/app/customers/[id]": ["fleet:manage_customers"],
+  "/app/customers/[id]/edit": ["fleet:manage_customers"],
   "/app/customers/new": ["fleet:manage_customers"],
   "/app/dashboard": [],
   "/app/driver-monitor": ["operations:view_driver_monitor"],
@@ -235,7 +243,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[
   "/app/job-assign": ["operations:view_first_mile"],
   "/app/leave-requests": ["hr:view_leave"],
   "/app/line-haul": ["operations:view_line_haul"],
-  "/app/maintenance": ["fleet:manage_maintenance"],
+  "/app/maintenance": ["fleet:manage_maintenance","fleet:view_maintenance"],
   "/app/payroll": ["hr:view_payroll"],
   "/app/payroll/config": ["hr:manage_payroll"],
   "/app/payroll/penalties": ["hr:manage_payroll"],
@@ -252,13 +260,15 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, readonly CapabilityKey[
   "/app/settings/company-profile": ["company:manage"],
   "/app/sources": ["operations:manage_sources"],
   "/app/standby-records": ["operations:view_driver_monitor"],
-  "/app/subcontractors": ["fleet:manage_subcontractors"],
+  "/app/subcontractors": ["fleet:manage_subcontractors","fleet:view_subcontractors"],
+  "/app/subcontractors/[id]": ["fleet:manage_subcontractors","fleet:view_subcontractors"],
+  "/app/subcontractors/[id]/edit": ["fleet:manage_subcontractors"],
   "/app/subcontractors/new": ["fleet:manage_subcontractors"],
   "/app/support": [],
   "/app/truck-assignment": ["fleet:view_assignments"],
   "/app/trucks": ["fleet:view_trucks"],
   "/app/trucks/edit": ["fleet:edit_truck"],
-  "/app/trucks/maintenance": ["fleet:manage_maintenance"],
+  "/app/trucks/maintenance": ["fleet:manage_maintenance","fleet:view_maintenance"],
   "/app/trucks/new": ["fleet:create_truck"],
   "/app/trucks/renew": ["fleet:manage_renewals"],
   "/app/trucks/view": ["fleet:view_trucks"],

@@ -56,10 +56,9 @@ type Hubs interface {
 	Hubs(ctx context.Context, p *authz.Principal) ([]Hub, error)
 }
 
-// scoped reports whether p reads the scope_* projections: a dispatcher or a customer-scope principal (never under
-// X-Act-On-Tenant: *, which reads everything as staff).
+// scoped reports whether p reads only the customer/dispatcher projections.
 func scoped(p *authz.Principal) bool {
-	return (p.IsCustomerScope() || p.Dispatcher) && !p.ActOnAll
+	return p.IsCustomerScope() || p.Dispatcher
 }
 
 // driverPrincipal reports a driver acting as itself (driver:self, R33).

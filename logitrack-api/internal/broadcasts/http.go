@@ -29,6 +29,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	view, send := authz.RequireCap(authz.BroadcastsView), authz.RequireCap(authz.BroadcastsSend)
 	return []ingress.Group{{Prefix: Prefix, Mount: func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Get("", requireAuth, view, h.list)
 		r.Post("", requireAuth, send, h.send)
 		r.Delete("/:id", requireAuth, send, h.void)
@@ -47,6 +48,7 @@ func MobileRoutes(s *Service, requireAuth, requireShim fiber.Handler) func(r fib
 	h := handlers{s}
 	own := authz.RequireCap(authz.MobileBroadcasts)
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Get(MobilePrefix, requireAuth, own, h.mine)
 		r.Get(MobilePrefix+"/latest", requireAuth, own, h.latest)
 		r.Post(MobilePrefix+"/:id/read", requireShim, own, h.markRead)

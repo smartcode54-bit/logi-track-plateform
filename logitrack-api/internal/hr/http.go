@@ -49,6 +49,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	need := authz.RequireCap
 	return []ingress.Group{
 		{Prefix: PayrollPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.HRViewPayroll), h.runs)
 			r.Get("/config", requireAuth, need(authz.HRManagePayroll), h.configs)
 			r.Post("/config", requireAuth, need(authz.HRManagePayroll), h.createConfig)
@@ -57,20 +58,24 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Post("/:id/status", requireAuth, need(authz.HRManagePayroll), h.status)
 		}},
 		{Prefix: PenaltiesPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.HRManagePayroll), h.penalties)
 			r.Post("", requireAuth, need(authz.HRManagePayroll), h.createPenalty)
 			r.Post("/:id/cancel", requireAuth, need(authz.HRManagePayroll), h.cancelPenalty)
 		}},
 		{Prefix: JobPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Post("", requireAuth, need(jobs.TypeCapabilities[jobs.TypePayrollRun]), h.submitRun)
 		}},
 		{Prefix: LeavePrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, need(authz.HRViewLeave), h.leaveRequests)
 			for _, action := range []string{ActionApprove, ActionReject, ActionCancel} {
 				r.Post("/:id/"+action, requireAuth, need(authz.HRManageLeave), h.decide(action))
 			}
 		}},
 		{Prefix: HolidaysPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("", requireAuth, h.holidays)
 			r.Post("", requireAuth, need(authz.HRManageHolidays), h.saveHoliday)
 			r.Put("/generate", requireAuth, need(authz.HRManageHolidays), h.generateHolidays)

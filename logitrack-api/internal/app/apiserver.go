@@ -138,8 +138,8 @@ func JobGroups(d APIDeps) []ingress.Group {
 			if p == nil {
 				return jobs.Caller{}, false
 			}
-			return jobs.Caller{UserID: p.UserID, PlatformAdmin: p.HasPlatform(authz.PlatformAdmin),
-				PlatformSupport: p.HasPlatform(authz.Support), TenantID: p.EffectiveTenant(), Can: p.Can}, true
+			return jobs.Caller{UserID: p.UserID, PlatformAdmin: !authz.IsSupport(p) && p.HasPlatform(authz.PlatformAdmin),
+				PlatformSupport: !authz.IsSupport(p) && p.HasPlatform(authz.Support), TenantID: p.EffectiveTenant(), Can: p.Can}, true
 		},
 	})
 }

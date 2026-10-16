@@ -1,0 +1,21 @@
+{
+  "internal/authz/http.go:ActOnAll": 1,
+  "internal/authz/principal.go:ActOnAll": 2,
+  "internal/authz/principal.go:ActOnTenant": 3,
+  "internal/authz/rls.go:ActOnAll": 1,
+  "internal/authz/rls.go:ActOnTenant": 2,
+  "internal/dashboard/dashboard.go:ActOnAll": 2,
+  "internal/drivers/drivers.go:ActOnAll": 1,
+  "internal/fleet/locations/locations.go:ActOnAll": 1,
+  "internal/fleet/trucks.go:ActOnAll": 1,
+  "internal/iam/admin.go:ActOnAll": 2,
+  "internal/iam/admin_http.go:PlatformCrossTenantWrite": 1,
+  "internal/iam/apikeys.go:ActOnAll": 1,
+  "internal/iam/apikeys.go:ActOnTenant": 1,
+  "internal/iam/authorize.go:ActOnAll": 1,
+  "internal/iam/authorize.go:ActOnTenant": 1,
+  "internal/iam/authorize.go:PlatformCrossTenantWrite": 2,
+  "internal/iam/rbac.go:ActOnTenant": 1,
+  "internal/iam/subcontractors.go:ActOnAll": 1,
+  "internal/iam/tenants.go:ActOnTenant": 2
+}

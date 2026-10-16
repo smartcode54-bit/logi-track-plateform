@@ -863,10 +863,9 @@ func (s *Service) PatchTaskAPI(ctx context.Context, p *authz.Principal, rid stri
 			}
 			out, err := s.ReassignTask(ctx, p, rid, id, in)
 			if err != nil {
-				if p.IsPlatform() && p.ActOnTenant == nil && sameTenantRefusal(err) {
-					// Not a move: the ordinary update of a task in its own tenant runs under that tenant's RLS, which a
-					// platform admin reaches through X-Act-On-Tenant (audited, Appendix C §C.3.9).
-					return WriteResult{}, authz.ErrPermissionDenied("a platform admin changes a task in its tenant through X-Act-On-Tenant",
+				if p.IsPlatform() && p.TenantID == nil && sameTenantRefusal(err) {
+					// The ordinary update requires real tenant write rights.
+					return WriteResult{}, authz.ErrPermissionDenied("tenant write rights are required",
 						authz.OperationsManageTasks).WithDetails(map[string]any{"reason": ReasonActOnTenantRequired})
 				}
 				return WriteResult{}, err

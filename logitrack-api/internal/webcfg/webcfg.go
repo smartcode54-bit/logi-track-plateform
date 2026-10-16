@@ -153,6 +153,7 @@ type Response struct {
 func Group(f Flags) ingress.Group {
 	body := Response{Domains: f.Map()}
 	return ingress.Group{Prefix: "/v1/config", Mount: func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Get("/web-flags", func(c fiber.Ctx) error {
 			// The 60 s TanStack stale time is the only cache: no shared or browser HTTP copy may stretch
 			// the time a rollback takes to reach the web (R41).

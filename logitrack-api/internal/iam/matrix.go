@@ -107,6 +107,9 @@ func (l matrixLayer) name() string {
 // tenant_admin, a global key in a tenant other than the own fleet, and a key of the other role class. Every cell it
 // admits is one authz.Overridable admits, so a stored row always takes effect.
 func notOverridable(role authz.TenantRole, key authz.Cap, l matrixLayer) string {
+	if authz.DerivedRead(key) {
+		return ReasonNotGrantable
+	}
 	if role == authz.TenantAdmin {
 		return ReasonTenantAdminFixed
 	}
@@ -134,6 +137,9 @@ func notOverridable(role authz.TenantRole, key authz.Cap, l matrixLayer) string 
 func matrixKeys() []authz.Cap {
 	var out []authz.Cap
 	for _, e := range authz.Catalog() {
+		if authz.DerivedRead(e.Key) {
+			continue
+		}
 		switch e.Class {
 		case authz.ClassTenant, authz.ClassGlobal, authz.ClassSelf:
 			out = append(out, e.Key)

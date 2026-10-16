@@ -1,0 +1,63 @@
+PSAP10 / P1.0 handoff (entry remains compile-time OFF)
+
+Registration
+- Every router mounted through ingress.Mount receives immutable endpoint gates and a deny fallback.
+- Use ingress.Bind(router, relativePath, httpx.EndpointPolicy{...}, authentication, guards, handler).
+  Non-builtin targets must supply ResolveTarget returning a separate typed PolicyTarget; it cannot mutate reach.
+  For group authentication, the endpoint gates run after that group. Do not classify c.Route() in RequireAuth.
+- Both listener tables are discovered from app.FullAPI. Review support-routes.json for changed registrations;
+  go generate ./... regenerates the method-level seed diff/pending list and the GET guard discovery report.
+- Unbound GET/HEAD denies support_view_unavailable; all other methods and both job-producing GETs deny
+  support_read_only. ON does not change admission. HEAD needs an explicit binding or AllowHEAD=true.
+- Owners P1.1-P1.4 must replace their pending bindings; no other owner's registration file was edited here.
+
+Identity / authorization (P1.1)
+- Install httpx.ProjectionAudience after live database identity, support mode/version and platform-grant checks.
+  It is server-owned, never derived from client headers. Include actor/session/tenant/context/consent versions.
+- authz.SupportReadOnly is virtual only. Effective excludes machine/sessionless/Firebase support principals;
+  IsSteward is false. authz.TenantSupportReads is separate from PlatformCaps.
+- Use authz.RequireTenantWrite before IAM/system/job/storage shortcuts. Remove human header reach in P1.1's
+  Principal/RLS/HTTP/RBAC files, and reject it before resolving reach. Deferred package consumers were removed.
+- Use MatrixInput, APIKeyRequest and LifecycleRequest / PolicyInput in mixed handlers; do not reparse query/body.
+  DecodeJSON copies a previously validated identical typed body and refuses a mismatched type.
+
+Projection / live ownership (P1.2, P1.3)
+- Register complete NewSchema[T] fields, child schemas and reviewed map keys. Schema ownership callbacks are
+  per row/join, never inherited selected-tenant consent for global platform data. Unknown ownership stays masked.
+- Finalize(ctx, sortedOwners, fn) is mandatory. Reread session/context and tenant consent/version under short
+  PostgreSQL row locks; execute fn with current consents before releasing the locks. Bound to 100 owners/rows.
+  No database implementation or consent authority is fabricated by this slice.
+- Reviewed domain error codes may register through RegisterSafeErrorCode at startup. Projection preserves only
+  field names and the closed validation reason enum; messages, params and free text stay excluded.
+- JSON/Page seal projected copies including metadata. Page metadata needs MetaSchemaID; opaque cursors need a
+  registered CursorID/ValidateCursor bound to the audience. Errors are sanitized and separately sealed.
+- Final admission checks status, headers, audience and exact bytes, including errors, HEAD and empty responses.
+  Empty(c,204) needs SchemaID="empty". Direct writers/replacements/redirects/hijacks/streams are refused.
+- Secret and unbrokered file values are removed even ON. Own credential issuance needs its explicit auth contract;
+  it must never be admitted as a tenant read. Domain owners supply reviewed auth/file adapters before binding.
+- shared-docs/schemas/supportAccess.ts is generated from registered response schemas; monetary fields use MoneyValue.
+- Customer options admit only selected-tenant references (100 IDs XOR codes), returning id and nullable code.
+  ReviewedCustomerCode must be positive owner review. Nil keeps legacy codes null and prevents code-search matches.
+
+Transports (P1.4)
+- Register NewStreamAdapter with exact source domain, content types, ownership resolver and live Check callback.
+  Open runs only after authorization. Stream binds its exact scoped reader and headers; Check runs before each
+  <=32 KiB read. P1.4 supplies real broker/SSE source authorization and revocation behavior on both listeners.
+
+Remaining integration dependencies / blockers
+- Named P1.2 ownership exception (PSAP10 review items 2/9): internal/iam/matrix.go now rejects DerivedRead
+  overrides with ReasonNotGrantable and excludes them from matrixKeys. Existing matrix assertions pass unchanged.
+- Migration 0027 / PSAP12A is absent. Repository-wide make sqlc passed for all current 27 output packages (0026).
+  Re-run it after that schema and domain source-query handoffs merge; do not hand-edit generated outputs.
+- The strict Go support-release-check also rejects remaining ActOn field / blanket-write consumers owned by
+  P1.1 (principal/RLS/RBAC), P1.2 (IAM) and P1.3 (Dashboard/Fleet). App storage no longer forwards all-tenant reach.
+- Default CI uses support-ratchet-check and web check:support: reviewed baselines count the remaining 27 Go
+  selector occurrences (26 diagnostic sites) and 19 web files, warn on existing sites and reject additions or stale entries after removal.
+  Baselines: tools/analyzers/supportprojection/testdata/human-overrides-baseline.json and
+  logitrack-web/scripts/support-header-baseline.json. Remove resolved entries as owning slices migrate.
+  The Phase 1 release gate must run make support-release-check and web pnpm check:support-release for zero
+  offenders. P1.6 has two permitted direct-formatter import TODOs; new sites are errors.
+- Customer-options predicates and handler scope/reviewed-code behavior have unit tests. SQL reach requires the
+  existing integration harness (PostgreSQL/Redis testcontainers); it was not run under the no-Docker constraint.
+- Entry remains OFF. D1/D2 replacements, actual DB freshness, auth/file adapters and Phase 1 owner bindings are
+  prerequisites for the integrated release; pending entries in support-policies.json grant no access.

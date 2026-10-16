@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 )
 
 // Listener names, also used as log, trace and metric labels.
@@ -102,13 +103,15 @@ func Validate(groups []Group) error {
 }
 
 // Mount registers the groups that belong on the given listener.
-func Mount(app *fiber.App, listener string, groups []Group, allow []string) {
+func Mount(app *fiber.App, listener string, groups []Group, allow []string) *PolicyRegistry {
+	registry := &PolicyRegistry{entries: map[Route]httpx.EndpointPolicy{}}
 	for _, g := range groups {
 		if listener == Public && (!g.Public || !slices.Contains(allow, g.Prefix)) {
 			continue
 		}
-		g.Mount(app.Group(g.Prefix))
+		g.Mount(&policyRouter{Router: app.Group(g.Prefix), prefix: g.Prefix, registry: registry})
 	}
+	return registry
 }
 
 // Route is one registered route of a listener.

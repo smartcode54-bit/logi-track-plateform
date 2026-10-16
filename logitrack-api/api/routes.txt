@@ -192,6 +192,7 @@ GET /v1/subcontractors internal
 POST /v1/subcontractors internal
 GET /v1/subcontractors/:id internal
 PATCH /v1/subcontractors/:id internal
+GET /v1/support/customer-options internal
 GET /v1/tasks internal
 POST /v1/tasks internal
 GET /v1/tasks/:id internal

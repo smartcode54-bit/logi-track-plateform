@@ -84,14 +84,17 @@ type Deps struct {
 	// Cache drops cache:customer:{id} after a customer write; optional (the outbox relay drops it too).
 	Cache Invalidator
 	Log   zerolog.Logger
+	// ReviewedCustomerCode is positive owner review, never a syntax heuristic. Nil means unreviewed.
+	ReviewedCustomerCode func(uuid.UUID, string) bool
 }
 
 // Service serves /v1/customers* and /v1/companies*.
 type Service struct {
-	pool  db.Beginner
-	files Files
-	cache Invalidator
-	log   zerolog.Logger
+	pool                 db.Beginner
+	files                Files
+	cache                Invalidator
+	log                  zerolog.Logger
+	reviewedCustomerCode func(uuid.UUID, string) bool
 }
 
 // New builds the service.
@@ -99,7 +102,7 @@ func New(d Deps) (*Service, error) {
 	if d.Pool == nil {
 		return nil, errors.New("parties: the service needs a pool")
 	}
-	return &Service{pool: d.Pool, files: d.Files, cache: d.Cache, log: d.Log}, nil
+	return &Service{pool: d.Pool, files: d.Files, cache: d.Cache, log: d.Log, reviewedCustomerCode: d.ReviewedCustomerCode}, nil
 }
 
 // tx runs fn in a request transaction of p: RLS decides every row it reads or writes.

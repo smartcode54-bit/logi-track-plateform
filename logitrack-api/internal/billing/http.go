@@ -61,6 +61,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	tenant := authz.RequireTenant()
 	return []ingress.Group{
 		{Prefix: BillingPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Get("/rate-entries", requireAuth, view, h.listRateEntries)
 			r.Post("/rate-entries/import", requireAuth, edit, tenant, h.importRateEntries)
 			r.Post("/rate-entries", requireAuth, edit, tenant, h.createRateEntry)
@@ -85,6 +86,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			readRoutes(r, h, requireAuth) // T39: rows, diagnostics, Shopee report, documents (http_reads.go)
 		}},
 		{Prefix: FuelPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			fuel := need(authz.AccountingViewFuel)
 			r.Get("/daily", requireAuth, fuel, h.listDaily)
 			r.Get("/daily/:dayKey", requireAuth, fuel, h.getDaily)
@@ -92,6 +94,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 			r.Get("/retail", requireAuth, fuel, h.retail)
 		}},
 		{Prefix: JobPrefix, Mount: func(r fiber.Router) {
+			r = ingress.DenyRoutes(r, "P1.0")
 			r.Post("", requireAuth, need(jobs.TypeCapabilities[jobs.TypeBangchakSnapshot]), authz.RequireSteward(), h.submitBangchak)
 		}},
 	}

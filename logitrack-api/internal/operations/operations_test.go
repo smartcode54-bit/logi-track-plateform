@@ -193,7 +193,7 @@ func TestStandbyBillingProjection(t *testing.T) {
 		{"stored own fleet", ownStaff, storedOwn, carrier, true},
 		{"driver", driver, priced, own, false},
 		{"dispatcher", dispatcher, priced, own, false},
-		{"X-Act-On-Tenant: *", all, priced, own, true},
+		{"legacy all-tenant field grants nothing", all, priced, own, false},
 	} {
 		v := Project(c.p, c.rec, c.tenant)
 		if v.Billing != c.want {

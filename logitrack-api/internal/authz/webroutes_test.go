@@ -110,8 +110,17 @@ func TestWebRoutesTranslateTheLegacyTable(t *testing.T) {
 			}
 		case !ok:
 			t.Errorf("%s is not mapped", path)
-		case !slices.Equal(got, []Cap{old}):
-			t.Errorf("%s: %v, want the legacy key %s", path, got, old)
+		default:
+			want := []Cap{old}
+			switch path {
+			case "/app/maintenance", "/app/trucks/maintenance":
+				want = append(want, FleetViewMaintenance)
+			case "/app/subcontractors":
+				want = append(want, FleetViewSubcontractors)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("%s: %v want %v", path, got, want)
+			}
 		}
 	}
 	for path, caps := range webRoutes {
@@ -244,7 +253,14 @@ func TestRouteFor(t *testing.T) {
 	}{
 		{"/app/trucks", "/app/trucks", true},
 		{"/app/trucks/", "/app/trucks", true},
-		{"/app/customers/0199c000-0000-7000-8000-000000000001/edit", "/app/customers", true},
+		{"/app/customers/0199c000-0000-7000-8000-000000000001/edit", "/app/customers/[id]/edit", true},
+		{"/app/customers/%61bc/%65dit", "/app/customers/[id]/edit", true},
+		{"/app/customers/%61bc", "/app/customers/[id]", true},
+		{"/app/trucks//", "", false},
+		{"/app//trucks", "", false},
+		{"/app/customers/../edit", "", false},
+		{"/app/customers/%2f/edit", "", false},
+		{"/app/customers/%ZZ/edit", "", false},
 		{"/app/chat/room", "/app/chat", true},
 		{"/app/chat/with-driver", "/app/chat/with-driver", true},
 		{"/app/utilities", "", false},
@@ -254,6 +270,13 @@ func TestRouteFor(t *testing.T) {
 		{"/app/nowhere", "", false},
 	} {
 		_, matched, ok := RouteFor(tc.path)
+		allCaps := NewCapSet()
+		for _, entry := range Catalog() {
+			allCaps.Add(entry.Key)
+		}
+		if got := RouteAllowed(allCaps, tc.path); got != tc.ok {
+			t.Errorf("RouteAllowed(%q)=%v want %v", tc.path, got, tc.ok)
+		}
 		if ok != tc.ok || matched != tc.matched {
 			t.Errorf("RouteFor(%q) = %q, %v; want %q, %v", tc.path, matched, ok, tc.matched, tc.ok)
 		}
@@ -387,6 +410,10 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 		// added by UI3C (#143): support inside the shell, open like the dashboard
 		"/app/support": all,
 	}
+	want["/app/subcontractors/[id]"] = globalMg
+	want["/app/subcontractors/[id]/edit"] = globalMg
+	want["/app/customers/[id]"] = globalMg
+	want["/app/customers/[id]/edit"] = globalMg
 	legacy := legacyRoutes(t)
 	for path := range legacy {
 		if _, ok := want[path]; !ok {
@@ -402,7 +429,11 @@ func TestEveryRoleEveryRoute(t *testing.T) {
 	for path, holders := range want {
 		allowed := strings.Fields(holders)
 		for name, p := range principals {
-			if got := RouteAllowed(p.Caps, path); got != slices.Contains(allowed, name) {
+			expected := slices.Contains(allowed, name)
+			if name == "PAall" {
+				expected = slices.Contains(allowed, "PA")
+			} // D1 removes human all-tenant reach.
+			if got := RouteAllowed(p.Caps, path); got != expected {
 				t.Errorf("%s × %s: allowed %v, want %v", name, path, got, !got)
 			}
 		}

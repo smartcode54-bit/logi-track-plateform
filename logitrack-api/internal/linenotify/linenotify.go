@@ -30,6 +30,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/notify"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
@@ -388,6 +389,7 @@ func clearLegacyToken(ctx context.Context, w writeback.Writer, token string) err
 // TaskRoutes are the task route below /v1/tasks (operations.Mounts.Tasks).
 func TaskRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/:id/notify-line", requireAuth, authz.RequireCap(authz.OperationsEditTripDetails), authz.RequireTenant(),
 			force(s, notify.LineCheckin))
 	}
@@ -396,6 +398,7 @@ func TaskRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 // TripRoutes are the trip routes below /v1/trips (operations.Mounts.Trips).
 func TripRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/:id/notify-line", requireAuth, authz.RequireCap(authz.OperationsEditTripDetails), authz.RequireTenant(),
 			force(s, notify.LineDelivered))
 		r.Post("/:id/evidence/revoke", requireAuth, authz.RequireCap(authz.OperationsEditTripDetails), authz.RequireTenant(),
@@ -406,6 +409,7 @@ func TripRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 // StandbyRoutes are the standby routes below /v1/standby (operations.Mounts.Standby).
 func StandbyRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/:id/notify-line", requireAuth, authz.RequireCap(authz.OperationsEditTripDetails), authz.RequireTenant(),
 			force(s, notify.LineStandby))
 		r.Post("/:id/evidence/revoke", requireAuth, authz.RequireCap(authz.OperationsEditTripDetails), authz.RequireTenant(),
@@ -417,6 +421,7 @@ func StandbyRoutes(s *Service, requireAuth fiber.Handler) func(r fiber.Router) {
 // credential check (auth.RequireShim) and the capability of the step that sends the card.
 func MobileRoutes(s *Service, requireShim fiber.Handler) func(r fiber.Router) {
 	return func(r fiber.Router) {
+		r = ingress.DenyRoutes(r, "P1.0")
 		r.Post("/tasks/:id/line-notify", requireShim, authz.RequireCap(authz.MobileCheckin), shim(s, notify.LineCheckin))
 		r.Post("/trips/:id/line-notify", requireShim, authz.RequireCap(authz.MobileSubmitTrip), shim(s, notify.LineDelivered))
 		r.Post("/standby/:id/line-notify", requireShim, authz.RequireCap(authz.MobileSubmitStandby), shim(s, notify.LineStandby))
