@@ -34,14 +34,14 @@ type nestedDTO struct {
 	Child addedDTO `json:"child"`
 }
 
-var nestedSchema = httpx.NewSchema[nestedDTO]("test.nested", map[string]httpx.Field{"child": {Kind: httpx.Nested, Schema: incompleteSchema}})
+var _ = httpx.NewSchema[nestedDTO]("test.nested", map[string]httpx.Field{"child": {Kind: httpx.Nested, Schema: incompleteSchema}})
 
 type ownerDTO struct {
 	Owner string `json:"owner"`
 	Name  string `json:"name"`
 }
 
-var ownerSchema = httpx.NewSchema[ownerDTO]("test.owner", map[string]httpx.Field{"owner": {Kind: httpx.Safe}, "name": {Kind: httpx.Person}}, func(v ownerDTO) string { return v.Owner })
+var _ = httpx.NewSchema[ownerDTO]("test.owner", map[string]httpx.Field{"owner": {Kind: httpx.Safe}, "name": {Kind: httpx.Person}}, func(v ownerDTO) string { return v.Owner })
 
 func audience(enabled bool) httpx.ProjectionAudience {
 	consents := map[string]httpx.Consent{"A": {Enabled: enabled, Version: "7"}, "B": {Enabled: false, Version: "3"}}
@@ -72,7 +72,7 @@ func request(t *testing.T, app *fiber.App, method, path, body string) (int, stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, _ := io.ReadAll(res.Body)
 	return res.StatusCode, string(b)
 }
@@ -339,7 +339,7 @@ type mapDTO struct {
 	Amounts []*float64        `json:"amounts"`
 }
 
-var mapSchema = httpx.NewSchema[mapDTO]("test.map", map[string]httpx.Field{
+var _ = httpx.NewSchema[mapDTO]("test.map", map[string]httpx.Field{
 	"labels": {Kind: httpx.Person, MapKeys: []string{"first", "second"}}, "names": {Kind: httpx.Person}, "amounts": {Kind: httpx.Money},
 })
 
@@ -348,7 +348,7 @@ type metadataDTO struct {
 	Count int    `json:"count"`
 }
 
-var metadataSchema = httpx.NewSchema[metadataDTO]("test.metadata", map[string]httpx.Field{"note": {Kind: httpx.FreeText}, "count": {Kind: httpx.Safe}})
+var _ = httpx.NewSchema[metadataDTO]("test.metadata", map[string]httpx.Field{"note": {Kind: httpx.FreeText}, "count": {Kind: httpx.Safe}})
 
 func TestArraysMapKeysAndMetadata(t *testing.T) {
 	data := mapDTO{Labels: map[string]string{"first": "PERSON_A", "second": "PERSON_B"}, Names: []string{"PERSON_A", "PERSON_B"}, Amounts: []*float64{nil, nil}}
@@ -430,5 +430,34 @@ func TestForeignOwnerConsentDependsOnTheEndpointPlane(t *testing.T) {
 		if strings.Contains(body, "B_PERSON_SENTINEL") != (plane == "platform") {
 			t.Fatal(plane, body)
 		}
+	}
+}
+
+func TestOrdinaryPagesAndTypedVariantsFailClosed(t *testing.T) {
+	name := "PERSON_SENTINEL"
+	for _, tc := range []struct {
+		name     string
+		handler  fiber.Handler
+		status   int
+		contains string
+	}{
+		{"raw ordinary response", func(c fiber.Ctx) error { return httpx.OrdinaryPage(c, []personal{{Name: &name}}, "", nil) }, 403, "support_view_unavailable"},
+		{"classified variant", func(c fiber.Ctx) error {
+			return httpx.PageAs(c, "test.personal", []personal{{Name: &name, Status: "active"}}, "", nil)
+		}, 200, "****"},
+		{"unknown variant", func(c fiber.Ctx) error {
+			return httpx.PageAs(c, "unregistered.variant", []personal{{Name: &name}}, "", nil)
+		}, 503, "support_projection_unavailable"},
+		{"wrong concrete variant", func(c fiber.Ctx) error { return httpx.PageAs(c, "test.owner", []personal{{Name: &name}}, "", nil) }, 503, "support_projection_unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := setup(audience(false), func(r fiber.Router) {
+				ingress.Bind(r, "/variant", policy("GET", "/v1/variant", "test.personal"), tc.handler)
+			})
+			status, body := request(t, app, "GET", "/v1/variant", "")
+			if status != tc.status || !strings.Contains(body, tc.contains) || strings.Contains(body, name) {
+				t.Fatalf("%d %s", status, body)
+			}
+		})
 	}
 }

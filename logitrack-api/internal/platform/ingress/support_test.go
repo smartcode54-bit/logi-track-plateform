@@ -30,7 +30,7 @@ func TestDuplicatePoliciesAreAnErrorAndDenyAtRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if calls != 0 || res.StatusCode != 403 || !strings.Contains(string(body), "support_view_unavailable") {
 		t.Fatal(calls, res.StatusCode, string(body))

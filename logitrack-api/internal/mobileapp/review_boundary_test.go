@@ -28,7 +28,7 @@ func TestReviewProjectedInstallationsKeepTenantRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 403 || !strings.Contains(string(raw), `"code":"tenant_required"`) {
 		t.Fatalf("tenant refusal: %d %s", res.StatusCode, raw)

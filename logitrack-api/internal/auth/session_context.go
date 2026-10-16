@@ -61,7 +61,15 @@ func (s *Service) checkContext(ctx context.Context, p *authz.Principal) error {
 		if err != nil {
 			return err
 		}
-		if st.revoked != nil || !st.expires.After(s.clock()) {
+		if st.revoked != nil {
+			// Live context admission can reject before the cache pipeline runs.
+			// Repair a lost post-commit marker from this authoritative read too.
+			if err := s.store.markRevoked(ctx, s.keys.TTL()+token.Leeway, p.SessionID); err != nil {
+				s.log.Warn().Err(err).Msg("auth: rebuild revoked marker")
+			}
+			return errSessionRevoked()
+		}
+		if !st.expires.After(s.clock()) {
 			return errSessionRevoked()
 		}
 		var status string

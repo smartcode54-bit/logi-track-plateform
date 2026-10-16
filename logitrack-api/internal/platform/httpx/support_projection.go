@@ -489,17 +489,19 @@ func responseHeadDigest(c fiber.Ctx) [32]byte {
 	h := sha256.New()
 	p := EndpointPolicyFrom(c)
 	a := ProjectionAudienceFrom(c)
-	fmt.Fprintf(h, "%q %q %q %q %q %q %q %d\n", p.ID, p.SchemaID, a.Actor, a.Session, a.Tenant, a.ContextVersion, a.ConsentVersion, c.Response().StatusCode())
+	_, _ = fmt.Fprintf(h, "%q %q %q %q %q %q %q %d\n", p.ID, p.SchemaID, a.Actor, a.Session, a.Tenant, a.ContextVersion, a.ConsentVersion, c.Response().StatusCode())
 	policyBytes, _ := json.Marshal(p)
 	h.Write(policyBytes)
 	targetBytes, _ := json.Marshal(PolicyTargetFrom(c))
 	h.Write(targetBytes)
-	fmt.Fprintf(h, "mode %t %t\n", a.Support, a.Platform)
+	_, _ = fmt.Fprintf(h, "mode %t %t\n", a.Support, a.Platform)
 	var headers []string
-	c.Response().Header.VisitAll(func(k, v []byte) { headers = append(headers, string(k)+":"+string(v)) })
+	for k, v := range c.Response().Header.All() {
+		headers = append(headers, string(k)+":"+string(v))
+	}
 	sort.Strings(headers)
 	for _, line := range headers {
-		fmt.Fprintln(h, line)
+		_, _ = fmt.Fprintln(h, line)
 	}
 	var out [32]byte
 	copy(out[:], h.Sum(nil))

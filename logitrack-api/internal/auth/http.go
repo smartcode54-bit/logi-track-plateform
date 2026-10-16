@@ -203,11 +203,12 @@ func (s *Service) handleTenant(c fiber.Ctx) error {
 		mode = *in.Mode
 	}
 	var tid *uuid.UUID
-	if mode == "leave" {
+	switch mode {
+	case "leave":
 		if _, supplied := fields["tenantId"]; supplied {
 			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "not_allowed"})
 		}
-	} else if mode == AccessModeMember || mode == AccessModeSupport {
+	case AccessModeMember, AccessModeSupport:
 		if in.TenantID == nil {
 			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "required"})
 		}
@@ -216,7 +217,7 @@ func (s *Service) handleTenant(c fiber.Ctx) error {
 			return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "tenantId", Reason: "uuid"})
 		}
 		tid = &id
-	} else {
+	default:
 		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "mode", Reason: "enum"})
 	}
 	res, err := s.ChangeTenantContext(c.Context(), PrincipalFrom(c), mode, tid, httpx.RequestIDFrom(c))

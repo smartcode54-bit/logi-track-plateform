@@ -700,14 +700,14 @@ func (h adminHTTP) listSubcontractors(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if c.Query("fields") == "minimal" {
-		policy := httpx.EndpointPolicyFrom(c)
-		policy.SchemaID = "iam.subcontractor-minimal"
-		if err := httpx.EndpointGate(c, policy); err != nil {
-			return err
-		}
+	switch rows := out.(type) {
+	case []SubcontractorMinimal:
+		return httpx.PageAs(c, "iam.subcontractor-minimal", rows, next, nil)
+	case []SubcontractorSummary:
+		return httpx.Page(c, rows, next, nil)
+	default:
+		return httpx.ErrSupportProjectionUnavailable()
 	}
-	return httpx.Page(c, out, next, nil)
 }
 
 func (h adminHTTP) getSubcontractor(c fiber.Ctx) error {

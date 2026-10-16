@@ -30,7 +30,7 @@ func schemaFields(safe, person, secret string) map[string]httpx.Field {
 }
 
 var memberUserSchema = httpx.NewSchema[MemberUser]("iam.member-user", schemaFields("id", "email displayName", ""), func(u MemberUser) string { return u.owner })
-var memberSchema = httpx.NewSchema[Member]("iam.member", func() map[string]httpx.Field {
+var _ = httpx.NewSchema[Member]("iam.member", func() map[string]httpx.Field {
 	f := schemaFields("role status lastLoginAt grantedByPlatform ratifiedAt grantVersion eligibilityBasis eligibleToRatify", "", "")
 	f["user"] = httpx.Field{Kind: httpx.Nested, Schema: memberUserSchema}
 	return f
@@ -46,7 +46,7 @@ var userSchema = httpx.NewSchema[User]("iam.platform-user", func() map[string]ht
 	f["driver"] = httpx.Field{Kind: httpx.Nested, Schema: driverRefSchema}
 	return f
 }(), userOwner)
-var sessionSchema = httpx.NewSchema[Session]("iam.platform-session", func() map[string]httpx.Field {
+var _ = httpx.NewSchema[Session]("iam.platform-session", func() map[string]httpx.Field {
 	f := schemaFields("id platform amr appVersion createdAt lastSeenAt", "", "")
 	for _, name := range []string{"installId", "deviceLabel", "ip", "userAgent"} {
 		f[name] = httpx.Field{Kind: httpx.FreeText}
@@ -54,15 +54,15 @@ var sessionSchema = httpx.NewSchema[Session]("iam.platform-session", func() map[
 	return f
 }(), func(s Session) string { return s.owner })
 var eventDetailsSchema = httpx.NewSchema[PlatformEventDetails]("iam.platform-event-details", schemaFields("action basis outcome version", "", ""))
-var eventSchema = httpx.NewSchema[PlatformEvent]("iam.platform-event", func() map[string]httpx.Field {
+var _ = httpx.NewSchema[PlatformEvent]("iam.platform-event", func() map[string]httpx.Field {
 	f := schemaFields("id createdAt type severity summary actorUserId targetUserId tenantId requestId", "actorEmail", "actorLegacyUid")
 	f["details"] = httpx.Field{Kind: httpx.Nested, Schema: eventDetailsSchema}
 	return f
 }(), func(r PlatformEvent) string { return r.actorOwner })
 
-var supportAccessSchema = httpx.NewSchema[SupportAccess]("iam.support-access", schemaFields("enabled version changedAt changedBy eligibleToToggle", "", ""))
-var ratificationSchema = httpx.NewSchema[Ratification]("iam.ratification", schemaFields("grantVersion ratifiedAt", "", ""))
-var supportOptionSchema = httpx.NewSchema[SupportOption]("iam.support-option", schemaFields("id kind code reference nameTh nameEn status", "", ""), func(r SupportOption) string { return r.ID.String() })
+var _ = httpx.NewSchema[SupportAccess]("iam.support-access", schemaFields("enabled version changedAt changedBy eligibleToToggle", "", ""))
+var _ = httpx.NewSchema[Ratification]("iam.ratification", schemaFields("grantVersion ratifiedAt", "", ""))
+var _ = httpx.NewSchema[SupportOption]("iam.support-option", schemaFields("id kind code reference nameTh nameEn status", "", ""), func(r SupportOption) string { return r.ID.String() })
 
 func init() {
 	httpx.RegisterSafeErrorFieldReasons("unknown", "in_past", "platform_key_required", "not_allowed_for_platform_key", "not_allowed_for_tenant_key", "not_allowed_for_scope")

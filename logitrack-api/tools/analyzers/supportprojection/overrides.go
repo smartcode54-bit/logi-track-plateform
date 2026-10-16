@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,9 +22,10 @@ func (a *analyzer) overrideCounts(root string) map[string]int {
 			if filepath.ToSlash(relative) == "internal/authz/catalog.go" {
 				continue
 			}
+			refusals := overrideRefusals(file, pkg.info)
 			ast.Inspect(file, func(n ast.Node) bool {
 				selector, ok := n.(*ast.SelectorExpr)
-				if !ok {
+				if !ok || refusals[selector] {
 					return true
 				}
 				obj := object(selector, pkg.info)
@@ -38,6 +41,56 @@ func (a *analyzer) overrideCounts(root string) map[string]int {
 		}
 	}
 	return counts
+}
+
+// A positive override flag that unconditionally returns a known refusal cannot
+// construct reach. Keep counting inverted/conditional guards, side effects and
+// all other uses; do not exempt a whole function or file containing a refusal.
+func overrideRefusals(file *ast.File, info *types.Info) map[*ast.SelectorExpr]bool {
+	refusals := map[*ast.SelectorExpr]bool{}
+	isNil := func(e ast.Expr) bool {
+		return object(e, info) == types.Universe.Lookup("nil")
+	}
+	var positive func(ast.Expr)
+	positive = func(e ast.Expr) {
+		switch e := e.(type) {
+		case *ast.ParenExpr:
+			positive(e.X)
+		case *ast.BinaryExpr:
+			if e.Op == token.LOR {
+				positive(e.X)
+				positive(e.Y)
+			} else if e.Op == token.NEQ && isNil(e.Y) {
+				if selector, ok := e.X.(*ast.SelectorExpr); ok && selector.Sel.Name == "ActOnTenant" {
+					refusals[selector] = true
+				}
+			}
+		case *ast.SelectorExpr:
+			if e.Sel.Name == "ActOnAll" {
+				refusals[e] = true
+			}
+		}
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		guard, ok := n.(*ast.IfStmt)
+		if !ok || guard.Init != nil || guard.Else != nil || len(guard.Body.List) != 1 {
+			return true
+		}
+		ret, ok := guard.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != 2 || !isNil(ret.Results[0]) {
+			return true
+		}
+		call, ok := ret.Results[1].(*ast.CallExpr)
+		if !ok || len(call.Args) != 0 {
+			return true
+		}
+		fn, ok := object(call.Fun, info).(*types.Func)
+		if ok && fn.Pkg() != nil && fn.Pkg().Path() == module+"/internal/platform/httpx" && fn.Name() == "ErrSupportViewUnavailable" {
+			positive(guard.Cond)
+		}
+		return true
+	})
+	return refusals
 }
 
 func overrideRatchet(current, baseline map[string]int) error {

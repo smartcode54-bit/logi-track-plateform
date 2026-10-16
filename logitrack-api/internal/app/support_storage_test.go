@@ -32,6 +32,6 @@ func TestSupportStorageCallerHasNoContractorReach(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 }

@@ -18,7 +18,7 @@ type coordinates struct {
 	Children []personal        `json:"children"`
 }
 
-var coordinatesSchema = httpx.NewSchema[coordinates]("test.coordinates", map[string]httpx.Field{
+var _ = httpx.NewSchema[coordinates]("test.coordinates", map[string]httpx.Field{
 	"lat": {Kind: httpx.Address}, "lng": {Kind: httpx.Address}, "names": {Kind: httpx.Person},
 	"labels": {Kind: httpx.Person, MapKeys: []string{"label"}}, "children": {Kind: httpx.Nested, Schema: personalSchema},
 })

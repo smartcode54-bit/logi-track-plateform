@@ -62,7 +62,7 @@ func TestSupportDefaultDenyOnBothProductionListeners(t *testing.T) {
 					t.Fatalf("%s %s: %v", listener, p.ID, err)
 				}
 				body, _ := io.ReadAll(res.Body)
-				res.Body.Close()
+				_ = res.Body.Close()
 				expected := httpx.CodeSupportViewUnavailable
 				if p.Class == httpx.PolicyTenantWrite {
 					expected = httpx.CodeSupportReadOnly

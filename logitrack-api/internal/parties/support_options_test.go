@@ -47,7 +47,7 @@ func TestSupportCustomerPredicate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res.Body.Close()
+			_ = res.Body.Close()
 		})
 	}
 	codes := make([]string, 100)
@@ -66,7 +66,7 @@ func TestSupportCustomerPredicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 }
 
 func TestSupportCustomerHandlerScopeAndReviewedCodes(t *testing.T) {
@@ -109,7 +109,7 @@ func TestSupportCustomerHandlerScopeAndReviewedCodes(t *testing.T) {
 				t.Fatal(err)
 			}
 			data, _ := io.ReadAll(res.Body)
-			res.Body.Close()
+			_ = res.Body.Close()
 			var wire struct {
 				Data []SupportCustomerOption `json:"data"`
 			}

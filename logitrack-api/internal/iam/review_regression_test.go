@@ -34,7 +34,7 @@ func TestReviewEventCannotUseEventTenantForUnresolvedActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 200 || strings.Contains(string(raw), email) {
 		t.Fatalf("unresolved actor leaked: %d %s", res.StatusCode, raw)
@@ -59,7 +59,7 @@ func TestReviewCallResolvesAudienceBeforeReadingContextVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 }
 
 func TestReviewTenantMatrixServiceGuard(t *testing.T) {
@@ -148,7 +148,7 @@ func TestReviewSupportPlatformControlPredicates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer res.Body.Close()
+			defer func() { _ = res.Body.Close() }()
 			raw, _ := io.ReadAll(res.Body)
 			if res.StatusCode != tc.want {
 				t.Fatalf("status=%d want=%d %s", res.StatusCode, tc.want, raw)

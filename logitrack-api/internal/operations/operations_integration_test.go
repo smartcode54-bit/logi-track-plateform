@@ -319,7 +319,6 @@ func TestDuplicateSealCheck(t *testing.T) {
 	wantSeal("the holder's driver", check(w.driverO1, " SEAL-1 ", nil), trip.TripNo)
 	wantSeal("staff of the tenant", check(w.staffO, "SEAL-1", nil), trip.TripNo)
 	wantSeal("staff of another tenant", check(w.staffC, "SEAL-1", nil), "")
-	wantSeal("X-Act-On-Tenant: *", check(w.all, "SEAL-1", nil), trip.TripNo)
 	wantSeal("system", operations.MapError(db.WithSystem(ctx, w.pool, nil, func(tx pgx.Tx) error {
 		return operations.CheckSeal(ctx, tx, operations.SystemReach(), "SEAL-1", nil)
 	})), trip.TripNo)
@@ -336,7 +335,7 @@ func TestDuplicateSealCheck(t *testing.T) {
 	scope := &authz.Principal{UserID: uuid.New(), PartyIDs: []uuid.UUID{w.partyX}}
 	dispatcher := &authz.Principal{UserID: uuid.New(), TenantID: &w.O, TenantRole: authz.Operator, Dispatcher: true,
 		PartyIDs: []uuid.UUID{w.partyX}, TenantKind: "own_fleet"}
-	for name, p := range map[string]*authz.Principal{"customer scope": scope, "dispatcher": dispatcher} {
+	for name, p := range map[string]*authz.Principal{"customer scope": scope, "dispatcher": dispatcher, "retired human override": w.all} {
 		var he *httpx.Error
 		if err := check(p, "SEAL-1", nil); !errors.As(err, &he) || he.Status != http.StatusForbidden || he.Code != "permission_denied" {
 			t.Errorf("%s: %v, want 403 permission_denied", name, err)

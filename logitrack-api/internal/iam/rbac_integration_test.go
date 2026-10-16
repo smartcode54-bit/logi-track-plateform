@@ -325,14 +325,6 @@ func TestMeAndRoles(t *testing.T) {
 	expect(t, w.call(w.public, http.MethodGet, "/v1/roles", w.login("op.a@example.test")), http.StatusNotFound, "not_found")
 }
 
-func toInts(v any) map[string]int {
-	out := map[string]int{}
-	for k, n := range v.(map[string]any) {
-		out[k] = int(n.(float64))
-	}
-	return out
-}
-
 func sortedCopy(s []string) []string {
 	s = slices.Clone(s)
 	slices.Sort(s)

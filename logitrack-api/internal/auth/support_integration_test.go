@@ -119,8 +119,20 @@ func TestSupportEntryStatusesAndRefusals(t *testing.T) {
 func TestSupportAuditRollbackLimitsAndLogout(t *testing.T) {
 	h, uid, _, s := supportHarness(t)
 	a, b := h.tenant("carrier", "A"), h.tenant("carrier", "B")
-	h.exec(`CREATE FUNCTION reject_support_event()RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.event_type='platform_support_entered' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW;END$$`)
-	h.exec(`CREATE TRIGGER reject_support_event BEFORE INSERT ON security_events FOR EACH ROW EXECUTE FUNCTION reject_support_event()`)
+	ctx := context.Background()
+	migrator, err := pgx.Connect(ctx, h.d.URL(db.RoleMigrator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrator.Close(ctx) }()
+	ddl := func(sql string) {
+		t.Helper()
+		if _, err := migrator.Exec(ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ddl(`CREATE FUNCTION reject_support_event()RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.event_type='platform_support_entered' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW;END$$`)
+	ddl(`CREATE TRIGGER reject_support_event BEFORE INSERT ON security_events FOR EACH ROW EXECUTE FUNCTION reject_support_event()`)
 	r := h.post("/v1/auth/tenant", s.access, map[string]any{"mode": "support", "tenantId": a})
 	if r.status < 500 {
 		t.Fatalf("failed audit admitted: %d", r.status)
@@ -128,7 +140,7 @@ func TestSupportAuditRollbackLimitsAndLogout(t *testing.T) {
 	if scalar[int](h, `SELECT count(*) FROM support_visits WHERE actor_user_id=$1`, uid) != 0 || scalar[string](h, `SELECT access_mode FROM sessions WHERE id=$1`, s.sid) != "member" {
 		t.Fatal("audit failure left session/visit changes")
 	}
-	h.exec(`DROP TRIGGER reject_support_event ON security_events`)
+	ddl(`DROP TRIGGER reject_support_event ON security_events`)
 	for i := 0; i < 9; i++ {
 		target := a
 		if i%2 != 0 {
@@ -143,6 +155,10 @@ func TestSupportAuditRollbackLimitsAndLogout(t *testing.T) {
 	}
 	s = supportSwitch(t, h, s, "leave", "")
 	h.clock.Advance(time.Minute)
+	// GCRA uses Redis server time, independently of the auth fixture clock.
+	if err := h.limiter.Reset(ctx, "support_switch", uid); err != nil {
+		t.Fatal(err)
+	}
 	s = supportSwitch(t, h, s, "support", a)
 	if r := h.post("/v1/auth/logout", s.access, map[string]any{"refreshToken": s.refresh}); r.status != 204 {
 		t.Fatalf("logout: %d %s", r.status, r.raw)
@@ -393,9 +409,9 @@ func TestSupportConsentRefreshAndLostRedisNotification(t *testing.T) {
 func TestSupportTenantLabelCodesAndMetadata(t *testing.T) {
 	h, uid, own, s := supportHarness(t)
 	company, individual := h.tenant("carrier", "Company"), h.tenant("carrier", "Person")
-	h.exec(`UPDATE tenants SET legal_type='company',code='PERSON-DERIVED' WHERE id=$1`, company)
-	h.exec(`UPDATE tenants SET legal_type='individual',code='PERSON-DERIVED' WHERE id=$1`, individual)
-	h.exec(`UPDATE tenants SET code='PERSON-DERIVED' WHERE id=$1`, own)
+	h.exec(`UPDATE tenants SET legal_type='company',code='PERSON-DERIVED-COMPANY' WHERE id=$1`, company)
+	h.exec(`UPDATE tenants SET legal_type='individual',code='PERSON-DERIVED-INDIVIDUAL' WHERE id=$1`, individual)
+	h.exec(`UPDATE tenants SET code='PERSON-DERIVED-OWN' WHERE id=$1`, own)
 	for _, target := range []string{own, company, individual} {
 		s = supportSwitch(t, h, s, "support", target)
 		r := h.get("/v1/me", s.access)
@@ -438,7 +454,8 @@ func TestSupportTenantLabelCodesAndMetadata(t *testing.T) {
 		if r.status != 200 {
 			t.Fatalf("consenting me: %d %s", r.status, r.raw)
 		}
-		if r.data()["tenant"].(map[string]any)["code"] != "PERSON-DERIVED" {
+		wantCode := map[string]string{own: "PERSON-DERIVED-OWN", company: "PERSON-DERIVED-COMPANY", individual: "PERSON-DERIVED-INDIVIDUAL"}[target]
+		if r.data()["tenant"].(map[string]any)["code"] != wantCode {
 			t.Fatalf("consenting code: %s", r.raw)
 		}
 	}

@@ -97,6 +97,14 @@
     "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
   },
   {
+    "source": "internal/iam/apikeys_http.go",
+    "registrationPath": "",
+    "mutationCapabilityReferences": [
+      "security:manage_api_keys"
+    ],
+    "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
+  },
+  {
     "source": "internal/iam/http.go",
     "registrationPath": "/matrix",
     "mutationCapabilityReferences": [

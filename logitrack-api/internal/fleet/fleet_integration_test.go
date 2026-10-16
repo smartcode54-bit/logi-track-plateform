@@ -167,12 +167,12 @@ func TestTruckTenantIsolation(t *testing.T) {
 	req := func(method, path, act string, body any) resp {
 		return w.do(method, path, pa, body, authz.HeaderActOnTenant, act)
 	}
-	expect(t, req(http.MethodGet, "/v1/trucks", "*", nil), http.StatusForbidden, "permission_denied")
-	expect(t, req(http.MethodPost, "/v1/trucks", "*", newTruck("กค-1999", nil)), http.StatusForbidden, "permission_denied")
+	expect(t, req(http.MethodGet, "/v1/trucks", "*", nil), http.StatusBadRequest, "header_not_allowed")
+	expect(t, req(http.MethodPost, "/v1/trucks", "*", newTruck("กค-1999", nil)), http.StatusBadRequest, "header_not_allowed")
 	if n := w.count(`SELECT count(*) FROM trucks WHERE license_plate = 'กค-1999'`); n != 0 {
 		t.Fatalf("a refused header request created a truck: %d rows", n)
 	}
-	// UUID header closure still requires P1.1 in the atomic D1+D2 release gate.
+	// UUID headers are refused by the same D1 boundary.
 	expect(t, req(http.MethodGet, "/v1/trucks", w.C, nil), http.StatusBadRequest, "header_not_allowed")
 	expect(t, req(http.MethodPatch, "/v1/trucks/"+tC, w.C, map[string]any{"notes": "platform"}), http.StatusBadRequest, "header_not_allowed")
 	if n := w.count(`SELECT count(*) FROM trucks WHERE id = $1 AND notes = 'platform'`, tC); n != 0 {

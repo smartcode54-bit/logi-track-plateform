@@ -204,11 +204,11 @@ func TestMaintenanceQuarantinedRecord(t *testing.T) {
 		VALUES (app_quarantine_tenant_id(), 'quarantine', NULL, 'zz-9999', 'CM', 'เบรก', '2026-09-02', 'in_progress', 'mnt2')
 		RETURNING id::text`)
 	r := w.do(http.MethodGet, "/v1/maintenance", w.login("pa"), nil, "X-Act-On-Tenant", "*")
-	// This branch refuses the wildcard at authorization; P1.1 supplies D1 header closure.
-	expect(t, r, http.StatusForbidden, "permission_denied")
+	// D1 refuses wildcard headers before reaching quarantined data.
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
 	r = w.do(http.MethodPatch, "/v1/maintenance/"+id, w.login("pa"), map[string]any{"serviceType": "changed"},
 		"X-Act-On-Tenant", "*")
-	expect(t, r, http.StatusForbidden, "permission_denied")
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
 	if n := w.count(`SELECT count(*) FROM maintenance_records WHERE id = $1 AND service_type = 'เบรก'`, id); n != 1 {
 		t.Fatalf("a refused header request changed the quarantined record: %d rows", n)
 	}

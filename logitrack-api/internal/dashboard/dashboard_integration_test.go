@@ -367,8 +367,10 @@ func TestWaitlistReadAndDelete(t *testing.T) {
 	expect(t, w.get("/v1/waitlist?limit=501", ta), http.StatusUnprocessableEntity, "invalid_argument")
 	expect(t, w.get("/v1/waitlist", w.login("ta.a@example.test")), http.StatusForbidden, "permission_denied")
 	expect(t, w.get("/v1/waitlist", w.login("op.o@example.test")), http.StatusForbidden, "permission_denied")
-	if l := w.get("/v1/waitlist", w.login("pa@example.test")).list(); len(l) != 3 {
-		t.Fatalf("platform admin reads %d", len(l))
+	platformCounts := w.get("/v1/waitlist", w.login("pa@example.test"))
+	expect(t, platformCounts, http.StatusOK, "")
+	if data := platformCounts.data(); len(data) != 1 || num(data["total"]) != 3 {
+		t.Fatalf("platform counts disclose unexpected data: %s", platformCounts.raw)
 	}
 	id := obj(page[0])["id"].(string)
 	expect(t, w.call(w.internal, http.MethodDelete, "/v1/waitlist/"+id, w.login("ta.a@example.test"), nil), http.StatusForbidden, "permission_denied")

@@ -28,21 +28,25 @@ var tenantLabelSchema = httpx.NewSchema[Tenant]("auth.tenant_label", map[string]
 }, func(t Tenant) string { return t.ID.String() })
 var ownDriverSchema = httpx.NewSchema[DriverRef]("auth.own_driver", map[string]httpx.Field{"id": {Kind: httpx.Safe}})
 var ownCustomerScopeSchema = httpx.NewSchema[CustomerScope]("auth.own_scope", map[string]httpx.Field{"billingPartyId": {Kind: httpx.Safe}, "name": {Kind: httpx.Safe}})
-var ownMeSchema = httpx.NewSchema[Me]("auth.me", map[string]httpx.Field{
+var _ = httpx.NewSchema[Me]("auth.me", map[string]httpx.Field{
 	"id": {Kind: httpx.Safe}, "email": {Kind: httpx.Safe}, "displayName": {Kind: httpx.Safe}, "photoUrl": {Kind: httpx.Safe},
 	"tenant": {Kind: httpx.Nested, Schema: tenantLabelSchema}, "tenants": {Kind: httpx.Nested, Schema: tenantLabelSchema},
 	"platformRoles": {Kind: httpx.Safe}, "dispatcher": {Kind: httpx.Safe}, "steward": {Kind: httpx.Safe}, "driver": {Kind: httpx.Nested, Schema: ownDriverSchema},
 	"customerScopes": {Kind: httpx.Nested, Schema: ownCustomerScopeSchema}, "capabilities": {Kind: httpx.Safe}, "mustChangePassword": {Kind: httpx.Safe}, "legacyAuthUid": {Kind: httpx.Safe},
 	"sessionContext": {Kind: httpx.Nested, Schema: sessionContextSchema}, "supportAccess": {Kind: httpx.Nested, Schema: supportAccessSchema}, "platformCapabilities": {Kind: httpx.Safe},
 })
-var ownSessionsSchema = httpx.NewSchema[SessionView]("auth.sessions", map[string]httpx.Field{
+var _ = httpx.NewSchema[SessionView]("auth.sessions", map[string]httpx.Field{
 	"id": {Kind: httpx.Safe}, "platform": {Kind: httpx.Safe}, "amr": {Kind: httpx.Safe}, "installId": {Kind: httpx.Safe}, "deviceLabel": {Kind: httpx.Safe}, "appVersion": {Kind: httpx.Safe}, "ip": {Kind: httpx.Safe}, "userAgent": {Kind: httpx.Safe}, "createdAt": {Kind: httpx.Safe}, "lastSeenAt": {Kind: httpx.Safe}, "current": {Kind: httpx.Safe},
 })
-var ownAccessSchema = httpx.NewSchema[AccessToken]("auth.access", map[string]httpx.Field{"accessToken": {Kind: httpx.Safe}, "expiresIn": {Kind: httpx.Safe}})
-var ownSSETicketSchema = httpx.NewSchema[SSETicket]("auth.sse_ticket", map[string]httpx.Field{"ticket": {Kind: httpx.Safe}, "expiresIn": {Kind: httpx.Safe}})
+var _ = httpx.NewSchema[AccessToken]("auth.access", map[string]httpx.Field{"accessToken": {Kind: httpx.Safe}, "expiresIn": {Kind: httpx.Safe}})
+var _ = httpx.NewSchema[SSETicket]("auth.sse_ticket", map[string]httpx.Field{"ticket": {Kind: httpx.Safe}, "expiresIn": {Kind: httpx.Safe}})
 
 func bindOwn(r fiber.Router, method, path, full, schema string, class httpx.PolicyClass, handler any, handlers ...any) {
-	ingress.Bind(r, path, httpx.EndpointPolicy{ID: method + " " + full, Method: method, Route: full, Class: class, Phase: 1, Plane: "self", Target: "authenticated_caller", PredicateID: "own-account-only,no-tenant-mutation,target-label-projection", SchemaID: schema, Owner: "P1.1"}, handler, handlers...)
+	predicate := "own-account-only,no-tenant-mutation,target-label-projection"
+	if class == httpx.PolicySession {
+		predicate = "live-own-session,existing-auth-guards,entry-disabled"
+	}
+	ingress.Bind(r, path, httpx.EndpointPolicy{ID: method + " " + full, Method: method, Route: full, Class: class, Phase: 1, Plane: "self", Target: "authenticated_caller", PredicateID: predicate, SchemaID: schema, Owner: "P1.1"}, handler, handlers...)
 }
 
 func (s *Service) publishContext(c fiber.Ctx, raw string) error {
@@ -55,7 +59,7 @@ func (s *Service) publishContext(c fiber.Ctx, raw string) error {
 	if authz.IsSupport(p) {
 		a.Finalize = s.finalizeSupportAudience(p)
 	} else {
-		a = httpx.ProjectionAudience{Actor: p.UserID.String(), Session: p.SessionID.String()}
+		a = httpx.ProjectionAudience{Platform: p.IsPlatform(), Actor: p.UserID.String(), Session: p.SessionID.String(), ContextVersion: strconv.FormatInt(p.ContextVersion, 10)}
 		a.Finalize = func(ctx context.Context, _ []string, fn func(map[string]httpx.Consent) error) error {
 			if err := s.CheckSession(ctx, p); err != nil {
 				return err
@@ -72,9 +76,10 @@ func (s *Service) publishContext(c fiber.Ctx, raw string) error {
 func completedSessionEmpty(c fiber.Ctx) error {
 	a := httpx.ProjectionAudienceFrom(c)
 	if a.Support {
-		a.Support = false
 		a.Finalize = func(_ context.Context, _ []string, fn func(map[string]httpx.Consent) error) error {
-			return fn(map[string]httpx.Consent{})
+			// The committed operation has ended the credential. Keep its audience
+			// identity stable for the outer receipt check; this response has no data.
+			return fn(map[string]httpx.Consent{a.Tenant: {Version: a.ConsentVersion}})
 		}
 		httpx.SetProjectionAudience(c, a)
 	}

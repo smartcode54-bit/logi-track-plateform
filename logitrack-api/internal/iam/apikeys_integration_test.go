@@ -472,9 +472,9 @@ func TestAPIKeyScopeEnforcement(t *testing.T) {
 	scopeRefusal(w.call(w.internal, http.MethodGet, "/v1/roles", pa, auth.HeaderAPIKey, shim))
 	scopeRefusal(w.call(w.public, http.MethodGet, "/v1/mobile/keytest", "", auth.HeaderAPIKey, shim))
 
-	// X-Act-On-Tenant is for platform people, never for a key.
+	// The retired header is refused for machine credentials too.
 	expect(t, w.keyed(http.MethodGet, "/v1/keytest/whoami", platformKey, authz.HeaderActOnTenant, "*"),
-		http.StatusForbidden, authz.CodePermissionDenied)
+		http.StatusBadRequest, "header_not_allowed")
 }
 
 func toCounts(m map[string]any) map[string]int {

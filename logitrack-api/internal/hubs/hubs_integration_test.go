@@ -578,9 +578,12 @@ func TestStewardRuleOnHubWritesAndDistanceJobs(t *testing.T) {
 	if n := w.count(`SELECT count(*) FROM hubs WHERE source_id LIKE 'NEW-%' OR source_id = 'RLS1' OR name_th = 'ยึด'`); n != 0 {
 		t.Fatalf("%d refused writes landed", n)
 	}
-	// A platform admin writes by acting as a tenant (X-Act-On-Tenant), as tenant_admin with the steward flag.
+	// Platform authority cannot replace a steward membership through a header.
 	r = w.post("/v1/hubs", w.login("pa"), map[string]any{"sourceId": "PA1", "sourceNameTh": "แพลตฟอร์ม"}, "X-Act-On-Tenant", w.O)
-	expect(t, r, http.StatusCreated, "")
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
+	if n := w.count(`SELECT count(*) FROM hubs WHERE source_id='PA1'`); n != 0 {
+		t.Fatal("refused override created a hub")
+	}
 	// Own-fleet staff without calculate_distances (manager) may not start the job; the own-fleet tenant_admin may.
 	expect(t, w.post("/v1/jobs/distances.compute", w.login("mg.o"), nil), http.StatusForbidden, "permission_denied")
 	expect(t, w.post("/v1/jobs/distances.compute", w.login("ta.o"), nil), http.StatusAccepted, "")
@@ -619,9 +622,25 @@ func TestMapsKeepCodesAsCodes(t *testing.T) {
 	if m.CodeToName["SPK890174"] != "ห้วยขวาง10" || m.CodeToName["ODD1"] != "แปลก" {
 		t.Fatalf("codeToName: %v", m.CodeToName)
 	}
-	// Two Redis hashes, never one merged map.
+	// Two Redis hashes, never one merged map. A cache timeout legitimately answers from PostgreSQL
+	// without filling Redis (300 ms cache budget). Retry the read to warm it after that fallback;
+	// the first successful HTTP response alone does not promise cache persistence under CI load.
 	ctx := context.Background()
-	n2c, c2n := w.rdb.HGetAll(ctx, w.ks.HubsNameToCode()).Val(), w.rdb.HGetAll(ctx, w.ks.HubsCodeToName()).Val()
+	var n2c, c2n map[string]string
+	var n2cErr, c2nErr error
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		n2c, n2cErr = w.rdb.HGetAll(ctx, w.ks.HubsNameToCode()).Result()
+		c2n, c2nErr = w.rdb.HGetAll(ctx, w.ks.HubsCodeToName()).Result()
+		if n2cErr == nil && c2nErr == nil && len(n2c) > 0 && len(c2n) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("hub maps did not warm: n2c %v (%v), c2n %v (%v)", n2c, n2cErr, c2n, c2nErr)
+		}
+		time.Sleep(25 * time.Millisecond)
+		expect(t, w.get("/v1/hubs/maps", op), http.StatusOK, "")
+	}
 	if n2c["ห้วยขวาง10"] != "SPK890174" || c2n["SPK890174"] != "ห้วยขวาง10" || n2c["SPK890174"] != "" {
 		t.Fatalf("redis: n2c %v c2n %v", n2c, c2n)
 	}
@@ -1248,7 +1267,7 @@ func TestDistanceRunsCappedPerMonth(t *testing.T) {
 		t.Fatalf("cap: %s", r.raw)
 	}
 	r = w.post("/v1/jobs/distances.compute", w.login("pa"), nil, "X-Act-On-Tenant", w.O)
-	expect(t, r, http.StatusAccepted, "")
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
 }
 
 // A failed run that completed billed requests before failing counts against the monthly cap, so retries of a run that

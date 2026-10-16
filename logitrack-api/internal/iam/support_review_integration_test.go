@@ -184,6 +184,8 @@ func TestSupportDualRoleMemberKeepsTenantAuditContract(t *testing.T) {
 	expect(t, w.get("/v1/security-events?type=support_access_disabled", tok), 200, "")
 	// A platform role alone does not substitute for the tenant's own audit permission.
 	w.exec(`UPDATE memberships SET role='operator' WHERE user_id=$1 AND tenant_id=$2`, uid, w.A)
+	expect(t, w.get("/v1/security-events", tok), 401, "token_expired")
+	tok = w.login("pa@example.test")
 	expect(t, w.get("/v1/security-events", tok), 403, "permission_denied")
 }
 
@@ -218,7 +220,7 @@ func TestSupportD2RollbackAndIdempotentRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer conn.Close(context.Background())
+			defer func() { _ = conn.Close(context.Background()) }()
 			table, condition := "security_events", "NEW.event_type='platform_admin_account_changed'"
 			if failure == "outbox" {
 				table, condition = "outbox_events", "NEW.routing_key='tenant.support_admin_action'"
@@ -263,7 +265,7 @@ func TestSupportConsentAndGrantSerialize(t *testing.T) {
 	close(start)
 	one, two := <-result, <-result
 	for _, r := range []resp{one, two} {
-		if r.status != 200 && r.code() != "support_access_required" {
+		if r.status != 200 && r.status != 201 && r.code() != "support_access_required" {
 			t.Fatalf("race: %d %s", r.status, r.raw)
 		}
 	}
@@ -283,7 +285,7 @@ func TestSupportReadsDoNotTakeConsentOrMembershipWriteLocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.role','system',true),set_config('app.bypass_tenant','on',true)`); err != nil {
 		t.Fatal(err)
 	}

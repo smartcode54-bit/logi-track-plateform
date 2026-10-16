@@ -56,7 +56,7 @@ func TestSupportD2OffBlocksEveryAdminTakeoverPath(t *testing.T) {
 		expect(t, r, 403, "support_access_required")
 	}
 	// Disabling an account never turns its active membership into an onboarding vacancy.
-	w.exec(`UPDATE users SET status='disabled' WHERE id=$1`, uid)
+	w.exec(`UPDATE users SET status='disabled',disabled_at=clock_timestamp() WHERE id=$1`, uid)
 	for _, tc := range checks {
 		r := w.send(tc.method, tc.path, pa, tc.body)
 		expect(t, r, 403, "support_access_required")

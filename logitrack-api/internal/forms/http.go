@@ -130,7 +130,7 @@ func (h handlers) listWaitlist(c fiber.Ctx) error {
 		return err
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")
-	return httpx.Page(c, items, next, map[string]any{"total": total})
+	return httpx.OrdinaryPage(c, items, next, map[string]any{"total": total})
 }
 
 // deleteWaitlist is DELETE /v1/waitlist/{id}: 204, or 404 for an unknown id.

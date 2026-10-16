@@ -17,11 +17,11 @@ type WaitlistCounts struct {
 	Total int64 `json:"total"`
 }
 
-var waitlistCountsSchema = httpx.NewSchema[WaitlistCounts]("forms.waitlist-counts", map[string]httpx.Field{"total": {Kind: httpx.Safe}})
+var _ = httpx.NewSchema[WaitlistCounts]("forms.waitlist-counts", map[string]httpx.Field{"total": {Kind: httpx.Safe}})
 
 func (s *Service) WaitlistCounts(ctx context.Context, p *authz.Principal) (WaitlistCounts, error) {
 	var out WaitlistCounts
-	if p == nil || (!p.Can(authz.WaitlistView) && !(p.IsPlatform() && authz.PlatformCaps(p).Has(authz.WaitlistView))) {
+	if p == nil || (!p.Can(authz.WaitlistView) && (!p.IsPlatform() || !authz.PlatformCaps(p).Has(authz.WaitlistView))) {
 		return out, authz.ErrPermissionDenied("missing capability", authz.WaitlistView)
 	}
 	err := db.WithSystem(ctx, s.pool, nil, func(tx pgx.Tx) error { var err error; out.Total, err = formsdb.New(tx).CountWaitlist(ctx); return err })

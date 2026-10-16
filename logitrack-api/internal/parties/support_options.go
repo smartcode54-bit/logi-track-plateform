@@ -21,7 +21,7 @@ type SupportCustomerOption struct {
 	Code *string   `json:"code"`
 }
 
-var supportCustomerSchema = httpx.NewSchema[SupportCustomerOption]("support.customer_option", map[string]httpx.Field{
+var _ = httpx.NewSchema[SupportCustomerOption]("support.customer_option", map[string]httpx.Field{
 	"id": {Kind: httpx.Safe}, "code": {Kind: httpx.Safe},
 })
 

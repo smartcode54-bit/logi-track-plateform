@@ -254,7 +254,7 @@ func principalFromClaims(c *token.Claims) (*authz.Principal, bool) {
 	if c.TenantID != "" {
 		tid, err := uuid.Parse(c.TenantID)
 		role := authz.TenantRole(c.Role)
-		if err != nil || (!slices.Contains(tenantRoles, role) && !(c.AccessMode == "support" && role == authz.SupportReadOnly)) {
+		if err != nil || (!slices.Contains(tenantRoles, role) && (c.AccessMode != "support" || role != authz.SupportReadOnly)) {
 			return nil, false
 		}
 		p.TenantID, p.TenantRole = &tid, role

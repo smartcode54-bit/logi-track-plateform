@@ -298,6 +298,10 @@ func Build(ctx context.Context, fx FixtureFS, o Options) (*Plan, error) {
 			r["published_at"], r["attempts"] = nil, json.Number("0")
 		}
 	}
+	// Installation pagination identities must survive repeat loads and remain namespace-specific.
+	for _, row := range p.Tables["mobile_installations"] {
+		row["support_page_id"] = ID(o.Namespace, "mobile_installations", row.Str("driver_id")+":"+row.Str("install_id")).String()
+	}
 	if err := validate(p); err != nil {
 		return nil, err
 	}

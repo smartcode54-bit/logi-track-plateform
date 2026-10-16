@@ -67,7 +67,7 @@ func TestSupportAdminActionOutboxRoutesToEmailAndDeduplicatesRecipients(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := mq.DeclareTopology(conn, mq.Default); err != nil {
 		t.Fatal(err)
 	}

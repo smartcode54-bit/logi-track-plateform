@@ -357,7 +357,9 @@ WHERE t.id = $1 AND t.id = m.tenant_id AND m.user_id = $2
     WHERE previous.tenant_id = t.id AND previous.role = 'tenant_admin'
       AND (previous.membership_id <> m.support_membership_id OR previous.operation = 'baseline'
         OR previous.operation = 'DELETE' OR previous.platform_granted_at IS DISTINCT FROM m.platform_granted_at
-          AND previous.granted_by_platform))
+          AND previous.granted_by_platform
+        OR NOT previous.granted_by_platform
+          AND previous.xmin::text::numeric <> mod(pg_current_xact_id()::text::numeric, 4294967296)))
 `
 
 type RecordFirstSupportOnboardingAdminParams struct {
@@ -377,9 +379,9 @@ func (q *Queries) RecordFirstSupportOnboardingAdmin(ctx context.Context, arg Rec
 }
 
 const recordPlatformCredentialReset = `-- name: RecordPlatformCredentialReset :execrows
-UPDATE users SET credential_reset_by_platform_at = $1::timestamptz, must_change_password = true
+UPDATE users SET credential_reset_by_platform_at = greatest($1::timestamptz,
+  credential_reset_by_platform_at + interval '1 microsecond', credential_self_chosen_at + interval '1 microsecond'), must_change_password = true
 WHERE id = $2
-  AND (credential_reset_by_platform_at IS NULL OR credential_reset_by_platform_at < $1)
 `
 
 type RecordPlatformCredentialResetParams struct {

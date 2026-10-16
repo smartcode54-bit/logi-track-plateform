@@ -44,7 +44,7 @@ func TestPlatformUserProjectionUsesEachTargetConsent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer res.Body.Close()
+			defer func() { _ = res.Body.Close() }()
 			raw, _ := io.ReadAll(res.Body)
 			if res.StatusCode != 200 {
 				t.Fatalf("status=%d %s", res.StatusCode, raw)
@@ -84,7 +84,7 @@ func TestPlatformMembershipProjectionNeverSignsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 200 {
 		t.Fatalf("%d %s", res.StatusCode, raw)

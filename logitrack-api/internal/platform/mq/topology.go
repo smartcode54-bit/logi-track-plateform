@@ -109,7 +109,7 @@ var Queues = []Queue{
 		events("task.checked_in", "trip.delivered", "standby.completed"),
 		jobs("job.notify.line.force"))},
 	{Name: "notify.email", Group: "notify", Prefetch: 4, Bindings: join(
-		events("auth.password_reset_requested", "user.created", "user.invited"),
+		events("auth.password_reset_requested", "user.created", "user.invited", "tenant.support_admin_action"),
 		jobs("job.notify.email"))},
 	{Name: "documents.render", Group: "documents", Prefetch: 2, Bindings: join(
 		events("statement.created", "statement.status_changed"),

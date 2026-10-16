@@ -36,6 +36,7 @@ type Output struct { Child Child ` + "`json:\"child\"`" + ` /* OUTPUT */ }
 var schema = httpx.NewSchema[Output]("output",map[string]httpx.Field{"child":{Kind:httpx.Nested,Schema:child}})
 type NewDTO struct { Value string ` + "`json:\"value\"`" + ` }
 func dynamic() any {return Output{}}
+func childFields() map[string]httpx.Field { out:=map[string]httpx.Field{}; for _,name:=range []string{"label"} {out[name]=httpx.Field{Kind:httpx.Person}};return out }
 func helper(c fiber.Ctx)error{ return httpx.JSON(c,200,Output{}) }
 type Renderer interface { Render(fiber.Ctx) error }
 var renderer Renderer
@@ -48,6 +49,13 @@ func Mounted(r fiber.Router){ingress.Bind(r,"",httpx.EndpointPolicy{SchemaID:"ou
 		bad            bool
 	}{
 		{"complete", "", "", false},
+		{"wrapped complete", "", "", false},
+		{"wrapped new DTO", "httpx.JSON(c,200,Output{})", "httpx.JSON(c,200,NewDTO{})", true},
+		{"wrapped direct writer", "httpx.JSON(c,200,Output{})", "c.JSON(Output{})", true},
+		{"helper fields complete", "", "", false},
+		{"helper fields nested addition", "/* CHILD */", "; Added string `json:\"added,omitempty\"`", true},
+		{"explicit variant wrong type", "httpx.JSON(c,200,Output{})", `httpx.PageAs(c,"child",Output{},"",nil)`, true},
+		{"explicit variant unknown metadata", "httpx.JSON(c,200,Output{})", `httpx.PageAs(c,"output",Output{},"",map[string]string{"secret":"sentinel"})`, true},
 		{"resolved function delegate", "return helper(c)", "render:=helper; return render(c)", false},
 		{"resolved literal delegate", "return helper(c)", "render:=func(c fiber.Ctx) error{return helper(c)}; return render(c)", false},
 		{"unsupported string option", `json:"label"`, `json:"label,string"`, true},
@@ -66,6 +74,16 @@ func Mounted(r fiber.Router){ingress.Bind(r,"",httpx.EndpointPolicy{SchemaID:"ou
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := fixture
+			if strings.HasPrefix(tc.name, "wrapped ") {
+				source += `
+func policy(schema string) httpx.EndpointPolicy { p:=httpx.EndpointPolicy{};p.SchemaID=schema;return p }
+func bind(r fiber.Router,schema string,handler any,handlers ...any) {ingress.Bind(r,"",policy(schema),handler,handlers...)}
+`
+				source = strings.Replace(source, `ingress.Bind(r,"",httpx.EndpointPolicy{SchemaID:"output"},`, `bind(r,"output",`, 1)
+			}
+			if strings.HasPrefix(tc.name, "helper fields ") {
+				source = strings.Replace(source, `map[string]httpx.Field{"label":{Kind:httpx.Person}}`, `childFields()`, 1)
+			}
 			if tc.name == "embedded promotion" {
 				source += "\ntype Embedded struct { Secret string `json:\"secret,omitempty\"` }\n"
 			}
@@ -156,5 +174,64 @@ func TestOverrideRatchet(t *testing.T) {
 		if err := overrideRatchet(tc.current, baseline); (err != nil) != tc.bad {
 			t.Fatal(tc, err)
 		}
+	}
+}
+
+func TestOverrideCountsDistinguishRefusalsFromReach(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, exports, err := exportPackages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, body string
+		want       int
+	}{
+		{"refuse all", `if p.ActOnAll { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 0},
+		{"refuse tenant", `if p.ActOnTenant != nil { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 0},
+		{"refuse either", `if authz.IsSupport(p) || p.TenantID == nil || p.ActOnAll || p.ActOnTenant != nil { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 0},
+		{"parenthesized refusal", `if (p.ActOnAll) { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 0},
+		{"refusal then reach", `if p.ActOnAll { return nil, httpx.ErrSupportViewUnavailable() }; return p.ActOnTenant,nil`, 1},
+		{"guard initializer", `if p.Steward=true; p.ActOnAll { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+		{"inverted all", `if !p.ActOnAll { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+		{"inverted tenant", `if p.ActOnTenant == nil { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+		{"conditional refusal", `if p.ActOnAll && p.Steward { return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+		{"else reach", `if p.ActOnAll { return nil, httpx.ErrSupportViewUnavailable() } else { return p,nil }`, 1},
+		{"side effect", `if p.ActOnAll { p.Steward=true; return nil, httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+		{"allowed return", `if p.ActOnAll { return p,nil }; return nil,httpx.ErrSupportViewUnavailable()`, 1},
+		{"tenant reach", `return p.ActOnTenant,httpx.ErrSupportViewUnavailable()`, 1},
+		{"write override", `if p.Can(authz.PlatformCrossTenantWrite) { return nil,httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+		{"shadowed error", `httpx := struct{ErrSupportViewUnavailable func() error}{func() error{return nil}}; if p.ActOnAll { return nil,httpx.ErrSupportViewUnavailable() }; return nil,nil`, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &analyzer{fset: token.NewFileSet()}
+			source := `package fixture
+import (
+ "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+ "github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
+)
+var _ = httpx.ErrSupportViewUnavailable
+func read(p *authz.Principal) (any,error) { ` + tc.body + ` }`
+			file, err := parser.ParseFile(a.fset, filepath.Join(root, "fixture.go"), source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Selections: map[*ast.SelectorExpr]*types.Selection{}}
+			conf := types.Config{Importer: importer.ForCompiler(a.fset, "gc", func(path string) (io.ReadCloser, error) { return os.Open(exports[path]) })}
+			if _, err := conf.Check(module+"/internal/fixture", a.fset, []*ast.File{file}, info); err != nil {
+				t.Fatal(err)
+			}
+			a.packages = []*sourcePackage{{module + "/internal/fixture", []*ast.File{file}, info}}
+			got := 0
+			for _, count := range a.overrideCounts(root) {
+				got += count
+			}
+			if got != tc.want {
+				t.Fatalf("override consumers = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

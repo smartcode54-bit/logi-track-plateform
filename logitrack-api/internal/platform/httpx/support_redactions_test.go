@@ -15,7 +15,7 @@ type repositoryLabel struct {
 	Name string `json:"name"`
 }
 
-var repositoryLabelSchema = NewSchema[repositoryLabel]("test.repository_label", map[string]Field{"name": {Kind: Safe}})
+var _ = NewSchema[repositoryLabel]("test.repository_label", map[string]Field{"name": {Kind: Safe}})
 
 func TestRepositoryRedactionsFailClosed(t *testing.T) {
 	for _, tc := range []struct {

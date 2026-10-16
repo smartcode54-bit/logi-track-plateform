@@ -192,7 +192,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -208,7 +208,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -336,7 +336,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -352,7 +352,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -368,7 +368,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -384,7 +384,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -400,7 +400,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -416,7 +416,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -432,7 +432,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -448,7 +448,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -480,7 +480,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -496,7 +496,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -512,7 +512,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -528,7 +528,7 @@
         "owner": "P1.1",
         "allowHead": false
       },
-      "status": "pending binding: P1.1"
+      "status": "bound"
     },
     {
       "policy": {
@@ -544,7 +544,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -560,7 +560,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -576,7 +576,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -592,7 +592,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -608,7 +608,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -624,7 +624,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -640,7 +640,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -656,7 +656,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -672,7 +672,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -688,7 +688,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -704,7 +704,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -720,7 +720,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -832,7 +832,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -864,7 +864,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -880,7 +880,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -960,7 +960,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     },
     {
       "policy": {
@@ -976,7 +976,7 @@
         "owner": "P1.2",
         "allowHead": false
       },
-      "status": "pending binding: P1.2"
+      "status": "bound"
     }
   ],
   "routes": {
@@ -1050,26 +1050,26 @@
         "id": "DELETE /v1/me/devices/:installId",
         "method": "DELETE",
         "route": "/v1/me/devices/:installId",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "DELETE /v1/me/sessions/:sid",
         "method": "DELETE",
         "route": "/v1/me/sessions/:sid",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -1284,40 +1284,44 @@
         "id": "GET /v1/api-keys",
         "method": "GET",
         "route": "/v1/api-keys",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.platform-api-key",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/app-installations",
         "method": "GET",
         "route": "/v1/app-installations",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "mobileapp.installation",
+        "owner": "P1.2",
+        "allowHead": false,
+        "metaSchema": "mobileapp.installation-meta",
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/app-installations/stats",
         "method": "GET",
         "route": "/v1/app-installations/stats",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "mobileapp.installation-stats",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/app-releases",
@@ -1947,39 +1951,39 @@
         "id": "GET /v1/me",
         "method": "GET",
         "route": "/v1/me",
-        "class": "deny",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "auth.me",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "GET /v1/me/sessions",
         "method": "GET",
         "route": "/v1/me/sessions",
-        "class": "deny",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "auth.sessions",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "GET /v1/me/tenants",
         "method": "GET",
         "route": "/v1/me/tenants",
-        "class": "deny",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "auth.tenant_label",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -2139,6 +2143,147 @@
         "allowHead": false
       },
       {
+        "id": "GET /v1/platform/api-keys",
+        "method": "GET",
+        "route": "/v1/platform/api-keys",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-api-key",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/app-installations",
+        "method": "GET",
+        "route": "/v1/platform/app-installations",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "mobileapp.installation",
+        "owner": "P1.2",
+        "allowHead": false,
+        "metaSchema": "mobileapp.installation-meta",
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/app-installations/stats",
+        "method": "GET",
+        "route": "/v1/platform/app-installations/stats",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "mobileapp.installation-stats",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/security-events",
+        "method": "GET",
+        "route": "/v1/platform/security-events",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-event",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/security/overview",
+        "method": "GET",
+        "route": "/v1/platform/security/overview",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-overview",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/stats/users-by-role",
+        "method": "GET",
+        "route": "/v1/platform/stats/users-by-role",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-role-counts",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/tenants/:id/members",
+        "method": "GET",
+        "route": "/v1/platform/tenants/:id/members",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.member",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/users",
+        "method": "GET",
+        "route": "/v1/platform/users",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-user",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/users/:id",
+        "method": "GET",
+        "route": "/v1/platform/users/:id",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-user",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/platform/users/:id/sessions",
+        "method": "GET",
+        "route": "/v1/platform/users/:id/sessions",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_target_owners",
+        "predicate": "existing-platform-read-authority,each-owner-consent,max=100,no-secrets",
+        "schema": "iam.platform-session",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
         "id": "GET /v1/roles",
         "method": "GET",
         "route": "/v1/roles",
@@ -2194,14 +2339,15 @@
         "id": "GET /v1/security/status",
         "method": "GET",
         "route": "/v1/security/status",
-        "class": "deny",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_platform_control",
+        "predicate": "safe-status-DTO",
+        "schema": "iam.system-status",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/standby",
@@ -2233,27 +2379,29 @@
         "id": "GET /v1/subcontractors",
         "method": "GET",
         "route": "/v1/subcontractors",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "exact-reach,target-owner-consent,no-contractor-inheritance",
+        "schema": "iam.subcontractor-summary",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/subcontractors/:id",
         "method": "GET",
         "route": "/v1/subcontractors/:id",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "exact-reach,target-owner-consent,no-contractor-inheritance",
+        "schema": "iam.subcontractor",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/support/customer-options",
@@ -2324,40 +2472,57 @@
         "id": "GET /v1/tenants",
         "method": "GET",
         "route": "/v1/tenants",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.tenant",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/tenants/:id",
         "method": "GET",
         "route": "/v1/tenants/:id",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.tenant-detail",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/tenants/:id/members",
         "method": "GET",
         "route": "/v1/tenants/:id/members",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.member",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "GET /v1/tenants/:id/support-access",
+        "method": "GET",
+        "route": "/v1/tenants/:id/support-access",
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "safe-options-or-selected-consent-state,no-consent-write",
+        "schema": "iam.support-access",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/tenants/quarantine/rows",
@@ -2371,6 +2536,20 @@
         "schema": "none",
         "owner": "",
         "allowHead": false
+      },
+      {
+        "id": "GET /v1/tenants/support-options",
+        "method": "GET",
+        "route": "/v1/tenants/support-options",
+        "class": "tenant_read",
+        "phase": 1,
+        "plane": "tenant",
+        "target": "eligible_targets",
+        "predicate": "safe-options-or-selected-consent-state,no-consent-write",
+        "schema": "iam.support-option",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.support-options"
       },
       {
         "id": "GET /v1/trips",
@@ -2493,40 +2672,43 @@
         "id": "GET /v1/users",
         "method": "GET",
         "route": "/v1/users",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.platform-user",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/users/:id",
         "method": "GET",
         "route": "/v1/users/:id",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.platform-user",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/users/:id/sessions",
         "method": "GET",
         "route": "/v1/users/:id/sessions",
-        "class": "deny",
+        "class": "platform",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.platform-session",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "GET /v1/vehicle-locations",
@@ -2545,14 +2727,15 @@
         "id": "GET /v1/waitlist",
         "method": "GET",
         "route": "/v1/waitlist",
-        "class": "deny",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_platform_control",
+        "predicate": "counts-only,both-consent-states,no-lead-PII",
+        "schema": "forms.waitlist-counts",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "PATCH /v1/billing/service-fees/:id",
@@ -2688,13 +2871,13 @@
         "id": "PATCH /v1/me",
         "method": "PATCH",
         "route": "/v1/me",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "auth.me",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -2716,12 +2899,13 @@
         "route": "/v1/subcontractors/:id",
         "class": "tenant_write",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.subcontractor",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "PATCH /v1/tasks/:id",
@@ -2740,14 +2924,15 @@
         "id": "PATCH /v1/tenants/:id",
         "method": "PATCH",
         "route": "/v1/tenants/:id",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_platform_control",
+        "predicate": "lifecycle-only:status+reason,no-profile-or-mixed-fields,strict-body",
+        "schema": "iam.tenant",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "PATCH /v1/trips/:id",
@@ -2781,12 +2966,13 @@
         "route": "/v1/users/:id",
         "class": "tenant_write",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.platform-user",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "POST /v1/admin/queues/:queue/replay",
@@ -2805,14 +2991,15 @@
         "id": "POST /v1/api-keys",
         "method": "POST",
         "route": "/v1/api-keys",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_platform_control",
+        "predicate": "tenantId=null-or-absent,platform-key-scope-and-capability-classes,strict-body",
+        "schema": "iam.created-api-key",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "POST /v1/app-releases",
@@ -2870,39 +3057,39 @@
         "id": "POST /v1/auth/logout",
         "method": "POST",
         "route": "/v1/auth/logout",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "POST /v1/auth/logout-all",
         "method": "POST",
         "route": "/v1/auth/logout-all",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "POST /v1/auth/password/change",
         "method": "POST",
         "route": "/v1/auth/password/change",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -2948,26 +3135,26 @@
         "id": "POST /v1/auth/sse-ticket",
         "method": "POST",
         "route": "/v1/auth/sse-ticket",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "auth.sse_ticket",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "POST /v1/auth/tenant",
         "method": "POST",
         "route": "/v1/auth/tenant",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "auth.access",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -3769,12 +3956,13 @@
         "route": "/v1/subcontractors",
         "class": "tenant_write",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.subcontractor",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "POST /v1/tasks",
@@ -3845,6 +4033,20 @@
         "id": "POST /v1/tenants",
         "method": "POST",
         "route": "/v1/tenants",
+        "class": "platform",
+        "phase": 1,
+        "plane": "platform",
+        "target": "explicit_platform_control",
+        "predicate": "provisioning-only,no-combined-user-grant-or-invite,D2",
+        "schema": "iam.tenant",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
+      },
+      {
+        "id": "POST /v1/tenants/:id/members",
+        "method": "POST",
+        "route": "/v1/tenants/:id/members",
         "class": "tenant_write",
         "phase": 0,
         "plane": "tenant",
@@ -3855,9 +4057,9 @@
         "allowHead": false
       },
       {
-        "id": "POST /v1/tenants/:id/members",
+        "id": "POST /v1/tenants/:id/members/:userId/ratify",
         "method": "POST",
-        "route": "/v1/tenants/:id/members",
+        "route": "/v1/tenants/:id/members/:userId/ratify",
         "class": "tenant_write",
         "phase": 0,
         "plane": "tenant",
@@ -4081,12 +4283,13 @@
         "route": "/v1/users",
         "class": "tenant_write",
         "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "plane": "platform",
+        "target": "explicit_platform",
+        "predicate": "iam.explicit-platform.v1",
+        "schema": "iam.created-user",
+        "owner": "P1.2",
+        "allowHead": false,
+        "cursor": "iam.keyset"
       },
       {
         "id": "POST /v1/users/:id/disable",
@@ -4209,13 +4412,13 @@
         "id": "PUT /v1/me/devices",
         "method": "PUT",
         "route": "/v1/me/devices",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "own_account",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "own-account-only,no-tenant-mutation,target-label-projection",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -4235,6 +4438,19 @@
         "id": "PUT /v1/tenants/:id/members/:userId",
         "method": "PUT",
         "route": "/v1/tenants/:id/members/:userId",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "PUT /v1/tenants/:id/support-access",
+        "method": "PUT",
+        "route": "/v1/tenants/:id/support-access",
         "class": "tenant_write",
         "phase": 0,
         "plane": "tenant",
@@ -4497,39 +4713,39 @@
         "id": "POST /v1/auth/logout",
         "method": "POST",
         "route": "/v1/auth/logout",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "POST /v1/auth/logout-all",
         "method": "POST",
         "route": "/v1/auth/logout-all",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "POST /v1/auth/password/change",
         "method": "POST",
         "route": "/v1/auth/password/change",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "empty",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -4575,26 +4791,26 @@
         "id": "POST /v1/auth/sse-ticket",
         "method": "POST",
         "route": "/v1/auth/sse-ticket",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "auth.sse_ticket",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
         "id": "POST /v1/auth/tenant",
         "method": "POST",
         "route": "/v1/auth/tenant",
-        "class": "tenant_write",
-        "phase": 0,
-        "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "class": "session",
+        "phase": 1,
+        "plane": "self",
+        "target": "authenticated_caller",
+        "predicate": "live-own-session,existing-auth-guards,entry-disabled",
+        "schema": "auth.access",
+        "owner": "P1.1",
         "allowHead": false
       },
       {
@@ -4743,6 +4959,56 @@
     ]
   },
   "schemas": [
+    "auth.access",
+    "auth.me",
+    "auth.own_driver",
+    "auth.own_scope",
+    "auth.session_context",
+    "auth.sessions",
+    "auth.sse_ticket",
+    "auth.support_access",
+    "auth.tenant_label",
+    "forms.waitlist-counts",
+    "iam.activity",
+    "iam.created-api-key",
+    "iam.created-user",
+    "iam.driver-ref",
+    "iam.install-counts",
+    "iam.job-status",
+    "iam.login-counts",
+    "iam.member",
+    "iam.member-user",
+    "iam.membership",
+    "iam.outbox-status",
+    "iam.overview-scope",
+    "iam.platform-api-key",
+    "iam.platform-event",
+    "iam.platform-event-details",
+    "iam.platform-overview",
+    "iam.platform-role-counts",
+    "iam.platform-session",
+    "iam.platform-user",
+    "iam.quarantine-counts",
+    "iam.ratification",
+    "iam.scheduler",
+    "iam.scope",
+    "iam.session-counts",
+    "iam.status-history",
+    "iam.subcontractor",
+    "iam.subcontractor-minimal",
+    "iam.subcontractor-summary",
+    "iam.support-access",
+    "iam.support-option",
+    "iam.system-status",
+    "iam.tenant",
+    "iam.tenant-detail",
+    "iam.tenant-document",
+    "iam.user-counts",
+    "mobileapp.below-count",
+    "mobileapp.installation",
+    "mobileapp.installation-meta",
+    "mobileapp.installation-stats",
+    "mobileapp.status-counts",
     "support.customer_option"
   ]
 }

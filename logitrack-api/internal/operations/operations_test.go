@@ -137,8 +137,8 @@ func TestReachOf(t *testing.T) {
 		t.Errorf("driver reach %+v", r)
 	}
 	all := &authz.Principal{UserID: uuid.New(), Platform: []authz.PlatformRole{authz.PlatformAdmin}, ActOnAll: true}
-	if r := ReachOf(all); !r.All {
-		t.Errorf("X-Act-On-Tenant: * reach %+v", r)
+	if r := ReachOf(all); r.All || len(r.Tenants) != 0 || r.Driver != nil {
+		t.Errorf("retired human override granted reach %+v", r)
 	}
 	scope := &authz.Principal{UserID: uuid.New(), PartyIDs: []uuid.UUID{uuid.New()}}
 	if r := ReachOf(scope); r.All || len(r.Tenants) != 0 || r.Driver != nil {

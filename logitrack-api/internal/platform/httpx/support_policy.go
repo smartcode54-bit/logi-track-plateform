@@ -123,7 +123,7 @@ func EndpointGate(c fiber.Ctx, p EndpointPolicy) error {
 		return nil
 	}
 	class := p.Class
-	if p.Method != c.Method() && !(c.Method() == http.MethodHead && p.Method == http.MethodGet && p.AllowHEAD) {
+	if p.Method != c.Method() && (c.Method() != http.MethodHead || p.Method != http.MethodGet || !p.AllowHEAD) {
 		class = PolicyDeny
 	}
 	if p.Predicate != nil && class != PolicyDeny {

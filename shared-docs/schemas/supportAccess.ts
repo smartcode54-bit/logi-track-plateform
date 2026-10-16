@@ -11,6 +11,450 @@ export interface ProjectionMeta {
 }
 export type SupportRefusalCode = "support_read_only" | "support_view_unavailable" | "support_projection_unavailable" | "support_access_masked";
 export const SUPPORT_ENTRY_ENABLED = false as const;
+export interface ResponseAuthAccess {
+  accessToken: string;
+  expiresIn: number;
+}
+export interface ResponseAuthMe {
+  sessionContext: ResponseAuthSessionContext;
+  supportAccess: ResponseAuthSupportAccess | null;
+  platformCapabilities: Array<string> | null;
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  photoUrl: string | null;
+  tenant: ResponseAuthTenantLabel | null;
+  tenants: Array<ResponseAuthTenantLabel> | null;
+  platformRoles: Array<string> | null;
+  dispatcher: boolean;
+  steward: boolean;
+  driver: ResponseAuthOwnDriver | null;
+  customerScopes: Array<ResponseAuthOwnScope> | null;
+  capabilities: Array<string> | null;
+  mustChangePassword: boolean;
+  legacyAuthUid?: string | null;
+}
+export interface ResponseAuthOwnDriver {
+  id: string;
+}
+export interface ResponseAuthOwnScope {
+  billingPartyId: string;
+  name: string;
+}
+export interface ResponseAuthSessionContext {
+  mode: string;
+  version: string;
+}
+export interface ResponseAuthSessions {
+  id: string;
+  platform: string;
+  amr: string;
+  installId: string | null;
+  deviceLabel: string | null;
+  appVersion: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  current: boolean;
+}
+export interface ResponseAuthSseTicket {
+  ticket: string;
+  expiresIn: number;
+}
+export interface ResponseAuthSupportAccess {
+  tenantId: string;
+  enabled: boolean;
+  masked: boolean;
+  version: string;
+  readOnly: boolean;
+  visitId: string;
+}
+export interface ResponseAuthTenantLabel {
+  code: string | null;
+  reference?: string;
+  id: string;
+  nameTh: string;
+  nameEn: string | null;
+  kind: string;
+  role: string;
+  status?: string;
+}
+export interface ResponseFormsWaitlistCounts {
+  total: number;
+}
+export interface ResponseIamActivity {
+  last24h: number;
+  last7d: number;
+  bySeverity24h: Partial<Record<"critical" | "info" | "warning", number>> | null;
+  hourly24h: Array<number> | null;
+  daily7d: Array<number> | null;
+}
+export interface ResponseIamCreatedApiKey {
+  id: string;
+  name: string;
+  scope: string;
+  keyPrefix: string;
+  capabilities: Array<string> | null;
+  tenantId: string | null;
+  tenantNameTh: string | null;
+  tenantNameEn: string | null;
+  ratePerMin: number;
+  status: string;
+  createdBy: string;
+  createdByEmail: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+  secret: string;
+}
+export interface ResponseIamCreatedUser {
+  user: ResponseIamPlatformUser;
+  temporaryPassword?: string;
+}
+export interface ResponseIamDriverRef {
+  id: string;
+  displayName: string | null;
+}
+export interface ResponseIamInstallCounts {
+  total: number;
+  seen7d: number;
+  belowFloor: number;
+  belowLatest: number;
+  unknownVersion: number;
+  minAllowedVersion: string | null;
+  latestVersion: string | null;
+}
+export interface ResponseIamJobStatus {
+  queued: number;
+  running: number;
+  failed24h: number;
+  succeeded24h: number;
+}
+export interface ResponseIamLoginCounts {
+  failed24h: number;
+  lockouts24h: number;
+}
+export interface ResponseIamMember {
+  user: ResponseIamMemberUser;
+  role: string;
+  status: string;
+  lastLoginAt: string | null;
+  grantedByPlatform: boolean;
+  ratifiedAt: string | null;
+  grantVersion: string;
+  eligibilityBasis: string;
+  eligibleToRatify: boolean;
+}
+export interface ResponseIamMemberUser {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+}
+export interface ResponseIamMembership {
+  tenantId: string;
+  tenantNameTh: string;
+  tenantNameEn: string | null;
+  tenantKind: string;
+  role: string;
+  status: string;
+}
+export interface ResponseIamOutboxStatus {
+  pending: number;
+  oldestSeconds: number;
+}
+export interface ResponseIamOverviewScope {
+  all: boolean;
+  tenantId: string | null;
+}
+export interface ResponseIamPlatformApiKey {
+  id: string;
+  name: string;
+  scope: string;
+  keyPrefix: string;
+  capabilities: Array<string> | null;
+  tenantId: string | null;
+  tenantNameTh: string | null;
+  tenantNameEn: string | null;
+  ratePerMin: number;
+  status: string;
+  createdBy: string;
+  createdByEmail: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+}
+export interface ResponseIamPlatformEvent {
+  id: string;
+  createdAt: string;
+  type: string;
+  severity: string;
+  summary: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  targetUserId: string | null;
+  tenantId: string | null;
+  requestId: string | null;
+  details: ResponseIamPlatformEventDetails | null;
+  actorLegacyUid: null;
+}
+export interface ResponseIamPlatformEventDetails {
+  action?: string;
+  basis?: string;
+  outcome?: string;
+  version?: string;
+}
+export interface ResponseIamPlatformOverview {
+  generatedAt: string;
+  scope: ResponseIamOverviewScope;
+  users: ResponseIamUserCounts;
+  sessions: ResponseIamSessionCounts;
+  logins: ResponseIamLoginCounts;
+  events: ResponseIamActivity;
+  installations: ResponseIamInstallCounts | null;
+  quarantine: ResponseIamQuarantineCounts | null;
+  system: ResponseIamSystemStatus | null;
+}
+export interface ResponseIamPlatformRoleCounts {
+  scope: ResponseIamOverviewScope;
+  total: number;
+  none: number;
+  tenantRoles: Partial<Record<"driver" | "manager" | "operation_staff" | "operator" | "tenant_admin" | "user", number>> | null;
+  scopes: Partial<Record<"customer" | "dispatcher", number>> | null;
+  platformRoles: Partial<Record<"platform_admin" | "support", number>> | null;
+}
+export interface ResponseIamPlatformSession {
+  id: string;
+  platform: string;
+  amr: string;
+  installId: string | null;
+  deviceLabel: string | null;
+  appVersion: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+}
+export interface ResponseIamPlatformUser {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  photoUrl: null;
+  status: string;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  legacyAuthUid: null;
+  memberships: Array<ResponseIamMembership> | null;
+  scopes: Array<ResponseIamScope> | null;
+  platformRoles: Array<string> | null;
+  driver: ResponseIamDriverRef | null;
+  manageAccount: boolean;
+  accountReason?: string;
+}
+export interface ResponseIamQuarantineCounts {
+  rows: number;
+  byTable: Partial<Record<"api_keys" | "auth_identities" | "billing_counters" | "billing_parties" | "billing_statement_lines" | "billing_statements" | "broadcast_reads" | "broadcast_recipients" | "broadcasts" | "chat_messages" | "chat_read_state" | "chats" | "companies" | "consumer_inbox" | "customer_driver_id_types" | "customer_fuel_rate_adjustments" | "customer_rate_entries" | "customer_service_fees" | "customers" | "device_tokens" | "driver_advances" | "driver_compensation_configs" | "driver_customer_codes" | "driver_penalties" | "drivers" | "file_objects" | "fuel_daily_snapshots" | "fuel_monthly_snapshots" | "holidays" | "hub_name_aliases" | "hub_soc_distances" | "hubs" | "idempotency_keys" | "incident_reports" | "jobs" | "leave_request_attachments" | "leave_requests" | "maintenance_files" | "maintenance_records" | "membership_provenance_history" | "memberships" | "mobile_app_releases" | "mobile_installations" | "notification_deliveries" | "outbox_events" | "partner_interest" | "password_reset_tokens" | "payroll_line_items" | "payroll_penalty_applications" | "payroll_runs" | "penalty_types" | "refresh_tokens" | "role_capability_overrides" | "security_events" | "sessions" | "settings" | "standby_photos" | "standby_rate_entries" | "standby_records" | "statement_documents" | "status_history" | "support_visits" | "task_delivery_stops" | "task_number_counters" | "tasks" | "tenant_files" | "tenants" | "transactions" | "trip_billing_snapshots" | "trip_billing_stop_breakdown" | "trip_delivery_stops" | "trip_no_history" | "trip_photos" | "trip_records" | "truck_assignments" | "truck_files" | "trucks" | "user_platform_roles" | "user_scopes" | "users" | "vehicle_expenses" | "vehicle_locations" | "waitlist", number>> | null;
+}
+export interface ResponseIamRatification {
+  grantVersion: string;
+  ratifiedAt: string | null;
+}
+export interface ResponseIamScheduler {
+  leaderPresent: boolean;
+}
+export interface ResponseIamScope {
+  kind: string;
+  billingPartyId: string;
+  name: string;
+}
+export interface ResponseIamSessionCounts {
+  active: number;
+  revoked24h: number;
+  revokedByReason24h: Partial<Record<"admin_revoke" | "admin_revoked" | "claims_changed" | "device_relogin" | "disabled" | "expired" | "logout" | "logout_all" | "password_changed" | "password_reset" | "refresh_reuse" | "refresh_token_reuse" | "revoked", number>> | null;
+}
+export interface ResponseIamStatusHistory {
+  status: string;
+  previousStatus: string | null;
+  changedAt: string;
+  changedBy: string | null;
+  changedByLabel: string | null;
+  reason: string | null;
+}
+export interface ResponseIamSubcontractor {
+  id: string;
+  kind: string;
+  code: string | null;
+  nameTh: string;
+  nameEn: string | null;
+  status: string;
+  legalType: string | null;
+  contractorTenantId: string | null;
+  createdAt: string;
+  billingPartyId?: string | null;
+  idCardNumber?: string | null;
+  taxId: string | null;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  address: string | null;
+  designation: string | null;
+  fleetSize: number;
+  dispatchCenter: string | null;
+  serviceRegions: Array<string> | null;
+  vehicleTypes: Array<string> | null;
+  lineGroupId: string | null;
+  billingDateBasis: string | null;
+  updatedAt: string;
+  statusHistory: Array<ResponseIamStatusHistory> | null;
+  documents: Array<ResponseIamTenantDocument> | null;
+}
+export interface ResponseIamSubcontractorMinimal {
+  id: string;
+  code: string | null;
+  nameTh: string;
+  nameEn: string | null;
+  status?: string;
+  billingPartyId?: string | null;
+}
+export interface ResponseIamSubcontractorSummary {
+  id: string;
+  code: string | null;
+  nameTh: string;
+  nameEn: string | null;
+  legalType: string | null;
+  status: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  fleetSize: number;
+  serviceRegions: Array<string> | null;
+  lineGroupId: string | null;
+  contractorTenantId: string | null;
+  billingPartyId: string | null;
+  billingDateBasis: string | null;
+  createdAt: string;
+}
+export interface ResponseIamSupportAccess {
+  enabled: boolean;
+  version: string;
+  changedAt: string | null;
+  changedBy: string | null;
+  eligibleToToggle: boolean;
+}
+export interface ResponseIamSupportOption {
+  id: string;
+  kind: string;
+  code: string | null;
+  reference: string;
+  nameTh: string;
+  nameEn: string | null;
+  status: string;
+}
+export interface ResponseIamSystemStatus {
+  database: string;
+  redis: string;
+  scheduler: ResponseIamScheduler;
+  outbox: ResponseIamOutboxStatus;
+  jobs: ResponseIamJobStatus;
+}
+export interface ResponseIamTenant {
+  id: string;
+  kind: string;
+  code: string | null;
+  nameTh: string;
+  nameEn: string | null;
+  status: string;
+  legalType: string | null;
+  contractorTenantId: string | null;
+  createdAt: string;
+  billingPartyId?: string | null;
+}
+export interface ResponseIamTenantDetail {
+  id: string;
+  kind: string;
+  code: string | null;
+  nameTh: string;
+  nameEn: string | null;
+  status: string;
+  legalType: string | null;
+  contractorTenantId: string | null;
+  createdAt: string;
+  billingPartyId?: string | null;
+  idCardNumber?: string | null;
+  taxId: string | null;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  address: string | null;
+  designation: string | null;
+  fleetSize: number;
+  dispatchCenter: string | null;
+  serviceRegions: Array<string> | null;
+  vehicleTypes: Array<string> | null;
+  lineGroupId: string | null;
+  billingDateBasis: string | null;
+  updatedAt: string;
+  statusHistory: Array<ResponseIamStatusHistory> | null;
+}
+export interface ResponseIamTenantDocument {
+  fileId: null;
+  key: null;
+  url: null;
+  kind: string;
+  position: number;
+}
+export interface ResponseIamUserCounts {
+  total: number;
+  byStatus: Partial<Record<"active" | "deleted" | "disabled" | "reset_required", number>> | null;
+}
+export interface ResponseMobileappBelowCount {
+  version: string;
+  count: number;
+}
+export interface ResponseMobileappInstallation {
+  driverId: string;
+  driverName: string | null;
+  installId: string;
+  tenantId: string;
+  tenantName: string | null;
+  platform: string;
+  appVersion: string | null;
+  buildNumber: string | null;
+  flavor: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  versionStatus: string;
+}
+export interface ResponseMobileappInstallationMeta {
+  flavor: string | null;
+  minAllowedVersion: string | null;
+  latestVersion: string | null;
+}
+export interface ResponseMobileappInstallationStats {
+  since: string;
+  total: number;
+  byStatus: ResponseMobileappStatusCounts;
+  byFlavor: Partial<Record<"dev" | "prod", number>> | null;
+  byPlatform: Partial<Record<"android" | "ios" | "other", number>> | null;
+  belowVersion: ResponseMobileappBelowCount | null;
+  flavor: string | null;
+  minAllowedVersion: string | null;
+  latestVersion: string | null;
+}
+export interface ResponseMobileappStatusCounts {
+  current: number;
+  outdated: number;
+  blocked: number;
+  ahead: number;
+  unknown: number;
+}
 export interface ResponseSupportCustomerOption {
   id: string;
   code: string | null;

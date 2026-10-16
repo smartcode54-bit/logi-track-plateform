@@ -272,33 +272,14 @@ func (a *analyzer) discover() {
 						}
 						a.schemas[id] = schema{typ, fields}
 					}
-					if api(n.Fun, pkg.info, "/internal/platform/ingress", "Bind") && len(n.Args) >= 4 {
-						item := root{handlers: n.Args[3:]}
-						if policy, ok := n.Args[2].(*ast.CompositeLit); ok {
-							for _, prop := range policy.Elts {
-								p, ok := prop.(*ast.KeyValueExpr)
-								if !ok {
-									continue
-								}
-								key, ok := p.Key.(*ast.Ident)
-								if !ok {
-									continue
-								}
-								if key.Name == "SchemaID" {
-									item.schema = literal(p.Value, pkg.info)
-								}
-								if key.Name == "MetaSchemaID" {
-									item.meta = literal(p.Value, pkg.info)
-								}
-							}
-						}
-						a.roots = append(a.roots, item)
-					}
+
 				}
 				return true
 			})
 		}
 	}
+	a.discoverFieldMaps()
+	a.discoverRegistrations()
 }
 func base(t types.Type) types.Type {
 	for {
@@ -457,22 +438,27 @@ func (a *analyzer) check() error {
 				if ci == nil {
 					ci = info
 				}
-				if api(call.Fun, ci, "/internal/platform/httpx", "JSON") || api(call.Fun, ci, "/internal/platform/httpx", "Page") {
-					index := 2
+				if api(call.Fun, ci, "/internal/platform/httpx", "JSON") || api(call.Fun, ci, "/internal/platform/httpx", "JSONWithRedactions") || api(call.Fun, ci, "/internal/platform/httpx", "Page") || api(call.Fun, ci, "/internal/platform/httpx", "PageAs") {
+					index, metaIndex := 2, -1
 					if api(call.Fun, ci, "/internal/platform/httpx", "Page") {
-						index = 1
+						index, metaIndex = 1, 3
+					}
+					responseSchema := s
+					if api(call.Fun, ci, "/internal/platform/httpx", "PageAs") {
+						responseSchema = a.schemas[literal(call.Args[1], ci)]
+						metaIndex = 4
 					}
 					if len(call.Args) > index {
-						if err := a.validate(ci.TypeOf(call.Args[index]), s, map[string]bool{}); err != nil {
+						if err := a.validate(ci.TypeOf(call.Args[index]), responseSchema, map[string]bool{}); err != nil {
 							a.fail(call, err.Error())
 						}
 					}
-					if index == 1 && len(call.Args) > 3 {
-						if id, ok := call.Args[3].(*ast.Ident); !ok || id.Name != "nil" {
+					if metaIndex >= 0 && len(call.Args) > metaIndex {
+						if id, ok := call.Args[metaIndex].(*ast.Ident); !ok || id.Name != "nil" {
 							meta, ok := a.schemas[r.meta]
 							if !ok {
 								a.fail(call, "unregistered metadata")
-							} else if err := a.validate(ci.TypeOf(call.Args[3]), meta, map[string]bool{}); err != nil {
+							} else if err := a.validate(ci.TypeOf(call.Args[metaIndex]), meta, map[string]bool{}); err != nil {
 								a.fail(call, err.Error())
 							}
 						}
@@ -492,7 +478,7 @@ func (a *analyzer) check() error {
 					return true
 				}
 				callee := a.callee(call.Fun, ci, map[types.Object]bool{})
-				if callee != nil && slices.Contains([]string{"JSON", "JSONP", "Send", "SendString", "SendStream", "SendStreamWriter", "SendFile", "SendStatus", "Redirect", "Write", "WriteString", "SetBody", "SetBodyString", "SetBodyStream", "SetBodyStreamWriter", "Hijack"}, callee.Name()) {
+				if responseWriter(call, ci, callee) && slices.Contains([]string{"JSON", "JSONP", "Send", "SendString", "SendStream", "SendStreamWriter", "SendFile", "SendStatus", "Redirect", "Write", "WriteString", "SetBody", "SetBodyString", "SetBodyStream", "SetBodyStreamWriter", "Hijack"}, callee.Name()) {
 					a.fail(call, "direct response writer "+callee.Name())
 					return true
 				}
@@ -551,6 +537,9 @@ func responseContextCall(call *ast.CallExpr, info *types.Info) bool {
 }
 
 func (a *analyzer) callee(expr ast.Expr, info *types.Info, seen map[types.Object]bool) types.Object {
+	if call, ok := expr.(*ast.CallExpr); ok {
+		return a.callee(call.Fun, info, seen)
+	}
 	obj := object(expr, info)
 	if obj == nil || seen[obj] {
 		return nil
@@ -571,9 +560,22 @@ func trustedContextCall(obj types.Object) bool {
 	}
 	if obj.Pkg().Path() == module+"/internal/platform/httpx" {
 		switch obj.Name() {
-		case "WriteError", "ProjectionAudienceFrom", "EndpointPolicyFrom", "PolicyTargetFrom", "RequestIDFrom", "PolicyInput", "SetPolicyInput", "StrictQuery", "StrictBody", "DecodeJSON":
+		case "WriteError", "RequireResponseProjection", "ResolveProjectionAudience", "OrdinaryPage", "ClientIPFrom", "ListenerFrom", "SetProjectionAudience", "EndpointGate", "ProjectionAudienceFrom", "EndpointPolicyFrom", "PolicyTargetFrom", "RequestIDFrom", "PolicyInput", "SetPolicyInput", "StrictQuery", "StrictBody", "DecodeJSON":
 			return true
 		}
 	}
 	return (obj.Pkg().Path() == module+"/internal/authz" || obj.Pkg().Path() == module+"/internal/auth") && obj.Name() == "PrincipalFrom"
+}
+
+func responseWriter(call *ast.CallExpr, info *types.Info, obj types.Object) bool {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if typ := info.TypeOf(sel.X); typ != nil && types.TypeString(typ, nil) == "hash.Hash" {
+			return false
+		}
+	}
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	path := obj.Pkg().Path()
+	return path == "github.com/gofiber/fiber/v3" || path == "github.com/valyala/fasthttp" || path == "net/http" || path == "io" || path == "bufio"
 }

@@ -105,6 +105,7 @@ func TestRelayReappliesLostRevocation(t *testing.T) {
 		}
 	}
 
+	staffVersion := h.rdb.Get(ctx, h.prefix+"auth:user:ver:"+staff).Val()
 	lost, f, _ := h.replica(h.cfg())
 	f.down.Store(true)
 	if _, err := lost.Revoke(ctx, auth.Revocation{UserID: uuid.MustParse(victim), Reason: auth.RevokeAdmin}); err != nil {
@@ -122,13 +123,15 @@ func TestRelayReappliesLostRevocation(t *testing.T) {
 	lost.Close() // SIGTERM during a rolling deploy: the retrier dies with the replica
 	f.down.Store(false)
 
-	// The gap the hook closes: Redis still says the session is live and the version is current.
-	if r := h.get("/v1/me", revoked.access); r.status != http.StatusOK {
-		t.Fatalf("before the relay the revoked session answers %d; the test no longer reproduces the lost hook", r.status)
+	// The relay still repairs lost cache writes. Live PostgreSQL checks already refuse both credentials.
+	if n := h.rdb.Exists(ctx, h.prefix+"auth:sess:revoked:"+revoked.sid).Val(); n != 0 {
+		t.Fatal("lost hook unexpectedly wrote the marker")
 	}
-	if r := h.get("/v1/me", stale.access); r.status != http.StatusOK {
-		t.Fatalf("before the relay the stale token answers %d; the test no longer reproduces the lost raise", r.status)
+	if cached := h.rdb.Get(ctx, h.prefix+"auth:user:ver:"+staff).Val(); cached != staffVersion {
+		t.Fatalf("lost hook unexpectedly raised the cached version: %s", cached)
 	}
+	expectError(t, h.get("/v1/me", revoked.access), http.StatusUnauthorized, auth.CodeSessionRevoked)
+	expectError(t, h.get("/v1/me", stale.access), http.StatusUnauthorized, auth.CodeTokenExpired)
 
 	pub := h.relayDrain()
 	if n := countKey(pub.keys, auth.RouteSessionsRevoked); n != 2 {

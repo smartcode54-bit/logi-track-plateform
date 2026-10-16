@@ -34,8 +34,8 @@ func (a *analyzer) writeReport(root, path string) error {
 				if !ok || len(call.Args) < 2 {
 					return true
 				}
-				fn := object(call.Fun, pkg.info)
-				if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != "github.com/gofiber/fiber/v3" || fn.Name() != "Get" {
+				path, handlers, isGET := a.managementGET(call, pkg.info)
+				if !isGET {
 					return true
 				}
 				caps := map[string]bool{}
@@ -77,7 +77,7 @@ func (a *analyzer) writeReport(root, path string) error {
 						return true
 					})
 				}
-				for _, handler := range call.Args[1:] {
+				for _, handler := range handlers {
 					walk(handler)
 				}
 
@@ -87,7 +87,7 @@ func (a *analyzer) writeReport(root, path string) error {
 				source, _ := filepath.Rel(root, a.fset.Position(call.Pos()).Filename)
 				disposition := "deferred tenant GET: denied in support OFF and ON"
 				switch {
-				case literal(call.Args[0], pkg.info) == "/probe" || literal(call.Args[0], pkg.info) == "/shopee-report.pdf":
+				case literal(path, pkg.info) == "/probe" || literal(path, pkg.info) == "/shopee-report.pdf":
 					disposition = "side-effecting GET: support_read_only before job generation; ready artifacts need separate admission"
 				case strings.Contains(source, "internal/jobs/") || strings.Contains(source, "internal/sse/"):
 					disposition = "P1.4 pending source/transport binding; unknown and deferred sources denied"
@@ -100,7 +100,7 @@ func (a *analyzer) writeReport(root, path string) error {
 				case strings.Contains(source, "internal/dashboard/") || strings.Contains(source, "internal/fleet/") || strings.Contains(source, "internal/drivers/") || strings.Contains(source, "internal/maintenance/"):
 					disposition = "P1.3 pending read-key/projection binding; denied until bound"
 				}
-				item := getAudit{Source: filepath.ToSlash(source), RelativePath: literal(call.Args[0], pkg.info), Disposition: disposition}
+				item := getAudit{Source: filepath.ToSlash(source), RelativePath: literal(path, pkg.info), Disposition: disposition}
 				for cap := range caps {
 					item.MutationCaps = append(item.MutationCaps, cap)
 				}

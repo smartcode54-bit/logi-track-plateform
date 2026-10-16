@@ -562,7 +562,10 @@ func TestTenantOnboarding(t *testing.T) {
 	}
 	// Legacy routes use the same projected platform read contract.
 	r = w.get("/v1/tenants/"+newT+"/members", pa)
-	expect(t, r, http.StatusNotFound, "not_found")
+	expect(t, r, http.StatusOK, "")
+	if members := r.data().([]any); len(members) != 1 || members[0].(map[string]any)["user"].(map[string]any)["email"] != "****" {
+		t.Fatalf("unprojected legacy members: %s", r.raw)
+	}
 
 	// Tenants list and patch rules.
 	r = w.get("/v1/tenants?kind=carrier&limit=2", pa)
@@ -611,8 +614,9 @@ func TestTenantOnboarding(t *testing.T) {
 	if h := r.data().(map[string]any)["statusHistory"].([]any); len(h) != 2 {
 		t.Errorf("status history %v", h)
 	}
-	if strings.Contains(string(r.raw), `"idCardNumber"`) {
-		t.Error("an empty idCardNumber is serialised")
+	// The projected platform contract retains an absent optional identifier as null.
+	if value, exists := r.data().(map[string]any)["idCardNumber"]; !exists || value != nil {
+		t.Errorf("absent personal identifier is not null: %v (present=%t)", value, exists)
 	}
 }
 
@@ -827,9 +831,7 @@ func TestSessionsPlatformRead(t *testing.T) {
 	r = w.noEvent(func() resp {
 		return w.send(http.MethodDelete, "/v1/users/"+mgID+"/sessions", pa, nil, "X-Act-On-Tenant", "*")
 	})
-	if r.status != http.StatusForbidden {
-		t.Errorf("a revocation under X-Act-On-Tenant: *: %d %s", r.status, r.raw)
-	}
+	expect(t, r, http.StatusBadRequest, "header_not_allowed")
 }
 
 // Review panel (T19): PUT /v1/users/{id}/driver-link never clears a driver row of a tenant outside the caller's

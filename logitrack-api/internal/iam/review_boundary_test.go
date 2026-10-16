@@ -28,7 +28,7 @@ func TestReviewProjectedDuplicateTenantKeepsConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 409 || !strings.Contains(string(raw), `"code":"already_exists"`) || strings.Contains(string(raw), "SENSITIVE-input") {
 		t.Fatalf("projected conflict: %d %s", res.StatusCode, raw)
@@ -65,7 +65,7 @@ func TestReviewKeyPredicatePreservesOrdinaryValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res.Body.Close()
+			_ = res.Body.Close()
 			want := 204
 			if support {
 				want = 400
@@ -102,7 +102,7 @@ func TestReviewKeyFieldErrorsStayTyped(t *testing.T) {
 			t.Fatal(err)
 		}
 		raw, _ := io.ReadAll(res.Body)
-		res.Body.Close()
+		_ = res.Body.Close()
 		if res.StatusCode != 422 || !strings.Contains(string(raw), `"reason":"`+tc.reason+`"`) || strings.Contains(string(raw), tc.cap) {
 			t.Errorf("%s: %d %s", tc.cap, res.StatusCode, raw)
 		}
