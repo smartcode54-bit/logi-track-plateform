@@ -34,6 +34,12 @@ const (
 
 // fkWithoutIndex is every foreign key ("table.column[,column]") without a supporting index, with the reason.
 var fkWithoutIndex = map[string]string{
+	// ADR 0030: provenance actors are audit references, and bootstrap points to immutable history.
+	"sessions.support_return_tenant_id":                      whyTenant,
+	"memberships.platform_grantor_user_id":                   whyActor,
+	"memberships.ratified_by_user_id":                        whyActor,
+	"membership_provenance_history.platform_grantor_user_id": whyActor,
+	"membership_provenance_history.ratified_by_user_id":      whyActor,
 	// identity and platform (0002, 0008, 0009)
 	"api_keys.created_by":                       whyActor,
 	"api_keys.revoked_by":                       whyActor,
