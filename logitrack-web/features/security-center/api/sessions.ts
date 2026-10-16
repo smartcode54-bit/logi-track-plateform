@@ -1,14 +1,12 @@
 /**
- * A user's live sessions (T54S; `GET /v1/users/{id}/sessions`, `DELETE /v1/users/{id}/sessions/{sid}`,
- * T19, Appendix B §B.2.5; Appendix E §E.2.4 `useUserSessions(userId)` on expand). Needs
- * `users:revoke_sessions`; Go refuses the caller's own user and a user it does not outrank. A platform
- * principal reads with `X-Act-On-Tenant: *` (the reach is in the key); revokes never carry the header.
+ * Live user sessions. Platform session reads require users:view_sessions independently of revoke
+ * rights. Session mutations retain their existing routes and server authorization.
  */
 import { useQuery } from "@tanstack/react-query";
 
 import { goFetch, goPath } from "@/lib/goFetch";
 import { queryKeys } from "@/lib/queryKeys";
-import { reachHeaders, type SecurityReach } from "./reach";
+import { type SecurityReach } from "./reach";
 
 /** One live session (Go `iam.Session`). */
 export interface UserSessionDTO {
@@ -35,7 +33,7 @@ export function useUserSessions(userId: string | null, reach: SecurityReach | un
     return useQuery({
         queryKey: userSessionsKey(userId ?? "", reach ?? "tenant"),
         queryFn: ({ signal }) =>
-            goFetch<UserSessionDTO[]>(goPath`/v1/users/${userId ?? ""}/sessions`, { signal, headers: reachHeaders(reach ?? "tenant") }),
+            goFetch<UserSessionDTO[]>(reach === "all" ? goPath`/v1/platform/users/${userId ?? ""}/sessions` : goPath`/v1/users/${userId ?? ""}/sessions`, { signal }),
         staleTime: 30_000,
         gcTime: 5 * 60_000,
         enabled: !!userId && reach !== undefined,

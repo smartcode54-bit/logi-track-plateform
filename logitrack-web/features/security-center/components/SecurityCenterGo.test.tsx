@@ -1,7 +1,8 @@
+import { fakeD1Web as fakeWeb } from "@/features/security-center/test-utils/platformWeb";
 // T54S (issue #74, security-center slice): the Security Center pages over Go. Since TW7 the web has no
 // Firebase SDK and no bridge (lib/noFirebase.test.ts; firebaseImports.test.ts walks the pages' import graph).
 // Every request goes to the BFF (/api/go/v1/...), a tenant principal reads its own reach and a
-// platform principal every tenant with X-Act-On-Tenant: *, whose own audit rows the pages hide behind
+// platform principal every tenant through explicit platform endpoints, whose own audit rows the pages hide behind
 // a counted toggle.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -10,7 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { CAPABILITY_CATALOG } from "shared-docs/schemas/capabilities";
 import { toast } from "sonner";
 
-import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
+import { json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import type { MeDTO } from "@/features/auth/api/me";
 import securityEn from "@/context/locales/en/securityCenter";
@@ -64,7 +65,7 @@ function setup(meOver: Partial<MeDTO> = {}) {
     return { web, me };
 }
 
-const PLATFORM: Partial<MeDTO> = { tenant: null, tenants: [], platformRoles: ["platform_admin"] };
+const PLATFORM: Partial<MeDTO> = { capabilities: [...ALL_SECURITY, "users:view_sessions"], tenant: null, tenants: [], platformRoles: ["platform_admin"] };
 
 function event(n: number, over: Partial<SecurityEventDTO> = {}): SecurityEventDTO {
     return {
@@ -133,7 +134,7 @@ const onlyBff = (calls: FakeCall[]) => calls.every((c) => c.url.startsWith("/api
 
 describe("Security overview (Go)", () => {
     function overviewRoutes(web: ReturnType<typeof setup>["web"]) {
-        web.on("GET", "/api/go/v1/security/overview", (call) => json(200, { data: { ...OVERVIEW, scope: call.headers["x-act-on-tenant"] === "*" ? { all: true, tenantId: null } : OVERVIEW.scope } }));
+        web.on("GET", "/api/go/v1/security/overview", (call) => json(200, { data: { ...OVERVIEW, scope: call.url.includes("/v1/platform/") ? { all: true, tenantId: null } : OVERVIEW.scope } }));
         web.on("GET", "/api/go/v1/stats/users-by-role", () => json(200, { data: BY_ROLE }));
         web.on("GET", "/api/go/v1/security-events", () => json(200, { data: [event(1), event(2, { severity: "warning", type: "login_failed" })], meta: { types: ["user_created", "login_failed"] } }));
         web.on("GET", "/api/go/v1/users", () =>
@@ -177,28 +178,27 @@ describe("Security overview (Go)", () => {
         expect(card).not.toHaveTextContent(/Redis|outbox/);
     });
 
-    it("a platform principal reads every tenant with X-Act-On-Tenant: *", async () => {
+    it("a platform principal reads every tenant through explicit platform endpoints", async () => {
         const { web } = setup(PLATFORM);
         overviewRoutes(web);
         renderWithProviders(<SecurityOverviewPage />);
         await screen.findByTestId("card-sessions");
         await screen.findByTestId("recent-events");
         await screen.findAllByTestId("active-user-row");
-        for (const path of ["/api/go/v1/security/overview", "/api/go/v1/stats/users-by-role", "/api/go/v1/security-events", "/api/go/v1/users"]) {
+        for (const path of ["/api/go/v1/platform/security/overview", "/api/go/v1/platform/stats/users-by-role", "/api/go/v1/platform/security-events", "/api/go/v1/platform/users"]) {
             const calls = web.calls.filter((c) => c.url.split("?")[0] === path);
             expect(calls.length, path).toBeGreaterThan(0);
-            expect(calls.every((c) => c.headers["x-act-on-tenant"] === "*"), path).toBe(true);
+            expect(calls.every((c) => c.url.includes("/v1/platform/")), path).toBe(true);
         }
         // Enough rows that the 8 newest events other than the viewer's own reads are among them.
-        expect(web.calls.find((c) => c.url.startsWith("/api/go/v1/security-events"))?.url).toBe("/api/go/v1/security-events?limit=50");
+        expect(web.calls.find((c) => c.url.startsWith("/api/go/v1/platform/security-events"))?.url).toBe("/api/go/v1/platform/security-events?limit=50");
         expect(screen.getByTestId("histogram-own-reads")).toHaveTextContent("include your own reads across all organisations");
     });
 
     it("a platform principal's recent events leave out its own cross-tenant reads, counted behind a toggle", async () => {
         const { web } = setup(PLATFORM);
         overviewRoutes(web);
-        // What Go returns under *: the request's own access row on top (it commits before the read),
-        // earlier reads of the same tab, someone else's access, a refused attempt of the viewer, a real event.
+        // Projected historical reads omit method/path; denied support entry has a distinct type.
         const own = (n: number, details: Record<string, unknown> = {}) =>
             event(n, {
                 type: "platform_cross_tenant_access",
@@ -206,16 +206,16 @@ describe("Security overview (Go)", () => {
                 summary: `own read ${n}`,
                 actorUserId: "u-self",
                 tenantId: null,
-                details: { method: "GET", path: "/v1/security-events", act_on_tenant: "*", outcome: "accepted", ...details },
+                details: { outcome: "accepted", version: "1", ...details },
             });
         web.handlers.unshift((c) =>
-            c.method === "GET" && c.url.startsWith("/api/go/v1/security-events")
+            c.method === "GET" && c.url.startsWith("/api/go/v1/platform/security-events")
                 ? json(200, {
-                      data: [
+                      meta: { redacted: [] }, data: [
                           own(0),
                           own(1),
-                          event(2, { type: "platform_cross_tenant_access", severity: "warning", summary: "support read", actorUserId: "u-support", details: { method: "GET", outcome: "accepted" } }),
-                          own(3, { outcome: "refused" }),
+                          event(2, { type: "platform_cross_tenant_access", severity: "warning", summary: "support read", actorUserId: "u-support", details: { outcome: "accepted", version: "1" } }),
+                          event(3, { type: "platform_support_denied", severity: "warning", actorUserId: "u-self", details: null }),
                           event(4, { type: "refresh_token_reuse", severity: "critical", summary: "token reuse" }),
                           own(5),
                       ],
@@ -225,7 +225,7 @@ describe("Security overview (Go)", () => {
         renderWithProviders(<SecurityOverviewPage />);
         const u = userEvent.setup();
         const list = await screen.findByTestId("recent-events");
-        expect(within(list).getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent)).toEqual(["Access across organisations", "Access across organisations", "Refresh token reused"]);
+        expect(within(list).getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent)).toEqual(["Access across organisations", "Platform support access denied", "Refresh token reused"]);
         expect(screen.getByTestId("own-reads")).toHaveTextContent("Show my own reads across organisations (3)");
         expect(screen.getByTestId("own-reads")).toHaveTextContent("These events are hidden");
 
@@ -238,10 +238,10 @@ describe("Security overview (Go)", () => {
         const { web } = setup(PLATFORM);
         overviewRoutes(web);
         web.handlers.unshift((c) =>
-            c.method === "GET" && c.url.startsWith("/api/go/v1/security-events")
+            c.method === "GET" && c.url.startsWith("/api/go/v1/platform/security-events")
                 ? json(200, {
-                      data: [0, 1].map((n) =>
-                          event(n, { type: "platform_cross_tenant_access", actorUserId: "u-self", tenantId: null, details: { method: "GET", outcome: "accepted" } })
+                      meta: { redacted: [] }, data: [0, 1].map((n) =>
+                          event(n, { type: "platform_cross_tenant_access", actorUserId: "u-self", tenantId: null, details: { outcome: "accepted", version: "1" } })
                       ),
                   })
                 : undefined
@@ -432,7 +432,7 @@ describe("Security audit (Go): a platform principal's own reads and the poll", (
     it("hides the viewer's own cross-tenant reads from the rows, the KPIs and the export unless asked, and stops polling after load more", async () => {
         const { web } = setup(PLATFORM);
         const own = (n: number) =>
-            event(n, { type: "platform_cross_tenant_access", severity: "warning", summary: `own ${n}`, actorUserId: "u-self", tenantId: null, details: { method: "GET", outcome: "accepted" } });
+            event(n, { type: "platform_cross_tenant_access", severity: "warning", summary: `own ${n}`, actorUserId: "u-self", tenantId: null, details: { outcome: "accepted", version: "1" } });
         web.on("GET", "/api/go/v1/security-events", (c) => {
             const url = new URL(c.url, "http://web.test");
             if (url.searchParams.get("cursor") === "next-1") return json(200, { data: [own(5), event(6, { summary: "older" })] });
@@ -455,7 +455,7 @@ describe("Security audit (Go): a platform principal's own reads and the poll", (
         await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(2));
         expect(screen.getByTestId("own-reads")).toHaveTextContent("(3)");
         expect(screen.getByTestId("poll-paused")).toHaveTextContent("Auto-refresh is paused while older pages are loaded");
-        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/security-events")).every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/security-events")).every((c) => c.url.includes("/v1/platform/"))).toBe(true);
     });
 });
 
@@ -535,7 +535,7 @@ describe("API keys (Go)", () => {
         expect(onlyBff(web.calls)).toBe(true);
     });
 
-    it("a platform admin lists every key with X-Act-On-Tenant: * and may create a release_publisher platform key", async () => {
+    it("a platform admin lists every key through explicit platform endpoints and may create a release_publisher platform key", async () => {
         const { web } = setup(PLATFORM);
         web.on("GET", "/api/go/v1/api-keys", () => json(200, { data: [key({ tenantId: null, tenantNameTh: null, tenantNameEn: null, scope: "release_publisher" })] }));
         web.on("GET", "/api/go/v1/tenants", () => json(200, { data: [] }));
@@ -544,7 +544,7 @@ describe("API keys (Go)", () => {
         const u = userEvent.setup();
         const [row] = await screen.findAllByTestId("api-key-row");
         expect(within(row).getByText("Platform")).toBeInTheDocument();
-        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/api-keys")).every((c) => c.headers["x-act-on-tenant"] === "*")).toBe(true);
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/api-keys")).every((c) => c.url.includes("/v1/platform/"))).toBe(true);
 
         await u.click(screen.getByRole("button", { name: /Create API key/ }));
         const dialog = await screen.findByRole("dialog");
@@ -634,13 +634,16 @@ describe.each(["en", "th"] as const)("UI4 security bodies in %s", (language) => 
         renderInLanguage(<SecurityAuditPage />, language);
         const row = (await screen.findAllByTestId("event-row"))[0];
         expect(within(row).getByText(text("securityCenter.ui4.unknownEvent"))).toBeInTheDocument();
-        expect(within(row).getByText(text("securityCenter.ui4.unknownUser"))).toHaveAttribute("title", "actor-uuid");
-        expect(within(row).getByText(text("securityCenter.ui4.unknownTarget"))).toHaveAttribute("title", "target-uuid");
+        expect(within(row).getByText(text("securityCenter.ui4.unknownUser")).closest("td")).toHaveAttribute("title", "actor-uuid");
+        expect(within(row).getByText(text("securityCenter.ui4.unknownTarget")).closest("td")).toHaveAttribute("title", "target-uuid");
         const evidence = within(row).getByText("Raw Go evidence").closest("details")!;
         expect(evidence.open).toBe(false);
         await userEvent.setup().click(within(evidence).getByText(text("securityCenter.ui4.technicalDetails")));
         expect(evidence.open).toBe(true);
         expect(evidence).toHaveTextContent("original");
+        expect(JSON.parse(evidence.querySelector("pre")!.textContent!)).toEqual({
+            type: "future_snake_case", details: { reason: "original" }, actorUserId: "actor-uuid", targetUserId: "target-uuid", tenantId: "t-own", requestId: null,
+        });
         if (language === "th") expect(row).not.toHaveTextContent(/Oct|ago/);
     });
 

@@ -1,4 +1,5 @@
 export default {
+    "common.maskedValue": "Personal or financial data masked",
     // Task / trip shared
     "task.helpers": "Helpers",
     "task.helper.label": "Helper (training / assisting)",

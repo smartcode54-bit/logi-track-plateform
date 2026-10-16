@@ -1,17 +1,6 @@
 /**
- * Driver-app installations over Go (T54S; routes of T52S `GET /v1/app-installations[/stats]`,
- * Appendix B §B.2.18, R33, R43; developer-spec.md §10.7, §10.13; Appendix E §E.5 row 28). Replaces the
- * collection-group listener of 200 `mobile_installations` documents (`mobile-clients/page.tsx:69-118`)
- * and the unbounded impact scan of the release page (`mobile-release/page.tsx:114-122`): a keyset list
- * newest heartbeat first, each row's version status computed by Go against the gate, and the counts
- * in one grouped read. RLS decides the rows: a carrier's tenant_admin sees its own tenant, own-fleet
- * staff their carriers too, a platform principal every tenant through `X-Act-On-Tenant: *`.
- *
- * Freshness: `['installations',...]` 60 s / 5 min, the list polled every 60 s while visible (no
- * `installations.updated` event, Appendix B §B.4.2) and only while it holds its first page
- * (`pollHeadWhileVisible`: TanStack refetches every loaded page); a platform principal, whose every
- * read is a `platform_cross_tenant_access` row, polls every 5 min (`reachPollMs`).
- * `mobile_settings.changed` makes them stale too, because each row's status follows the gate.
+ * Driver-app installations and grouped version counts over Go. Member reads retain their tenant
+ * reach; platform reads use explicit projected endpoints. Lists poll only their first page.
  */
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
@@ -19,7 +8,7 @@ import { goFetch } from "@/lib/goFetch";
 import { goInfiniteQueryFn, goNextPageParam, type GoPage } from "@/lib/goQuery";
 import { QUERY_POLICY, queryKeys } from "@/lib/queryKeys";
 import { POLL_INTERVAL_MS, pollHeadWhileVisible } from "@/lib/realtime/polling";
-import { reachHeaders, reachPollMs, type SecurityReach } from "@/features/security-center/api/reach";
+import { readEndpoint, reachPollMs, type SecurityReach } from "@/features/security-center/api/reach";
 
 export const INSTALLATIONS_PATH = "/v1/app-installations";
 export const INSTALLATION_STATS_PATH = "/v1/app-installations/stats";
@@ -33,7 +22,7 @@ export type VersionStatus = "current" | "outdated" | "blocked" | "ahead" | "unkn
 export interface InstallationDTO {
     driverId: string;
     driverName: string | null;
-    installId: string;
+    installId: string | null;
     tenantId: string;
     tenantName: string | null;
     platform: string;
@@ -77,9 +66,8 @@ type InstallationsKey = ReturnType<typeof installationsKey>;
 export function useInstallations(filter: InstallationsFilter, reach: SecurityReach | undefined, enabled = true) {
     return useInfiniteQuery({
         queryKey: installationsKey(filter, reach ?? "tenant"),
-        queryFn: goInfiniteQueryFn<InstallationDTO, InstallationsKey>(INSTALLATIONS_PATH, {
+        queryFn: goInfiniteQueryFn<InstallationDTO, InstallationsKey>(([, p]) => readEndpoint(INSTALLATIONS_PATH, p.reach), {
             query: ([, p]) => ({ flavor: p.flavor || undefined, limit: INSTALLATIONS_PAGE_SIZE }),
-            headers: ([, p]) => reachHeaders(p.reach),
         }),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: goNextPageParam,
@@ -114,10 +102,9 @@ export function useInstallationStats(params: InstallationStatsParams, reach: Sec
     return useQuery({
         queryKey: installationStatsKey(params, reach ?? "tenant"),
         queryFn: ({ signal }) =>
-            goFetch<InstallationStatsDTO>(INSTALLATION_STATS_PATH, {
+            goFetch<InstallationStatsDTO>(readEndpoint(INSTALLATION_STATS_PATH, reach ?? "tenant"), {
                 signal,
                 query: { since: params.since || undefined, belowVersion: params.belowVersion || undefined },
-                headers: reachHeaders(reach ?? "tenant"),
             }),
         gcTime: QUERY_POLICY.list.gcTime,
         staleTime: params.belowVersion ? QUERY_POLICY.list.staleTime : reachPollMs(reach, QUERY_POLICY.list.staleTime),

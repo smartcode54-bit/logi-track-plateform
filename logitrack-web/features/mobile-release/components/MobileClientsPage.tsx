@@ -9,6 +9,7 @@
  * read over the installations seen in the last 7 days. RLS scopes the rows (a carrier's tenant_admin
  * its own tenant): no `partnerScopeId` claim is involved any more.
  */
+import { MaskedValue } from "@/components/masked-value";
 import { useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
@@ -16,6 +17,7 @@ import { useLanguage } from "@/context/language";
 import { useSecurityReach } from "@/features/security-center/api/reach";
 import { ScopeCaption } from "@/features/security-center/components/ScopeCaption";
 import { buildTypeLabel, formatDateTime } from "@/features/security-center/components/eventDisplay";
+import { isMaskedValue, maskedValueText } from "@/lib/maskedValue";
 import { apiErrorText } from "@/lib/apiError";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -117,12 +119,12 @@ export function MobileClientsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {rows.map((r) => {
+                                    {rows.map((r, index) => {
                                         const badge = STATUS_BADGE[r.versionStatus as VersionStatus];
                                         return (
-                                            <TableRow key={`${r.driverId}/${r.installId}`} data-testid="installation-row" title={`${t("securityCenter.mobileClients.colDriverId")}: ${r.driverId} · ${t("securityCenter.mobileClients.colInstallId")}: ${r.installId}`}>
-                                                <TableCell className="font-medium">{r.driverName ?? "—"}</TableCell>
-                                                <TableCell className="text-sm">{r.tenantName ?? "—"}</TableCell>
+                                            <TableRow key={`${r.driverId}/${isMaskedValue(r.installId, { source: r, path: "installId" }) ? index : r.installId}`} data-testid="installation-row" title={`${t("securityCenter.mobileClients.colDriverId")}: ${r.driverId} · ${t("securityCenter.mobileClients.colInstallId")}: ${maskedValueText(r.installId, { source: r, path: "installId" })}`}>
+                                                <TableCell className="font-medium"><MaskedValue value={r.driverName} source={r} path="driverName" /></TableCell>
+                                                <TableCell className="text-sm"><MaskedValue value={r.tenantName} source={r} path="tenantName" /></TableCell>
                                                 <TableCell>{r.platform === "android" ? "Android" : r.platform === "ios" ? "iOS" : "—"}</TableCell>
                                                 <TableCell>
                                                     <span className="flex items-center gap-2 whitespace-nowrap">
