@@ -65,7 +65,7 @@ func (q *Queries) DriverActiveAssignment(ctx context.Context, driverID uuid.UUID
 const getAssignment = `-- name: GetAssignment :one
 SELECT a.id, a.tenant_id, a.truck_id, a.driver_id, a.status, a.admin_user_id, a.admin_label, a.created_at,
        a.revoked_at, tr.license_plate AS truck_plate, tr.model AS truck_model,
-       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
+       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name, d.tenant_id AS driver_tenant_id
 FROM truck_assignments a
 LEFT JOIN trucks tr ON tr.id = a.truck_id
 LEFT JOIN drivers d ON d.id = a.driver_id
@@ -79,18 +79,19 @@ type GetAssignmentParams struct {
 }
 
 type GetAssignmentRow struct {
-	ID          uuid.UUID
-	TenantID    uuid.UUID
-	TruckID     uuid.UUID
-	DriverID    uuid.UUID
-	Status      string
-	AdminUserID *uuid.UUID
-	AdminLabel  string
-	CreatedAt   time.Time
-	RevokedAt   *time.Time
-	TruckPlate  *string
-	TruckModel  *string
-	DriverName  string
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	TruckID        uuid.UUID
+	DriverID       uuid.UUID
+	Status         string
+	AdminUserID    *uuid.UUID
+	AdminLabel     string
+	CreatedAt      time.Time
+	RevokedAt      *time.Time
+	TruckPlate     *string
+	TruckModel     *string
+	DriverName     string
+	DriverTenantID *uuid.UUID
 }
 
 func (q *Queries) GetAssignment(ctx context.Context, arg GetAssignmentParams) (GetAssignmentRow, error) {
@@ -109,6 +110,7 @@ func (q *Queries) GetAssignment(ctx context.Context, arg GetAssignmentParams) (G
 		&i.TruckPlate,
 		&i.TruckModel,
 		&i.DriverName,
+		&i.DriverTenantID,
 	)
 	return i, err
 }
@@ -186,7 +188,7 @@ const listAssignments = `-- name: ListAssignments :many
 
 SELECT a.id, a.tenant_id, a.truck_id, a.driver_id, a.status, a.admin_user_id, a.admin_label, a.created_at,
        a.revoked_at, tr.license_plate AS truck_plate, tr.model AS truck_model,
-       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
+       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name, d.tenant_id AS driver_tenant_id
 FROM truck_assignments a
 LEFT JOIN trucks tr ON tr.id = a.truck_id
 LEFT JOIN drivers d ON d.id = a.driver_id
@@ -219,18 +221,19 @@ type ListAssignmentsParams struct {
 }
 
 type ListAssignmentsRow struct {
-	ID          uuid.UUID
-	TenantID    uuid.UUID
-	TruckID     uuid.UUID
-	DriverID    uuid.UUID
-	Status      string
-	AdminUserID *uuid.UUID
-	AdminLabel  string
-	CreatedAt   time.Time
-	RevokedAt   *time.Time
-	TruckPlate  *string
-	TruckModel  *string
-	DriverName  string
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	TruckID        uuid.UUID
+	DriverID       uuid.UUID
+	Status         string
+	AdminUserID    *uuid.UUID
+	AdminLabel     string
+	CreatedAt      time.Time
+	RevokedAt      *time.Time
+	TruckPlate     *string
+	TruckModel     *string
+	DriverName     string
+	DriverTenantID *uuid.UUID
 }
 
 // Truck assignments: the home-truck binding of a driver (truckAssignment collection, Appendix B §B.2.8, T23). A row
@@ -278,6 +281,7 @@ func (q *Queries) ListAssignments(ctx context.Context, arg ListAssignmentsParams
 			&i.TruckPlate,
 			&i.TruckModel,
 			&i.DriverName,
+			&i.DriverTenantID,
 		); err != nil {
 			return nil, err
 		}

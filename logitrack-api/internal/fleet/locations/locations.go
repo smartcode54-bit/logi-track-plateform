@@ -139,6 +139,9 @@ func scoped(p *authz.Principal) bool {
 // List is GET /v1/vehicle-locations: the positions p's RLS admits, or only those of truckIDs. Staff get []Location from
 // vehicle_locations, a dispatcher []LocationScope from the scope_vehicle_locations projection.
 func (s *Service) List(ctx context.Context, p *authz.Principal, truckIDs []uuid.UUID) (any, error) {
+	if authz.IsSupport(p) && (len(truckIDs) == 0 || len(truckIDs) > 100) {
+		return nil, httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "truckId", Reason: "out_of_range"})
+	}
 	if truckIDs == nil {
 		truckIDs = []uuid.UUID{}
 	}
@@ -206,6 +209,9 @@ type ProbeResult struct {
 // is still running is answered with its job id (the caller follows GET /v1/jobs/{id}); a second probe while one runs
 // is 409 already_exists with details.jobId.
 func (s *Service) Probe(ctx context.Context, p *authz.Principal) (ProbeResult, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return ProbeResult{}, err
+	}
 	if s.jobs == nil {
 		return ProbeResult{}, httpx.ErrUnavailable("the probe is not wired")
 	}

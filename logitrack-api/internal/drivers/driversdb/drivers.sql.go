@@ -241,7 +241,7 @@ func (q *Queries) DriverTenant(ctx context.Context, arg DriverTenantParams) (uui
 
 const getDriver = `-- name: GetDriver :one
 SELECT d.id, d.legacy_doc_id, d.legacy_auth_uid, d.tenant_id, d.tenant_source, d.user_id, d.first_name, d.last_name, d.full_name_th, d.mobile, d.email, d.profile_file_id, d.birth_date, d.id_card, d.id_card_expired_date, d.id_card_file_id, d.truck_license_id, d.license_type, d.license_expired_date, d.license_file_id, d.employment_type, d.contract_years, d.employment_start, d.employment_end, d.hire_date, d.probation_passed, d.status, d.assign_to_project, d.current_assignment_id, d.active_truck_id, d.active_truck_plate, d.active_task_id, d.active_started_at, d.created_at, d.updated_at,
-       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
+       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind, t.legal_type AS tenant_legal_type, t.support_label_version AS tenant_label_version,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
        a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
@@ -262,6 +262,8 @@ type GetDriverRow struct {
 	TenantNameTh         *string
 	TenantNameEn         *string
 	TenantKind           *string
+	TenantLegalType      *string
+	TenantLabelVersion   *int64
 	AssignmentTruckID    *uuid.UUID
 	AssignmentTruckPlate *string
 	AssignmentTruckModel *string
@@ -313,6 +315,8 @@ func (q *Queries) GetDriver(ctx context.Context, arg GetDriverParams) (GetDriver
 		&i.TenantNameTh,
 		&i.TenantNameEn,
 		&i.TenantKind,
+		&i.TenantLegalType,
+		&i.TenantLabelVersion,
 		&i.AssignmentTruckID,
 		&i.AssignmentTruckPlate,
 		&i.AssignmentTruckModel,
@@ -462,7 +466,7 @@ func (q *Queries) InsertDriverStatus(ctx context.Context, arg InsertDriverStatus
 const listDrivers = `-- name: ListDrivers :many
 
 SELECT d.id, d.legacy_doc_id, d.legacy_auth_uid, d.tenant_id, d.tenant_source, d.user_id, d.first_name, d.last_name, d.full_name_th, d.mobile, d.email, d.profile_file_id, d.birth_date, d.id_card, d.id_card_expired_date, d.id_card_file_id, d.truck_license_id, d.license_type, d.license_expired_date, d.license_file_id, d.employment_type, d.contract_years, d.employment_start, d.employment_end, d.hire_date, d.probation_passed, d.status, d.assign_to_project, d.current_assignment_id, d.active_truck_id, d.active_truck_plate, d.active_task_id, d.active_started_at, d.created_at, d.updated_at,
-       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
+       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind, t.legal_type AS tenant_legal_type, t.support_label_version AS tenant_label_version,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
        a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
@@ -498,6 +502,8 @@ type ListDriversRow struct {
 	TenantNameTh         *string
 	TenantNameEn         *string
 	TenantKind           *string
+	TenantLegalType      *string
+	TenantLabelVersion   *int64
 	AssignmentTruckID    *uuid.UUID
 	AssignmentTruckPlate *string
 	AssignmentTruckModel *string
@@ -578,6 +584,8 @@ func (q *Queries) ListDrivers(ctx context.Context, arg ListDriversParams) ([]Lis
 			&i.TenantNameTh,
 			&i.TenantNameEn,
 			&i.TenantKind,
+			&i.TenantLegalType,
+			&i.TenantLabelVersion,
 			&i.AssignmentTruckID,
 			&i.AssignmentTruckPlate,
 			&i.AssignmentTruckModel,

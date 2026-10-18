@@ -166,6 +166,295 @@ export interface ResponseDashboardUsers {
   total: number;
   byRole: Partial<Record<"driver" | "manager" | "operation_staff" | "operator" | "tenant_admin" | "user", number>> | null;
 }
+export interface ResponseDriversActiveTruck {
+  truckId: string;
+  truckPlate: string | null;
+  taskId: string | null;
+  startedAt: string | null;
+}
+export interface ResponseDriversCurrentAssignment {
+  id: string;
+  truckId: string | null;
+  truckPlate: string | null;
+  truckModel: string | null;
+  assignedAt: string | null;
+}
+export interface ResponseDriversCustomerId {
+  customerId: string;
+  customerCode: string | null;
+  customerName: string;
+  idTypeKey: string;
+  value: string | null;
+}
+export interface ResponseDriversDetail {
+  id: string;
+  tenantId: string;
+  tenantNameTh: string | null;
+  tenantNameEn: string | null;
+  tenantKind: string | null;
+  userId: string | null;
+  legacyDocId: string | null;
+  legacyAuthUid: string | null;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  fullNameTh: string | null;
+  mobile: string;
+  email: string | null;
+  status: string;
+  employmentType: string;
+  contractYears: number | null;
+  employmentStart: string | null;
+  employmentEnd: string | null;
+  hireDate: string | null;
+  probationPassed: boolean;
+  assignToProject: string | null;
+  truckLicenseId: string | null;
+  licenseType: string | null;
+  licenseExpiredDate: string | null;
+  activeTruck: ResponseDriversActiveTruck | null;
+  currentAssignment: ResponseDriversCurrentAssignment | null;
+  createdAt: string;
+  updatedAt: string;
+  profileKey: null;
+  profileUrl: null;
+  customerDriverIds: Array<ResponseDriversCustomerId> | null;
+  statusHistory: Array<ResponseDriversStatusEntry> | null;
+  login: ResponseDriversLogin | null;
+  idCard: string | null;
+  idCardExpiredDate: string | null;
+  birthDate: string | null;
+  idCardKey: null;
+  idCardUrl: null;
+  licenseKey: null;
+  licenseUrl: null;
+}
+export interface ResponseDriversDriver {
+  id: string;
+  tenantId: string;
+  tenantNameTh: string | null;
+  tenantNameEn: string | null;
+  tenantKind: string | null;
+  userId: string | null;
+  legacyDocId: string | null;
+  legacyAuthUid: string | null;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  fullNameTh: string | null;
+  mobile: string;
+  email: string | null;
+  status: string;
+  employmentType: string;
+  contractYears: number | null;
+  employmentStart: string | null;
+  employmentEnd: string | null;
+  hireDate: string | null;
+  probationPassed: boolean;
+  assignToProject: string | null;
+  truckLicenseId: string | null;
+  licenseType: string | null;
+  licenseExpiredDate: string | null;
+  activeTruck: ResponseDriversActiveTruck | null;
+  currentAssignment: ResponseDriversCurrentAssignment | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ResponseDriversLogin {
+  userId: string;
+  email: string | null;
+  status: string;
+  mustChangePassword: boolean;
+}
+export interface ResponseDriversMeta {
+  statusCounts: Partial<Record<"active" | "inactive" | "on_duty", number>> | null;
+}
+export interface ResponseDriversMinimal {
+  id: string;
+  displayName: string | null;
+}
+export interface ResponseDriversStatusEntry {
+  status: string;
+  previousStatus: string | null;
+  changedAt: string;
+  changedBy: string | null;
+  changedByLabel: string | null;
+  reason: string | null;
+}
+export interface ResponseFleetAssignment {
+  id: string;
+  driverId: string;
+  driverName: string | null;
+  assignedAt: string;
+}
+export interface ResponseFleetFile {
+  key: null;
+  url: null;
+}
+export interface ResponseFleetInsuranceRenewal {
+  expiryDate: string | null;
+  renewalStatus: string | null;
+  state: string;
+  daysRemaining: number | null;
+  amountThb: MoneyValue;
+  company: string | null;
+  policyNumber: string | null;
+  coverage: string | null;
+}
+export interface ResponseFleetRenewal {
+  truckId: string;
+  tenantId: string;
+  ownershipType: string;
+  licensePlate: string;
+  province: string;
+  status: string;
+  type: string;
+  vehicleClass: string | null;
+  paymentMethod: string | null;
+  nextDueDate: string | null;
+  tax: ResponseFleetTaxRenewal;
+  insurance: ResponseFleetInsuranceRenewal;
+}
+export interface ResponseFleetStatusEntry {
+  status: string;
+  previousStatus: string | null;
+  changedAt: string;
+  changedBy: string | null;
+  changedByLabel: string | null;
+  reason: string | null;
+}
+export interface ResponseFleetTaxRenewal {
+  expiryDate: string | null;
+  renewalStatus: string | null;
+  state: string;
+  daysRemaining: number | null;
+  amountThb: MoneyValue;
+  responsible: string;
+}
+export interface ResponseFleetTruck {
+  id: string;
+  tenantId: string;
+  ownershipType: string;
+  licensePlate: string;
+  province: string;
+  vin: string | null;
+  engineNumber: string | null;
+  gpsVehicleId: string | null;
+  status: string;
+  legacyStatus: string | null;
+  brand: string;
+  model: string;
+  year: number;
+  color: string;
+  type: string;
+  vehicleClass: string | null;
+  seats: number | null;
+  fuelType: string | null;
+  engineCapacity: number | null;
+  fuelCapacity: number | null;
+  maxLoadWeightKg: number | null;
+  registrationDate: string | null;
+  buyingDate: string | null;
+  notes: string | null;
+  taxExpiryDate: string | null;
+  taxExpenseThb: MoneyValue;
+  taxResponsible: string;
+  taxRenewalStatus: string | null;
+  maintenanceResponsible: string;
+  lastServiceDate: string | null;
+  nextServiceDate: string | null;
+  nextServiceMileage: number | null;
+  pmIntervalKm: number | null;
+  currentMileage: number | null;
+  lastAlertMileage: number | null;
+  activeMaintenanceId: string | null;
+  insurancePolicyId: string | null;
+  insurancePolicyNumber: string | null;
+  insuranceCompany: string | null;
+  insuranceType: string | null;
+  insuranceStartDate: string | null;
+  insuranceExpiryDate: string | null;
+  insurancePremiumThb: MoneyValue;
+  insuranceNotes: string | null;
+  insuranceRenewalStatus: string | null;
+  paymentMethod: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ResponseFleetTruckAssignment {
+  id: string;
+  tenantId: string;
+  truckId: string;
+  truckPlate: string | null;
+  truckModel: string | null;
+  driverId: string;
+  driverName: string | null;
+  status: string;
+  adminUserId: string | null;
+  adminLabel: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+export interface ResponseFleetTruckDetail {
+  id: string;
+  tenantId: string;
+  ownershipType: string;
+  licensePlate: string;
+  province: string;
+  vin: string | null;
+  engineNumber: string | null;
+  gpsVehicleId: string | null;
+  status: string;
+  legacyStatus: string | null;
+  brand: string;
+  model: string;
+  year: number;
+  color: string;
+  type: string;
+  vehicleClass: string | null;
+  seats: number | null;
+  fuelType: string | null;
+  engineCapacity: number | null;
+  fuelCapacity: number | null;
+  maxLoadWeightKg: number | null;
+  registrationDate: string | null;
+  buyingDate: string | null;
+  notes: string | null;
+  taxExpiryDate: string | null;
+  taxExpenseThb: MoneyValue;
+  taxResponsible: string;
+  taxRenewalStatus: string | null;
+  maintenanceResponsible: string;
+  lastServiceDate: string | null;
+  nextServiceDate: string | null;
+  nextServiceMileage: number | null;
+  pmIntervalKm: number | null;
+  currentMileage: number | null;
+  lastAlertMileage: number | null;
+  activeMaintenanceId: string | null;
+  insurancePolicyId: string | null;
+  insurancePolicyNumber: string | null;
+  insuranceCompany: string | null;
+  insuranceType: string | null;
+  insuranceStartDate: string | null;
+  insuranceExpiryDate: string | null;
+  insurancePremiumThb: MoneyValue;
+  insuranceNotes: string | null;
+  insuranceRenewalStatus: string | null;
+  paymentMethod: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  statusHistory: Array<ResponseFleetStatusEntry> | null;
+  currentAssignments: Array<ResponseFleetAssignment> | null;
+  files: Partial<Record<"documentRegister" | "documentTax" | "imageBackLeft" | "imageBackRight" | "imageFrontLeft" | "imageFrontRight" | "insuranceDocument" | "insuranceReceipt" | "legacyImage" | "other" | "taxReceipt", Array<ResponseFleetFile> | null>> | null;
+}
+export interface ResponseFleetTruckMeta {
+  statusCounts: Partial<Record<"active" | "inactive" | "insurance_claim" | "maintenance" | "sold", number>> | null;
+}
 export interface ResponseFormsWaitlistCounts {
   total: number;
 }
@@ -499,6 +788,69 @@ export interface ResponseIamTenantDocument {
 export interface ResponseIamUserCounts {
   total: number;
   byStatus: Partial<Record<"active" | "deleted" | "disabled" | "reset_required", number>> | null;
+}
+export interface ResponseLocationsLocation {
+  truckId: string;
+  tenantId: string;
+  licensePlate: string | null;
+  lat: number | null;
+  lng: number | null;
+  speedKmh: number | null;
+  heading: number | null;
+  lastGpsAt: string | null;
+  updatedAt: string;
+  gpsVehicleId: string | null;
+  engineOn: boolean | null;
+  positionDescription: string | null;
+  driverName: string | null;
+  odometerKm: number | null;
+  fuelLevel: number | null;
+  fuelPercentage: number | null;
+}
+export interface ResponseMaintenanceFiles {
+  images: Array<null> | null;
+  receipts: Array<null> | null;
+  invoices: Array<null> | null;
+}
+export interface ResponseMaintenanceMeta {
+  statusCounts: Partial<Record<"cancelled" | "completed" | "in_progress" | "pm_booking" | "scheduled", number>> | null;
+}
+export interface ResponseMaintenanceRecord {
+  id: string;
+  tenantId: string;
+  truckId: string | null;
+  licensePlate: string;
+  truckBrand: string;
+  truckModel: string | null;
+  truckOwnership: string | null;
+  truckStatus: string | null;
+  type: string;
+  serviceType: string;
+  startDate: string;
+  endDate: string | null;
+  status: string;
+  appointmentTime: string | null;
+  pickupAppointmentAt: string | null;
+  costLaborThb: MoneyValue;
+  costPartsThb: MoneyValue;
+  totalCostThb: MoneyValue;
+  invoiceAmountThb: MoneyValue;
+  displayCostThb: MoneyValue;
+  provider: string | null;
+  providerLat: number | null;
+  providerLng: number | null;
+  paymentMethod: string | null;
+  currentMileage: number | null;
+  nextServiceMileage: number | null;
+  driverSubmitted: boolean;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  notes: string | null;
+  files: ResponseMaintenanceFiles;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface ResponseMobileappBelowCount {
   version: string;

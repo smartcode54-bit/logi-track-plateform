@@ -24,5 +24,5 @@ Ownership / remaining work
 - P1.3: internal/dashboard/{http,dashboard,support_projection} and local tests/query.
 - P1.0 integration: generated sqlc/TS/policy output; httpx nested-array bound/regression.
 - No new route identities, support capability grants, migration, web UI or gate changes.
-- P1.3 still owes drivers, trucks, assignments, renewals, maintenance and locations.
+- P1.3 Fleet is implemented by P1.3b; see support-fleet-handoff.txt for exact client/transport limits.
 - P1.4 brokers/transports and P1.5-P1.8 remain prerequisites for enabling entry.

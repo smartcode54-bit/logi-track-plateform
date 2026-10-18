@@ -626,6 +626,9 @@ func errPIIWrite() error {
 // Registration") and outbox driver.created in one transaction. No account side effect: the login is POST /v1/users
 // {role: driver, driverId} (users:manage, T19), which the web calls after this route.
 func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in DriverInput) (*DriverDetail, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	own, err := writeTenant(p)
 	if err != nil {
 		return nil, err
@@ -698,6 +701,9 @@ func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in
 // tenantId other than the driver's is the broker-carrier move (Mover, Appendix C §C.1.4), alone in its request; the
 // answer is then the driver as the caller still reads it, or nil when the move took it out of the caller's reach.
 func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in DriverInput) (*DriverDetail, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if _, err := writeTenant(p); err != nil {
 		return nil, err
 	}

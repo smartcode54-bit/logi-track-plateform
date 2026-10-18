@@ -626,7 +626,7 @@ func (q *Queries) TenantKind(ctx context.Context, id uuid.UUID) (string, error) 
 const truckCurrentAssignments = `-- name: TruckCurrentAssignments :many
 
 SELECT a.id, a.driver_id, a.created_at,
-       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
+       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name, d.tenant_id AS driver_tenant_id
 FROM truck_assignments a
 LEFT JOIN drivers d ON d.id = a.driver_id
 WHERE a.truck_id = $1 AND a.status = 'active'
@@ -634,10 +634,11 @@ ORDER BY a.created_at DESC, a.id DESC
 `
 
 type TruckCurrentAssignmentsRow struct {
-	ID         uuid.UUID
-	DriverID   uuid.UUID
-	CreatedAt  time.Time
-	DriverName string
+	ID             uuid.UUID
+	DriverID       uuid.UUID
+	CreatedAt      time.Time
+	DriverName     string
+	DriverTenantID *uuid.UUID
 }
 
 // --- current assignment (derived from truck_assignments, R14; written by T23) ----------------------------------
@@ -656,6 +657,7 @@ func (q *Queries) TruckCurrentAssignments(ctx context.Context, truckID uuid.UUID
 			&i.DriverID,
 			&i.CreatedAt,
 			&i.DriverName,
+			&i.DriverTenantID,
 		); err != nil {
 			return nil, err
 		}

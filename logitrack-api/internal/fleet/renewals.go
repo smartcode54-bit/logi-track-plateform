@@ -115,6 +115,10 @@ type ListRenewalsInput struct {
 // with both renewals' state on the Bangkok calendar (replaces the full-collection scans of renewals/actions.client.ts,
 // TruckComplianceCards.tsx and ComplianceSummary.tsx).
 func (s *Service) ListRenewals(ctx context.Context, p *authz.Principal, in ListRenewalsInput) ([]Renewal, string, error) {
+	if authz.IsSupport(p) && in.Limit > 100 {
+		err := httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "limit", Reason: "out_of_range"})
+		return nil, "", err
+	}
 	var ck checker
 	today := s.today()
 	var dueBy *time.Time
@@ -484,6 +488,9 @@ func (r *renewal) subType() string {
 // pending / in_progress: the truck fields and files only, outbox truck.updated when something changed. created is
 // true when a ledger row was written (201).
 func (s *Service) RecordRenewal(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in RenewalInput) (*RenewalResult, bool, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, false, err
+	}
 	if _, err := writeTenant(p); err != nil {
 		return nil, false, err
 	}

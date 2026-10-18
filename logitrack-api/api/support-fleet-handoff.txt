@@ -1,0 +1,54 @@
+PSA P1.3b: remaining Fleet API projections (support entry remains OFF)
+
+Read bindings
+- GET /v1/trucks -> fleet.truck + fleet.truck-meta
+- GET /v1/trucks/:id -> fleet.truck-detail
+- GET /v1/trucks/renewals -> fleet.renewal
+- GET /v1/truck-assignments -> fleet.truck-assignment
+- GET /v1/drivers -> drivers.driver or drivers.minimal + drivers.meta
+- GET /v1/drivers/:id -> drivers.detail
+- GET /v1/maintenance -> maintenance.record + maintenance.meta
+- GET /v1/vehicle-locations -> locations.location
+- GET /v1/drivers/:id/documents/:kind stays default-denied in support OFF and ON.
+  Direct DocumentURL also refuses before SQL/signing. P1.4 must replace this redirect with
+  the authenticated broker before its seed entry can be bound; no signed/public URL fallback.
+
+P1.6 client contract
+- Import generated ResponseFleet*, ResponseDrivers*, ResponseMaintenance*, ResponseLocations*
+  from shared-docs/schemas/supportAccess.ts. Ordinary member DTOs retain their original shapes.
+- Consume exact envelope meta.redacted paths and meta.supportAccess; null money/coordinates/
+  private identifiers/files are not zero/missing. Person/free text is **** even when source is null.
+- Lists take limit <= 100 in support (default 50). Incoming support cursors are authenticated,
+  encrypted and bound to actor, session, tenant, support mode, context/consent versions, route
+  and every non-cursor query value (including limit/fields). Keep the same query on each page.
+  Raw ordinary cursors, changed queries, other visits and tampered cursors are refused.
+- Truck/driver q searches are unavailable OFF because they include private identifiers/names
+  or mixed safe and sensitive fields. Renewal q searches only the plate and is available OFF. Assignment q is unavailable ON too:
+  its admin_label has no attributable owner; searching it could infer a still-masked name.
+  Safe enum/UUID filters remain available.
+  Unknown/repeated/encoded query aliases and HEAD are refused before domain reads.
+- Live map requires explicit truckId=uuid,uuid batches of 1..100 in support. Obtain IDs from
+  admitted truck pages and batch all pages; never silently cap an all-fleet map. Repeated or
+  mixed bracket/plain aliases are unavailable in support. Ordinary map semantics remain intact.
+- Read access is exactly the selected tenant; contractor/customer/dispatcher reach never applies.
+  Joined driver names carry their own tenant provenance. Unattributed history/admin/login/GPS
+  person labels remain masked even ON. Global customer names/codes have no reviewed provenance
+  in the current schema, so remain masked/null; use the narrow customer-options adapter.
+  customerDriverIds.value belongs to the selected driver: null OFF, original value ON.
+- Tenant labels are public only for own_fleet or legal_type=company. Person/unknown carrier
+  labels mask OFF. Fleet snapshots support_label_version and finalizes it under the existing
+  ordered tenant consent locks before serialization, preventing legal/name provenance races.
+- File containers retain reviewed kinds/counts with null leaves. Drivers/trucks never call the
+  storage signer in support, even ON. Maintenance files contain nullable elements. No preview,
+  image prefetch, download, redirect, key fallback or direct storage request before P1.4.
+- Nested projected collections have a 100-element ceiling; a larger history/file collection
+  fails closed with support_projection_unavailable. Do not retry via raw/deferred endpoints.
+- Mutations and job-triggering GETs refuse support_read_only before any dependency/side effect,
+  including direct Fleet/Driver/Maintenance/PM-check/Cartrack service adapters.
+
+Integration ownership / remaining work
+- P1.3: domain policies, schemas, source queries, service guards, and driver harness acceptance.
+- P1.0: httpx field provenance/null-mask/sealed paging, analyzer, generated sqlc/policies/TS.
+- P1.1: Principal label snapshot and finalizer source query; existing session/consent locks retained.
+- No migration, web production edit, capability grant, deployment or support entry enablement.
+- P1.4 document broker/streams and P1.5-P1.8 plus pre-entry security gaps remain pending.

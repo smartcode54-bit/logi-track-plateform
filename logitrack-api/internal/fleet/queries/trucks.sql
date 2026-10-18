@@ -143,7 +143,7 @@ ORDER BY changed_at DESC, id DESC;
 -- name: TruckCurrentAssignments :many
 -- driver_name is '' when the driver row is not visible to the caller (the assignment still is).
 SELECT a.id, a.driver_id, a.created_at,
-       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
+       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name, d.tenant_id AS driver_tenant_id
 FROM truck_assignments a
 LEFT JOIN drivers d ON d.id = a.driver_id
 WHERE a.truck_id = sqlc.arg(truck_id) AND a.status = 'active'

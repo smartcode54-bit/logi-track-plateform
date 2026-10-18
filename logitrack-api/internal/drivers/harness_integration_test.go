@@ -32,8 +32,10 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/token"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/drivers"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet/locations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/jobs"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/maintenance"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/cache/cachetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
@@ -68,6 +70,7 @@ type world struct {
 	public   string
 	hash     string
 	tokens   map[string]string
+	signing  *supportSigningFiles
 
 	O, A, B, C, D string // tenants
 	partyX        string // the customer X's billing party (the dispatcher's grant)
@@ -78,7 +81,7 @@ type world struct {
 func newWorld(t *testing.T) *world { return newWorldWith(t, auth.Firebase{}) }
 
 // newWorldWith is newWorld whose auth service runs the Firebase bridge fb (the temporary-password mirror).
-func newWorldWith(t *testing.T, fb auth.Firebase) *world {
+func newWorldWith(t *testing.T, fb auth.Firebase, supportEntry ...bool) *world {
 	t.Helper()
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
@@ -137,7 +140,7 @@ func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	}
 	limiter := ratelimit.New(rdb, ks, zerolog.Nop())
 	svc, err := auth.New(auth.Config{RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour,
-		PasswordResetTTL: 30 * time.Minute}, auth.Deps{
+		PasswordResetTTL: 30 * time.Minute, SupportEntryEnabled: len(supportEntry) > 0 && supportEntry[0]}, auth.Deps{
 		Pool: w.pool, Store: auth.NewStore(rdb, ks.Prefix()), Limiter: limiter,
 		Keys: token.New(priv, "http://localhost:8080", "logitrack-test", 15*time.Minute), Hasher: hasher,
 		Policy: policy, Log: zerolog.Nop(), Capabilities: rbac, Authorizer: rbac, Files: st, Firebase: fb,
@@ -150,20 +153,32 @@ func newWorldWith(t *testing.T, fb auth.Firebase) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fs, err := fleet.New(fleet.Deps{Pool: w.pool, Files: st, Log: zerolog.Nop(), Now: func() time.Time { return now }})
+	tracked := &supportSigningFiles{Service: st}
+	w.signing = tracked
+	fs, err := fleet.New(fleet.Deps{Pool: w.pool, Files: tracked, Log: zerolog.Nop(), Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ds, err := drivers.New(drivers.Deps{Pool: w.pool, Files: st, Mover: admin, Log: zerolog.Nop(),
+	ds, err := drivers.New(drivers.Deps{Pool: w.pool, Files: tracked, Mover: admin, Log: zerolog.Nop(),
 		Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := maintenance.New(maintenance.Deps{Pool: w.pool, Files: st, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls, err := locations.New(locations.Deps{Pool: w.pool, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	deps := app.APIDeps{Auth: svc, Admin: admin, Fleet: fs, Drivers: ds, Storage: st,
 		Jobs: jobs.NewService(w.pool, jobs.NewRedisLocker(rdb, ks)), Limiter: limiter}
 	groups := append(svc.Groups(), iam.AdminGroups(admin, svc.RequireAuth())...)
-	groups = append(groups, fleet.Groups(fs, svc.RequireAuth())...)
+	groups = append(groups, fleet.Groups(fs, svc.RequireAuth(), maintenance.TruckRoutes(ms, svc.RequireAuth()))...)
 	groups = append(groups, drivers.Groups(ds, svc.RequireAuth())...)
+	groups = append(groups, maintenance.Groups(ms, svc.RequireAuth())...)
+	groups = append(groups, locations.Groups(ls, svc.RequireAuth())...)
 	groups = append(groups, app.StorageGroups(deps)...)
 	cfg := &app.APIConfig{
 		Common:       app.Common{AppEnv: "local", LogLevel: "error", LogFormat: "json", OTelSamplerArg: 1},

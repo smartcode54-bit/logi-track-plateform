@@ -32,7 +32,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -64,7 +64,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -80,7 +80,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -96,7 +96,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -112,7 +112,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -128,7 +128,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -144,7 +144,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -176,7 +176,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -1704,27 +1704,30 @@
         "id": "GET /v1/drivers",
         "method": "GET",
         "route": "/v1/drivers",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "drivers.driver",
+        "owner": "P1.3",
+        "allowHead": false,
+        "metaSchema": "drivers.meta",
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/drivers/:id",
         "method": "GET",
         "route": "/v1/drivers/:id",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "drivers.detail",
+        "owner": "P1.3",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/drivers/:id/documents/:kind",
@@ -1938,14 +1941,16 @@
         "id": "GET /v1/maintenance",
         "method": "GET",
         "route": "/v1/maintenance",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "maintenance.record",
+        "owner": "P1.3",
+        "allowHead": false,
+        "metaSchema": "maintenance.meta",
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/me",
@@ -2620,53 +2625,58 @@
         "id": "GET /v1/truck-assignments",
         "method": "GET",
         "route": "/v1/truck-assignments",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "fleet.truck-assignment",
+        "owner": "P1.3",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/trucks",
         "method": "GET",
         "route": "/v1/trucks",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "fleet.truck",
+        "owner": "P1.3",
+        "allowHead": false,
+        "metaSchema": "fleet.truck-meta",
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/trucks/:id",
         "method": "GET",
         "route": "/v1/trucks/:id",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "fleet.truck-detail",
+        "owner": "P1.3",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/trucks/renewals",
         "method": "GET",
         "route": "/v1/trucks/renewals",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "fleet.renewal",
+        "owner": "P1.3",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/users",
@@ -2714,14 +2724,15 @@
         "id": "GET /v1/vehicle-locations",
         "method": "GET",
         "route": "/v1/vehicle-locations",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "locations.location",
+        "owner": "P1.3",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/waitlist",
@@ -4983,6 +4994,25 @@
     "dashboard.summary",
     "dashboard.trips",
     "dashboard.users",
+    "drivers.active-truck",
+    "drivers.current-assignment",
+    "drivers.customer-id",
+    "drivers.detail",
+    "drivers.driver",
+    "drivers.login",
+    "drivers.meta",
+    "drivers.minimal",
+    "drivers.status-entry",
+    "fleet.assignment",
+    "fleet.file",
+    "fleet.insurance-renewal",
+    "fleet.renewal",
+    "fleet.status-entry",
+    "fleet.tax-renewal",
+    "fleet.truck",
+    "fleet.truck-assignment",
+    "fleet.truck-detail",
+    "fleet.truck-meta",
     "forms.waitlist-counts",
     "forms.waitlist-entry",
     "iam.activity",
@@ -5020,6 +5050,10 @@
     "iam.tenant-detail",
     "iam.tenant-document",
     "iam.user-counts",
+    "locations.location",
+    "maintenance.files",
+    "maintenance.meta",
+    "maintenance.record",
     "mobileapp.below-count",
     "mobileapp.installation",
     "mobileapp.installation-meta",
