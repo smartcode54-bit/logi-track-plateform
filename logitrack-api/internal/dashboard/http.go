@@ -26,10 +26,10 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	return []ingress.Group{
 		{Prefix: DashboardPrefix, Mount: func(r fiber.Router) {
-			r.Get("/summary", requireAuth, h.summary)
+			ingress.Bind(r, "/summary", dashboardPolicy("/v1/dashboard/summary", "dashboard.summary", "from", "to"), requireAuth, h.summary)
 		}},
 		{Prefix: BadgesPrefix, Mount: func(r fiber.Router) {
-			r.Get("", requireAuth, h.badges)
+			ingress.Bind(r, "", dashboardPolicy("/v1/badges", "dashboard.badges"), requireAuth, h.badges)
 		}},
 	}
 }
@@ -50,6 +50,10 @@ func (h handlers) summary(c fiber.Ctx) error {
 	per, err := ParsePeriod(c.Query("from"), c.Query("to"), h.s.now())
 	if err != nil {
 		return err
+	}
+	// The projected histogram is bounded like every other projected collection.
+	if authz.IsSupport(p) && per.Days > SupportMaxDays {
+		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "from", Reason: "range_too_long"})
 	}
 	out, err := h.s.Summary(c.Context(), p, per)
 	if err != nil {

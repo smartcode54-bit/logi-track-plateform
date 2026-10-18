@@ -80,6 +80,92 @@ export interface ResponseAuthTenantLabel {
   role: string;
   status?: string;
 }
+export interface ResponseDashboardActivity {
+  days: Array<ResponseDashboardDayCount> | null;
+  total: number;
+  previousTotal: number;
+  trendPct: number | null;
+}
+export interface ResponseDashboardBadges {
+  waitlist?: number | null;
+  pendingExpenses?: number | null;
+  unassignedChats?: number | null;
+  urgentChats?: number | null;
+}
+export interface ResponseDashboardChats {
+  unassigned: number;
+  urgent: number;
+}
+export interface ResponseDashboardCompliance {
+  taxDue: number;
+  insuranceDue: number;
+  serviceDateDue: number;
+  serviceKmDue: number;
+  items: Array<ResponseDashboardComplianceItem> | null;
+  itemsTotal: number;
+}
+export interface ResponseDashboardComplianceItem {
+  truckId: string;
+  licensePlate: string;
+  kind: string;
+  dueDate?: string | null;
+  daysRemaining?: number | null;
+  kmRemaining?: number | null;
+}
+export interface ResponseDashboardDayCount {
+  date: string;
+  delivered: number;
+}
+export interface ResponseDashboardDrivers {
+  active: number;
+  onDuty: number;
+  inactive: number;
+  total: number;
+}
+export interface ResponseDashboardExpenses {
+  pendingFuel?: number | null;
+  pendingOther?: number | null;
+}
+export interface ResponseDashboardIncidents {
+  inPeriod: number;
+}
+export interface ResponseDashboardPeriod {
+  from: string;
+  to: string;
+  days: number;
+}
+export interface ResponseDashboardRecentItem {
+  type: string;
+  id: string;
+  at: string;
+  plate?: string | null;
+  place?: string | null;
+  name?: string | null;
+  text?: string | null;
+}
+export interface ResponseDashboardSummary {
+  period: ResponseDashboardPeriod;
+  users?: ResponseDashboardUsers | null;
+  trips?: ResponseDashboardTrips | null;
+  activity?: ResponseDashboardActivity | null;
+  incidents?: ResponseDashboardIncidents | null;
+  drivers?: ResponseDashboardDrivers | null;
+  expenses?: ResponseDashboardExpenses | null;
+  chats?: ResponseDashboardChats | null;
+  compliance?: ResponseDashboardCompliance | null;
+  recent: Array<ResponseDashboardRecentItem> | null;
+}
+export interface ResponseDashboardTrips {
+  delivered: number;
+  parcels: number;
+  withIncident: number;
+  onTimePct: number | null;
+  delayPct: number | null;
+}
+export interface ResponseDashboardUsers {
+  total: number;
+  byRole: Partial<Record<"driver" | "manager" | "operation_staff" | "operator" | "tenant_admin" | "user", number>> | null;
+}
 export interface ResponseFormsWaitlistCounts {
   total: number;
 }

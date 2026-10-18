@@ -316,6 +316,9 @@ func (p *projection) field(v reflect.Value, rule Field, path, owner string) (any
 			}
 			return nil, nil
 		}
+		if v.Len() > 100 {
+			return nil, fmt.Errorf("projected collection exceeds 100 elements")
+		}
 		items := make([]any, v.Len())
 		for i := range items {
 			var err error

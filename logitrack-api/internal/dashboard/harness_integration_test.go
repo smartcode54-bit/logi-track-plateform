@@ -81,9 +81,10 @@ type world struct {
 }
 
 type worldOpts struct {
-	rateLimit bool
-	formLimit ratelimit.Limit
-	probeWait time.Duration
+	supportEntry bool
+	rateLimit    bool
+	formLimit    ratelimit.Limit
+	probeWait    time.Duration
 }
 
 func newWorld(t *testing.T, o worldOpts) *world {
@@ -127,7 +128,8 @@ func newWorld(t *testing.T, o worldOpts) *world {
 	limiter := ratelimit.New(rdb, ks, logger)
 	svc, err := auth.New(auth.Config{
 		RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour, PasswordResetTTL: 30 * time.Minute,
-		RateLimitEnabled: o.rateLimit, LoginIP: ratelimit.Limit{Count: 1000, Window: time.Minute},
+		SupportEntryEnabled: o.supportEntry,
+		RateLimitEnabled:    o.rateLimit, LoginIP: ratelimit.Limit{Count: 1000, Window: time.Minute},
 	}, auth.Deps{
 		Pool: w.pool, Store: auth.NewStore(rdb, ks.Prefix()), Limiter: limiter,
 		Keys: token.New(priv, "http://localhost:8080", "logitrack-test", 15*time.Minute), Hasher: hasher,
