@@ -100,3 +100,12 @@ SELECT id, updated_at, service_type
 -- name: WaitlistCount :one
 -- The waitlist badge (waitlist is RLS-exempt; the route checked waitlist:view, a steward key).
 SELECT count(*)::bigint FROM waitlist;
+
+-- name: SupportUsersByRole :many
+-- Dashboard-only support projection. Even a shared account contributes only its active selected-tenant membership.
+-- The request transaction is READ ONLY with exact selected-tenant RLS, no stewardship or contractor inheritance.
+SELECT m.role, count(*)::bigint AS n
+  FROM memberships m JOIN users u ON u.id = m.user_id
+ WHERE m.tenant_id = sqlc.arg(tenant_id)::uuid AND m.status = 'active' AND u.status <> 'deleted'
+ GROUP BY m.role
+ ORDER BY m.role;

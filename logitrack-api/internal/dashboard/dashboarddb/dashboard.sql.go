@@ -375,6 +375,41 @@ func (q *Queries) RecentMaintenance(ctx context.Context, rowLimit int32) ([]Rece
 	return items, nil
 }
 
+const supportUsersByRole = `-- name: SupportUsersByRole :many
+SELECT m.role, count(*)::bigint AS n
+  FROM memberships m JOIN users u ON u.id = m.user_id
+ WHERE m.tenant_id = $1::uuid AND m.status = 'active' AND u.status <> 'deleted'
+ GROUP BY m.role
+ ORDER BY m.role
+`
+
+type SupportUsersByRoleRow struct {
+	Role string
+	N    int64
+}
+
+// Dashboard-only support projection. Even a shared account contributes only its active selected-tenant membership.
+// The request transaction is READ ONLY with exact selected-tenant RLS, no stewardship or contractor inheritance.
+func (q *Queries) SupportUsersByRole(ctx context.Context, tenantID uuid.UUID) ([]SupportUsersByRoleRow, error) {
+	rows, err := q.db.Query(ctx, supportUsersByRole, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SupportUsersByRoleRow{}
+	for rows.Next() {
+		var i SupportUsersByRoleRow
+		if err := rows.Scan(&i.Role, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tripTotals = `-- name: TripTotals :one
 
 SELECT count(*)::bigint AS delivered,

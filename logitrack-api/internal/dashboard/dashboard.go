@@ -8,7 +8,7 @@
 // db.WithPrincipal, so RLS keeps each figure to the rows the caller's own pages list (own tenant plus the carriers
 // working for it, R60). A dispatcher or customer-scope principal gets the operations blocks from the scope_* projections
 // (internal/scope, scope_dashboard.sql) and no other block: carrier-internal tables have no scope policy (Appendix C
-// §C.3.7). The web's role counts stay on GET /v1/stats/users-by-role (T51): memberships are platform rows.
+// §C.3.7). Ordinary platform role counts use the explicit platform statistics endpoint; support gets only selected-tenant membership counts in the summary.
 package dashboard
 
 import (
@@ -38,6 +38,8 @@ const (
 	DefaultDays = 7
 	// MaxDays bounds ?from..?to.
 	MaxDays = 366
+	// SupportMaxDays bounds each projected daily histogram to 100 rows. Ordinary member periods retain MaxDays.
+	SupportMaxDays = 100
 	// ComplianceHorizonDays is the warning horizon of the compliance block (ComplianceSummary.tsx:38).
 	ComplianceHorizonDays = 30
 	// ComplianceItemsMax caps the listed compliance items; the counts and itemsTotal cover every one.
@@ -127,9 +129,11 @@ func ParsePeriod(from, to string, now time.Time) (Period, error) {
 	return p, nil
 }
 
-// Summary is the body of GET /v1/dashboard/summary: each block only for a principal holding its capability.
+// Summary is GET /v1/dashboard/summary: ordinary blocks follow capabilities; support uses reviewed selected-tenant aggregates.
 type Summary struct {
 	Period Period `json:"period"`
+	// Users is the selected-tenant membership count in support only; it never needs a Security endpoint.
+	Users *Users `json:"users,omitempty"`
 	// Trips: operations:view_driver_monitor.
 	Trips *Trips `json:"trips,omitempty"`
 	// Activity: reporting:view_analytics.
@@ -147,6 +151,13 @@ type Summary struct {
 	// Recent is the recent-updates feed, newest first: each source for its key (trips: view_driver_monitor, drivers:
 	// drivers:view, incidents: view_incidents, maintenance: fleet:manage_maintenance).
 	Recent []RecentItem `json:"recent"`
+}
+
+// Users counts non-deleted accounts with an active membership in the selected tenant, including disabled accounts.
+// A shared account is counted only in that tenant's role; other memberships and platform roles are never returned.
+type Users struct {
+	Total  int64            `json:"total"`
+	ByRole map[string]int64 `json:"byRole"`
 }
 
 // Trips is the delivered-trips card and the fleet-efficiency card of the period (DashboardStats.tsx:164-200): a
@@ -236,6 +247,14 @@ type RecentItem struct {
 
 // Summary computes GET /v1/dashboard/summary for p over period in one transaction.
 func (s *Service) Summary(ctx context.Context, p *authz.Principal, period Period) (*Summary, error) {
+	if authz.IsSupport(p) {
+		if p.TenantID == nil || *p.TenantID == uuid.Nil {
+			return nil, httpx.ErrSupportViewUnavailable()
+		}
+		if period.Days > SupportMaxDays {
+			return nil, httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "from", Reason: "range_too_long"})
+		}
+	}
 	out := &Summary{Period: period, Recent: []RecentItem{}}
 	today, err := time.Parse(time.DateOnly, clock.DateString(s.now()))
 	if err != nil {
@@ -260,7 +279,23 @@ func (s *Service) Summary(ctx context.Context, p *authz.Principal, period Period
 func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principal, today time.Time, out *Summary) error {
 	q := dashboarddb.New(tx)
 	per := out.Period
-	if p.Can(authz.OperationsViewDriverMon) {
+	support := authz.IsSupport(p)
+	if support {
+		rows, err := q.SupportUsersByRole(ctx, *p.TenantID)
+		if err != nil {
+			return err
+		}
+		out.Users = &Users{ByRole: map[string]int64{}}
+		for _, role := range memberRoles {
+			out.Users.ByRole[role] = 0
+		}
+		for _, row := range rows {
+			out.Users.ByRole[row.Role] = row.N
+			out.Users.Total += row.N
+		}
+	}
+	// These are reviewed Dashboard aggregates, not grants to the source domains' endpoints.
+	if support || p.Can(authz.OperationsViewDriverMon) {
 		t, err := q.TripTotals(ctx, dashboarddb.TripTotalsParams{FromAt: &per.fromAt, ToAt: &per.toAt})
 		if err != nil {
 			return err
@@ -274,7 +309,7 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 			out.Recent = append(out.Recent, delivered(r.ID, r.DeliveredAt, r.TruckLicensePlateSnapshot, r.DestinationRaw, r.OriginRaw))
 		}
 	}
-	if p.Can(authz.ReportingViewAnalytics) {
+	if support || p.Can(authz.ReportingViewAnalytics) {
 		days, err := q.DeliveredByDay(ctx, dashboarddb.DeliveredByDayParams{FromAt: &per.fromAt, ToAt: &per.toAt})
 		if err != nil {
 			return err
@@ -289,7 +324,8 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 		}
 		out.Activity = activity(per, counts, prev)
 	}
-	if p.Can(authz.OperationsViewIncidents) {
+	// Incident detail/feed remains deferred. Trip incident counts are safe aggregates above.
+	if !support && p.Can(authz.OperationsViewIncidents) {
 		n, err := q.IncidentCount(ctx, dashboarddb.IncidentCountParams{FromAt: per.fromAt, ToAt: per.toAt})
 		if err != nil {
 			return err
@@ -303,7 +339,7 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 			out.Recent = append(out.Recent, incident(r.ID, r.CreatedAt, r.DelayCause, r.Description))
 		}
 	}
-	if p.Can(authz.DriversView) {
+	if support || p.Can(authz.DriversView) {
 		d, err := q.DriverStatusCounts(ctx)
 		if err != nil {
 			return err
@@ -321,7 +357,7 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 			out.Recent = append(out.Recent, RecentItem{Type: "driver", ID: r.ID, At: r.UpdatedAt.UTC(), Name: nonEmpty(name)})
 		}
 	}
-	fuel, other := p.Can(authz.AccountingViewFuel), p.Can(authz.AccountingViewOther)
+	fuel, other := support || p.Can(authz.AccountingViewFuel), support || p.Can(authz.AccountingViewOther)
 	if fuel || other {
 		e, err := q.PendingExpenses(ctx)
 		if err != nil {
@@ -335,7 +371,7 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 			out.Expenses.PendingOther = &e.Other
 		}
 	}
-	if p.Can(authz.ChatView) {
+	if support || p.Can(authz.ChatView) {
 		c, err := q.ChatQueueCounts(ctx)
 		if err != nil {
 			return err
@@ -356,7 +392,7 @@ func (s *Service) staffSummary(ctx context.Context, tx pgx.Tx, p *authz.Principa
 			out.Compliance = compliance(rows, today)
 		}
 	}
-	if p.Can(authz.FleetManageMaintenance) {
+	if p.Can(authz.FleetManageMaintenance) || (support && p.Can(authz.FleetViewMaintenance)) {
 		rows, err := q.RecentMaintenance(ctx, RecentMax)
 		if err != nil {
 			return err
@@ -560,6 +596,14 @@ func (s *Service) Badges(ctx context.Context, p *authz.Principal) (*Badges, erro
 	out := &Badges{}
 	waitlist, expenses, chats := p.Can(authz.WaitlistView), p.Can(authz.AccountingAuditExpense) && !scoped(p),
 		p.Can(authz.ChatView) && !scoped(p)
+	if authz.IsSupport(p) {
+		if p.TenantID == nil || *p.TenantID == uuid.Nil {
+			return nil, httpx.ErrSupportViewUnavailable()
+		}
+		// Platform waitlist access has its own capability plane. Only selected-tenant counts are admitted here.
+		waitlist = p.PlatformCapabilities.Has(authz.WaitlistView)
+		expenses, chats = true, true
+	}
 	if !waitlist && !expenses && !chats {
 		return out, nil
 	}

@@ -134,3 +134,24 @@ func TestProjectedInternalErrorPreservesStatusWithoutDetails(t *testing.T) {
 		}
 	}
 }
+
+// Nested arrays used to recurse through field() without the root walk() page bound.
+func TestNestedProjectionCollectionsAreBounded(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		for _, n := range []int{100, 101} {
+			app := setup(audience(on), func(r fiber.Router) {
+				ingress.Bind(r, "/coords", policy("GET", "/v1/coords", "test.coordinates"), func(c fiber.Ctx) error {
+					return httpx.JSON(c, 200, coordinates{Children: make([]personal, n)})
+				})
+			})
+			status, body := request(t, app, "GET", "/v1/coords", "")
+			want := 200
+			if n > 100 {
+				want = 503
+			}
+			if status != want {
+				t.Fatalf("ON=%v count=%d: %d %s", on, n, status, body)
+			}
+		}
+	}
+}

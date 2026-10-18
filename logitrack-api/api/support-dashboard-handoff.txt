@@ -1,0 +1,28 @@
+PSA P1.3a: Dashboard summary and badges API (entry remains OFF)
+
+Implemented routes
+- GET /v1/dashboard/summary: dashboard.summary (reviewed P1.3 seed binding).
+- GET /v1/badges: dashboard.badges (reviewed P1.3 seed binding).
+- Both require current authenticated support context and final consent/session validation.
+- HEAD stays unavailable; unknown/repeated/encoded query aliases refuse before domain reads.
+
+P1.6 / P1.7 client contract
+- Generated ResponseDashboard* interfaces are in shared-docs/schemas/supportAccess.ts.
+- Support summary users = {total, byRole}; byRole has six closed membership role keys.
+  Count active selected-tenant memberships of non-deleted holders (disabled holders included).
+  Do not mount the Security users-by-role hook to render the support Dashboard tile.
+- Recent name/person, place/address and text/free_text are masked OFF with per-field metadata;
+  do not derive labels or fall back to hidden fields. Dates, plates, identifiers and counts stay safe.
+- The incident block/feed is null/unavailable in support; do not start an incidents request.
+- Badges are counts only. Waitlist uses the independent platform capability plane, never consent.
+- Support from/to histograms: at most 100 days, inclusive Bangkok dates. Member max stays 366.
+- Zero to 100 projected collection elements are permitted, including nested arrays; larger
+  non-safe arrays now fail closed in the P1.0 shared projector instead of bypassing its root bound.
+- JSON is private, no-store; consent/context mismatch keeps token_expired/claims_changed.
+
+Ownership / remaining work
+- P1.3: internal/dashboard/{http,dashboard,support_projection} and local tests/query.
+- P1.0 integration: generated sqlc/TS/policy output; httpx nested-array bound/regression.
+- No new route identities, support capability grants, migration, web UI or gate changes.
+- P1.3 still owes drivers, trucks, assignments, renewals, maintenance and locations.
+- P1.4 brokers/transports and P1.5-P1.8 remain prerequisites for enabling entry.

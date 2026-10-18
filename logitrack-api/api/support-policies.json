@@ -16,7 +16,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -48,7 +48,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -1353,13 +1353,13 @@
         "id": "GET /v1/badges",
         "method": "GET",
         "route": "/v1/badges",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,counts-only,no-deferred-read",
+        "schema": "dashboard.badges",
+        "owner": "P1.3",
         "allowHead": false
       },
       {
@@ -1652,13 +1652,13 @@
         "id": "GET /v1/dashboard/summary",
         "method": "GET",
         "route": "/v1/dashboard/summary",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,reviewed-query,safe-search,cursor-audience",
+        "schema": "dashboard.summary",
+        "owner": "P1.3",
         "allowHead": false
       },
       {
@@ -4969,6 +4969,20 @@
     "auth.sse_ticket",
     "auth.support_access",
     "auth.tenant_label",
+    "dashboard.activity",
+    "dashboard.badges",
+    "dashboard.chats",
+    "dashboard.compliance",
+    "dashboard.compliance-item",
+    "dashboard.day-count",
+    "dashboard.drivers",
+    "dashboard.expenses",
+    "dashboard.incidents",
+    "dashboard.period",
+    "dashboard.recent-item",
+    "dashboard.summary",
+    "dashboard.trips",
+    "dashboard.users",
     "forms.waitlist-counts",
     "forms.waitlist-entry",
     "iam.activity",

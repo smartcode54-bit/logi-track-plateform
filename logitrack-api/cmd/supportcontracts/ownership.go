@@ -43,7 +43,7 @@ func FileOwner(path string) string {
 				return "P1.0"
 			}
 		}
-		if p == "Makefile" || p == "sqlc.yaml" || p == "api/routes.txt" || p == "api/support-policies.json" || p == "api/support-discovery.json" {
+		if p == "deploy/Dockerfile" || p == "Makefile" || p == "sqlc.yaml" || p == "api/routes.txt" || p == "api/support-policies.json" || p == "api/support-discovery.json" {
 			return "P1.0"
 		}
 		for _, name := range []string{"authorize.go", "rbac.go", "authorize_test.go", "rbac_integration_test.go"} {

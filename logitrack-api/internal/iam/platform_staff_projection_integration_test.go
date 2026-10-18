@@ -46,11 +46,12 @@ func TestPlatformStaffAndTenantAccountsUseCorrectProjectionOwner(t *testing.T) {
 		for _, user := range users {
 			row := platformUserByID(t, res, user.id)
 			want := user.email
-			if user.email == "ta.a@example.test" || user.email == "platform-member@example.test" || user.email == "ds@example.test" {
+			switch user.email {
+			case "ta.a@example.test", "platform-member@example.test", "ds@example.test":
 				if !tenantVisible {
 					want = "****"
 				}
-			} else if user.email == "cu@example.test" || user.email == "platform-scoped@example.test" {
+			case "cu@example.test", "platform-scoped@example.test":
 				want = "****"
 			}
 			assertProjectionString(t, row, "email", want)
@@ -120,11 +121,12 @@ func TestPlatformStaffAndTenantAccountsUseCorrectProjectionOwner(t *testing.T) {
 		for _, user := range users {
 			row := platformEventByActor(t, rows, user.id)
 			want := user.email
-			if user.email == "ta.a@example.test" || user.email == "platform-member@example.test" || user.email == "ds@example.test" {
+			switch user.email {
+			case "ta.a@example.test", "platform-member@example.test", "ds@example.test":
 				if !tenantVisible {
 					want = "****"
 				}
-			} else if user.email == "cu@example.test" || user.email == "platform-scoped@example.test" {
+			case "cu@example.test", "platform-scoped@example.test":
 				want = "****"
 			}
 			assertProjectionString(t, row, "actorEmail", want)

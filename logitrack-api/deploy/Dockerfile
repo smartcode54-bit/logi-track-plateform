@@ -7,10 +7,12 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG VERSION=dev
+# Build-time generators (e.g. supportcontracts) are not runtime binaries.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath \
       -ldflags "-s -w -X github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/app.Version=${VERSION}" \
-      -o /out/ ./cmd/...
+      -o /out/ \
+      ./cmd/api ./cmd/worker ./cmd/scheduler ./cmd/migrate ./cmd/seed ./cmd/etl ./cmd/release
 
 FROM alpine:3.23
 # ca-certificates for outbound TLS, tzdata for Asia/Bangkok cron; busybox wget serves the healthchecks.
