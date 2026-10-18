@@ -27,6 +27,7 @@ import UnauthorizedPage from "@/app/app/unauthorized/page";
 import { PageHeader } from "@/components/page-header";
 import { RecordState, recordUnavailable } from "@/components/record-state";
 import { useLanguage } from "@/context/language";
+import * as localeLoaders from "@/context/locales/load";
 import type { MeDTO } from "@/features/auth/api/me";
 import CustomersList from "@/features/customers/components/CustomersList";
 import TruckPreview from "@/features/trucks/components/TruckPreview";
@@ -327,10 +328,25 @@ describe("the page header (components/page-header.tsx)", () => {
 
     it("on a menu page the title is the H1 and the crumb keeps the menu's label", async () => {
         mockPathname = "/app/accounting/income";
-        await renderShell(tenantAdmin, <PageHeader title="Trips to bill" description="Trips delivered in the period" />);
-        expect(screen.getByRole("heading", { level: 1, name: "Trips to bill" })).toBeInTheDocument();
-        expect(screen.getByText("Trips delivered in the period")).toBeInTheDocument();
-        await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
+        let releaseNamespace = () => {};
+        const namespaceReady = new Promise<void>((resolve) => { releaseNamespace = resolve; });
+        const loadNamespace = localeLoaders.loadNamespace;
+        const delayedNamespace = vi.spyOn(localeLoaders, "loadNamespace").mockImplementation(async (language, namespace) => {
+            if (namespace === "accounting") await namespaceReady;
+            return loadNamespace(language, namespace);
+        });
+        try {
+            await renderShell(tenantAdmin, <PageHeader title="Trips to bill" description="Trips delivered in the period" />);
+            // Auth can finish while the page's split dictionary is still in flight.
+            expect(within(screen.getByRole("main")).getByRole("status")).toHaveAttribute("aria-busy", "true");
+            releaseNamespace();
+            expect(await screen.findByRole("heading", { level: 1, name: "Trips to bill" })).toBeInTheDocument();
+            expect(screen.getByText("Trips delivered in the period")).toBeInTheDocument();
+            await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
+        } finally {
+            releaseNamespace();
+            delayedNamespace.mockRestore();
+        }
     });
 });
 
