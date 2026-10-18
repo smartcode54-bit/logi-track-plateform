@@ -27,7 +27,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap(authz.FleetManageMaintenance)
 	return []ingress.Group{{Prefix: Prefix, Mount: func(r fiber.Router) {
-		r.Get("", requireAuth, need, h.list)
+		ingress.Bind(r, "", supportPolicy(Prefix, "maintenance.record", "maintenance.meta", "truckId", "status", "type", "limit", "cursor"), requireAuth, authz.RequireCap(authz.FleetViewMaintenance, authz.FleetManageMaintenance), h.list)
 		r.Post("", requireAuth, need, h.create)
 		r.Patch("/:id", requireAuth, need, h.patch)
 		r.Post("/:id/remind", requireAuth, need, h.remind)
@@ -102,8 +102,12 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	cursor, err := httpx.SupportCursor(c)
+	if err != nil {
+		return err
+	}
 	out, next, counts, err := h.s.List(c.Context(), p, ListInput{TruckID: c.Query("truckId"), Status: c.Query("status"),
-		Type: c.Query("type"), Limit: limit, Cursor: c.Query("cursor")})
+		Type: c.Query("type"), Limit: limit, Cursor: cursor})
 	if err != nil {
 		return err
 	}
@@ -111,7 +115,13 @@ func (h handlers) list(c fiber.Ctx) error {
 	if counts != nil {
 		meta = listMeta{StatusCounts: counts}
 	}
-	return httpx.Page(c, out, next, meta)
+	if authz.IsSupport(p) {
+		if counts != nil {
+			return httpx.SupportPage(c, "maintenance.record", out, next, listMeta{StatusCounts: counts})
+		}
+		return httpx.SupportPage(c, "maintenance.record", out, next, nil)
+	}
+	return httpx.OrdinaryPage(c, out, next, meta)
 }
 
 func (h handlers) create(c fiber.Ctx) error {

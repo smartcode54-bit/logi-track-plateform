@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -313,6 +314,37 @@ func TestHumanHeaderRefusalThroughRequireAuth(t *testing.T) {
 						t.Fatalf("%s %s: %d %s", method, header, res.StatusCode, body)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestSupportFinalizationChecksFleetLabelVersionUnderConsentLock(t *testing.T) {
+	for _, current := range []int64{5, 6} {
+		t.Run(strconv.FormatInt(current, 10), func(t *testing.T) {
+			svc, tx, p := supportReadFixture(t)
+			p.SupportDataLabelVersions = map[string]int64{p.TenantID.String(): 5}
+			previous := tx.row
+			locked := false
+			tx.row = func(sql string, args ...any) pgx.Row {
+				if sql == supportLockTenantConsentSQL {
+					locked = true
+				}
+				if strings.Contains(sql, "SELECT support_label_version FROM tenants") {
+					if !locked {
+						t.Fatal("label version read before locking owner")
+					}
+					return supportTestRow{values: []any{current}}
+				}
+				return previous(sql, args...)
+			}
+			serialized := false
+			err := svc.finalizeSupportAudience(p)(context.Background(), []string{p.TenantID.String()}, func(map[string]httpx.Consent) error { serialized = true; return nil })
+			if current == 5 && (err != nil || !serialized) {
+				t.Fatal(err)
+			}
+			if current != 5 && (err == nil || serialized) {
+				t.Fatal("stale organization/person classification serialized", err)
 			}
 		})
 	}

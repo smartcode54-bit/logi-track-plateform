@@ -46,18 +46,18 @@ func Groups(s *Service, requireAuth fiber.Handler, truckRoutes ...func(r fiber.R
 	h := handlers{s}
 	need := authz.RequireCap
 	return []ingress.Group{{Prefix: TrucksPrefix, Mount: func(r fiber.Router) {
-		r.Get("", requireAuth, need(authz.FleetViewTrucks, authz.DispatchViewOperations), h.list)
+		ingress.Bind(r, "", supportPolicy(TrucksPrefix, "fleet.truck", "fleet.truck-meta", "ownership", "tenantId", "status", "type", "q", "limit", "cursor"), requireAuth, need(authz.FleetViewTrucks, authz.DispatchViewOperations), h.list)
 		r.Post("", requireAuth, need(authz.FleetCreateTruck), h.create)
 		r.Post("/import", requireAuth, need(authz.FleetCreateTruck), h.importTrucks)
-		r.Get("/renewals", requireAuth, need(authz.FleetViewRenewals), h.renewals)
-		r.Get("/:id", requireAuth, need(authz.FleetViewTrucks), h.get)
+		ingress.Bind(r, "/renewals", supportPolicy(TrucksPrefix+"/renewals", "fleet.renewal", "", "due", "ownership", "status", "tenantId", "q", "limit", "cursor"), requireAuth, need(authz.FleetViewRenewals), h.renewals)
+		ingress.Bind(r, "/:id", supportPolicy(TrucksPrefix+"/:id", "fleet.truck-detail", ""), requireAuth, need(authz.FleetViewTrucks), h.get)
 		r.Patch("/:id", requireAuth, need(authz.FleetEditTruck), h.patch)
 		r.Post("/:id/renewals", requireAuth, need(authz.FleetManageRenewals), h.renew)
 		for _, mount := range truckRoutes {
 			mount(r)
 		}
 	}}, {Prefix: AssignmentsPrefix, Mount: func(r fiber.Router) {
-		r.Get("", requireAuth, need(authz.FleetViewAssignments), h.listAssignments)
+		ingress.Bind(r, "", supportPolicy(AssignmentsPrefix, "fleet.truck-assignment", "", "status", "truckId", "driverId", "q", "limit", "cursor"), requireAuth, need(authz.FleetViewAssignments), h.listAssignments)
 		r.Post("", requireAuth, need(authz.FleetManageAssignments), h.assign)
 		r.Post("/:id/revoke", requireAuth, need(authz.FleetManageAssignments), h.revoke)
 	}}}
@@ -117,13 +117,24 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	out, next, meta, err := h.s.ListTrucks(c.Context(), p, ListTrucksInput{Ownership: c.Query("ownership"),
-		TenantID: c.Query("tenantId"), Status: c.Query("status"), Type: c.Query("type"), Q: c.Query("q"),
-		Limit: limit, Cursor: c.Query("cursor")})
+	cursor, err := httpx.SupportCursor(c)
 	if err != nil {
 		return err
 	}
-	return httpx.Page(c, out, next, meta)
+	out, next, meta, err := h.s.ListTrucks(c.Context(), p, ListTrucksInput{Ownership: c.Query("ownership"),
+		TenantID: c.Query("tenantId"), Status: c.Query("status"), Type: c.Query("type"), Q: c.Query("q"),
+		Limit: limit, Cursor: cursor})
+	if err != nil {
+		return err
+	}
+	if authz.IsSupport(p) {
+		rows, ok := out.([]Truck)
+		if !ok {
+			return httpx.ErrSupportProjectionUnavailable()
+		}
+		return httpx.SupportPage(c, "fleet.truck", rows, next, meta)
+	}
+	return httpx.OrdinaryPage(c, out, next, meta)
 }
 
 func (h handlers) get(c fiber.Ctx) error {
@@ -193,12 +204,16 @@ func (h handlers) renewals(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	out, next, err := h.s.ListRenewals(c.Context(), p, ListRenewalsInput{Due: c.Query("due"), Ownership: c.Query("ownership"),
-		Status: c.Query("status"), TenantID: c.Query("tenantId"), Q: c.Query("q"), Limit: limit, Cursor: c.Query("cursor")})
+	cursor, err := httpx.SupportCursor(c)
 	if err != nil {
 		return err
 	}
-	return httpx.Page(c, out, next, nil)
+	out, next, err := h.s.ListRenewals(c.Context(), p, ListRenewalsInput{Due: c.Query("due"), Ownership: c.Query("ownership"),
+		Status: c.Query("status"), TenantID: c.Query("tenantId"), Q: c.Query("q"), Limit: limit, Cursor: cursor})
+	if err != nil {
+		return err
+	}
+	return httpx.SupportPage(c, "fleet.renewal", out, next, nil)
 }
 
 func (h handlers) renew(c fiber.Ctx) error {
@@ -316,12 +331,16 @@ func (h handlers) listAssignments(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	out, next, err := h.s.ListAssignments(c.Context(), p, ListAssignmentsInput{Status: c.Query("status"),
-		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Q: c.Query("q"), Limit: limit, Cursor: c.Query("cursor")})
+	cursor, err := httpx.SupportCursor(c)
 	if err != nil {
 		return err
 	}
-	return httpx.Page(c, out, next, nil)
+	out, next, err := h.s.ListAssignments(c.Context(), p, ListAssignmentsInput{Status: c.Query("status"),
+		TruckID: c.Query("truckId"), DriverID: c.Query("driverId"), Q: c.Query("q"), Limit: limit, Cursor: cursor})
+	if err != nil {
+		return err
+	}
+	return httpx.SupportPage(c, "fleet.truck-assignment", out, next, nil)
 }
 
 func (h handlers) assign(c fiber.Ctx) error {

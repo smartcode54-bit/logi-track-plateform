@@ -15,7 +15,7 @@
 -- cannot read matches on the truck and admin columns only.
 SELECT a.id, a.tenant_id, a.truck_id, a.driver_id, a.status, a.admin_user_id, a.admin_label, a.created_at,
        a.revoked_at, tr.license_plate AS truck_plate, tr.model AS truck_model,
-       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
+       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name, d.tenant_id AS driver_tenant_id
 FROM truck_assignments a
 LEFT JOIN trucks tr ON tr.id = a.truck_id
 LEFT JOIN drivers d ON d.id = a.driver_id
@@ -37,7 +37,7 @@ LIMIT sqlc.arg(row_limit);
 -- name: GetAssignment :one
 SELECT a.id, a.tenant_id, a.truck_id, a.driver_id, a.status, a.admin_user_id, a.admin_label, a.created_at,
        a.revoked_at, tr.license_plate AS truck_plate, tr.model AS truck_model,
-       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name
+       coalesce(nullif(btrim(d.full_name_th), ''), btrim(d.first_name || ' ' || d.last_name), '')::text AS driver_name, d.tenant_id AS driver_tenant_id
 FROM truck_assignments a
 LEFT JOIN trucks tr ON tr.id = a.truck_id
 LEFT JOIN drivers d ON d.id = a.driver_id

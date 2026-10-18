@@ -54,6 +54,8 @@ func Mounted(r fiber.Router){ingress.Bind(r,"",httpx.EndpointPolicy{SchemaID:"ou
 		{"wrapped direct writer", "httpx.JSON(c,200,Output{})", "c.JSON(Output{})", true},
 		{"helper fields complete", "", "", false},
 		{"helper fields nested addition", "/* CHILD */", "; Added string `json:\"added,omitempty\"`", true},
+		{"sealed page wrong type", "httpx.JSON(c,200,Output{})", `httpx.SupportPage(c,"child",Output{},"",nil)`, true},
+		{"sealed page unknown metadata", "httpx.JSON(c,200,Output{})", `httpx.SupportPage(c,"output",Output{},"",map[string]string{"secret":"sentinel"})`, true},
 		{"explicit variant wrong type", "httpx.JSON(c,200,Output{})", `httpx.PageAs(c,"child",Output{},"",nil)`, true},
 		{"explicit variant unknown metadata", "httpx.JSON(c,200,Output{})", `httpx.PageAs(c,"output",Output{},"",map[string]string{"secret":"sentinel"})`, true},
 		{"resolved function delegate", "return helper(c)", "render:=helper; return render(c)", false},

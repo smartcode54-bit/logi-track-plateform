@@ -456,6 +456,15 @@ func (s *Service) finalizeSupportAudience(p *authz.Principal) func(context.Conte
 				}
 				c.Version = strconv.FormatInt(version, 10)
 				consents[owner] = c
+				if expected, ok := p.SupportDataLabelVersions[owner]; ok {
+					labelVersion, err := q.SupportReadLabelVersion(ctx, id)
+					if err != nil {
+						return err
+					}
+					if expected != labelVersion {
+						return errTokenExpired(ReasonClaimsChanged)
+					}
+				}
 				if expected, ok := p.SupportLabelVersions[owner]; ok && expected != version {
 					return errTokenExpired(ReasonClaimsChanged)
 				}

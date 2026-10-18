@@ -17,7 +17,7 @@
 -- assignment or truck the caller cannot see stays NULL. assignment_status tells a home truck apart from a pointer at
 -- a revoked or cancelled row (loaded data), which the payload does not show.
 SELECT sqlc.embed(d),
-       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
+       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind, t.legal_type AS tenant_legal_type, t.support_label_version AS tenant_label_version,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
        a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d
@@ -54,7 +54,7 @@ ORDER BY d.status;
 -- GET /v1/drivers/{id} names the reach too: a dispatcher's scope branch (p_scope_read) opens in-scope drivers of
 -- other tenants to the scope_drivers projection only, never to this full row (Appendix C §C.3.7).
 SELECT sqlc.embed(d),
-       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind,
+       t.name_th AS tenant_name_th, t.name_en AS tenant_name_en, t.kind AS tenant_kind, t.legal_type AS tenant_legal_type, t.support_label_version AS tenant_label_version,
        a.truck_id AS assignment_truck_id, tr.license_plate AS assignment_truck_plate, tr.model AS assignment_truck_model,
        a.created_at AS assignment_created_at, a.status AS assignment_status
 FROM drivers d

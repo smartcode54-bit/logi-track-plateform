@@ -1198,3 +1198,9 @@ Internal-only operations: 219 (staff API reached through the BFF, JWKS, readines
 | **Total** | **219** | **79** | **298** | |
 
 Cross-checks: 53 Cloud Functions mapped in §B.3 (46 onCall + 4 onSchedule + 1 onRequest + 2 Auth triggers); 28 draft route entries retired in §B.2.25; 16 work queues in §B.5.3; 16 SSE topic patterns in §B.4.2; 8 Redis namespaces in §B.6.1; capability catalog 81 keys (77 + 4 platform, R73).
+
+
+PSA P1.3b Fleet support contracts: see `logitrack-api/api/support-fleet-handoff.txt`.
+Support list limit is 100; cursors bind the full visit and query. Support locations require
+explicit batches of 1..100 truck IDs; driver document redirects remain denied until P1.4.
+Ordinary member endpoint/query contracts remain unchanged.

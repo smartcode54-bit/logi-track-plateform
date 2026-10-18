@@ -113,10 +113,11 @@ type StatusEntry struct {
 
 // Assignment is an active truck_assignments row of the truck (the current assignment is derived, R14).
 type Assignment struct {
-	ID         uuid.UUID `json:"id"`
-	DriverID   uuid.UUID `json:"driverId"`
-	DriverName *string   `json:"driverName"`
-	AssignedAt time.Time `json:"assignedAt"`
+	driverOwner string
+	ID          uuid.UUID `json:"id"`
+	DriverID    uuid.UUID `json:"driverId"`
+	DriverName  *string   `json:"driverName"`
+	AssignedAt  time.Time `json:"assignedAt"`
 }
 
 // TruckFile is one linked file: the key goes back in a PATCH, the URL is a short-lived presigned GET.
@@ -205,6 +206,14 @@ func truckListMeta[R any](rows []R, of func(R) (string, int32)) *TruckListMeta {
 // (or a customer-scope principal) gets []TruckScope from the scope_trucks projection, ordered by plate (Appendix C
 // §C.3.7, R85), and the counts over that projection.
 func (s *Service) ListTrucks(ctx context.Context, p *authz.Principal, in ListTrucksInput) (any, string, *TruckListMeta, error) {
+	if authz.IsSupport(p) && in.Limit > 100 {
+		err := httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "limit", Reason: "out_of_range"})
+		return nil, "", nil, err
+	}
+	if authz.IsSupport(p) && in.Q != "" && !p.SupportAccessEnabled {
+		err := httpx.ErrSupportViewUnavailable()
+		return nil, "", nil, err
+	}
 	var ck checker
 	opt := func(field, v string, allowed []string) *string {
 		if v == "" {
@@ -362,12 +371,24 @@ func (s *Service) GetTruck(ctx context.Context, p *authz.Principal, id uuid.UUID
 			n := a.DriverName
 			name = &n
 		}
-		d.CurrentAssignments = append(d.CurrentAssignments, Assignment{ID: a.ID, DriverID: a.DriverID, DriverName: name,
+		d.CurrentAssignments = append(d.CurrentAssignments, Assignment{driverOwner: func() string {
+			if a.DriverTenantID != nil {
+				return a.DriverTenantID.String()
+			}
+			return ""
+		}(), ID: a.ID, DriverID: a.DriverID, DriverName: name,
 			AssignedAt: a.CreatedAt})
 	}
 	for _, f := range files {
 		kind, ok := kindByDB[f.Kind]
-		if !ok || s.files == nil || (kind.financial && !cost) { // receipts follow the cost fields
+		if !ok || (kind.financial && !cost) { // receipts follow the cost fields
+			continue
+		}
+		if authz.IsSupport(p) {
+			d.Files[kind.json] = append(d.Files[kind.json], TruckFile{})
+			continue
+		}
+		if s.files == nil {
 			continue
 		}
 		key, url, err := s.files.SignedFile(ctx, f.FileID, 0)
@@ -1063,6 +1084,9 @@ func updateTruck(ctx context.Context, q *fleetdb.Queries, p *authz.Principal, m 
 // is 409 already_exists (trucks_plate_per_tenant), as is a GPS vehicle id another truck holds; only a steward sets
 // the GPS vehicle id (checkGPS).
 func (s *Service) CreateTruck(ctx context.Context, p *authz.Principal, rid string, in TruckInput) (*TruckDetail, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	own, err := writeTenant(p)
 	if err != nil {
 		return nil, err
@@ -1110,6 +1134,9 @@ func (s *Service) CreateTruck(ctx context.Context, p *authz.Principal, rid strin
 // fields. A request that changes nothing writes nothing. tenantId and ownership are not editable (a truck's tenant is
 // frozen, trg_freeze_tenant_id).
 func (s *Service) PatchTruck(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in TruckInput) (*TruckDetail, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if _, err := writeTenant(p); err != nil {
 		return nil, err
 	}

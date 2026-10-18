@@ -34,6 +34,12 @@ const (
 type Field struct {
 	Kind   FieldKind
 	Schema *ResponseSchema
+	// NullMasked preserves structured/private identifiers as null instead of masked text.
+	NullMasked bool
+	// Owner resolves joined-field provenance independently of the containing row.
+	Owner func(any) string
+	// PublicWhen is restricted to reviewed organization labels. Callers bind label versions at finalization.
+	PublicWhen func(any) bool
 	// MapKeys is an explicit reviewed set, never a field-name or code-shape heuristic.
 	MapKeys []string
 }
@@ -187,6 +193,9 @@ func validateSchema(t reflect.Type, s *ResponseSchema, stack map[reflect.Type]bo
 		if !ok {
 			return fmt.Errorf("unclassified %s.%s", s.id, f.name)
 		}
+		if rule.PublicWhen != nil && rule.Kind != Person {
+			return fmt.Errorf("public-label exception requires person classification")
+		}
 		ft := f.typ
 		for ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
@@ -293,11 +302,24 @@ func (p *projection) walk(v reflect.Value, s *ResponseSchema, path, owner string
 	for _, f := range fields {
 		rule := s.fields[f.name]
 		value := fieldValue(v, f.index)
+		if !value.IsValid() {
+			value = reflect.Zero(f.typ)
+		} // nil embedded struct: retain the classified leaf type
 		fp := path + "/" + pointerPart(f.name)
 		if rule.Kind == Safe && f.omit && emptyValue(value) {
 			continue
 		}
-		item, err := p.field(value, rule, fp, owner)
+		fieldOwner := owner
+		if rule.Owner != nil {
+			fieldOwner = rule.Owner(v.Interface())
+		}
+		if fieldOwner != "" {
+			p.owners[fieldOwner] = true
+		}
+		if rule.PublicWhen != nil && rule.PublicWhen(v.Interface()) {
+			rule.Kind = Safe
+		}
+		item, err := p.field(value, rule, fp, fieldOwner)
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +359,7 @@ func (p *projection) field(v reflect.Value, rule Field, path, owner string) (any
 			if !slices.Contains(rule.MapKeys, key.String()) {
 				return nil, fmt.Errorf("unreviewed map key")
 			}
-			val, err := p.field(v.MapIndex(key), Field{Kind: rule.Kind, Schema: rule.Schema}, path+"/"+pointerPart(key.String()), owner)
+			val, err := p.field(v.MapIndex(key), Field{Kind: rule.Kind, Schema: rule.Schema, NullMasked: rule.NullMasked}, path+"/"+pointerPart(key.String()), owner)
 			if err != nil {
 				return nil, err
 			}
@@ -350,7 +372,7 @@ func (p *projection) field(v reflect.Value, rule Field, path, owner string) (any
 	}
 	if rule.Kind == Secret || rule.Kind == File || (rule.Kind != Safe && !p.clear(owner)) {
 		p.redacted = append(p.redacted, RedactedField{path, rule.Kind})
-		if (rule.Kind == Person || rule.Kind == Address || rule.Kind == FreeText) && stringValueType(v) {
+		if (rule.Kind == Person || rule.Kind == Address || rule.Kind == FreeText) && !rule.NullMasked && stringValueType(v) {
 			return "****", nil
 		}
 		return nil, nil
@@ -622,7 +644,7 @@ func schemaContractName(s *ResponseSchema) string {
 }
 
 func schemaTypeScript(t reflect.Type, rule Field) string {
-	if rule.Kind == Secret || rule.Kind == File {
+	if rule.Kind == Secret || rule.Kind == File && (t == uuidType || t == timeType) {
 		return "null"
 	}
 	if t.Kind() == reflect.Pointer {
@@ -654,6 +676,9 @@ func schemaTypeScript(t reflect.Type, rule Field) string {
 		sort.Strings(keys)
 		return "Partial<Record<" + strings.Join(keys, " | ") + ", " + schemaTypeScript(t.Elem(), rule) + ">> | null"
 	}
+	if rule.Kind == File {
+		return "null"
+	}
 	if rule.Kind == Nested && rule.Schema != nil {
 		return schemaContractName(rule.Schema)
 	}
@@ -665,6 +690,9 @@ func schemaTypeScript(t reflect.Type, rule Field) string {
 	}
 	switch t.Kind() {
 	case reflect.String:
+		if rule.NullMasked {
+			return "string | null"
+		}
 		return "string"
 	case reflect.Bool:
 		if rule.Kind != Safe {

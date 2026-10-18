@@ -113,14 +113,6 @@
     "disposition": "P1.2 pending binding: split tenant read from explicit platform predicate; legacy tenant GET denied"
   },
   {
-    "source": "internal/maintenance/http.go",
-    "registrationPath": "",
-    "mutationCapabilityReferences": [
-      "fleet:manage_maintenance"
-    ],
-    "disposition": "P1.3 pending read-key/projection binding; denied until bound"
-  },
-  {
     "source": "internal/mobileapp/http.go",
     "registrationPath": "",
     "mutationCapabilityReferences": [

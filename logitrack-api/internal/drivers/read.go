@@ -45,6 +45,8 @@ type CurrentAssignment struct {
 // legacy subcontractorName); displayName is the Thai full name, else first and last name. legacyAuthUid is the
 // driver's Firebase uid of a loaded driver (the legacy authId): the chat pages key chats by it until P5 (T25).
 type Driver struct {
+	organizationLabel  bool
+	labelVersion       int64
 	ID                 uuid.UUID          `json:"id"`
 	TenantID           uuid.UUID          `json:"tenantId"`
 	TenantNameTh       *string            `json:"tenantNameTh"`
@@ -172,6 +174,8 @@ func displayName(fullTh *string, first, last string) string {
 // joined are the columns the list and the detail join to a driver row.
 type joined struct {
 	TenantNameTh, TenantNameEn, TenantKind *string
+	TenantLegalType                        *string
+	TenantLabelVersion                     *int64
 	AssignmentTruckID                      *uuid.UUID
 	AssignmentTruckPlate                   *string
 	AssignmentTruckModel                   *string
@@ -180,7 +184,12 @@ type joined struct {
 }
 
 func driverOf(d driversdb.Driver, j joined) Driver {
-	out := Driver{ID: d.ID, TenantID: d.TenantID, TenantNameTh: j.TenantNameTh, TenantNameEn: j.TenantNameEn,
+	org := j.TenantKind != nil && (*j.TenantKind == "own_fleet" || j.TenantLegalType != nil && *j.TenantLegalType == "company")
+	version := int64(0)
+	if j.TenantLabelVersion != nil {
+		version = *j.TenantLabelVersion
+	}
+	out := Driver{organizationLabel: org, labelVersion: version, ID: d.ID, TenantID: d.TenantID, TenantNameTh: j.TenantNameTh, TenantNameEn: j.TenantNameEn,
 		TenantKind: j.TenantKind, UserID: d.UserID, LegacyDocID: d.LegacyDocID, LegacyAuthUID: d.LegacyAuthUid,
 		DisplayName: displayName(d.FullNameTh, d.FirstName, d.LastName), FirstName: d.FirstName, LastName: d.LastName,
 		FullNameTh: d.FullNameTh, Mobile: d.Mobile, Email: d.Email, Status: d.Status, EmploymentType: d.EmploymentType,
@@ -216,6 +225,14 @@ const FieldsMinimal = "minimal"
 // with ?fields=minimal; a dispatcher (or a customer-scope principal) reads the scope_drivers projection by display
 // name ([]DriverScope, or []DriverMinimal), never the PII columns (Appendix C §C.3.7, R85).
 func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) (any, string, *ListMeta, error) {
+	if authz.IsSupport(p) && in.Limit > 100 {
+		err := httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "limit", Reason: "out_of_range"})
+		return nil, "", nil, err
+	}
+	if authz.IsSupport(p) && in.Q != "" && !p.SupportAccessEnabled {
+		err := httpx.ErrSupportViewUnavailable()
+		return nil, "", nil, err
+	}
 	var ck checker
 	var status *string
 	if in.Status != "" {
@@ -300,7 +317,7 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) (a
 	}
 	out := make([]Driver, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, driverOf(r.Driver, joined{r.TenantNameTh, r.TenantNameEn, r.TenantKind, r.AssignmentTruckID,
+		out = append(out, driverOf(r.Driver, joined{r.TenantNameTh, r.TenantNameEn, r.TenantKind, r.TenantLegalType, r.TenantLabelVersion, r.AssignmentTruckID,
 			r.AssignmentTruckPlate, r.AssignmentTruckModel, r.AssignmentCreatedAt, r.AssignmentStatus}))
 	}
 	return out, next, meta, nil
@@ -409,7 +426,7 @@ func (s *Service) Get(ctx context.Context, p *authz.Principal, id uuid.UUID) (*D
 		return nil, err
 	}
 	d := r.Driver
-	out := &DriverDetail{Driver: driverOf(d, joined{r.TenantNameTh, r.TenantNameEn, r.TenantKind, r.AssignmentTruckID,
+	out := &DriverDetail{Driver: driverOf(d, joined{r.TenantNameTh, r.TenantNameEn, r.TenantKind, r.TenantLegalType, r.TenantLabelVersion, r.AssignmentTruckID,
 		r.AssignmentTruckPlate, r.AssignmentTruckModel, r.AssignmentCreatedAt, r.AssignmentStatus}),
 		CustomerDriverIDs: make([]CustomerDriverID, 0, len(codes)), StatusHistory: make([]StatusEntry, 0, len(hist))}
 	for _, c := range codes {
@@ -423,11 +440,15 @@ func (s *Service) Get(ctx context.Context, p *authz.Principal, id uuid.UUID) (*D
 	if login != nil {
 		out.Login = &Login{UserID: login.ID, Email: login.Email, Status: login.Status, MustChangePassword: login.MustChangePassword}
 	}
-	out.ProfileKey, out.ProfileURL = s.signed(ctx, d.ProfileFileID, 0)
+	if !authz.IsSupport(p) {
+		out.ProfileKey, out.ProfileURL = s.signed(ctx, d.ProfileFileID, 0)
+	}
 	if p.Can(authz.DriversViewPII) {
 		pii := &PII{IDCard: d.IDCard, IDCardExpiredDate: dateString(d.IDCardExpiredDate), BirthDate: dateString(d.BirthDate)}
-		pii.IDCardKey, pii.IDCardURL = s.signed(ctx, d.IDCardFileID, PIITTL)
-		pii.LicenseKey, pii.LicenseURL = s.signed(ctx, d.LicenseFileID, PIITTL)
+		if !authz.IsSupport(p) {
+			pii.IDCardKey, pii.IDCardURL = s.signed(ctx, d.IDCardFileID, PIITTL)
+			pii.LicenseKey, pii.LicenseURL = s.signed(ctx, d.LicenseFileID, PIITTL)
+		}
 		out.PII = pii
 	}
 	return out, nil
@@ -463,6 +484,9 @@ const (
 // RLS and reach ("a file is readable iff its referencing row is"). An unknown kind, a driver outside the reach and a
 // driver without that document are all 404.
 func (s *Service) DocumentURL(ctx context.Context, p *authz.Principal, id uuid.UUID, kind string) (string, error) {
+	if authz.IsSupport(p) {
+		return "", httpx.ErrSupportViewUnavailable()
+	}
 	if kind != DocumentProfile && kind != DocumentIDCard && kind != DocumentLicense {
 		return "", httpx.ErrNotFound()
 	}

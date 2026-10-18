@@ -438,13 +438,13 @@ func (a *analyzer) check() error {
 				if ci == nil {
 					ci = info
 				}
-				if api(call.Fun, ci, "/internal/platform/httpx", "JSON") || api(call.Fun, ci, "/internal/platform/httpx", "JSONWithRedactions") || api(call.Fun, ci, "/internal/platform/httpx", "Page") || api(call.Fun, ci, "/internal/platform/httpx", "PageAs") {
+				if api(call.Fun, ci, "/internal/platform/httpx", "JSON") || api(call.Fun, ci, "/internal/platform/httpx", "JSONWithRedactions") || api(call.Fun, ci, "/internal/platform/httpx", "Page") || api(call.Fun, ci, "/internal/platform/httpx", "PageAs") || api(call.Fun, ci, "/internal/platform/httpx", "SupportPage") {
 					index, metaIndex := 2, -1
 					if api(call.Fun, ci, "/internal/platform/httpx", "Page") {
 						index, metaIndex = 1, 3
 					}
 					responseSchema := s
-					if api(call.Fun, ci, "/internal/platform/httpx", "PageAs") {
+					if api(call.Fun, ci, "/internal/platform/httpx", "PageAs") || api(call.Fun, ci, "/internal/platform/httpx", "SupportPage") {
 						responseSchema = a.schemas[literal(call.Args[1], ci)]
 						metaIndex = 4
 					}
@@ -560,7 +560,7 @@ func trustedContextCall(obj types.Object) bool {
 	}
 	if obj.Pkg().Path() == module+"/internal/platform/httpx" {
 		switch obj.Name() {
-		case "WriteError", "RequireResponseProjection", "ResolveProjectionAudience", "OrdinaryPage", "ClientIPFrom", "ListenerFrom", "SetProjectionAudience", "EndpointGate", "ProjectionAudienceFrom", "EndpointPolicyFrom", "PolicyTargetFrom", "RequestIDFrom", "PolicyInput", "SetPolicyInput", "StrictQuery", "StrictBody", "DecodeJSON":
+		case "WriteError", "RequireResponseProjection", "ResolveProjectionAudience", "OrdinaryPage", "ClientIPFrom", "ListenerFrom", "SetProjectionAudience", "EndpointGate", "ProjectionAudienceFrom", "EndpointPolicyFrom", "PolicyTargetFrom", "RequestIDFrom", "PolicyInput", "SetPolicyInput", "StrictQuery", "StrictBody", "DecodeJSON", "SupportCursor":
 			return true
 		}
 	}

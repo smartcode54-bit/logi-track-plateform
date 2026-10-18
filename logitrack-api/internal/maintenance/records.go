@@ -139,6 +139,10 @@ type StatusCounts map[string]int64
 // status takes the canonical or a legacy literal. The first page (no cursor) carries meta.statusCounts over every
 // record matching truckId and type.
 func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) ([]Record, string, StatusCounts, error) {
+	if authz.IsSupport(p) && in.Limit > 100 {
+		err := httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "limit", Reason: "out_of_range"})
+		return nil, "", nil, err
+	}
 	var ck checker
 	var truck *uuid.UUID
 	if in.TruckID != "" {
@@ -819,6 +823,9 @@ func (s *Service) saveTruck(ctx context.Context, tx pgx.Tx, q *maintenancedb.Que
 // maintenance.created (+ truck.updated) in one transaction (maintenance.ts:110-143 wrote them one by one). status
 // defaults to in_progress (the form's default).
 func (s *Service) Create(ctx context.Context, p *authz.Principal, rid string, in Input) (*Record, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if err := writeTenant(p); err != nil {
 		return nil, err
 	}
@@ -905,6 +912,9 @@ func CanTransition(from, to string) bool {
 // maintenance.reminder_requested (the legacy page's notifyMaintenanceReminder call, maintenance.ts:197-225). A request
 // that changes nothing writes nothing. truckId and the driver's fields are not editable.
 func (s *Service) Patch(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in Input) (*Record, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if err := writeTenant(p); err != nil {
 		return nil, err
 	}
@@ -1026,6 +1036,9 @@ const (
 // FCM maintenance_scheduled to the drivers of the record's truck, read server-side. An open record of the caller's
 // reach whose truck has a driver; else 409 failed_precondition (not_open, no_driver). It answers the event id.
 func (s *Service) Remind(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID, in RemindInput) (uuid.UUID, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return uuid.Nil, err
+	}
 	if err := writeTenant(p); err != nil {
 		return uuid.Nil, err
 	}

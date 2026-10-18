@@ -45,6 +45,7 @@ const (
 // TruckAssignment is one truck_assignments row (GET /v1/truck-assignments and the answer of both writes). The truck
 // and driver display columns are null when the caller cannot read that row; adminLabel is the legacy adminName.
 type TruckAssignment struct {
+	driverOwner string
 	ID          uuid.UUID  `json:"id"`
 	TenantID    uuid.UUID  `json:"tenantId"`
 	TruckID     uuid.UUID  `json:"truckId"`
@@ -60,7 +61,11 @@ type TruckAssignment struct {
 }
 
 func assignmentOf(r fleetdb.ListAssignmentsRow) TruckAssignment {
-	out := TruckAssignment{ID: r.ID, TenantID: r.TenantID, TruckID: r.TruckID, TruckPlate: r.TruckPlate,
+	owner := ""
+	if r.DriverTenantID != nil {
+		owner = r.DriverTenantID.String()
+	}
+	out := TruckAssignment{driverOwner: owner, ID: r.ID, TenantID: r.TenantID, TruckID: r.TruckID, TruckPlate: r.TruckPlate,
 		TruckModel: r.TruckModel, DriverID: r.DriverID, Status: r.Status, AdminUserID: r.AdminUserID,
 		AdminLabel: r.AdminLabel, CreatedAt: r.CreatedAt, RevokedAt: r.RevokedAt}
 	if r.DriverName != "" {
@@ -82,6 +87,14 @@ type ListAssignmentsInput struct {
 // document and kept 20). q (TW8, at most 100 characters, see searchParam) matches a substring of the plate, model, driver name or
 // admin label, case-insensitive: the page's search, on the server rather than over the pages it has loaded.
 func (s *Service) ListAssignments(ctx context.Context, p *authz.Principal, in ListAssignmentsInput) ([]TruckAssignment, string, error) {
+	if authz.IsSupport(p) && in.Limit > 100 {
+		err := httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "limit", Reason: "out_of_range"})
+		return nil, "", err
+	}
+	if authz.IsSupport(p) && in.Q != "" {
+		err := httpx.ErrSupportViewUnavailable()
+		return nil, "", err
+	}
 	var ck checker
 	var status *string
 	if in.Status != "" {
@@ -211,6 +224,9 @@ func statusEntry(ctx context.Context, q *fleetdb.Queries, p *authz.Principal, dr
 // current_assignment_id and status on_duty (with its status_history entry) and outbox assignment.created. Any
 // failure rolls all of it back. drivers.active_truck_* and tasks.truck_id are never touched.
 func (s *Service) CreateAssignment(ctx context.Context, p *authz.Principal, rid string, in AssignInput) (*TruckAssignment, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if _, err := writeTenant(p); err != nil {
 		return nil, err
 	}
@@ -305,6 +321,9 @@ func (s *Service) CreateAssignment(ctx context.Context, p *authz.Principal, rid 
 // another active assignment stays. Outbox assignment.revoked goes to the fleet topics of the row's tenant and the
 // driver's. Unlike the legacy code it never reactivates an inactive driver.
 func (s *Service) RevokeAssignment(ctx context.Context, p *authz.Principal, rid string, id uuid.UUID) (*TruckAssignment, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if _, err := writeTenant(p); err != nil {
 		return nil, err
 	}

@@ -306,6 +306,9 @@ func rowViolations(err error) ([]httpx.FieldViolation, bool) {
 // status_history entry and outbox truck.created / truck.updated. dryRun runs the same checks and writes, then rolls
 // everything back.
 func (s *Service) ImportTrucks(ctx context.Context, p *authz.Principal, rid string, in ImportInput) (*ImportResult, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	own, err := writeTenant(p)
 	if err != nil {
 		return nil, err

@@ -87,13 +87,14 @@ type Principal struct {
 	PartyIDs   []uuid.UUID    // cs: billing_parties.id of the customer scopes or the dispatcher grant
 
 	// Session context and consent are verified against PostgreSQL on every session-backed request.
-	AccessMode           string // member | support (sm)
-	ContextVersion       int64  // scv; absent legacy claims mean zero
-	SupportAccessVersion int64  // sacv
-	SupportAccessEnabled bool
-	SupportLabelVersions map[string]int64
-	SupportVisitID       uuid.UUID
-	PlatformCapabilities CapSet
+	AccessMode               string // member | support (sm)
+	ContextVersion           int64  // scv; absent legacy claims mean zero
+	SupportAccessVersion     int64  // sacv
+	SupportAccessEnabled     bool
+	SupportDataLabelVersions map[string]int64 // organization-label provenance read by Fleet
+	SupportLabelVersions     map[string]int64
+	SupportVisitID           uuid.UUID
+	PlatformCapabilities     CapSet
 
 	// APIKeyID is set when the request carried X-Api-Key (T32): the key of a machine principal, or the
 	// attribution of a cf_shim request made for an end user.

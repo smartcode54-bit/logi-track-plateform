@@ -27,7 +27,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	return []ingress.Group{
 		{Prefix: LocationsPrefix, Mount: func(r fiber.Router) {
-			r.Get("", requireAuth, authz.RequireCap(authz.FleetViewLiveMap, authz.DispatchViewOperations), h.list)
+			ingress.Bind(r, "", supportPolicy(LocationsPrefix, "locations.location", "", "truckId", "truckId[]"), requireAuth, authz.RequireCap(authz.FleetViewLiveMap, authz.DispatchViewOperations), h.list)
 		}},
 		{Prefix: ProbePrefix, Mount: func(r fiber.Router) {
 			r.Get("/probe", requireAuth, authz.RequirePlatform(authz.PlatformAdmin), h.probe)
@@ -67,12 +67,22 @@ func (h handlers) list(c fiber.Ctx) error {
 	if len(ids) > MaxTruckIDs {
 		return httpx.ErrInvalidArgument(httpx.FieldViolation{Field: "truckId", Reason: "too_many", Params: map[string]any{"max": MaxTruckIDs}})
 	}
+	if authz.IsSupport(p) && c.Query("truckId") != "" && c.Query("truckId[]") != "" {
+		return httpx.ErrSupportViewUnavailable()
+	}
 	out, err := h.s.List(c.Context(), p, ids)
 	if err != nil {
 		return err
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")
-	return httpx.JSON(c, http.StatusOK, out)
+	if authz.IsSupport(p) {
+		rows, ok := out.([]Location)
+		if !ok {
+			return httpx.ErrSupportProjectionUnavailable()
+		}
+		return httpx.JSON(c, http.StatusOK, rows)
+	}
+	return httpx.OrdinaryPage(c, out, "", nil)
 }
 
 // probe is GET /v1/admin/cartrack/probe: 200 with the outcome once the worker ran the probe, 202 with the job id while

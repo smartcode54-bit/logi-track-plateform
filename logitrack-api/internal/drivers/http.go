@@ -29,9 +29,9 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 	h := handlers{s}
 	need := authz.RequireCap
 	return []ingress.Group{{Prefix: Prefix, Mount: func(r fiber.Router) {
-		r.Get("", requireAuth, need(authz.DriversView, authz.DispatchViewOperations), h.list)
+		ingress.Bind(r, "", supportPolicy(Prefix, "drivers.driver", "drivers.meta", "status", "q", "fields", "tenantId", "limit", "cursor"), requireAuth, need(authz.DriversView, authz.DispatchViewOperations), h.list)
 		r.Post("", requireAuth, need(authz.DriversCreate), h.create)
-		r.Get("/:id", requireAuth, need(authz.DriversView), h.get)
+		ingress.Bind(r, "/:id", supportPolicy(Prefix+"/:id", "drivers.detail", ""), requireAuth, need(authz.DriversView), h.get)
 		r.Patch("/:id", requireAuth, need(authz.DriversEdit), h.patch)
 		r.Get("/:id/documents/:kind", requireAuth, need(authz.DriversViewPII), h.document)
 	}}}
@@ -91,12 +91,31 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	out, next, meta, err := h.s.List(c.Context(), p, ListInput{Status: c.Query("status"), Q: c.Query("q"),
-		Fields: c.Query("fields"), TenantID: c.Query("tenantId"), Limit: limit, Cursor: c.Query("cursor")})
+	cursor, err := httpx.SupportCursor(c)
 	if err != nil {
 		return err
 	}
-	return httpx.Page(c, out, next, meta)
+	out, next, meta, err := h.s.List(c.Context(), p, ListInput{Status: c.Query("status"), Q: c.Query("q"),
+		Fields: c.Query("fields"), TenantID: c.Query("tenantId"), Limit: limit, Cursor: cursor})
+	if err != nil {
+		return err
+	}
+	if authz.IsSupport(p) {
+		if c.Query("fields") == FieldsMinimal {
+			rows, ok := out.([]DriverMinimal)
+			if !ok {
+				return httpx.ErrSupportProjectionUnavailable()
+			}
+			return httpx.SupportPage(c, "drivers.minimal", rows, next, meta)
+		}
+		rows, ok := out.([]Driver)
+		if !ok {
+			return httpx.ErrSupportProjectionUnavailable()
+		}
+		supportLabelVersions(c, rows)
+		return httpx.SupportPage(c, "drivers.driver", rows, next, meta)
+	}
+	return httpx.OrdinaryPage(c, out, next, meta)
 }
 
 func (h handlers) get(c fiber.Ctx) error {
@@ -118,6 +137,7 @@ func (h handlers) get(c fiber.Ctx) error {
 	if out.PII != nil {
 		c.Set(fiber.HeaderCacheControl, "private, no-store")
 	}
+	supportLabelVersions(c, out)
 	return httpx.JSON(c, http.StatusOK, out)
 }
 

@@ -72,6 +72,9 @@ func PMNotes(mileage, next int64) string {
 //
 // A truck outside the caller's reach is truck_not_found and changes nothing.
 func (s *Service) CheckPMInTx(ctx context.Context, tx pgx.Tx, p *authz.Principal, rid string, truckID uuid.UUID, mileage int32) (PMResult, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return PMResult{}, err
+	}
 	q := maintenancedb.New(tx)
 	t, err := lockTruck(ctx, q, p, truckID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -164,6 +167,9 @@ const MaxMileage = 10_000_000
 // PMCheck is POST /v1/trucks/{id}/pm-check (accounting:audit_expense; checkMaintenanceAlert, which any caller could
 // run): CheckPMInTx in its own transaction for a truck of the caller's reach (404 otherwise).
 func (s *Service) PMCheck(ctx context.Context, p *authz.Principal, rid string, truckID uuid.UUID, in PMCheckInput) (*PMResult, error) {
+	if err := authz.RequireTenantWrite(p); err != nil {
+		return nil, err
+	}
 	if err := writeTenant(p); err != nil {
 		return nil, err
 	}
