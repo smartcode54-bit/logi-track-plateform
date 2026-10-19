@@ -433,7 +433,7 @@ func expect(t *testing.T, r resp, status int, code string) {
 	}
 }
 
-// upload presigns purpose for the caller, sends the bytes to the signed local URL and returns the key.
+// upload presigns purpose for the caller, sends bytes through the web broker or legacy signed URL and returns the key.
 func (w *world) upload(bearer, purpose, entityID, variant, contentType string, body []byte) string {
 	w.t.Helper()
 	r := w.post("/v1/uploads/presign", bearer, map[string]any{"purpose": purpose, "entityId": entityID, "variant": variant,
@@ -447,6 +447,10 @@ func (w *world) upload(bearer, purpose, entityID, variant, contentType string, b
 	}
 	for k, v := range r.data()["headers"].(map[string]any) {
 		req.Header.Set(k, v.(string))
+	}
+	// Web-session grants use the authenticated broker; legacy signed PUTs stay unsigned.
+	if strings.HasPrefix(u, "/v1/uploads/") && strings.HasSuffix(u, "/content") {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

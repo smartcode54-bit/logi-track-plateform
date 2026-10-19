@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -696,7 +697,7 @@ func anyStrings(v any) []string {
 	return out
 }
 
-// upload presigns a chat image for the chat, sends the bytes to the signed local URL and returns the key.
+// upload presigns a chat image for the chat, sends bytes through the web broker or legacy signed URL and returns the key.
 func (w *world) upload(bearer, chat string) string {
 	w.t.Helper()
 	body := append([]byte("\xff\xd8\xff\xe0\x00\x10JFIF\x00"), bytes.Repeat([]byte{7}, 64)...)
@@ -710,6 +711,10 @@ func (w *world) upload(bearer, chat string) string {
 	}
 	for k, v := range r.data()["headers"].(map[string]any) {
 		put.Header.Set(k, v.(string))
+	}
+	// Web-session grants use the authenticated broker; legacy signed PUTs stay unsigned.
+	if strings.HasPrefix(u, "/v1/uploads/") && strings.HasSuffix(u, "/content") {
+		put.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	res, err := http.DefaultClient.Do(put)
 	if err != nil {
