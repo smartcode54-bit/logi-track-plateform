@@ -202,7 +202,9 @@ func (s *Service) Drain() { s.hub.Drain() }
 // handlers and never reads s, so cmd/api `routes` can pass a nil *Service.
 func (s *Service) Groups(requireAuth fiber.Handler) []ingress.Group {
 	return []ingress.Group{
-		{Prefix: "/v1/events", Mount: func(r fiber.Router) { r.Get("", s.markSince, requireAuth, s.handleWeb) }},
+		{Prefix: "/v1/events", Mount: func(r fiber.Router) {
+			ingress.Bind(r, "", supportEventsPolicy(), s.markSince, requireAuth, s.handleWeb)
+		}},
 		{Prefix: "/v1/mobile", Public: true, Mount: s.MountMobile},
 	}
 }
@@ -250,6 +252,20 @@ func (s *Service) handleWeb(c fiber.Ctx) error {
 		s.refused.WithLabelValues("unavailable").Inc()
 		return errUnavailable(c, mark.err)
 	}
+	if authz.IsSupport(p) {
+		if _, err := httpx.StrictQuery(c, "topics", QueryLastEventID); err != nil {
+			return err
+		}
+		requested, err := splitTopics(c.Query("topics"))
+		if err != nil {
+			return httpx.ErrSupportViewUnavailable()
+		}
+		for _, topic := range requested {
+			if !slices.Contains(WebTopics(p), topic) {
+				return httpx.ErrSupportViewUnavailable()
+			}
+		}
+	}
 	topics, err := s.topics(c.Context(), p, WebTopics(p), c.Query("topics"))
 	if err != nil {
 		return err
@@ -293,7 +309,7 @@ func (s *Service) handleMobile(c fiber.Ctx) error {
 func headOnly(c fiber.Ctx) error {
 	c.Set(fiber.HeaderContentType, fiber.MIMETextEventStream)
 	c.Set(fiber.HeaderCacheControl, "no-cache, no-transform")
-	return c.SendStatus(http.StatusOK)
+	return httpx.OrdinaryStatus(c, http.StatusOK)
 }
 
 // checkQuery refuses query parameters outside allowed (400 bad_request, Appendix B §B.1.5); a ticket
@@ -463,6 +479,11 @@ func (s *Service) serve(c fiber.Ctx, p *authz.Principal, kind string, topics []s
 	if badID {
 		snap.Resync = rt.ResyncUnknownID
 	}
+	if authz.IsSupport(p) {
+		st.supportCheck = supportCheck(p, httpx.ProjectionAudienceFrom(c))
+		st.supportTopics = slices.Clone(topics)
+		st.supportTenant = httpx.ProjectionAudienceFrom(c).Tenant
+	}
 	st.snap = snap
 	for _, m := range snap.Control {
 		if end := st.ends(m); end != "" {
@@ -483,7 +504,10 @@ func (s *Service) serve(c fiber.Ctx, p *authz.Principal, kind string, topics []s
 	c.RequestCtx().SetConnectionClose()
 	c.Status(http.StatusOK)
 	s.open.WithLabelValues(kind).Inc()
-	return c.SendStreamWriter(st.run)
+	if authz.IsSupport(p) {
+		return st.supportStream(c)
+	}
+	return httpx.OrdinaryStreamWriter(c, st.run)
 }
 
 // configTopic is tenant:{tid}:config of the principal's effective tenant, "" without one.
@@ -526,17 +550,20 @@ func (s *Service) release(userID, streamID string) {
 
 // stream is one open response; run executes on the response's stream-writer goroutine.
 type stream struct {
-	s            *Service
-	kind         string
-	userID       string
-	streamID     string
-	sessionID    uuid.UUID
-	tenantConfig string
-	sub          *rt.Subscription
-	snap         rt.Snapshot
-	life         time.Duration
-	conn         net.Conn
-	log          zerolog.Logger
+	s             *Service
+	kind          string
+	userID        string
+	streamID      string
+	sessionID     uuid.UUID
+	supportCheck  func(context.Context) error
+	supportTopics []string
+	supportTenant string
+	tenantConfig  string
+	sub           *rt.Subscription
+	snap          rt.Snapshot
+	life          time.Duration
+	conn          net.Conn
+	log           zerolog.Logger
 	// pending is the first event of the control window (Snapshot.Control) that ends a stream, and
 	// pendingEnd why: the stream delivers it right after its opening frames and ends, as it would live.
 	pending    rt.Message
@@ -731,6 +758,12 @@ func (st *stream) deliver(w *bufio.Writer, m rt.Message) (end string, err error)
 		return "", nil
 	}
 	data := m.Data
+	if st.supportCheck != nil {
+		if !slices.Contains(st.supportTopics, m.Topic) || !st.supportEventAdmitted(m) {
+			return "", nil
+		}
+		data = json.RawMessage("{}")
+	}
 	if len(data) == 0 {
 		data = json.RawMessage("{}")
 	}
@@ -797,6 +830,11 @@ func (st *stream) revokes(data json.RawMessage) bool {
 
 // write sends one frame, bounded by WriteTimeout on the connection.
 func (st *stream) write(w *bufio.Writer, frame []byte) error {
+	if st.supportCheck != nil {
+		if err := st.supportCheck(context.Background()); err != nil {
+			return err
+		}
+	}
 	if st.conn != nil {
 		_ = st.conn.SetWriteDeadline(time.Now().Add(WriteTimeout))
 	}

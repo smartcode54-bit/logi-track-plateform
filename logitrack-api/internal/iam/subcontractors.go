@@ -280,6 +280,13 @@ func (a *Admin) GetSubcontractor(c call, id uuid.UUID) (*Subcontractor, error) {
 				doc.URL = &u
 			}
 		}
+		if authz.IsSupport(c.p) {
+			doc.Key = nil
+			if c.p.SupportAccessEnabled {
+				u := storage.SupportFilePath(r.FileID)
+				doc.URL = &u
+			}
+		}
 		out.Documents = append(out.Documents, doc)
 	}
 	return out, nil

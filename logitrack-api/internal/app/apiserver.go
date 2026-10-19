@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gofiber/fiber/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
@@ -133,12 +132,11 @@ func SSELease(ping time.Duration) time.Duration { return 3 * ping }
 func JobGroups(d APIDeps) []ingress.Group {
 	return d.Jobs.Groups(jobs.HTTPOptions{
 		Auth: d.Auth.RequireAuth(),
-		Caller: func(c fiber.Ctx) (jobs.Caller, bool) {
-			p := auth.PrincipalFrom(c)
+		Caller: func(p *authz.Principal) (jobs.Caller, bool) {
 			if p == nil {
 				return jobs.Caller{}, false
 			}
-			return jobs.Caller{UserID: p.UserID, PlatformAdmin: !authz.IsSupport(p) && p.HasPlatform(authz.PlatformAdmin),
+			return jobs.Caller{UserID: p.UserID, Support: authz.IsSupport(p), PlatformAdmin: !authz.IsSupport(p) && p.HasPlatform(authz.PlatformAdmin),
 				PlatformSupport: !authz.IsSupport(p) && p.HasPlatform(authz.Support), TenantID: p.EffectiveTenant(), Can: p.Can}, true
 		},
 	})

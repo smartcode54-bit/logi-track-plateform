@@ -289,6 +289,19 @@ describe("proxyToGo", () => {
             expect(seen.headers["content-type"]).toBe("image/jpeg");
         });
 
+        it("streams authenticated context-bound uploads on either backend", async () => {
+            const endpoint = "/v1/uploads/00000000-0000-4000-8000-000000000001/content";
+            go.on("PUT",endpoint,r=>({status:200,body:{data:{size:r.body.length}}}));
+            const req=upload("/api/go"+endpoint,6,60);
+            req.headers.set("Cookie","lt_at=broker.access.jwt");
+            const res=await proxyToGo(req,{config:go.config({goTimeoutMs:100})});
+            expect(res.status).toBe(200);
+            const [seen]=go.calls("PUT",endpoint);
+            expect(seen.headers["content-length"]).toBe(String(6*1024));
+            expect(seen.headers.authorization).toBe("Bearer broker.access.jwt");
+            expect(seen.headers["transfer-encoding"]).toBeUndefined();
+        });
+
         it("keeps GO_API_INTERNAL_TIMEOUT_MS and a chunked body on every other route", async () => {
             go.on("PUT", "/v1/customers/c1", () => ({ status: 200, body: { data: {} } }));
             const slow = await proxyToGo(upload("/api/go/v1/customers/c1", 6, 60), { config: go.config({ goTimeoutMs: 100 }) });
@@ -329,5 +342,18 @@ describe("proxyToGo", () => {
         const res = await proxyToGo(webRequest("/api/go/v1/me"));
         expect(res.status).toBe(500);
         expect((await envelope(res)).code).toBe("internal");
+    });
+});
+
+describe("support file broker transport",()=>{
+    it.each(["GET","HEAD"])("preserves hardened headers on %s and sends Range",async(method)=>{
+        const path="/v1/support/files/00000000-0000-4000-8000-000000000001/content";
+        go.on(method,path,()=>({status:206,headers:{"Content-Type":"application/pdf","Cache-Control":"private, no-store","Content-Security-Policy":"sandbox; default-src 'none'","X-Content-Type-Options":"nosniff","Content-Disposition":"attachment; filename=\"document.pdf\"","Content-Range":"bytes 0-3/10","Accept-Ranges":"bytes"},body:method==="HEAD"?undefined:"%PDF"}));
+        const res=await proxyToGo(webRequest("/api/go"+path,{method,headers:{Range:"bytes=0-3"},cookies:{lt_at:"support.jwt"}}),{config:go.config()});
+        expect(res.status).toBe(206);
+        for(const [key,value] of Object.entries({"Content-Type":"application/pdf","Cache-Control":"private, no-store","Content-Security-Policy":"sandbox; default-src 'none'","X-Content-Type-Options":"nosniff","Content-Disposition":"attachment; filename=\"document.pdf\"","Content-Range":"bytes 0-3/10","Accept-Ranges":"bytes"}))expect(res.headers.get(key)).toBe(value);
+        expect(go.calls(method,path)[0].headers.range).toBe("bytes=0-3");
+        expect(res.headers.get("Location")).toBeNull();
+        if(method==="HEAD")expect(await res.text()).toBe("");
     });
 });

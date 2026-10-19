@@ -415,7 +415,7 @@ func (a *analyzer) check() error {
 	for _, r := range a.roots {
 		s, ok := a.schemas[r.schema]
 		if !ok && r.schema != "empty" && !a.streams[r.schema] {
-			a.errors = append(a.errors, "supportprojection: missing schema "+r.schema)
+			a.errors = append(a.errors, fmt.Sprintf("%s: supportprojection: missing schema %q", a.fset.Position(r.handlers[0].Pos()), r.schema))
 			continue
 		}
 		seen := map[string]bool{}
@@ -469,6 +469,18 @@ func (a *analyzer) check() error {
 					if r.schema != "empty" {
 						a.fail(call, "unregistered bodyless response")
 					}
+					return true
+				}
+				if api(call.Fun, ci, "/internal/platform/httpx", "StreamPipe") {
+					if !strings.HasPrefix(r.schema, "stream:") {
+						a.fail(call, "stream source pipe outside a registered stream")
+					}
+					return false
+				}
+				if api(call.Fun, ci, "/internal/platform/httpx", "OrdinaryStatus") {
+					return true
+				}
+				if api(call.Fun, ci, "/internal/platform/httpx", "OrdinaryStreamWriter") {
 					return true
 				}
 				if api(call.Fun, ci, "/internal/platform/httpx", "Stream") {
@@ -560,7 +572,7 @@ func trustedContextCall(obj types.Object) bool {
 	}
 	if obj.Pkg().Path() == module+"/internal/platform/httpx" {
 		switch obj.Name() {
-		case "WriteError", "RequireResponseProjection", "ResolveProjectionAudience", "OrdinaryPage", "ClientIPFrom", "ListenerFrom", "SetProjectionAudience", "EndpointGate", "ProjectionAudienceFrom", "EndpointPolicyFrom", "PolicyTargetFrom", "RequestIDFrom", "PolicyInput", "SetPolicyInput", "StrictQuery", "StrictBody", "DecodeJSON", "SupportCursor":
+		case "WriteError", "RequireResponseProjection", "ResolveProjectionAudience", "OrdinaryPage", "OrdinaryRedirect", "ClientIPFrom", "ListenerFrom", "SetProjectionAudience", "EndpointGate", "ProjectionAudienceFrom", "EndpointPolicyFrom", "PolicyTargetFrom", "RequestIDFrom", "PolicyInput", "SetPolicyInput", "StrictQuery", "StrictBody", "DecodeJSON", "SupportCursor":
 			return true
 		}
 	}

@@ -3,6 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/rs/zerolog"
@@ -68,7 +69,13 @@ func Page(c fiber.Ctx, items any, nextCursor string, meta any) error {
 func WriteError(c fiber.Ctx, e *Error) error {
 	if projectionRequired(c) {
 		retryAfter := c.GetRespHeader(fiber.HeaderRetryAfter)
+		rangeSize := strings.TrimPrefix(c.GetRespHeader("Content-Range"), "bytes */")
 		cleanProjectionHeaders(c)
+		if e.Status == fiber.StatusRequestedRangeNotSatisfiable && e.Code == "range_not_satisfiable" {
+			if n, err := strconv.ParseInt(rangeSize, 10, 64); err == nil && n >= 0 && strconv.FormatInt(n, 10) == rangeSize {
+				c.Set("Content-Range", "bytes */"+rangeSize)
+			}
+		}
 		// Error codes require review; messages and free text never cross projection.
 		code, status := e.Code, e.Status
 		message := "request refused"

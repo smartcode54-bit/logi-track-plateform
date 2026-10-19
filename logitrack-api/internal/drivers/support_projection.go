@@ -74,6 +74,9 @@ var _ = httpx.NewSchema[DriverDetail]("drivers.detail", func() map[string]httpx.
 	for k, v := range supportFields("idCardExpiredDate birthDate", "idCard", "", "", "", "profileKey profileUrl idCardKey idCardUrl licenseKey licenseUrl") {
 		f[k] = v
 	}
+	for _, name := range []string{"profileUrl", "idCardUrl", "licenseUrl"} {
+		f[name] = httpx.Field{Kind: httpx.File, BrokerPath: true}
+	}
 	f["customerDriverIds"] = httpx.Field{Kind: httpx.Nested, Schema: customerIDSchema}
 	f["statusHistory"] = httpx.Field{Kind: httpx.Nested, Schema: statusSchema}
 	f["login"] = httpx.Field{Kind: httpx.Nested, Schema: loginSchema}

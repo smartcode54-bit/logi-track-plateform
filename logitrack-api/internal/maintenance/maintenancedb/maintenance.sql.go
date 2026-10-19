@@ -251,29 +251,30 @@ SELECT m.id, m.legacy_doc_id, m.tenant_id, m.tenant_source, m.truck_id, m.truck_
        coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
        coalesce(t.brand, m.truck_brand_snapshot, '')::text AS brand,
        t.model AS truck_model, t.ownership_type AS truck_ownership, t.status AS truck_status,
-       coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
+       coalesce((SELECT array_agg(CASE WHEN $1::boolean THEN f.id::text ELSE f.object_key END ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
                  WHERE mf.maintenance_id = m.id AND mf.kind = 'image'), '{}')::text[] AS image_keys,
-       coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
+       coalesce((SELECT array_agg(CASE WHEN $1::boolean THEN f.id::text ELSE f.object_key END ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
                  WHERE mf.maintenance_id = m.id AND mf.kind = 'receipt'), '{}')::text[] AS receipt_keys,
-       coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
+       coalesce((SELECT array_agg(CASE WHEN $1::boolean THEN f.id::text ELSE f.object_key END ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
                  WHERE mf.maintenance_id = m.id AND mf.kind = 'invoice'), '{}')::text[] AS invoice_keys
 FROM maintenance_records m
 LEFT JOIN trucks t ON t.id = m.truck_id
-WHERE ($1::boolean OR m.tenant_id = ANY ($2::uuid[]))
-  AND ($3::uuid IS NULL OR m.truck_id = $3::uuid)
-  AND ($4::text IS NULL OR m.status = $4::text)
-  AND ($5::text IS NULL OR m.maintenance_type = $5::text)
-  AND ($6::uuid IS NULL OR m.id = $6::uuid)
-  AND ($7::timestamptz IS NULL
-       OR (m.created_at, m.id) < ($7::timestamptz, $8::uuid))
+WHERE ($2::boolean OR m.tenant_id = ANY ($3::uuid[]))
+  AND ($4::uuid IS NULL OR m.truck_id = $4::uuid)
+  AND ($5::text IS NULL OR m.status = $5::text)
+  AND ($6::text IS NULL OR m.maintenance_type = $6::text)
+  AND ($7::uuid IS NULL OR m.id = $7::uuid)
+  AND ($8::timestamptz IS NULL
+       OR (m.created_at, m.id) < ($8::timestamptz, $9::uuid))
 ORDER BY m.created_at DESC, m.id DESC
-LIMIT $9
+LIMIT $10
 `
 
 type ListMaintenanceParams struct {
+	BrokerFiles     bool
 	AllTenants      bool
 	TenantIds       []uuid.UUID
 	TruckID         *uuid.UUID
@@ -342,6 +343,7 @@ type ListMaintenanceRow struct {
 // no truck, and the ETL snapshots no brand); the file keys are aggregated per kind in position order.
 func (q *Queries) ListMaintenance(ctx context.Context, arg ListMaintenanceParams) ([]ListMaintenanceRow, error) {
 	rows, err := q.db.Query(ctx, listMaintenance,
+		arg.BrokerFiles,
 		arg.AllTenants,
 		arg.TenantIds,
 		arg.TruckID,

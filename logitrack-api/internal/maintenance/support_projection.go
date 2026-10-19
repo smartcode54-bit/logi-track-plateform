@@ -32,7 +32,7 @@ func supportPolicy(route, schema, meta string, query ...string) httpx.EndpointPo
 	panic("maintenance: unreviewed support route")
 }
 
-var filesSchema = httpx.NewSchema[RecordFiles]("maintenance.files", supportFields("", "", "", "", "", "images receipts invoices"))
+var filesSchema = httpx.NewSchema[RecordFiles]("maintenance.files", map[string]httpx.Field{"images": {Kind: httpx.File, BrokerPath: true}, "receipts": {Kind: httpx.File, BrokerPath: true}, "invoices": {Kind: httpx.File, BrokerPath: true}})
 var _ = httpx.NewSchema[Record]("maintenance.record", func() map[string]httpx.Field {
 	f := supportFields("id tenantId truckId licensePlate truckBrand truckModel truckOwnership truckStatus type startDate endDate status appointmentTime pickupAppointmentAt paymentMethod currentMileage nextServiceMileage driverSubmitted checkInAt checkOutAt createdBy updatedBy createdAt updatedAt", "", "costLaborThb costPartsThb totalCostThb invoiceAmountThb displayCostThb", "serviceType provider notes", "", "")
 	f["providerLat"] = httpx.Field{Kind: httpx.Address}

@@ -186,7 +186,7 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) ([
 	}
 	all, tenants := p.TenantReach()
 	arg := maintenancedb.ListMaintenanceParams{AllTenants: all, TenantIds: tenants, TruckID: truck, Status: status,
-		MaintenanceType: typ, RowLimit: int32(limit) + 1}
+		MaintenanceType: typ, RowLimit: int32(limit) + 1, BrokerFiles: authz.IsSupport(p) && p.SupportAccessEnabled}
 	if after != nil {
 		arg.AfterCreated, arg.AfterID = &after.T, after.ID
 	}
@@ -225,7 +225,19 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) ([
 	}
 	out := make([]Record, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, recordOf(r))
+		item := recordOf(r)
+		if authz.IsSupport(p) && p.SupportAccessEnabled {
+			for _, files := range [][]string{item.Files.Images, item.Files.Receipts, item.Files.Invoices} {
+				for i, value := range files {
+					id, err := uuid.Parse(value)
+					if err != nil {
+						return nil, "", nil, httpx.ErrSupportViewUnavailable()
+					}
+					files[i] = storage.SupportFilePath(id)
+				}
+			}
+		}
+		out = append(out, item)
 	}
 	return out, next, counts, nil
 }

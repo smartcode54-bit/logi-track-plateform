@@ -92,7 +92,7 @@ func TestSupportFleetExactReachProjectionAndNoSigning(t *testing.T) {
 	expect(t, w.get("/v1/drivers/"+foreignDriver, support), 404, "not_found")
 	for _, kind := range []string{"profile", "id_card", "license"} {
 		r = w.get("/v1/drivers/"+driver+"/documents/"+kind, support)
-		expect(t, r, 403, "support_view_unavailable")
+		expect(t, r, 403, "support_access_masked")
 		if r.header.Get("Location") != "" {
 			t.Fatal(r.header)
 		}
@@ -143,7 +143,7 @@ func TestSupportFleetExactReachProjectionAndNoSigning(t *testing.T) {
 		t.Fatal(string(r.raw))
 	}
 	supportNoLeak(t, r, "FILE_KEY_SENTINEL")
-	expect(t, w.get("/v1/drivers/"+driver+"/documents/license", support), 403, "support_view_unavailable")
+	expect(t, w.get("/v1/drivers/"+driver+"/documents/license", support), 404, "not_found")
 	if w.signing.calls.Load() != 0 {
 		t.Fatal("ON called signer")
 	}

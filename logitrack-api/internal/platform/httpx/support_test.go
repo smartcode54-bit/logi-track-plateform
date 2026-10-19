@@ -461,3 +461,43 @@ func TestOrdinaryPagesAndTypedVariantsFailClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestBrokerHTTPRangeHeadAndRefusalHeaders(t *testing.T) {
+	adapter := httpx.NewStreamAdapter("test.range-http", "fleet", []string{"application/pdf"}, false, func(c fiber.Ctx) (httpx.StreamSource, error) {
+		return httpx.StreamSource{Tenant: "A", ContentType: "application/pdf", KnownSize: true, Size: 10, Check: func(context.Context) error { return nil }, Open: func(context.Context) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("0123456789")), nil
+		}}, nil
+	})
+	app := setup(audience(true), func(r fiber.Router) {
+		p := policy("GET", "/v1/range", "stream:test.range-http")
+		p.AllowHEAD = true
+		ingress.Bind(r, "/range", p, func(c fiber.Ctx) error { return httpx.Stream(c, adapter) })
+	})
+	for _, tc := range []struct {
+		method, rangeValue, body, contentRange string
+		status                                 int
+	}{
+		{"GET", "bytes=2-4", "234", "bytes 2-4/10", 206},
+		{"HEAD", "bytes=-3", "", "bytes 7-9/10", 206},
+		{"GET", "bytes=20-", "", "bytes */10", 416},
+		{"GET", "bytes=0-1,3-4", "", "bytes */10", 416},
+	} {
+		req := httptest.NewRequest(tc.method, "/v1/range", nil)
+		req.Header.Set("Range", tc.rangeValue)
+		res, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if res.StatusCode != tc.status || res.Header.Get("Content-Range") != tc.contentRange || res.Header.Get("Content-Security-Policy") != "sandbox; default-src 'none'" || res.Header.Get("Cache-Control") != "private, no-store" {
+			t.Fatal(tc, res.StatusCode, res.Header, string(body))
+		}
+		if tc.status == 206 && string(body) != tc.body {
+			t.Fatal(tc, string(body))
+		}
+		if tc.status == 416 && !strings.Contains(string(body), `"code":"range_not_satisfiable"`) {
+			t.Fatal(string(body))
+		}
+	}
+}

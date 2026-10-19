@@ -385,7 +385,12 @@ func (s *Service) GetTruck(ctx context.Context, p *authz.Principal, id uuid.UUID
 			continue
 		}
 		if authz.IsSupport(p) {
-			d.Files[kind.json] = append(d.Files[kind.json], TruckFile{})
+			item := TruckFile{}
+			if p.SupportAccessEnabled {
+				u := storage.SupportFilePath(f.FileID)
+				item.URL = &u
+			}
+			d.Files[kind.json] = append(d.Files[kind.json], item)
 			continue
 		}
 		if s.files == nil {

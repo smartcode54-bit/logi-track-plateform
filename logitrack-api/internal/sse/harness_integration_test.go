@@ -73,7 +73,7 @@ type world struct {
 	own, other string
 }
 
-func newWorld(t *testing.T) *world {
+func newWorld(t *testing.T, supportEntry ...bool) *world {
 	t.Helper()
 	ctx := context.Background()
 	d := pgtest.NewDatabase(t)
@@ -113,7 +113,8 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	if w.auth, err = auth.New(auth.Config{
-		RefreshTTLWeb: 168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour, PasswordResetTTL: 30 * time.Minute,
+		SupportEntryEnabled: len(supportEntry) > 0 && supportEntry[0],
+		RefreshTTLWeb:       168 * time.Hour, RefreshTTLMobile: 2160 * time.Hour, PasswordResetTTL: 30 * time.Minute,
 	}, auth.Deps{
 		Pool: w.pool, Store: auth.NewStore(w.rdb, w.ks.Prefix()), Limiter: ratelimit.New(w.rdb, w.ks, zerolog.Nop()),
 		Keys: w.keys, Hasher: hasher, Policy: policy, Log: zerolog.Nop(), Capabilities: rbac, Authorizer: rbac,

@@ -64,7 +64,7 @@ func tenantDetailFields() map[string]httpx.Field {
 }
 
 var _ = httpx.NewSchema[TenantDetail]("iam.tenant-detail", tenantDetailFields(), func(t TenantDetail) string { return t.ID.String() })
-var tenantDocumentSchema = httpx.NewSchema[TenantDocument]("iam.tenant-document", map[string]httpx.Field{"fileId": {Kind: httpx.File}, "key": {Kind: httpx.Secret}, "url": {Kind: httpx.File}, "kind": {Kind: httpx.Safe}, "position": {Kind: httpx.Safe}})
+var tenantDocumentSchema = httpx.NewSchema[TenantDocument]("iam.tenant-document", map[string]httpx.Field{"fileId": {Kind: httpx.File}, "key": {Kind: httpx.Secret}, "url": {Kind: httpx.File, BrokerPath: true}, "kind": {Kind: httpx.Safe}, "position": {Kind: httpx.Safe}})
 var _ = httpx.NewSchema[Subcontractor]("iam.subcontractor", func() map[string]httpx.Field {
 	f := tenantDetailFields()
 	f["documents"] = httpx.Field{Kind: httpx.Nested, Schema: tenantDocumentSchema}

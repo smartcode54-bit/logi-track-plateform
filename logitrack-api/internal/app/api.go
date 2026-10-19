@@ -141,7 +141,7 @@ func (a *API) uploadLimit(app *fiber.App, uploads []ingress.Upload) {
 			if !strings.HasPrefix(p, u.Prefix) {
 				continue
 			}
-			n := u.Limit(ingress.UploadHead{Path: p, Query: q, ContentType: string(h.ContentType()), ContentLength: h.ContentLength()})
+			n := u.Limit(ingress.UploadHead{Path: p, Query: q, ContentType: string(h.ContentType()), ContentLength: h.ContentLength(), Authorization: string(h.Peek(fiber.HeaderAuthorization))})
 			if n > 0 && n <= max(a.cfg.UploadMaxBytes, storage.MaxReleaseBytes) {
 				return fasthttp.RequestConfig{MaxRequestBodySize: int(n), ReadTimeout: UploadReadTimeout}
 			}

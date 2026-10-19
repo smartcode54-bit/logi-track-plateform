@@ -48,6 +48,7 @@ type Group struct {
 // (-1 chunked, -2 none).
 type UploadHead struct {
 	Path, Query, ContentType string
+	Authorization            string
 	ContentLength            int
 }
 

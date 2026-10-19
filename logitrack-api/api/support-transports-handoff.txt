@@ -1,0 +1,81 @@
+PSA P1.4 transport handoff (2026-10-19)
+
+Support entry remains OFF. Merge/build success does not authorize entry or production rollout.
+P1.5-P1.8 and the operational old-grant drain below remain required.
+
+FILES AND READY ARTIFACTS
+- GET/HEAD /v1/support/files/:fileId/content is an authenticated same-origin broker. Drivers'
+  /documents/:kind adapter uses the same source builder with an exact expected driver/purpose.
+- OFF refuses before storage I/O. ON requires a committed private file, exact selected tenant,
+  admitted owner/purpose, a current live domain reference, and a current session/consent version.
+  Foreign, unattached, pending, public evidence and deferred-domain objects remain unavailable ON.
+- The database content type and immutable size/hash are authoritative. PNG/JPEG/single-frame GIF
+  are decoded with bounded dimensions and re-encoded; PDF requires signature/EOF and downloads as
+  attachment document.pdf. Spoofed/corrupt/unsupported content refuses. Maximum source: 25 MiB.
+- Headers: private, no-store; X-Content-Type-Options nosniff; Content-Security-Policy
+  sandbox; default-src 'none'. No object key, presigned URL, Location, ETag or shared 304 escapes.
+  HEAD and a single byte range (including suffix) share authorization. Invalid/multiple ranges
+  return 416 with canonical Content-Range. Current-version/expiry checks guard first byte and
+  bounded 32 KiB chunks; revocation terminates an admitted stream. Already received bytes cannot
+  be revoked; consumers must discard their preview/blob when context/consent changes.
+- Fleet DTO file IDs/keys stay null. ON URL leaves use only canonical broker paths (string|null).
+  Existing ordinary/public gallery contracts remain separate. Public evidence URLs are never
+  returned to Support. No deferred report/document-generation job or ready export is admitted.
+
+WEB UPLOADS
+- With migration 0029 present, an ordinary web session presign returns PUT
+  /v1/uploads/:grantId/content on either Local or S3. BFF forwards this exact UUID route with the
+  browser's Content-Length, Content-Type and session; body timeout is 300 seconds.
+- storage_upload_grants binds file, user, session, tenant, auth version, session context version
+  and expiry. Broker upload AND commit recheck database identity/context/live refresh state.
+  Entering/leaving Support invalidates a prior grant. Resigning cannot rebind the same file.
+  Anonymous PUT, Support presign/commit and legacy Local PUT of a bound key refuse.
+- The new PUT broker takes the same file lock as commit, verifies type/size/hash, checks context
+  again after I/O and removes pending bytes on a stale grant. Mobile/shim legacy signed uploads
+  keep their current contract. No new dependencies or Functions/mobile production edits.
+- Schema readiness is checked before Support entry mutates identity. If 0029 is absent, Support
+  entry fails closed; ordinary pre-0029 uploads/commits retain their existing compatibility path.
+
+SSE
+- Support subscribes only to its own user, selected tenant config/Fleet and permitted vehicle
+  location topics. Global/platform/security, foreign and deferred-domain topics refuse ON/OFF.
+- Live and replay frames contain identifier invalidations with data:{}; never arbitrary event
+  JSON, names, coordinates, params, errors or results. Event names are allowlisted and IDs must
+  be canonical nonzero UUIDs. job.updated is admitted only for selected-tenant cartrack.sync,
+  using an explicit producer tenantId from the job's authoritative TenantID.
+- The registered SSE pipe rechecks live identity/consent before each frame/chunk and JWT expiry.
+  A missed consent outbox event still closes the stream; reconnect with the old context fails.
+
+JOBS
+- Only selected-tenant cartrack.sync jobs are readable, regardless of owner/platform shortcuts.
+  Params/result/error are always null. Progress keeps bounded nonnegative done/total counts only.
+  Lists have at most 100 rows and encrypted query/visit/context/consent-bound cursors. Foreign,
+  global, unknown and deferred jobs are unavailable even when owned by the Support actor.
+- Support cannot submit/replay work. GET-triggered report/Cartrack work remains a denied seed;
+  queue replay checks Support read-only before any job submission/dependency side effect.
+
+PRE-ENTRY OPERATIONAL DRAIN (OWNER EVIDENCE REQUIRED)
+1. Keep SUPPORT_ENTRY_ENABLED OFF on every replica. Deploy 0029 plus broker-capable API/BFF as one
+   release unit, with all P1.5-P1.8 consumers/gates complete. Inventory every human web signed-PUT
+   issuer, old replica, backend and configured maximum grant TTL before stopping those issuers.
+2. Record the final legacy human web PUT issuance time. Stop/drain every old issuer/replica;
+   wait its maximum configured presign TTL plus clock-skew margin, not merely the new default.
+   An already issued S3 signed PUT cannot be revoked by the database migration alone.
+3. Expire/drain pending legacy human-upload rows and objects using reviewed storage GC/retention
+   procedures. Do not delete committed objects or mobile/shim grants. Preserve operational audit.
+4. Prove an old anonymous PUT cannot upload, an old web context cannot commit, the new broker
+   succeeds for an ordinary current session, then fails after enter/leave/consent/session changes.
+   Check Local and the configured S3 endpoint through BFF on every release replica.
+5. Retain deployment SHAs, migration/version evidence, issuer stop time, TTL/margin, pending-row
+   reconciliation and test results. Only then may the owner consider the final entry gate.
+   Schema existence proves broker availability; it does not prove that this drain occurred.
+
+VALIDATION SOURCES
+- storage/support_broker{,_integration}_test.go: type/image/header/range/revocation + Local/MinIO.
+- storage/support_upload_integration_test.go: context grants on Local/MinIO and legacy bypass refusal.
+- drivers/support_documents_integration_test.go: real authenticated driver document adapter.
+- sse/support_stream_integration_test.go: real PostgreSQL/Redis live/replay/revocation/reconnect.
+- jobs/support_projection_integration_test.go: private sentinels, exact tenant, paging/cursors,
+  progress allowlist, owner shortcut refusal and replay with zero queued side effects.
+- auth/support_integration_test.go: migration-readiness refusal leaves session/visit unchanged.
+- lib/bff/__tests__/goProxy.test.ts: exact PUT forwarding plus HEAD/Range/security headers.

@@ -236,7 +236,7 @@ func TestSchemaCatalog(t *testing.T) {
 		if len(want) != 85 {
 			t.Fatalf("Appendix A declares %d tables, main spec §3.3 counts 85", len(want))
 		}
-		want = append(want, "support_visits", "membership_provenance_history", "support_request_limits") // ADR 0030, migration 0027
+		want = append(want, "support_visits", "membership_provenance_history", "support_request_limits", "storage_upload_grants") // ADR 0030, migration 0027
 		sameSet(t, "tables", got, want)
 	})
 
@@ -371,7 +371,7 @@ func TestSchemaCatalog(t *testing.T) {
 		sameSet(t, "tables referencing file_objects", refs, []string{"users", "tenant_files", "customers", "companies",
 			"drivers", "truck_files", "tasks", "trip_photos", "standby_photos", "incident_reports", "statement_documents",
 			"vehicle_expenses", "maintenance_files", "transactions", "driver_penalties", "chat_messages",
-			"mobile_app_releases", "leave_request_attachments"})
+			"mobile_app_releases", "leave_request_attachments", "storage_upload_grants"})
 		if nn := scalar[bool](t, c, `SELECT attnotnull AND NOT atthasdef FROM pg_attribute
 			WHERE attrelid = 'file_objects'::regclass AND attname = 'storage_backend'`); !nn {
 			t.Error("file_objects.storage_backend must be NOT NULL without a default (every writer names its backend)")

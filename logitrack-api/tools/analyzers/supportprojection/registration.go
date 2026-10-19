@@ -91,9 +91,6 @@ func (a *analyzer) policyField(v argument, field string, depth int) string {
 		}
 	case *ast.Ident:
 		obj := object(e, info)
-		if values := v.env[obj]; len(values) == 1 {
-			return a.policyField(values[0], field, depth+1)
-		}
 		// A policy factory may assign SchemaID after constructing its base policy.
 		var assigned ast.Expr
 		for _, decl := range a.functions {
@@ -111,10 +108,25 @@ func (a *analyzer) policyField(v argument, field string, depth int) string {
 		if assigned != nil {
 			return a.stringArg(argument{assigned, v.env}, depth+1)
 		}
+		if values := v.env[obj]; len(values) == 1 {
+			return a.policyField(values[0], field, depth+1)
+		}
 		if init := a.initializers[obj]; init != nil {
 			return a.policyField(argument{init, v.env}, field, depth+1)
 		}
 	case *ast.CallExpr:
+		// Framework constructors are trusted and are not loaded as domain source.
+		// Preserve their explicit schema arguments rather than treating them as an opaque call.
+		if api(e.Fun, info, "/internal/platform/httpx", "TenantReadPolicy") && len(e.Args) >= 3 {
+			switch field {
+			case "SchemaID":
+				return a.stringArg(argument{e.Args[1], v.env}, depth+1)
+			case "MetaSchemaID":
+				return a.stringArg(argument{e.Args[2], v.env}, depth+1)
+			default:
+				return a.policyField(argument{e.Args[0], v.env}, field, depth+1)
+			}
+		}
 		decl := a.functions[objectKey(object(e.Fun, info))]
 		if decl == nil {
 			return ""

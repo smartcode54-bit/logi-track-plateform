@@ -442,12 +442,24 @@ func (s *Service) Get(ctx context.Context, p *authz.Principal, id uuid.UUID) (*D
 	}
 	if !authz.IsSupport(p) {
 		out.ProfileKey, out.ProfileURL = s.signed(ctx, d.ProfileFileID, 0)
+	} else if p.SupportAccessEnabled && d.ProfileFileID != nil {
+		u := storage.SupportFilePath(*d.ProfileFileID)
+		out.ProfileURL = &u
 	}
 	if p.Can(authz.DriversViewPII) {
 		pii := &PII{IDCard: d.IDCard, IDCardExpiredDate: dateString(d.IDCardExpiredDate), BirthDate: dateString(d.BirthDate)}
 		if !authz.IsSupport(p) {
 			pii.IDCardKey, pii.IDCardURL = s.signed(ctx, d.IDCardFileID, PIITTL)
 			pii.LicenseKey, pii.LicenseURL = s.signed(ctx, d.LicenseFileID, PIITTL)
+		} else if p.SupportAccessEnabled {
+			if d.IDCardFileID != nil {
+				u := storage.SupportFilePath(*d.IDCardFileID)
+				pii.IDCardURL = &u
+			}
+			if d.LicenseFileID != nil {
+				u := storage.SupportFilePath(*d.LicenseFileID)
+				pii.LicenseURL = &u
+			}
 		}
 		out.PII = pii
 	}
