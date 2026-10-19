@@ -1,0 +1,90 @@
+Browser tab: 2, Title: "Example Customer · Customers · LogiTrack Pro", URL: "http://localhost:3993/app/customers/customer/edit".
+1 AXWebArea Example Customer · Customers · LogiTrack Pro, URL: localhost:3993/app/customers/customer/edit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/customers/customer/edit#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Billing
+				10 link Description: Customers, Value: localhost:3993/app/customers
+				11 link (disabled) Example Customer
+					12 text Example Customer
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 container
+					26 button (expanded) Billing, Secondary Actions: Collapse
+					27 content list
+						28 link Description: Customers, Value: localhost:3993/app/customers
+						29 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+						30 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+						31 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+						32 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+						33 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+						34 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				35 button (collapsed) Costs, Secondary Actions: Expand
+				36 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				37 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				38 button (collapsed) Settings, Secondary Actions: Expand
+				39 button (collapsed) Platform, Secondary Actions: Expand
+			40 content list
+				41 link Description: Support, Value: localhost:3993/app/support
+		42 text Version 3.6.0
+		43 container main-content
+			44 link Description: Back to Example Customer, Value: localhost:3993/app/customers/customer
+			45 heading Example Customer, Value: 1
+				46 text Example Customer
+			47 text Change this customer's details, billing information and driver ID types.
+			48 container
+				49 text Display Name
+				50 container
+					51 text Upload logo
+					52 button Description: Upload logo, ID: logo-upload
+				53 text Customer Code
+				54 text field (settable) Customer Code, Value: CJ
+				55 text Display Name
+				56 text field (settable) Display Name, Value: Example Customer
+				57 text Description
+				58 text field (settable) Description
+				59 text Customer Infomation Fields
+				60 text ID types required for drivers (e.g. appId, driverId)
+				61 button Add ID Type
+				62 text Billing Information Tax & Legal Tax ID (13 digits)
+				63 text field (settable) Tax ID (13 digits)
+				64 text Branch Type
+				65 combo box (collapsed) Branch Type, Value: Head Office (สำนักงานใหญ่), Secondary Actions: Expand
+					66 text Head Office (สำนักงานใหญ่)
+				67 text Legal Address
+				68 text entry area (settable) Legal Address
+				69 text Contact Contact Person
+				70 text field (settable) Contact Person
+				71 text Contact Phone
+				72 text field (settable) Contact Phone
+				73 text Billing Email
+				74 text field (settable) Billing Email
+				75 text Payment Terms Payment Terms (days)
+				76 stepper (settable, integer) Payment Terms (days), Value: 30
+				77 text Billing date basis
+				78 combo box (collapsed) Billing date basis, Value: Delivered date (default), Secondary Actions: Expand
+					79 text Delivered date (default)
+				80 text Which date decides the billing period + rate round. Choose Plan date for customers (e.g. CJSF) who reconcile by the day-by-day plan they send, so a job delivered late still bills in the planned month. Invoice Note
+				81 text entry area (settable) Invoice Note
+				82 text LINE Notifications LINE Group ID
+				83 text field (settable) LINE Group ID
+				84 text The Wanpenradchada Official Account must be a member of this group. Leave blank to disable check-in / job-complete notifications.
+				85 link Description: Cancel, Value: localhost:3993/app/customers/customer
+				86 button Save Changes
+		87 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Example Customer · Customers · LogiTrack Pro, URL: localhost:3993/app/customers/customer/edit

@@ -1,0 +1,74 @@
+Browser tab: 2, Title: "Driver app release · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/mobile-release".
+1 AXWebArea Driver app release · LogiTrack Pro, URL: localhost:3993/app/security-center/mobile-release
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/mobile-release#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Driver app release, Value: 1
+				10 text Driver app release
+			11 text The published build, and the minimum version the driver app will run.
+			12 text Published build
+			13 text Published through the release pipeline. Publishing does not change the minimum version.
+			14 button (collapsed) Technical details, Secondary Actions: Expand
+				15 text Technical details
+			16 text Latest version
+			17 text 3.2.0
+			18 text Build number
+			19 text 12
+			20 text Build type
+			21 text Production
+			22 text APK size
+			23 text —
+			24 text Published at
+			25 text 19/10/2026, 21:00:03
+			26 button (collapsed) Technical details, Secondary Actions: Expand
+				27 text Technical details
+			28 text APK download URL
+			29 link Description: https://example.test/app.apk, Value: example.test/app.apk
+			30 text Release history
+			31 table
+				32 row
+					33 cell
+						34 text Latest version
+					35 cell
+						36 text Build number
+					37 cell
+						38 text Build type
+					39 cell
+						40 text APK size
+					41 cell
+						42 text Published at
+					43 cell
+						44 text Published by
+				45 row
+					46 cell
+						47 text 3.2.0 latest
+					48 cell
+						49 text 12
+					50 cell
+						51 text Production
+					52 cell
+						53 text —
+					54 cell
+						55 text 19/10/2026, 21:00:03
+					56 cell
+						57 button (collapsed) Technical details, Secondary Actions: Expand
+							58 text Technical details
+			59 text Enforcement
+			60 text Drivers below this version cannot use the app. Publishing a build does not change it — only this page does.
+			61 text Minimum allowed version
+			62 text 3.1.0
+			63 text New minimum version
+			64 text field (settable) New minimum version, ID: floor-version
+			65 button (disabled) Set minimum
+			66 button Remove minimum
+			67 text Format 1.2.3. Lowering this un-blocks drivers who have not updated yet.
+			68 text Force all drivers to 3.2.0
+			69 text Raises the minimum to the published build. Every installation below it is blocked until it installs the APK.
+			70 button Force all drivers to 3.2.0
+		71 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Driver app release · LogiTrack Pro, URL: localhost:3993/app/security-center/mobile-release

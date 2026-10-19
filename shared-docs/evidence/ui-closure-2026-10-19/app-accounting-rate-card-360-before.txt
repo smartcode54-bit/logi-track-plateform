@@ -1,0 +1,70 @@
+Browser tab: 2, Title: "Rate cards · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/rate-card".
+1 AXWebArea Rate cards · LogiTrack Pro, URL: localhost:3993/app/accounting/rate-card
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/rate-card#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Rate cards, Value: 1
+				10 text Rate cards
+			11 text Customer billing rates and fuel-linked adjustments.
+			12 button Recompute billing
+			13 text Customer
+			14 combo box (collapsed) Description: Customer, Value: All customers, Secondary Actions: Expand
+				15 text All customers
+			16 text Each table loads for the chosen customer only when its tab is open; a change refreshes only that table.
+			17 tab group
+				18 tab (selected, settable, boolean) Rate Card, Value: 1, ID: radix-_r_s_-trigger-entries
+				19 tab (selectable, settable, boolean) Fuel adjustments, Value: 0, ID: radix-_r_s_-trigger-fuelAdj
+				20 tab (selectable, settable, boolean) Service Fees, Value: 0, ID: radix-_r_s_-trigger-serviceFees
+				21 tab (selectable, settable, boolean) Standby Rates, Value: 0, ID: radix-_r_s_-trigger-standby
+				22 tab (selectable, settable, boolean) Monthly fuel price record, Value: 0, ID: radix-_r_s_-trigger-fuelMonthly
+			23 container Description: Rate Card, ID: radix-_r_s_-content-entries
+				24 text Source
+				25 combo box (collapsed) Value: All, Secondary Actions: Expand
+					26 text All
+				27 text Destination
+				28 combo box (collapsed) Value: All, Secondary Actions: Expand
+					29 text All
+				30 text Vehicle class
+				31 combo box (collapsed) Value: All, Secondary Actions: Expand
+					32 text All
+				33 text Search
+				34 text field (settable)
+				35 container
+					36 checkbox Description: Show voided, Value: 0
+					37 text Show voided
+				38 button (disabled) Export data
+				39 button Import rate card
+				40 button Add row
+				41 text 0 of 0 loaded entries match the filters; load more to search the rest.
+				42 container Rate Card
+					43 table
+						44 row
+							45 cell
+								46 text Customer
+							47 cell
+								48 text Source
+							49 cell
+								50 text Destination
+							51 cell
+								52 text Vehicle
+							53 cell
+								54 text Job type
+							55 cell
+								56 text Base rate (THB)
+							57 cell
+								58 text Distance (km)
+							59 cell
+								60 text Effective from
+							61 cell
+								62 text Import ID
+						63 row
+							64 cell
+								65 text No rate card entries found.
+				66 text 0 loaded
+		67 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Rate cards · LogiTrack Pro, URL: localhost:3993/app/accounting/rate-card

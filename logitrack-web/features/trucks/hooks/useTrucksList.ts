@@ -95,6 +95,13 @@ export function useTrucksList() {
         }
     };
 
+    // The pressed card describes the current list predicates, including changes made by other controls.
+    const activeCardFilter = pmFilter && groupFilter === "own" && statusFilter === "all"
+        ? { type: "maintenance", status: pmFilter }
+        : !pmFilter && (groupFilter === "own" || groupFilter === "subcontractor") && ["active", "inactive", "maintenance"].includes(statusFilter)
+            ? { type: groupFilter === "own" ? "own" : "sub", status: statusFilter === "inactive" ? "available" : statusFilter === "maintenance" ? "corrective" : "active" }
+            : null;
+
     const clearFilters = () => {
         setPMFilter(null);
         setSearchQuery("");
@@ -141,6 +148,7 @@ export function useTrucksList() {
         isFetchingNextPage: pages.isFetchingNextPage,
         fetchNextPage: () => void pages.fetchNextPage(),
         handleCardFilterChange,
+        activeCardFilter,
         clearFilters,
     };
 }

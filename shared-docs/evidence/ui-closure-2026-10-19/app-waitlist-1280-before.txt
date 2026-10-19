@@ -1,0 +1,65 @@
+Browser tab: 2, Title: "Waitlist · LogiTrack Pro", URL: "http://localhost:3993/app/waitlist".
+1 AXWebArea Waitlist · LogiTrack Pro, URL: localhost:3993/app/waitlist
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/waitlist#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Platform
+				10 link (disabled) Waitlist
+					11 text Waitlist
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				27 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				28 button (collapsed) Settings, Secondary Actions: Expand
+				29 container
+					30 button (expanded) Platform, Secondary Actions: Collapse
+					31 content list
+						32 link Description: Security center, Value: localhost:3993/app/security-center
+						33 link Description: Waitlist, Value: localhost:3993/app/waitlist
+			34 content list
+				35 link Description: Support, Value: localhost:3993/app/support
+		36 text Version 3.6.0
+		37 container main-content
+			38 heading Waitlist, Value: 1
+				39 text Waitlist
+			40 text Manage users who requested access.
+			41 button Refresh
+			42 text Waitlist Requests
+			43 text  (
+			44 text 0
+			45 text )
+			46 text List of emails waiting for an invitation.
+			47 table
+				48 row
+					49 cell
+						50 text Email
+					51 cell
+						52 text Name
+					53 cell
+						54 text Phone
+					55 cell
+						56 text Joined at
+					57 cell
+						58 text Actions
+				59 row
+					60 cell
+						61 text No pending requests.
+		62 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Waitlist · LogiTrack Pro, URL: localhost:3993/app/waitlist

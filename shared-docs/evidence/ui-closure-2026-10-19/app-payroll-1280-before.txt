@@ -1,0 +1,208 @@
+Browser tab: 2, Title: "Payroll · LogiTrack Pro", URL: "http://localhost:3993/app/payroll".
+1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3993/app/payroll
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/payroll#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Payroll and HR
+				10 link (disabled) Payroll
+					11 text Payroll
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Payroll and HR, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Payroll, Value: localhost:3993/app/payroll
+						31 link Description: Leave requests, Value: localhost:3993/app/leave-requests
+						32 link Description: Holidays, Value: localhost:3993/app/holidays
+				33 button (collapsed) Settings, Secondary Actions: Expand
+				34 button (collapsed) Platform, Secondary Actions: Expand
+			35 content list
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 text Version 3.6.0
+		38 container main-content
+			39 heading Payroll, Value: 1
+				40 text Payroll
+			41 text Manage driver earnings, deductions, and payment cycles.
+			42 link Description: Compensation Config, Value: localhost:3993/app/payroll/config
+			43 link Description: Driver Penalties, Value: localhost:3993/app/payroll/penalties
+			44 button Refresh
+			45 container
+				46 text Month to generate
+				47 date field (settable) Description: Month to generate, Value: 2026-10
+					48 container
+						49 stepper
+						50 stepper
+					51 pop up button Show month picker Show month picker
+			52 container
+				53 text Round
+				54 combo box (collapsed) Description: Round to generate, Value: R1 (1–15), Secondary Actions: Expand
+					55 text R1 (1–15)
+			56 button Generate Payroll
+			57 text Generating writes draft runs for every driver of your company; runs already approved or paid are left as they are.
+			58 text Net pay (runs shown)
+			59 heading ฿96,250, Value: 2
+				60 text ฿96,250
+			61 text Pending Approval
+			62 heading 1, Value: 2
+				63 text 1
+			64 text Successfully Paid
+			65 heading 1, Value: 2
+				66 text 1
+			67 container
+				68 text Period
+				69 date field (settable) Period
+					70 container
+						71 stepper
+						72 stepper
+					73 pop up button Show month picker Show month picker
+			74 container
+				75 text Round
+				76 combo box (collapsed) Description: Round, Value: All, Secondary Actions: Expand
+					77 text All
+			78 text Driver
+			79 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+				80 text All drivers
+			81 container
+				82 button All
+				83 button Draft (1)
+					84 text Draft
+					85 text (
+					86 text 1
+					87 text )
+				88 button Pending Approval (1)
+					89 text Pending Approval
+					90 text (
+					91 text 1
+					92 text )
+				93 button Approved (1)
+					94 text Approved
+					95 text (
+					96 text 1
+					97 text )
+				98 button Paid (1)
+					99 text Paid
+					100 text (
+					101 text 1
+					102 text )
+				103 button Cancelled (1)
+					104 text Cancelled
+					105 text (
+					106 text 1
+					107 text )
+			108 table
+				109 row
+					110 cell
+						111 text Driver
+					112 cell
+						113 text Period
+					114 cell
+						115 text Earnings
+					116 cell
+						117 text Deductions
+					118 cell
+						119 text Net Pay
+					120 cell
+						121 text Status
+					122 cell
+						123 text Actions
+				124 row
+					125 cell
+						126 text สมหญิง คนขับทดสอบ
+					127 cell
+						128 text October 2026
+						129 text R2 (16–end)
+					130 cell
+						131 text ฿20,000
+					132 cell
+						133 text ฿750
+					134 cell
+						135 text ฿19,250
+					136 cell
+						137 text Draft
+					138 cell
+						139 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1k_, Secondary Actions: Expand
+				140 row
+					141 cell
+						142 text สมหญิง คนขับทดสอบ
+					143 cell
+						144 text October 2026
+						145 text R2 (16–end)
+					146 cell
+						147 text ฿20,000
+					148 cell
+						149 text ฿750
+					150 cell
+						151 text ฿19,250
+					152 cell
+						153 text Pending Approval
+					154 cell
+						155 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1m_, Secondary Actions: Expand
+				156 row
+					157 cell
+						158 text สมหญิง คนขับทดสอบ
+					159 cell
+						160 text October 2026
+						161 text R2 (16–end)
+					162 cell
+						163 text ฿20,000
+					164 cell
+						165 text ฿750
+					166 cell
+						167 text ฿19,250
+					168 cell
+						169 text Approved
+					170 cell
+						171 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1o_, Secondary Actions: Expand
+				172 row
+					173 cell
+						174 text สมหญิง คนขับทดสอบ
+					175 cell
+						176 text October 2026
+						177 text R2 (16–end)
+					178 cell
+						179 text ฿20,000
+					180 cell
+						181 text ฿750
+					182 cell
+						183 text ฿19,250
+					184 cell
+						185 text Paid
+					186 cell
+						187 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1q_, Secondary Actions: Expand
+				188 row
+					189 cell
+						190 text สมหญิง คนขับทดสอบ
+					191 cell
+						192 text October 2026
+						193 text R2 (16–end)
+					194 cell
+						195 text ฿20,000
+					196 cell
+						197 text ฿750
+					198 cell
+						199 text ฿19,250
+					200 cell
+						201 text Cancelled
+					202 cell
+						203 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1s_, Secondary Actions: Expand
+			204 text Showing 5 of 5
+		205 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3993/app/payroll

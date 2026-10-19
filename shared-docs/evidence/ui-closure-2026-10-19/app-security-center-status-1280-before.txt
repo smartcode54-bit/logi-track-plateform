@@ -1,0 +1,73 @@
+Browser tab: 2, Title: "System status · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/status".
+1 AXWebArea System status · LogiTrack Pro, URL: localhost:3993/app/security-center/status
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/status#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Platform
+				10 link Description: Security center, Value: localhost:3993/app/security-center
+				11 link (disabled) System status
+					12 text System status
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: Security center Operations fixture · Platform admin, Value: localhost:3993/app/security-center
+		21 container Security center menu
+			22 container
+				23 text Security center
+				24 content list
+					25 link Description: Overview, Value: localhost:3993/app/security-center
+					26 link Description: User management, Value: localhost:3993/app/security-center/users
+					27 link Description: Tenants, Value: localhost:3993/app/security-center/tenants
+					28 link Description: Roles and permissions, Value: localhost:3993/app/security-center/roles
+					29 link Description: Security audit log, Value: localhost:3993/app/security-center/audit
+					30 link Description: API keys, Value: localhost:3993/app/security-center/api-keys
+					31 link Description: System status, Value: localhost:3993/app/security-center/status
+					32 link Description: Mobile app clients, Value: localhost:3993/app/security-center/mobile-clients
+					33 link Description: Driver app release, Value: localhost:3993/app/security-center/mobile-release
+			34 content list
+				35 link Description: Back to the main menu, Value: localhost:3993/app/dashboard
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 container main-content
+			38 heading System status, Value: 1
+				39 text System status
+			40 text Monitor system health and service availability.
+			41 button Refresh
+			42 text Healthy
+			43 text Checked less than a minute ago
+			44 text Service availability
+			45 text Availability of stored data, sign-in protection, scheduled work and event delivery.
+			46 button (collapsed) Technical details, Secondary Actions: Expand
+				47 text Technical details
+			48 text Database
+			49 text Stored data can be read.
+			50 text Responding
+			51 text Cache and session revocation
+			52 text Speeds up reads, limits requests and ends sign-in sessions.
+			53 text Responding
+			54 text Scheduled jobs
+			55 text Starts work at the scheduled time.
+			56 text Running
+			57 text Events waiting to be sent
+			58 text Saved events awaiting delivery.
+			59 text 2 pending · oldest 2 s
+			60 text Background jobs
+			61 text Waiting and running now; finished in the last 24 hours.
+			62 text Queued
+			63 text 2
+			64 text Running
+			65 text 1
+			66 text Failed (24 h)
+			67 text 0
+			68 text Succeeded (24 h)
+			69 text 8
+		70 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea System status · LogiTrack Pro, URL: localhost:3993/app/security-center/status

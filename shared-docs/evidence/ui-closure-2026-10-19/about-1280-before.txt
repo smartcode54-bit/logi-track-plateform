@@ -1,0 +1,40 @@
+Browser tab: 2, Title: "About · LogiTrack Pro", URL: "http://localhost:3993/about".
+1 AXWebArea About · LogiTrack Pro, URL: localhost:3993/about
+	2 container
+		3 container Main
+			4 link Description: LogiTrack Pro by GORATECH, Value: localhost:3993/
+			5 container Language
+				6 checkbox English, Value: 1
+				7 checkbox ไทย, Value: 0
+			8 button Switch to the dark theme
+			9 link Description: Open console, Value: localhost:3993/app/dashboard
+			10 pop up button (collapsed) Description: Account menu for Operations fixture, ID: radix-_r_0_, Secondary Actions: Expand
+		11 container The journey of GORATECH: from challenge to building innovation
+			12 heading The journey of GORATECH: from challenge to building innovation, Value: 1, ID: about-title
+				13 text The journey of GORATECH: from challenge to building innovation
+			14 text We didn't start by finding software to use—we started by building with our own hands.
+		15 container Going back to January 26, 2026
+			16 heading Going back to January 26, 2026, Value: 2, ID: about-story-title
+				17 text Going back to January 26, 2026
+			18 text Amid the wave of using off-the-shelf tools like AppSheet, we asked ourselves: "Is 'good enough to work' really enough for a business that needs second-level precision?"
+			19 text The answer was "No." That was the turning point when GORATECH chose to leave the convenience of ready-made systems and take the harder but more valuable path—building an entirely new custom-coded platform so we could have software that truly meets the needs of logistics & fleet management.
+		20 container Why GORATECH?
+			21 heading Why GORATECH?, Value: 2, ID: about-why-title
+				22 text Why GORATECH?
+			23 text Our name comes from the Thai word "ก่อร่าง" (Gor Rang), meaning to lay a strong foundation, combined with "Tech" that we develop:
+			24 definition list
+				25 container Scalability
+					26 text Scalability
+				27 text Ready to grow and support your business expansion.
+		28 text From that day to this, GORATECH is not just a domain name—it is a symbol of the effort to move on from "manual systems".
+		29 text LogiTrack Pro by GORATECH
+		30 container Site links
+			31 content list
+				32 link Description: About, Value: localhost:3993/about
+				33 link Description: Join as a partner, Value: localhost:3993/join-network
+				34 link Description: Waitlist, Value: localhost:3993/waitlist
+				35 link Description: Open console, Value: localhost:3993/app/dashboard
+		36 text © 2026 GORATECH. All rights reserved.
+		37 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea About · LogiTrack Pro, URL: localhost:3993/about

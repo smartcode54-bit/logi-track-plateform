@@ -1,0 +1,29 @@
+Browser tab: 2, Title: "Shopee Express report · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/shopee-express-report".
+1 AXWebArea Shopee Express report · LogiTrack Pro, URL: localhost:3993/app/accounting/shopee-express-report
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/shopee-express-report#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Shopee Express report, Value: 1
+				10 text Shopee Express report
+			11 text Generate the price-free Shopee Express support pack: a trip summary plus signed run-sheet images grouped by driver, as one PDF.
+			12 text Select Period & Customer
+			13 text Month
+			14 combo box (collapsed) Value: October, Secondary Actions: Expand
+				15 text October
+			16 text Year
+			17 combo box (collapsed) Value: 2026, Secondary Actions: Expand
+				18 text 2026
+			19 text Billing round
+			20 combo box (collapsed) Value: Whole month, Secondary Actions: Expand
+				21 text Whole month
+			22 text Customer
+			23 combo box (collapsed) Description: Customer, Value: Example Customer, Secondary Actions: Expand
+				24 text Example Customer
+			25 button Load data
+		26 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Shopee Express report · LogiTrack Pro, URL: localhost:3993/app/accounting/shopee-express-report

@@ -20,6 +20,7 @@ import { useLanguage } from "@/context/language";
 import { tenantName, usableTenantCount, type MeTenant } from "@/features/auth/api/me";
 import { useMyTenants } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
+import { confirmNavigation } from "@/lib/navigationGuard";
 
 const TenantSwitcherMenu = dynamic(() => import("./tenant-switcher-menu"), { ssr: false, loading: () => null });
 
@@ -41,7 +42,7 @@ export function TenantSwitcher() {
     const active = auth.me.tenant?.id ?? "";
 
     const choose = async (tenantId: string) => {
-        if (tenantId === active || switching) return;
+        if (tenantId === active || switching || !confirmNavigation()) return;
         setSwitching(true);
         try {
             await auth.switchTenant(tenantId);

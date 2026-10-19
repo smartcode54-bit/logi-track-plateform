@@ -1,0 +1,42 @@
+Browser tab: 2, Title: "70-1234 · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/renew?id=truck-1".
+1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/renew?id=truck-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/renew?id=truck-1#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Details, Value: localhost:3993/app/trucks/view?id=truck-1
+			10 heading 70-1234, Value: 1
+				11 text 70-1234
+			12 text Truck renewals · Isuzu FRR
+			13 button Refresh
+			14 tab group
+				15 tab (selected, settable, boolean) Tax Renewal, Value: 1, ID: radix-_r_9_-trigger-tax
+				16 tab (selectable, settable, boolean) Insurance Renewal, Value: 0, ID: radix-_r_9_-trigger-insurance
+			17 container Description: Tax Renewal, ID: radix-_r_9_-content-tax
+				18 text Tax / Act Retrieval
+				19 container
+					20 text Current Expiry :  -
+				21 text Pending
+				22 container
+					23 text Person In Charge
+					24 text field (settable) Fleet fixture
+					25 text Expense Amount (THB)
+					26 stepper (settable) Expense Amount (THB), ID: renewal-amount-tax
+					27 text Enter an amount before completing the renewal. Zero is allowed.
+					28 text Payment Method
+					29 combo box (collapsed) Value: Select method, Secondary Actions: Expand
+						30 text Select method
+					31 text Due Date / New Expiry Date
+					32 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+					33 text Document / Payment Receipt
+					34 button Choose File
+					35 text Click to upload Receipt / Document PDF, JPG, PNG up to 10MB
+					36 button Cancel
+					37 button Save Progress
+					38 button (disabled) Complete Renewal
+		39 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/renew?id=truck-1

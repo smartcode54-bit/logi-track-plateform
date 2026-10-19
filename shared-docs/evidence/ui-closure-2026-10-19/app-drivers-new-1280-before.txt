@@ -1,0 +1,78 @@
+Browser tab: 2, Title: "Register New Driver · Drivers · LogiTrack Pro", URL: "http://localhost:3993/app/drivers/new".
+1 AXWebArea Register New Driver · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/new
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/drivers/new#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Drivers, Value: localhost:3993/app/drivers
+				11 link (disabled) Register New Driver
+					12 text Register New Driver
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 container
+				44 link Description: Back to Drivers, Value: localhost:3993/app/drivers
+				45 heading Register New Driver, Value: 1
+					46 text Register New Driver
+				47 text Step 1 of 4: Personal Info
+			48 container
+				49 text 1 Personal Info Basic Details
+			50 container
+				51 text 2 Identity & License Legal Documents
+			52 container
+				53 text 3 Employment Work Status & Type
+			54 container
+				55 text 4 Review Summary & Save
+			56 container
+				57 text Personal Information
+				58 text Upload Photo
+				59 text First Name
+				60 text field (settable) First Name
+				61 text Last Name
+				62 text field (settable) Last Name
+				63 text Full Name (Thai)
+				64 text field (settable) Full Name (Thai)
+				65 text Mobile
+				66 text field (settable) Mobile
+				67 text Email
+				68 text field (settable) Email
+				69 text Birth Date (Age 20-55)
+				70 combo box (collapsed) Birth Date (Age 20-55), Secondary Actions: Expand
+					71 text Birth Date (Age 20-55)
+			72 container
+				73 button Cancel
+				74 button Next Step
+		75 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Register New Driver · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/new

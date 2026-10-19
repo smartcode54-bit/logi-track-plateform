@@ -1,0 +1,135 @@
+Browser tab: 2, Title: "Leave requests · LogiTrack Pro", URL: "http://localhost:3993/app/leave-requests".
+1 AXWebArea Leave requests · LogiTrack Pro, URL: localhost:3993/app/leave-requests
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/leave-requests#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Leave requests, Value: 1
+				10 text Leave requests
+			11 text Review and manage driver leave applications.
+			12 button Refresh
+			13 text Total Requests
+			14 heading 4, Value: 2
+				15 text 4
+			16 text Pending Review
+			17 heading 1, Value: 2
+				18 text 1
+			19 text Approved
+			20 heading 1, Value: 2
+				21 text 1
+			22 text Driver
+			23 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+				24 text All drivers
+			25 container
+				26 button All
+				27 button Pending (1)
+					28 text Pending
+					29 text (
+					30 text 1
+					31 text )
+				32 button Approved (1)
+					33 text Approved
+					34 text (
+					35 text 1
+					36 text )
+				37 button Rejected (1)
+					38 text Rejected
+					39 text (
+					40 text 1
+					41 text )
+				42 button Cancelled (1)
+					43 text Cancelled
+					44 text (
+					45 text 1
+					46 text )
+			47 table
+				48 row
+					49 cell
+						50 text Driver
+					51 cell
+						52 text Type
+					53 cell
+						54 text Duration
+					55 cell
+						56 text Reason
+					57 cell
+						58 text Created
+					59 cell
+						60 text Status
+					61 cell
+						62 text Actions
+				63 row
+					64 cell
+						65 text สมหญิง คนขับทดสอบ
+					66 cell
+						67 text Sick leave
+					68 cell
+						69 container
+							70 text 15 Oct 2026  –  15 Oct 2026
+						71 text 1 day(s)
+					72 cell
+						73 text พักรักษาตัว
+					74 cell
+						75 text Oct 15, 2026, 9:00 AM
+					76 cell
+						77 text Pending
+					78 cell
+						79 pop up button (collapsed) Description: Manage Request สมหญิง คนขับทดสอบ, ID: radix-_r_f_, Secondary Actions: Expand
+				80 row
+					81 cell
+						82 text สมหญิง คนขับทดสอบ
+					83 cell
+						84 text Sick leave
+					85 cell
+						86 container
+							87 text 15 Oct 2026  –  15 Oct 2026
+						88 text 1 day(s)
+					89 cell
+						90 text พักรักษาตัว
+					91 cell
+						92 text Oct 15, 2026, 9:00 AM
+					93 cell
+						94 text Approved
+					95 cell
+						96 pop up button (collapsed) Description: Manage Request สมหญิง คนขับทดสอบ, ID: radix-_r_h_, Secondary Actions: Expand
+				97 row
+					98 cell
+						99 text สมหญิง คนขับทดสอบ
+					100 cell
+						101 text Sick leave
+					102 cell
+						103 container
+							104 text 15 Oct 2026  –  15 Oct 2026
+						105 text 1 day(s)
+					106 cell
+						107 text พักรักษาตัว
+					108 cell
+						109 text Oct 15, 2026, 9:00 AM
+					110 cell
+						111 text Rejected
+					112 cell
+						113 pop up button (collapsed) Description: Manage Request สมหญิง คนขับทดสอบ, ID: radix-_r_j_, Secondary Actions: Expand
+				114 row
+					115 cell
+						116 text สมหญิง คนขับทดสอบ
+					117 cell
+						118 text Sick leave
+					119 cell
+						120 container
+							121 text 15 Oct 2026  –  15 Oct 2026
+						122 text 1 day(s)
+					123 cell
+						124 text พักรักษาตัว
+					125 cell
+						126 text Oct 15, 2026, 9:00 AM
+					127 cell
+						128 text Cancelled
+					129 cell
+						130 pop up button (collapsed) Description: Manage Request สมหญิง คนขับทดสอบ, ID: radix-_r_l_, Secondary Actions: Expand
+			131 text Showing 4 of 4
+		132 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Leave requests · LogiTrack Pro, URL: localhost:3993/app/leave-requests

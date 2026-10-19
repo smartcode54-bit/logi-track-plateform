@@ -1,10 +1,15 @@
+"use client";
+
 import * as React from "react"
+import { useFieldLabel } from "./field-label"
 
 import { cn } from "@/lib/utils"
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  const fieldLabel = useFieldLabel();
   return (
     <input
+      aria-labelledby={props["aria-label"] ? undefined : fieldLabel}
       type={type}
       data-slot="input"
       className={cn(

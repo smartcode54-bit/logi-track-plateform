@@ -1,0 +1,36 @@
+Browser tab: 2, Title: "Register New Driver · Drivers · LogiTrack Pro", URL: "http://localhost:3993/app/drivers/new".
+1 AXWebArea Register New Driver · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/new
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/drivers/new#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 container
+				10 link Description: Back to Drivers, Value: localhost:3993/app/drivers
+				11 heading Register New Driver, Value: 1
+					12 text Register New Driver
+				13 text Step 1 of 4: Personal Info
+			14 container
+				15 text Personal Information
+				16 text Upload Photo
+				17 text First Name
+				18 text field (settable) First Name
+				19 text Last Name
+				20 text field (settable) Last Name
+				21 text Full Name (Thai)
+				22 text field (settable) Full Name (Thai)
+				23 text Mobile
+				24 text field (settable) Mobile
+				25 text Email
+				26 text field (settable) Email
+				27 text Birth Date (Age 20-55)
+				28 combo box (collapsed) Birth Date (Age 20-55), Secondary Actions: Expand
+					29 text Birth Date (Age 20-55)
+			30 container
+				31 button Cancel
+				32 button Next Step
+		33 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Register New Driver · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/new

@@ -1,7 +1,7 @@
 "use client";
 
 import { useLanguage } from "@/context/language";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ interface MaintenanceStatus {
 }
 
 interface TruckComplianceCardsProps {
+    activeFilter?: { type: string; status: string } | null;
     onFilterChange: (filter: { type: string | null; status: string | null }) => void;
 }
 
@@ -56,21 +57,18 @@ export function fleetCounters(trucks: readonly TruckDTO[], now: Date = new Date(
     return stats;
 }
 
-export function TruckComplianceCards({ onFilterChange }: TruckComplianceCardsProps) {
+export function TruckComplianceCards({ onFilterChange, activeFilter = null }: TruckComplianceCardsProps) {
     const { t } = useLanguage();
     // `['trucks','fleetStats']` (T25): every truck through the active source; the list's refresh
     // invalidates `['trucks']`, which reaches it.
     const fleet = useFleetStats();
     const stats = useMemo(() => fleetCounters(fleet.trucks), [fleet.trucks]);
     const loading = fleet.isPending;
-    const [activeFilter, setActiveFilter] = useState<{ type: string; status: string } | null>(null);
 
     const handleCardClick = (type: string, status: string) => {
         if (activeFilter?.type === type && activeFilter?.status === status) {
-            setActiveFilter(null);
             onFilterChange({ type: null, status: null });
         } else {
-            setActiveFilter({ type, status });
             onFilterChange({ type, status });
         }
     };

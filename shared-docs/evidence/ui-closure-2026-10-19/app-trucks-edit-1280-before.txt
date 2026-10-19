@@ -1,0 +1,158 @@
+Browser tab: 2, Title: "70-1234 · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/edit?id=truck-1".
+1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/edit?id=truck-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/edit?id=truck-1#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Trucks, Value: localhost:3993/app/trucks
+				11 link (disabled) 70-1234
+					12 text 70-1234
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 link Description: Back to Details, Value: localhost:3993/app/trucks/view?id=truck-1
+			44 heading 70-1234, Value: 1
+				45 text 70-1234
+			46 text Update truck information
+			47 container
+				48 heading Ownership, Value: 3
+					49 text Ownership
+				50 text Type Own Fleet A truck's owner (own fleet or carrier) is fixed once it is registered. Identification License Plate  *
+				51 text field (settable) License Plate *, Value: 70-1234
+				52 text Province  *
+				53 combo box (collapsed) Province *, Value: กรุงเทพมหานคร, Secondary Actions: Expand
+					54 text กรุงเทพมหานคร
+				55 text VIN
+				56 text field (settable) VIN, Value: TEST123456789
+				57 text Engine Number
+				58 text field (settable) Engine Number, Value: TEST123
+				59 text GPS vehicle ID
+				60 text field (settable) GPS vehicle ID
+				61 text Truck Status  *
+				62 combo box (collapsed) Truck Status *, Value: Active, Secondary Actions: Expand
+					63 text Active
+				64 text Details Brand  *
+				65 text field (settable) Brand *, Value: Isuzu
+				66 text Model  *
+				67 text field (settable) Model *, Value: FRR
+				68 text Year
+				69 combo box (collapsed) Year, Value: 2026, Secondary Actions: Expand
+					70 text 2026
+				71 text Color
+				72 text field (settable) Color, Value: White
+				73 text Truck Type  *
+				74 combo box (collapsed) Truck Type *, Value: 6WH, Secondary Actions: Expand
+					75 text 6WH
+				76 text Seats
+				77 stepper (settable, integer) Seats, Value: 2
+				78 text Engine Information Fuel Type
+				79 combo box (collapsed) Fuel Type, Value: Diesel, Secondary Actions: Expand
+					80 text Diesel
+				81 text Engine Capacity (cc/kW)
+				82 stepper (settable, integer) Engine Capacity (cc/kW), Value: 3000
+				83 text Fuel Capacity (Liters/kWh)
+				84 stepper (settable, integer) Fuel Capacity (Liters/kWh), Value: 100
+				85 text Max Load Weight
+				86 stepper (settable, integer) Max Load Weight, Value: 5000
+				87 text Maintenance Book Last Service Date
+				88 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				89 text Next Service Date
+				90 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				91 text Current Mileage (km)
+				92 stepper (settable, integer) Current Mileage (km), Value: 10000
+				93 text Next Service Mileage (km)
+				94 stepper (settable, integer) Next Service Mileage (km), Value: 11000
+				95 text PM service every (km)
+				96 stepper (settable) PM service every (km)
+				97 text Responsible Person (Service)
+				98 text field (settable) Responsible Person (Service), Value: Fleet fixture
+				99 text Registration Tax (Act) Expiry Date
+				100 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				101 text Registration Date
+				102 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				103 text Buying Date
+				104 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				105 text Responsible Person (Tax)
+				106 text field (settable) Responsible Person (Tax), Value: Fleet fixture
+				107 text Notes
+				108 text entry area (settable) Notes
+				109 text Insurance Information Policy ID (Internal)
+				110 text field (settable) Policy ID (Internal)
+				111 text Policy Number
+				112 text field (settable) Policy Number
+				113 text Provider
+				114 text field (settable) Provider
+				115 text Coverage Type
+				116 combo box (collapsed) Coverage Type, Value: Select type, Secondary Actions: Expand
+					117 text Select type
+				118 text Premium (Baht)
+				119 stepper (settable) Premium (Baht)
+				120 text Start Date
+				121 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				122 text End Date
+				123 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				124 text Notes
+				125 text entry area (settable) Notes
+				126 text Insurance Documents
+				127 button Choose File
+				128 text Upload PDF/Img Truck photos Front-Right View
+				129 button Front-Right View
+					130 text Choose File
+					131 text No file chosen
+				132 text JPEG, PNG or WebP images only (up to 10 MB) Front-Left View
+				133 button Front-Left View
+					134 text Choose File
+					135 text No file chosen
+				136 text JPEG, PNG or WebP images only (up to 10 MB) Back-Right View
+				137 button Back-Right View
+					138 text Choose File
+					139 text No file chosen
+				140 text JPEG, PNG or WebP images only (up to 10 MB) Back-Left View
+				141 button Back-Left View
+					142 text Choose File
+					143 text No file chosen
+				144 text JPEG, PNG or WebP images only (up to 10 MB) Truck documents Tax Document
+				145 button Tax Document
+					146 text Choose File
+					147 text No file chosen
+				148 text JPEG, PNG, WebP or PDF (up to 10 MB) Truck Register Document
+				149 button Truck Register Document
+					150 text Choose File
+					151 text No file chosen
+				152 text JPEG, PNG, WebP or PDF (up to 10 MB)
+				153 link Description: Cancel, Value: localhost:3993/app/trucks/view?id=truck-1
+				154 button Save Changes
+		155 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/edit?id=truck-1

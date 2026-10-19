@@ -1,0 +1,52 @@
+Browser tab: 2, Title: "Add Customer · Customers · LogiTrack Pro", URL: "http://localhost:3993/app/customers/new".
+1 AXWebArea Add Customer · Customers · LogiTrack Pro, URL: localhost:3993/app/customers/new
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/customers/new#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Customers, Value: localhost:3993/app/customers
+			10 heading Add Customer, Value: 1
+				11 text Add Customer
+			12 text A customer you bill, with its billing information and the driver ID types it needs.
+			13 container
+				14 text Display Name
+				15 container
+					16 text Upload logo
+					17 button Description: Upload logo, ID: logo-upload
+				18 text Customer Code
+				19 text field (settable) Customer Code
+				20 text Display Name
+				21 text field (settable) Display Name
+				22 text Description
+				23 text field (settable) Description
+				24 text Customer Infomation Fields
+				25 text ID types required for drivers (e.g. appId, driverId)
+				26 button Add ID Type
+				27 text Billing Information Tax & Legal Tax ID (13 digits)
+				28 text field (settable) Tax ID (13 digits)
+				29 text Branch Type
+				30 combo box (collapsed) Branch Type, Value: —, Secondary Actions: Expand
+					31 text —
+				32 text Legal Address
+				33 text entry area (settable) Legal Address
+				34 text Contact Contact Person
+				35 text field (settable) Contact Person
+				36 text Contact Phone
+				37 text field (settable) Contact Phone
+				38 text Billing Email
+				39 text field (settable) Billing Email
+				40 text Payment Terms Payment Terms (days)
+				41 stepper (settable) Payment Terms (days)
+				42 text Invoice Note
+				43 text entry area (settable) Invoice Note
+				44 text LINE Notifications LINE Group ID
+				45 text field (settable) LINE Group ID
+				46 text The Wanpenradchada Official Account must be a member of this group. Leave blank to disable check-in / job-complete notifications.
+				47 link Description: Cancel, Value: localhost:3993/app/customers
+				48 button Add Customer
+		49 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Add Customer · Customers · LogiTrack Pro, URL: localhost:3993/app/customers/new

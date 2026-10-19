@@ -1,0 +1,206 @@
+Browser tab: 2, Title: "Line haul tasks · LogiTrack Pro", URL: "http://localhost:3993/app/line-haul".
+1 AXWebArea Line haul tasks · LogiTrack Pro, URL: localhost:3993/app/line-haul
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/line-haul#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Line haul tasks, Value: 1
+				10 text Line haul tasks
+			11 text Manage all line haul tasks and check-ins
+			12 button Refresh
+			13 button Import Excel
+			14 button New Assignment
+			15 text Filters
+			16 text Date
+			17 pop up button (collapsed) 19/10/2026, Secondary Actions: Expand
+			18 button Any day, Help: Show the newest tasks of any plan day
+			19 text Destination (SOC)
+			20 combo box (collapsed) Value: All SOCs, Secondary Actions: Expand
+				21 text All SOCs
+			22 text Pickup Point
+			23 combo box (collapsed) Value: All Pickup Points, Secondary Actions: Expand
+				24 text All Pickup Points
+			25 table
+				26 row
+					27 cell
+						28 text Date
+					29 cell
+						30 text Pickup Point
+					31 cell
+						32 text Destination
+					33 cell
+						34 text Time
+					35 cell
+						36 text Type
+					37 cell
+						38 text Shipment ID
+					39 cell
+						40 text License Plate
+					41 cell
+						42 text Driver
+					43 cell
+						44 text Trip
+					45 cell
+						46 text Status
+					47 cell
+						48 text Check-in
+					49 cell
+						50 text Actions
+				51 row
+					52 cell
+						53 text 15/10/2026
+					54 cell
+						55 text บางนา
+					56 cell
+						57 text SOCE
+					58 cell
+						59 text 09:30
+					60 cell
+						61 text 4W
+					62 cell
+						63 text FM-15102026-000
+					64 cell
+						65 text 70-1111
+					66 cell
+						67 text สมชาย ใจดี
+					68 cell
+						69 text —
+					70 cell
+						71 text Pending
+					72 cell
+						73 text —
+					74 cell
+						75 pop up button (collapsed) Description: Actions, ID: radix-_r_p_, Secondary Actions: Expand
+				76 row
+					77 cell
+						78 text 15/10/2026
+					79 cell
+						80 text บางนา
+					81 cell
+						82 text SOCE
+					83 cell
+						84 text 09:30
+					85 cell
+						86 text 6WH
+					87 cell
+						88 text FM-15102026-001
+					89 cell
+						90 text 70-1111
+					91 cell
+						92 text สมชาย ใจดี
+					93 cell
+						94 text —
+					95 cell
+						96 text Assigned
+					97 cell
+						98 text —
+					99 cell
+						100 pop up button (collapsed) Description: Actions, ID: radix-_r_r_, Secondary Actions: Expand
+				101 row
+					102 cell
+						103 text 15/10/2026
+					104 cell
+						105 text บางนา
+					106 cell
+						107 text SOCE
+					108 cell
+						109 text 09:30
+					110 cell
+						111 text 4W
+					112 cell
+						113 text FM-15102026-002
+					114 cell
+						115 text 70-1111
+					116 cell
+						117 text สมชาย ใจดี
+					118 cell
+						119 text —
+					120 cell
+						121 text Checked in
+					122 cell
+						123 text —
+					124 cell
+						125 pop up button (collapsed) Description: Actions, ID: radix-_r_t_, Secondary Actions: Expand
+				126 row
+					127 cell
+						128 text 15/10/2026
+					129 cell
+						130 text บางนา
+					131 cell
+						132 text SOCE
+					133 cell
+						134 text 09:30
+					135 cell
+						136 text 6WH
+					137 cell
+						138 text FM-15102026-003
+					139 cell
+						140 text 70-1111
+					141 cell
+						142 text สมชาย ใจดี
+					143 cell
+						144 text —
+					145 cell
+						146 text In transit
+					147 cell
+						148 text —
+					149 cell
+						150 pop up button (collapsed) Description: Actions, ID: radix-_r_v_, Secondary Actions: Expand
+				151 row
+					152 cell
+						153 text 15/10/2026
+					154 cell
+						155 text บางนา
+					156 cell
+						157 text SOCE
+					158 cell
+						159 text 09:30
+					160 cell
+						161 text 4W
+					162 cell
+						163 text FM-15102026-004
+					164 cell
+						165 text 70-1111
+					166 cell
+						167 text สมชาย ใจดี
+					168 cell
+						169 text —
+					170 cell
+						171 text Completed
+					172 cell
+						173 text —
+					174 cell
+						175 pop up button (collapsed) Description: Actions, ID: radix-_r_11_, Secondary Actions: Expand
+				176 row
+					177 cell
+						178 text 15/10/2026
+					179 cell
+						180 text บางนา
+					181 cell
+						182 text SOCE
+					183 cell
+						184 text 09:30
+					185 cell
+						186 text 6WH
+					187 cell
+						188 text FM-15102026-005
+					189 cell
+						190 text 70-1111
+					191 cell
+						192 text สมชาย ใจดี
+					193 cell
+						194 text —
+					195 cell
+						196 text Cancelled
+					197 cell
+						198 text —
+					199 cell
+						200 pop up button (collapsed) Description: Actions, ID: radix-_r_13_, Secondary Actions: Expand
+			201 text 6 rows loaded
+			202 text All rows loaded
+		203 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Line haul tasks · LogiTrack Pro, URL: localhost:3993/app/line-haul

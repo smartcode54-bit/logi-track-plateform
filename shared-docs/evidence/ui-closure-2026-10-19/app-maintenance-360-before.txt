@@ -1,0 +1,210 @@
+Browser tab: 2, Title: "Maintenance · LogiTrack Pro", URL: "http://localhost:3993/app/maintenance".
+1 AXWebArea Maintenance · LogiTrack Pro, URL: localhost:3993/app/maintenance
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/maintenance#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Maintenance, Value: 1
+				10 text Maintenance
+			11 text Track fleet maintenance expenses and service history.
+			12 button Refresh
+			13 button Add Record
+			14 text Total Expenses
+			15 text ฿3,500
+			16 text Loaded records: 4
+			17 text PM Costs
+			18 text ฿0
+			19 container
+				20 text 0.0 %  of total
+			21 text CM Costs
+			22 text ฿3,500
+			23 container
+				24 text 100.0 %  of total
+			25 text Active Jobs
+			26 text 1
+			27 text Vehicles currently in PM/CM
+			28 container
+				29 text 1 Awaiting PM schedule
+			30 container
+				31 text 1 Scheduled — awaiting shop visit
+			32 text Pending (alerts & scheduling)
+			33 text Set the appointment date, time and garage before service starts.
+			34 table
+				35 row
+					36 cell
+						37 text Alert date
+					38 cell
+						39 text Vehicle
+					40 cell
+						41 text Odometer Reading (Current)
+					42 cell
+						43 text Status
+					44 cell
+						45 text Appt. date
+					46 cell
+						47 text Time
+					48 cell
+						49 text Location / shop
+					50 cell
+						51 text Actions
+				52 row
+					53 cell
+						54 text 15/10/2026
+					55 cell
+						56 text 70-1234
+						57 text Isuzu
+					58 cell
+						59 text 120,000
+					60 cell
+						61 text Awaiting schedule
+					62 cell
+						63 date field (settable) Appt. date · 70-1234
+							64 container
+								65 stepper
+								66 stepper
+								67 stepper
+							68 pop up button Show date picker Show date picker
+					69 cell
+						70 time field (settable) Description: Time · 70-1234, Value: 09:00
+							71 container
+								72 stepper
+								73 stepper
+							74 pop up button Show time picker Show time picker
+					75 cell
+						76 text field (settable) Location / shop · 70-1234
+						77 button Pick on map
+						78 text No map pin yet
+					79 cell
+						80 button Save appointment
+				81 row
+					82 cell
+						83 text 15/10/2026
+					84 cell
+						85 text 70-1234
+						86 text Isuzu
+					87 cell
+						88 text 120,000
+					89 cell
+						90 text Scheduled — awaiting shop visit
+					91 cell
+						92 text 2026-10-15
+					93 cell
+						94 text 09:30
+					95 cell
+						96 text อู่ทดสอบ
+					97 cell
+						98 button Remind driver
+			99 text Service History
+			100 combo box (collapsed) Description: Filter Type, Value: All Types, Secondary Actions: Expand
+				101 text All Types
+			102 combo box (collapsed) Description: Status, Value: All statuses, Secondary Actions: Expand
+				103 text All statuses
+			104 container Service History
+				105 table
+					106 row
+						107 cell
+							108 text Date
+						109 cell
+							110 text Vehicle
+						111 cell
+							112 text Type
+						113 cell
+							114 text Service / Issue
+						115 cell
+							116 text Status
+						117 cell
+							118 text Labor
+						119 cell
+							120 text Parts
+						121 cell
+							122 text Total
+						123 cell
+							124 text Actions
+					125 row
+						126 cell
+							127 text 15/10/2026
+						128 cell
+							129 text 70-1234
+							130 text Isuzu
+						131 cell
+							132 text Corrective (CM)
+						133 cell
+							134 text Total-only repair
+						135 cell
+							136 text In Progress
+						137 cell
+							138 text —
+						139 cell
+							140 text —
+						141 cell
+							142 text ฿3,500
+						143 cell
+							144 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					145 row
+						146 cell
+							147 text 15/10/2026
+						148 cell
+							149 text 70-1234
+							150 text Isuzu
+						151 cell
+							152 text Corrective (CM)
+						153 cell
+							154 text Cancelled repair
+						155 cell
+							156 text Cancelled
+						157 cell
+							158 text —
+						159 cell
+							160 text —
+						161 cell
+							162 text ฿0
+						163 cell
+							164 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					165 row
+						166 cell
+							167 text 15/10/2026
+						168 cell
+							169 text 70-1234
+							170 text Isuzu
+						171 cell
+							172 text Preventive (PM)
+						173 cell
+							174 text Periodic Maintenance
+						175 cell
+							176 text Awaiting schedule
+						177 cell
+							178 text —
+						179 cell
+							180 text —
+						181 cell
+							182 text ฿0
+						183 cell
+							184 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					185 row
+						186 cell
+							187 text 15/10/2026
+						188 cell
+							189 text 70-1234
+							190 text Isuzu
+						191 cell
+							192 text Preventive (PM)
+						193 cell
+							194 text Tire Change
+						195 cell
+							196 text Scheduled — awaiting shop visit
+						197 cell
+							198 text —
+						199 cell
+							200 text —
+						201 cell
+							202 text ฿0
+						203 cell
+							204 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+			205 text 4 loaded
+			206 text All rows loaded
+		207 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Maintenance · LogiTrack Pro, URL: localhost:3993/app/maintenance

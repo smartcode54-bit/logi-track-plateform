@@ -1,0 +1,89 @@
+Browser tab: 2, Title: "Driver Penalties · LogiTrack Pro", URL: "http://localhost:3993/app/payroll/penalties".
+1 AXWebArea Driver Penalties · LogiTrack Pro, URL: localhost:3993/app/payroll/penalties
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/payroll/penalties#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Payroll and HR
+				10 link Description: Payroll, Value: localhost:3993/app/payroll
+				11 link (disabled) Driver Penalties
+					12 text Driver Penalties
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				28 container
+					29 button (expanded) Payroll and HR, Secondary Actions: Collapse
+					30 content list
+						31 link Description: Payroll, Value: localhost:3993/app/payroll
+						32 link Description: Leave requests, Value: localhost:3993/app/leave-requests
+						33 link Description: Holidays, Value: localhost:3993/app/holidays
+				34 button (collapsed) Settings, Secondary Actions: Expand
+				35 button (collapsed) Platform, Secondary Actions: Expand
+			36 content list
+				37 link Description: Support, Value: localhost:3993/app/support
+		38 text Version 3.6.0
+		39 container main-content
+			40 heading Driver Penalties, Value: 1
+				41 text Driver Penalties
+			42 text Deductions applied to driver payouts (full or installment).
+			43 combo box (collapsed) Value: Driver, Secondary Actions: Expand
+				44 text Driver
+			45 combo box (collapsed) Description: Type, Secondary Actions: Expand
+				46 text Type
+			47 stepper (settable) Amount (THB)
+			48 stepper (settable, integer) Description: Installments, Value: 1
+			49 date field (settable) Description: Incurred on, Value: 2026-10-19
+				50 container
+					51 stepper
+					52 stepper
+					53 stepper
+				54 pop up button Show date picker Show date picker
+			55 text field (settable) Reason
+			56 button Add penalty
+			57 text The config in effect has no penalty types. Add them in Compensation Config.
+			58 text Driver
+			59 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+				60 text All drivers
+			61 container
+				62 text Status
+				63 combo box (collapsed) Description: Status, Value: All, Secondary Actions: Expand
+					64 text All
+			65 table
+				66 row
+					67 cell
+						68 text Driver
+					69 cell
+						70 text Type
+					71 cell
+						72 text Incurred on
+					73 cell
+						74 text Amount (THB)
+					75 cell
+						76 text Remaining
+					77 cell
+						78 text Installments paid
+					79 cell
+						80 text Next deduction
+					81 cell
+						82 text Status
+				83 row
+					84 cell
+						85 text No penalties
+		86 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Driver Penalties · LogiTrack Pro, URL: localhost:3993/app/payroll/penalties

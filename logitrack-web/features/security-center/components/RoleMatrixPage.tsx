@@ -12,7 +12,8 @@
  * the layer again first and stops, keeping the edits over the refreshed matrix, when someone else
  * changed it meanwhile (`saveRoleMatrixFresh`): the PUT replaces the whole set.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -110,6 +111,8 @@ export function RoleMatrixPage() {
     const m = matrix.data;
     const groups = useMemo(() => (m ? groupedKeys(m) : new Map<string, CapabilityInfo[]>()), [m]);
     const pending = m ? changedCells(m, edits).length : 0;
+    const discardEdits = useCallback(() => setEdits({}), []);
+    useUnsavedChanges(pending > 0, t("securityCenter.roles.discardOnLeave"), discardEdits);
     const title = (c: CapabilityInfo) => (language === "th" ? c.titleTh : c.titleEn);
     const q = search.trim().toLowerCase();
     const matches = (c: CapabilityInfo) => !q || title(c).toLowerCase().includes(q) || c.key.includes(q);

@@ -1,0 +1,41 @@
+Browser tab: 4, Title: "My account · LogiTrack Pro", URL: "http://localhost:3993/my-account".
+1 AXWebArea My account · LogiTrack Pro, URL: localhost:3993/my-account
+	2 container
+		3 container Main
+			4 link Description: LogiTrack Pro, Value: localhost:3993/
+			5 container Language
+				6 checkbox English, Value: 1
+				7 checkbox ไทย, Value: 0
+			8 link Description: Open console, Value: localhost:3993/app/dashboard
+			9 pop up button (collapsed) Description: Account menu for Operations fixture, ID: radix-_r_0_, Secondary Actions: Expand
+		10 heading My account, Value: 1
+			11 text My account
+		12 container Profile
+			13 heading Profile, Value: 2, ID: account-profile-title
+				14 text Profile
+			15 text O Operations fixture  ·  Platform admin
+			16 definition list
+				17 container Name
+					18 text Name
+				19 text Operations fixture
+				20 container Email
+					21 text Email
+				22 text operations@fixture.test
+		23 container Change password
+			24 heading Change password, Value: 2
+				25 text Change password
+			26 text Enter your current password and choose a new one.
+			27 container
+				28 text Current password
+				29 text field (settable) Current password
+				30 text New password
+				31 text field (settable) New password
+				32 text Confirm new password
+				33 text field (settable) Confirm new password
+				34 button Change password
+			35 container
+				36 text If you only sign in with Google, use a reset link to set a password first.
+				37 link Description: Request a password reset link, Value: localhost:3993/forgot-password
+		38 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea My account · LogiTrack Pro, URL: localhost:3993/my-account

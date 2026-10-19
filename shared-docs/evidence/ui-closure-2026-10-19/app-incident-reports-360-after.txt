@@ -1,0 +1,6 @@
+Browser tab: 2, Title: "Incident reports · LogiTrack Pro", URL: "http://localhost:3991/app/incident-reports".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Incident reports · LogiTrack Pro, URL: localhost:3991/app/incident-reports
+~		3 link Description: Skip to main content, Value: localhost:3991/app/incident-reports#main-content
+~						34 button View 15/10/2026 10:00
+The focused UI element is 1 AXWebArea Incident reports · LogiTrack Pro, URL: localhost:3991/app/incident-reports

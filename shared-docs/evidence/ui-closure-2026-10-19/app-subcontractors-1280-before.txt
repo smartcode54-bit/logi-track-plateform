@@ -1,0 +1,106 @@
+Browser tab: 2, Title: "Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors".
+1 AXWebArea Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link (disabled) Partners
+					11 text Partners
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 container
+					27 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					28 content list
+						29 link Description: Trucks, Value: localhost:3993/app/trucks
+						30 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						31 link Description: Drivers, Value: localhost:3993/app/drivers
+						32 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						33 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						34 link Description: Partners, Value: localhost:3993/app/subcontractors
+				35 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				36 button (collapsed) Settings, Secondary Actions: Expand
+				37 button (collapsed) Platform, Secondary Actions: Expand
+			38 content list
+				39 link Description: Support, Value: localhost:3993/app/support
+		40 text Version 3.6.0
+		41 container main-content
+			42 heading Partners, Value: 1
+				43 text Partners
+			44 text Partner profiles and reported fleet capacity
+			45 link Description: Add partner, Value: localhost:3993/app/subcontractors/new
+			46 text Total partners
+			47 text 1
+			48 text Registered partners
+			49 text Reported fleet size
+			50 text 4
+			51 text Total trucks reported by partners
+			52 text Pending partners
+			53 text 1
+			54 text Partners with pending status
+			55 text field (settable) Search companies or contacts...
+			56 combo box (collapsed) Description: Partner status, Value: All statuses, Secondary Actions: Expand
+				57 text All statuses
+			58 combo box (collapsed) Description: Service region, Value: All regions, Secondary Actions: Expand
+				59 text All regions
+			60 combo box (collapsed) Description: Fleet size, Value: All sizes, Secondary Actions: Expand
+				61 text All sizes
+			62 container
+				63 table
+					64 row
+						65 cell
+							66 button Company name
+						67 cell
+							68 button Primary contact
+						69 cell
+							70 button Fleet size
+						71 cell
+							72 text Service area
+						73 cell
+							74 text Status
+						75 cell
+							76 text Actions
+					77 row
+						78 cell
+							79 text ร
+							80 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+							81 container
+								82 text Code :  UI4C
+						83 cell
+							84 text Fixture contact
+							85 text contact@fixture.test
+						86 cell
+							87 text 4 Vehicles
+						88 cell
+							89 text Chiang Mai, Lamphun
+						90 cell
+							91 text Pending
+						92 cell
+							93 pop up button (collapsed) Description: Actions for รถร่วมตัวอย่างเชียงใหม่และลำพูน, ID: radix-_r_m_, Secondary Actions: Expand
+				94 text Showing
+				95 text 1
+				96 text to
+				97 text 1
+				98 text of
+				99 text 1
+				100 text results
+				101 button (disabled) Previous
+				102 button (disabled) Next
+		103 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors

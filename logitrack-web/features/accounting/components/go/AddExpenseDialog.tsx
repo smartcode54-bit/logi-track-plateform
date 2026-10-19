@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * An admin-entered fuel or other expense over Go (T42; `POST /v1/expenses`, then the photos uploaded
  * under the new id and linked by `PATCH`, developer-spec.md §9.4). Go stamps the tenant from the driver
@@ -21,7 +23,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -137,45 +138,45 @@ export function AddExpenseDialog({ type, open, onOpenChange }: { type: ExpenseTy
                 {/* Once the row is saved only the photos can change: the fields are its stored values. */}
                 <fieldset disabled={created !== null} className="min-w-0">
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.fuel.addDialog.driver")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.fuel.addDialog.driver")} labelClassName="text-xs">
+
                             <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("accounting.fuel.addDialog.selectDriver")} className="w-full" />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.fuel.addDialog.truck")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.fuel.addDialog.truck")} labelClassName="text-xs">
+
                             <SearchPicker kind="truck" value={truck} onChange={setTruck} placeholder={t("accounting.fuel.addDialog.selectTruck")} className="w-full" />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.fuel.addDialog.date")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.fuel.addDialog.date")} labelClassName="text-xs">
+
                             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.go.expense.time")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.go.expense.time")} labelClassName="text-xs">
+
                             <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.table.amount")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.table.amount")} labelClassName="text-xs">
+
                             <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-                        </div>
+                        </AccessibleField>
                         {isFuel ? (
                             <>
-                                <div className="space-y-1">
-                                    <Label className="text-xs">{t("accounting.table.volume")}</Label>
+                                <AccessibleField className="space-y-1" label={t("accounting.table.volume")} labelClassName="text-xs">
+
                                     <Input type="number" step="any" min="0" value={liters} onChange={(e) => setLiters(e.target.value)} />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-xs">{t("accounting.table.pricePerLiter")}</Label>
+                                </AccessibleField>
+                                <AccessibleField className="space-y-1" label={t("accounting.table.pricePerLiter")} labelClassName="text-xs">
+
                                     <Input type="number" step="any" min="0" value={price} onChange={(e) => setPrice(e.target.value)} />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-xs">{t("accounting.table.odometer")}</Label>
+                                </AccessibleField>
+                                <AccessibleField className="space-y-1" label={t("accounting.table.odometer")} labelClassName="text-xs">
+
                                     <Input type="number" step="1" min="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} />
-                                </div>
+                                </AccessibleField>
                             </>
                         ) : (
                             <>
-                                <div className="space-y-1">
-                                    <Label className="text-xs">{t("accounting.table.category")}</Label>
+                                <AccessibleField className="space-y-1" label={t("accounting.table.category")} labelClassName="text-xs">
+
                                     <Select value={category} onValueChange={setCategory}>
                                         <SelectTrigger>
                                             <SelectValue />
@@ -188,29 +189,29 @@ export function AddExpenseDialog({ type, open, onOpenChange }: { type: ExpenseTy
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                </div>
-                                <div className="col-span-2 space-y-1">
-                                    <Label className="text-xs">{t("accounting.table.description")}</Label>
+                                </AccessibleField>
+                                <AccessibleField className="col-span-2 space-y-1" label={t("accounting.table.description")} labelClassName="text-xs">
+
                                     <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-                                </div>
+                                </AccessibleField>
                             </>
                         )}
-                        <div className="col-span-2 space-y-1">
-                            <Label className="text-xs">{t("accounting.fuel.addDialog.note")}</Label>
+                        <AccessibleField className="col-span-2 space-y-1" label={t("accounting.fuel.addDialog.note")} labelClassName="text-xs">
+
                             <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-                        </div>
+                        </AccessibleField>
                     </div>
                 </fieldset>
                 <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                        <Label className="text-xs">{isFuel ? t("accounting.fuel.addDialog.receipt") : t("accounting.other.addDialog.receipt")}</Label>
+                    <AccessibleField className="space-y-1" label={isFuel ? t("accounting.fuel.addDialog.receipt") : t("accounting.other.addDialog.receipt")} labelClassName="text-xs">
+
                         <Input type="file" accept={uploadAccept("expense_receipt")} onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
-                    </div>
+                    </AccessibleField>
                     {isFuel ? (
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.fuel.addDialog.odometerPhoto")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.fuel.addDialog.odometerPhoto")} labelClassName="text-xs">
+
                             <Input type="file" accept={uploadAccept("expense_odometer")} onChange={(e) => setOdoPhoto(e.target.files?.[0] ?? null)} />
-                        </div>
+                        </AccessibleField>
                     ) : null}
                 </div>
                 <DialogFooter>

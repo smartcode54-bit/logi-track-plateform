@@ -1,0 +1,137 @@
+Browser tab: 2, Title: "Security audit log · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/audit".
+1 AXWebArea Security audit log · LogiTrack Pro, URL: localhost:3993/app/security-center/audit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/audit#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Platform
+				10 link Description: Security center, Value: localhost:3993/app/security-center
+				11 link (disabled) Security audit log
+					12 text Security audit log
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: Security center Operations fixture · Platform admin, Value: localhost:3993/app/security-center
+		21 container Security center menu
+			22 container
+				23 text Security center
+				24 content list
+					25 link Description: Overview, Value: localhost:3993/app/security-center
+					26 link Description: User management, Value: localhost:3993/app/security-center/users
+					27 link Description: Tenants, Value: localhost:3993/app/security-center/tenants
+					28 link Description: Roles and permissions, Value: localhost:3993/app/security-center/roles
+					29 link Description: Security audit log, Value: localhost:3993/app/security-center/audit
+					30 link Description: API keys, Value: localhost:3993/app/security-center/api-keys
+					31 link Description: System status, Value: localhost:3993/app/security-center/status
+					32 link Description: Mobile app clients, Value: localhost:3993/app/security-center/mobile-clients
+					33 link Description: Driver app release, Value: localhost:3993/app/security-center/mobile-release
+			34 content list
+				35 link Description: Back to the main menu, Value: localhost:3993/app/dashboard
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 container main-content
+			38 heading Security audit log, Value: 1
+				39 text Security audit log
+			40 text Who did what and when: sign-ins, accounts, permissions, API keys and app releases
+			41 text All organisations
+			42 button Export CSV
+			43 button Refresh Logs
+			44 text Total Security Events
+			45 text 4
+			46 text In the loaded rows
+			47 text Warning / critical
+			48 text 1
+			49 text Events marked as warning or critical
+			50 text Role-related events
+			51 text 0
+			52 text Changes to roles and permissions
+			53 text Filters
+			54 combo box (collapsed) Description: Date Range, Value: Last 7 Days, Secondary Actions: Expand
+				55 text Last 7 Days
+			56 combo box (collapsed) Description: Action Type, Value: All Actions, Secondary Actions: Expand
+				57 text All Actions
+			58 combo box (collapsed) Description: Severity, Value: All severities, Secondary Actions: Expand
+				59 text All severities
+			60 text field (settable) Search logs...
+			61 button Clear All Filters
+			62 table
+				63 row
+					64 cell
+						65 text Timestamp
+					66 cell
+						67 text Performed By
+					68 cell
+						69 text Action
+					70 cell
+						71 text Severity
+					72 cell
+						73 text Target
+					74 cell
+						75 text Change Details
+				76 row
+					77 cell
+						78 text 19/10/2026, 21:00:03
+					79 cell user-uuid
+						80 text Unknown user
+					81 cell
+						82 text User created
+					83 cell
+						84 text Info
+					85 cell target-uuid
+						86 text Unknown target
+					87 cell
+						88 button (collapsed) Technical details, Secondary Actions: Expand
+							89 text Technical details
+				90 row
+					91 cell
+						92 text 19/10/2026, 21:00:03
+					93 cell user-uuid
+						94 text admin@fixture.test
+					95 cell
+						96 text Sign-in failed
+					97 cell
+						98 text Warning
+					99 cell target-uuid
+						100 text Unknown target
+					101 cell
+						102 button (collapsed) Technical details, Secondary Actions: Expand
+							103 text Technical details
+				104 row
+					105 cell
+						106 text 19/10/2026, 21:00:03
+					107 cell user-uuid
+						108 text admin@fixture.test
+					109 cell
+						110 text App release published
+					111 cell
+						112 text Info
+					113 cell target-uuid
+						114 text Unknown target
+					115 cell
+						116 button (collapsed) Technical details, Secondary Actions: Expand
+							117 text Technical details
+				118 row
+					119 cell
+						120 text 19/10/2026, 21:00:03
+					121 cell user-uuid
+						122 text admin@fixture.test
+					123 cell
+						124 text Other security event
+					125 cell
+						126 text Info
+					127 cell target-uuid
+						128 text Unknown target
+					129 cell
+						130 button (collapsed) Technical details, Secondary Actions: Expand
+							131 text Technical details
+			132 text Showing 4 of 4 loaded rows
+			133 text All rows in this range are loaded.
+		134 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Security audit log · LogiTrack Pro, URL: localhost:3993/app/security-center/audit

@@ -1,0 +1,76 @@
+Browser tab: 2, Title: "Add a new partner · Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors/new".
+1 AXWebArea Add a new partner · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/new
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors/new#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Partners, Value: localhost:3993/app/subcontractors
+				11 link (disabled) Add a new partner
+					12 text Add a new partner
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 container
+				44 link Description: Back to Partners, Value: localhost:3993/app/subcontractors
+				45 heading Add a new partner, Value: 1
+					46 text Add a new partner
+				47 text Step 1 of 4: Company profile
+			48 container
+				49 text 1 Company profile Identity & Legal
+			50 container
+				51 text 2 Contact details POC & Communication
+			52 container
+				53 text 3 Fleet & service Capacity & Coverage
+			54 container
+				55 text 4 Review partner details After registering, add documents on the partner edit page.
+			56 text Tips
+			57 text Ensure the Tax ID matches your official documents to avoid verification delays.
+			58 container
+				59 text Company profile Enter the legal and business details. Legal business name
+				60 text field (settable) Legal business name
+				61 text Type
+				62 combo box (collapsed) Type, Value: Individual, Secondary Actions: Expand
+					63 text Individual
+				64 text National ID number
+				65 text field (settable) National ID number
+				66 text Company website
+				67 text field (settable) Company website
+				68 text Registered headquarters address
+				69 text entry area (settable) Registered headquarters address
+			70 container
+				71 button Cancel
+				72 button Next step
+		73 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Add a new partner · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/new

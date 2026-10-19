@@ -1,0 +1,75 @@
+Browser tab: 2, Title: "Statements · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/billing-result".
+1 AXWebArea Statements · LogiTrack Pro, URL: localhost:3993/app/accounting/billing-result
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/billing-result#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Billing
+				10 link (disabled) Statements
+					11 text Statements
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 container
+					25 button (expanded) Billing, Secondary Actions: Collapse
+					26 content list
+						27 link Description: Customers, Value: localhost:3993/app/customers
+						28 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+						29 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+						30 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+						31 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+						32 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+						33 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				34 button (collapsed) Costs, Secondary Actions: Expand
+				35 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 heading Statements, Value: 1
+				44 text Statements
+			45 text Invoice registry — track billing history, payment status, and aging per customer.
+			46 text Customer
+			47 combo box (collapsed) Description: Customer, Value: All customers, Secondary Actions: Expand
+				48 text All customers
+			49 text Status
+			50 combo box (collapsed) Value: All statuses, Secondary Actions: Expand
+				51 text All statuses
+			52 text Month
+			53 combo box (disabled, collapsed) Value: All periods, Secondary Actions: Expand
+			54 text Year
+			55 combo box (collapsed) Value: All periods, Secondary Actions: Expand
+				56 text All periods
+			57 button Refresh
+			58 text Total invoiced
+			59 container
+				60 text ฿ 0.00
+			61 text 0 invoices
+			62 text Draft
+			63 text  /
+			64 text Sent
+			65 text 0
+			66 text Paid
+			67 text 0
+			68 text Overdue
+			69 text 0
+			70 text No billing statements found.
+			71 text 0 loaded
+		72 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Statements · LogiTrack Pro, URL: localhost:3993/app/accounting/billing-result

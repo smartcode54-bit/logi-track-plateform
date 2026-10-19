@@ -1,4 +1,14 @@
 export default {
+    "dashboard.stale": "Could not refresh these figures. Last updated: {time}. Try again to get the latest data.",
+    "common.view": "View",
+    "accounting.preview.title": "Preview",
+    "accounting.preview.panHint": "Zoom in, then drag to pan. Use Shift + arrow keys to pan with the keyboard.",
+    "dateTime.time": "Time (24 hour)",
+    "dateTime.hour": "Hour",
+    "dateTime.minute": "Minute",
+    "dateTime.pick": "Pick a date and time",
+    "dateTime.clear": "Clear date and time",
+
     "nav.supportAccess": "Support access",
     "common.maskedValue": "Personal or financial data masked",
     // Task / trip shared

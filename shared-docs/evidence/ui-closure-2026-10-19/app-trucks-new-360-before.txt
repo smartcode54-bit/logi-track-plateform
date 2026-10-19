@@ -1,0 +1,78 @@
+Browser tab: 2, Title: "Truck Details Form · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/new".
+1 AXWebArea Truck Details Form · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/new
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/new#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 container
+				10 link Description: Back to Trucks, Value: localhost:3993/app/trucks
+				11 heading Truck Details Form, Value: 1
+					12 text Truck Details Form
+				13 text Step 1 of 4: Please enter the vehicle information below.
+			14 container
+				15 heading Step 1: Vehicle Specifications, Value: 3
+					16 text Step 1: Vehicle Specifications
+				17 text Identification License Plate  *
+				18 text field (settable) License Plate *
+				19 text Province  *
+				20 combo box (collapsed) Province *, Value: Province, Secondary Actions: Expand
+					21 text Province
+				22 text VIN
+				23 text field (settable) VIN
+				24 text Engine Number
+				25 text field (settable) Engine Number
+				26 text GPS vehicle ID
+				27 text field (settable) GPS vehicle ID
+				28 text Truck Status  *
+				29 combo box (collapsed) Truck Status *, Value: Truck Status, Secondary Actions: Expand
+					30 text Truck Status
+				31 text Details Brand  *
+				32 text field (settable) Brand *
+				33 text Model  *
+				34 text field (settable) Model *
+				35 text Year
+				36 combo box (collapsed) Year, Value: Select Year, Secondary Actions: Expand
+					37 text Select Year
+				38 text Color
+				39 text field (settable) Color
+				40 text Truck Type  *
+				41 combo box (collapsed) Truck Type *, Value: Select Truck Type, Secondary Actions: Expand
+					42 text Select Truck Type
+				43 text Seats
+				44 stepper (settable) Seats
+				45 heading Vehicle Appearance, Value: 3
+					46 text Vehicle Appearance
+				47 text Truck photos Front-Right View
+				48 button Front-Right View
+					49 text Choose File
+					50 text No file chosen
+				51 text JPEG, PNG or WebP images only (up to 10 MB) Front-Left View
+				52 button Front-Left View
+					53 text Choose File
+					54 text No file chosen
+				55 text JPEG, PNG or WebP images only (up to 10 MB) Back-Right View
+				56 button Back-Right View
+					57 text Choose File
+					58 text No file chosen
+				59 text JPEG, PNG or WebP images only (up to 10 MB) Back-Left View
+				60 button Back-Left View
+					61 text Choose File
+					62 text No file chosen
+				63 text JPEG, PNG or WebP images only (up to 10 MB) Truck documents Tax Document
+				64 button Tax Document
+					65 text Choose File
+					66 text No file chosen
+				67 text JPEG, PNG, WebP or PDF (up to 10 MB) Truck Register Document
+				68 button Truck Register Document
+					69 text Choose File
+					70 text No file chosen
+				71 text JPEG, PNG, WebP or PDF (up to 10 MB)
+			72 container
+				73 button Cancel
+				74 button Next Step
+		75 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Truck Details Form · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/new

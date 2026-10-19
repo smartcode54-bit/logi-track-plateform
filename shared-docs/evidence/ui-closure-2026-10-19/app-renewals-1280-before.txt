@@ -1,0 +1,175 @@
+Browser tab: 2, Title: "Truck renewals · LogiTrack Pro", URL: "http://localhost:3993/app/renewals".
+1 AXWebArea Truck renewals · LogiTrack Pro, URL: localhost:3993/app/renewals
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/renewals#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link (disabled) Truck renewals
+					11 text Truck renewals
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 container
+					27 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					28 content list
+						29 link Description: Trucks, Value: localhost:3993/app/trucks
+						30 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						31 link Description: Drivers, Value: localhost:3993/app/drivers
+						32 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						33 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						34 link Description: Partners, Value: localhost:3993/app/subcontractors
+				35 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				36 button (collapsed) Settings, Secondary Actions: Expand
+				37 button (collapsed) Platform, Secondary Actions: Expand
+			38 content list
+				39 link Description: Support, Value: localhost:3993/app/support
+		40 text Version 3.6.0
+		41 container main-content
+			42 heading Truck renewals, Value: 1
+				43 text Truck renewals
+			44 text Manage Tax and Insurance expiration across the fleet.
+			45 checkbox All Vehicles, Value: 1
+			46 checkbox Critical Action 5, Value: 0
+			47 checkbox Expiring Soon 5, Value: 0
+			48 text Total Fleet
+			49 text 5
+			50 text Active vehicles
+			51 text Total Est. Cost
+			52 text :
+			53 text ฿
+			54 text 20,000
+			55 text Tax Critical
+			56 text 3
+			57 text Overdue payments
+			58 container
+				59 text 2 expiring soon
+			60 text Insurance Critical
+			61 text 2
+			62 text Policies expired
+			63 container
+				64 text 3 expiring soon
+			65 text Compliance Rate
+			66 container
+				67 text 0.00 %
+			68 text Renewals Rate
+			69 text Vehicle Renewal Status
+			70 text field (settable)
+			71 table
+				72 row
+					73 cell
+						74 text Vehicle
+					75 cell
+						76 text Ownership
+					77 cell
+						78 text Tax Status
+					79 cell
+						80 text Tax Cost
+					81 cell
+						82 text Insurance Status
+					83 cell
+						84 text Ins. Cost
+					85 cell
+						86 text Actions
+				87 row
+					88 cell
+						89 text 70-1234
+						90 container
+							91 text 6WH  ·  กรุงเทพมหานคร
+					92 cell
+						93 text Own Fleet
+					94 cell
+						95 text OVERDUE 01 Oct 2026
+					96 cell
+						97 text ฿2,000
+					98 cell
+						99 text EXPIRING SOON 01 Oct 2026
+					100 cell
+						101 text ฿2,000
+					102 cell
+						103 pop up button (collapsed) Actions for this row, ID: radix-_r_g_, Secondary Actions: Expand
+				104 row
+					105 cell
+						106 text 70-1235
+						107 container
+							108 text 6WH  ·  กรุงเทพมหานคร
+					109 cell
+						110 text Partner Fleet
+					111 cell
+						112 text EXPIRING SOON 01 Oct 2026
+					113 cell
+						114 text ฿2,000
+					115 cell
+						116 text OVERDUE 01 Oct 2026
+					117 cell
+						118 text ฿2,000
+					119 cell
+						120 pop up button (collapsed) Actions for this row, ID: radix-_r_i_, Secondary Actions: Expand
+				121 row
+					122 cell
+						123 text 70-1236
+						124 container
+							125 text 6WH  ·  กรุงเทพมหานคร
+					126 cell
+						127 text Own Fleet
+					128 cell
+						129 text OVERDUE 01 Oct 2026
+					130 cell
+						131 text ฿2,000
+					132 cell
+						133 text EXPIRING SOON 01 Oct 2026
+					134 cell
+						135 text ฿2,000
+					136 cell
+						137 pop up button (collapsed) Actions for this row, ID: radix-_r_k_, Secondary Actions: Expand
+				138 row
+					139 cell
+						140 text 70-1237
+						141 container
+							142 text 6WH  ·  กรุงเทพมหานคร
+					143 cell
+						144 text Partner Fleet
+					145 cell
+						146 text EXPIRING SOON 01 Oct 2026
+					147 cell
+						148 text ฿2,000
+					149 cell
+						150 text OVERDUE 01 Oct 2026
+					151 cell
+						152 text ฿2,000
+					153 cell
+						154 pop up button (collapsed) Actions for this row, ID: radix-_r_m_, Secondary Actions: Expand
+				155 row
+					156 cell
+						157 text 70-1238
+						158 container
+							159 text 6WH  ·  กรุงเทพมหานคร
+					160 cell
+						161 text Own Fleet
+					162 cell
+						163 text OVERDUE 01 Oct 2026
+					164 cell
+						165 text ฿2,000
+					166 cell
+						167 text EXPIRING SOON 01 Oct 2026
+					168 cell
+						169 text ฿2,000
+					170 cell
+						171 pop up button (collapsed) Actions for this row, ID: radix-_r_o_, Secondary Actions: Expand
+		172 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Truck renewals · LogiTrack Pro, URL: localhost:3993/app/renewals

@@ -1,0 +1,5415 @@
+[
+  {
+    "route": "/forgot-password",
+    "url": "/forgot-password",
+    "group": "UI3",
+    "slug": "forgot-password",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Forgot password"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "forgot-password-1280-before.png"
+  },
+  {
+    "route": "/forgot-password",
+    "url": "/forgot-password",
+    "group": "UI3",
+    "slug": "forgot-password",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Forgot password"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "forgot-password-1280-after.png"
+  },
+  {
+    "route": "/reset-password",
+    "url": "/reset-password?token=ui-fixture-reset",
+    "group": "UI3",
+    "slug": "reset-password",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Set a new password"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "reset-password-1280-before.png"
+  },
+  {
+    "route": "/reset-password",
+    "url": "/reset-password?token=ui-fixture-reset",
+    "group": "UI3",
+    "slug": "reset-password",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Set a new password"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "reset-password-1280-after.png"
+  },
+  {
+    "route": "/waitlist",
+    "url": "/waitlist",
+    "group": "UI7",
+    "slug": "waitlist",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Join the waitlist"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "waitlist-1280-before.png"
+  },
+  {
+    "route": "/waitlist",
+    "url": "/waitlist",
+    "group": "UI7",
+    "slug": "waitlist",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Join the waitlist"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "waitlist-1280-after.png"
+  },
+  {
+    "route": "/about",
+    "url": "/about",
+    "group": "UI7",
+    "slug": "about",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "The journey of GORATECH: from challenge to building innovation"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "about-1280-before.png"
+  },
+  {
+    "route": "/about",
+    "url": "/about",
+    "group": "UI7",
+    "slug": "about",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "The journey of GORATECH: from challenge to building innovation"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "about-1280-after.png"
+  },
+  {
+    "route": "/app/[...missing]",
+    "url": "/app/ui-proof-missing-route",
+    "group": "UI3",
+    "slug": "app-missing",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Page not found"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-missing-1280-before.png"
+  },
+  {
+    "route": "/app/[...missing]",
+    "url": "/app/ui-proof-missing-route",
+    "group": "UI3",
+    "slug": "app-missing",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Page not found"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-missing-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/audit",
+    "url": "/app/accounting/audit",
+    "group": "UI6",
+    "slug": "app-accounting-audit",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Expense audit"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-audit-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/audit",
+    "url": "/app/accounting/audit",
+    "group": "UI6",
+    "slug": "app-accounting-audit",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Expense audit"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-audit-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/billing-document",
+    "url": "/app/accounting/billing-document",
+    "group": "UI6",
+    "slug": "app-accounting-billing-document",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing documents"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-billing-document-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/billing-document",
+    "url": "/app/accounting/billing-document",
+    "group": "UI6",
+    "slug": "app-accounting-billing-document",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing documents"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-billing-document-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/billing-result",
+    "url": "/app/accounting/billing-result",
+    "group": "UI6",
+    "slug": "app-accounting-billing-result",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Statements"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-billing-result-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/billing-result",
+    "url": "/app/accounting/billing-result",
+    "group": "UI6",
+    "slug": "app-accounting-billing-result",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Statements"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-billing-result-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/fuel",
+    "url": "/app/accounting/fuel",
+    "group": "UI6",
+    "slug": "app-accounting-fuel",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel expenses"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-fuel-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/fuel",
+    "url": "/app/accounting/fuel",
+    "group": "UI6",
+    "slug": "app-accounting-fuel",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel expenses"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-fuel-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/fuel-price-history",
+    "url": "/app/accounting/fuel-price-history",
+    "group": "UI6",
+    "slug": "app-accounting-fuel-price-history",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel price history"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-fuel-price-history-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/fuel-price-history",
+    "url": "/app/accounting/fuel-price-history",
+    "group": "UI6",
+    "slug": "app-accounting-fuel-price-history",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel price history"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-fuel-price-history-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/income",
+    "url": "/app/accounting/income",
+    "group": "UI6",
+    "slug": "app-accounting-income",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trips to bill"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-income-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/income",
+    "url": "/app/accounting/income",
+    "group": "UI6",
+    "slug": "app-accounting-income",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trips to bill"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-income-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/other",
+    "url": "/app/accounting/other",
+    "group": "UI6",
+    "slug": "app-accounting-other",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Other expenses"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-other-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/other",
+    "url": "/app/accounting/other",
+    "group": "UI6",
+    "slug": "app-accounting-other",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Other expenses"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-other-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/rate-card",
+    "url": "/app/accounting/rate-card",
+    "group": "UI6",
+    "slug": "app-accounting-rate-card",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Rate cards"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-rate-card-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/rate-card",
+    "url": "/app/accounting/rate-card",
+    "group": "UI6",
+    "slug": "app-accounting-rate-card",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Rate cards"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-rate-card-1280-after.png"
+  },
+  {
+    "route": "/app/accounting/shopee-express-report",
+    "url": "/app/accounting/shopee-express-report",
+    "group": "UI6",
+    "slug": "app-accounting-shopee-express-report",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Shopee Express report"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-shopee-express-report-1280-before.png"
+  },
+  {
+    "route": "/app/accounting/shopee-express-report",
+    "url": "/app/accounting/shopee-express-report",
+    "group": "UI6",
+    "slug": "app-accounting-shopee-express-report",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Shopee Express report"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-accounting-shopee-express-report-1280-after.png"
+  },
+  {
+    "route": "/app/chat",
+    "url": "/app/chat",
+    "group": "UI7",
+    "slug": "app-chat",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-chat-1280-before.png"
+  },
+  {
+    "route": "/app/chat",
+    "url": "/app/chat",
+    "group": "UI7",
+    "slug": "app-chat",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-chat-1280-after.png"
+  },
+  {
+    "route": "/app/chat/room",
+    "url": "/app/chat/room?chatId=chat-1",
+    "group": "UI7",
+    "slug": "app-chat-room",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-chat-room-1280-before.png"
+  },
+  {
+    "route": "/app/chat/room",
+    "url": "/app/chat/room?chatId=chat-1",
+    "group": "UI7",
+    "slug": "app-chat-room",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-chat-room-1280-after.png"
+  },
+  {
+    "route": "/app/chat/with-driver",
+    "url": "/app/chat/with-driver?driverId=driver-1",
+    "group": "UI7",
+    "slug": "app-chat-with-driver",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-chat-with-driver-1280-before.png"
+  },
+  {
+    "route": "/app/chat/with-driver",
+    "url": "/app/chat/with-driver?driverId=driver-1",
+    "group": "UI7",
+    "slug": "app-chat-with-driver",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-chat-with-driver-1280-after.png"
+  },
+  {
+    "route": "/app/companies",
+    "url": "/app/companies",
+    "group": "UI4",
+    "slug": "app-companies",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Companies"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-companies-1280-before.png"
+  },
+  {
+    "route": "/app/companies",
+    "url": "/app/companies",
+    "group": "UI4",
+    "slug": "app-companies",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Companies"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-companies-1280-after.png"
+  },
+  {
+    "route": "/app/customers/[id]/edit",
+    "url": "/app/customers/customer/edit",
+    "group": "UI4",
+    "slug": "app-customers-id-edit",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-id-edit-1280-before.png"
+  },
+  {
+    "route": "/app/customers/[id]/edit",
+    "url": "/app/customers/customer/edit",
+    "group": "UI4",
+    "slug": "app-customers-id-edit",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-id-edit-1280-after.png"
+  },
+  {
+    "route": "/app/customers/[id]",
+    "url": "/app/customers/customer",
+    "group": "UI4",
+    "slug": "app-customers-id",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-id-1280-before.png"
+  },
+  {
+    "route": "/app/customers/[id]",
+    "url": "/app/customers/customer",
+    "group": "UI4",
+    "slug": "app-customers-id",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-id-1280-after.png"
+  },
+  {
+    "route": "/app/customers/new",
+    "url": "/app/customers/new",
+    "group": "UI4",
+    "slug": "app-customers-new",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add Customer"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-new-1280-before.png"
+  },
+  {
+    "route": "/app/customers/new",
+    "url": "/app/customers/new",
+    "group": "UI4",
+    "slug": "app-customers-new",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add Customer"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-new-1280-after.png"
+  },
+  {
+    "route": "/app/customers",
+    "url": "/app/customers",
+    "group": "UI4",
+    "slug": "app-customers",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Customers"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-1280-before.png"
+  },
+  {
+    "route": "/app/customers",
+    "url": "/app/customers",
+    "group": "UI4",
+    "slug": "app-customers",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Customers"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-customers-1280-after.png"
+  },
+  {
+    "route": "/app/dashboard",
+    "url": "/app/dashboard",
+    "group": "UI7",
+    "slug": "app-dashboard",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-dashboard-1280-before.png"
+  },
+  {
+    "route": "/app/dashboard",
+    "url": "/app/dashboard",
+    "group": "UI7",
+    "slug": "app-dashboard",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-dashboard-1280-after.png"
+  },
+  {
+    "route": "/app/driver-monitor",
+    "url": "/app/driver-monitor",
+    "group": "UI5",
+    "slug": "app-driver-monitor",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver monitor"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-driver-monitor-1280-before.png"
+  },
+  {
+    "route": "/app/driver-monitor",
+    "url": "/app/driver-monitor",
+    "group": "UI5",
+    "slug": "app-driver-monitor",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver monitor"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-driver-monitor-1280-after.png"
+  },
+  {
+    "route": "/app/drivers/edit",
+    "url": "/app/drivers/edit?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-edit",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-edit-1280-before.png"
+  },
+  {
+    "route": "/app/drivers/edit",
+    "url": "/app/drivers/edit?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-edit",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-edit-1280-after.png"
+  },
+  {
+    "route": "/app/drivers/new",
+    "url": "/app/drivers/new",
+    "group": "UI4",
+    "slug": "app-drivers-new",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Register New Driver"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-new-1280-before.png"
+  },
+  {
+    "route": "/app/drivers/new",
+    "url": "/app/drivers/new",
+    "group": "UI4",
+    "slug": "app-drivers-new",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Register New Driver"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-new-1280-after.png"
+  },
+  {
+    "route": "/app/drivers",
+    "url": "/app/drivers",
+    "group": "UI4",
+    "slug": "app-drivers",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Drivers"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-1280-before.png"
+  },
+  {
+    "route": "/app/drivers",
+    "url": "/app/drivers",
+    "group": "UI4",
+    "slug": "app-drivers",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Drivers"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-1280-after.png"
+  },
+  {
+    "route": "/app/drivers/view",
+    "url": "/app/drivers/view?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-view",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-view-1280-before.png"
+  },
+  {
+    "route": "/app/drivers/view",
+    "url": "/app/drivers/view?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-view",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-drivers-view-1280-after.png"
+  },
+  {
+    "route": "/app/first-mile",
+    "url": "/app/first-mile",
+    "group": "UI5",
+    "slug": "app-first-mile",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "First mile tasks"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-first-mile-1280-before.png"
+  },
+  {
+    "route": "/app/first-mile",
+    "url": "/app/first-mile",
+    "group": "UI5",
+    "slug": "app-first-mile",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "First mile tasks"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-first-mile-1280-after.png"
+  },
+  {
+    "route": "/app/holidays",
+    "url": "/app/holidays",
+    "group": "UI7",
+    "slug": "app-holidays",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Holidays"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-holidays-1280-before.png"
+  },
+  {
+    "route": "/app/holidays",
+    "url": "/app/holidays",
+    "group": "UI7",
+    "slug": "app-holidays",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Holidays"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-holidays-1280-after.png"
+  },
+  {
+    "route": "/app/incident-reports",
+    "url": "/app/incident-reports",
+    "group": "UI5",
+    "slug": "app-incident-reports",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Incident reports"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-incident-reports-1280-before.png"
+  },
+  {
+    "route": "/app/incident-reports",
+    "url": "/app/incident-reports",
+    "group": "UI5",
+    "slug": "app-incident-reports",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Incident reports"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-incident-reports-1280-after.png"
+  },
+  {
+    "route": "/app/job-assign",
+    "url": "/app/job-assign",
+    "group": "UI5",
+    "slug": "app-job-assign",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Job assignment"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-job-assign-1280-before.png"
+  },
+  {
+    "route": "/app/job-assign",
+    "url": "/app/job-assign",
+    "group": "UI5",
+    "slug": "app-job-assign",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Job assignment"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-job-assign-1280-after.png"
+  },
+  {
+    "route": "/app/leave-requests",
+    "url": "/app/leave-requests",
+    "group": "UI7",
+    "slug": "app-leave-requests",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Leave requests"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-leave-requests-1280-before.png"
+  },
+  {
+    "route": "/app/leave-requests",
+    "url": "/app/leave-requests",
+    "group": "UI7",
+    "slug": "app-leave-requests",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Leave requests"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-leave-requests-1280-after.png"
+  },
+  {
+    "route": "/app/line-haul",
+    "url": "/app/line-haul",
+    "group": "UI5",
+    "slug": "app-line-haul",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Line haul tasks"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-line-haul-1280-before.png"
+  },
+  {
+    "route": "/app/line-haul",
+    "url": "/app/line-haul",
+    "group": "UI5",
+    "slug": "app-line-haul",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Line haul tasks"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-line-haul-1280-after.png"
+  },
+  {
+    "route": "/app/maintenance",
+    "url": "/app/maintenance",
+    "group": "UI6",
+    "slug": "app-maintenance",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Maintenance"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-maintenance-1280-before.png"
+  },
+  {
+    "route": "/app/maintenance",
+    "url": "/app/maintenance",
+    "group": "UI6",
+    "slug": "app-maintenance",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Maintenance"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-maintenance-1280-after.png"
+  },
+  {
+    "route": "/app/operations/roles",
+    "url": "/app/operations/roles",
+    "group": "UI7",
+    "slug": "app-operations-roles",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-operations-roles-1280-before.png"
+  },
+  {
+    "route": "/app/operations/roles",
+    "url": "/app/operations/roles",
+    "group": "UI7",
+    "slug": "app-operations-roles",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-operations-roles-1280-after.png"
+  },
+  {
+    "route": "/app",
+    "url": "/app",
+    "group": "UI3",
+    "slug": "app",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-1280-before.png"
+  },
+  {
+    "route": "/app",
+    "url": "/app",
+    "group": "UI3",
+    "slug": "app",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-1280-after.png"
+  },
+  {
+    "route": "/app/payroll/config",
+    "url": "/app/payroll/config",
+    "group": "UI7",
+    "slug": "app-payroll-config",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "This page stopped working"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-payroll-config-1280-before.png"
+  },
+  {
+    "route": "/app/payroll/config",
+    "url": "/app/payroll/config",
+    "group": "UI7",
+    "slug": "app-payroll-config",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "This page stopped working"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-payroll-config-1280-after.png"
+  },
+  {
+    "route": "/app/payroll",
+    "url": "/app/payroll",
+    "group": "UI7",
+    "slug": "app-payroll",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Payroll"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-payroll-1280-before.png"
+  },
+  {
+    "route": "/app/payroll",
+    "url": "/app/payroll",
+    "group": "UI7",
+    "slug": "app-payroll",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Payroll"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-payroll-1280-after.png"
+  },
+  {
+    "route": "/app/payroll/penalties",
+    "url": "/app/payroll/penalties",
+    "group": "UI7",
+    "slug": "app-payroll-penalties",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver Penalties"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-payroll-penalties-1280-before.png"
+  },
+  {
+    "route": "/app/payroll/penalties",
+    "url": "/app/payroll/penalties",
+    "group": "UI7",
+    "slug": "app-payroll-penalties",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver Penalties"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-payroll-penalties-1280-after.png"
+  },
+  {
+    "route": "/app/renewals",
+    "url": "/app/renewals",
+    "group": "UI4",
+    "slug": "app-renewals",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck renewals"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-renewals-1280-before.png"
+  },
+  {
+    "route": "/app/renewals",
+    "url": "/app/renewals",
+    "group": "UI4",
+    "slug": "app-renewals",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck renewals"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-renewals-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/api-keys",
+    "url": "/app/security-center/api-keys",
+    "group": "UI7",
+    "slug": "app-security-center-api-keys",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "API keys"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-api-keys-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/api-keys",
+    "url": "/app/security-center/api-keys",
+    "group": "UI7",
+    "slug": "app-security-center-api-keys",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "API keys"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-api-keys-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/audit",
+    "url": "/app/security-center/audit",
+    "group": "UI7",
+    "slug": "app-security-center-audit",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security audit log"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-audit-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/audit",
+    "url": "/app/security-center/audit",
+    "group": "UI7",
+    "slug": "app-security-center-audit",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security audit log"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-audit-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/mobile-clients",
+    "url": "/app/security-center/mobile-clients",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-clients",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Mobile app clients"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-mobile-clients-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/mobile-clients",
+    "url": "/app/security-center/mobile-clients",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-clients",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Mobile app clients"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-mobile-clients-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/mobile-release",
+    "url": "/app/security-center/mobile-release",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-release",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver app release"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-mobile-release-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/mobile-release",
+    "url": "/app/security-center/mobile-release",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-release",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver app release"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-mobile-release-1280-after.png"
+  },
+  {
+    "route": "/app/security-center",
+    "url": "/app/security-center",
+    "group": "UI7",
+    "slug": "app-security-center",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security center"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-1280-before.png"
+  },
+  {
+    "route": "/app/security-center",
+    "url": "/app/security-center",
+    "group": "UI7",
+    "slug": "app-security-center",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security center"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/roles",
+    "url": "/app/security-center/roles",
+    "group": "UI7",
+    "slug": "app-security-center-roles",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-roles-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/roles",
+    "url": "/app/security-center/roles",
+    "group": "UI7",
+    "slug": "app-security-center-roles",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-roles-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/status",
+    "url": "/app/security-center/status",
+    "group": "UI7",
+    "slug": "app-security-center-status",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "System status"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-status-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/status",
+    "url": "/app/security-center/status",
+    "group": "UI7",
+    "slug": "app-security-center-status",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "System status"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-status-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/tenants",
+    "url": "/app/security-center/tenants",
+    "group": "UI7",
+    "slug": "app-security-center-tenants",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Tenants"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-tenants-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/tenants",
+    "url": "/app/security-center/tenants",
+    "group": "UI7",
+    "slug": "app-security-center-tenants",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Tenants"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-tenants-1280-after.png"
+  },
+  {
+    "route": "/app/security-center/users",
+    "url": "/app/security-center/users",
+    "group": "UI7",
+    "slug": "app-security-center-users",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-users-1280-before.png"
+  },
+  {
+    "route": "/app/security-center/users",
+    "url": "/app/security-center/users",
+    "group": "UI7",
+    "slug": "app-security-center-users",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-security-center-users-1280-after.png"
+  },
+  {
+    "route": "/app/settings/company-profile",
+    "url": "/app/settings/company-profile",
+    "group": "UI4",
+    "slug": "app-settings-company-profile",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Company profile"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-settings-company-profile-1280-before.png"
+  },
+  {
+    "route": "/app/settings/company-profile",
+    "url": "/app/settings/company-profile",
+    "group": "UI4",
+    "slug": "app-settings-company-profile",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Company profile"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-settings-company-profile-1280-after.png"
+  },
+  {
+    "route": "/app/settings/support-access",
+    "url": "/app/settings/support-access",
+    "group": "UI7",
+    "slug": "app-settings-support-access",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support access"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-settings-support-access-1280-before.png"
+  },
+  {
+    "route": "/app/settings/support-access",
+    "url": "/app/settings/support-access",
+    "group": "UI7",
+    "slug": "app-settings-support-access",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support access"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-settings-support-access-1280-after.png"
+  },
+  {
+    "route": "/app/sources",
+    "url": "/app/sources",
+    "group": "UI4",
+    "slug": "app-sources",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Pickup and delivery points"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-sources-1280-before.png"
+  },
+  {
+    "route": "/app/sources",
+    "url": "/app/sources",
+    "group": "UI4",
+    "slug": "app-sources",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Pickup and delivery points"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-sources-1280-after.png"
+  },
+  {
+    "route": "/app/standby-records",
+    "url": "/app/standby-records",
+    "group": "UI5",
+    "slug": "app-standby-records",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Standby records"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-standby-records-1280-before.png"
+  },
+  {
+    "route": "/app/standby-records",
+    "url": "/app/standby-records",
+    "group": "UI5",
+    "slug": "app-standby-records",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Standby records"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-standby-records-1280-after.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]/edit",
+    "url": "/app/subcontractors/ui4c-partner/edit",
+    "group": "UI4",
+    "slug": "app-subcontractors-id-edit",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-id-edit-1280-before.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]/edit",
+    "url": "/app/subcontractors/ui4c-partner/edit",
+    "group": "UI4",
+    "slug": "app-subcontractors-id-edit",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-id-edit-1280-after.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]",
+    "url": "/app/subcontractors/ui4c-partner",
+    "group": "UI4",
+    "slug": "app-subcontractors-id",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-id-1280-before.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]",
+    "url": "/app/subcontractors/ui4c-partner",
+    "group": "UI4",
+    "slug": "app-subcontractors-id",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-id-1280-after.png"
+  },
+  {
+    "route": "/app/subcontractors/new",
+    "url": "/app/subcontractors/new",
+    "group": "UI4",
+    "slug": "app-subcontractors-new",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add a new partner"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-new-1280-before.png"
+  },
+  {
+    "route": "/app/subcontractors/new",
+    "url": "/app/subcontractors/new",
+    "group": "UI4",
+    "slug": "app-subcontractors-new",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add a new partner"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-new-1280-after.png"
+  },
+  {
+    "route": "/app/subcontractors",
+    "url": "/app/subcontractors",
+    "group": "UI4",
+    "slug": "app-subcontractors",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Partners"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-1280-before.png"
+  },
+  {
+    "route": "/app/subcontractors",
+    "url": "/app/subcontractors",
+    "group": "UI4",
+    "slug": "app-subcontractors",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Partners"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-subcontractors-1280-after.png"
+  },
+  {
+    "route": "/app/support",
+    "url": "/app/support",
+    "group": "UI3",
+    "slug": "app-support",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-support-1280-before.png"
+  },
+  {
+    "route": "/app/support",
+    "url": "/app/support",
+    "group": "UI3",
+    "slug": "app-support",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-support-1280-after.png"
+  },
+  {
+    "route": "/app/truck-assignment",
+    "url": "/app/truck-assignment",
+    "group": "UI4",
+    "slug": "app-truck-assignment",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck assignment"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-truck-assignment-1280-before.png"
+  },
+  {
+    "route": "/app/truck-assignment",
+    "url": "/app/truck-assignment",
+    "group": "UI4",
+    "slug": "app-truck-assignment",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck assignment"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-truck-assignment-1280-after.png"
+  },
+  {
+    "route": "/app/trucks/edit",
+    "url": "/app/trucks/edit?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-edit",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-edit-1280-before.png"
+  },
+  {
+    "route": "/app/trucks/edit",
+    "url": "/app/trucks/edit?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-edit",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-edit-1280-after.png"
+  },
+  {
+    "route": "/app/trucks/maintenance",
+    "url": "/app/trucks/maintenance?id=truck-1",
+    "group": "UI6",
+    "slug": "app-trucks-maintenance",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-maintenance-1280-before.png"
+  },
+  {
+    "route": "/app/trucks/maintenance",
+    "url": "/app/trucks/maintenance?id=truck-1",
+    "group": "UI6",
+    "slug": "app-trucks-maintenance",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-maintenance-1280-after.png"
+  },
+  {
+    "route": "/app/trucks/new",
+    "url": "/app/trucks/new",
+    "group": "UI4",
+    "slug": "app-trucks-new",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck Details Form"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-new-1280-before.png"
+  },
+  {
+    "route": "/app/trucks/new",
+    "url": "/app/trucks/new",
+    "group": "UI4",
+    "slug": "app-trucks-new",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck Details Form"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-new-1280-after.png"
+  },
+  {
+    "route": "/app/trucks",
+    "url": "/app/trucks",
+    "group": "UI4",
+    "slug": "app-trucks",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trucks"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-1280-before.png"
+  },
+  {
+    "route": "/app/trucks",
+    "url": "/app/trucks",
+    "group": "UI4",
+    "slug": "app-trucks",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trucks"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-1280-after.png"
+  },
+  {
+    "route": "/app/trucks/renew",
+    "url": "/app/trucks/renew?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-renew",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-renew-1280-before.png"
+  },
+  {
+    "route": "/app/trucks/renew",
+    "url": "/app/trucks/renew?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-renew",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-renew-1280-after.png"
+  },
+  {
+    "route": "/app/trucks/view",
+    "url": "/app/trucks/view?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-view",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-view-1280-before.png"
+  },
+  {
+    "route": "/app/trucks/view",
+    "url": "/app/trucks/view?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-view",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-trucks-view-1280-after.png"
+  },
+  {
+    "route": "/app/unauthorized",
+    "url": "/app/unauthorized",
+    "group": "UI3",
+    "slug": "app-unauthorized",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "No access to this page"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-unauthorized-1280-before.png"
+  },
+  {
+    "route": "/app/unauthorized",
+    "url": "/app/unauthorized",
+    "group": "UI3",
+    "slug": "app-unauthorized",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "No access to this page"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-unauthorized-1280-after.png"
+  },
+  {
+    "route": "/app/users",
+    "url": "/app/users",
+    "group": "UI7",
+    "slug": "app-users",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-users-1280-before.png"
+  },
+  {
+    "route": "/app/users",
+    "url": "/app/users",
+    "group": "UI7",
+    "slug": "app-users",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-users-1280-after.png"
+  },
+  {
+    "route": "/app/utilities/backfill",
+    "url": "/app/utilities/backfill",
+    "group": "UI6",
+    "slug": "app-utilities-backfill",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing utilities"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-utilities-backfill-1280-before.png"
+  },
+  {
+    "route": "/app/utilities/backfill",
+    "url": "/app/utilities/backfill",
+    "group": "UI6",
+    "slug": "app-utilities-backfill",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing utilities"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-utilities-backfill-1280-after.png"
+  },
+  {
+    "route": "/app/utilities/billing-impact",
+    "url": "/app/utilities/billing-impact",
+    "group": "UI6",
+    "slug": "app-utilities-billing-impact",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing impact report"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-utilities-billing-impact-1280-before.png"
+  },
+  {
+    "route": "/app/utilities/billing-impact",
+    "url": "/app/utilities/billing-impact",
+    "group": "UI6",
+    "slug": "app-utilities-billing-impact",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing impact report"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-utilities-billing-impact-1280-after.png"
+  },
+  {
+    "route": "/app/waitlist",
+    "url": "/app/waitlist",
+    "group": "UI7",
+    "slug": "app-waitlist",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Waitlist"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-waitlist-1280-before.png"
+  },
+  {
+    "route": "/app/waitlist",
+    "url": "/app/waitlist",
+    "group": "UI7",
+    "slug": "app-waitlist",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Waitlist"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "app-waitlist-1280-after.png"
+  },
+  {
+    "route": "/join-network",
+    "url": "/join-network",
+    "group": "UI7",
+    "slug": "join-network",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Work with GORATECH as a partner carrier"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "join-network-1280-before.png"
+  },
+  {
+    "route": "/join-network",
+    "url": "/join-network",
+    "group": "UI7",
+    "slug": "join-network",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Work with GORATECH as a partner carrier"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "join-network-1280-after.png"
+  },
+  {
+    "route": "/forgot-password",
+    "url": "/forgot-password",
+    "group": "UI3",
+    "slug": "forgot-password",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Forgot password"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "forgot-password-360-before.png"
+  },
+  {
+    "route": "/forgot-password",
+    "url": "/forgot-password",
+    "group": "UI3",
+    "slug": "forgot-password",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Forgot password"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "forgot-password-360-after.png"
+  },
+  {
+    "route": "/reset-password",
+    "url": "/reset-password?token=ui-fixture-reset",
+    "group": "UI3",
+    "slug": "reset-password",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Set a new password"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "reset-password-360-before.png"
+  },
+  {
+    "route": "/reset-password",
+    "url": "/reset-password?token=ui-fixture-reset",
+    "group": "UI3",
+    "slug": "reset-password",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Set a new password"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "reset-password-360-after.png"
+  },
+  {
+    "route": "/waitlist",
+    "url": "/waitlist",
+    "group": "UI7",
+    "slug": "waitlist",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Join the waitlist"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "waitlist-360-before.png"
+  },
+  {
+    "route": "/waitlist",
+    "url": "/waitlist",
+    "group": "UI7",
+    "slug": "waitlist",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Join the waitlist"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "waitlist-360-after.png"
+  },
+  {
+    "route": "/about",
+    "url": "/about",
+    "group": "UI7",
+    "slug": "about",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "The journey of GORATECH: from challenge to building innovation"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "about-360-before.png"
+  },
+  {
+    "route": "/about",
+    "url": "/about",
+    "group": "UI7",
+    "slug": "about",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "The journey of GORATECH: from challenge to building innovation"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "about-360-after.png"
+  },
+  {
+    "route": "/app/[...missing]",
+    "url": "/app/ui-proof-missing-route",
+    "group": "UI3",
+    "slug": "app-missing",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Page not found"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-missing-360-before.png"
+  },
+  {
+    "route": "/app/[...missing]",
+    "url": "/app/ui-proof-missing-route",
+    "group": "UI3",
+    "slug": "app-missing",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Page not found"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-missing-360-after.png"
+  },
+  {
+    "route": "/app/accounting/audit",
+    "url": "/app/accounting/audit",
+    "group": "UI6",
+    "slug": "app-accounting-audit",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Expense audit"
+    ],
+    "lang": "en",
+    "scroll": 425,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-audit-360-before.png"
+  },
+  {
+    "route": "/app/accounting/billing-document",
+    "url": "/app/accounting/billing-document",
+    "group": "UI6",
+    "slug": "app-accounting-billing-document",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing documents"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-billing-document-360-before.png"
+  },
+  {
+    "route": "/app/accounting/billing-document",
+    "url": "/app/accounting/billing-document",
+    "group": "UI6",
+    "slug": "app-accounting-billing-document",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing documents"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-billing-document-360-after.png"
+  },
+  {
+    "route": "/app/accounting/billing-result",
+    "url": "/app/accounting/billing-result",
+    "group": "UI6",
+    "slug": "app-accounting-billing-result",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Statements"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-billing-result-360-before.png"
+  },
+  {
+    "route": "/app/accounting/billing-result",
+    "url": "/app/accounting/billing-result",
+    "group": "UI6",
+    "slug": "app-accounting-billing-result",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Statements"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-billing-result-360-after.png"
+  },
+  {
+    "route": "/app/accounting/fuel",
+    "url": "/app/accounting/fuel",
+    "group": "UI6",
+    "slug": "app-accounting-fuel",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel expenses"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-fuel-360-before.png"
+  },
+  {
+    "route": "/app/accounting/fuel",
+    "url": "/app/accounting/fuel",
+    "group": "UI6",
+    "slug": "app-accounting-fuel",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel expenses"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-fuel-360-after.png"
+  },
+  {
+    "route": "/app/accounting/fuel-price-history",
+    "url": "/app/accounting/fuel-price-history",
+    "group": "UI6",
+    "slug": "app-accounting-fuel-price-history",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel price history"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-fuel-price-history-360-before.png"
+  },
+  {
+    "route": "/app/accounting/fuel-price-history",
+    "url": "/app/accounting/fuel-price-history",
+    "group": "UI6",
+    "slug": "app-accounting-fuel-price-history",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Fuel price history"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-fuel-price-history-360-after.png"
+  },
+  {
+    "route": "/app/accounting/income",
+    "url": "/app/accounting/income",
+    "group": "UI6",
+    "slug": "app-accounting-income",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trips to bill"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-income-360-before.png"
+  },
+  {
+    "route": "/app/accounting/income",
+    "url": "/app/accounting/income",
+    "group": "UI6",
+    "slug": "app-accounting-income",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trips to bill"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-income-360-after.png"
+  },
+  {
+    "route": "/app/accounting/other",
+    "url": "/app/accounting/other",
+    "group": "UI6",
+    "slug": "app-accounting-other",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Other expenses"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-other-360-before.png"
+  },
+  {
+    "route": "/app/accounting/other",
+    "url": "/app/accounting/other",
+    "group": "UI6",
+    "slug": "app-accounting-other",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Other expenses"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-other-360-after.png"
+  },
+  {
+    "route": "/app/accounting/rate-card",
+    "url": "/app/accounting/rate-card",
+    "group": "UI6",
+    "slug": "app-accounting-rate-card",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Rate cards"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-rate-card-360-before.png"
+  },
+  {
+    "route": "/app/accounting/rate-card",
+    "url": "/app/accounting/rate-card",
+    "group": "UI6",
+    "slug": "app-accounting-rate-card",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Rate cards"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-rate-card-360-after.png"
+  },
+  {
+    "route": "/app/accounting/shopee-express-report",
+    "url": "/app/accounting/shopee-express-report",
+    "group": "UI6",
+    "slug": "app-accounting-shopee-express-report",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Shopee Express report"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-shopee-express-report-360-before.png"
+  },
+  {
+    "route": "/app/accounting/shopee-express-report",
+    "url": "/app/accounting/shopee-express-report",
+    "group": "UI6",
+    "slug": "app-accounting-shopee-express-report",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Shopee Express report"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-shopee-express-report-360-after.png"
+  },
+  {
+    "route": "/app/chat",
+    "url": "/app/chat",
+    "group": "UI7",
+    "slug": "app-chat",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-chat-360-before.png"
+  },
+  {
+    "route": "/app/chat",
+    "url": "/app/chat",
+    "group": "UI7",
+    "slug": "app-chat",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-chat-360-after.png"
+  },
+  {
+    "route": "/app/chat/room",
+    "url": "/app/chat/room?chatId=chat-1",
+    "group": "UI7",
+    "slug": "app-chat-room",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-chat-room-360-before.png"
+  },
+  {
+    "route": "/app/chat/room",
+    "url": "/app/chat/room?chatId=chat-1",
+    "group": "UI7",
+    "slug": "app-chat-room",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-chat-room-360-after.png"
+  },
+  {
+    "route": "/app/chat/with-driver",
+    "url": "/app/chat/with-driver?driverId=driver-1",
+    "group": "UI7",
+    "slug": "app-chat-with-driver",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-chat-with-driver-360-before.png"
+  },
+  {
+    "route": "/app/chat/with-driver",
+    "url": "/app/chat/with-driver?driverId=driver-1",
+    "group": "UI7",
+    "slug": "app-chat-with-driver",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Chat"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-chat-with-driver-360-after.png"
+  },
+  {
+    "route": "/app/companies",
+    "url": "/app/companies",
+    "group": "UI4",
+    "slug": "app-companies",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Companies"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-companies-360-before.png"
+  },
+  {
+    "route": "/app/companies",
+    "url": "/app/companies",
+    "group": "UI4",
+    "slug": "app-companies",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Companies"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-companies-360-after.png"
+  },
+  {
+    "route": "/app/customers/[id]/edit",
+    "url": "/app/customers/customer/edit",
+    "group": "UI4",
+    "slug": "app-customers-id-edit",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-id-edit-360-before.png"
+  },
+  {
+    "route": "/app/customers/[id]/edit",
+    "url": "/app/customers/customer/edit",
+    "group": "UI4",
+    "slug": "app-customers-id-edit",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-id-edit-360-after.png"
+  },
+  {
+    "route": "/app/customers/[id]",
+    "url": "/app/customers/customer",
+    "group": "UI4",
+    "slug": "app-customers-id",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-id-360-before.png"
+  },
+  {
+    "route": "/app/customers/[id]",
+    "url": "/app/customers/customer",
+    "group": "UI4",
+    "slug": "app-customers-id",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Example Customer"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-id-360-after.png"
+  },
+  {
+    "route": "/app/customers/new",
+    "url": "/app/customers/new",
+    "group": "UI4",
+    "slug": "app-customers-new",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add Customer"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-new-360-before.png"
+  },
+  {
+    "route": "/app/customers/new",
+    "url": "/app/customers/new",
+    "group": "UI4",
+    "slug": "app-customers-new",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add Customer"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-new-360-after.png"
+  },
+  {
+    "route": "/app/customers",
+    "url": "/app/customers",
+    "group": "UI4",
+    "slug": "app-customers",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Customers"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-360-before.png"
+  },
+  {
+    "route": "/app/customers",
+    "url": "/app/customers",
+    "group": "UI4",
+    "slug": "app-customers",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Customers"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-customers-360-after.png"
+  },
+  {
+    "route": "/app/dashboard",
+    "url": "/app/dashboard",
+    "group": "UI7",
+    "slug": "app-dashboard",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-dashboard-360-before.png"
+  },
+  {
+    "route": "/app/dashboard",
+    "url": "/app/dashboard",
+    "group": "UI7",
+    "slug": "app-dashboard",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-dashboard-360-after.png"
+  },
+  {
+    "route": "/app/driver-monitor",
+    "url": "/app/driver-monitor",
+    "group": "UI5",
+    "slug": "app-driver-monitor",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver monitor"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-driver-monitor-360-before.png"
+  },
+  {
+    "route": "/app/driver-monitor",
+    "url": "/app/driver-monitor",
+    "group": "UI5",
+    "slug": "app-driver-monitor",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver monitor"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-driver-monitor-360-after.png"
+  },
+  {
+    "route": "/app/drivers/edit",
+    "url": "/app/drivers/edit?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-edit",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-edit-360-before.png"
+  },
+  {
+    "route": "/app/drivers/edit",
+    "url": "/app/drivers/edit?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-edit",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-edit-360-after.png"
+  },
+  {
+    "route": "/app/drivers/new",
+    "url": "/app/drivers/new",
+    "group": "UI4",
+    "slug": "app-drivers-new",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Register New Driver"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-new-360-before.png"
+  },
+  {
+    "route": "/app/drivers/new",
+    "url": "/app/drivers/new",
+    "group": "UI4",
+    "slug": "app-drivers-new",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Register New Driver"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-new-360-after.png"
+  },
+  {
+    "route": "/app/drivers",
+    "url": "/app/drivers",
+    "group": "UI4",
+    "slug": "app-drivers",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Drivers"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-360-before.png"
+  },
+  {
+    "route": "/app/drivers",
+    "url": "/app/drivers",
+    "group": "UI4",
+    "slug": "app-drivers",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Drivers"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-360-after.png"
+  },
+  {
+    "route": "/app/drivers/view",
+    "url": "/app/drivers/view?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-view",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-view-360-before.png"
+  },
+  {
+    "route": "/app/drivers/view",
+    "url": "/app/drivers/view?id=driver-1",
+    "group": "UI4",
+    "slug": "app-drivers-view",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "สมชาย ทดสอบ 1"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-drivers-view-360-after.png"
+  },
+  {
+    "route": "/app/first-mile",
+    "url": "/app/first-mile",
+    "group": "UI5",
+    "slug": "app-first-mile",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "First mile tasks"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-first-mile-360-before.png"
+  },
+  {
+    "route": "/app/first-mile",
+    "url": "/app/first-mile",
+    "group": "UI5",
+    "slug": "app-first-mile",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "First mile tasks"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-first-mile-360-after.png"
+  },
+  {
+    "route": "/app/holidays",
+    "url": "/app/holidays",
+    "group": "UI7",
+    "slug": "app-holidays",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Holidays"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-holidays-360-before.png"
+  },
+  {
+    "route": "/app/holidays",
+    "url": "/app/holidays",
+    "group": "UI7",
+    "slug": "app-holidays",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Holidays"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-holidays-360-after.png"
+  },
+  {
+    "route": "/app/incident-reports",
+    "url": "/app/incident-reports",
+    "group": "UI5",
+    "slug": "app-incident-reports",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Incident reports"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-incident-reports-360-before.png"
+  },
+  {
+    "route": "/app/incident-reports",
+    "url": "/app/incident-reports",
+    "group": "UI5",
+    "slug": "app-incident-reports",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Incident reports"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-incident-reports-360-after.png"
+  },
+  {
+    "route": "/app/job-assign",
+    "url": "/app/job-assign",
+    "group": "UI5",
+    "slug": "app-job-assign",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Job assignment"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-job-assign-360-before.png"
+  },
+  {
+    "route": "/app/job-assign",
+    "url": "/app/job-assign",
+    "group": "UI5",
+    "slug": "app-job-assign",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Job assignment"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-job-assign-360-after.png"
+  },
+  {
+    "route": "/app/leave-requests",
+    "url": "/app/leave-requests",
+    "group": "UI7",
+    "slug": "app-leave-requests",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Leave requests"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-leave-requests-360-before.png"
+  },
+  {
+    "route": "/app/leave-requests",
+    "url": "/app/leave-requests",
+    "group": "UI7",
+    "slug": "app-leave-requests",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Leave requests"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-leave-requests-360-after.png"
+  },
+  {
+    "route": "/app/line-haul",
+    "url": "/app/line-haul",
+    "group": "UI5",
+    "slug": "app-line-haul",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Line haul tasks"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-line-haul-360-before.png"
+  },
+  {
+    "route": "/app/line-haul",
+    "url": "/app/line-haul",
+    "group": "UI5",
+    "slug": "app-line-haul",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Line haul tasks"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-line-haul-360-after.png"
+  },
+  {
+    "route": "/app/maintenance",
+    "url": "/app/maintenance",
+    "group": "UI6",
+    "slug": "app-maintenance",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Maintenance"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-maintenance-360-before.png"
+  },
+  {
+    "route": "/app/maintenance",
+    "url": "/app/maintenance",
+    "group": "UI6",
+    "slug": "app-maintenance",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Maintenance"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-maintenance-360-after.png"
+  },
+  {
+    "route": "/app/operations/roles",
+    "url": "/app/operations/roles",
+    "group": "UI7",
+    "slug": "app-operations-roles",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-operations-roles-360-before.png"
+  },
+  {
+    "route": "/app/operations/roles",
+    "url": "/app/operations/roles",
+    "group": "UI7",
+    "slug": "app-operations-roles",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-operations-roles-360-after.png"
+  },
+  {
+    "route": "/app",
+    "url": "/app",
+    "group": "UI3",
+    "slug": "app",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-360-before.png"
+  },
+  {
+    "route": "/app",
+    "url": "/app",
+    "group": "UI3",
+    "slug": "app",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Dashboard"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-360-after.png"
+  },
+  {
+    "route": "/app/payroll/config",
+    "url": "/app/payroll/config",
+    "group": "UI7",
+    "slug": "app-payroll-config",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "This page stopped working"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-payroll-config-360-before.png"
+  },
+  {
+    "route": "/app/payroll/config",
+    "url": "/app/payroll/config",
+    "group": "UI7",
+    "slug": "app-payroll-config",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "This page stopped working"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-payroll-config-360-after.png"
+  },
+  {
+    "route": "/app/payroll",
+    "url": "/app/payroll",
+    "group": "UI7",
+    "slug": "app-payroll",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Payroll"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-payroll-360-before.png"
+  },
+  {
+    "route": "/app/payroll",
+    "url": "/app/payroll",
+    "group": "UI7",
+    "slug": "app-payroll",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Payroll"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-payroll-360-after.png"
+  },
+  {
+    "route": "/app/payroll/penalties",
+    "url": "/app/payroll/penalties",
+    "group": "UI7",
+    "slug": "app-payroll-penalties",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver Penalties"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-payroll-penalties-360-before.png"
+  },
+  {
+    "route": "/app/payroll/penalties",
+    "url": "/app/payroll/penalties",
+    "group": "UI7",
+    "slug": "app-payroll-penalties",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver Penalties"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-payroll-penalties-360-after.png"
+  },
+  {
+    "route": "/app/renewals",
+    "url": "/app/renewals",
+    "group": "UI4",
+    "slug": "app-renewals",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck renewals"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-renewals-360-before.png"
+  },
+  {
+    "route": "/app/renewals",
+    "url": "/app/renewals",
+    "group": "UI4",
+    "slug": "app-renewals",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck renewals"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-renewals-360-after.png"
+  },
+  {
+    "route": "/app/security-center/api-keys",
+    "url": "/app/security-center/api-keys",
+    "group": "UI7",
+    "slug": "app-security-center-api-keys",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "API keys"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-api-keys-360-before.png"
+  },
+  {
+    "route": "/app/security-center/api-keys",
+    "url": "/app/security-center/api-keys",
+    "group": "UI7",
+    "slug": "app-security-center-api-keys",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "API keys"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-api-keys-360-after.png"
+  },
+  {
+    "route": "/app/security-center/audit",
+    "url": "/app/security-center/audit",
+    "group": "UI7",
+    "slug": "app-security-center-audit",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security audit log"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-audit-360-before.png"
+  },
+  {
+    "route": "/app/security-center/audit",
+    "url": "/app/security-center/audit",
+    "group": "UI7",
+    "slug": "app-security-center-audit",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security audit log"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-audit-360-after.png"
+  },
+  {
+    "route": "/app/security-center/mobile-clients",
+    "url": "/app/security-center/mobile-clients",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-clients",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Mobile app clients"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-mobile-clients-360-before.png"
+  },
+  {
+    "route": "/app/security-center/mobile-clients",
+    "url": "/app/security-center/mobile-clients",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-clients",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Mobile app clients"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-mobile-clients-360-after.png"
+  },
+  {
+    "route": "/app/security-center/mobile-release",
+    "url": "/app/security-center/mobile-release",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-release",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver app release"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-mobile-release-360-before.png"
+  },
+  {
+    "route": "/app/security-center/mobile-release",
+    "url": "/app/security-center/mobile-release",
+    "group": "UI7",
+    "slug": "app-security-center-mobile-release",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Driver app release"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-mobile-release-360-after.png"
+  },
+  {
+    "route": "/app/security-center",
+    "url": "/app/security-center",
+    "group": "UI7",
+    "slug": "app-security-center",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security center"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-360-before.png"
+  },
+  {
+    "route": "/app/security-center",
+    "url": "/app/security-center",
+    "group": "UI7",
+    "slug": "app-security-center",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Security center"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-360-after.png"
+  },
+  {
+    "route": "/app/security-center/roles",
+    "url": "/app/security-center/roles",
+    "group": "UI7",
+    "slug": "app-security-center-roles",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-roles-360-before.png"
+  },
+  {
+    "route": "/app/security-center/roles",
+    "url": "/app/security-center/roles",
+    "group": "UI7",
+    "slug": "app-security-center-roles",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Roles and permissions"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-roles-360-after.png"
+  },
+  {
+    "route": "/app/security-center/status",
+    "url": "/app/security-center/status",
+    "group": "UI7",
+    "slug": "app-security-center-status",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "System status"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-status-360-before.png"
+  },
+  {
+    "route": "/app/security-center/status",
+    "url": "/app/security-center/status",
+    "group": "UI7",
+    "slug": "app-security-center-status",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "System status"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-status-360-after.png"
+  },
+  {
+    "route": "/app/security-center/tenants",
+    "url": "/app/security-center/tenants",
+    "group": "UI7",
+    "slug": "app-security-center-tenants",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Tenants"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-tenants-360-before.png"
+  },
+  {
+    "route": "/app/security-center/tenants",
+    "url": "/app/security-center/tenants",
+    "group": "UI7",
+    "slug": "app-security-center-tenants",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Tenants"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-tenants-360-after.png"
+  },
+  {
+    "route": "/app/security-center/users",
+    "url": "/app/security-center/users",
+    "group": "UI7",
+    "slug": "app-security-center-users",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-users-360-before.png"
+  },
+  {
+    "route": "/app/security-center/users",
+    "url": "/app/security-center/users",
+    "group": "UI7",
+    "slug": "app-security-center-users",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-security-center-users-360-after.png"
+  },
+  {
+    "route": "/app/settings/company-profile",
+    "url": "/app/settings/company-profile",
+    "group": "UI4",
+    "slug": "app-settings-company-profile",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Company profile"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-settings-company-profile-360-before.png"
+  },
+  {
+    "route": "/app/settings/company-profile",
+    "url": "/app/settings/company-profile",
+    "group": "UI4",
+    "slug": "app-settings-company-profile",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Company profile"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-settings-company-profile-360-after.png"
+  },
+  {
+    "route": "/app/settings/support-access",
+    "url": "/app/settings/support-access",
+    "group": "UI7",
+    "slug": "app-settings-support-access",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support access"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-settings-support-access-360-before.png"
+  },
+  {
+    "route": "/app/settings/support-access",
+    "url": "/app/settings/support-access",
+    "group": "UI7",
+    "slug": "app-settings-support-access",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support access"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-settings-support-access-360-after.png"
+  },
+  {
+    "route": "/app/sources",
+    "url": "/app/sources",
+    "group": "UI4",
+    "slug": "app-sources",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Pickup and delivery points"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-sources-360-before.png"
+  },
+  {
+    "route": "/app/sources",
+    "url": "/app/sources",
+    "group": "UI4",
+    "slug": "app-sources",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Pickup and delivery points"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-sources-360-after.png"
+  },
+  {
+    "route": "/app/standby-records",
+    "url": "/app/standby-records",
+    "group": "UI5",
+    "slug": "app-standby-records",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Standby records"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-standby-records-360-before.png"
+  },
+  {
+    "route": "/app/standby-records",
+    "url": "/app/standby-records",
+    "group": "UI5",
+    "slug": "app-standby-records",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Standby records"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-standby-records-360-after.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]/edit",
+    "url": "/app/subcontractors/ui4c-partner/edit",
+    "group": "UI4",
+    "slug": "app-subcontractors-id-edit",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-id-edit-360-before.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]/edit",
+    "url": "/app/subcontractors/ui4c-partner/edit",
+    "group": "UI4",
+    "slug": "app-subcontractors-id-edit",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-id-edit-360-after.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]",
+    "url": "/app/subcontractors/ui4c-partner",
+    "group": "UI4",
+    "slug": "app-subcontractors-id",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-id-360-before.png"
+  },
+  {
+    "route": "/app/subcontractors/[id]",
+    "url": "/app/subcontractors/ui4c-partner",
+    "group": "UI4",
+    "slug": "app-subcontractors-id",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "รถร่วมตัวอย่างเชียงใหม่และลำพูน"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-id-360-after.png"
+  },
+  {
+    "route": "/app/subcontractors/new",
+    "url": "/app/subcontractors/new",
+    "group": "UI4",
+    "slug": "app-subcontractors-new",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add a new partner"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-new-360-before.png"
+  },
+  {
+    "route": "/app/subcontractors/new",
+    "url": "/app/subcontractors/new",
+    "group": "UI4",
+    "slug": "app-subcontractors-new",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Add a new partner"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-new-360-after.png"
+  },
+  {
+    "route": "/app/subcontractors",
+    "url": "/app/subcontractors",
+    "group": "UI4",
+    "slug": "app-subcontractors",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Partners"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-360-before.png"
+  },
+  {
+    "route": "/app/subcontractors",
+    "url": "/app/subcontractors",
+    "group": "UI4",
+    "slug": "app-subcontractors",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Partners"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-subcontractors-360-after.png"
+  },
+  {
+    "route": "/app/support",
+    "url": "/app/support",
+    "group": "UI3",
+    "slug": "app-support",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-support-360-before.png"
+  },
+  {
+    "route": "/app/support",
+    "url": "/app/support",
+    "group": "UI3",
+    "slug": "app-support",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Support"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-support-360-after.png"
+  },
+  {
+    "route": "/app/truck-assignment",
+    "url": "/app/truck-assignment",
+    "group": "UI4",
+    "slug": "app-truck-assignment",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck assignment"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-truck-assignment-360-before.png"
+  },
+  {
+    "route": "/app/truck-assignment",
+    "url": "/app/truck-assignment",
+    "group": "UI4",
+    "slug": "app-truck-assignment",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck assignment"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-truck-assignment-360-after.png"
+  },
+  {
+    "route": "/app/trucks/edit",
+    "url": "/app/trucks/edit?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-edit",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-edit-360-before.png"
+  },
+  {
+    "route": "/app/trucks/edit",
+    "url": "/app/trucks/edit?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-edit",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-edit-360-after.png"
+  },
+  {
+    "route": "/app/trucks/maintenance",
+    "url": "/app/trucks/maintenance?id=truck-1",
+    "group": "UI6",
+    "slug": "app-trucks-maintenance",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-maintenance-360-before.png"
+  },
+  {
+    "route": "/app/trucks/maintenance",
+    "url": "/app/trucks/maintenance?id=truck-1",
+    "group": "UI6",
+    "slug": "app-trucks-maintenance",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-maintenance-360-after.png"
+  },
+  {
+    "route": "/app/trucks/new",
+    "url": "/app/trucks/new",
+    "group": "UI4",
+    "slug": "app-trucks-new",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck Details Form"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-new-360-before.png"
+  },
+  {
+    "route": "/app/trucks/new",
+    "url": "/app/trucks/new",
+    "group": "UI4",
+    "slug": "app-trucks-new",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Truck Details Form"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-new-360-after.png"
+  },
+  {
+    "route": "/app/trucks",
+    "url": "/app/trucks",
+    "group": "UI4",
+    "slug": "app-trucks",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trucks"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-360-before.png"
+  },
+  {
+    "route": "/app/trucks",
+    "url": "/app/trucks",
+    "group": "UI4",
+    "slug": "app-trucks",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Trucks"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-360-after.png"
+  },
+  {
+    "route": "/app/trucks/renew",
+    "url": "/app/trucks/renew?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-renew",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-renew-360-before.png"
+  },
+  {
+    "route": "/app/trucks/renew",
+    "url": "/app/trucks/renew?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-renew",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-renew-360-after.png"
+  },
+  {
+    "route": "/app/trucks/view",
+    "url": "/app/trucks/view?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-view",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-view-360-before.png"
+  },
+  {
+    "route": "/app/trucks/view",
+    "url": "/app/trucks/view?id=truck-1",
+    "group": "UI4",
+    "slug": "app-trucks-view",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "70-1234"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-trucks-view-360-after.png"
+  },
+  {
+    "route": "/app/unauthorized",
+    "url": "/app/unauthorized",
+    "group": "UI3",
+    "slug": "app-unauthorized",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "No access to this page"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-unauthorized-360-before.png"
+  },
+  {
+    "route": "/app/unauthorized",
+    "url": "/app/unauthorized",
+    "group": "UI3",
+    "slug": "app-unauthorized",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "No access to this page"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-unauthorized-360-after.png"
+  },
+  {
+    "route": "/app/users",
+    "url": "/app/users",
+    "group": "UI7",
+    "slug": "app-users",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-users-360-before.png"
+  },
+  {
+    "route": "/app/users",
+    "url": "/app/users",
+    "group": "UI7",
+    "slug": "app-users",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "User management"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-users-360-after.png"
+  },
+  {
+    "route": "/app/utilities/backfill",
+    "url": "/app/utilities/backfill",
+    "group": "UI6",
+    "slug": "app-utilities-backfill",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing utilities"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-utilities-backfill-360-before.png"
+  },
+  {
+    "route": "/app/utilities/backfill",
+    "url": "/app/utilities/backfill",
+    "group": "UI6",
+    "slug": "app-utilities-backfill",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing utilities"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-utilities-backfill-360-after.png"
+  },
+  {
+    "route": "/app/utilities/billing-impact",
+    "url": "/app/utilities/billing-impact",
+    "group": "UI6",
+    "slug": "app-utilities-billing-impact",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing impact report"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-utilities-billing-impact-360-before.png"
+  },
+  {
+    "route": "/app/utilities/billing-impact",
+    "url": "/app/utilities/billing-impact",
+    "group": "UI6",
+    "slug": "app-utilities-billing-impact",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Billing impact report"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-utilities-billing-impact-360-after.png"
+  },
+  {
+    "route": "/app/waitlist",
+    "url": "/app/waitlist",
+    "group": "UI7",
+    "slug": "app-waitlist",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Waitlist"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-waitlist-360-before.png"
+  },
+  {
+    "route": "/app/waitlist",
+    "url": "/app/waitlist",
+    "group": "UI7",
+    "slug": "app-waitlist",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Waitlist"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-waitlist-360-after.png"
+  },
+  {
+    "route": "/join-network",
+    "url": "/join-network",
+    "group": "UI7",
+    "slug": "join-network",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Work with GORATECH as a partner carrier"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "join-network-360-before.png"
+  },
+  {
+    "route": "/join-network",
+    "url": "/join-network",
+    "group": "UI7",
+    "slug": "join-network",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Work with GORATECH as a partner carrier"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "join-network-360-after.png"
+  },
+  {
+    "route": "/app/accounting/audit",
+    "url": "/app/accounting/audit",
+    "group": "UI6",
+    "slug": "app-accounting-audit",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "bodyError": false,
+    "headings": [
+      "Expense audit"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "app-accounting-audit-360-after.png",
+    "confirmation": "Final production build: native DOM measured scrollWidth=360, viewport=360, all four tabs 44px high; captured after fix."
+  },
+  {
+    "route": "/my-account",
+    "url": "/my-account",
+    "group": "UI3",
+    "slug": "my-account",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3993/my-account",
+    "bodyError": false,
+    "headings": [
+      "My account"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "my-account-1280-before.png"
+  },
+  {
+    "route": "/my-account",
+    "url": "/my-account",
+    "group": "UI3",
+    "slug": "my-account",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3991/my-account",
+    "bodyError": false,
+    "headings": [
+      "My account"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "my-account-1280-after.png"
+  },
+  {
+    "route": "/my-account",
+    "url": "/my-account",
+    "group": "UI3",
+    "slug": "my-account",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3993/my-account",
+    "bodyError": false,
+    "headings": [
+      "My account"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "my-account-360-before.png"
+  },
+  {
+    "route": "/my-account",
+    "url": "/my-account",
+    "group": "UI3",
+    "slug": "my-account",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3991/my-account",
+    "bodyError": false,
+    "headings": [
+      "My account"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "my-account-360-after.png"
+  },
+  {
+    "route": "/login",
+    "url": "/login",
+    "group": "UI3",
+    "slug": "login",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3993/login",
+    "bodyError": false,
+    "headings": [
+      "Sign in"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "login-1280-before.png"
+  },
+  {
+    "route": "/login",
+    "url": "/login",
+    "group": "UI3",
+    "slug": "login",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3991/login",
+    "bodyError": false,
+    "headings": [
+      "Sign in"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "login-1280-after.png"
+  },
+  {
+    "route": "/login",
+    "url": "/login",
+    "group": "UI3",
+    "slug": "login",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3993/login",
+    "bodyError": false,
+    "headings": [
+      "Sign in"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "login-360-before.png"
+  },
+  {
+    "route": "/login",
+    "url": "/login",
+    "group": "UI3",
+    "slug": "login",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3991/login",
+    "bodyError": false,
+    "headings": [
+      "Sign in"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "login-360-after.png"
+  },
+  {
+    "route": "/",
+    "url": "/",
+    "group": "UI7",
+    "slug": "landing",
+    "width": 1280,
+    "version": "before",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3993/",
+    "bodyError": false,
+    "headings": [
+      "Run your trucking operation from assignment to payout"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "landing-1280-before.png"
+  },
+  {
+    "route": "/",
+    "url": "/",
+    "group": "UI7",
+    "slug": "landing",
+    "width": 1280,
+    "version": "after",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3991/",
+    "bodyError": false,
+    "headings": [
+      "Run your trucking operation from assignment to payout"
+    ],
+    "lang": "en",
+    "scroll": 1280,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 1280,
+    "file": "landing-1280-after.png"
+  },
+  {
+    "route": "/",
+    "url": "/",
+    "group": "UI7",
+    "slug": "landing",
+    "width": 360,
+    "version": "before",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3993/",
+    "bodyError": false,
+    "headings": [
+      "Run your trucking operation from assignment to payout"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "landing-360-before.png"
+  },
+  {
+    "route": "/",
+    "url": "/",
+    "group": "UI7",
+    "slug": "landing",
+    "width": 360,
+    "version": "after",
+    "headingReady": true,
+    "actualUrl": "http://localhost:3991/",
+    "bodyError": false,
+    "headings": [
+      "Run your trucking operation from assignment to payout"
+    ],
+    "lang": "en",
+    "scroll": 360,
+    "theme": "__variable_8eaea4 __variable_8c25df __variable_c93b72 light",
+    "viewport": 360,
+    "file": "landing-360-after.png"
+  }
+]

@@ -1,0 +1,19 @@
+Browser tab: 2, Title: "User management · LogiTrack Pro", URL: "http://localhost:3991/app/security-center/users".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea User management · LogiTrack Pro, URL: localhost:3991/app/security-center/users
+~		3 link Description: Skip to main content, Value: localhost:3991/app/security-center/users#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~				10 link Description: Security center, Value: localhost:3991/app/security-center
+~			20 link Description: Security center Operations fixture · Platform admin, Value: localhost:3991/app/security-center
+~					25 link Description: Overview, Value: localhost:3991/app/security-center
+~					26 link Description: User management, Value: localhost:3991/app/security-center/users
+~					27 link Description: Tenants, Value: localhost:3991/app/security-center/tenants
+~					28 link Description: Roles and permissions, Value: localhost:3991/app/security-center/roles
+~					29 link Description: Security audit log, Value: localhost:3991/app/security-center/audit
+~					30 link Description: API keys, Value: localhost:3991/app/security-center/api-keys
+~					31 link Description: System status, Value: localhost:3991/app/security-center/status
+~					32 link Description: Mobile app clients, Value: localhost:3991/app/security-center/mobile-clients
+~					33 link Description: Driver app release, Value: localhost:3991/app/security-center/mobile-release
+~				35 link Description: Back to the main menu, Value: localhost:3991/app/dashboard
+~				36 link Description: Support, Value: localhost:3991/app/support
+The focused UI element is 1 AXWebArea User management · LogiTrack Pro, URL: localhost:3991/app/security-center/users

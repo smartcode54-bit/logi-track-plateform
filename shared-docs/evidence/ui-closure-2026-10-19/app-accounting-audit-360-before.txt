@@ -1,0 +1,47 @@
+Browser tab: 2, Title: "Expense audit · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/audit".
+1 AXWebArea Expense audit · LogiTrack Pro, URL: localhost:3993/app/accounting/audit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/audit#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Expense audit, Value: 1
+				10 text Expense audit
+			11 text Review and approve or reject expense submissions from drivers.
+			12 button Refresh
+			13 tab group
+				14 tab (selected, settable, boolean) Pending 0, Value: 1, ID: radix-_r_g_-trigger-pending
+				15 tab (selectable, settable, boolean) Approved 0, Value: 0, ID: radix-_r_g_-trigger-approved
+				16 tab (selectable, settable, boolean) Rejected 0, Value: 0, ID: radix-_r_g_-trigger-rejected
+				17 tab (selectable, settable, boolean) All, Value: 0, ID: radix-_r_g_-trigger-all
+			18 text Expense type
+			19 combo box (collapsed) Value: All types, Secondary Actions: Expand
+				20 text All types
+			21 container Audit Vehicle Expense
+				22 table
+					23 row
+						24 cell
+							25 checkbox (disabled) Description: Select all, Value: 0
+						26 cell
+							27 text Date
+						28 cell
+							29 text Type
+						30 cell
+							31 text License plate
+						32 cell
+							33 text Driver
+						34 cell
+							35 text Amount
+						36 cell
+							37 text Status
+						38 cell
+							39 text Actions
+					40 row
+						41 cell
+							42 text No expenses match these filters.
+			43 text 0 loaded
+		44 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Expense audit · LogiTrack Pro, URL: localhost:3993/app/accounting/audit

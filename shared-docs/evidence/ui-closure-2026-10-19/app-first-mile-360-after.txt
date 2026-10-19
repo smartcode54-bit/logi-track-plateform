@@ -1,0 +1,121 @@
+Browser tab: 2, Title: "First mile tasks · LogiTrack Pro", URL: "http://localhost:3991/app/first-mile".
+1 AXWebArea First mile tasks · LogiTrack Pro, URL: localhost:3991/app/first-mile
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/first-mile#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading First mile tasks, Value: 1
+				10 text First mile tasks
+			11 text Assign drivers to pick up from Hubs and deliver to SOCs (First Step of Day Trip).
+			12 button Refresh
+			13 button Import Excel
+			14 button New Assignment
+			15 text Filters
+			16 text Date
+			17 pop up button (collapsed) 19/10/2026, Secondary Actions: Expand
+			18 button Any day, Help: Show the newest tasks of any plan day
+			19 text Destination (SOC)
+			20 combo box (collapsed) Value: All SOCs, Secondary Actions: Expand
+				21 text All SOCs
+			22 text Pickup Point
+			23 combo box (collapsed) Value: All Pickup Points, Secondary Actions: Expand
+				24 text All Pickup Points
+			25 container First mile tasks
+				26 container FM-15102026-000
+					27 text FM-15102026-000
+					28 text Pending
+					29 container
+						30 text บางนา  →  SOCE
+					31 container
+						32 text 15/10/2026  ·  09:30
+					33 definition list
+						34 container Driver
+							35 text Driver
+						36 text สมชาย ใจดี
+						37 container License Plate
+							38 text License Plate
+						39 text 70-1111
+					40 button View FM-15102026-000
+				41 container FM-15102026-001
+					42 text FM-15102026-001
+					43 text Assigned
+					44 container
+						45 text บางนา  →  SOCE
+					46 container
+						47 text 15/10/2026  ·  09:30
+					48 definition list
+						49 container Driver
+							50 text Driver
+						51 text สมชาย ใจดี
+						52 container License Plate
+							53 text License Plate
+						54 text 70-1111
+					55 button View FM-15102026-001
+				56 container FM-15102026-002
+					57 text FM-15102026-002
+					58 text Checked in
+					59 container
+						60 text บางนา  →  SOCE
+					61 container
+						62 text 15/10/2026  ·  09:30
+					63 definition list
+						64 container Driver
+							65 text Driver
+						66 text สมชาย ใจดี
+						67 container License Plate
+							68 text License Plate
+						69 text 70-1111
+					70 button View FM-15102026-002
+				71 container FM-15102026-003
+					72 text FM-15102026-003
+					73 text In transit
+					74 container
+						75 text บางนา  →  SOCE
+					76 container
+						77 text 15/10/2026  ·  09:30
+					78 definition list
+						79 container Driver
+							80 text Driver
+						81 text สมชาย ใจดี
+						82 container License Plate
+							83 text License Plate
+						84 text 70-1111
+					85 button View FM-15102026-003
+				86 container FM-15102026-004
+					87 text FM-15102026-004
+					88 text Completed
+					89 container
+						90 text บางนา  →  SOCE
+					91 container
+						92 text 15/10/2026  ·  09:30
+					93 definition list
+						94 container Driver
+							95 text Driver
+						96 text สมชาย ใจดี
+						97 container License Plate
+							98 text License Plate
+						99 text 70-1111
+					100 button View FM-15102026-004
+				101 container FM-15102026-005
+					102 text FM-15102026-005
+					103 text Cancelled
+					104 container
+						105 text บางนา  →  SOCE
+					106 container
+						107 text 15/10/2026  ·  09:30
+					108 definition list
+						109 container Driver
+							110 text Driver
+						111 text สมชาย ใจดี
+						112 container License Plate
+							113 text License Plate
+						114 text 70-1111
+					115 button View FM-15102026-005
+			116 text 6 rows loaded
+			117 text All rows loaded
+		118 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea First mile tasks · LogiTrack Pro, URL: localhost:3991/app/first-mile

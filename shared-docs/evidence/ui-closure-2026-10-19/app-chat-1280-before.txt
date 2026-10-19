@@ -1,0 +1,68 @@
+Browser tab: 2, Title: "Chat · LogiTrack Pro", URL: "http://localhost:3993/app/chat".
+1 AXWebArea Chat · LogiTrack Pro, URL: localhost:3993/app/chat
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/chat#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Operations
+				10 link (disabled) Chat
+					11 text Chat
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 container
+					24 button (expanded) Operations, Secondary Actions: Collapse
+					25 content list
+						26 link Description: Job assignment, Value: localhost:3993/app/job-assign
+						27 link Description: First mile tasks, Value: localhost:3993/app/first-mile
+						28 link Description: Line haul tasks, Value: localhost:3993/app/line-haul
+						29 link Description: Driver monitor, Value: localhost:3993/app/driver-monitor
+						30 link Description: Incident reports, Value: localhost:3993/app/incident-reports
+						31 link Description: Standby records, Value: localhost:3993/app/standby-records
+						32 link Description: Chat, Value: localhost:3993/app/chat
+						33 link Description: Pickup and delivery points, Value: localhost:3993/app/sources
+				34 button (collapsed) Billing, Secondary Actions: Expand
+				35 button (collapsed) Costs, Secondary Actions: Expand
+				36 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				37 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				38 button (collapsed) Settings, Secondary Actions: Expand
+				39 button (collapsed) Platform, Secondary Actions: Expand
+			40 content list
+				41 link Description: Support, Value: localhost:3993/app/support
+		42 text Version 3.6.0
+		43 container main-content
+			44 container
+				45 button (expanded) Description: Collapse conversations, Secondary Actions: Collapse
+				46 container radix-_r_g_
+					47 heading Conversations, Value: 2
+						48 text Conversations
+					49 combo box (collapsed) Description: Search a driver by name..., Secondary Actions: Expand
+						50 text Search a driver by name...
+					51 link Description: New Broadcast, Value: localhost:3993/app/chat?view=broadcast
+					52 tab group
+						53 tab (selected, settable, boolean) Queued 1, Value: 1, ID: radix-_r_j_-trigger-queued
+						54 tab (selectable, settable, boolean) My Chats 1, Value: 0, ID: radix-_r_j_-trigger-mychats
+					55 container Description: Queued 1, ID: radix-_r_j_-content-queued
+						56 text Unassigned (reply to take)
+						57 content list
+							58 link Description: สมชาย ใจดี Urgent ขอความช่วยเหลือเรื่องจุดรับสินค้า Oct 15 2 unread, Value: localhost:3993/app/chat/room?chatId=chat-1
+			59 heading Chat, Value: 1
+				60 text Chat
+			61 text Select a conversation from the list to view messages, or use the driver panel on the right when a chat is selected.
+			62 container
+				63 button (expanded) Description: Collapse driver panel, Secondary Actions: Collapse
+				64 text Select a conversation to view driver profile and active assignment.
+		65 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Chat · LogiTrack Pro, URL: localhost:3993/app/chat

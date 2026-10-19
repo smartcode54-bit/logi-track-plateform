@@ -1,0 +1,178 @@
+Browser tab: 2, Title: "Payroll · LogiTrack Pro", URL: "http://localhost:3993/app/payroll".
+1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3993/app/payroll
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/payroll#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Payroll, Value: 1
+				10 text Payroll
+			11 text Manage driver earnings, deductions, and payment cycles.
+			12 link Description: Compensation Config, Value: localhost:3993/app/payroll/config
+			13 link Description: Driver Penalties, Value: localhost:3993/app/payroll/penalties
+			14 button Refresh
+			15 container
+				16 text Month to generate
+				17 date field (settable) Description: Month to generate, Value: 2026-10
+					18 container
+						19 stepper
+						20 stepper
+					21 pop up button Show month picker Show month picker
+			22 container
+				23 text Round
+				24 combo box (collapsed) Description: Round to generate, Value: R1 (1–15), Secondary Actions: Expand
+					25 text R1 (1–15)
+			26 button Generate Payroll
+			27 text Generating writes draft runs for every driver of your company; runs already approved or paid are left as they are.
+			28 text Net pay (runs shown)
+			29 heading ฿96,250, Value: 2
+				30 text ฿96,250
+			31 text Pending Approval
+			32 heading 1, Value: 2
+				33 text 1
+			34 text Successfully Paid
+			35 heading 1, Value: 2
+				36 text 1
+			37 container
+				38 text Period
+				39 date field (settable) Period
+					40 container
+						41 stepper
+						42 stepper
+					43 pop up button Show month picker Show month picker
+			44 container
+				45 text Round
+				46 combo box (collapsed) Description: Round, Value: All, Secondary Actions: Expand
+					47 text All
+			48 text Driver
+			49 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+				50 text All drivers
+			51 container
+				52 button All
+				53 button Draft (1)
+					54 text Draft
+					55 text (
+					56 text 1
+					57 text )
+				58 button Pending Approval (1)
+					59 text Pending Approval
+					60 text (
+					61 text 1
+					62 text )
+				63 button Approved (1)
+					64 text Approved
+					65 text (
+					66 text 1
+					67 text )
+				68 button Paid (1)
+					69 text Paid
+					70 text (
+					71 text 1
+					72 text )
+				73 button Cancelled (1)
+					74 text Cancelled
+					75 text (
+					76 text 1
+					77 text )
+			78 table
+				79 row
+					80 cell
+						81 text Driver
+					82 cell
+						83 text Period
+					84 cell
+						85 text Earnings
+					86 cell
+						87 text Deductions
+					88 cell
+						89 text Net Pay
+					90 cell
+						91 text Status
+					92 cell
+						93 text Actions
+				94 row
+					95 cell
+						96 text สมหญิง คนขับทดสอบ
+					97 cell
+						98 text October 2026
+						99 text R2 (16–end)
+					100 cell
+						101 text ฿20,000
+					102 cell
+						103 text ฿750
+					104 cell
+						105 text ฿19,250
+					106 cell
+						107 text Draft
+					108 cell
+						109 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1d_, Secondary Actions: Expand
+				110 row
+					111 cell
+						112 text สมหญิง คนขับทดสอบ
+					113 cell
+						114 text October 2026
+						115 text R2 (16–end)
+					116 cell
+						117 text ฿20,000
+					118 cell
+						119 text ฿750
+					120 cell
+						121 text ฿19,250
+					122 cell
+						123 text Pending Approval
+					124 cell
+						125 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1f_, Secondary Actions: Expand
+				126 row
+					127 cell
+						128 text สมหญิง คนขับทดสอบ
+					129 cell
+						130 text October 2026
+						131 text R2 (16–end)
+					132 cell
+						133 text ฿20,000
+					134 cell
+						135 text ฿750
+					136 cell
+						137 text ฿19,250
+					138 cell
+						139 text Approved
+					140 cell
+						141 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1h_, Secondary Actions: Expand
+				142 row
+					143 cell
+						144 text สมหญิง คนขับทดสอบ
+					145 cell
+						146 text October 2026
+						147 text R2 (16–end)
+					148 cell
+						149 text ฿20,000
+					150 cell
+						151 text ฿750
+					152 cell
+						153 text ฿19,250
+					154 cell
+						155 text Paid
+					156 cell
+						157 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1j_, Secondary Actions: Expand
+				158 row
+					159 cell
+						160 text สมหญิง คนขับทดสอบ
+					161 cell
+						162 text October 2026
+						163 text R2 (16–end)
+					164 cell
+						165 text ฿20,000
+					166 cell
+						167 text ฿750
+					168 cell
+						169 text ฿19,250
+					170 cell
+						171 text Cancelled
+					172 cell
+						173 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1l_, Secondary Actions: Expand
+			174 text Showing 5 of 5
+		175 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3993/app/payroll

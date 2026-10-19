@@ -1,0 +1,11 @@
+Browser tab: 2, Title: "Trucks · LogiTrack Pro", URL: "http://localhost:3991/app/trucks".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Trucks · LogiTrack Pro, URL: localhost:3991/app/trucks
+~		3 link Description: Skip to main content, Value: localhost:3991/app/trucks#main-content
+~			13 link Description: Add Truck, Value: localhost:3991/app/trucks/new
+~						70 link Description: PM: 1000 km remaining, Value: localhost:3991/app/trucks/maintenance?id=truck-1
+~						87 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-2
+~						104 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-3
+~						121 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-4
+~						138 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-5
+The focused UI element is 1 AXWebArea Trucks · LogiTrack Pro, URL: localhost:3991/app/trucks

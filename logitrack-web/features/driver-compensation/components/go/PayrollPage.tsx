@@ -16,7 +16,7 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
-import { SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
+import { Field, SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -157,10 +157,9 @@ export function PayrollPage() {
                             </SelectContent>
                         </Select>
                     </label>
-                    <div className="flex flex-col gap-1 text-sm font-medium">
-                        {t("payroll.table.driver")}
+                    <Field label={t("payroll.table.driver")} className="text-sm font-medium">
                         <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("hr.allDrivers")} clearLabel={t("hr.allDrivers")} />
-                    </div>
+                    </Field>
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
                     {[ALL, ...PAYROLL_STATUSES].map((s) => (

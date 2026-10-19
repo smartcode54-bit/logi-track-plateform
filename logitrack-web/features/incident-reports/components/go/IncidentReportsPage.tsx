@@ -129,7 +129,9 @@ function Reports() {
                             ) : (
                                 shown.map((r) => (
                                     <TableRow key={r.id} className="cursor-pointer border-b border-border/50 hover:bg-muted/50" onClick={() => setDetail(r)}>
-                                        <TableCell className="font-mono text-xs">{r.tripNo ?? "—"}</TableCell>
+                                        <TableCell className="font-mono text-xs"><Button variant="link" className="h-auto px-0 max-md:min-h-11" onClick={(event) => { event.stopPropagation(); setDetail(r); }} aria-label={`${t("common.view")} ${r.tripNo ?? formatDateTime(r.createdAt)}`}>
+                                            {r.tripNo ?? t("common.view")}
+                                        </Button></TableCell>
                                         <TableCell className="text-sm">{formatDateTime(r.createdAt)}</TableCell>
                                         <TableCell className="text-sm font-medium">{r.driverName ?? "—"}</TableCell>
                                         <TableCell className="font-mono text-sm">{r.truckLicensePlate ?? "—"}</TableCell>

@@ -1,0 +1,44 @@
+Browser tab: 2, Title: "System status · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/status".
+1 AXWebArea System status · LogiTrack Pro, URL: localhost:3993/app/security-center/status
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/status#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading System status, Value: 1
+				10 text System status
+			11 text Monitor system health and service availability.
+			12 button Refresh
+			13 text Healthy
+			14 text Checked less than a minute ago
+			15 text Service availability
+			16 text Availability of stored data, sign-in protection, scheduled work and event delivery.
+			17 button (collapsed) Technical details, Secondary Actions: Expand
+				18 text Technical details
+			19 text Database
+			20 text Stored data can be read.
+			21 text Responding
+			22 text Cache and session revocation
+			23 text Speeds up reads, limits requests and ends sign-in sessions.
+			24 text Responding
+			25 text Scheduled jobs
+			26 text Starts work at the scheduled time.
+			27 text Running
+			28 text Events waiting to be sent
+			29 text Saved events awaiting delivery.
+			30 text 2 pending · oldest 2 s
+			31 text Background jobs
+			32 text Waiting and running now; finished in the last 24 hours.
+			33 text Queued
+			34 text 2
+			35 text Running
+			36 text 1
+			37 text Failed (24 h)
+			38 text 0
+			39 text Succeeded (24 h)
+			40 text 8
+		41 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea System status · LogiTrack Pro, URL: localhost:3993/app/security-center/status

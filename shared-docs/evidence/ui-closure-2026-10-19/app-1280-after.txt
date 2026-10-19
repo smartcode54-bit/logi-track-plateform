@@ -1,0 +1,52 @@
+Browser tab: 2, Title: "Dashboard · LogiTrack Pro", URL: "http://localhost:3991/app/dashboard".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 75-85, 87-88, 90-95, 101
+~1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3991/app/dashboard
+~		3 link Description: Skip to main content, Value: localhost:3991/app/dashboard#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			18 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				21 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~				30 link Description: Support, Value: localhost:3991/app/support
+~			73 container
+~				74 button Center
++				75 container
++					76 button 70-1111
++					77 button 70-2222
++				78 container
++					79 container
++						80 button Zoom in
++						81 button Zoom out
++					82 container
++						83 link Description:  Leaflet, Help: A JavaScript library for interactive maps, Value: leafletjs.com/
++						84 text  ©
++						85 link Description: OpenStreetMap, Value: openstreetmap.org/copyright
+~			86 heading Current vehicle position, Value: 2
++				87 text Current vehicle position
++			88 link Description: View all, Value: localhost:3991/app/driver-monitor
+~			89 content list
++				90 container
++					91 text Engine ON 70-1111 บางนา
++					92 link Description: Map, Help: 13.70000, 100.50000, Value: google.com/maps?q=13.7,100.5
++				93 container
++					94 text Engine OFF 70-2222 Last GPS fix 4 days ago
++					95 link Description: Map, Help: 13.75000, 100.55000, Value: google.com/maps?q=13.75,100.55
+~			96 text Pending Expense Audits
+~			97 link Description: View all, Value: localhost:3991/app/accounting/audit
+~			98 text 7
+~			99 text Items pending approval
+~			100 heading Chat status, Value: 2
++				101 text Chat status
++			102 link Description: View all, Value: localhost:3991/app/chat
++			103 link Description: Pending Unassigned chats 4, Value: localhost:3991/app/chat
++			104 link Description: Urgent Needs attention 1, Value: localhost:3991/app/chat
++			105 heading Recent Updates, Value: 2
++				106 text Recent Updates
++			107 text Latest fleet activities and alerts
++			108 link Description: Delivery completed · 70-1111 4 days ago · SOCE, Value: localhost:3991/app/driver-monitor
++			109 link Description: Route delay / incident reported 4 days ago · ยางแตก, Value: localhost:3991/app/incident-reports
++			110 text Action required
++			111 text 2 alerts
++			112 link Description: 70-1111 Tax due on 18/10/2026 3 days left, Value: localhost:3991/app/trucks/edit?id=tr-1
++			113 link Description: 70-2222 Service (km) 120 km overdue, Value: localhost:3991/app/trucks/edit?id=tr-2
++		114 container Notifications alt+T
+The focused UI element is 1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3991/app/dashboard

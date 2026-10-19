@@ -1,0 +1,222 @@
+Browser tab: 2, Title: "Holidays · LogiTrack Pro", URL: "http://localhost:3993/app/holidays".
+1 AXWebArea Holidays · LogiTrack Pro, URL: localhost:3993/app/holidays
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/holidays#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Payroll and HR
+				10 link (disabled) Holidays
+					11 text Holidays
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Payroll and HR, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Payroll, Value: localhost:3993/app/payroll
+						31 link Description: Leave requests, Value: localhost:3993/app/leave-requests
+						32 link Description: Holidays, Value: localhost:3993/app/holidays
+				33 button (collapsed) Settings, Secondary Actions: Expand
+				34 button (collapsed) Platform, Secondary Actions: Expand
+			35 content list
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 text Version 3.6.0
+		38 container main-content
+			39 heading Holidays, Value: 1
+				40 text Holidays
+			41 text Manage company and public holidays for driver scheduling.
+			42 button Generate Holidays
+			43 checkbox Year, Value: 0
+			44 checkbox Month, Value: 1
+			45 checkbox List, Value: 0
+			46 button Add Holiday
+			47 text Holidays in 2026
+			48 heading 3, Value: 2
+				49 text 3
+			50 text Upcoming
+			51 heading 0, Value: 2
+				52 text 0
+			53 text Recurring
+			54 heading 0, Value: 2
+				55 text 0
+			56 container
+				57 checkbox Description: Previous month, Value: 0
+				58 checkbox Description: Next month, Value: 0
+				59 checkbox (disabled) today, Help: This month, Value: 0
+			60 heading October 2026, Value: 2, ID: fc-dom-1
+				61 text October 2026
+			62 container October 2026
+				63 table
+					64 row Sunday Monday Tuesday Wednesday Thursday Friday Saturday
+						65 cell
+							66 container Sunday
+								67 text Sun
+						68 cell
+							69 container Monday
+								70 text Mon
+						71 cell
+							72 container Tuesday
+								73 text Tue
+						74 cell
+							75 container Wednesday
+								76 text Wed
+						77 cell
+							78 container Thursday
+								79 text Thu
+						80 cell
+							81 container Friday
+								82 text Fri
+						83 cell
+							84 container Saturday
+								85 text Sat
+					86 container
+						87 row October 1, 2026 October 2, 2026 October 3, 2026
+							88 cell October 1, 2026
+								89 container
+									90 link Description: October 1, 2026, ID: fc-dom-10
+										91 text 1
+							92 cell October 2, 2026
+								93 container
+									94 link Description: October 2, 2026, ID: fc-dom-12
+										95 text 2
+							96 cell October 3, 2026
+								97 container
+									98 link Description: October 3, 2026, ID: fc-dom-14
+										99 text 3
+						100 row October 4, 2026 October 5, 2026 October 6, 2026 October 7, 2026 October 8, 2026 October 9, 2026 October 10, 2026
+							101 cell October 4, 2026
+								102 container
+									103 link Description: October 4, 2026, ID: fc-dom-16
+										104 text 4
+							105 cell October 5, 2026
+								106 container
+									107 link Description: October 5, 2026, ID: fc-dom-18
+										108 text 5
+							109 cell October 6, 2026
+								110 container
+									111 link Description: October 6, 2026, ID: fc-dom-20
+										112 text 6
+							113 cell October 7, 2026
+								114 container
+									115 link Description: October 7, 2026, ID: fc-dom-22
+										116 text 7
+							117 cell October 8, 2026
+								118 container
+									119 link Description: October 8, 2026, ID: fc-dom-24
+										120 text 8
+							121 cell October 9, 2026
+								122 container
+									123 link Description: October 9, 2026, ID: fc-dom-26
+										124 text 9
+							125 cell October 10, 2026
+								126 container
+									127 link Description: October 10, 2026, ID: fc-dom-28
+										128 text 10
+						129 row October 11, 2026 October 12, 2026 October 13, 2026 October 14, 2026 October 15, 2026 October 16, 2026 October 17, 2026
+							130 cell October 11, 2026
+								131 container
+									132 link Description: October 11, 2026, ID: fc-dom-30
+										133 text 11
+							134 cell October 12, 2026
+								135 container
+									136 link Description: October 12, 2026, ID: fc-dom-32
+										137 text 12
+							138 cell October 13, 2026
+								139 container
+									140 link Description: October 13, 2026, ID: fc-dom-34
+										141 text 13
+							142 cell October 14, 2026
+								143 container
+									144 link Description: October 14, 2026, ID: fc-dom-36
+										145 text 14
+							146 cell October 15, 2026
+								147 container
+									148 link Description: October 15, 2026, ID: fc-dom-38
+										149 text 15
+									150 text Public holiday
+							151 cell October 16, 2026
+								152 container
+									153 link Description: October 16, 2026, ID: fc-dom-40
+										154 text 16
+									155 text Company holiday
+							156 cell October 17, 2026
+								157 container
+									158 link Description: October 17, 2026, ID: fc-dom-42
+										159 text 17
+									160 text Other holiday
+						161 row October 18, 2026 October 19, 2026 October 20, 2026 October 21, 2026 October 22, 2026 October 23, 2026 October 24, 2026
+							162 cell October 18, 2026
+								163 container
+									164 link Description: October 18, 2026, ID: fc-dom-44
+										165 text 18
+							166 cell October 19, 2026
+								167 container
+									168 link Description: October 19, 2026, ID: fc-dom-46
+										169 text 19
+							170 cell October 20, 2026
+								171 container
+									172 link Description: October 20, 2026, ID: fc-dom-48
+										173 text 20
+							174 cell October 21, 2026
+								175 container
+									176 link Description: October 21, 2026, ID: fc-dom-50
+										177 text 21
+							178 cell October 22, 2026
+								179 container
+									180 link Description: October 22, 2026, ID: fc-dom-52
+										181 text 22
+							182 cell October 23, 2026
+								183 container
+									184 link Description: October 23, 2026, ID: fc-dom-54
+										185 text 23
+							186 cell October 24, 2026
+								187 container
+									188 link Description: October 24, 2026, ID: fc-dom-56
+										189 text 24
+						190 row October 25, 2026 October 26, 2026 October 27, 2026 October 28, 2026 October 29, 2026 October 30, 2026 October 31, 2026
+							191 cell October 25, 2026
+								192 container
+									193 link Description: October 25, 2026, ID: fc-dom-58
+										194 text 25
+							195 cell October 26, 2026
+								196 container
+									197 link Description: October 26, 2026, ID: fc-dom-60
+										198 text 26
+							199 cell October 27, 2026
+								200 container
+									201 link Description: October 27, 2026, ID: fc-dom-62
+										202 text 27
+							203 cell October 28, 2026
+								204 container
+									205 link Description: October 28, 2026, ID: fc-dom-64
+										206 text 28
+							207 cell October 29, 2026
+								208 container
+									209 link Description: October 29, 2026, ID: fc-dom-66
+										210 text 29
+							211 cell October 30, 2026
+								212 container
+									213 link Description: October 30, 2026, ID: fc-dom-68
+										214 text 30
+							215 cell October 31, 2026
+								216 container
+									217 link Description: October 31, 2026, ID: fc-dom-70
+										218 text 31
+		219 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Holidays · LogiTrack Pro, URL: localhost:3993/app/holidays

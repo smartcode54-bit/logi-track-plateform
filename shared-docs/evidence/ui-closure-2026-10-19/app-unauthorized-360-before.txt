@@ -1,0 +1,19 @@
+Browser tab: 2, Title: "No access to this page · LogiTrack Pro", URL: "http://localhost:3993/app/unauthorized".
+1 AXWebArea No access to this page · LogiTrack Pro, URL: localhost:3993/app/unauthorized
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/unauthorized#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading No access to this page, Value: 1
+				10 text No access to this page
+			11 text Your current role does not include this page.
+			12 text The tenant admin role cannot be extended inside a tenant. This page belongs to the team at GORATECH that runs LogiTrack Pro; contact them if your work needs it.
+			13 button Go back
+			14 button Go to my home page
+			15 text Signed in as Operations fixture · Platform admin
+		16 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea No access to this page · LogiTrack Pro, URL: localhost:3993/app/unauthorized

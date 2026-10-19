@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * Billing statements over Go (T42, P3; Appendix E §E.2.3 row "billing-result"; developer-spec.md §6.14,
  * §9.9; R18, R69, R89).
@@ -32,7 +34,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -133,8 +134,8 @@ export function BillingResultPage() {
             <Card>
                 <CardContent className="pt-4">
                     <div className="flex flex-wrap items-end gap-4">
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.billingResult.filters.customer")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.billingResult.filters.customer")} labelClassName="text-xs">
+
                             <CustomerSearchSelect
                                 aria-label={t("accounting.billingResult.filters.customer")}
                                 value={customerId}
@@ -143,9 +144,9 @@ export function BillingResultPage() {
                                 allLabel={t("accounting.billingResult.filters.allCustomers")}
                                 className="w-56"
                             />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.billingResult.filters.status")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.billingResult.filters.status")} labelClassName="text-xs">
+
                             <Select value={status} onValueChange={setStatus}>
                                 <SelectTrigger className="w-36">
                                     <SelectValue />
@@ -159,9 +160,9 @@ export function BillingResultPage() {
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.billingResult.filters.month")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.billingResult.filters.month")} labelClassName="text-xs">
+
                             <Select value={month} onValueChange={setMonth} disabled={year === "all"}>
                                 <SelectTrigger className="w-44">
                                     <SelectValue />
@@ -175,9 +176,9 @@ export function BillingResultPage() {
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.billingResult.filters.year")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.billingResult.filters.year")} labelClassName="text-xs">
+
                             <Select
                                 value={year}
                                 onValueChange={(v) => {
@@ -197,7 +198,7 @@ export function BillingResultPage() {
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
+                        </AccessibleField>
                         <Button variant="outline" size="sm" onClick={() => void list.refetch()} disabled={list.isFetching} aria-label={t("common.refresh")}>
                             {list.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                         </Button>

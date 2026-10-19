@@ -55,14 +55,14 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
         const updated = [...tempHolidays];
         const current = updated[index];
         const next = { ...current, ...updates };
-        
+
         // Auto-update name if holidayNameEN or holidayNameTH changed
         if (updates.holidayNameEN !== undefined || updates.holidayNameTH !== undefined) {
             const holidayNameEN = updates.holidayNameEN !== undefined ? updates.holidayNameEN : current.holidayNameEN;
             const holidayNameTH = updates.holidayNameTH !== undefined ? updates.holidayNameTH : current.holidayNameTH;
             next.name = holidayNameEN && holidayNameTH ? `${holidayNameEN} (${holidayNameTH})` : (holidayNameEN || holidayNameTH || current.name);
         }
-        
+
         updated[index] = next;
         setTempHolidays(updated);
     };
@@ -119,7 +119,8 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                                     value={holiday.holidayNameEN} 
                                                     onChange={(e) => handleUpdate(index, { holidayNameEN: e.target.value })}
                                                     className="h-8 text-xs"
-                                                    placeholder="English name"
+                                                    aria-label={`${t("holidays.dialog.nameEnLabel")} ${index + 1}`}
+                                                    placeholder={t("holidays.dialog.nameEnPlaceholder")}
                                                 />
                                             </div>
                                             <div className="flex items-center gap-2">
@@ -128,7 +129,8 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                                     value={holiday.holidayNameTH} 
                                                     onChange={(e) => handleUpdate(index, { holidayNameTH: e.target.value })}
                                                     className="h-8 text-xs"
-                                                    placeholder="ชื่อภาษาไทย"
+                                                    aria-label={`${t("holidays.dialog.nameThLabel")} ${index + 1}`}
+                                                    placeholder={t("holidays.dialog.nameThPlaceholder")}
                                                 />
                                             </div>
                                         </div>
@@ -136,6 +138,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                     <TableCell>
                                         <Input 
                                             type="date"
+                                            aria-label={`${t("holidays.dialog.dateLabel")} ${index + 1}`}
                                             value={holiday.date ? format(holiday.date as Date, "yyyy-MM-dd") : ""}
                                             onChange={(e) => handleUpdate(index, { date: new Date(e.target.value) })}
                                             className="h-8"
@@ -146,7 +149,7 @@ export function ReviewGeneratedDialog({ open, onOpenChange, holidays: initialHol
                                             value={holiday.type}
                                             onValueChange={(value: any) => handleUpdate(index, { type: value })}
                                         >
-                                            <SelectTrigger className="h-8">
+                                            <SelectTrigger className="h-8" aria-label={`${t("holidays.dialog.typeLabel")} ${index + 1}`}>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>

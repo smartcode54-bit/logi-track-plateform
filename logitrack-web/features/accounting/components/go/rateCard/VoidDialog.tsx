@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * Voiding a rate-card row (T42; R16, R20, ADR 0009 §1): rate entries, fuel adjustments and standby rates
  * are never edited or deleted, only voided with a reason; a correction is a new row with its own
@@ -13,7 +15,6 @@ import { apiErrorText } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 export function VoidDialog({ label, onVoid, onClose }: { label: string; onVoid: (reason: string) => Promise<unknown>; onClose: () => void }) {
     const { t } = useLanguage();
@@ -41,10 +42,10 @@ export function VoidDialog({ label, onVoid, onClose }: { label: string; onVoid: 
                     <DialogDescription>{t("accounting.rateCard.void.description")}</DialogDescription>
                 </DialogHeader>
                 <p className="text-sm font-medium">{label}</p>
-                <div className="space-y-1">
-                    <Label>{t("accounting.rateCard.void.reasonLabel")}</Label>
+                <AccessibleField className="space-y-1" label={t("accounting.rateCard.void.reasonLabel")}>
+
                     <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("accounting.rateCard.void.reasonPlaceholder")} />
-                </div>
+                </AccessibleField>
                 {error ? <p className="text-sm text-destructive">{`${t("accounting.rateCard.void.error")} ${apiErrorText(error, t)}`}</p> : null}
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} disabled={saving}>

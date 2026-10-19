@@ -1,0 +1,59 @@
+Browser tab: 2, Title: "Driver Penalties · LogiTrack Pro", URL: "http://localhost:3991/app/payroll/penalties".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 44-47, 50-55, 60-86
+~1 AXWebArea Driver Penalties · LogiTrack Pro, URL: localhost:3991/app/payroll/penalties
+~		3 link Description: Skip to main content, Value: localhost:3991/app/payroll/penalties#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~				10 link Description: Payroll, Value: localhost:3991/app/payroll
+~			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				23 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						31 link Description: Payroll, Value: localhost:3991/app/payroll
+~						32 link Description: Leave requests, Value: localhost:3991/app/leave-requests
+~						33 link Description: Holidays, Value: localhost:3991/app/holidays
+~				37 link Description: Support, Value: localhost:3991/app/support
+~			43 text Driver
++			44 combo box (collapsed) Driver, Secondary Actions: Expand
++				45 text Driver
++			46 combo box (collapsed) Description: Type, Secondary Actions: Expand
++				47 text Type
+~			48 stepper (settable) Amount (THB)
+~			49 stepper (settable, integer) Description: Installments, Value: 1
++			50 date field (settable) Description: Incurred on, Value: 2026-10-19
++				51 container
++					52 stepper
++					53 stepper
++					54 stepper
++				55 pop up button Show date picker Show date picker
+~			56 text field (settable) Reason
+~			57 button Add penalty
+~			58 text The config in effect has no penalty types. Add them in Compensation Config.
+~			59 text Driver
++			60 combo box (collapsed) Driver, Value: All drivers, Secondary Actions: Expand
++				61 text All drivers
++			62 container
++				63 text Status
++				64 combo box (collapsed) Description: Status, Value: All, Secondary Actions: Expand
++					65 text All
++			66 table
++				67 row
++					68 cell
++						69 text Driver
++					70 cell
++						71 text Type
++					72 cell
++						73 text Incurred on
++					74 cell
++						75 text Amount (THB)
++					76 cell
++						77 text Remaining
++					78 cell
++						79 text Installments paid
++					80 cell
++						81 text Next deduction
++					82 cell
++						83 text Status
++				84 row
++					85 cell
++						86 text No penalties
++		87 container Notifications alt+T
+The focused UI element is 1 AXWebArea Driver Penalties · LogiTrack Pro, URL: localhost:3991/app/payroll/penalties

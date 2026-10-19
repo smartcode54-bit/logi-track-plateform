@@ -1,0 +1,14 @@
+Browser tab: 2, Title: "Compensation Config · LogiTrack Pro", URL: "http://localhost:3991/app/payroll/config".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Compensation Config · LogiTrack Pro, URL: localhost:3991/app/payroll/config
+~		3 link Description: Skip to main content, Value: localhost:3991/app/payroll/config#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~				10 link Description: Payroll, Value: localhost:3991/app/payroll
+~			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				23 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						31 link Description: Payroll, Value: localhost:3991/app/payroll
+~						32 link Description: Leave requests, Value: localhost:3991/app/leave-requests
+~						33 link Description: Holidays, Value: localhost:3991/app/holidays
+~				37 link Description: Support, Value: localhost:3991/app/support
+~			44 link Description: Go to my home page, Value: localhost:3991/app/dashboard
+The focused UI element is 1 AXWebArea Compensation Config · LogiTrack Pro, URL: localhost:3991/app/payroll/config

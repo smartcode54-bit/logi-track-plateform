@@ -1,0 +1,20 @@
+Browser tab: 2, Title: "Payroll · LogiTrack Pro", URL: "http://localhost:3991/app/payroll".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3991/app/payroll
+~		3 link Description: Skip to main content, Value: localhost:3991/app/payroll#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						30 link Description: Payroll, Value: localhost:3991/app/payroll
+~						31 link Description: Leave requests, Value: localhost:3991/app/leave-requests
+~						32 link Description: Holidays, Value: localhost:3991/app/holidays
+~				36 link Description: Support, Value: localhost:3991/app/support
+~			42 link Description: Compensation Config, Value: localhost:3991/app/payroll/config
+~			43 link Description: Driver Penalties, Value: localhost:3991/app/payroll/penalties
+~			79 combo box (collapsed) Driver, Value: All drivers, Secondary Actions: Expand
+~						139 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1n_, Secondary Actions: Expand
+~						155 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1p_, Secondary Actions: Expand
+~						171 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1r_, Secondary Actions: Expand
+~						187 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1t_, Secondary Actions: Expand
+~						203 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1v_, Secondary Actions: Expand
+The focused UI element is 1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3991/app/payroll

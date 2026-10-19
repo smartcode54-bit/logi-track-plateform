@@ -1,0 +1,24 @@
+Browser tab: 2, Title: "Fuel price history · LogiTrack Pro", URL: "http://localhost:3991/app/accounting/fuel-price-history".
+1 AXWebArea Fuel price history · LogiTrack Pro, URL: localhost:3991/app/accounting/fuel-price-history
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/accounting/fuel-price-history#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Fuel price history, Value: 1
+				10 text Fuel price history
+			11 text Bangchak retail prices, recorded every day at 05:00.
+			12 button Refresh
+			13 combo box (collapsed) Description: Range, Value: Last 90 days, Secondary Actions: Expand
+				14 text Last 90 days
+			15 combo box (collapsed) Description: Fuel type, Value: Diesel, Secondary Actions: Expand
+				16 text Diesel
+			17 text 0 days recorded
+			18 text Daily prices
+			19 text No price history in this range yet. The scheduler records one snapshot a day.
+			20 text 0 loaded
+		21 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Fuel price history · LogiTrack Pro, URL: localhost:3991/app/accounting/fuel-price-history

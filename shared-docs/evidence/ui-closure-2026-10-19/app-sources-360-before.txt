@@ -1,0 +1,89 @@
+Browser tab: 2, Title: "Pickup and delivery points · LogiTrack Pro", URL: "http://localhost:3993/app/sources".
+1 AXWebArea Pickup and delivery points · LogiTrack Pro, URL: localhost:3993/app/sources
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/sources#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Pickup and delivery points, Value: 1
+				10 text Pickup and delivery points
+			11 button Refresh
+			12 button Calculate Hub–SOC & SOC–Hub distances
+			13 button Download Excel, Help: Current tab and filters (Hub or SOC, customer)
+			14 pop up button (collapsed) Import Excel, Secondary Actions: Expand
+			15 pop up button (collapsed) New Pickup-Delivery Point, Secondary Actions: Expand
+			16 container
+				17 text Driver added Hub/SOC from Mobile. Count: 1 item(s) need Admin to complete coordinates and details
+				18 button Click to filter
+			19 text Pickup-Delivery Points
+			20 tab group
+				21 tab (selected, settable, boolean) Hub, Value: 1, ID: radix-_r_i_-trigger-HUB
+				22 tab (selectable, settable, boolean) SOC, Value: 0, ID: radix-_r_i_-trigger-SOC
+			23 button New 1
+				24 text New
+				25 text 1
+			26 tab group
+				27 tab (selected, settable, boolean) Hub → SOC, Value: 1, ID: radix-_r_l_-trigger-HUB_SOC
+				28 tab (selectable, settable, boolean) SOC → Hub, Value: 0, ID: radix-_r_l_-trigger-SOC_HUB
+			29 button Refresh
+			30 button Description: Download Excel, Help: Current tab and filters (Hub or SOC, customer)
+			31 text field (settable)
+			32 combo box (collapsed) Description: Customer, Value: All customers, Secondary Actions: Expand
+				33 text All customers
+			34 table
+				35 row
+					36 cell
+						37 text PDP ID
+					38 cell
+						39 text PDP Name
+					40 cell
+						41 text Coordinates
+					42 cell
+						43 text Station Type
+					44 cell
+						45 text Actions
+				46 row
+					47 cell
+						48 text SPX-A
+					49 cell
+						50 text บางนา
+					51 cell
+						52 link Description: 13.7000, 100.5000, Value: google.com/maps/search/?api=1&query=13.7,100.5
+					53 cell
+						54 text Hub
+					55 cell
+						56 pop up button (collapsed) Actions, ID: radix-_r_q_, Secondary Actions: Expand
+				57 row
+					58 cell
+						59 text SPX-NEW Needs completion
+					60 cell
+						61 text จุดรับใหม่
+					62 cell
+						63 text No coords
+					64 cell
+						65 text Hub
+					66 cell
+						67 pop up button (collapsed) Actions, ID: radix-_r_s_, Secondary Actions: Expand
+			68 container
+				69 text Showing 1 to 2 of 2 entries
+			70 button (disabled) Previous page
+			71 button (disabled) Next page
+			72 text Map
+			73 container
+				74 text 1 points
+			75 container sources-map-vom5vyw
+				76 container
+					77 button Marker
+				78 container
+					79 container
+						80 button Zoom in
+						81 button Zoom out
+					82 container
+						83 link Description:  Leaflet, Help: A JavaScript library for interactive maps, Value: leafletjs.com/
+						84 text  ©
+						85 link Description: OpenStreetMap, Value: openstreetmap.org/copyright
+		86 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Pickup and delivery points · LogiTrack Pro, URL: localhost:3993/app/sources
