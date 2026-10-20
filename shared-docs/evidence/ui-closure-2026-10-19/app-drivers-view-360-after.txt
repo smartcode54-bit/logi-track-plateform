@@ -1,0 +1,8 @@
+Browser tab: 2, Title: "สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro", URL: "http://localhost:3991/app/drivers/view?id=driver-1".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3991/app/drivers/view?id=driver-1
+~		3 link Description: Skip to main content, Value: localhost:3991/app/drivers/view?id=driver-1#main-content
+~			9 link Description: Back to Drivers, Value: localhost:3991/app/drivers
+~			18 link Description: Edit Profile, Value: localhost:3991/app/drivers/edit?id=driver-1
+~			48 link Description: Assign, Value: localhost:3991/app/truck-assignment
+The focused UI element is 1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3991/app/drivers/view?id=driver-1

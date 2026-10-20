@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/context/language";
+import { confirmNavigation } from "@/lib/navigationGuard";
 import { homeRouteOf } from "@/features/auth/api/homeRoute";
 import type { MeDTO } from "@/features/auth/api/me";
 import { useMe } from "@/features/auth/api/useMe";
@@ -124,6 +125,7 @@ function QuickJumpControl({ me }: { me: MeDTO | null | undefined }) {
     const select = (href: string) => {
         // Read the cache again: a capability refresh can overtake a rendered result or its selection callback.
         if (!quickJumpLinks(client.getQueryData<MeDTO | null>(["me"]), pathname).some((link) => link.href === href)) return;
+        if (href !== pathname && !confirmNavigation()) return;
         pending.current = href;
         setOpen(false);
         if (href === pathname) {
@@ -153,7 +155,10 @@ function QuickJumpControl({ me }: { me: MeDTO | null | undefined }) {
                         </Button>
                     </div>
                 </div>
-            ) : <span role="status" className="sr-only">{t("common.loading")}</span> : null}
+            ) : <div className="fixed inset-x-4 top-20 z-popover mx-auto flex max-w-lg items-center justify-between gap-4 rounded-lg border bg-popover p-4 text-popover-foreground shadow-lg">
+                <span role="status" className="text-sm">{t("common.loading")}</span>
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => { setOpen(false); restoreFocus(); }}>{t("shell.quickJump.close")}</Button>
+            </div> : null}
         </div>
     );
 }

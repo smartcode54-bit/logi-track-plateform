@@ -1,0 +1,62 @@
+Browser tab: 2, Title: "Other expenses · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/other".
+1 AXWebArea Other expenses · LogiTrack Pro, URL: localhost:3993/app/accounting/other
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/other#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Other expenses, Value: 1
+				10 text Other expenses
+			11 text Other vehicle expenses (toll, parking, repair, etc.).
+			12 button Import toll (Excel/CSV)
+			13 button Refresh
+			14 button Add expense record
+			15 text Total Amount
+			16 text ฿0.00
+			17 text Records
+			18 text 0
+			19 text Avg per record
+			20 text ฿0.00
+			21 text Driver
+			22 combo box (collapsed) Value: All, Secondary Actions: Expand
+				23 text All
+			24 text Vehicle (plate)
+			25 combo box (collapsed) Value: All, Secondary Actions: Expand
+				26 text All
+			27 text Status
+			28 combo box (collapsed) Value: All, Secondary Actions: Expand
+				29 text All
+			30 text Category
+			31 combo box (collapsed) Value: All, Secondary Actions: Expand
+				32 text All
+			33 text Date range
+			34 pop up button (collapsed) —, Secondary Actions: Expand
+			35 button This month
+			36 button Last 30 days
+			37 button Reset
+			38 container Other
+				39 table
+					40 row
+						41 cell
+							42 text Date
+						43 cell
+							44 text License plate
+						45 cell
+							46 text Driver
+						47 cell
+							48 text Category
+						49 cell
+							50 text Description
+						51 cell
+							52 text Amount
+						53 cell
+							54 text Status
+					55 row
+						56 cell
+							57 text No expenses match these filters.
+			58 text 0 loaded
+		59 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Other expenses · LogiTrack Pro, URL: localhost:3993/app/accounting/other

@@ -1,0 +1,40 @@
+Browser tab: 2, Title: "Page not found · LogiTrack Pro", URL: "http://localhost:3993/app/ui-proof-missing-route".
+1 AXWebArea Page not found · LogiTrack Pro, URL: localhost:3993/app/ui-proof-missing-route
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/ui-proof-missing-route#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 link (disabled) Page not found
+					10 text Page not found
+		11 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_k_, Secondary Actions: Expand
+			12 text Operations fixture
+			13 text Operations fixture
+			14 text  ·
+			15 text Platform admin
+			16 text O
+		17 content list
+			18 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		19 container Main menu
+			20 content list
+				21 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				22 button (collapsed) Operations, Secondary Actions: Expand
+				23 button (collapsed) Billing, Secondary Actions: Expand
+				24 button (collapsed) Costs, Secondary Actions: Expand
+				25 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				26 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				27 button (collapsed) Settings, Secondary Actions: Expand
+				28 button (collapsed) Platform, Secondary Actions: Expand
+			29 content list
+				30 link Description: Support, Value: localhost:3993/app/support
+		31 text Version 3.6.0
+		32 container main-content
+			33 heading Page not found, Value: 1
+				34 text Page not found
+			35 text There is no page at this address. The link may be mistyped, or the page may have moved.
+			36 link Description: Go to my home page, Value: localhost:3993/app/dashboard
+		37 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Page not found · LogiTrack Pro, URL: localhost:3993/app/ui-proof-missing-route

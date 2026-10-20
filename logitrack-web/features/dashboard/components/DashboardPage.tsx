@@ -56,7 +56,7 @@ function PeriodSwitch({ value, onChange }: { value: DashboardPeriodName; onChang
 }
 
 export function DashboardPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [period, setPeriod] = useState<DashboardPeriodName>("week");
     // Recomputed on every render: past midnight the key moves to the new day by itself.
     const range = periodRange(period);
@@ -125,6 +125,11 @@ export function DashboardPage() {
     return (
         <div className="flex flex-col gap-section">
             {header}
+
+            {s && summary.isError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning bg-warning/10 p-4 text-sm">
+                <p>{t("dashboard.stale", { time: new Date(summary.dataUpdatedAt).toLocaleString(language === "th" ? "th-TH" : "en-GB") })}</p>
+                <button type="button" className="min-h-11 font-medium text-primary underline underline-offset-4" disabled={summary.isFetching} onClick={() => void summary.refetch()}>{t("dashboard.retry")}</button>
+            </div>}
 
             {!s ? <StatCardsSkeleton /> : <DashboardStatCards usersByRole={canUsers ? byRole.data : undefined} drivers={s.drivers} trips={s.trips} />}
 

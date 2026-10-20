@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * Shopee Express report over Go (T42, P3; Appendix E §E.2.3 row "shopee-express-report"; R69).
  *
@@ -26,7 +28,6 @@ import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { SHOPEE_PDF_PATH, shopeePdfQuery, shopeeReportQuery, type ShopeeHalf, type ShopeeTripDTO } from "../../api/billing.go";
@@ -134,8 +135,8 @@ export function ShopeeReportPage() {
                     <CardTitle className="text-base">{t("accounting.shopeeReport.filters.title")}</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-wrap items-end gap-4">
-                    <div className="space-y-1">
-                        <Label>{t("accounting.shopeeReport.filters.month")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.shopeeReport.filters.month")}>
+
                         <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
                             <SelectTrigger className="w-44">
                                 <SelectValue />
@@ -148,9 +149,9 @@ export function ShopeeReportPage() {
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.shopeeReport.filters.year")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.shopeeReport.filters.year")}>
+
                         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
                             <SelectTrigger className="w-28">
                                 <SelectValue />
@@ -163,9 +164,9 @@ export function ShopeeReportPage() {
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.shopeeReport.filters.round")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.shopeeReport.filters.round")}>
+
                         <Select value={half} onValueChange={(v) => setHalf(v as ShopeeHalf)}>
                             <SelectTrigger className="w-44">
                                 <SelectValue />
@@ -178,16 +179,16 @@ export function ShopeeReportPage() {
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.shopeeReport.filters.customer")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.shopeeReport.filters.customer")}>
+
                         <CustomerSearchSelect
                             aria-label={t("accounting.shopeeReport.filters.customer")}
                             value={customerId}
                             onValueChange={setCustomerId}
                             className="min-w-[200px]"
                         />
-                    </div>
+                    </AccessibleField>
                     <Button
                         variant="outline"
                         disabled={!customerId || report.isFetching}

@@ -55,6 +55,18 @@ afterEach(() => {
 });
 
 describe("UI4 fleet actions", () => {
+    it("clears pressed fleet cards with the same filters that clear the list", async () => {
+        serve({ ownershipType: "own", status: "active" });
+        renderWithProviders(<TrucksListDashboard />);
+        await screen.findByText("70-1234");
+        const active = screen.getAllByRole("button", { name: /Active/ })[0];
+        const user = userEvent.setup();
+        await user.click(active);
+        expect(active).toHaveAttribute("aria-pressed", "true");
+        await user.click(screen.getByRole("button", { name: /clear filters/i }));
+        expect(active).toHaveAttribute("aria-pressed", "false");
+    });
+
     it("removes Export while preserving working Import and Add actions", async () => {
         localStorage.setItem("language", "en");
         serve();

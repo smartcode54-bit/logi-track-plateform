@@ -552,7 +552,7 @@ export function BillingDocumentPage() {
                             </Badge>
                         </Label>
                         <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-                            <SelectTrigger className="w-44">
+                            <SelectTrigger aria-label={basisLabel === "plan" ? t("accounting.billingDocument.filters.planMonth") : t("accounting.billingDocument.filters.deliveredMonth")} className="w-44">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -567,7 +567,7 @@ export function BillingDocumentPage() {
                     <div className="space-y-1">
                         <Label>{t("accounting.billingDocument.filters.year")}</Label>
                         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-                            <SelectTrigger className="w-28">
+                            <SelectTrigger aria-label={t("accounting.billingDocument.filters.year")} className="w-28">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -592,7 +592,7 @@ export function BillingDocumentPage() {
                     </div>
                     <div className="space-y-1">
                         <Label>&nbsp;</Label>
-                        <Button type="button" variant={showActualPickup ? "default" : "outline"} onClick={() => setShowActualPickup((v) => !v)}>
+                        <Button type="button" variant={showActualPickup ? "default" : "outline"} aria-pressed={showActualPickup} onClick={() => setShowActualPickup((v) => !v)}>
                             {showActualPickup ? t("accounting.billingDocument.actualPickup.hide") : t("accounting.billingDocument.actualPickup.show")}
                         </Button>
                     </div>
@@ -607,7 +607,7 @@ export function BillingDocumentPage() {
                         <div className="space-y-1">
                             <Label>{t("accounting.billingDocument.filters.licensePlate")}</Label>
                             <Select value={params.plate || "__all__"} onValueChange={(v) => setParams((p) => ({ ...p, plate: v === "__all__" ? "" : v }))}>
-                                <SelectTrigger className="w-48">
+                                <SelectTrigger aria-label={t("accounting.billingDocument.filters.licensePlate")} className="w-48">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -626,7 +626,7 @@ export function BillingDocumentPage() {
                                 value={params.vehicleClass || "__all__"}
                                 onValueChange={(v) => setParams((p) => ({ ...p, vehicleClass: v === "__all__" ? "" : v }))}
                             >
-                                <SelectTrigger className="w-48">
+                                <SelectTrigger aria-label={t("accounting.billingDocument.filters.vehicleClass")} className="w-48">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -650,7 +650,7 @@ export function BillingDocumentPage() {
                                 value={params.reviewMonth || "__all__"}
                                 onValueChange={(v) => setParams((p) => ({ ...p, reviewMonth: v === "__all__" ? "" : v }))}
                             >
-                                <SelectTrigger className="w-52">
+                                <SelectTrigger aria-label={reviewAxisPlan ? t("accounting.billingDocument.filters.planMonth") : t("accounting.billingDocument.filters.deliveredMonth")} className="w-52">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>

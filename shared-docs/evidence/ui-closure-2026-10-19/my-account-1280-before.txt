@@ -1,0 +1,3 @@
+Browser tab: 4, Title: "My account · LogiTrack Pro", URL: "http://localhost:3993/my-account".
+There has been no change in the accessibility tree.
+The focused UI element is 1 AXWebArea My account · LogiTrack Pro, URL: localhost:3993/my-account

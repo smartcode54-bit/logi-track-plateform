@@ -228,6 +228,7 @@ export default {
     "securityCenter.roles.pendingChanges": "ยังไม่บันทึก {count} รายการ",
     "securityCenter.roles.savedChanges": "บันทึกสิทธิ์แล้ว ({count} รายการ)",
     "securityCenter.roles.changesAppliedGo": "การบันทึกมีผลกับผู้ใช้ที่เกี่ยวข้องในคำขอถัดไป แท็บที่เปิดอยู่จะรีเฟรชสิทธิ์โดยไม่ต้องออกจากระบบ",
+    "securityCenter.roles.discardOnLeave": "ทิ้งการแก้ไขสิทธิ์ที่ยังไม่ได้บันทึกและออกจากหน้านี้หรือไม่?",
     "securityCenter.roles.discardOnSwitch": "ยกเลิกการแก้ไขที่ยังไม่บันทึกและเลือกองค์กรอื่นหรือไม่?",
     "securityCenter.apiKeys.listHint": "API key สำหรับระบบเชื่อมต่อและสคริปต์ API key มีเฉพาะสิทธิ์ที่ระบุไว้ การยกเลิกมีผลตั้งแต่คำขอถัดไปของ API key",
     "securityCenter.apiKeys.empty": "ยังไม่มี API key",

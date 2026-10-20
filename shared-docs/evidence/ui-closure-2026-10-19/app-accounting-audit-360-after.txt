@@ -1,0 +1,3 @@
+Browser tab: 2, Title: "Expense audit · LogiTrack Pro", URL: "http://localhost:3991/app/accounting/audit".
+There has been no change in the accessibility tree.
+The focused UI element is 1 AXWebArea Expense audit · LogiTrack Pro, URL: localhost:3991/app/accounting/audit

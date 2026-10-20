@@ -1,0 +1,120 @@
+Browser tab: 2, Title: "User management · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/users".
+1 AXWebArea User management · LogiTrack Pro, URL: localhost:3993/app/security-center/users
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/users#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading User management, Value: 1
+				10 text User management
+			11 text Manage users and their permissions.
+			12 text All organisations
+			13 button Refresh
+			14 button Add by email
+			15 button Add
+			16 combo box (collapsed) Description: Role, Value: All Roles, Secondary Actions: Expand
+				17 text All Roles
+			18 combo box (collapsed) Description: Status, Value: All Statuses, Secondary Actions: Expand
+				19 text All Statuses
+			20 text field (disabled) Search users...
+			21 text Search or sorting by masked data is unavailable. Use visible fields instead.
+			22 table
+				23 row
+					24 cell
+						25 text User
+					26 cell
+						27 text Role
+					28 cell
+						29 text Scope
+					30 cell
+						31 text Status
+					32 cell
+						33 text Last Sign In
+					34 cell
+						35 text Enabled
+					36 cell
+						37 text Actions
+				38 row
+					39 cell
+						40 text ผู ผู้ใช้งาน 1 user0@fixture.test
+					41 cell
+						42 text Operator ·  Own fleet
+					43 cell
+						44 text —
+					45 cell
+						46 text Active
+					47 cell
+						48 text 19 Oct 2026
+						49 text 21:00
+					50 cell
+						51 switch Description: Toggle account, Value: 1
+					52 cell
+						53 pop up button (collapsed) Description: Actions, ID: radix-_r_p_, Secondary Actions: Expand
+				54 row
+					55 cell
+						56 text ผู ผู้ใช้งาน 2 user1@fixture.test
+					57 cell
+						58 text Operator ·  Own fleet
+					59 cell
+						60 text —
+					61 cell
+						62 text Password reset required Must set a new password at next sign-in
+					63 cell
+						64 text 19 Oct 2026
+						65 text 21:00
+					66 cell
+						67 switch Description: Toggle account, Value: 0
+					68 cell
+						69 pop up button (collapsed) Description: Actions, ID: radix-_r_r_, Secondary Actions: Expand
+				70 row
+					71 cell
+						72 text ผู ผู้ใช้งาน 3 user2@fixture.test
+					73 cell
+						74 text Operator ·  Own fleet
+					75 cell
+						76 text —
+					77 cell
+						78 text Disabled
+					79 cell
+						80 text 19 Oct 2026
+						81 text 21:00
+					82 cell
+						83 switch Description: Toggle account, Value: 0
+					84 cell
+						85 pop up button (collapsed) Description: Actions, ID: radix-_r_t_, Secondary Actions: Expand
+				86 row
+					87 cell
+						88 text CA Carrier member carrier@fixture.test
+					89 cell
+						90 text Operator ·  Linked carrier
+					91 cell
+						92 text —
+					93 cell
+						94 text Active
+					95 cell
+						96 text 19 Oct 2026
+						97 text 21:00
+					98 cell
+						99 switch Description: Toggle account, Value: 1
+					100 cell
+						101 pop up button (collapsed) Description: Actions, ID: radix-_r_v_, Secondary Actions: Expand
+				102 row
+					103 cell
+						104 text SC Scope-only account scope@fixture.test
+					105 cell
+						106 text Customer : Customer only
+					107 cell
+						108 text Active
+					109 cell
+						110 text 19 Oct 2026
+						111 text 21:00
+					112 cell
+						113 switch Description: Toggle account, Value: 1
+					114 cell
+						115 pop up button (collapsed) Description: Actions, ID: radix-_r_11_, Secondary Actions: Expand
+			116 text 5 users shown
+		117 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea User management · LogiTrack Pro, URL: localhost:3993/app/security-center/users

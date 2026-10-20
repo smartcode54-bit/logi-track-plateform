@@ -1,0 +1,65 @@
+Browser tab: 2, Title: "สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro", URL: "http://localhost:3993/app/drivers/view?id=driver-1".
+1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/view?id=driver-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/drivers/view?id=driver-1#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Drivers, Value: localhost:3993/app/drivers
+			10 heading สมชาย ทดสอบ 1, Value: 1
+				11 text สมชาย ทดสอบ 1
+			12 text Active
+			13 text Registered:
+			14 text 01 October 2026
+			15 text ID
+			16 text :
+			17 text DRIVER-1
+			18 link Description: Edit Profile, Value: localhost:3993/app/drivers/edit?id=driver-1
+			19 text Personal Information
+			20 text Mobile
+			21 text 0812345678
+			22 text Email
+			23 text driver@fixture.test
+			24 text Birth Date
+			25 text 01 January 1990
+			26 text ID Card No.
+			27 text 1234567890123
+			28 text Employment Details
+			29 text Employment Type
+			30 text Full Time
+			31 text Contract Duration
+			32 text -
+			33 text Truck License ID
+			34 text TEST123
+			35 text License Type
+			36 text ท.2
+			37 text Documents
+			38 text ID Card
+			39 text No document
+			40 text Driving License
+			41 text No document
+			42 heading สมชาย ทดสอบ 1, Value: 3
+				43 text สมชาย ทดสอบ 1
+			44 text driver@fixture.test
+			45 link Description: Call, Value: tel:0812345678
+			46 link Description: Email, Value: mailto:driver@fixture.test
+			47 text Truck Assignment
+			48 link Description: Assign, Value: localhost:3993/app/truck-assignment
+			49 table
+				50 row
+					51 cell
+						52 text Truck
+					53 cell
+						54 text Start
+					55 cell
+						56 text End
+					57 cell
+						58 text Status
+				59 row
+					60 cell
+						61 text No assignment history found.
+		62 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/view?id=driver-1

@@ -1,0 +1,38 @@
+Browser tab: 2, Title: "Customers · LogiTrack Pro", URL: "http://localhost:3991/app/customers".
+1 AXWebArea Customers · LogiTrack Pro, URL: localhost:3991/app/customers
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/customers#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Customers, Value: 1
+				10 text Customers
+			11 text Manage LSP/customer configurations for billing and driver IDs
+			12 link Description: Add Customer, Value: localhost:3991/app/customers/new
+			13 text field (settable)
+			14 table
+				15 row
+					16 cell
+						17 text Code
+					18 cell
+						19 text Name
+					20 cell
+						21 text Customer Infomation Fields
+					22 cell
+						23 text Actions
+				24 row
+					25 cell
+						26 text CJ
+					27 cell
+						28 text Example Customer
+					29 cell
+						30 text -
+					31 cell
+						32 pop up button (collapsed) Description: Actions for Example Customer, ID: radix-_r_9_, Secondary Actions: Expand
+			33 text 1 loaded
+			34 text All rows loaded
+		35 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Customers · LogiTrack Pro, URL: localhost:3991/app/customers

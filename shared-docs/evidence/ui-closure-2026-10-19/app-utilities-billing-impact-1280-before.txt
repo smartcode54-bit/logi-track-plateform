@@ -1,0 +1,59 @@
+Browser tab: 2, Title: "Billing impact report · LogiTrack Pro", URL: "http://localhost:3993/app/utilities/billing-impact".
+1 AXWebArea Billing impact report · LogiTrack Pro, URL: localhost:3993/app/utilities/billing-impact
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/utilities/billing-impact#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Billing
+				10 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				11 link (disabled) Billing impact report
+					12 text Billing impact report
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 container
+					26 button (expanded) Billing, Secondary Actions: Collapse
+					27 content list
+						28 link Description: Customers, Value: localhost:3993/app/customers
+						29 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+						30 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+						31 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+						32 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+						33 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+						34 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				35 button (collapsed) Costs, Secondary Actions: Expand
+				36 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				37 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				38 button (collapsed) Settings, Secondary Actions: Expand
+				39 button (collapsed) Platform, Secondary Actions: Expand
+			40 content list
+				41 link Description: Support, Value: localhost:3993/app/support
+		42 text Version 3.6.0
+		43 container main-content
+			44 heading Billing impact report, Value: 1
+				45 text Billing impact report
+			46 text Which past invoices were affected by the two corrected pricing defects.
+			47 container
+				48 heading This report changes nothing, Value: 5
+					49 text This report changes nothing
+				50 text Both defects were fixed going forward only. Nothing here recomputes or rewrites an amount - it exists so the credit-note decision can be made with numbers.
+			51 text Run the report
+			52 text Scans announcements and delivered trips in the chosen range.
+			53 text Date range (dd/MM/yyyy)
+			54 pop up button (collapsed) 19/07/2026 – 19/10/2026, Secondary Actions: Expand
+			55 button Run report
+		56 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Billing impact report · LogiTrack Pro, URL: localhost:3993/app/utilities/billing-impact

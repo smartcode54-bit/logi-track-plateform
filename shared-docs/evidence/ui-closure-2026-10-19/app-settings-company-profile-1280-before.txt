@@ -1,0 +1,84 @@
+Browser tab: 2, Title: "Company profile · LogiTrack Pro", URL: "http://localhost:3993/app/settings/company-profile".
+1 AXWebArea Company profile · LogiTrack Pro, URL: localhost:3993/app/settings/company-profile
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/settings/company-profile#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Settings
+				10 link (disabled) Company profile
+					11 text Company profile
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				27 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				28 container
+					29 button (expanded) Settings, Secondary Actions: Collapse
+					30 content list
+						31 link Description: Companies, Value: localhost:3993/app/companies
+						32 link Description: Company profile, Value: localhost:3993/app/settings/company-profile
+						33 link Description: Support access, Value: localhost:3993/app/settings/support-access
+				34 button (collapsed) Platform, Secondary Actions: Expand
+			35 content list
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 text Version 3.6.0
+		38 container main-content
+			39 heading Company profile, Value: 1
+				40 text Company profile
+			41 text Active
+			42 text Your company information used on invoices and billing documents.
+			43 container
+				44 text Corporate Identity Legal entity information displayed on invoices. Company Name (Thai)  *
+				45 text field (settable) Company Name (Thai) *, Value: บริษัทขนส่งทดสอบ
+				46 text Company Name (English)
+				47 text field (settable) Company Name (English), Value: Operations fixture, ID: nameEn
+				48 text Short name (e.g. WRT)
+				49 text field (settable) Short name (e.g. WRT), Value: OPS, ID: shortName
+				50 text Tax ID (13 digits)  *
+				51 text field (settable) Tax ID (13 digits) *, Value: 1234567890123
+				52 text Branch Type
+				53 combo box (collapsed) Value: Head Office (สำนักงานใหญ่), Secondary Actions: Expand
+					54 text Head Office (สำนักงานใหญ่)
+				55 text Registered Address  *
+				56 text field (settable) Registered Address *, Value: Bangkok
+				57 text Phone
+				58 text field (settable) Phone, Value: <redacted>
+				59 text Email
+				60 text field (settable) Email, Value: <redacted>
+				61 text Authorized Signatory Name
+				62 text field (settable) Authorized Signatory Name, Value: Fixture operator, ID: signatoryName
+				63 text The name printed under the signature on billing documents. Documents & Assets Logo, stamp, and authorized signature embedded in PDF invoices. Company Logo (optional)
+				64 button Upload
+				65 text Shown in system header. Recommended: 200×60px PNG. Official Stamp (optional)
+				66 button Upload
+				67 text Official company seal, embedded in PDF invoices. Recommended: 200×200px transparent PNG. Authorized Signature (optional)
+				68 button Upload
+				69 text Authorized signatory signature, placed above signatory name in PDF. Recommended: 300×100px transparent PNG. Banking Information Payment details printed on invoices for customers. Bank Name
+				70 text field (settable) Bank Name, Value: Fixture bank, ID: bankName
+				71 text Account Number
+				72 text field (settable) Account Number, Value: 1234567890, ID: accountNumber
+				73 text Account Name (as registered)
+				74 text field (settable) Account Name (as registered), Value: Operations fixture, ID: accountName
+				75 text Withholding Tax Rate (%)
+				76 stepper (settable, integer) Withholding Tax Rate (%), Value: 3, ID: withholdingTaxRate
+				77 text Example: 3 = withhold 3% Company status
+				78 switch Description: Active, Value: 1, ID: isActive
+				79 text Active
+				80 button Save
+		81 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Company profile · LogiTrack Pro, URL: localhost:3993/app/settings/company-profile

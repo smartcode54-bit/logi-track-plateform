@@ -1,0 +1,90 @@
+Browser tab: 2, Title: "Truck assignment · LogiTrack Pro", URL: "http://localhost:3993/app/truck-assignment".
+1 AXWebArea Truck assignment · LogiTrack Pro, URL: localhost:3993/app/truck-assignment
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/truck-assignment#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link (disabled) Truck assignment
+					11 text Truck assignment
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 container
+					27 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					28 content list
+						29 link Description: Trucks, Value: localhost:3993/app/trucks
+						30 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						31 link Description: Drivers, Value: localhost:3993/app/drivers
+						32 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						33 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						34 link Description: Partners, Value: localhost:3993/app/subcontractors
+				35 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				36 button (collapsed) Settings, Secondary Actions: Expand
+				37 button (collapsed) Platform, Secondary Actions: Expand
+			38 content list
+				39 link Description: Support, Value: localhost:3993/app/support
+		40 text Version 3.6.0
+		41 container main-content
+			42 heading Truck assignment, Value: 1
+				43 text Truck assignment
+			44 text Pair drivers with vehicles and monitor active fleet deployments.
+			45 container
+				46 text Total Trucks 4
+			47 container
+				48 text Available Drivers 2
+			49 container
+				50 text Active Assignments 0
+			51 heading New Assignment, Value: 2
+				52 text New Assignment
+			53 text 1. Select Available Driver
+			54 combo box (collapsed) Description: 1. Select Available Driver, Value: Search driver..., Secondary Actions: Expand
+				55 text Search driver...
+			56 text No driver selected
+			57 text 2. Select Available Truck
+			58 combo box (collapsed) Description: 2. Select Available Truck, Value: Search truck..., Secondary Actions: Expand
+				59 text Search truck...
+			60 text No vehicle selected
+			61 button Confirm and Assign
+			62 button Reset form
+			63 heading Assignment History, Value: 2
+				64 text Assignment History
+			65 text field (settable) Search detail...
+			66 combo box (collapsed) Description: Filter by Status, Value: All Statuses, Secondary Actions: Expand
+				67 text All Statuses
+			68 container Assignment History
+				69 table
+					70 row
+						71 cell
+							72 text Timestamp
+						73 cell
+							74 text Driver
+						75 cell
+							76 text Vehicle
+						77 cell
+							78 text Admin
+						79 cell
+							80 text Status
+						81 cell
+							82 text Actions
+					83 row
+						84 cell
+							85 text No recent assignments found.
+			86 text 0 loaded
+		87 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Truck assignment · LogiTrack Pro, URL: localhost:3993/app/truck-assignment

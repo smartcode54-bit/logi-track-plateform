@@ -1,0 +1,96 @@
+Browser tab: 2, Title: "Companies · LogiTrack Pro", URL: "http://localhost:3993/app/companies".
+1 AXWebArea Companies · LogiTrack Pro, URL: localhost:3993/app/companies
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/companies#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Settings
+				10 link (disabled) Companies
+					11 text Companies
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				27 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				28 container
+					29 button (expanded) Settings, Secondary Actions: Collapse
+					30 content list
+						31 link Description: Companies, Value: localhost:3993/app/companies
+						32 link Description: Company profile, Value: localhost:3993/app/settings/company-profile
+						33 link Description: Support access, Value: localhost:3993/app/settings/support-access
+				34 button (collapsed) Platform, Secondary Actions: Expand
+			35 content list
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 text Version 3.6.0
+		38 container main-content
+			39 heading Companies, Value: 1
+				40 text Companies
+			41 text Manage company profiles and tenant configuration.
+			42 link Description: New Company, Value: localhost:3993/app/companies/new
+			43 text Total
+			44 text 2
+			45 text Partner
+			46 text 1
+			47 text Active
+			48 text 1
+			49 text Companies
+			50 text Owner 1 · Partner 1
+			51 table
+				52 row
+					53 cell
+						54 text Company Name
+					55 cell
+						56 text Tax ID
+					57 cell
+						58 text Type
+					59 cell
+						60 text Status
+					61 cell
+						62 text Created
+					63 cell
+						64 text Actions
+				65 row
+					66 cell
+						67 text บริษัทขนส่งทดสอบ
+						68 text Operations fixture
+					69 cell
+						70 text 1234567890123
+					71 cell
+						72 text Owner (Operator)
+					73 cell
+						74 text Active
+					75 cell
+						76 text 15/10/2026
+					77 cell
+						78 link Description: Edit Company, Value: localhost:3993/app/settings/company-profile
+				79 row
+					80 cell
+						81 text บริษัทคู่ค้าทดสอบ
+						82 text Operations fixture
+					83 cell
+						84 text 1234567890123
+					85 cell
+						86 text Partner
+					87 cell
+						88 text Inactive
+					89 cell
+						90 text 15/10/2026
+					91 cell
+						92 link Description: Edit Company, Value: localhost:3993/app/companies/company-2/edit
+		93 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Companies · LogiTrack Pro, URL: localhost:3993/app/companies

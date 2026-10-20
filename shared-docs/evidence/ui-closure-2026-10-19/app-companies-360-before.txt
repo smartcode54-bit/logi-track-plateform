@@ -1,0 +1,66 @@
+Browser tab: 2, Title: "Companies · LogiTrack Pro", URL: "http://localhost:3993/app/companies".
+1 AXWebArea Companies · LogiTrack Pro, URL: localhost:3993/app/companies
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/companies#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Companies, Value: 1
+				10 text Companies
+			11 text Manage company profiles and tenant configuration.
+			12 link Description: New Company, Value: localhost:3993/app/companies/new
+			13 text Total
+			14 text 2
+			15 text Partner
+			16 text 1
+			17 text Active
+			18 text 1
+			19 text Companies
+			20 text Owner 1 · Partner 1
+			21 table
+				22 row
+					23 cell
+						24 text Company Name
+					25 cell
+						26 text Tax ID
+					27 cell
+						28 text Type
+					29 cell
+						30 text Status
+					31 cell
+						32 text Created
+					33 cell
+						34 text Actions
+				35 row
+					36 cell
+						37 text บริษัทขนส่งทดสอบ
+						38 text Operations fixture
+					39 cell
+						40 text 1234567890123
+					41 cell
+						42 text Owner (Operator)
+					43 cell
+						44 text Active
+					45 cell
+						46 text 15/10/2026
+					47 cell
+						48 link Description: Edit Company, Value: localhost:3993/app/settings/company-profile
+				49 row
+					50 cell
+						51 text บริษัทคู่ค้าทดสอบ
+						52 text Operations fixture
+					53 cell
+						54 text 1234567890123
+					55 cell
+						56 text Partner
+					57 cell
+						58 text Inactive
+					59 cell
+						60 text 15/10/2026
+					61 cell
+						62 link Description: Edit Company, Value: localhost:3993/app/companies/company-2/edit
+		63 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Companies · LogiTrack Pro, URL: localhost:3993/app/companies

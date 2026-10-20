@@ -27,6 +27,7 @@ import { navigationProfileOf, profileRouteLabelKey, type NavigationProfile } fro
 import { ApiErrorAlert, formatDateTime, formatDay } from "@/features/accounting/components/go/shared";
 import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -117,6 +118,7 @@ interface FormState {
 }
 
 function Board({ kind }: { kind: BoardKind }) {
+    const isMobile = useIsMobile();
     const { t } = useLanguage();
     const { data: profile = "staff" } = useMe(navigationProfileOf);
     const canManage = useCan("operations:manage_tasks").allowed;
@@ -261,7 +263,30 @@ function Board({ kind }: { kind: BoardKind }) {
 
             <ApiErrorAlert error={q.error} />
 
-            <div className="overflow-hidden rounded-md border bg-card shadow-sm">
+            {isMobile ? <div className="divide-y rounded-md border bg-card md:hidden" aria-label={t(keys.title)}>
+                {q.isPending ? <p className="p-4 text-sm text-muted-foreground">{t("taskBoard.loading")}</p> : shown.length === 0 ? (
+                    <p className="p-4 text-sm">{t("firstMile.table.noTasks")}</p>
+                ) : shown.map((task) => (
+                    <article key={task.id} className="space-y-3 p-4" aria-label={task.taskNo ?? task.source?.label ?? task.sourceHub}>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                            <p className="min-w-0 break-words font-medium">{task.taskNo ?? (task.taskType === "line_haul" ? t("jobAssign.addLineHaul") : t("jobAssign.addFirstMile"))}</p>
+                            <TaskStatusBadge status={task.status} />
+                        </div>
+                        <p className="break-words text-sm">{task.source?.label || task.sourceHub} → {task.destinationPlace?.label || task.destination}</p>
+                        <p className="text-sm text-muted-foreground">{formatDay(task.planDate)} · {boardTime(task) || "—"}</p>
+                        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+                            <dt className="text-muted-foreground">{t("firstMile.table.driver")}</dt>
+                            <dd className="break-words">{task.driverName ?? "—"}{task.helperName ? ` + ${task.helperName}` : ""}</dd>
+                            <dt className="text-muted-foreground">{t("firstMile.table.licensePlate")}</dt>
+                            <dd className="break-words">{task.licensePlate ?? "—"}</dd>
+                        </dl>
+                        <Button variant="outline" className="min-h-11 w-full" onClick={() => setDetail(task)} aria-label={`${t("common.view")} ${task.taskNo ?? task.source?.label ?? task.sourceHub}`}>
+                            {t("common.view")}
+                        </Button>
+                    </article>
+                ))}
+            </div> : (
+            <div className="hidden overflow-hidden rounded-md border bg-card md:block">
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader className="bg-muted/50">
@@ -318,7 +343,9 @@ function Board({ kind }: { kind: BoardKind }) {
                                         <TableCell>
                                             <VehicleClassChip value={task.truckType} />
                                         </TableCell>
-                                        <TableCell className="font-mono text-sm">{task.taskNo ?? "—"}</TableCell>
+                                        <TableCell className="font-mono text-sm"><Button variant="link" className="h-auto px-0 max-md:min-h-11" onClick={(event) => { event.stopPropagation(); setDetail(task); }} aria-label={`${t("common.view")} ${task.taskNo ?? task.source?.label ?? task.sourceHub}`}>
+                                            {task.taskNo ?? t("common.view")}
+                                        </Button></TableCell>
                                         <TableCell className="font-mono">{task.licensePlate ?? "—"}</TableCell>
                                         <TableCell>
                                             {task.driverName ?? "—"}
@@ -373,13 +400,13 @@ function Board({ kind }: { kind: BoardKind }) {
                         </TableBody>
                     </Table>
                 </div>
+            </div>)}
                 <LoadMoreFooter
                     loaded={shown.length}
                     hasNextPage={Boolean(q.hasNextPage)}
                     isFetchingNextPage={q.isFetchingNextPage}
                     onLoadMore={() => void q.fetchNextPage()}
                 />
-            </div>
 
             {form ? (
                 <TaskFormDialog

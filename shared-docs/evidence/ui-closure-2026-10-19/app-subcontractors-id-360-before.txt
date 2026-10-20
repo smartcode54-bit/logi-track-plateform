@@ -1,0 +1,98 @@
+Browser tab: 2, Title: "รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors/ui4c-partner".
+1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors/ui4c-partner#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Partners, Value: localhost:3993/app/subcontractors
+			10 heading รถร่วมตัวอย่างเชียงใหม่และลำพูน, Value: 1
+				11 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+			12 text Pending
+			13 text Joined 01/10/2026
+			14 link Description: Edit profile, Value: localhost:3993/app/subcontractors/ui4c-partner/edit
+			15 container
+				16 heading Company details, Value: 2
+					17 text Company details
+				18 definition list
+					19 container Legal name
+						20 text Legal name
+					21 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+					22 container Tax ID
+						23 text Tax ID
+					24 text -
+					25 container Business type
+						26 text Business type
+					27 text Company
+					28 container Headquarters
+						29 text Headquarters
+					30 text -
+					31 container Primary dispatch center
+						32 text Primary dispatch center
+					33 text Chiang Mai depot
+					34 container Service provinces & regions
+						35 text Service provinces & regions
+					36 text Chiang Mai, Lamphun
+			37 container
+				38 heading Point of contact, Value: 2
+					39 text Point of contact
+				40 definition list
+					41 container Full name
+						42 text Full name
+					43 text Fixture contact
+					44 container Designation/Position
+						45 text Designation/Position
+					46 text Fleet coordinator
+					47 container Email
+						48 text Email
+					49 link Description: contact@fixture.test, Value: mailto:contact@fixture.test
+					50 container Phone
+						51 text Phone
+					52 link Description: 0812345678, Value: tel:0812345678
+			53 container
+				54 heading Fleet preview (3 shown), Value: 2
+					55 text Fleet preview (3 shown)
+				56 table
+					57 row
+						58 cell
+							59 text Type
+						60 cell
+							61 text Plate
+						62 cell
+							63 text Status
+					64 row
+						65 cell
+							66 text 6 Wheels
+						67 cell
+							68 text 70-1234
+						69 cell
+							70 text Active
+					71 row
+						72 cell
+							73 text 6 Wheels
+						74 cell
+							75 text 70-1235
+						76 cell
+							77 text Maintenance
+					78 row
+						79 cell
+							80 text 6 Wheels
+						81 cell
+							82 text 70-1236
+						83 cell
+							84 text Insurance Claim
+			85 container
+				86 heading Documents, Value: 2
+					87 text Documents
+				88 link Description: Manage documents, Value: localhost:3993/app/subcontractors/ui4c-partner/edit
+				89 content list
+					90 container
+						91 text Company documents (PP20, registration)
+						92 link Description: Open document 1, Value: files.fixture.test/company?signature=example
+					93 container
+						94 text Company documents (PP20, registration) Document unavailable
+		95 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner

@@ -1,0 +1,152 @@
+Browser tab: 2, Title: "Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks".
+1 AXWebArea Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Trucks, Value: 1
+				10 text Trucks
+			11 text Monitor and manage all registered trucks in the system
+			12 pop up button (collapsed) Import Trucks, Secondary Actions: Expand
+			13 link Description: Add Truck, Value: localhost:3993/app/trucks/new
+			14 text Own Fleet
+			15 text All Trucks
+			16 text 3
+			17 checkbox Description: Active: 1, Value: 0
+			18 checkbox Description: Available: 0, Value: 0
+			19 checkbox Description: Corrective: 0, Value: 0
+			20 text Partner fleet
+			21 text All Trucks
+			22 text 2
+			23 checkbox Description: Active: 0, Value: 0
+			24 checkbox Description: Available: 1, Value: 0
+			25 checkbox Description: Corrective: 1, Value: 0
+			26 text Maintenance / Corrective
+			27 text Own fleet only
+			28 checkbox Description: PM Soon: 1, Value: 0
+			29 checkbox Description: PM overdue: 2, Value: 0
+			30 checkbox Description: Corrective: 0, Value: 0
+			31 text field (settable)
+			32 combo box (collapsed) Value: All Types, Secondary Actions: Expand
+				33 text All Types
+			34 combo box (collapsed) Value: All Statuses, Secondary Actions: Expand
+				35 text All Statuses
+			36 combo box (collapsed) Value: All Groups, Secondary Actions: Expand
+				37 text All Groups
+			38 button Clear Filters
+			39 button Refresh
+			40 table
+				41 row
+					42 cell
+						43 text ID
+					44 cell
+						45 text Plate number
+					46 cell
+						47 text Model
+					48 cell
+						49 text Current driver
+					50 cell
+						51 text Ownership
+					52 cell
+						53 text PM status
+					54 cell
+						55 text Status
+					56 cell
+						57 text Actions
+				58 row
+					59 cell
+						60 text TRUCK-1
+					61 cell
+						62 text 70-1234
+					63 cell
+						64 text FRR Isuzu
+					65 cell
+						66 text -
+					67 cell
+						68 text Company
+					69 cell
+						70 link Description: PM: 1000 km remaining, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					71 cell
+						72 text Active
+					73 cell
+						74 pop up button (collapsed) Actions for this row, ID: radix-_r_i_, Secondary Actions: Expand
+				75 row
+					76 cell
+						77 text TRUCK-2
+					78 cell
+						79 text 70-1235
+					80 cell
+						81 text FRR Isuzu
+					82 cell
+						83 text -
+					84 cell
+						85 text Partner
+					86 cell
+						87 link Description: PM: 500 km overdue, Value: localhost:3993/app/trucks/maintenance?id=truck-2
+					88 cell
+						89 text Maintenance
+					90 cell
+						91 pop up button (collapsed) Actions for this row, ID: radix-_r_k_, Secondary Actions: Expand
+				92 row
+					93 cell
+						94 text TRUCK-3
+					95 cell
+						96 text 70-1236
+					97 cell
+						98 text FRR Isuzu
+					99 cell
+						100 text -
+					101 cell
+						102 text Company
+					103 cell
+						104 link Description: PM: 500 km overdue, Value: localhost:3993/app/trucks/maintenance?id=truck-3
+					105 cell
+						106 text Insurance Claim
+					107 cell
+						108 pop up button (collapsed) Actions for this row, ID: radix-_r_m_, Secondary Actions: Expand
+				109 row
+					110 cell
+						111 text TRUCK-4
+					112 cell
+						113 text 70-1237
+					114 cell
+						115 text FRR Isuzu
+					116 cell
+						117 text -
+					118 cell
+						119 text Partner
+					120 cell
+						121 link Description: PM: 500 km overdue, Value: localhost:3993/app/trucks/maintenance?id=truck-4
+					122 cell
+						123 text Inactive
+					124 cell
+						125 pop up button (collapsed) Actions for this row, ID: radix-_r_o_, Secondary Actions: Expand
+				126 row
+					127 cell
+						128 text TRUCK-5
+					129 cell
+						130 text 70-1238
+					131 cell
+						132 text FRR Isuzu
+					133 cell
+						134 text -
+					135 cell
+						136 text Company
+					137 cell
+						138 link Description: PM: 500 km overdue, Value: localhost:3993/app/trucks/maintenance?id=truck-5
+					139 cell
+						140 text Sold
+					141 cell
+						142 pop up button (collapsed) Actions for this row, ID: radix-_r_q_, Secondary Actions: Expand
+			143 text 5 loaded
+			144 text All rows loaded
+			145 text Showing 1 to 5 of 5 loaded
+			146 button (disabled) Previous page
+			147 button 1
+			148 button (disabled) Next page
+		149 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks

@@ -1,0 +1,104 @@
+Browser tab: 2, Title: "Dashboard · LogiTrack Pro", URL: "http://localhost:3993/app/dashboard".
+1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3993/app/dashboard
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/dashboard#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 link (disabled) Dashboard
+					10 text Dashboard
+		11 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			12 text Operations fixture
+			13 text Operations fixture
+			14 text  ·
+			15 text Platform admin
+			16 text O
+		17 content list
+			18 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		19 container Main menu
+			20 content list
+				21 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				22 button (collapsed) Operations, Secondary Actions: Expand
+				23 button (collapsed) Billing, Secondary Actions: Expand
+				24 button (collapsed) Costs, Secondary Actions: Expand
+				25 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				26 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				27 button (collapsed) Settings, Secondary Actions: Expand
+				28 button (collapsed) Platform, Secondary Actions: Expand
+			29 content list
+				30 link Description: Support, Value: localhost:3993/app/support
+		31 text Version 3.6.0
+		32 container main-content
+			33 heading Dashboard, Value: 1
+				34 text Dashboard
+			35 container
+				36 text Last 7 days  ·  2026-10-13 to 2026-10-19
+			37 container
+				38 checkbox Week, Value: 1
+				39 checkbox Month, Value: 0
+			40 text Total Users
+			41 text 8
+			42 text Users other than drivers
+			43 text Active Drivers
+			44 text 42
+			45 text 45 drivers in total
+			46 text Trips & Packages
+			47 container
+				48 text 120 /  3,450
+			49 text In the selected period
+			50 text Fleet Efficiency (On-time / Delayed)
+			51 container
+				52 text 95% /  5%
+			53 text In the selected period
+			54 heading Logistics Activity, Value: 2
+				55 text Logistics Activity
+			56 text Weekly delivery performance metrics
+			57 text 63
+			58 text ↑
+			59 text 26
+			60 text %
+			61 text vs previous Week
+			62 image Logistics Activity
+			63 text Fri
+			64 text Sat
+			65 text Sun
+			66 text Mon
+			67 text Tue
+			68 text Wed
+			69 text Thu
+			70 heading Vehicle position on map, Value: 2
+				71 text Vehicle position on map
+			72 text Red markers: trucks named in the latest 1 incident reports of the period.
+			73 heading Current vehicle position, Value: 2
+				74 text Current vehicle position
+			75 link Description: View all, Value: localhost:3993/app/driver-monitor
+			76 content list
+				77 container
+					78 text Engine ON 70-1111 บางนา
+					79 link Description: Map, Help: 13.70000, 100.50000, Value: google.com/maps?q=13.7,100.5
+				80 container
+					81 text Engine OFF 70-2222 Last GPS fix 4 days ago
+					82 link Description: Map, Help: 13.75000, 100.55000, Value: google.com/maps?q=13.75,100.55
+			83 text Pending Expense Audits
+			84 link Description: View all, Value: localhost:3993/app/accounting/audit
+			85 text 7
+			86 text Items pending approval
+			87 heading Chat status, Value: 2
+				88 text Chat status
+			89 link Description: View all, Value: localhost:3993/app/chat
+			90 link Description: Pending Unassigned chats 4, Value: localhost:3993/app/chat
+			91 link Description: Urgent Needs attention 1, Value: localhost:3993/app/chat
+			92 heading Recent Updates, Value: 2
+				93 text Recent Updates
+			94 text Latest fleet activities and alerts
+			95 link Description: Delivery completed · 70-1111 4 days ago · SOCE, Value: localhost:3993/app/driver-monitor
+			96 link Description: Route delay / incident reported 4 days ago · ยางแตก, Value: localhost:3993/app/incident-reports
+			97 text Action required
+			98 text 2 alerts
+			99 link Description: 70-1111 Tax due on 18/10/2026 3 days left, Value: localhost:3993/app/trucks/edit?id=tr-1
+			100 link Description: 70-2222 Service (km) 120 km overdue, Value: localhost:3993/app/trucks/edit?id=tr-2
+		101 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3993/app/dashboard

@@ -1,0 +1,12 @@
+Browser tab: 2, Title: "Holidays · LogiTrack Pro", URL: "http://localhost:3991/app/holidays".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Holidays · LogiTrack Pro, URL: localhost:3991/app/holidays
+~		3 link Description: Skip to main content, Value: localhost:3991/app/holidays#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						30 link Description: Payroll, Value: localhost:3991/app/payroll
+~						31 link Description: Leave requests, Value: localhost:3991/app/leave-requests
+~						32 link Description: Holidays, Value: localhost:3991/app/holidays
+~				36 link Description: Support, Value: localhost:3991/app/support
+The focused UI element is 1 AXWebArea Holidays · LogiTrack Pro, URL: localhost:3991/app/holidays

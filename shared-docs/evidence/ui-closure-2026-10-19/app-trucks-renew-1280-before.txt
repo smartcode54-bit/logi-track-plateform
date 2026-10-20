@@ -1,0 +1,76 @@
+Browser tab: 2, Title: "70-1234 · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/renew?id=truck-1".
+1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/renew?id=truck-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/renew?id=truck-1#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Trucks, Value: localhost:3993/app/trucks
+				11 link (disabled) 70-1234
+					12 text 70-1234
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 link Description: Back to Details, Value: localhost:3993/app/trucks/view?id=truck-1
+			44 heading 70-1234, Value: 1
+				45 text 70-1234
+			46 text Truck renewals · Isuzu FRR
+			47 button Refresh
+			48 tab group
+				49 tab (selected, settable, boolean) Tax Renewal, Value: 1, ID: radix-_r_g_-trigger-tax
+				50 tab (selectable, settable, boolean) Insurance Renewal, Value: 0, ID: radix-_r_g_-trigger-insurance
+			51 container Description: Tax Renewal, ID: radix-_r_g_-content-tax
+				52 text Tax / Act Retrieval
+				53 container
+					54 text Current Expiry :  -
+				55 text Pending
+				56 container
+					57 text Person In Charge
+					58 text field (settable) Fleet fixture
+					59 text Expense Amount (THB)
+					60 stepper (settable) Expense Amount (THB), ID: renewal-amount-tax
+					61 text Enter an amount before completing the renewal. Zero is allowed.
+					62 text Payment Method
+					63 combo box (collapsed) Value: Select method, Secondary Actions: Expand
+						64 text Select method
+					65 text Due Date / New Expiry Date
+					66 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+					67 text Document / Payment Receipt
+					68 button Choose File
+					69 text Click to upload Receipt / Document PDF, JPG, PNG up to 10MB
+					70 button Cancel
+					71 button Save Progress
+					72 button (disabled) Complete Renewal
+		73 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/renew?id=truck-1

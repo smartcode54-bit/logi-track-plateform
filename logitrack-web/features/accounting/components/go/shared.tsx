@@ -7,7 +7,7 @@
  * from `useCustomerLookup` (UI2C). Nothing here imports Firebase, and nothing renders a key of the split
  * `accounting` namespace, so the maintenance routes (outside that route group) can use it.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useId, type ReactNode } from "react";
 import { format, isValid, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 
@@ -16,6 +16,7 @@ import { apiErrorText } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DriverSelect, TruckSelect } from "@/components/entity-pickers";
+import { FieldLabelContext } from "@/components/ui/field-label";
 import { nodeText } from "@/components/ui/search-select";
 
 /** `฿1,234.50` (two decimals only when the amount has them). */
@@ -114,13 +115,14 @@ export function SearchPicker({ kind, value, onChange, placeholder, clearLabel, c
 }
 
 /** A labelled control of a filter bar. */
-export function Field({ label, children, className, htmlFor }: { label: string; children: ReactNode; className?: string; htmlFor?: string }) {
+export function Field({ label, children, className, labelClassName, htmlFor }: { label: string; children: ReactNode; className?: string; labelClassName?: string; htmlFor?: string }) {
+    const labelId = useId();
     return (
         <div className={cn("flex flex-col gap-1.5", className)}>
-            <label className="text-sm font-medium" htmlFor={htmlFor}>
+            <label id={labelId} className={cn("text-sm font-medium", labelClassName)} htmlFor={htmlFor}>
                 {label}
             </label>
-            {children}
+            <FieldLabelContext.Provider value={labelId}>{children}</FieldLabelContext.Provider>
         </div>
     );
 }

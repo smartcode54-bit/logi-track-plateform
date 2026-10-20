@@ -1,0 +1,18 @@
+Browser tab: 2, Title: "Dashboard · LogiTrack Pro", URL: "http://localhost:3991/app/dashboard".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3991/app/dashboard
+~		3 link Description: Skip to main content, Value: localhost:3991/app/dashboard#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			18 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				21 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~				30 link Description: Support, Value: localhost:3991/app/support
+~			75 link Description: View all, Value: localhost:3991/app/driver-monitor
+~			84 link Description: View all, Value: localhost:3991/app/accounting/audit
+~			89 link Description: View all, Value: localhost:3991/app/chat
+~			90 link Description: Pending Unassigned chats 4, Value: localhost:3991/app/chat
+~			91 link Description: Urgent Needs attention 1, Value: localhost:3991/app/chat
+~			95 link Description: Delivery completed · 70-1111 4 days ago · SOCE, Value: localhost:3991/app/driver-monitor
+~			96 link Description: Route delay / incident reported 4 days ago · ยางแตก, Value: localhost:3991/app/incident-reports
+~			99 link Description: 70-1111 Tax due on 18/10/2026 3 days left, Value: localhost:3991/app/trucks/edit?id=tr-1
+~			100 link Description: 70-2222 Service (km) 120 km overdue, Value: localhost:3991/app/trucks/edit?id=tr-2
+The focused UI element is 1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3991/app/dashboard

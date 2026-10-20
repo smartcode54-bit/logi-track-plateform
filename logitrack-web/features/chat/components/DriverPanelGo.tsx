@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * The chat's driver panel over Go (T50): the room's driver is the chat's `driverId` (`['chat', id]`, the same
  * cache entry as the room), read with `GET /v1/drivers/{id}` (its current truck assignment joined by Go)
@@ -151,8 +153,8 @@ function ChatIncidentDialog({ driver, name, onClose }: { driver: ChatDriverDTO; 
                     <DialogDescription>{name}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
-                    <div className="space-y-1">
-                        <Label>{t("incidentReports.table.cause")}</Label>
+                    <AccessibleField className="space-y-1" label={t("incidentReports.table.cause")}>
+
                         <Select value={cause} onValueChange={setCause}>
                             <SelectTrigger>
                                 <SelectValue />
@@ -165,7 +167,7 @@ function ChatIncidentDialog({ driver, name, onClose }: { driver: ChatDriverDTO; 
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
+                    </AccessibleField>
                     <div className="space-y-1">
                         <Label htmlFor="chat-incident-desc">{t("incidentReports.table.description")}</Label>
                         <Textarea id="chat-incident-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />

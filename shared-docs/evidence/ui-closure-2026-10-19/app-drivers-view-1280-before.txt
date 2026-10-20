@@ -1,0 +1,99 @@
+Browser tab: 2, Title: "สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro", URL: "http://localhost:3993/app/drivers/view?id=driver-1".
+1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/view?id=driver-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/drivers/view?id=driver-1#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Drivers, Value: localhost:3993/app/drivers
+				11 link (disabled) สมชาย ทดสอบ 1
+					12 text สมชาย ทดสอบ 1
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 link Description: Back to Drivers, Value: localhost:3993/app/drivers
+			44 heading สมชาย ทดสอบ 1, Value: 1
+				45 text สมชาย ทดสอบ 1
+			46 text Active
+			47 text Registered:
+			48 text 01 October 2026
+			49 text ID
+			50 text :
+			51 text DRIVER-1
+			52 link Description: Edit Profile, Value: localhost:3993/app/drivers/edit?id=driver-1
+			53 text Personal Information
+			54 text Mobile
+			55 text 0812345678
+			56 text Email
+			57 text driver@fixture.test
+			58 text Birth Date
+			59 text 01 January 1990
+			60 text ID Card No.
+			61 text 1234567890123
+			62 text Employment Details
+			63 text Employment Type
+			64 text Full Time
+			65 text Contract Duration
+			66 text -
+			67 text Truck License ID
+			68 text TEST123
+			69 text License Type
+			70 text ท.2
+			71 text Documents
+			72 text ID Card
+			73 text No document
+			74 text Driving License
+			75 text No document
+			76 heading สมชาย ทดสอบ 1, Value: 3
+				77 text สมชาย ทดสอบ 1
+			78 text driver@fixture.test
+			79 link Description: Call, Value: tel:0812345678
+			80 link Description: Email, Value: mailto:driver@fixture.test
+			81 text Truck Assignment
+			82 link Description: Assign, Value: localhost:3993/app/truck-assignment
+			83 table
+				84 row
+					85 cell
+						86 text Truck
+					87 cell
+						88 text Start
+					89 cell
+						90 text End
+					91 cell
+						92 text Status
+				93 row
+					94 cell
+						95 text No assignment history found.
+		96 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/view?id=driver-1

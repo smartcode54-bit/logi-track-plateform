@@ -6,8 +6,11 @@
 // the file with the lazily loaded xlsx (AC 4).
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+const mobile = vi.hoisted(() => ({ value: false }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobile.value }));
 
 const xlsx = vi.hoisted(() => ({ writeFile: vi.fn(), aoa: vi.fn() }));
 vi.mock("xlsx", () => ({
@@ -44,6 +47,7 @@ afterAll(() => restoreLayout());
 beforeEach(() => {
 });
 afterEach(() => {
+    mobile.value = false;
     resetQueryClientForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -85,6 +89,22 @@ const task = (status: string) => ({
 });
 
 describe("Go operations pages (T34)", () => {
+    it("mobile summary shows the task, driver and status, opens the same details, and fetches one list", async () => {
+        mobile.value = true;
+        const web = setup();
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [task("assigned")] }));
+        web.on("GET", "/api/go/v1/tasks/t1", () => json(200, { data: task("assigned") }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
+        renderPage("/app/first-mile", <FirstMileBoardPage />);
+        const summary = await screen.findByRole("article", { name: "FM-12102026-001" });
+        expect(within(summary).getByText("สมชาย ใจดี")).toBeInTheDocument();
+        expect(within(summary).getByText("Assigned")).toBeInTheDocument();
+        expect(screen.queryByRole("table")).toBeNull();
+        await userEvent.setup().click(within(summary).getByRole("button", { name: "View FM-12102026-001" }));
+        expect(await screen.findByRole("dialog")).toBeInTheDocument();
+        expect(web.calls.filter((c) => new URL(c.url, "http://web.test").pathname === "/api/go/v1/tasks")).toHaveLength(1);
+    });
+
     it("first-mile board: one Go list for the day; a task event refetches it and shows the mobile's check-in (AC 3)", async () => {
         const web = setup();
         let status = "assigned";

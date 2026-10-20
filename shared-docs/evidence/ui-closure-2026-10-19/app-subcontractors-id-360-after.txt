@@ -1,0 +1,8 @@
+Browser tab: 2, Title: "รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro", URL: "http://localhost:3991/app/subcontractors/ui4c-partner".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3991/app/subcontractors/ui4c-partner
+~		3 link Description: Skip to main content, Value: localhost:3991/app/subcontractors/ui4c-partner#main-content
+~			9 link Description: Back to Partners, Value: localhost:3991/app/subcontractors
+~			14 link Description: Edit profile, Value: localhost:3991/app/subcontractors/ui4c-partner/edit
+~				88 link Description: Manage documents, Value: localhost:3991/app/subcontractors/ui4c-partner/edit
+The focused UI element is 1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3991/app/subcontractors/ui4c-partner

@@ -1,0 +1,118 @@
+Browser tab: 2, Title: "Driver monitor · LogiTrack Pro", URL: "http://localhost:3993/app/driver-monitor".
+1 AXWebArea Driver monitor · LogiTrack Pro, URL: localhost:3993/app/driver-monitor
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/driver-monitor#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Operations
+				10 link (disabled) Driver monitor
+					11 text Driver monitor
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 container
+					24 button (expanded) Operations, Secondary Actions: Collapse
+					25 content list
+						26 link Description: Job assignment, Value: localhost:3993/app/job-assign
+						27 link Description: First mile tasks, Value: localhost:3993/app/first-mile
+						28 link Description: Line haul tasks, Value: localhost:3993/app/line-haul
+						29 link Description: Driver monitor, Value: localhost:3993/app/driver-monitor
+						30 link Description: Incident reports, Value: localhost:3993/app/incident-reports
+						31 link Description: Standby records, Value: localhost:3993/app/standby-records
+						32 link Description: Chat, Value: localhost:3993/app/chat
+						33 link Description: Pickup and delivery points, Value: localhost:3993/app/sources
+				34 button (collapsed) Billing, Secondary Actions: Expand
+				35 button (collapsed) Costs, Secondary Actions: Expand
+				36 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				37 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				38 button (collapsed) Settings, Secondary Actions: Expand
+				39 button (collapsed) Platform, Secondary Actions: Expand
+			40 content list
+				41 link Description: Support, Value: localhost:3993/app/support
+		42 text Version 3.6.0
+		43 container main-content
+			44 heading Driver monitor, Value: 1
+				45 text Driver monitor
+			46 text Real-time monitoring of driver trips and task progress
+			47 button Export
+			48 button Refresh
+			49 container radix-_r_13_
+				50 text Total Trips
+				51 text —
+				52 text In Transit
+				53 text —
+				54 text Delivered
+				55 text —
+				56 text Incident
+				57 text —
+			58 container
+				59 button All
+				60 button First Mile
+				61 button Line Haul
+				62 text Date range
+				63 pop up button (collapsed) Date range 20/09/2026 – 19/10/2026, Secondary Actions: Expand
+					64 text 20/09/2026 – 19/10/2026
+				65 button Last 30 days
+				66 button This month
+				67 text You can select at most 366 days at a time; wider selections are clamped automatically.
+				68 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+					69 text All drivers
+				70 combo box (collapsed) Description: Status, Value: All Statuses, Secondary Actions: Expand
+					71 text All Statuses
+				72 combo box (collapsed) Description: Partner / channel, Value: All partners / channels, Secondary Actions: Expand
+					73 text All partners / channels
+				74 combo box (collapsed) Value: All plates, Secondary Actions: Expand
+					75 text All plates
+				76 combo box (collapsed) Description: Vehicle type, Value: All vehicle types, Secondary Actions: Expand
+					77 text All vehicle types
+				78 combo box (collapsed) Value: All origins, Secondary Actions: Expand
+					79 text All origins
+				80 combo box (collapsed) Value: All destinations, Secondary Actions: Expand
+					81 text All destinations
+				82 text field (settable) Search trips
+			83 container Driver monitor
+				84 table
+					85 row
+						86 cell
+							87 text Trip ID
+						88 cell
+							89 text Check-in
+						90 cell
+							91 text Depart
+						92 cell
+							93 text Driver
+						94 cell
+							95 text License Plate
+						96 cell
+							97 text Job Type
+						98 cell
+							99 text Origin
+						100 cell
+							101 text Destination
+						102 cell
+							103 text Seal Code
+						104 cell
+							105 text Partner channel
+						106 cell
+							107 text Status
+						108 cell
+							109 text Delivered
+					110 row
+						111 cell
+							112 text No trips found.
+			113 text 0 rows loaded
+			114 text All rows loaded
+		115 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Driver monitor · LogiTrack Pro, URL: localhost:3993/app/driver-monitor

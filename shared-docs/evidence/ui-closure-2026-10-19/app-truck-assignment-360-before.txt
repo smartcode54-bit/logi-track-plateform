@@ -1,0 +1,57 @@
+Browser tab: 2, Title: "Truck assignment · LogiTrack Pro", URL: "http://localhost:3993/app/truck-assignment".
+1 AXWebArea Truck assignment · LogiTrack Pro, URL: localhost:3993/app/truck-assignment
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/truck-assignment#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Truck assignment, Value: 1
+				10 text Truck assignment
+			11 text Pair drivers with vehicles and monitor active fleet deployments.
+			12 container
+				13 text Total Trucks 4
+			14 container
+				15 text Available Drivers 2
+			16 container
+				17 text Active Assignments 0
+			18 heading New Assignment, Value: 2
+				19 text New Assignment
+			20 text 1. Select Available Driver
+			21 combo box (collapsed) Description: 1. Select Available Driver, Value: Search driver..., Secondary Actions: Expand
+				22 text Search driver...
+			23 text No driver selected
+			24 text 2. Select Available Truck
+			25 combo box (collapsed) Description: 2. Select Available Truck, Value: Search truck..., Secondary Actions: Expand
+				26 text Search truck...
+			27 text No vehicle selected
+			28 button Confirm and Assign
+			29 button Reset form
+			30 heading Assignment History, Value: 2
+				31 text Assignment History
+			32 text field (settable) Search detail...
+			33 combo box (collapsed) Description: Filter by Status, Value: All Statuses, Secondary Actions: Expand
+				34 text All Statuses
+			35 container Assignment History
+				36 table
+					37 row
+						38 cell
+							39 text Timestamp
+						40 cell
+							41 text Driver
+						42 cell
+							43 text Vehicle
+						44 cell
+							45 text Admin
+						46 cell
+							47 text Status
+						48 cell
+							49 text Actions
+					50 row
+						51 cell
+							52 text No recent assignments found.
+			53 text 0 loaded
+		54 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Truck assignment · LogiTrack Pro, URL: localhost:3993/app/truck-assignment

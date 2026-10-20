@@ -1,4 +1,14 @@
 export default {
+    "dashboard.stale": "อัปเดตตัวเลขไม่สำเร็จ ข้อมูลล่าสุดเมื่อ {time} กรุณาลองใหม่เพื่อรับข้อมูลปัจจุบัน",
+    "common.view": "ดูรายละเอียด",
+    "accounting.preview.title": "ตัวอย่าง",
+    "accounting.preview.panHint": "ขยายรูปแล้วลากเพื่อเลื่อน หรือกด Shift พร้อมปุ่มลูกศรเพื่อเลื่อนด้วยคีย์บอร์ด",
+    "dateTime.time": "เวลา (24 ชม.)",
+    "dateTime.hour": "ชั่วโมง",
+    "dateTime.minute": "นาที",
+    "dateTime.pick": "เลือกวันที่และเวลา",
+    "dateTime.clear": "ล้างวันที่และเวลา",
+
     "nav.supportAccess": "สิทธิ์การเข้าถึงของทีม LogiTrack",
     "common.maskedValue": "ปกปิดข้อมูลส่วนบุคคลหรือข้อมูลทางการเงิน",
     // Task / trip shared

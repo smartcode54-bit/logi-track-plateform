@@ -1,0 +1,8 @@
+Browser tab: 2, Title: "Fuel expenses · LogiTrack Pro", URL: "http://localhost:3991/app/accounting/fuel".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Fuel expenses · LogiTrack Pro, URL: localhost:3991/app/accounting/fuel
+~		3 link Description: Skip to main content, Value: localhost:3991/app/accounting/fuel#main-content
+~			27 combo box (collapsed) Driver, Value: All, Secondary Actions: Expand
+~			30 combo box (collapsed) Vehicle (plate), Value: All, Secondary Actions: Expand
+~			33 combo box (collapsed) Status, Value: All, Secondary Actions: Expand
+The focused UI element is 1 AXWebArea Fuel expenses · LogiTrack Pro, URL: localhost:3991/app/accounting/fuel

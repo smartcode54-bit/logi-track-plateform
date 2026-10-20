@@ -1,0 +1,223 @@
+Browser tab: 2, Title: "Job assignment · LogiTrack Pro", URL: "http://localhost:3993/app/job-assign".
+1 AXWebArea Job assignment · LogiTrack Pro, URL: localhost:3993/app/job-assign
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/job-assign#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Job assignment, Value: 1
+				10 text Job assignment
+			11 text Create and assign First Mile / Line Haul jobs to drivers
+			12 button Refresh
+			13 button Import Excel
+			14 pop up button (collapsed) Add job, ID: radix-_r_l_, Secondary Actions: Expand
+			15 text Filters
+			16 text Date
+			17 pop up button (collapsed) 19/10/2026, Secondary Actions: Expand
+			18 button Any day, Help: Show the newest tasks of any plan day
+			19 text Job type
+			20 combo box (collapsed) Value: All, Secondary Actions: Expand
+				21 text All
+			22 text Destination (SOC)
+			23 combo box (collapsed) Value: All SOCs, Secondary Actions: Expand
+				24 text All SOCs
+			25 text Pickup Point
+			26 combo box (collapsed) Value: All Pickup Points, Secondary Actions: Expand
+				27 text All Pickup Points
+			28 table
+				29 row
+					30 cell
+						31 text Date
+					32 cell
+						33 text Job type
+					34 cell
+						35 text Pickup Point
+					36 cell
+						37 text Destination
+					38 cell
+						39 text Time
+					40 cell
+						41 text Type
+					42 cell
+						43 text Shipment ID
+					44 cell
+						45 text License Plate
+					46 cell
+						47 text Driver
+					48 cell
+						49 text Trip
+					50 cell
+						51 text Status
+					52 cell
+						53 text Check-in
+					54 cell
+						55 text Actions
+				56 row
+					57 cell
+						58 text 15/10/2026
+					59 cell
+						60 text First Mile
+					61 cell
+						62 text บางนา
+					63 cell
+						64 text SOCE
+					65 cell
+						66 text 09:30
+					67 cell
+						68 text 4W
+					69 cell
+						70 text FM-15102026-000
+					71 cell
+						72 text 70-1111
+					73 cell
+						74 text สมชาย ใจดี
+					75 cell
+						76 text —
+					77 cell
+						78 text Pending
+					79 cell
+						80 text —
+					81 cell
+						82 pop up button (collapsed) Description: Actions, ID: radix-_r_11_, Secondary Actions: Expand
+				83 row
+					84 cell
+						85 text 15/10/2026
+					86 cell
+						87 text First Mile
+					88 cell
+						89 text บางนา
+					90 cell
+						91 text SOCE
+					92 cell
+						93 text 09:30
+					94 cell
+						95 text 6WH
+					96 cell
+						97 text FM-15102026-001
+					98 cell
+						99 text 70-1111
+					100 cell
+						101 text สมชาย ใจดี
+					102 cell
+						103 text —
+					104 cell
+						105 text Assigned
+					106 cell
+						107 text —
+					108 cell
+						109 pop up button (collapsed) Description: Actions, ID: radix-_r_13_, Secondary Actions: Expand
+				110 row
+					111 cell
+						112 text 15/10/2026
+					113 cell
+						114 text First Mile
+					115 cell
+						116 text บางนา
+					117 cell
+						118 text SOCE
+					119 cell
+						120 text 09:30
+					121 cell
+						122 text 4W
+					123 cell
+						124 text FM-15102026-002
+					125 cell
+						126 text 70-1111
+					127 cell
+						128 text สมชาย ใจดี
+					129 cell
+						130 text —
+					131 cell
+						132 text Checked in
+					133 cell
+						134 text —
+					135 cell
+						136 pop up button (collapsed) Description: Actions, ID: radix-_r_15_, Secondary Actions: Expand
+				137 row
+					138 cell
+						139 text 15/10/2026
+					140 cell
+						141 text First Mile
+					142 cell
+						143 text บางนา
+					144 cell
+						145 text SOCE
+					146 cell
+						147 text 09:30
+					148 cell
+						149 text 6WH
+					150 cell
+						151 text FM-15102026-003
+					152 cell
+						153 text 70-1111
+					154 cell
+						155 text สมชาย ใจดี
+					156 cell
+						157 text —
+					158 cell
+						159 text In transit
+					160 cell
+						161 text —
+					162 cell
+						163 pop up button (collapsed) Description: Actions, ID: radix-_r_17_, Secondary Actions: Expand
+				164 row
+					165 cell
+						166 text 15/10/2026
+					167 cell
+						168 text First Mile
+					169 cell
+						170 text บางนา
+					171 cell
+						172 text SOCE
+					173 cell
+						174 text 09:30
+					175 cell
+						176 text 4W
+					177 cell
+						178 text FM-15102026-004
+					179 cell
+						180 text 70-1111
+					181 cell
+						182 text สมชาย ใจดี
+					183 cell
+						184 text —
+					185 cell
+						186 text Completed
+					187 cell
+						188 text —
+					189 cell
+						190 pop up button (collapsed) Description: Actions, ID: radix-_r_19_, Secondary Actions: Expand
+				191 row
+					192 cell
+						193 text 15/10/2026
+					194 cell
+						195 text First Mile
+					196 cell
+						197 text บางนา
+					198 cell
+						199 text SOCE
+					200 cell
+						201 text 09:30
+					202 cell
+						203 text 6WH
+					204 cell
+						205 text FM-15102026-005
+					206 cell
+						207 text 70-1111
+					208 cell
+						209 text สมชาย ใจดี
+					210 cell
+						211 text —
+					212 cell
+						213 text Cancelled
+					214 cell
+						215 text —
+					216 cell
+						217 pop up button (collapsed) Description: Actions, ID: radix-_r_1b_, Secondary Actions: Expand
+			218 text 6 rows loaded
+			219 text All rows loaded
+		220 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Job assignment · LogiTrack Pro, URL: localhost:3993/app/job-assign

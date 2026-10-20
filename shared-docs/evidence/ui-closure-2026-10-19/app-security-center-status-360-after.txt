@@ -1,0 +1,5 @@
+Browser tab: 2, Title: "System status · LogiTrack Pro", URL: "http://localhost:3991/app/security-center/status".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea System status · LogiTrack Pro, URL: localhost:3991/app/security-center/status
+~		3 link Description: Skip to main content, Value: localhost:3991/app/security-center/status#main-content
+The focused UI element is 1 AXWebArea System status · LogiTrack Pro, URL: localhost:3991/app/security-center/status

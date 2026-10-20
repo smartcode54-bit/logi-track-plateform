@@ -1,0 +1,127 @@
+Browser tab: 2, Title: "Trips to bill · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/income".
+1 AXWebArea Trips to bill · LogiTrack Pro, URL: localhost:3993/app/accounting/income
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/income#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Trips to bill, Value: 1
+				10 text Trips to bill
+			11 text Stored Billing amount for delivered trips and standby records, priced by the server.
+			12 button Price or reprice records
+			13 button Export Excel
+			14 button Refresh
+			15 text Customer
+			16 combo box (collapsed) Description: Customer, Value: All, ID: income-customer, Secondary Actions: Expand
+				17 text All
+			18 text Trip type
+			19 combo box (collapsed) Description: Trip type, Value: All, ID: income-record-type, Secondary Actions: Expand
+				20 text All
+			21 text Delivered between (dd/MM/yyyy)
+			22 pop up button (collapsed) Description: Delivered between (dd/MM/yyyy), ID: income-delivered-range, Secondary Actions: Expand
+				23 text 01/10/2026 – 31/10/2026
+			24 button This month
+			25 button Last 30 days
+			26 text Billing amount
+			27 text ฿1,234.50
+			28 text Based on loaded rows
+			29 text Priced rows
+			30 text 1
+			31 text Based on loaded rows
+			32 button 1 loaded rows without a price
+			33 text Average Billing amount per priced row
+			34 text ฿1,234.50
+			35 text Based on loaded rows
+			36 text Summary by Customer
+			37 text Based on loaded rows
+			38 button Hide
+			39 table
+				40 row
+					41 cell
+						42 text Customer
+					43 cell
+						44 text Priced rows
+					45 cell
+						46 text Billing amount
+					47 cell
+						48 text Share
+				49 row
+					50 cell
+						51 text CJ — Example Customer
+					52 cell
+						53 text 1
+					54 cell
+						55 text ฿1,234.50
+					56 cell
+						57 text 100.0%
+			58 tab group
+				59 tab (selected, settable, boolean) With billing 1, Value: 1, ID: radix-_r_m_-trigger-with-billing
+				60 tab (selectable, settable, boolean) Missing billing 0 missing prices in month, Value: 0, ID: radix-_r_m_-trigger-missing-billing
+			61 container Description: With billing 1, ID: radix-_r_m_-content-with-billing
+				62 container Trips to bill
+					63 table
+						64 row
+							65 cell
+								66 text Trip ID
+							67 cell
+								68 text Customer
+							69 cell
+								70 text Origin (hub)
+							71 cell
+								72 text Destination
+							73 cell
+								74 text Truck type
+							75 cell
+								76 text Job type
+							77 cell
+								78 text Base rate (THB)
+							79 cell
+								80 text Fuel factor
+							81 cell
+								82 text Add / trip
+							83 cell
+								84 text Billing amount
+							85 cell
+								86 text Delivered at (Asia/Bangkok)
+							87 cell
+								88 text Billing date
+							89 cell
+								90 text Price details
+						91 row
+							92 cell
+								93 text TR-001
+							94 cell
+								95 text CJ — Example Customer
+							96 cell
+								97 text Bang Na
+							98 cell
+								99 text SOC East
+							100 cell
+								101 text 4W
+							102 cell
+								103 text Primary
+							104 cell
+								105 text ฿1,200.00
+							106 cell
+								107 text *1.03
+							108 cell
+								109 text —
+							110 cell
+								111 text ฿1,234.50
+							112 cell
+								113 text 05/10/2026 02:00
+								114 button Edit delivered time (Asia/Bangkok)
+							115 cell
+								116 text 05/10/2026
+							117 cell
+								118 button (collapsed) Price details, Secondary Actions: Expand
+									119 text Price details
+							120 cell
+								121 pop up button (collapsed) Description: Row actions, ID: radix-_r_t_, Secondary Actions: Expand
+				122 text 2 loaded
+				123 text All rows loaded
+		124 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Trips to bill · LogiTrack Pro, URL: localhost:3993/app/accounting/income

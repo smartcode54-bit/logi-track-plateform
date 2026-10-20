@@ -1,0 +1,88 @@
+Browser tab: 2, Title: "70-1234 · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/view?id=truck-1".
+1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/view?id=truck-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/view?id=truck-1#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Trucks, Value: localhost:3993/app/trucks
+			10 heading 70-1234, Value: 1
+				11 text 70-1234
+			12 text Available
+			13 text Last updated
+			14 text :
+			15 text 07:00 AM
+			16 text System ID
+			17 text :
+			18 text TRUCK-1
+			19 link Description: Maintenance, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+			20 link Description: Edit Details, Value: localhost:3993/app/trucks/edit?id=truck-1
+			21 text Vehicle Specifications
+			22 text Brand
+			23 text Isuzu
+			24 text Model
+			25 text FRR
+			26 text Year
+			27 text 2026
+			28 text Fuel Type
+			29 text Diesel
+			30 text Max Load
+			31 text 5,000 kg
+			32 text Truck Type
+			33 text 6WH
+			34 text Engine & Registration
+			35 text License Plate Province
+			36 text กรุงเทพมหานคร
+			37 text Engine Number
+			38 text TEST123
+			39 text Chassis Number
+			40 text TEST123456789
+			41 text Engine Capacity
+			42 text 3,000 cc
+			43 text Fuel Capacity
+			44 text 100 L
+			45 text Registration Date
+			46 text -
+			47 text Buying Date
+			48 text -
+			49 text Tax (Act) Expiry
+			50 text -
+			51 text Tax Renewal Status
+			52 text Pending
+			53 text Insurance & Renewal Details
+			54 text Insurance Provider
+			55 text -
+			56 text Policy Number
+			57 text -
+			58 text Type
+			59 text -
+			60 text Premium
+			61 text -
+			62 text Start Date
+			63 text -
+			64 text End Date
+			65 text -
+			66 text Renewal Status
+			67 text Pending
+			68 text Ownership Info
+			69 heading Own Fleet, Value: 4
+				70 text Own Fleet
+			71 text Managed by Internal Logistics Team
+			72 text Current Assignment
+			73 text No Driver Assigned
+			74 text Assign a driver to this truck to track performance.
+			75 link Description: Assign Driver, Value: localhost:3993/app/truck-assignment
+			76 text Assignment History
+			77 text No recent assignments found.
+			78 text Vehicle Photos
+			79 text 0
+			80 text Photos
+			81 text TAX Document
+			82 text No tax document uploaded.
+			83 text Insurance Document
+			84 text No insurance document uploaded.
+		85 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/view?id=truck-1

@@ -1,0 +1,84 @@
+Browser tab: 2, Title: "Mobile app clients · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/mobile-clients".
+1 AXWebArea Mobile app clients · LogiTrack Pro, URL: localhost:3993/app/security-center/mobile-clients
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/mobile-clients#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Mobile app clients, Value: 1
+				10 text Mobile app clients
+			11 text Driver app versions and last activity on each device.
+			12 text All organisations
+			13 text Driver app devices
+			14 text Seen in the last 7 days: 3 devices · 0 blocked · 0 outdated · 3 on the latest build
+			15 text Minimum version 3.1.0 · latest 3.2.0 · build type Production
+			16 combo box (collapsed) Description: Build type, Value: All build types, Secondary Actions: Expand
+				17 text All build types
+			18 table
+				19 row
+					20 cell
+						21 text Driver
+					22 cell
+						23 text Organisation
+					24 cell
+						25 text Platform
+					26 cell
+						27 text Version
+					28 cell
+						29 text Build
+					30 cell
+						31 text Build type
+					32 cell
+						33 text Last seen
+				34 row Driver ID: driver-uuid-0 · Install ID: install-uuid-0
+					35 cell
+						36 text คนขับ 1
+					37 cell
+						38 text กองรถ
+					39 cell
+						40 text Android
+					41 cell
+						42 text 3.2.0
+					43 cell
+						44 text 12
+					45 cell
+						46 text Production
+					47 cell
+						48 text 19/10/2026, 21:00:03
+				49 row Driver ID: driver-uuid-1 · Install ID: install-uuid-1
+					50 cell
+						51 text คนขับ 2
+					52 cell
+						53 text Linked carrier
+					54 cell
+						55 text iOS
+					56 cell
+						57 text 3.2.0
+					58 cell
+						59 text 12
+					60 cell
+						61 text Test build
+					62 cell
+						63 text 19/10/2026, 21:00:03
+				64 row Driver ID: driver-uuid-2 · Install ID: install-uuid-2
+					65 cell
+						66 text คนขับ 3
+					67 cell
+						68 text กองรถ
+					69 cell
+						70 text Android
+					71 cell
+						72 text 3.2.0
+					73 cell
+						74 text 12
+					75 cell
+						76 text Unknown build type
+					77 cell
+						78 text 19/10/2026, 21:00:03
+			79 text 3 devices loaded
+			80 button Refresh
+		81 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Mobile app clients · LogiTrack Pro, URL: localhost:3993/app/security-center/mobile-clients

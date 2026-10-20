@@ -1,0 +1,91 @@
+Browser tab: 2, Title: "รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors/ui4c-partner/edit".
+1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner/edit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors/ui4c-partner/edit#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Partners, Value: localhost:3993/app/subcontractors
+				11 link (disabled) รถร่วมตัวอย่างเชียงใหม่และลำพูน
+					12 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 link Description: Back to details, Value: localhost:3993/app/subcontractors/ui4c-partner
+			44 heading รถร่วมตัวอย่างเชียงใหม่และลำพูน, Value: 1
+				45 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+			46 text Edit partner
+			47 container
+				48 text Basic information Type
+				49 combo box (collapsed) Type, Value: Company, Secondary Actions: Expand
+					50 text Company
+				51 text Status
+				52 combo box (collapsed) Status, Value: Pending, Secondary Actions: Expand
+					53 text Pending
+				54 text Tax ID / commercial registration
+				55 text field (settable) Tax ID / commercial registration
+				56 text Name / company name
+				57 text field (settable) Name / company name, Value: รถร่วมตัวอย่างเชียงใหม่และลำพูน
+				58 text Contact person
+				59 text field (settable) Contact person, Value: Fixture contact
+				60 text Phone
+				61 text field (settable) Phone, Value: <redacted>
+				62 text Email
+				63 text field (settable) Email, Value: <redacted>
+				64 text Address
+				65 text entry area (settable) Address
+				66 text LINE group ID
+				67 text field (settable) LINE group ID
+				68 text The Wanpenradchada Official Account must be a member of this group. Leave blank to disable check-in / job-complete notifications. Billing date basis
+				69 combo box (collapsed) Billing date basis, Value: Delivered date (default), Secondary Actions: Expand
+					70 text Delivered date (default)
+				71 text Which date decides the billing period + rate round. Choose Plan date for customers (e.g. CJSF) who reconcile by the day-by-day plan they send, so a job delivered late still bills in the planned month. Documents Required documents:
+				72 content list
+					73 container
+						74 AXListMarker •
+						75 text Por Por 20 (ภพ.20)
+					76 container
+						77 AXListMarker •
+						78 text Company registration (DBD/DIT)
+				79 text Company documents (PP20, registration)
+				80 link Description: Open document 1, Value: files.fixture.test/company?signature=example
+				81 button Remove file
+				82 text Document 2 Document unavailable
+				83 button Remove file
+				84 button Company documents (PP20, registration)
+				85 text Accepted formats: JPG, PNG, WebP, PDF
+				86 button Cancel
+				87 button Save changes
+		88 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner/edit

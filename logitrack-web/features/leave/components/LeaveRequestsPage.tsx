@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
-import { SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
+import { Field, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
 import { HrErrorAlert, LoadMoreFooter, StatusBadge, dayLabel } from "@/features/driver-compensation/components/go/hrShared";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -112,10 +112,9 @@ export function LeaveRequestsPage() {
             </div>
 
             <div className="flex flex-col gap-4 rounded-lg border border-border/50 bg-card/50 p-4 sm:flex-row sm:items-end">
-                <div className="flex flex-col gap-1 text-sm font-medium">
-                    {t("leaveRequests.table.driver")}
+                <Field label={t("leaveRequests.table.driver")} className="text-sm font-medium">
                     <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("hr.allDrivers")} clearLabel={t("hr.allDrivers")} />
-                </div>
+                </Field>
                 <div className="flex gap-2 overflow-x-auto">
                     {[ALL, ...LEAVE_STATUSES].map((s) => (
                         <Button key={s} variant={status === s ? "secondary" : "ghost"} size="sm" onClick={() => setStatus(s as LeaveStatus | typeof ALL)}>

@@ -1,0 +1,21 @@
+Browser tab: 2, Title: "Support · LogiTrack Pro", URL: "http://localhost:3991/app/support".
+1 AXWebArea Support · LogiTrack Pro, URL: localhost:3991/app/support
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/support#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Support, Value: 1
+				10 text Support
+			11 text How to get help with LogiTrack Pro.
+			12 container Who to ask for help
+				13 heading Who to ask for help, Value: 2, ID: support-ask
+					14 text Who to ask for help
+				15 text Ask the people who invited you to LogiTrack Pro. If you work for the transport company, that is your company's administrator. If you are a customer or a partner carrier, it is the transport company you work with. They manage your account, your role and what you can see.
+				16 text A forgotten password can be reset from the sign-in page.
+				17 text Signed in as Operations fixture · Operations fixture · Platform admin
+		18 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Support · LogiTrack Pro, URL: localhost:3991/app/support

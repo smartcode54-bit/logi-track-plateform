@@ -9,6 +9,7 @@ import { useCallback } from "react";
 
 import { useAuth } from "@/context/auth";
 import { LOGIN_PATH } from "@/lib/sessionEnd";
+import { confirmNavigation } from "@/lib/navigationGuard";
 
 /** Where every sign-out lands. */
 export const SIGNED_OUT_PATH = LOGIN_PATH;
@@ -25,6 +26,7 @@ export function useSignOut(): () => Promise<void> {
     const auth = useAuth();
     const logout = auth?.logout;
     return useCallback(async () => {
+        if (!confirmNavigation()) return;
         // `logout` never rejects: the BFF clears the cookies whatever Go answers (lib/authClient.ts).
         await logout?.();
         navigate(SIGNED_OUT_PATH);

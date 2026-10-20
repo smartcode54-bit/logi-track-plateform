@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * The fuel adjustments tab (T42): `['rateCard','fuelAdj',cust]` over `GET /v1/billing/fuel-adjustments`.
  * An announcement is a percent of the base rate, a fixed amount per trip, or a band derived from the
@@ -125,19 +127,19 @@ function AdjustmentDialog({ initial, onClose }: { initial: Draft; onClose: () =>
                     <DialogDescription>{t("accounting.rateCard.fuelAdjustments.dialog.description")}</DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2 space-y-1">
-                        <Label>{t("accounting.rateCard.fuelAdjustments.form.customer")}</Label>
+                    <AccessibleField className="col-span-2 space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.customer")}>
+
                         <CustomerSearchSelect
                             aria-label={t("accounting.rateCard.fuelAdjustments.form.customer")}
                             value={d.customerId}
                             onValueChange={(v) => setD((x) => ({ ...x, customerId: v }))}
                             className="w-full"
                         />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.effectiveFrom")}>
+
                         <Input type="date" value={d.effectiveFrom} onChange={set("effectiveFrom")} />
-                    </div>
+                    </AccessibleField>
                     <div className="space-y-1">
                         <Label>{t("accounting.rateCard.fuelAdjustments.form.adjustmentTypeLabel")}</Label>
                         <div className="flex flex-wrap gap-1">
@@ -153,31 +155,31 @@ function AdjustmentDialog({ initial, onClose }: { initial: Draft; onClose: () =>
                         </div>
                     </div>
                     {d.mode === "percent" ? (
-                        <div className="space-y-1">
-                            <Label>{t("accounting.rateCard.fuelAdjustments.form.multiplier")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.multiplier")}>
+
                             <Input type="number" step="any" value={d.pct} onChange={set("pct")} placeholder={t("accounting.rateCard.fuelAdjustments.form.multiplierPlaceholder")} />
-                        </div>
+                        </AccessibleField>
                     ) : null}
                     {d.mode === "fixed_thb" ? (
-                        <div className="space-y-1">
-                            <Label>{t("accounting.rateCard.fuelAdjustments.form.addPerTrip")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.addPerTrip")}>
+
                             <Input type="number" step="any" value={d.add} onChange={set("add")} />
-                        </div>
+                        </AccessibleField>
                     ) : null}
                     {d.mode === "band" ? (
                         <>
-                            <div className="space-y-1">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.fuelBandBaseline")}</Label>
+                            <AccessibleField className="space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.fuelBandBaseline")}>
+
                                 <Input type="number" step="1" value={d.baseline} onChange={set("baseline")} />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>{t("accounting.rateCard.fuelAdjustments.form.fuelBandThbPerBaht")}</Label>
+                            </AccessibleField>
+                            <AccessibleField className="space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.fuelBandThbPerBaht")}>
+
                                 <Input type="number" step="any" value={d.perBaht} onChange={set("perBaht")} />
-                            </div>
+                            </AccessibleField>
                         </>
                     ) : null}
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.fuelAdjustments.form.referenceFuelPrice")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.referenceFuelPrice")}>
+
                         <Input
                             type="number"
                             step="any"
@@ -194,11 +196,11 @@ function AdjustmentDialog({ initial, onClose }: { initial: Draft; onClose: () =>
                                   ? t("accounting.rateCard.fuelAdjustments.form.dailyPriceFound", { date: formatDay(d.effectiveFrom), price: diesel.price })
                                   : t("accounting.rateCard.fuelAdjustments.form.dailyPriceMissing", { date: formatDay(d.effectiveFrom) })}
                         </p>
-                    </div>
-                    <div className="col-span-2 space-y-1">
-                        <Label>{t("accounting.rateCard.fuelAdjustments.form.note")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="col-span-2 space-y-1" label={t("accounting.rateCard.fuelAdjustments.form.note")}>
+
                         <Input value={d.note} onChange={set("note")} placeholder={t("accounting.rateCard.fuelAdjustments.form.notePlaceholder")} />
-                    </div>
+                    </AccessibleField>
                 </div>
                 {!input ? <p className="text-xs text-muted-foreground">{t("accounting.rateCard.fuelAdjustments.form.invalid")}</p> : null}
                 <DialogFooter>

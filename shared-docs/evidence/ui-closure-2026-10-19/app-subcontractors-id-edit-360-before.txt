@@ -1,0 +1,57 @@
+Browser tab: 2, Title: "รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors/ui4c-partner/edit".
+1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner/edit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors/ui4c-partner/edit#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to details, Value: localhost:3993/app/subcontractors/ui4c-partner
+			10 heading รถร่วมตัวอย่างเชียงใหม่และลำพูน, Value: 1
+				11 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+			12 text Edit partner
+			13 container
+				14 text Basic information Type
+				15 combo box (collapsed) Type, Value: Company, Secondary Actions: Expand
+					16 text Company
+				17 text Status
+				18 combo box (collapsed) Status, Value: Pending, Secondary Actions: Expand
+					19 text Pending
+				20 text Tax ID / commercial registration
+				21 text field (settable) Tax ID / commercial registration
+				22 text Name / company name
+				23 text field (settable) Name / company name, Value: รถร่วมตัวอย่างเชียงใหม่และลำพูน
+				24 text Contact person
+				25 text field (settable) Contact person, Value: Fixture contact
+				26 text Phone
+				27 text field (settable) Phone, Value: <redacted>
+				28 text Email
+				29 text field (settable) Email, Value: <redacted>
+				30 text Address
+				31 text entry area (settable) Address
+				32 text LINE group ID
+				33 text field (settable) LINE group ID
+				34 text The Wanpenradchada Official Account must be a member of this group. Leave blank to disable check-in / job-complete notifications. Billing date basis
+				35 combo box (collapsed) Billing date basis, Value: Delivered date (default), Secondary Actions: Expand
+					36 text Delivered date (default)
+				37 text Which date decides the billing period + rate round. Choose Plan date for customers (e.g. CJSF) who reconcile by the day-by-day plan they send, so a job delivered late still bills in the planned month. Documents Required documents:
+				38 content list
+					39 container
+						40 AXListMarker •
+						41 text Por Por 20 (ภพ.20)
+					42 container
+						43 AXListMarker •
+						44 text Company registration (DBD/DIT)
+				45 text Company documents (PP20, registration)
+				46 link Description: Open document 1, Value: files.fixture.test/company?signature=example
+				47 button Remove file
+				48 text Document 2 Document unavailable
+				49 button Remove file
+				50 button Company documents (PP20, registration)
+				51 text Accepted formats: JPG, PNG, WebP, PDF
+				52 button Cancel
+				53 button Save changes
+		54 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner/edit

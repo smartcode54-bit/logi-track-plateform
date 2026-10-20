@@ -37,6 +37,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useLanguage } from "@/context/language";
 import { filterBySearch } from "@/lib/searchText";
 import { cn } from "@/lib/utils";
+import { useFieldLabel } from "./field-label";
 
 /** One option. `text` is what the search matches when `label` is not plain text. */
 export interface SearchSelectOption {
@@ -368,8 +369,10 @@ export const SearchSelectTrigger = React.forwardRef<
     HTMLButtonElement,
     TriggerOwnProps & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "value">
 >(function SearchSelectTrigger({ open, empty, size = "default", icon, loading, onClear, clearLabel, listId, className, children, onKeyDown, ...props }, ref) {
+    const fieldLabel = useFieldLabel();
     return (
         <button
+            aria-labelledby={props["aria-label"] ? undefined : fieldLabel}
             ref={ref}
             type="button"
             role="combobox"

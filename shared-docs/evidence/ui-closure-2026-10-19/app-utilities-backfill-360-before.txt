@@ -1,0 +1,36 @@
+Browser tab: 2, Title: "Billing utilities · LogiTrack Pro", URL: "http://localhost:3993/app/utilities/backfill".
+1 AXWebArea Billing utilities · LogiTrack Pro, URL: localhost:3993/app/utilities/backfill
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/utilities/backfill#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Billing utilities, Value: 1
+				10 text Billing utilities
+			11 text Recompute stored prices for a date range. Periods that are already invoiced are never repriced.
+			12 link Description: Review billing impact, Value: localhost:3993/app/utilities/billing-impact
+			13 text Price or reprice records
+			14 text Ask the server to price trips and standby records in a date range.
+			15 text Billing range (Asia/Bangkok)
+			16 pop up button (collapsed) Description: Billing range (Asia/Bangkok), ID: backfill-range, Secondary Actions: Expand
+				17 text 01/10/2026 – 31/10/2026
+			18 text Customer
+			19 combo box (collapsed) Description: Customer, Value: All, ID: backfill-customer, Secondary Actions: Expand
+				20 text All
+			21 button Backfill by date range
+			22 container
+				23 checkbox Description: Trips, Value: 1
+				24 text Trips
+			25 container
+				26 checkbox Description: Standby records, Value: 1
+				27 text Standby records
+			28 container
+				29 checkbox Description: Reprice existing billing amounts, Value: 0
+				30 text Reprice existing billing amounts
+			31 text Dates use Asia/Bangkok: delivered day, or the customer’s billing date when one plan-basis customer is selected. Standby uses its end time.
+			32 text Each selected job checks oldest first: up to 500 read and 200 written. Progress is tracked here.
+		33 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Billing utilities · LogiTrack Pro, URL: localhost:3993/app/utilities/backfill

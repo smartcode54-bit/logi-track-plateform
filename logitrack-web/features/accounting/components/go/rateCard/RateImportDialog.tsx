@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * Rate-card import over Go (T42; `POST /v1/billing/rate-entries/import`, Appendix B §B.2.14): the sheet
  * is read in the browser with `xlsx`, loaded on the first file pick (developer-spec.md §10.11), in the
@@ -18,7 +20,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { importRateEntries, type JobCategory, type RateRowInput } from "../../../api/rateCard.go";
@@ -128,8 +129,8 @@ export function RateImportDialog({
                     <DialogDescription>{t("accounting.rateCard.import.validationHint")}</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="space-y-1 sm:col-span-3">
-                        <Label>{t("accounting.rateCard.import.selectCustomer")}</Label>
+                    <AccessibleField className="space-y-1 sm:col-span-3" label={t("accounting.rateCard.import.selectCustomer")}>
+
                         <CustomerSearchSelect
                             aria-label={t("accounting.rateCard.import.selectCustomer")}
                             value={customerId}
@@ -137,13 +138,13 @@ export function RateImportDialog({
                             placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")}
                             className="w-full"
                         />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.effectiveFrom")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.effectiveFrom")}>
+
                         <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.jobCategory.label")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.jobCategory.label")}>
+
                         <Select value={category} onValueChange={(v) => setCategory(v === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY")}>
                             <SelectTrigger>
                                 <SelectValue />
@@ -153,9 +154,9 @@ export function RateImportDialog({
                                 <SelectItem value="SUPPLEMENTARY">{t("accounting.rateCard.jobCategory.supplementary")}</SelectItem>
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.import.clickUpload")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.import.clickUpload")}>
+
                         <Input
                             type="file"
                             accept=".xlsx,.xls"
@@ -165,7 +166,7 @@ export function RateImportDialog({
                                 if (f) void parse(f);
                             }}
                         />
-                    </div>
+                    </AccessibleField>
                 </div>
                 {error ? <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
                 {parsed && parsed.rows.length > 0 ? (

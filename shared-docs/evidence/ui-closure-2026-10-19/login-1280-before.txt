@@ -1,0 +1,28 @@
+Browser tab: 5, Title: "Sign in · LogiTrack Pro", URL: "http://localhost:3993/login".
+1 AXWebArea Sign in · LogiTrack Pro, URL: localhost:3993/login
+	2 container
+		3 container Main
+			4 link Description: LogiTrack Pro by GORATECH, Value: localhost:3993/
+			5 content list
+				6 link Description: Features, Value: localhost:3993/#solutions
+				7 link Description: About, Value: localhost:3993/about
+				8 link Description: Join as a partner, Value: localhost:3993/join-network
+			9 container Language
+				10 checkbox English, Value: 1
+				11 checkbox ไทย, Value: 0
+			12 button Switch to the dark theme
+		13 container
+			14 heading Sign in, Value: 1
+				15 text Sign in
+			16 text Use the account your organisation set up for you.
+			17 text Email
+			18 text field (settable) Email
+			19 text Password
+			20 link Description: Forgot your password?, Value: localhost:3993/forgot-password
+			21 text field (settable) Password
+			22 button Sign in
+			23 text No account? Ask the transport company or administrator who invited you. Run a transport company?
+			24 link Description: Join the LogiTrack Pro waitlist, Value: localhost:3993/waitlist
+		25 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Sign in · LogiTrack Pro, URL: localhost:3993/login

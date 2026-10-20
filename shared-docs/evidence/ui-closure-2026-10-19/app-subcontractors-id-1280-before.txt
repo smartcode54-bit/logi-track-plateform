@@ -1,0 +1,132 @@
+Browser tab: 2, Title: "รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors/ui4c-partner".
+1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors/ui4c-partner#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link Description: Partners, Value: localhost:3993/app/subcontractors
+				11 link (disabled) รถร่วมตัวอย่างเชียงใหม่และลำพูน
+					12 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 container
+					28 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					29 content list
+						30 link Description: Trucks, Value: localhost:3993/app/trucks
+						31 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						32 link Description: Drivers, Value: localhost:3993/app/drivers
+						33 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						34 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						35 link Description: Partners, Value: localhost:3993/app/subcontractors
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 link Description: Back to Partners, Value: localhost:3993/app/subcontractors
+			44 heading รถร่วมตัวอย่างเชียงใหม่และลำพูน, Value: 1
+				45 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+			46 text Pending
+			47 text Joined 01/10/2026
+			48 link Description: Edit profile, Value: localhost:3993/app/subcontractors/ui4c-partner/edit
+			49 container
+				50 heading Company details, Value: 2
+					51 text Company details
+				52 definition list
+					53 container Legal name
+						54 text Legal name
+					55 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+					56 container Tax ID
+						57 text Tax ID
+					58 text -
+					59 container Business type
+						60 text Business type
+					61 text Company
+					62 container Headquarters
+						63 text Headquarters
+					64 text -
+					65 container Primary dispatch center
+						66 text Primary dispatch center
+					67 text Chiang Mai depot
+					68 container Service provinces & regions
+						69 text Service provinces & regions
+					70 text Chiang Mai, Lamphun
+			71 container
+				72 heading Point of contact, Value: 2
+					73 text Point of contact
+				74 definition list
+					75 container Full name
+						76 text Full name
+					77 text Fixture contact
+					78 container Designation/Position
+						79 text Designation/Position
+					80 text Fleet coordinator
+					81 container Email
+						82 text Email
+					83 link Description: contact@fixture.test, Value: mailto:contact@fixture.test
+					84 container Phone
+						85 text Phone
+					86 link Description: 0812345678, Value: tel:0812345678
+			87 container
+				88 heading Fleet preview (3 shown), Value: 2
+					89 text Fleet preview (3 shown)
+				90 table
+					91 row
+						92 cell
+							93 text Type
+						94 cell
+							95 text Plate
+						96 cell
+							97 text Status
+					98 row
+						99 cell
+							100 text 6 Wheels
+						101 cell
+							102 text 70-1234
+						103 cell
+							104 text Active
+					105 row
+						106 cell
+							107 text 6 Wheels
+						108 cell
+							109 text 70-1235
+						110 cell
+							111 text Maintenance
+					112 row
+						113 cell
+							114 text 6 Wheels
+						115 cell
+							116 text 70-1236
+						117 cell
+							118 text Insurance Claim
+			119 container
+				120 heading Documents, Value: 2
+					121 text Documents
+				122 link Description: Manage documents, Value: localhost:3993/app/subcontractors/ui4c-partner/edit
+				123 content list
+					124 container
+						125 text Company documents (PP20, registration)
+						126 link Description: Open document 1, Value: files.fixture.test/company?signature=example
+					127 container
+						128 text Company documents (PP20, registration) Document unavailable
+		129 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea รถร่วมตัวอย่างเชียงใหม่และลำพูน · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/ui4c-partner

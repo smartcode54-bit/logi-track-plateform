@@ -1,0 +1,11 @@
+Browser tab: 2, Title: "Join as a partner · LogiTrack Pro", URL: "http://localhost:3991/join-network".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Join as a partner · LogiTrack Pro, URL: localhost:3991/join-network
+~			4 link Description: LogiTrack Pro by GORATECH, Value: localhost:3991/
+~			9 link Description: Open console, Value: localhost:3991/app/dashboard
+~			15 link Description: Apply now, Value: localhost:3991/join-network#apply
+~				54 link Description: About, Value: localhost:3991/about
+~				55 link Description: Join as a partner, Value: localhost:3991/join-network
+~				56 link Description: Waitlist, Value: localhost:3991/waitlist
+~				57 link Description: Open console, Value: localhost:3991/app/dashboard
+The focused UI element is 1 AXWebArea Join as a partner · LogiTrack Pro, URL: localhost:3991/join-network

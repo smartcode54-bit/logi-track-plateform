@@ -1,0 +1,90 @@
+Browser tab: 2, Title: "Standby records · LogiTrack Pro", URL: "http://localhost:3993/app/standby-records".
+1 AXWebArea Standby records · LogiTrack Pro, URL: localhost:3993/app/standby-records
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/standby-records#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Operations
+				10 link (disabled) Standby records
+					11 text Standby records
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 container
+					24 button (expanded) Operations, Secondary Actions: Collapse
+					25 content list
+						26 link Description: Job assignment, Value: localhost:3993/app/job-assign
+						27 link Description: First mile tasks, Value: localhost:3993/app/first-mile
+						28 link Description: Line haul tasks, Value: localhost:3993/app/line-haul
+						29 link Description: Driver monitor, Value: localhost:3993/app/driver-monitor
+						30 link Description: Incident reports, Value: localhost:3993/app/incident-reports
+						31 link Description: Standby records, Value: localhost:3993/app/standby-records
+						32 link Description: Chat, Value: localhost:3993/app/chat
+						33 link Description: Pickup and delivery points, Value: localhost:3993/app/sources
+				34 button (collapsed) Billing, Secondary Actions: Expand
+				35 button (collapsed) Costs, Secondary Actions: Expand
+				36 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				37 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				38 button (collapsed) Settings, Secondary Actions: Expand
+				39 button (collapsed) Platform, Secondary Actions: Expand
+			40 content list
+				41 link Description: Support, Value: localhost:3993/app/support
+		42 text Version 3.6.0
+		43 container main-content
+			44 heading Standby records, Value: 1
+				45 text Standby records
+			46 text Driver check-in records with no delivery jobs
+			47 button Refresh
+			48 button Backfill Standby
+			49 text Total Records
+			50 heading 1, Value: 2
+				51 text 1
+			52 pop up button (collapsed) Date range, Secondary Actions: Expand
+			53 text field (settable)
+			54 table
+				55 row
+					56 cell
+						57 text Date
+					58 cell
+						59 text Driver
+					60 cell
+						61 text Origin → Destination
+					62 cell
+						63 text Check-in
+					64 cell
+						65 text Ended
+					66 cell
+						67 text Duration (min)
+					68 cell
+						69 text Status
+				70 row
+					71 cell
+						72 text 15/10/2026 09:00
+					73 cell
+						74 text สมหญิง คนขับทดสอบ
+					75 cell
+						76 text จุดรับสินค้า  →  ศูนย์กระจายสินค้า
+					77 cell
+						78 text 15/10/2026 09:00
+					79 cell
+						80 text 15/10/2026 09:00
+					81 cell
+						82 text 60
+					83 cell
+						84 text completed
+			85 text 1 rows loaded
+			86 text All rows loaded
+		87 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Standby records · LogiTrack Pro, URL: localhost:3993/app/standby-records

@@ -1,0 +1,27 @@
+Browser tab: 2, Title: "Join the waitlist · LogiTrack Pro", URL: "http://localhost:3991/waitlist".
+1 AXWebArea Join the waitlist · LogiTrack Pro, URL: localhost:3991/waitlist
+	2 container
+		3 container Main
+			4 link Description: LogiTrack Pro, Value: localhost:3991/
+			5 container Language
+				6 checkbox English, Value: 1
+				7 checkbox ไทย, Value: 0
+			8 link Description: Open console, Value: localhost:3991/app/dashboard
+			9 pop up button (collapsed) Description: Account menu for Operations fixture, ID: radix-_r_2_, Secondary Actions: Expand
+		10 container
+			11 heading Join the waitlist, Value: 1
+				12 text Join the waitlist
+			13 text For transport companies interested in LogiTrack Pro. Staff, customers and partners get their accounts from the company that invites them.
+			14 text Full name
+			15 text field (settable) Full name, ID: fullName
+			16 text Email
+			17 text field (settable) Email
+			18 text Phone number
+			19 combo box (collapsed) Description: Country code, Value: Thailand (+66), Secondary Actions: Expand
+				20 text Thailand (+66)
+			21 text field (settable) Phone number
+			22 button Request access
+			23 link Description: Already have an account? Sign in, Value: localhost:3991/login
+		24 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Join the waitlist · LogiTrack Pro, URL: localhost:3991/waitlist

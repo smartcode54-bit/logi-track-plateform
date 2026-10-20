@@ -1,0 +1,10 @@
+Browser tab: 2, Title: "Security center · LogiTrack Pro", URL: "http://localhost:3991/app/security-center".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3991/app/security-center
+~		3 link Description: Skip to main content, Value: localhost:3991/app/security-center#main-content
+~			17 link Description: Open system status, Value: localhost:3991/app/security-center/status
+~			23 link Description: User management — force logout, Value: localhost:3991/app/security-center/users
+~			30 link Description: Open driver app devices, Value: localhost:3991/app/security-center/mobile-clients
+~			32 link Description: View all, Value: localhost:3991/app/security-center/audit
+~			70 link Description: Open user management, Value: localhost:3991/app/security-center/users
+The focused UI element is 1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3991/app/security-center

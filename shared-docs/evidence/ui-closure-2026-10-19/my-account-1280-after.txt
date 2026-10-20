@@ -1,0 +1,7 @@
+Browser tab: 4, Title: "My account · LogiTrack Pro", URL: "http://localhost:3991/my-account".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea My account · LogiTrack Pro, URL: localhost:3991/my-account
+~			4 link Description: LogiTrack Pro by GORATECH, Value: localhost:3991/
+~			9 link Description: Open console, Value: localhost:3991/app/dashboard
+~				38 link Description: Request a password reset link, Value: localhost:3991/forgot-password
+The focused UI element is 1 AXWebArea My account · LogiTrack Pro, URL: localhost:3991/my-account

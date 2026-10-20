@@ -1,0 +1,74 @@
+Browser tab: 2, Title: "Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors".
+1 AXWebArea Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Partners, Value: 1
+				10 text Partners
+			11 text Partner profiles and reported fleet capacity
+			12 link Description: Add partner, Value: localhost:3993/app/subcontractors/new
+			13 text Total partners
+			14 text 1
+			15 text Registered partners
+			16 text Reported fleet size
+			17 text 4
+			18 text Total trucks reported by partners
+			19 text Pending partners
+			20 text 1
+			21 text Partners with pending status
+			22 text field (settable) Search companies or contacts...
+			23 container
+				24 combo box (collapsed) Description: Partner status, Value: All statuses, Secondary Actions: Expand
+					25 text All statuses
+				26 combo box (collapsed) Description: Service region, Value: All regions, Secondary Actions: Expand
+					27 text All regions
+				28 combo box (collapsed) Description: Fleet size, Value: All sizes, Secondary Actions: Expand
+					29 text All sizes
+			30 container
+				31 table
+					32 row
+						33 cell
+							34 button Company name
+						35 cell
+							36 button Primary contact
+						37 cell
+							38 button Fleet size
+						39 cell
+							40 text Service area
+						41 cell
+							42 text Status
+						43 cell
+							44 text Actions
+					45 row
+						46 cell
+							47 text ร
+							48 text รถร่วมตัวอย่างเชียงใหม่และลำพูน
+							49 container
+								50 text Code :  UI4C
+						51 cell
+							52 text Fixture contact
+							53 text contact@fixture.test
+						54 cell
+							55 text 4 Vehicles
+						56 cell
+							57 text Chiang Mai, Lamphun
+						58 cell
+							59 text Pending
+						60 cell
+							61 pop up button (collapsed) Description: Actions for รถร่วมตัวอย่างเชียงใหม่และลำพูน, ID: radix-_r_f_, Secondary Actions: Expand
+				62 text Showing
+				63 text 1
+				64 text to
+				65 text 1
+				66 text of
+				67 text 1
+				68 text results
+				69 button (disabled) Previous
+				70 button (disabled) Next
+		71 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors

@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * The rate entries tab (T42): `['rateCard','entries',cust]`, server pages of 100 (`GET
  * /v1/billing/rate-entries?customerId&includeVoided`), enabled only while the tab is shown. Source,
@@ -26,7 +28,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 
@@ -94,12 +95,12 @@ function AddRateDialog({ hubs, initialCustomerId, onClose }: { hubs: { code: str
                     <DialogTitle>{t("accounting.rateCard.manualAdd.title")}</DialogTitle>
                 </DialogHeader>
                 <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2 space-y-1">
-                        <Label>{t("accounting.rateCard.table.customer")}</Label>
+                    <AccessibleField className="col-span-2 space-y-1" label={t("accounting.rateCard.table.customer")}>
+
                         <CustomerSearchSelect aria-label={t("accounting.rateCard.table.customer")} value={customerId} onValueChange={setCustomerId} className="w-full" />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.hubId")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.hubId")}>
+
                         <Select value={hubId} onValueChange={setHubId}>
                             <SelectTrigger>
                                 <SelectValue placeholder={t("accounting.rateCard.filterSourceSearchPlaceholder")} />
@@ -112,9 +113,9 @@ function AddRateDialog({ hubs, initialCustomerId, onClose }: { hubs: { code: str
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.destination")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.destination")}>
+
                         <Select value={destination} onValueChange={setDestination}>
                             <SelectTrigger>
                                 <SelectValue placeholder={t("accounting.rateCard.filterDestinationSearchPlaceholder")} />
@@ -127,9 +128,9 @@ function AddRateDialog({ hubs, initialCustomerId, onClose }: { hubs: { code: str
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.vehicleClass")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.vehicleClass")}>
+
                         <Select value={vehicleClass} onValueChange={setVehicleClass}>
                             <SelectTrigger>
                                 <SelectValue />
@@ -142,9 +143,9 @@ function AddRateDialog({ hubs, initialCustomerId, onClose }: { hubs: { code: str
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.jobCategory.label")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.jobCategory.label")}>
+
                         <Select value={category} onValueChange={(v) => setCategory(v === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY")}>
                             <SelectTrigger>
                                 <SelectValue />
@@ -154,19 +155,19 @@ function AddRateDialog({ hubs, initialCustomerId, onClose }: { hubs: { code: str
                                 <SelectItem value="SUPPLEMENTARY">{t("accounting.rateCard.jobCategory.supplementary")}</SelectItem>
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.rateThb")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.rateThb")}>
+
                         <Input type="number" step="any" min="0" value={rate} onChange={(e) => setRate(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.distanceKm")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.distanceKm")}>
+
                         <Input type="number" step="any" min="0" value={distance} onChange={(e) => setDistance(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.rateCard.table.effectiveFrom")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.rateCard.table.effectiveFrom")}>
+
                         <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-                    </div>
+                    </AccessibleField>
                 </div>
                 {!valid ? <p className="text-xs text-muted-foreground">{t("accounting.rateCard.manualAdd.invalid")}</p> : null}
                 <DialogFooter>
@@ -297,8 +298,8 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1">
-                    <Label className="text-xs">{t("accounting.rateCard.filterSource")}</Label>
+                <AccessibleField className="space-y-1" label={t("accounting.rateCard.filterSource")} labelClassName="text-xs">
+
                     <Select value={hub} onValueChange={setHub}>
                         <SelectTrigger className="w-48">
                             <SelectValue />
@@ -312,9 +313,9 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
                             ))}
                         </SelectContent>
                     </Select>
-                </div>
-                <div className="space-y-1">
-                    <Label className="text-xs">{t("accounting.rateCard.filterDestination")}</Label>
+                </AccessibleField>
+                <AccessibleField className="space-y-1" label={t("accounting.rateCard.filterDestination")} labelClassName="text-xs">
+
                     <Select value={dest} onValueChange={setDest}>
                         <SelectTrigger className="w-48">
                             <SelectValue />
@@ -328,9 +329,9 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
                             ))}
                         </SelectContent>
                     </Select>
-                </div>
-                <div className="space-y-1">
-                    <Label className="text-xs">{t("accounting.rateCard.filterVehicleClass")}</Label>
+                </AccessibleField>
+                <AccessibleField className="space-y-1" label={t("accounting.rateCard.filterVehicleClass")} labelClassName="text-xs">
+
                     <Select value={vehicleClass} onValueChange={setVehicleClass}>
                         <SelectTrigger className="w-32">
                             <SelectValue />
@@ -344,11 +345,11 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
                             ))}
                         </SelectContent>
                     </Select>
-                </div>
-                <div className="space-y-1">
-                    <Label className="text-xs">{t("accounting.rateCard.filterSearch")}</Label>
+                </AccessibleField>
+                <AccessibleField className="space-y-1" label={t("accounting.rateCard.filterSearch")} labelClassName="text-xs">
+
                     <Input className="w-64" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("accounting.rateCard.filterSearchPlaceholder")} />
-                </div>
+                </AccessibleField>
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <Checkbox checked={showVoided} onCheckedChange={(v) => setShowVoided(v === true)} />
                     {t("accounting.go.rateCard.showVoided")}

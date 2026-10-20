@@ -1,0 +1,18 @@
+Browser tab: 2, Title: "Chat · LogiTrack Pro", URL: "http://localhost:3991/app/chat".
+1 AXWebArea Chat · LogiTrack Pro, URL: localhost:3991/app/chat
+	2 container
+		3 text Chat · LogiTrack Pro
+		4 link Description: Skip to main content, Value: localhost:3991/app/chat#main-content
+		5 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		6 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		7 text Operations fixture  ·  Platform admin
+		8 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		9 container main-content
+			10 pop up button (collapsed) Conversations, Secondary Actions: Expand
+			11 pop up button (collapsed) Driver, Secondary Actions: Expand
+			12 heading Chat, Value: 1
+				13 text Chat
+			14 text Select a conversation from the list to view messages, or use the driver panel on the right when a chat is selected.
+		15 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Chat · LogiTrack Pro, URL: localhost:3991/app/chat
