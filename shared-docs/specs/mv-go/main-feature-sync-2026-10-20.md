@@ -16,7 +16,9 @@ Only one main commit is missing: the mobile Standby transaction ordering fix.
 - Present First Mile and Line Haul through Job assignment in sidebar and Quick Jump.
   Keep the full route catalog, existing URLs, breadcrumbs and authorization unchanged.
 - Open the existing Go task form directly with one Add job action. Select FM/LH
-  within the same dialog; default to the current type filter. Editing keeps its type.
+  within the same dialog; default to the current type filter. A type change starts
+  a fresh form, matching main, so old route, billing party and assignment fields
+  cannot carry into the other type. Editing keeps its type.
 - Restore the unified board column chooser, remembered locally as main does.
   Keep the existing mobile summary independent of desktop column preferences.
 - Show actual pickup date and plain destination on the unified board; keep linked
@@ -60,3 +62,8 @@ Support entry remains OFF. No deployment or existing local stack changes.
 
 Local logs: /private/tmp/main-sync-{targeted-final,web-tests-final,browser-final,
 locales-final,tsc-final,eslint-final,bundle}-2026-10-20.log.
+
+Final form regression: duplicate a multi-drop task billed to old-party, switch
+kind, and prove the previous customer is cleared. Pick a new route whose hub
+links p1 and verify that the new task posts p1 and no old delivery stops. The
+red reproducer retained old-party; the fix reuses the existing create initializer.

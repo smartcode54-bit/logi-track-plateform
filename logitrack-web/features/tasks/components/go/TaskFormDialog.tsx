@@ -249,8 +249,13 @@ export function TaskFormDialog({
                 <div className="grid gap-4 py-2 sm:grid-cols-2">
                     {allowTypeSwitch ? (
                         <Field label={t("jobAssign.taskTypeLabel")}>
-                            <Select value={v.taskType} onValueChange={(x) => setV((prev) => x === prev.taskType ? prev :
-                                { ...prev, taskType: x as TaskType, sourceHub: "", destination: "", multi: false, stops: [] })}>
+                            <Select value={v.taskType} onValueChange={(x) => {
+                                if (x === v.taskType) return;
+                                setV(initialValues("create", x as TaskType, undefined));
+                                setStopsTouched(false);
+                                setError(null);
+                                setLocal(null);
+                            }}>
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>

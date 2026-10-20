@@ -332,11 +332,12 @@ describe("task form: the stops as stored, sent only when touched", () => {
         const web = setup();
         web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskType: "line_haul", taskNo: "LH-NEW" }) }));
         const onClose = vi.fn();
-        renderPage("/app/job-assign", <TaskFormDialog mode="duplicate" taskType="first_mile" task={multi()} allowTypeSwitch onClose={onClose} />);
+        renderPage("/app/job-assign", <TaskFormDialog mode="duplicate" taskType="first_mile" task={multi({ billingPartyId: "old-party" })} allowTypeSwitch onClose={onClose} />);
         const u = userEvent.setup();
         await u.click(await screen.findByRole("combobox", { name: "Job type" }));
         await u.click(await screen.findByRole("option", { name: "Line Haul" }));
         expect(screen.getByRole("checkbox")).not.toBeChecked();
+        expect(screen.getByRole("combobox", { name: "Customer" })).toHaveTextContent("Select customer");
         expect(screen.queryByText("SPK1")).toBeNull();
         expect(screen.queryByText("SPK2")).toBeNull();
         const source = screen.getByRole("combobox", { name: "Source (SOC)" });
