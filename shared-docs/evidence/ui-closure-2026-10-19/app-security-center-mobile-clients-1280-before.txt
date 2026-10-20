@@ -1,0 +1,113 @@
+Browser tab: 2, Title: "Mobile app clients · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/mobile-clients".
+1 AXWebArea Mobile app clients · LogiTrack Pro, URL: localhost:3993/app/security-center/mobile-clients
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/mobile-clients#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Platform
+				10 link Description: Security center, Value: localhost:3993/app/security-center
+				11 link (disabled) Mobile app clients
+					12 text Mobile app clients
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: Security center Operations fixture · Platform admin, Value: localhost:3993/app/security-center
+		21 container Security center menu
+			22 container
+				23 text Security center
+				24 content list
+					25 link Description: Overview, Value: localhost:3993/app/security-center
+					26 link Description: User management, Value: localhost:3993/app/security-center/users
+					27 link Description: Tenants, Value: localhost:3993/app/security-center/tenants
+					28 link Description: Roles and permissions, Value: localhost:3993/app/security-center/roles
+					29 link Description: Security audit log, Value: localhost:3993/app/security-center/audit
+					30 link Description: API keys, Value: localhost:3993/app/security-center/api-keys
+					31 link Description: System status, Value: localhost:3993/app/security-center/status
+					32 link Description: Mobile app clients, Value: localhost:3993/app/security-center/mobile-clients
+					33 link Description: Driver app release, Value: localhost:3993/app/security-center/mobile-release
+			34 content list
+				35 link Description: Back to the main menu, Value: localhost:3993/app/dashboard
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 container main-content
+			38 heading Mobile app clients, Value: 1
+				39 text Mobile app clients
+			40 text Driver app versions and last activity on each device.
+			41 text All organisations
+			42 text Driver app devices
+			43 text Seen in the last 7 days: 3 devices · 0 blocked · 0 outdated · 3 on the latest build
+			44 text Minimum version 3.1.0 · latest 3.2.0 · build type Production
+			45 combo box (collapsed) Description: Build type, Value: All build types, Secondary Actions: Expand
+				46 text All build types
+			47 table
+				48 row
+					49 cell
+						50 text Driver
+					51 cell
+						52 text Organisation
+					53 cell
+						54 text Platform
+					55 cell
+						56 text Version
+					57 cell
+						58 text Build
+					59 cell
+						60 text Build type
+					61 cell
+						62 text Last seen
+				63 row Driver ID: driver-uuid-0 · Install ID: install-uuid-0
+					64 cell
+						65 text คนขับ 1
+					66 cell
+						67 text กองรถ
+					68 cell
+						69 text Android
+					70 cell
+						71 text 3.2.0
+					72 cell
+						73 text 12
+					74 cell
+						75 text Production
+					76 cell
+						77 text 19/10/2026, 21:00:03
+				78 row Driver ID: driver-uuid-1 · Install ID: install-uuid-1
+					79 cell
+						80 text คนขับ 2
+					81 cell
+						82 text Linked carrier
+					83 cell
+						84 text iOS
+					85 cell
+						86 text 3.2.0
+					87 cell
+						88 text 12
+					89 cell
+						90 text Test build
+					91 cell
+						92 text 19/10/2026, 21:00:03
+				93 row Driver ID: driver-uuid-2 · Install ID: install-uuid-2
+					94 cell
+						95 text คนขับ 3
+					96 cell
+						97 text กองรถ
+					98 cell
+						99 text Android
+					100 cell
+						101 text 3.2.0
+					102 cell
+						103 text 12
+					104 cell
+						105 text Unknown build type
+					106 cell
+						107 text 19/10/2026, 21:00:03
+			108 text 3 devices loaded
+			109 button Refresh
+		110 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Mobile app clients · LogiTrack Pro, URL: localhost:3993/app/security-center/mobile-clients

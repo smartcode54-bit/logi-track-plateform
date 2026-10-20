@@ -1,0 +1,18 @@
+Browser tab: 2, Title: "Driver monitor · LogiTrack Pro", URL: "http://localhost:3991/app/driver-monitor".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Driver monitor · LogiTrack Pro, URL: localhost:3991/app/driver-monitor
+~		3 link Description: Skip to main content, Value: localhost:3991/app/driver-monitor#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						26 link Description: Job assignment, Value: localhost:3991/app/job-assign
+~						27 link Description: First mile tasks, Value: localhost:3991/app/first-mile
+~						28 link Description: Line haul tasks, Value: localhost:3991/app/line-haul
+~						29 link Description: Driver monitor, Value: localhost:3991/app/driver-monitor
+~						30 link Description: Incident reports, Value: localhost:3991/app/incident-reports
+~						31 link Description: Standby records, Value: localhost:3991/app/standby-records
+~						32 link Description: Chat, Value: localhost:3991/app/chat
+~						33 link Description: Pickup and delivery points, Value: localhost:3991/app/sources
+~				41 link Description: Support, Value: localhost:3991/app/support
+~			49 container radix-_r_h_
+The focused UI element is 1 AXWebArea Driver monitor · LogiTrack Pro, URL: localhost:3991/app/driver-monitor

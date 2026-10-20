@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * The rate card's small tables (T42): service fees (`['rateCard','serviceFees']`, edit and delete),
  * standby rates (`['rateCard','standby']`, edit and void) and the monthly Bangchak record
@@ -21,7 +23,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -77,13 +78,13 @@ function ServiceFeeDialog({ fee, customerId, onClose }: { fee: ServiceFeeDTO | n
                     <DialogTitle>{fee ? t("accounting.serviceFees.dialog.edit") : t("accounting.serviceFees.dialog.create")}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
-                    <div className="space-y-1">
-                        <Label>{t("accounting.serviceFees.form.customer")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.serviceFees.form.customer")}>
+
                         <CustomerSearchSelect aria-label={t("accounting.serviceFees.form.customer")} value={cust} onValueChange={setCust} disabled={!!fee} className="w-full" />
-                    </div>
+                    </AccessibleField>
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label>{t("accounting.serviceFees.form.feeType")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.serviceFees.form.feeType")}>
+
                             <Select value={feeType} onValueChange={setFeeType}>
                                 <SelectTrigger>
                                     <SelectValue />
@@ -96,9 +97,9 @@ function ServiceFeeDialog({ fee, customerId, onClose }: { fee: ServiceFeeDTO | n
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
-                        <div className="space-y-1">
-                            <Label>{t("accounting.serviceFees.form.unit")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.serviceFees.form.unit")}>
+
                             <Select value={unit} onValueChange={setUnit}>
                                 <SelectTrigger>
                                     <SelectValue />
@@ -111,22 +112,22 @@ function ServiceFeeDialog({ fee, customerId, onClose }: { fee: ServiceFeeDTO | n
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
+                        </AccessibleField>
                     </div>
                     {feeType === "custom" ? (
-                        <div className="space-y-1">
-                            <Label>{t("accounting.serviceFees.form.customTypeName")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.serviceFees.form.customTypeName")}>
+
                             <Input value={custom} onChange={(e) => setCustom(e.target.value)} />
-                        </div>
+                        </AccessibleField>
                     ) : null}
-                    <div className="space-y-1">
-                        <Label>{t("accounting.serviceFees.form.amount")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.serviceFees.form.amount")}>
+
                         <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.serviceFees.form.note")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.serviceFees.form.note")}>
+
                         <Input value={note} onChange={(e) => setNote(e.target.value)} />
-                    </div>
+                    </AccessibleField>
                     {!valid ? <p className="text-xs text-muted-foreground">{t("accounting.serviceFees.form.invalid")}</p> : null}
                 </div>
                 <DialogFooter>
@@ -251,8 +252,8 @@ function StandbyRateDialog({ rate, customerId, onClose }: { rate: StandbyRateDTO
                     <DialogDescription>{t("accounting.standbyRates.dialog.description")}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
-                    <div className="space-y-1">
-                        <Label>{t("accounting.standbyRates.form.customer")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.standbyRates.form.customer")}>
+
                         <CustomerSearchSelect
                             aria-label={t("accounting.standbyRates.form.customer")}
                             value={cust}
@@ -261,21 +262,21 @@ function StandbyRateDialog({ rate, customerId, onClose }: { rate: StandbyRateDTO
                             placeholder={t("accounting.standbyRates.form.customerPlaceholder")}
                             className="w-full"
                         />
-                    </div>
+                    </AccessibleField>
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label>{t("accounting.standbyRates.form.rate")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.standbyRates.form.rate")}>
+
                             <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-                        </div>
-                        <div className="space-y-1">
-                            <Label>{t("accounting.standbyRates.form.effectiveFrom")}</Label>
+                        </AccessibleField>
+                        <AccessibleField className="space-y-1" label={t("accounting.standbyRates.form.effectiveFrom")}>
+
                             <Input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-                        </div>
+                        </AccessibleField>
                     </div>
-                    <div className="space-y-1">
-                        <Label>{t("accounting.standbyRates.form.note")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.standbyRates.form.note")}>
+
                         <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("accounting.standbyRates.form.notePlaceholder")} />
-                    </div>
+                    </AccessibleField>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} disabled={saving}>

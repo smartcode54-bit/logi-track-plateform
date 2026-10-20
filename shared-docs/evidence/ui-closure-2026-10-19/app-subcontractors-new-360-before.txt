@@ -1,0 +1,32 @@
+Browser tab: 2, Title: "Add a new partner · Partners · LogiTrack Pro", URL: "http://localhost:3993/app/subcontractors/new".
+1 AXWebArea Add a new partner · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/new
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/subcontractors/new#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 container
+				10 link Description: Back to Partners, Value: localhost:3993/app/subcontractors
+				11 heading Add a new partner, Value: 1
+					12 text Add a new partner
+				13 text Step 1 of 4: Company profile
+			14 container
+				15 text Company profile Enter the legal and business details. Legal business name
+				16 text field (settable) Legal business name
+				17 text Type
+				18 combo box (collapsed) Type, Value: Individual, Secondary Actions: Expand
+					19 text Individual
+				20 text National ID number
+				21 text field (settable) National ID number
+				22 text Company website
+				23 text field (settable) Company website
+				24 text Registered headquarters address
+				25 text entry area (settable) Registered headquarters address
+			26 container
+				27 button Cancel
+				28 button Next step
+		29 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Add a new partner · Partners · LogiTrack Pro, URL: localhost:3993/app/subcontractors/new

@@ -1,0 +1,124 @@
+Browser tab: 2, Title: "70-1234 · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/edit?id=truck-1".
+1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/edit?id=truck-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/edit?id=truck-1#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Details, Value: localhost:3993/app/trucks/view?id=truck-1
+			10 heading 70-1234, Value: 1
+				11 text 70-1234
+			12 text Update truck information
+			13 container
+				14 heading Ownership, Value: 3
+					15 text Ownership
+				16 text Type Own Fleet A truck's owner (own fleet or carrier) is fixed once it is registered. Identification License Plate  *
+				17 text field (settable) License Plate *, Value: 70-1234
+				18 text Province  *
+				19 combo box (collapsed) Province *, Value: กรุงเทพมหานคร, Secondary Actions: Expand
+					20 text กรุงเทพมหานคร
+				21 text VIN
+				22 text field (settable) VIN, Value: TEST123456789
+				23 text Engine Number
+				24 text field (settable) Engine Number, Value: TEST123
+				25 text GPS vehicle ID
+				26 text field (settable) GPS vehicle ID
+				27 text Truck Status  *
+				28 combo box (collapsed) Truck Status *, Value: Active, Secondary Actions: Expand
+					29 text Active
+				30 text Details Brand  *
+				31 text field (settable) Brand *, Value: Isuzu
+				32 text Model  *
+				33 text field (settable) Model *, Value: FRR
+				34 text Year
+				35 combo box (collapsed) Year, Value: 2026, Secondary Actions: Expand
+					36 text 2026
+				37 text Color
+				38 text field (settable) Color, Value: White
+				39 text Truck Type  *
+				40 combo box (collapsed) Truck Type *, Value: 6WH, Secondary Actions: Expand
+					41 text 6WH
+				42 text Seats
+				43 stepper (settable, integer) Seats, Value: 2
+				44 text Engine Information Fuel Type
+				45 combo box (collapsed) Fuel Type, Value: Diesel, Secondary Actions: Expand
+					46 text Diesel
+				47 text Engine Capacity (cc/kW)
+				48 stepper (settable, integer) Engine Capacity (cc/kW), Value: 3000
+				49 text Fuel Capacity (Liters/kWh)
+				50 stepper (settable, integer) Fuel Capacity (Liters/kWh), Value: 100
+				51 text Max Load Weight
+				52 stepper (settable, integer) Max Load Weight, Value: 5000
+				53 text Maintenance Book Last Service Date
+				54 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				55 text Next Service Date
+				56 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				57 text Current Mileage (km)
+				58 stepper (settable, integer) Current Mileage (km), Value: 10000
+				59 text Next Service Mileage (km)
+				60 stepper (settable, integer) Next Service Mileage (km), Value: 11000
+				61 text PM service every (km)
+				62 stepper (settable) PM service every (km)
+				63 text Responsible Person (Service)
+				64 text field (settable) Responsible Person (Service), Value: Fleet fixture
+				65 text Registration Tax (Act) Expiry Date
+				66 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				67 text Registration Date
+				68 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				69 text Buying Date
+				70 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				71 text Responsible Person (Tax)
+				72 text field (settable) Responsible Person (Tax), Value: Fleet fixture
+				73 text Notes
+				74 text entry area (settable) Notes
+				75 text Insurance Information Policy ID (Internal)
+				76 text field (settable) Policy ID (Internal)
+				77 text Policy Number
+				78 text field (settable) Policy Number
+				79 text Provider
+				80 text field (settable) Provider
+				81 text Coverage Type
+				82 combo box (collapsed) Coverage Type, Value: Select type, Secondary Actions: Expand
+					83 text Select type
+				84 text Premium (Baht)
+				85 stepper (settable) Premium (Baht)
+				86 text Start Date
+				87 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				88 text End Date
+				89 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				90 text Notes
+				91 text entry area (settable) Notes
+				92 text Insurance Documents
+				93 button Choose File
+				94 text Upload PDF/Img Truck photos Front-Right View
+				95 button Front-Right View
+					96 text Choose File
+					97 text No file chosen
+				98 text JPEG, PNG or WebP images only (up to 10 MB) Front-Left View
+				99 button Front-Left View
+					100 text Choose File
+					101 text No file chosen
+				102 text JPEG, PNG or WebP images only (up to 10 MB) Back-Right View
+				103 button Back-Right View
+					104 text Choose File
+					105 text No file chosen
+				106 text JPEG, PNG or WebP images only (up to 10 MB) Back-Left View
+				107 button Back-Left View
+					108 text Choose File
+					109 text No file chosen
+				110 text JPEG, PNG or WebP images only (up to 10 MB) Truck documents Tax Document
+				111 button Tax Document
+					112 text Choose File
+					113 text No file chosen
+				114 text JPEG, PNG, WebP or PDF (up to 10 MB) Truck Register Document
+				115 button Truck Register Document
+					116 text Choose File
+					117 text No file chosen
+				118 text JPEG, PNG, WebP or PDF (up to 10 MB)
+				119 link Description: Cancel, Value: localhost:3993/app/trucks/view?id=truck-1
+				120 button Save Changes
+		121 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/edit?id=truck-1

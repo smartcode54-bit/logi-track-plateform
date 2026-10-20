@@ -1,0 +1,41 @@
+Browser tab: 2, Title: "Statements · LogiTrack Pro", URL: "http://localhost:3991/app/accounting/billing-result".
+1 AXWebArea Statements · LogiTrack Pro, URL: localhost:3991/app/accounting/billing-result
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/accounting/billing-result#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Statements, Value: 1
+				10 text Statements
+			11 text Invoice registry — track billing history, payment status, and aging per customer.
+			12 text Customer
+			13 combo box (collapsed) Description: Customer, Value: All customers, Secondary Actions: Expand
+				14 text All customers
+			15 text Status
+			16 combo box (collapsed) Status, Value: All statuses, Secondary Actions: Expand
+				17 text All statuses
+			18 text Month
+			19 combo box (disabled, collapsed) Month, Value: All periods, Secondary Actions: Expand
+			20 text Year
+			21 combo box (collapsed) Year, Value: All periods, Secondary Actions: Expand
+				22 text All periods
+			23 button Refresh
+			24 text Total invoiced
+			25 container
+				26 text ฿ 0.00
+			27 text 0 invoices
+			28 text Draft
+			29 text  /
+			30 text Sent
+			31 text 0
+			32 text Paid
+			33 text 0
+			34 text Overdue
+			35 text 0
+			36 text No billing statements found.
+			37 text 0 loaded
+		38 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Statements · LogiTrack Pro, URL: localhost:3991/app/accounting/billing-result

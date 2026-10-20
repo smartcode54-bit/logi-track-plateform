@@ -1,0 +1,3 @@
+Browser tab: 2, Title: "Fuel expenses · LogiTrack Pro", URL: "http://localhost:3991/app/accounting/fuel".
+There has been no change in the accessibility tree.
+The focused UI element is 16 combo box (collapsed) Driver, Value: Select driver, Secondary Actions: Expand

@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 
 import { useLanguage } from "@/context/language";
-import { SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
+import { Field, SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,10 +56,9 @@ export function PenaltiesPage() {
             <AddPenaltyForm />
 
             <div className="flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-1 text-sm font-medium">
-                    {t("driverComp.penalty.driver")}
+                <Field label={t("driverComp.penalty.driver")} className="text-sm font-medium">
                     <SearchPicker kind="driver" value={filterDriver} onChange={setFilterDriver} placeholder={t("hr.allDrivers")} clearLabel={t("hr.allDrivers")} />
-                </div>
+                </Field>
                 <label className="flex flex-col gap-1 text-sm font-medium">
                     {t("driverComp.penalty.status")}
                     <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
@@ -207,9 +206,9 @@ function AddPenaltyForm() {
         <Card>
             <CardContent className="space-y-3 pt-6">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                    <div className="md:col-span-2">
+                    <Field label={t("driverComp.penalty.driver")} className="md:col-span-2">
                         <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverComp.penalty.driver")} className="w-full" />
-                    </div>
+                    </Field>
                     <Select value={typeCode} onValueChange={onTypeChange}>
                         <SelectTrigger aria-label={t("driverComp.penalty.type")}>
                             <SelectValue placeholder={t("driverComp.penalty.type")} />

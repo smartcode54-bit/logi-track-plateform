@@ -45,6 +45,19 @@ export function FileViewer({ isOpen, onClose, files, initialIndex = 0 }: FileVie
     useEffect(() => {
         if (!isOpen) return;
         const onKey = (event: KeyboardEvent) => {
+            // The native viewer can sit inside a Radix detail dialog. Handle Escape
+            // before its document capture listener so only the top modal closes.
+            if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                onClose();
+                return;
+            }
+            if (event.shiftKey && isImage && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+                event.preventDefault();
+                setPosition((value) => ({ x: value.x + (event.key === "ArrowLeft" ? -40 : event.key === "ArrowRight" ? 40 : 0), y: value.y + (event.key === "ArrowUp" ? -40 : event.key === "ArrowDown" ? 40 : 0) }));
+                return;
+            }
             if (event.key === "ArrowRight") navigate(1);
             if (event.key === "ArrowLeft") navigate(-1);
             if (!isImage) return;
@@ -52,9 +65,9 @@ export function FileViewer({ isOpen, onClose, files, initialIndex = 0 }: FileVie
             if (event.key === "-") setScale((value) => Math.max(0.5, value - 0.5));
             if (event.key === "0") resetView();
         };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [isOpen, isImage, navigate, resetView]);
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, [isOpen, isImage, navigate, resetView, onClose]);
 
     if (!isOpen || !currentFile) return null;
     return (
@@ -71,10 +84,11 @@ export function FileViewer({ isOpen, onClose, files, initialIndex = 0 }: FileVie
                         <Button variant="ghost" size="icon" className="max-md:min-h-11 max-md:min-w-11" aria-label={t("common.close")} onClick={onClose}><X className="h-4 w-4" /></Button>
                     </div>
                 </div>
-                <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-muted"
+                {isImage && <p className="px-4 py-2 text-xs text-muted-foreground">{t("accounting.preview.panHint")}</p>}
+                <div className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-muted ${isImage && scale > 1 ? "touch-none cursor-grab active:cursor-grabbing" : ""}`}
                     onPointerDown={(event) => {
                         if ((event.target as Element).closest("button, a, iframe")) return;
-                        if (isImage && scale > 1) {
+                        if (isImage && scale > 1 && event.button === 0) {
                             event.currentTarget.setPointerCapture(event.pointerId);
                             setDrag({ x: event.clientX - position.x, y: event.clientY - position.y });
                         }

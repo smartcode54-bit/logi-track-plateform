@@ -1,0 +1,55 @@
+Browser tab: 2, Title: "Standby records · LogiTrack Pro", URL: "http://localhost:3993/app/standby-records".
+1 AXWebArea Standby records · LogiTrack Pro, URL: localhost:3993/app/standby-records
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/standby-records#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Standby records, Value: 1
+				10 text Standby records
+			11 text Driver check-in records with no delivery jobs
+			12 button Refresh
+			13 button Backfill Standby
+			14 text Total Records
+			15 heading 1, Value: 2
+				16 text 1
+			17 pop up button (collapsed) Date range, Secondary Actions: Expand
+			18 text field (settable)
+			19 table
+				20 row
+					21 cell
+						22 text Date
+					23 cell
+						24 text Driver
+					25 cell
+						26 text Origin → Destination
+					27 cell
+						28 text Check-in
+					29 cell
+						30 text Ended
+					31 cell
+						32 text Duration (min)
+					33 cell
+						34 text Status
+				35 row
+					36 cell
+						37 text 15/10/2026 09:00
+					38 cell
+						39 text สมหญิง คนขับทดสอบ
+					40 cell
+						41 text จุดรับสินค้า  →  ศูนย์กระจายสินค้า
+					42 cell
+						43 text 15/10/2026 09:00
+					44 cell
+						45 text 15/10/2026 09:00
+					46 cell
+						47 text 60
+					48 cell
+						49 text completed
+			50 text 1 rows loaded
+			51 text All rows loaded
+		52 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Standby records · LogiTrack Pro, URL: localhost:3993/app/standby-records

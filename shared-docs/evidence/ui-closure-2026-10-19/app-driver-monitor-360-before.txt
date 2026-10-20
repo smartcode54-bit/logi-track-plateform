@@ -1,0 +1,83 @@
+Browser tab: 2, Title: "Driver monitor · LogiTrack Pro", URL: "http://localhost:3993/app/driver-monitor".
+1 AXWebArea Driver monitor · LogiTrack Pro, URL: localhost:3993/app/driver-monitor
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/driver-monitor#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Driver monitor, Value: 1
+				10 text Driver monitor
+			11 text Real-time monitoring of driver trips and task progress
+			12 button Export
+			13 button Refresh
+			14 container radix-_r_s_
+				15 text Total Trips
+				16 text —
+				17 text In Transit
+				18 text —
+				19 text Delivered
+				20 text —
+				21 text Incident
+				22 text —
+			23 container
+				24 button All
+				25 button First Mile
+				26 button Line Haul
+				27 text Date range
+				28 pop up button (collapsed) Date range 20/09/2026 – 19/10/2026, Secondary Actions: Expand
+					29 text 20/09/2026 – 19/10/2026
+				30 button Last 30 days
+				31 button This month
+				32 text You can select at most 366 days at a time; wider selections are clamped automatically.
+				33 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+					34 text All drivers
+				35 combo box (collapsed) Description: Status, Value: All Statuses, Secondary Actions: Expand
+					36 text All Statuses
+				37 combo box (collapsed) Description: Partner / channel, Value: All partners / channels, Secondary Actions: Expand
+					38 text All partners / channels
+				39 combo box (collapsed) Value: All plates, Secondary Actions: Expand
+					40 text All plates
+				41 combo box (collapsed) Description: Vehicle type, Value: All vehicle types, Secondary Actions: Expand
+					42 text All vehicle types
+				43 combo box (collapsed) Value: All origins, Secondary Actions: Expand
+					44 text All origins
+				45 combo box (collapsed) Value: All destinations, Secondary Actions: Expand
+					46 text All destinations
+				47 text field (settable) Search trips
+			48 container Driver monitor
+				49 table
+					50 row
+						51 cell
+							52 text Trip ID
+						53 cell
+							54 text Check-in
+						55 cell
+							56 text Depart
+						57 cell
+							58 text Driver
+						59 cell
+							60 text License Plate
+						61 cell
+							62 text Job Type
+						63 cell
+							64 text Origin
+						65 cell
+							66 text Destination
+						67 cell
+							68 text Seal Code
+						69 cell
+							70 text Partner channel
+						71 cell
+							72 text Status
+						73 cell
+							74 text Delivered
+					75 row
+						76 cell
+							77 text No trips found.
+			78 text 0 rows loaded
+			79 text All rows loaded
+		80 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Driver monitor · LogiTrack Pro, URL: localhost:3993/app/driver-monitor

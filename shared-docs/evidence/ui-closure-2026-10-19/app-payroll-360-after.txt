@@ -1,0 +1,13 @@
+Browser tab: 2, Title: "Payroll · LogiTrack Pro", URL: "http://localhost:3991/app/payroll".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3991/app/payroll
+~		3 link Description: Skip to main content, Value: localhost:3991/app/payroll#main-content
+~			12 link Description: Compensation Config, Value: localhost:3991/app/payroll/config
+~			13 link Description: Driver Penalties, Value: localhost:3991/app/payroll/penalties
+~			49 combo box (collapsed) Driver, Value: All drivers, Secondary Actions: Expand
+~						109 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_13_, Secondary Actions: Expand
+~						125 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_15_, Secondary Actions: Expand
+~						141 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_17_, Secondary Actions: Expand
+~						157 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_19_, Secondary Actions: Expand
+~						173 pop up button (collapsed) Description: Manage Payroll สมหญิง คนขับทดสอบ, ID: radix-_r_1b_, Secondary Actions: Expand
+The focused UI element is 1 AXWebArea Payroll · LogiTrack Pro, URL: localhost:3991/app/payroll

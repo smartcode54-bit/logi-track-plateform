@@ -1,0 +1,58 @@
+Browser tab: 2, Title: "Driver Penalties · LogiTrack Pro", URL: "http://localhost:3993/app/payroll/penalties".
+1 AXWebArea Driver Penalties · LogiTrack Pro, URL: localhost:3993/app/payroll/penalties
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/payroll/penalties#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Driver Penalties, Value: 1
+				10 text Driver Penalties
+			11 text Deductions applied to driver payouts (full or installment).
+			12 combo box (collapsed) Value: Driver, Secondary Actions: Expand
+				13 text Driver
+			14 combo box (collapsed) Description: Type, Secondary Actions: Expand
+				15 text Type
+			16 stepper (settable) Amount (THB)
+			17 stepper (settable, integer) Description: Installments, Value: 1
+			18 date field (settable) Description: Incurred on, Value: 2026-10-19
+				19 container
+					20 stepper
+					21 stepper
+					22 stepper
+				23 pop up button Show date picker Show date picker
+			24 text field (settable) Reason
+			25 button Add penalty
+			26 text The config in effect has no penalty types. Add them in Compensation Config.
+			27 text Driver
+			28 combo box (collapsed) Value: All drivers, Secondary Actions: Expand
+				29 text All drivers
+			30 container
+				31 text Status
+				32 combo box (collapsed) Description: Status, Value: All, Secondary Actions: Expand
+					33 text All
+			34 table
+				35 row
+					36 cell
+						37 text Driver
+					38 cell
+						39 text Type
+					40 cell
+						41 text Incurred on
+					42 cell
+						43 text Amount (THB)
+					44 cell
+						45 text Remaining
+					46 cell
+						47 text Installments paid
+					48 cell
+						49 text Next deduction
+					50 cell
+						51 text Status
+				52 row
+					53 cell
+						54 text No penalties
+		55 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Driver Penalties · LogiTrack Pro, URL: localhost:3993/app/payroll/penalties

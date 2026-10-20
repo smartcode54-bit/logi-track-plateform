@@ -1,5 +1,8 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
+import { RecordState } from "@/components/record-state";
 import { PageHeader } from "@/components/page-header";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
@@ -110,10 +113,6 @@ export default function CompanyProfilePage() {
     setLoadedId(company.id);
   }, [ownerQuery.data, loadedId, reset]);
 
-  useEffect(() => {
-    if (ownerQuery.isError) toast.error(t("masterData.companies.loadError"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerQuery.isError]);
 
   // A picked asset is staged and previewed; the save uploads it (with the company created first).
   const handleAssetUpload = (type: AssetType, file: File) => {
@@ -192,6 +191,12 @@ export default function CompanyProfilePage() {
       </div>
     );
   };
+
+  if (ownerQuery.isError && ownerQuery.data === undefined) {
+    return <PagePermissionGuard capability={CAPABILITIES.company_manage}>
+      <RecordState error={ownerQuery.error} onRetry={() => void ownerQuery.refetch()} retrying={ownerQuery.isFetching} />
+    </PagePermissionGuard>;
+  }
 
   if (loading) {
     return (
@@ -285,8 +290,8 @@ export default function CompanyProfilePage() {
                     )}
                   />
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>{t("company.field.branchType")}</Label>
+                    <AccessibleField className="space-y-1.5" label={t("company.field.branchType")}>
+
                       <Select
                         value={branchType}
                         onValueChange={(v) => setValue("branchType", v as "headquarters" | "branch")}
@@ -299,7 +304,7 @@ export default function CompanyProfilePage() {
                           <SelectItem value="branch">{t("company.branchType.branch")}</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
+                    </AccessibleField>
                     {branchType === "branch" && (
                       <div className="space-y-1.5">
                         <Label htmlFor="branchNumber">{t("company.field.branchNumber")}</Label>

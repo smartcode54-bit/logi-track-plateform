@@ -1,0 +1,243 @@
+Browser tab: 2, Title: "Maintenance · LogiTrack Pro", URL: "http://localhost:3993/app/maintenance".
+1 AXWebArea Maintenance · LogiTrack Pro, URL: localhost:3993/app/maintenance
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/maintenance#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link (disabled) Maintenance
+					11 text Maintenance
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 container
+					27 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					28 content list
+						29 link Description: Trucks, Value: localhost:3993/app/trucks
+						30 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						31 link Description: Drivers, Value: localhost:3993/app/drivers
+						32 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						33 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						34 link Description: Partners, Value: localhost:3993/app/subcontractors
+				35 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				36 button (collapsed) Settings, Secondary Actions: Expand
+				37 button (collapsed) Platform, Secondary Actions: Expand
+			38 content list
+				39 link Description: Support, Value: localhost:3993/app/support
+		40 text Version 3.6.0
+		41 container main-content
+			42 heading Maintenance, Value: 1
+				43 text Maintenance
+			44 text Track fleet maintenance expenses and service history.
+			45 button Refresh
+			46 button Add Record
+			47 text Total Expenses
+			48 text ฿3,500
+			49 text Loaded records: 4
+			50 text PM Costs
+			51 text ฿0
+			52 container
+				53 text 0.0 %  of total
+			54 text CM Costs
+			55 text ฿3,500
+			56 container
+				57 text 100.0 %  of total
+			58 text Active Jobs
+			59 text 1
+			60 text Vehicles currently in PM/CM
+			61 container
+				62 text 1 Awaiting PM schedule
+			63 container
+				64 text 1 Scheduled — awaiting shop visit
+			65 text Pending (alerts & scheduling)
+			66 text Set the appointment date, time and garage before service starts.
+			67 table
+				68 row
+					69 cell
+						70 text Alert date
+					71 cell
+						72 text Vehicle
+					73 cell
+						74 text Odometer Reading (Current)
+					75 cell
+						76 text Status
+					77 cell
+						78 text Appt. date
+					79 cell
+						80 text Time
+					81 cell
+						82 text Location / shop
+					83 cell
+						84 text Actions
+				85 row
+					86 cell
+						87 text 15/10/2026
+					88 cell
+						89 text 70-1234
+						90 text Isuzu
+					91 cell
+						92 text 120,000
+					93 cell
+						94 text Awaiting schedule
+					95 cell
+						96 date field (settable) Appt. date · 70-1234
+							97 container
+								98 stepper
+								99 stepper
+								100 stepper
+							101 pop up button Show date picker Show date picker
+					102 cell
+						103 time field (settable) Description: Time · 70-1234, Value: 09:00
+							104 container
+								105 stepper
+								106 stepper
+							107 pop up button Show time picker Show time picker
+					108 cell
+						109 text field (settable) Location / shop · 70-1234
+						110 button Pick on map
+						111 text No map pin yet
+					112 cell
+						113 button Save appointment
+				114 row
+					115 cell
+						116 text 15/10/2026
+					117 cell
+						118 text 70-1234
+						119 text Isuzu
+					120 cell
+						121 text 120,000
+					122 cell
+						123 text Scheduled — awaiting shop visit
+					124 cell
+						125 text 2026-10-15
+					126 cell
+						127 text 09:30
+					128 cell
+						129 text อู่ทดสอบ
+					130 cell
+						131 button Remind driver
+			132 text Service History
+			133 combo box (collapsed) Description: Filter Type, Value: All Types, Secondary Actions: Expand
+				134 text All Types
+			135 combo box (collapsed) Description: Status, Value: All statuses, Secondary Actions: Expand
+				136 text All statuses
+			137 container Service History
+				138 table
+					139 row
+						140 cell
+							141 text Date
+						142 cell
+							143 text Vehicle
+						144 cell
+							145 text Type
+						146 cell
+							147 text Service / Issue
+						148 cell
+							149 text Status
+						150 cell
+							151 text Labor
+						152 cell
+							153 text Parts
+						154 cell
+							155 text Total
+						156 cell
+							157 text Actions
+					158 row
+						159 cell
+							160 text 15/10/2026
+						161 cell
+							162 text 70-1234
+							163 text Isuzu
+						164 cell
+							165 text Corrective (CM)
+						166 cell
+							167 text Total-only repair
+						168 cell
+							169 text In Progress
+						170 cell
+							171 text —
+						172 cell
+							173 text —
+						174 cell
+							175 text ฿3,500
+						176 cell
+							177 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					178 row
+						179 cell
+							180 text 15/10/2026
+						181 cell
+							182 text 70-1234
+							183 text Isuzu
+						184 cell
+							185 text Corrective (CM)
+						186 cell
+							187 text Cancelled repair
+						188 cell
+							189 text Cancelled
+						190 cell
+							191 text —
+						192 cell
+							193 text —
+						194 cell
+							195 text ฿0
+						196 cell
+							197 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					198 row
+						199 cell
+							200 text 15/10/2026
+						201 cell
+							202 text 70-1234
+							203 text Isuzu
+						204 cell
+							205 text Preventive (PM)
+						206 cell
+							207 text Periodic Maintenance
+						208 cell
+							209 text Awaiting schedule
+						210 cell
+							211 text —
+						212 cell
+							213 text —
+						214 cell
+							215 text ฿0
+						216 cell
+							217 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+					218 row
+						219 cell
+							220 text 15/10/2026
+						221 cell
+							222 text 70-1234
+							223 text Isuzu
+						224 cell
+							225 text Preventive (PM)
+						226 cell
+							227 text Tire Change
+						228 cell
+							229 text Scheduled — awaiting shop visit
+						230 cell
+							231 text —
+						232 cell
+							233 text —
+						234 cell
+							235 text ฿0
+						236 cell
+							237 link Description: Manage / Update, Value: localhost:3993/app/trucks/maintenance?id=truck-1
+			238 text 4 loaded
+			239 text All rows loaded
+		240 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Maintenance · LogiTrack Pro, URL: localhost:3993/app/maintenance

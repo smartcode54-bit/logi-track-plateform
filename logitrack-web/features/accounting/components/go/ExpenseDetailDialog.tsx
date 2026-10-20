@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * One expense over Go (T42): its fields, its photos (object keys through `GET /v1/files?key=`, saved as
  * one ZIP with jszip loaded on the click only, R69), an edit form (`PATCH /v1/expenses/{id}`, the type's
@@ -18,7 +20,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -171,16 +172,16 @@ export function ExpenseDetailDialog({
     };
 
     const num = (k: keyof FormState, label: string) => (
-        <div className="space-y-1">
-            <Label className="text-xs">{label}</Label>
+        <AccessibleField className="space-y-1" label={label} labelClassName="text-xs">
+
             <Input type="number" step="any" value={form[k]} onChange={set(k)} disabled={!canEdit} />
-        </div>
+        </AccessibleField>
     );
     const text = (k: keyof FormState, label: string) => (
-        <div className="space-y-1">
-            <Label className="text-xs">{label}</Label>
+        <AccessibleField className="space-y-1" label={label} labelClassName="text-xs">
+
             <Input value={form[k]} onChange={set(k)} disabled={!canEdit} />
-        </div>
+        </AccessibleField>
     );
 
     return (
@@ -207,8 +208,8 @@ export function ExpenseDetailDialog({
                     {isFuel ? text("stationTaxId", t("accounting.detail.stationTaxId")) : null}
                     {isFuel ? text("taxInvId", t("accounting.detail.taxInvId")) : null}
                     {!isFuel ? (
-                        <div className="space-y-1">
-                            <Label className="text-xs">{t("accounting.detail.category")}</Label>
+                        <AccessibleField className="space-y-1" label={t("accounting.detail.category")} labelClassName="text-xs">
+
                             <Select value={form.category || "__none__"} onValueChange={(v) => setForm((f) => ({ ...f, category: v === "__none__" ? "" : v }))} disabled={!canEdit}>
                                 <SelectTrigger>
                                     <SelectValue />
@@ -222,17 +223,17 @@ export function ExpenseDetailDialog({
                                     ))}
                                 </SelectContent>
                             </Select>
-                        </div>
+                        </AccessibleField>
                     ) : null}
                     {!isFuel ? text("description", t("accounting.detail.description")) : null}
-                    <div className="space-y-1">
-                        <Label className="text-xs">{t("accounting.detail.vehicle")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.detail.vehicle")} labelClassName="text-xs">
+
                         <SearchPicker kind="truck" value={truck} onChange={setTruck} placeholder={t("accounting.tollImport.selectTruckPlaceholder")} disabled={!canEdit} className="w-full" />
-                    </div>
-                    <div className="col-span-2 space-y-1">
-                        <Label className="text-xs">{t("accounting.detail.note")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="col-span-2 space-y-1" label={t("accounting.detail.note")} labelClassName="text-xs">
+
                         <Textarea value={form.note} onChange={set("note")} disabled={!canEdit} rows={2} />
-                    </div>
+                    </AccessibleField>
                     {expense.tollLocation || expense.tollLane ? (
                         <p className="col-span-2 text-xs text-muted-foreground">
                             {t("accounting.tollImport.preview.location")}: {[expense.tollLocation, expense.tollLane].filter(Boolean).join(" / ")}
@@ -268,10 +269,10 @@ export function ExpenseDetailDialog({
                 </div>
 
                 {audit && canAudit ? (
-                    <div className="space-y-1">
-                        <Label className="text-xs">{t("accounting.audit.adminNote")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.audit.adminNote")} labelClassName="text-xs">
+
                         <Textarea value={form.adminNote} onChange={set("adminNote")} placeholder={t("accounting.audit.adminNotePlaceholder")} rows={2} />
-                    </div>
+                    </AccessibleField>
                 ) : null}
 
                 <DialogFooter className="flex-wrap gap-2">

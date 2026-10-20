@@ -1,0 +1,21 @@
+Browser tab: 2, Title: "Trucks · LogiTrack Pro", URL: "http://localhost:3991/app/trucks".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Trucks · LogiTrack Pro, URL: localhost:3991/app/trucks
+~		3 link Description: Skip to main content, Value: localhost:3991/app/trucks#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						29 link Description: Trucks, Value: localhost:3991/app/trucks
+~						30 link Description: Truck assignment, Value: localhost:3991/app/truck-assignment
+~						31 link Description: Drivers, Value: localhost:3991/app/drivers
+~						32 link Description: Truck renewals, Value: localhost:3991/app/renewals
+~						33 link Description: Maintenance, Value: localhost:3991/app/maintenance
+~						34 link Description: Partners, Value: localhost:3991/app/subcontractors
+~				39 link Description: Support, Value: localhost:3991/app/support
+~			46 link Description: Add Truck, Value: localhost:3991/app/trucks/new
+~						103 link Description: PM: 1000 km remaining, Value: localhost:3991/app/trucks/maintenance?id=truck-1
+~						120 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-2
+~						137 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-3
+~						154 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-4
+~						171 link Description: PM: 500 km overdue, Value: localhost:3991/app/trucks/maintenance?id=truck-5
+The focused UI element is 1 AXWebArea Trucks · LogiTrack Pro, URL: localhost:3991/app/trucks

@@ -1,0 +1,19 @@
+Browser tab: 2, Title: "Maintenance · LogiTrack Pro", URL: "http://localhost:3991/app/maintenance".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Maintenance · LogiTrack Pro, URL: localhost:3991/app/maintenance
+~		3 link Description: Skip to main content, Value: localhost:3991/app/maintenance#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						29 link Description: Trucks, Value: localhost:3991/app/trucks
+~						30 link Description: Truck assignment, Value: localhost:3991/app/truck-assignment
+~						31 link Description: Drivers, Value: localhost:3991/app/drivers
+~						32 link Description: Truck renewals, Value: localhost:3991/app/renewals
+~						33 link Description: Maintenance, Value: localhost:3991/app/maintenance
+~						34 link Description: Partners, Value: localhost:3991/app/subcontractors
+~				39 link Description: Support, Value: localhost:3991/app/support
+~							177 link Description: Manage / Update, Value: localhost:3991/app/trucks/maintenance?id=truck-1
+~							197 link Description: Manage / Update, Value: localhost:3991/app/trucks/maintenance?id=truck-1
+~							217 link Description: Manage / Update, Value: localhost:3991/app/trucks/maintenance?id=truck-1
+~							237 link Description: Manage / Update, Value: localhost:3991/app/trucks/maintenance?id=truck-1
+The focused UI element is 1 AXWebArea Maintenance · LogiTrack Pro, URL: localhost:3991/app/maintenance

@@ -55,7 +55,7 @@ export function SignInPanel({ onSignedIn, notice }: SignInPanelProps) {
     const { t, language } = useLanguage();
     const form = useForm<SignInValues>({ defaultValues: { email: "", password: "" }, mode: "onSubmit", reValidateMode: "onChange" });
     const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState("");
+    const [error, setError] = useState<unknown>(null);
     const [info, setInfo] = useState(notice ?? "");
     const [change, setChange] = useState<ChangeStep | null>(null);
 
@@ -63,14 +63,14 @@ export function SignInPanel({ onSignedIn, notice }: SignInPanelProps) {
         (err: unknown, passwordEmail?: string) => {
             const ticket = passwordChangeTicket(err);
             if (ticket) {
-                setError("");
+                setError(null);
                 setInfo("");
                 setChange({ ticket, email: passwordEmail });
                 return;
             }
-            setError(apiErrorText(err, t));
+            setError(err);
         },
-        [t]
+        []
     );
 
     // A shown field error follows a language switch: its text is translated when the rule runs, so the rules run again.
@@ -84,7 +84,7 @@ export function SignInPanel({ onSignedIn, notice }: SignInPanelProps) {
 
     const submit = async ({ email, password }: SignInValues) => {
         if (!auth) return;
-        setError("");
+        setError(null);
         setSubmitting(true);
         try {
             await auth.login(email.trim(), password);
@@ -100,7 +100,7 @@ export function SignInPanel({ onSignedIn, notice }: SignInPanelProps) {
     const google = useCallback(
         async (idToken: string, nonce: string) => {
             if (!auth) return;
-            setError("");
+            setError(null);
             setSubmitting(true);
             try {
                 await auth.loginWithGoogle(idToken, nonce);
@@ -233,9 +233,9 @@ export function SignInPanel({ onSignedIn, notice }: SignInPanelProps) {
                             </FormItem>
                         )}
                     />
-                    {error ? (
+                    {error != null ? (
                         <p role="alert" className="text-sm text-destructive">
-                            {error}
+                            {apiErrorText(error, t)}
                         </p>
                     ) : null}
                     <Button type="submit" className="w-full max-md:h-11" disabled={submitting || !auth} data-testid="sign-in-submit">

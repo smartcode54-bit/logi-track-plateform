@@ -1,0 +1,18 @@
+Browser tab: 5, Title: "LogiTrack Pro by GORATECH", URL: "http://localhost:3991/".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea LogiTrack Pro by GORATECH, URL: localhost:3991/
+~			4 link Description: LogiTrack Pro by GORATECH, Value: localhost:3991/
+~				6 link Description: Features, Value: localhost:3991/#solutions
+~				7 link Description: About, Value: localhost:3991/about
+~				8 link Description: Join as a partner, Value: localhost:3991/join-network
+~			13 link Description: Sign in, Value: localhost:3991/login
+~				25 link Description: Forgot your password?, Value: localhost:3991/forgot-password
+~				31 link Description: Join the LogiTrack Pro waitlist, Value: localhost:3991/waitlist
+~			53 link Description: Join the waitlist, Value: localhost:3991/waitlist
+~			54 link Description: Apply as a partner carrier, Value: localhost:3991/join-network
+~			55 link Description: How LogiTrack Pro started, Value: localhost:3991/about
+~				59 link Description: About, Value: localhost:3991/about
+~				60 link Description: Join as a partner, Value: localhost:3991/join-network
+~				61 link Description: Waitlist, Value: localhost:3991/waitlist
+~				62 link Description: Sign in, Value: localhost:3991/login
+The focused UI element is 1 AXWebArea LogiTrack Pro by GORATECH, URL: localhost:3991/

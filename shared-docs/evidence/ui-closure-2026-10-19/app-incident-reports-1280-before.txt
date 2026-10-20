@@ -1,0 +1,85 @@
+Browser tab: 2, Title: "Incident reports · LogiTrack Pro", URL: "http://localhost:3993/app/incident-reports".
+1 AXWebArea Incident reports · LogiTrack Pro, URL: localhost:3993/app/incident-reports
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/incident-reports#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Operations
+				10 link (disabled) Incident reports
+					11 text Incident reports
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 container
+					24 button (expanded) Operations, Secondary Actions: Collapse
+					25 content list
+						26 link Description: Job assignment, Value: localhost:3993/app/job-assign
+						27 link Description: First mile tasks, Value: localhost:3993/app/first-mile
+						28 link Description: Line haul tasks, Value: localhost:3993/app/line-haul
+						29 link Description: Driver monitor, Value: localhost:3993/app/driver-monitor
+						30 link Description: Incident reports, Value: localhost:3993/app/incident-reports
+						31 link Description: Standby records, Value: localhost:3993/app/standby-records
+						32 link Description: Chat, Value: localhost:3993/app/chat
+						33 link Description: Pickup and delivery points, Value: localhost:3993/app/sources
+				34 button (collapsed) Billing, Secondary Actions: Expand
+				35 button (collapsed) Costs, Secondary Actions: Expand
+				36 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				37 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				38 button (collapsed) Settings, Secondary Actions: Expand
+				39 button (collapsed) Platform, Secondary Actions: Expand
+			40 content list
+				41 link Description: Support, Value: localhost:3993/app/support
+		42 text Version 3.6.0
+		43 container main-content
+			44 heading Incident reports, Value: 1
+				45 text Incident reports
+			46 text Log and track delivery incidents
+			47 button Refresh
+			48 text Total Incidents
+			49 heading 1, Value: 2
+				50 text 1
+			51 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+			52 text field (settable)
+			53 table
+				54 row
+					55 cell
+						56 text Trip ID
+					57 cell
+						58 text Reported At
+					59 cell
+						60 text Driver
+					61 cell
+						62 text License Plate
+					63 cell
+						64 text Description
+					65 cell
+						66 text Cause
+				67 row
+					68 cell
+						69 text —
+					70 cell
+						71 text 15/10/2026 10:00
+					72 cell
+						73 text —
+					74 cell
+						75 text 70-1111
+					76 cell
+						77 text —
+					78 cell
+						79 text —
+			80 text 1 rows loaded
+			81 text All rows loaded
+		82 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Incident reports · LogiTrack Pro, URL: localhost:3993/app/incident-reports

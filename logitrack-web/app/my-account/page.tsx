@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/button";
 import Navigation from "@/components/navigation";
 import { ScopeLine } from "@/components/scope-line";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -27,7 +28,7 @@ function AccountPasswordLoading() {
 export default function MyAccountPage() {
     const { t } = useLanguage();
     const router = useRouter();
-    const { data: me, isPending, isError, isSuccess } = useMe();
+    const { data: me, isPending, isError, isSuccess, refetch, isFetching } = useMe();
     useDocumentTitle(`${t("nav.myAccount")} · ${t("brand.name")}`);
 
     useEffect(() => {
@@ -40,7 +41,7 @@ export default function MyAccountPage() {
             <main className="mx-auto w-full max-w-2xl flex-1 space-y-section p-gutter py-section">
                 <h1 className="text-2xl font-semibold tracking-tight">{t("nav.myAccount")}</h1>
                 {isPending ? <p role="status" className="text-sm text-muted-foreground">{t("common.loading")}</p> :
-                    !me && isError ? <p role="alert" className="text-sm text-destructive">{t("auth.account.loadError")}</p> :
+                    !me && isError ? <div className="space-y-3"><p role="alert" className="text-sm text-destructive">{t("auth.account.loadError")}</p><Button type="button" onClick={() => void refetch()} disabled={isFetching}>{t("pageState.retry")}</Button></div> :
                     !me ? <p role="status" className="text-sm text-muted-foreground">{t("auth.account.redirecting")}</p> : (
                         <>
                             <section aria-labelledby="account-profile-title" className="space-y-stack">

@@ -1,0 +1,48 @@
+Browser tab: 2, Title: "Compensation Config · LogiTrack Pro", URL: "http://localhost:3993/app/payroll/config".
+1 AXWebArea Compensation Config · LogiTrack Pro, URL: localhost:3993/app/payroll/config
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/payroll/config#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Payroll and HR
+				10 link Description: Payroll, Value: localhost:3993/app/payroll
+				11 link (disabled) Compensation Config
+					12 text Compensation Config
+		13 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			14 text Operations fixture
+			15 text Operations fixture
+			16 text  ·
+			17 text Platform admin
+			18 text O
+		19 content list
+			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		21 container Main menu
+			22 content list
+				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				24 button (collapsed) Operations, Secondary Actions: Expand
+				25 button (collapsed) Billing, Secondary Actions: Expand
+				26 button (collapsed) Costs, Secondary Actions: Expand
+				27 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				28 container
+					29 button (expanded) Payroll and HR, Secondary Actions: Collapse
+					30 content list
+						31 link Description: Payroll, Value: localhost:3993/app/payroll
+						32 link Description: Leave requests, Value: localhost:3993/app/leave-requests
+						33 link Description: Holidays, Value: localhost:3993/app/holidays
+				34 button (collapsed) Settings, Secondary Actions: Expand
+				35 button (collapsed) Platform, Secondary Actions: Expand
+			36 content list
+				37 link Description: Support, Value: localhost:3993/app/support
+		38 text Version 3.6.0
+		39 container main-content
+			40 heading This page stopped working, Value: 1
+				41 text This page stopped working
+			42 text Something went wrong while showing this page. Try again. If it keeps happening, tell support what you were doing and quote the reference below.
+			43 button Try again
+			44 link Description: Go to my home page, Value: localhost:3993/app/dashboard
+		45 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Compensation Config · LogiTrack Pro, URL: localhost:3993/app/payroll/config

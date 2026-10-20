@@ -217,6 +217,7 @@ export default {
     "securityCenter.roles.pendingChanges": "{count} unsaved changes",
     "securityCenter.roles.savedChanges": "Permission matrix saved ({count} changes).",
     "securityCenter.roles.changesAppliedGo": "A save applies on each affected user's next request; their open tabs refresh their access without signing out.",
+    "securityCenter.roles.discardOnLeave": "Discard your unsaved permission changes and leave this page?",
     "securityCenter.roles.discardOnSwitch": "Discard unsaved changes and select another organisation?",
     "securityCenter.apiKeys.listHint": "Keys for integrations and scripts. A key holds only the capabilities listed on it; revoking takes effect on its next request.",
     "securityCenter.apiKeys.empty": "No API keys yet.",

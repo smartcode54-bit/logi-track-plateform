@@ -1,0 +1,7 @@
+Browser tab: 2, Title: "Example Customer · Customers · LogiTrack Pro", URL: "http://localhost:3991/app/customers/customer/edit".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Example Customer · Customers · LogiTrack Pro, URL: localhost:3991/app/customers/customer/edit
+~		3 link Description: Skip to main content, Value: localhost:3991/app/customers/customer/edit#main-content
+~			9 link Description: Back to Example Customer, Value: localhost:3991/app/customers/customer
+~				50 link Description: Cancel, Value: localhost:3991/app/customers/customer
+The focused UI element is 1 AXWebArea Example Customer · Customers · LogiTrack Pro, URL: localhost:3991/app/customers/customer/edit

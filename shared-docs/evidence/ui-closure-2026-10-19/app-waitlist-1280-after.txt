@@ -1,0 +1,11 @@
+Browser tab: 2, Title: "Waitlist · LogiTrack Pro", URL: "http://localhost:3991/app/waitlist".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Waitlist · LogiTrack Pro, URL: localhost:3991/app/waitlist
+~		3 link Description: Skip to main content, Value: localhost:3991/app/waitlist#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						32 link Description: Security center, Value: localhost:3991/app/security-center
+~						33 link Description: Waitlist, Value: localhost:3991/app/waitlist
+~				35 link Description: Support, Value: localhost:3991/app/support
+The focused UI element is 1 AXWebArea Waitlist · LogiTrack Pro, URL: localhost:3991/app/waitlist

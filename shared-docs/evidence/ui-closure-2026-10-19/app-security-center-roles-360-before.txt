@@ -1,0 +1,216 @@
+Browser tab: 2, Title: "Roles and permissions · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/roles".
+1 AXWebArea Roles and permissions · LogiTrack Pro, URL: localhost:3993/app/security-center/roles
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/roles#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Roles and permissions, Value: 1
+				10 text Roles and permissions
+			11 text Choose which permissions each role has in the selected organisation. Fixed cells cannot be changed: organisation admins retain every permission, and some permissions are reserved for the platform operator or driver app.
+			12 text Apply permissions to
+			13 combo box (collapsed) Description: Apply permissions to, Value: บริษัทขนส่งทดสอบ, Secondary Actions: Expand
+				14 text บริษัทขนส่งทดสอบ
+			15 text 1
+			16 text Organisation admin
+			17 text 2
+			18 text Manager
+			19 text 3
+			20 text Operation staff
+			21 text 1
+			22 text Operator
+			23 text 1
+			24 text User
+			25 text 12
+			26 text Driver
+			27 text Permissions for staff of the platform operator’s own fleet, including platform operations.
+			28 container
+				29 checkbox Description: Show technical keys, Value: 0
+				30 text Show technical keys
+			31 text “custom” is set for the selected organisation or all organisations. “platform” is inherited from the setting for all organisations.
+			32 text field (settable) Search permissions...
+			33 tab group
+				34 tab (selected, settable, boolean) Operations, Value: 1, ID: radix-_r_d_-trigger-operations
+				35 tab (selectable, settable, boolean) Fleet, Value: 0, ID: radix-_r_d_-trigger-fleet
+				36 tab (selectable, settable, boolean) Financials, Value: 0, ID: radix-_r_d_-trigger-financials
+				37 tab (selectable, settable, boolean) HR & payroll, Value: 0, ID: radix-_r_d_-trigger-hr
+				38 tab (selectable, settable, boolean) Users & security, Value: 0, ID: radix-_r_d_-trigger-access
+				39 tab (selectable, settable, boolean) Driver app, Value: 0, ID: radix-_r_d_-trigger-driverApp
+			40 container Description: Operations, ID: radix-_r_d_-content-operations
+				41 table
+					42 row
+						43 cell
+							44 text Capabilities
+						45 cell
+							46 text Organisation admin
+						47 cell
+							48 text Manager
+						49 cell
+							50 text Operation staff
+						51 cell
+							52 text Operator
+						53 cell
+							54 text User
+						55 cell
+							56 text Driver
+					57 row
+						58 cell
+							59 text View First Mile
+						60 cell
+							61 checkbox (disabled) Description: Organisation admin: View First Mile, Value: 1
+						62 cell
+							63 checkbox Description: Manager: View First Mile, Value: 1
+							64 text custom
+						65 cell
+							66 checkbox Description: Operation staff: View First Mile, Value: 1
+						67 cell
+							68 checkbox Description: Operator: View First Mile, Value: 1
+							69 text platform
+						70 cell
+							71 checkbox Description: User: View First Mile, Value: 1
+						72 cell
+							73 checkbox Description: Driver: View First Mile, Value: 1
+					74 row
+						75 cell
+							76 text View Line Haul
+						77 cell
+							78 checkbox (disabled) Description: Organisation admin: View Line Haul, Value: 1
+						79 cell
+							80 checkbox Description: Manager: View Line Haul, Value: 1
+							81 text custom
+						82 cell
+							83 checkbox Description: Operation staff: View Line Haul, Value: 1
+						84 cell
+							85 checkbox Description: Operator: View Line Haul, Value: 1
+							86 text platform
+						87 cell
+							88 checkbox Description: User: View Line Haul, Value: 1
+						89 cell
+							90 checkbox Description: Driver: View Line Haul, Value: 1
+					91 row
+						92 cell
+							93 text Manage tasks
+						94 cell
+							95 checkbox (disabled) Description: Organisation admin: Manage tasks, Value: 1
+						96 cell
+							97 checkbox Description: Manager: Manage tasks, Value: 1
+							98 text custom
+						99 cell
+							100 checkbox Description: Operation staff: Manage tasks, Value: 1
+						101 cell
+							102 checkbox Description: Operator: Manage tasks, Value: 1
+							103 text platform
+						104 cell
+							105 checkbox Description: User: Manage tasks, Value: 1
+						106 cell
+							107 checkbox Description: Driver: Manage tasks, Value: 1
+					108 row
+						109 cell
+							110 text Manage hubs and SOCs
+						111 cell
+							112 checkbox (disabled) Description: Organisation admin: Manage hubs and SOCs, Value: 1
+						113 cell
+							114 checkbox Description: Manager: Manage hubs and SOCs, Value: 1
+							115 text custom
+						116 cell
+							117 checkbox Description: Operation staff: Manage hubs and SOCs, Value: 1
+						118 cell
+							119 checkbox Description: Operator: Manage hubs and SOCs, Value: 1
+							120 text platform
+						121 cell
+							122 checkbox Description: User: Manage hubs and SOCs, Value: 1
+						123 cell
+							124 checkbox Description: Driver: Manage hubs and SOCs, Value: 1
+					125 row
+						126 cell
+							127 text Calculate distances
+						128 cell
+							129 checkbox (disabled) Description: Organisation admin: Calculate distances, Value: 1
+						130 cell
+							131 checkbox Description: Manager: Calculate distances, Value: 1
+							132 text custom
+						133 cell
+							134 checkbox Description: Operation staff: Calculate distances, Value: 1
+						135 cell
+							136 checkbox Description: Operator: Calculate distances, Value: 1
+							137 text platform
+						138 cell
+							139 checkbox Description: User: Calculate distances, Value: 1
+						140 cell
+							141 checkbox Description: Driver: Calculate distances, Value: 1
+					142 row
+						143 cell
+							144 text View driver monitor
+						145 cell
+							146 checkbox (disabled) Description: Organisation admin: View driver monitor, Value: 1
+						147 cell
+							148 checkbox Description: Manager: View driver monitor, Value: 1
+							149 text custom
+						150 cell
+							151 checkbox Description: Operation staff: View driver monitor, Value: 1
+						152 cell
+							153 checkbox Description: Operator: View driver monitor, Value: 1
+							154 text platform
+						155 cell
+							156 checkbox Description: User: View driver monitor, Value: 1
+						157 cell
+							158 checkbox Description: Driver: View driver monitor, Value: 1
+					159 row
+						160 cell
+							161 text Edit trip details
+						162 cell
+							163 checkbox (disabled) Description: Organisation admin: Edit trip details, Value: 1
+						164 cell
+							165 checkbox Description: Manager: Edit trip details, Value: 1
+							166 text custom
+						167 cell
+							168 checkbox Description: Operation staff: Edit trip details, Value: 1
+						169 cell
+							170 checkbox Description: Operator: Edit trip details, Value: 1
+							171 text platform
+						172 cell
+							173 checkbox Description: User: Edit trip details, Value: 1
+						174 cell
+							175 checkbox Description: Driver: Edit trip details, Value: 1
+					176 row
+						177 cell
+							178 text View incident reports
+						179 cell
+							180 checkbox (disabled) Description: Organisation admin: View incident reports, Value: 1
+						181 cell
+							182 checkbox Description: Manager: View incident reports, Value: 1
+							183 text custom
+						184 cell
+							185 checkbox Description: Operation staff: View incident reports, Value: 1
+						186 cell
+							187 checkbox Description: Operator: View incident reports, Value: 1
+							188 text platform
+						189 cell
+							190 checkbox Description: User: View incident reports, Value: 1
+						191 cell
+							192 checkbox Description: Driver: View incident reports, Value: 1
+					193 row
+						194 cell
+							195 text Backfill standby records
+						196 cell
+							197 checkbox (disabled) Description: Organisation admin: Backfill standby records, Value: 1
+						198 cell
+							199 checkbox Description: Manager: Backfill standby records, Value: 1
+							200 text custom
+						201 cell
+							202 checkbox Description: Operation staff: Backfill standby records, Value: 1
+						203 cell
+							204 checkbox Description: Operator: Backfill standby records, Value: 1
+							205 text platform
+						206 cell
+							207 checkbox Description: User: Backfill standby records, Value: 1
+						208 cell
+							209 checkbox Description: Driver: Backfill standby records, Value: 1
+			210 text A save applies on each affected user's next request; their open tabs refresh their access without signing out.
+			211 button (disabled) Discard Changes
+			212 button (disabled) Save Configuration
+		213 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Roles and permissions · LogiTrack Pro, URL: localhost:3993/app/security-center/roles

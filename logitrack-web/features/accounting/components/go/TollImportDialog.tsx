@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * Toll import over Go (T42; `POST /v1/expenses/toll-import` as a form upload, Appendix B §B.2.15): the
  * spreadsheet goes to Go as it is, which matches the columns, keeps the `ผ่านทาง` rows and numbers them
@@ -17,7 +19,6 @@ import { apiErrorText } from "@/lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import { importTolls, type TollImportResult } from "../../api/expenses.go";
 import { SearchPicker, type PickValue } from "./shared";
@@ -83,16 +84,16 @@ export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpen
                     <DialogDescription>{t("accounting.tollImport.description")}</DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                        <Label className="text-xs">{t("accounting.tollImport.selectTruck")}</Label>
+                    <AccessibleField className="space-y-1" label={t("accounting.tollImport.selectTruck")} labelClassName="text-xs">
+
                         <SearchPicker kind="truck" value={truck} onChange={(v) => { setTruck(v); setCheck(null); }} placeholder={t("accounting.tollImport.selectTruckPlaceholder")} className="w-full" />
-                    </div>
-                    <div className="space-y-1">
-                        <Label className="text-xs">{t("accounting.tollImport.selectDriver")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="space-y-1" label={t("accounting.tollImport.selectDriver")} labelClassName="text-xs">
+
                         <SearchPicker kind="driver" value={driver} onChange={(v) => { setDriver(v); setCheck(null); }} placeholder={t("accounting.tollImport.selectDriverPlaceholder")} className="w-full" />
-                    </div>
-                    <div className="col-span-2 space-y-1">
-                        <Label className="text-xs">{t("accounting.tollImport.clickUpload")}</Label>
+                    </AccessibleField>
+                    <AccessibleField className="col-span-2 space-y-1" label={t("accounting.tollImport.clickUpload")} labelClassName="text-xs">
+
                         <Input
                             type="file"
                             accept=".xlsx,.csv"
@@ -111,7 +112,7 @@ export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpen
                         ) : (
                             <p className="text-xs text-muted-foreground">{t("accounting.go.toll.formatsSupported")}</p>
                         )}
-                    </div>
+                    </AccessibleField>
                 </div>
                 {error ? <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{apiErrorText(error, t)}</p> : null}
                 {check ? (

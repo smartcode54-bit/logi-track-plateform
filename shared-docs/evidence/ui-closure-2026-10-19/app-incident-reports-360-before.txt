@@ -1,0 +1,50 @@
+Browser tab: 2, Title: "Incident reports · LogiTrack Pro", URL: "http://localhost:3993/app/incident-reports".
+1 AXWebArea Incident reports · LogiTrack Pro, URL: localhost:3993/app/incident-reports
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/incident-reports#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Incident reports, Value: 1
+				10 text Incident reports
+			11 text Log and track delivery incidents
+			12 button Refresh
+			13 text Total Incidents
+			14 heading 1, Value: 2
+				15 text 1
+			16 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+			17 text field (settable)
+			18 table
+				19 row
+					20 cell
+						21 text Trip ID
+					22 cell
+						23 text Reported At
+					24 cell
+						25 text Driver
+					26 cell
+						27 text License Plate
+					28 cell
+						29 text Description
+					30 cell
+						31 text Cause
+				32 row
+					33 cell
+						34 text —
+					35 cell
+						36 text 15/10/2026 10:00
+					37 cell
+						38 text —
+					39 cell
+						40 text 70-1111
+					41 cell
+						42 text —
+					43 cell
+						44 text —
+			45 text 1 rows loaded
+			46 text All rows loaded
+		47 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Incident reports · LogiTrack Pro, URL: localhost:3993/app/incident-reports

@@ -1,0 +1,23 @@
+Browser tab: 2, Title: "Security center · LogiTrack Pro", URL: "http://localhost:3991/app/security-center".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3991/app/security-center
+~		3 link Description: Skip to main content, Value: localhost:3991/app/security-center#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: Security center Operations fixture · Platform admin, Value: localhost:3991/app/security-center
+~					24 link Description: Overview, Value: localhost:3991/app/security-center
+~					25 link Description: User management, Value: localhost:3991/app/security-center/users
+~					26 link Description: Tenants, Value: localhost:3991/app/security-center/tenants
+~					27 link Description: Roles and permissions, Value: localhost:3991/app/security-center/roles
+~					28 link Description: Security audit log, Value: localhost:3991/app/security-center/audit
+~					29 link Description: API keys, Value: localhost:3991/app/security-center/api-keys
+~					30 link Description: System status, Value: localhost:3991/app/security-center/status
+~					31 link Description: Mobile app clients, Value: localhost:3991/app/security-center/mobile-clients
+~					32 link Description: Driver app release, Value: localhost:3991/app/security-center/mobile-release
+~				34 link Description: Back to the main menu, Value: localhost:3991/app/dashboard
+~				35 link Description: Support, Value: localhost:3991/app/support
+~			45 link Description: Open system status, Value: localhost:3991/app/security-center/status
+~			51 link Description: User management — force logout, Value: localhost:3991/app/security-center/users
+~			58 link Description: Open driver app devices, Value: localhost:3991/app/security-center/mobile-clients
+~			60 link Description: View all, Value: localhost:3991/app/security-center/audit
+~			98 link Description: Open user management, Value: localhost:3991/app/security-center/users
+The focused UI element is 1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3991/app/security-center

@@ -1,0 +1,117 @@
+Browser tab: 2, Title: "Security center · LogiTrack Pro", URL: "http://localhost:3993/app/security-center".
+1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3993/app/security-center
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Security center, Value: 1
+				10 text Security center
+			11 text Accounts, sessions, sign-ins, driver-app devices and security events, counted on the server.
+			12 text All organisations
+			13 text updated 19/10/2026, 21:00:03
+			14 text 3 imported records have no company yet
+			15 text System Status
+			16 text All services responding
+			17 link Description: Open system status, Value: localhost:3993/app/security-center/status
+			18 text Active Sessions
+			19 text 7
+			20 text 1 ended by an admin or sign-out in 24 h
+			21 text  ·
+			22 text 10 of 12 accounts active
+			23 link Description: User management — force logout, Value: localhost:3993/app/security-center/users
+			24 text Failed sign-ins (24 h)
+			25 text 3
+			26 text 0 accounts locked out
+			27 text Driver app devices
+			28 text 3
+			29 text 3 seen in 7 days · 0 below the minimum version · 1 behind the latest build
+			30 link Description: Open driver app devices, Value: localhost:3993/app/security-center/mobile-clients
+			31 text Recent security events
+			32 link Description: View all, Value: localhost:3993/app/security-center/audit
+			33 content list
+				34 container
+					35 text User created Info Unknown user
+					36 button (collapsed) Technical details, Secondary Actions: Expand
+						37 text Technical details
+					38 text 5 minutes ago
+				39 container
+					40 text Sign-in failed Warning admin@fixture.test
+					41 button (collapsed) Technical details, Secondary Actions: Expand
+						42 text Technical details
+					43 text 5 minutes ago
+				44 container
+					45 text App release published Info admin@fixture.test
+					46 button (collapsed) Technical details, Secondary Actions: Expand
+						47 text Technical details
+					48 text 5 minutes ago
+				49 container
+					50 text Other security event Info admin@fixture.test
+					51 button (collapsed) Technical details, Secondary Actions: Expand
+						52 text Technical details
+					53 text 5 minutes ago
+			54 text Security events
+			55 combo box (collapsed) Description: Time range, Value: Last 24 Hours, Secondary Actions: Expand
+				56 text Last 24 Hours
+			57 text 4 events in 24 h (0 critical, 1 warning) · 9 in 7 days
+			58 text These counts include your own reads across all organisations.
+			59 text Users by role
+			60 content list
+				61 container
+					62 text Drivers  ( 12  · 60% )
+				63 container
+					64 text Managers, operation staff and operators  ( 6  · 30% )
+				65 container
+					66 text Others  ( 2  · 10% )
+			67 heading Recently active users, Value: 2
+				68 text Recently active users
+			69 text Accounts with a sign-in within the last 30 days (up to 20 rows), refreshed every minute.
+			70 link Description: Open user management, Value: localhost:3993/app/security-center/users
+			71 table
+				72 row
+					73 cell
+						74 text User
+					75 cell
+						76 text Last Sign In
+					77 cell
+						78 text Actions
+				79 row
+					80 cell
+						81 text ผู้ใช้งาน 1 user0@fixture.test
+					82 cell
+						83 text 5 minutes ago
+					84 cell
+						85 button Sessions
+				86 row
+					87 cell
+						88 text ผู้ใช้งาน 2 user1@fixture.test
+					89 cell
+						90 text 5 minutes ago
+					91 cell
+						92 button Sessions
+				93 row
+					94 cell
+						95 text ผู้ใช้งาน 3 user2@fixture.test
+					96 cell
+						97 text 5 minutes ago
+					98 cell
+						99 button Sessions
+				100 row
+					101 cell
+						102 text Carrier member carrier@fixture.test
+					103 cell
+						104 text 5 minutes ago
+					105 cell
+						106 button Sessions
+				107 row
+					108 cell
+						109 text Scope-only account scope@fixture.test
+					110 cell
+						111 text 5 minutes ago
+					112 cell
+						113 button Sessions
+		114 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3993/app/security-center

@@ -87,6 +87,7 @@ export default function TrucksListDashboard() {
         isFetchingNextPage,
         fetchNextPage,
         handleCardFilterChange,
+        activeCardFilter,
         clearFilters
     } = useTrucksList();
 
@@ -142,7 +143,7 @@ export default function TrucksListDashboard() {
             />
 
             {/* Compliance Cards */}
-            <TruckComplianceCards onFilterChange={handleCardFilterChange} />
+            <TruckComplianceCards onFilterChange={handleCardFilterChange} activeFilter={activeCardFilter} />
 
             {/* Filter Bar */}
             <div className="flex flex-col xl:flex-row gap-4 bg-card/50 p-4 rounded-lg border border-border/50">

@@ -1,0 +1,9 @@
+Browser tab: 2, Title: "Support · LogiTrack Pro", URL: "http://localhost:3991/app/support".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Support · LogiTrack Pro, URL: localhost:3991/app/support
+~		3 link Description: Skip to main content, Value: localhost:3991/app/support#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			18 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				21 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~				30 link Description: Support, Value: localhost:3991/app/support
+The focused UI element is 1 AXWebArea Support · LogiTrack Pro, URL: localhost:3991/app/support

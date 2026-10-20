@@ -1,0 +1,43 @@
+Browser tab: 2, Title: "No access to this page · LogiTrack Pro", URL: "http://localhost:3993/app/unauthorized".
+1 AXWebArea No access to this page · LogiTrack Pro, URL: localhost:3993/app/unauthorized
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/unauthorized#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 link (disabled) No access to this page
+					10 text No access to this page
+		11 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			12 text Operations fixture
+			13 text Operations fixture
+			14 text  ·
+			15 text Platform admin
+			16 text O
+		17 content list
+			18 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		19 container Main menu
+			20 content list
+				21 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				22 button (collapsed) Operations, Secondary Actions: Expand
+				23 button (collapsed) Billing, Secondary Actions: Expand
+				24 button (collapsed) Costs, Secondary Actions: Expand
+				25 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				26 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				27 button (collapsed) Settings, Secondary Actions: Expand
+				28 button (collapsed) Platform, Secondary Actions: Expand
+			29 content list
+				30 link Description: Support, Value: localhost:3993/app/support
+		31 text Version 3.6.0
+		32 container main-content
+			33 heading No access to this page, Value: 1
+				34 text No access to this page
+			35 text Your current role does not include this page.
+			36 text The tenant admin role cannot be extended inside a tenant. This page belongs to the team at GORATECH that runs LogiTrack Pro; contact them if your work needs it.
+			37 button Go back
+			38 button Go to my home page
+			39 text Signed in as Operations fixture · Platform admin
+		40 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea No access to this page · LogiTrack Pro, URL: localhost:3993/app/unauthorized

@@ -1,0 +1,9 @@
+Browser tab: 2, Title: "Companies · LogiTrack Pro", URL: "http://localhost:3991/app/companies".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 61-63
+~1 AXWebArea Companies · LogiTrack Pro, URL: localhost:3991/app/companies
+~		3 link Description: Skip to main content, Value: localhost:3991/app/companies#main-content
+~			12 link Description: Company profile, Value: localhost:3991/app/settings/company-profile
+~						48 link Description: Edit Company, Value: localhost:3991/app/settings/company-profile
++		61 container Notifications alt+T
+The focused UI element is 1 AXWebArea Companies · LogiTrack Pro, URL: localhost:3991/app/companies

@@ -1,0 +1,17 @@
+Browser tab: 2, Title: "Compensation Config · LogiTrack Pro", URL: "http://localhost:3991/app/payroll/config".
+1 AXWebArea Compensation Config · LogiTrack Pro, URL: localhost:3991/app/payroll/config
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/payroll/config#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading This page stopped working, Value: 1
+				10 text This page stopped working
+			11 text Something went wrong while showing this page. Try again. If it keeps happening, tell support what you were doing and quote the reference below.
+			12 button Try again
+			13 link Description: Go to my home page, Value: localhost:3991/app/dashboard
+		14 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Compensation Config · LogiTrack Pro, URL: localhost:3991/app/payroll/config

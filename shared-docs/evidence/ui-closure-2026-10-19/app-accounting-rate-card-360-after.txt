@@ -1,0 +1,15 @@
+Browser tab: 2, Title: "Rate cards · LogiTrack Pro", URL: "http://localhost:3991/app/accounting/rate-card".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Rate cards · LogiTrack Pro, URL: localhost:3991/app/accounting/rate-card
+~		3 link Description: Skip to main content, Value: localhost:3991/app/accounting/rate-card#main-content
+~				18 tab (selected, settable, boolean) Rate Card, Value: 1, ID: radix-_r_10_-trigger-entries
+~				19 tab (selectable, settable, boolean) Fuel adjustments, Value: 0, ID: radix-_r_10_-trigger-fuelAdj
+~				20 tab (selectable, settable, boolean) Service Fees, Value: 0, ID: radix-_r_10_-trigger-serviceFees
+~				21 tab (selectable, settable, boolean) Standby Rates, Value: 0, ID: radix-_r_10_-trigger-standby
+~				22 tab (selectable, settable, boolean) Monthly fuel price record, Value: 0, ID: radix-_r_10_-trigger-fuelMonthly
+~			23 container Description: Rate Card, ID: radix-_r_10_-content-entries
+~				25 combo box (collapsed) Source, Value: All, Secondary Actions: Expand
+~				28 combo box (collapsed) Destination, Value: All, Secondary Actions: Expand
+~				31 combo box (collapsed) Vehicle class, Value: All, Secondary Actions: Expand
+~				34 text field (settable) Search
+The focused UI element is 1 AXWebArea Rate cards · LogiTrack Pro, URL: localhost:3991/app/accounting/rate-card

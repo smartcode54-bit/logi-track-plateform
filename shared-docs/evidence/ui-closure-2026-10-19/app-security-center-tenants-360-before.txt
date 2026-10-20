@@ -1,0 +1,44 @@
+Browser tab: 2, Title: "Tenants · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/tenants".
+1 AXWebArea Tenants · LogiTrack Pro, URL: localhost:3993/app/security-center/tenants
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/tenants#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Tenants, Value: 1
+				10 text Tenants
+			11 text Carrier organisations on the platform and their administrators.
+			12 button Refresh
+			13 button Create organisation
+			14 combo box (collapsed) Description: Kind, Value: Carrier, Secondary Actions: Expand
+				15 text Carrier
+			16 combo box (collapsed) Description: Status, Value: All statuses, Secondary Actions: Expand
+				17 text All statuses
+			18 table
+				19 row
+					20 cell
+						21 text Name
+					22 cell
+						23 text Code
+					24 cell
+						25 text Kind
+					26 cell
+						27 text Status
+					28 cell
+						29 text Actions
+				30 row
+					31 cell
+						32 text กองรถ Own fleet
+					33 cell
+						34 text OWN
+					35 cell
+						36 text Own fleet
+					37 cell
+						38 text Active
+					39 cell
+						40 pop up button (collapsed) Description: Actions, ID: radix-_r_d_, Secondary Actions: Expand
+		41 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Tenants · LogiTrack Pro, URL: localhost:3993/app/security-center/tenants

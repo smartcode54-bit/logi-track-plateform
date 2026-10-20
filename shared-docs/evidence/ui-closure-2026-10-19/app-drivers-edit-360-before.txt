@@ -1,0 +1,72 @@
+Browser tab: 2, Title: "สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro", URL: "http://localhost:3993/app/drivers/edit?id=driver-1".
+1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/edit?id=driver-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/drivers/edit?id=driver-1#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Details, Value: localhost:3993/app/drivers/view?id=driver-1
+			10 heading สมชาย ทดสอบ 1, Value: 1
+				11 text สมชาย ทดสอบ 1
+			12 text Update driver information
+			13 container
+				14 text Personal Information
+				15 text Change Photo
+				16 text First Name
+				17 text field (settable) First Name, Value: Somchai
+				18 text Last Name
+				19 text field (settable) Last Name, Value: Test 1
+				20 text Full Name (Thai)
+				21 text field (settable) Full Name (Thai), Value: สมชาย ทดสอบ 1
+				22 text Mobile
+				23 text field (settable) Mobile, Value: <redacted>
+				24 text Email
+				25 text field (settable) Email, Value: <redacted>
+				26 text Birth Date (Age 20-55)
+				27 combo box (collapsed) Birth Date (Age 20-55), Value: 01/01/1990, Secondary Actions: Expand
+					28 text 01/01/1990
+				29 button Clear
+				30 text Identity Documents
+				31 heading National ID Card, Value: 3
+					32 text National ID Card
+				33 text ID Number
+				34 text field (settable) ID Number, Value: 1234567890123
+				35 text Expiry Date
+				36 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				37 text ID Card Image
+				38 button ID Card Image
+				39 heading Driving License, Value: 3
+					40 text Driving License
+				41 text License Number
+				42 text field (settable) License Number, Value: TEST123
+				43 text License Type
+				44 combo box (collapsed) License Type, Value: ท.2, Secondary Actions: Expand
+					45 text ท.2
+				46 text Expiry Date
+				47 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				48 text License Image
+				49 button License Image
+				50 text Employment Details Type
+				51 combo box (collapsed) Type, Value: Full Time, Secondary Actions: Expand
+					52 text Full Time
+				53 text Contract Duration (Years)
+				54 stepper (settable) Contract Duration (Years)
+				55 text Hire date
+				56 pop up button (collapsed) Pick a date, Secondary Actions: Expand
+				57 checkbox (settable, integer) 0
+				58 text Probation passed (social security eligible) Status
+				59 combo box (collapsed) Status, Value: Active, Secondary Actions: Expand
+					60 text Active
+				61 text Customer Driver IDs IDs from customer/LSP internal systems for billing (e.g. app ID, work ID) Add customer IDs
+				62 combo box (collapsed) Add customer IDs, Value: Select..., ID: driver-id-customer, Secondary Actions: Expand
+					63 text Select...
+				64 text Mobile App Login Account
+				65 text No login account yet
+				66 button Create account
+				67 link Description: Cancel, Value: localhost:3993/app/drivers/view?id=driver-1
+				68 button Save Changes
+		69 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea สมชาย ทดสอบ 1 · Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers/edit?id=driver-1

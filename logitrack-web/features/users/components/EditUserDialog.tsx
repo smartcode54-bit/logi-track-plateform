@@ -1,5 +1,7 @@
 "use client";
 
+import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
+
 /**
  * Role and scope changes of one user (T18; Appendix B §B.2.4, §B.2.5; R50, R86). Each section saves on
  * its own Go route; the user's open tabs get `session.revoked` `claims_changed`, refresh and stay
@@ -213,8 +215,8 @@ export function EditUserDialog({
                                     <TenantPicker value={newTenantId} onChange={setNewTenantId} disabled={busy !== null} />
                                 </div>
                             ) : null}
-                            <div className="space-y-1">
-                                <Label className="text-xs">{t("users.form.role")}</Label>
+                            <AccessibleField className="space-y-1" label={t("users.form.role")} labelClassName="text-xs">
+
                                 <Select value={newRole} onValueChange={setNewRole} disabled={busy !== null}>
                                     <SelectTrigger className="h-9 w-[170px]">
                                         <SelectValue />
@@ -227,7 +229,7 @@ export function EditUserDialog({
                                         ))}
                                     </SelectContent>
                                 </Select>
-                            </div>
+                            </AccessibleField>
                             <Button
                                 type="button"
                                 size="sm"

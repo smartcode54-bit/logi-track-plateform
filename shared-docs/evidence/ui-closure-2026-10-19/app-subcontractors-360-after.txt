@@ -1,0 +1,6 @@
+Browser tab: 2, Title: "Partners · LogiTrack Pro", URL: "http://localhost:3991/app/subcontractors".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Partners · LogiTrack Pro, URL: localhost:3991/app/subcontractors
+~		3 link Description: Skip to main content, Value: localhost:3991/app/subcontractors#main-content
+~			12 link Description: Add partner, Value: localhost:3991/app/subcontractors/new
+The focused UI element is 1 AXWebArea Partners · LogiTrack Pro, URL: localhost:3991/app/subcontractors

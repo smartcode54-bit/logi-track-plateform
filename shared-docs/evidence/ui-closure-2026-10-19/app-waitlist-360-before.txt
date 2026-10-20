@@ -1,0 +1,36 @@
+Browser tab: 2, Title: "Waitlist · LogiTrack Pro", URL: "http://localhost:3993/app/waitlist".
+1 AXWebArea Waitlist · LogiTrack Pro, URL: localhost:3993/app/waitlist
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/waitlist#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Waitlist, Value: 1
+				10 text Waitlist
+			11 text Manage users who requested access.
+			12 button Refresh
+			13 text Waitlist Requests
+			14 text  (
+			15 text 0
+			16 text )
+			17 text List of emails waiting for an invitation.
+			18 table
+				19 row
+					20 cell
+						21 text Email
+					22 cell
+						23 text Name
+					24 cell
+						25 text Phone
+					26 cell
+						27 text Joined at
+					28 cell
+						29 text Actions
+				30 row
+					31 cell
+						32 text No pending requests.
+		33 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Waitlist · LogiTrack Pro, URL: localhost:3993/app/waitlist

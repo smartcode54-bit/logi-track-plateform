@@ -1,0 +1,44 @@
+Browser tab: 2, Title: "70-1234 · Trucks · LogiTrack Pro", URL: "http://localhost:3993/app/trucks/maintenance?id=truck-1".
+1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/maintenance?id=truck-1
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/trucks/maintenance?id=truck-1#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 link Description: Back to Details, Value: localhost:3993/app/trucks/view?id=truck-1
+			10 heading 70-1234, Value: 1
+				11 text 70-1234
+			12 text Active
+			13 text Maintenance Management · Isuzu FRR
+			14 text Loaded records: 4
+			15 heading Preventive Cost, Value: 3
+				16 text Preventive Cost
+			17 container
+				18 text ฿ 0
+			19 heading Corrective Cost, Value: 3
+				20 text Corrective Cost
+			21 container
+				22 text ฿ 3,500
+			23 text Service History
+			24 button Add Record
+			25 container
+				26 text Total-only repair In Progress 2026-10-15 •  อู่ทดสอบ
+				27 button View file
+				28 text ฿ 3,500 Labor :  0  |  Parts :  0 120,000 km
+				29 pop up button (collapsed) Description: Actions for Total-only repair, ID: radix-_r_c_, Secondary Actions: Expand
+			30 container
+				31 text Cancelled repair Cancelled 2026-10-15 •  อู่ทดสอบ ฿ 0 Labor :  0  |  Parts :  0 120,000 km
+				32 pop up button (collapsed) Description: Actions for Cancelled repair, ID: radix-_r_e_, Secondary Actions: Expand
+			33 container
+				34 text Periodic Maintenance Awaiting schedule 2026-10-15 •  อู่ทดสอบ ฿ 0 Labor :  0  |  Parts :  0 120,000 km
+				35 pop up button (collapsed) Description: Actions for Periodic Maintenance, ID: radix-_r_g_, Secondary Actions: Expand
+			36 container
+				37 text Tire Change Scheduled — awaiting shop visit 2026-10-15 •  อู่ทดสอบ ฿ 0 Labor :  0  |  Parts :  0 120,000 km
+				38 pop up button (collapsed) Description: Actions for Tire Change, ID: radix-_r_i_, Secondary Actions: Expand
+			39 text 4 loaded
+			40 text All rows loaded
+		41 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea 70-1234 · Trucks · LogiTrack Pro, URL: localhost:3993/app/trucks/maintenance?id=truck-1

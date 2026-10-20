@@ -1,0 +1,30 @@
+Browser tab: 2, Title: "Example Customer · Customers · LogiTrack Pro", URL: "http://localhost:3993/app/customers/customer".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 49-87
+~1 AXWebArea Example Customer · Customers · LogiTrack Pro, URL: localhost:3993/app/customers/customer
+~		3 link Description: Skip to main content, Value: localhost:3993/app/customers/customer#main-content
+~				8 link Description: Home, Value: localhost:3993/app/dashboard
+~				10 link Description: Customers, Value: localhost:3993/app/customers
+~			20 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+~				23 link Description: Dashboard, Value: localhost:3993/app/dashboard
+~						28 link Description: Customers, Value: localhost:3993/app/customers
+~						29 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+~						30 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+~						31 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+~						32 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+~						33 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+~						34 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+~				41 link Description: Support, Value: localhost:3993/app/support
+~			44 link Description: Back to Customers, Value: localhost:3993/app/customers
+~			47 text CJ
+~			48 link Description: Edit, Value: localhost:3993/app/customers/customer/edit
++			49 text Billing Information
++			50 text Branch
++			51 text Head Office (สำนักงานใหญ่)
++			52 text Payment Terms
++			53 text 30
++			54 text days
++			55 text Customer Infomation Fields
++			56 text -
++		57 container Notifications alt+T
+The focused UI element is 1 AXWebArea Example Customer · Customers · LogiTrack Pro, URL: localhost:3993/app/customers/customer

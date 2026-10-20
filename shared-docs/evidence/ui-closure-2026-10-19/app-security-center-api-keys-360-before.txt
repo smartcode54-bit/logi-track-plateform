@@ -1,0 +1,54 @@
+Browser tab: 2, Title: "API keys · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/api-keys".
+1 AXWebArea API keys · LogiTrack Pro, URL: localhost:3993/app/security-center/api-keys
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/api-keys#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading API keys, Value: 1
+				10 text API keys
+			11 text Manage API keys for connected systems.
+			12 text All organisations
+			13 button Create API key
+			14 text API key management
+			15 text Keys for integrations and scripts. A key holds only the capabilities listed on it; revoking takes effect on its next request.
+			16 table
+				17 row
+					18 cell
+						19 text Name
+					20 cell
+						21 text Used for
+					22 cell
+						23 text Organisation
+					24 cell
+						25 text Capabilities
+					26 cell
+						27 text Status
+					28 cell
+						29 text Created
+					30 cell
+						31 text Last used
+					32 cell
+						33 text Actions
+				34 row
+					35 cell
+						36 text Partner feed lt_example…
+					37 cell
+						38 text Legacy integration
+					39 cell
+						40 text Own fleet
+					41 cell
+						42 text 1 capabilities
+					43 cell
+						44 text Active
+					45 cell
+						46 text 19/10/2026, 21:00:03 admin@fixture.test
+					47 cell
+						48 text 4 minutes ago
+					49 cell
+						50 button Revoke
+		51 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea API keys · LogiTrack Pro, URL: localhost:3993/app/security-center/api-keys

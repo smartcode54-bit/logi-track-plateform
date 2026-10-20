@@ -1,0 +1,68 @@
+Browser tab: 2, Title: "Fuel expenses · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/fuel".
+1 AXWebArea Fuel expenses · LogiTrack Pro, URL: localhost:3993/app/accounting/fuel
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/fuel#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Fuel expenses, Value: 1
+				10 text Fuel expenses
+			11 text Fuel refill records and spending summary.
+			12 button Refresh
+			13 button Add fuel record
+			14 text Bangchak retail fuel prices
+			15 button Refresh prices
+			16 text No fuel price data available.
+			17 text Reference prices from Bangchak. They are for comparison only and are not used to overwrite driver expense data.
+			18 text Total Amount
+			19 text ฿0.00
+			20 text Records
+			21 text 0
+			22 text Avg per record
+			23 text ฿0.00
+			24 text Avg Km/L
+			25 text —
+			26 text Driver
+			27 combo box (collapsed) Value: All, Secondary Actions: Expand
+				28 text All
+			29 text Vehicle (plate)
+			30 combo box (collapsed) Value: All, Secondary Actions: Expand
+				31 text All
+			32 text Status
+			33 combo box (collapsed) Value: All, Secondary Actions: Expand
+				34 text All
+			35 text Date range
+			36 pop up button (collapsed) —, Secondary Actions: Expand
+			37 button This month
+			38 button Last 30 days
+			39 button Reset
+			40 container Fuel
+				41 table
+					42 row
+						43 cell
+							44 text Date
+						45 cell
+							46 text License plate
+						47 cell
+							48 text Driver
+						49 cell
+							50 text Volume (L)
+						51 cell
+							52 text Price/L
+						53 cell
+							54 text Odometer
+						55 cell
+							56 text Km/L
+						57 cell
+							58 text Amount
+						59 cell
+							60 text Status
+					61 row
+						62 cell
+							63 text No expenses match these filters.
+			64 text 0 loaded
+		65 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Fuel expenses · LogiTrack Pro, URL: localhost:3993/app/accounting/fuel

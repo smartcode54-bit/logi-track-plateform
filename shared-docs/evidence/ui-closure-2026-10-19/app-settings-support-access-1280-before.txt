@@ -1,0 +1,47 @@
+Browser tab: 2, Title: "Support access · LogiTrack Pro", URL: "http://localhost:3993/app/settings/support-access".
+1 AXWebArea Support access · LogiTrack Pro, URL: localhost:3993/app/settings/support-access
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/settings/support-access#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Settings
+				10 link (disabled) Support access
+					11 text Support access
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				27 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				28 container
+					29 button (expanded) Settings, Secondary Actions: Collapse
+					30 content list
+						31 link Description: Companies, Value: localhost:3993/app/companies
+						32 link Description: Company profile, Value: localhost:3993/app/settings/company-profile
+						33 link Description: Support access, Value: localhost:3993/app/settings/support-access
+				34 button (collapsed) Platform, Secondary Actions: Expand
+			35 content list
+				36 link Description: Support, Value: localhost:3993/app/support
+		37 text Version 3.6.0
+		38 container main-content
+			39 heading Support access, Value: 1
+				40 text Support access
+			41 text Choose whether the LogiTrack team may view your company’s data.
+			42 text The latest state could not be loaded. Changes are disabled until you reload successfully.
+			43 button Reload
+		44 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Support access · LogiTrack Pro, URL: localhost:3993/app/settings/support-access

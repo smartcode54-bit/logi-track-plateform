@@ -353,6 +353,7 @@ describe("chat room over Go", () => {
 
 describe("chat layout over Go", () => {
     it("the driver panel reads the room's chat (one request with the room) and the driver from Go", async () => {
+        vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1200, height: 800, x: 0, y: 0, top: 0, left: 0, right: 1200, bottom: 800, toJSON: () => ({}) });
         const { web } = setup();
         nav.pathname = "/app/chat/room";
         nav.params = new URLSearchParams({ chatId: CHAT_ID });

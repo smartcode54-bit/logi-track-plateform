@@ -1,0 +1,108 @@
+Browser tab: 2, Title: "Security audit log · LogiTrack Pro", URL: "http://localhost:3993/app/security-center/audit".
+1 AXWebArea Security audit log · LogiTrack Pro, URL: localhost:3993/app/security-center/audit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center/audit#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Security audit log, Value: 1
+				10 text Security audit log
+			11 text Who did what and when: sign-ins, accounts, permissions, API keys and app releases
+			12 text All organisations
+			13 button Export CSV
+			14 button Refresh Logs
+			15 text Total Security Events
+			16 text 4
+			17 text In the loaded rows
+			18 text Warning / critical
+			19 text 1
+			20 text Events marked as warning or critical
+			21 text Role-related events
+			22 text 0
+			23 text Changes to roles and permissions
+			24 text Filters
+			25 combo box (collapsed) Description: Date Range, Value: Last 7 Days, Secondary Actions: Expand
+				26 text Last 7 Days
+			27 combo box (collapsed) Description: Action Type, Value: All Actions, Secondary Actions: Expand
+				28 text All Actions
+			29 combo box (collapsed) Description: Severity, Value: All severities, Secondary Actions: Expand
+				30 text All severities
+			31 text field (settable) Search logs...
+			32 button Clear All Filters
+			33 table
+				34 row
+					35 cell
+						36 text Timestamp
+					37 cell
+						38 text Performed By
+					39 cell
+						40 text Action
+					41 cell
+						42 text Severity
+					43 cell
+						44 text Target
+					45 cell
+						46 text Change Details
+				47 row
+					48 cell
+						49 text 19/10/2026, 21:00:03
+					50 cell user-uuid
+						51 text Unknown user
+					52 cell
+						53 text User created
+					54 cell
+						55 text Info
+					56 cell target-uuid
+						57 text Unknown target
+					58 cell
+						59 button (collapsed) Technical details, Secondary Actions: Expand
+							60 text Technical details
+				61 row
+					62 cell
+						63 text 19/10/2026, 21:00:03
+					64 cell user-uuid
+						65 text admin@fixture.test
+					66 cell
+						67 text Sign-in failed
+					68 cell
+						69 text Warning
+					70 cell target-uuid
+						71 text Unknown target
+					72 cell
+						73 button (collapsed) Technical details, Secondary Actions: Expand
+							74 text Technical details
+				75 row
+					76 cell
+						77 text 19/10/2026, 21:00:03
+					78 cell user-uuid
+						79 text admin@fixture.test
+					80 cell
+						81 text App release published
+					82 cell
+						83 text Info
+					84 cell target-uuid
+						85 text Unknown target
+					86 cell
+						87 button (collapsed) Technical details, Secondary Actions: Expand
+							88 text Technical details
+				89 row
+					90 cell
+						91 text 19/10/2026, 21:00:03
+					92 cell user-uuid
+						93 text admin@fixture.test
+					94 cell
+						95 text Other security event
+					96 cell
+						97 text Info
+					98 cell target-uuid
+						99 text Unknown target
+					100 cell
+						101 button (collapsed) Technical details, Secondary Actions: Expand
+							102 text Technical details
+			103 text Showing 4 of 4 loaded rows
+			104 text All rows in this range are loaded.
+		105 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Security audit log · LogiTrack Pro, URL: localhost:3993/app/security-center/audit

@@ -1,0 +1,80 @@
+Browser tab: 2, Title: "Dashboard · LogiTrack Pro", URL: "http://localhost:3993/app/dashboard".
+1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3993/app/dashboard
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/dashboard#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Dashboard, Value: 1
+				10 text Dashboard
+			11 container
+				12 text Last 7 days  ·  2026-10-13 to 2026-10-19
+			13 container
+				14 checkbox Week, Value: 1
+				15 checkbox Month, Value: 0
+			16 text Total Users
+			17 text 8
+			18 text Users other than drivers
+			19 text Active Drivers
+			20 text 42
+			21 text 45 drivers in total
+			22 text Trips & Packages
+			23 container
+				24 text 120 /  3,450
+			25 text In the selected period
+			26 text Fleet Efficiency (On-time / Delayed)
+			27 container
+				28 text 95% /  5%
+			29 text In the selected period
+			30 heading Logistics Activity, Value: 2
+				31 text Logistics Activity
+			32 text Weekly delivery performance metrics
+			33 text 63
+			34 text ↑
+			35 text 26
+			36 text %
+			37 text vs previous Week
+			38 image Logistics Activity
+			39 text Fri
+			40 text Sat
+			41 text Sun
+			42 text Mon
+			43 text Tue
+			44 text Wed
+			45 text Thu
+			46 heading Vehicle position on map, Value: 2
+				47 text Vehicle position on map
+			48 text Red markers: trucks named in the latest 1 incident reports of the period.
+			49 heading Current vehicle position, Value: 2
+				50 text Current vehicle position
+			51 link Description: View all, Value: localhost:3993/app/driver-monitor
+			52 content list
+				53 container
+					54 text Engine ON 70-1111 บางนา
+					55 link Description: Map, Help: 13.70000, 100.50000, Value: google.com/maps?q=13.7,100.5
+				56 container
+					57 text Engine OFF 70-2222 Last GPS fix 4 days ago
+					58 link Description: Map, Help: 13.75000, 100.55000, Value: google.com/maps?q=13.75,100.55
+			59 text Pending Expense Audits
+			60 link Description: View all, Value: localhost:3993/app/accounting/audit
+			61 text 7
+			62 text Items pending approval
+			63 heading Chat status, Value: 2
+				64 text Chat status
+			65 link Description: View all, Value: localhost:3993/app/chat
+			66 link Description: Pending Unassigned chats 4, Value: localhost:3993/app/chat
+			67 link Description: Urgent Needs attention 1, Value: localhost:3993/app/chat
+			68 heading Recent Updates, Value: 2
+				69 text Recent Updates
+			70 text Latest fleet activities and alerts
+			71 link Description: Delivery completed · 70-1111 4 days ago · SOCE, Value: localhost:3993/app/driver-monitor
+			72 link Description: Route delay / incident reported 4 days ago · ยางแตก, Value: localhost:3993/app/incident-reports
+			73 text Action required
+			74 text 2 alerts
+			75 link Description: 70-1111 Tax due on 18/10/2026 3 days left, Value: localhost:3993/app/trucks/edit?id=tr-1
+			76 link Description: 70-2222 Service (km) 120 km overdue, Value: localhost:3993/app/trucks/edit?id=tr-2
+		77 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Dashboard · LogiTrack Pro, URL: localhost:3993/app/dashboard

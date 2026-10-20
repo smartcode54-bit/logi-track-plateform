@@ -1,0 +1,161 @@
+Browser tab: 2, Title: "Trips to bill · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/income".
+1 AXWebArea Trips to bill · LogiTrack Pro, URL: localhost:3993/app/accounting/income
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/income#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Billing
+				10 link (disabled) Trips to bill
+					11 text Trips to bill
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 container
+					25 button (expanded) Billing, Secondary Actions: Collapse
+					26 content list
+						27 link Description: Customers, Value: localhost:3993/app/customers
+						28 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+						29 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+						30 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+						31 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+						32 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+						33 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				34 button (collapsed) Costs, Secondary Actions: Expand
+				35 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 heading Trips to bill, Value: 1
+				44 text Trips to bill
+			45 text Stored Billing amount for delivered trips and standby records, priced by the server.
+			46 button Price or reprice records
+			47 button Export Excel
+			48 button Refresh
+			49 text Customer
+			50 combo box (collapsed) Description: Customer, Value: All, ID: income-customer, Secondary Actions: Expand
+				51 text All
+			52 text Trip type
+			53 combo box (collapsed) Description: Trip type, Value: All, ID: income-record-type, Secondary Actions: Expand
+				54 text All
+			55 text Delivered between (dd/MM/yyyy)
+			56 pop up button (collapsed) Description: Delivered between (dd/MM/yyyy), ID: income-delivered-range, Secondary Actions: Expand
+				57 text 01/10/2026 – 31/10/2026
+			58 button This month
+			59 button Last 30 days
+			60 text Billing amount
+			61 text ฿1,234.50
+			62 text Based on loaded rows
+			63 text Priced rows
+			64 text 1
+			65 text Based on loaded rows
+			66 button 1 loaded rows without a price
+			67 text Average Billing amount per priced row
+			68 text ฿1,234.50
+			69 text Based on loaded rows
+			70 text Summary by Customer
+			71 text Based on loaded rows
+			72 button Hide
+			73 table
+				74 row
+					75 cell
+						76 text Customer
+					77 cell
+						78 text Priced rows
+					79 cell
+						80 text Billing amount
+					81 cell
+						82 text Share
+				83 row
+					84 cell
+						85 text CJ — Example Customer
+					86 cell
+						87 text 1
+					88 cell
+						89 text ฿1,234.50
+					90 cell
+						91 text 100.0%
+			92 tab group
+				93 tab (selected, settable, boolean) With billing 1, Value: 1, ID: radix-_r_l_-trigger-with-billing
+				94 tab (selectable, settable, boolean) Missing billing 0 missing prices in month, Value: 0, ID: radix-_r_l_-trigger-missing-billing
+			95 container Description: With billing 1, ID: radix-_r_l_-content-with-billing
+				96 container Trips to bill
+					97 table
+						98 row
+							99 cell
+								100 text Trip ID
+							101 cell
+								102 text Customer
+							103 cell
+								104 text Origin (hub)
+							105 cell
+								106 text Destination
+							107 cell
+								108 text Truck type
+							109 cell
+								110 text Job type
+							111 cell
+								112 text Base rate (THB)
+							113 cell
+								114 text Fuel factor
+							115 cell
+								116 text Add / trip
+							117 cell
+								118 text Billing amount
+							119 cell
+								120 text Delivered at (Asia/Bangkok)
+							121 cell
+								122 text Billing date
+							123 cell
+								124 text Price details
+						125 row
+							126 cell
+								127 text TR-001
+							128 cell
+								129 text CJ — Example Customer
+							130 cell
+								131 text Bang Na
+							132 cell
+								133 text SOC East
+							134 cell
+								135 text 4W
+							136 cell
+								137 text Primary
+							138 cell
+								139 text ฿1,200.00
+							140 cell
+								141 text *1.03
+							142 cell
+								143 text —
+							144 cell
+								145 text ฿1,234.50
+							146 cell
+								147 text 05/10/2026 02:00
+								148 button Edit delivered time (Asia/Bangkok)
+							149 cell
+								150 text 05/10/2026
+							151 cell
+								152 button (collapsed) Price details, Secondary Actions: Expand
+									153 text Price details
+							154 cell
+								155 pop up button (collapsed) Description: Row actions, ID: radix-_r_s_, Secondary Actions: Expand
+				156 text 2 loaded
+				157 text All rows loaded
+		158 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Trips to bill · LogiTrack Pro, URL: localhost:3993/app/accounting/income

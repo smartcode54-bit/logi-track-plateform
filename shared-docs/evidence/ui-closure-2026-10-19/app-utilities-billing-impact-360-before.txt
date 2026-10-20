@@ -1,0 +1,24 @@
+Browser tab: 2, Title: "Billing impact report · LogiTrack Pro", URL: "http://localhost:3993/app/utilities/billing-impact".
+1 AXWebArea Billing impact report · LogiTrack Pro, URL: localhost:3993/app/utilities/billing-impact
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/utilities/billing-impact#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Billing impact report, Value: 1
+				10 text Billing impact report
+			11 text Which past invoices were affected by the two corrected pricing defects.
+			12 container
+				13 heading This report changes nothing, Value: 5
+					14 text This report changes nothing
+				15 text Both defects were fixed going forward only. Nothing here recomputes or rewrites an amount - it exists so the credit-note decision can be made with numbers.
+			16 text Run the report
+			17 text Scans announcements and delivered trips in the chosen range.
+			18 text Date range (dd/MM/yyyy)
+			19 pop up button (collapsed) 19/07/2026 – 19/10/2026, Secondary Actions: Expand
+			20 button Run report
+		21 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Billing impact report · LogiTrack Pro, URL: localhost:3993/app/utilities/billing-impact

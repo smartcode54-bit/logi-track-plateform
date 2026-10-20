@@ -1,0 +1,61 @@
+Browser tab: 2, Title: "Join as a partner · LogiTrack Pro", URL: "http://localhost:3993/join-network".
+1 AXWebArea Join as a partner · LogiTrack Pro, URL: localhost:3993/join-network
+	2 container
+		3 container Main
+			4 link Description: LogiTrack Pro, Value: localhost:3993/
+			5 container Language
+				6 checkbox English, Value: 1
+				7 checkbox ไทย, Value: 0
+			8 link Description: Open console, Value: localhost:3993/app/dashboard
+			9 pop up button (collapsed) Description: Account menu for Operations fixture, ID: radix-_r_4_, Secondary Actions: Expand
+		10 container Work with GORATECH as a partner carrier
+			11 heading Work with GORATECH as a partner carrier, Value: 1, ID: join-title
+				12 text Work with GORATECH as a partner carrier
+			13 text GORATECH runs first-mile and line-haul work in Thailand with its own trucks and with partner carriers. Tell us about your company and fleet, and our team will contact you.
+			14 link Description: Apply now, Value: localhost:3993/join-network#apply
+		15 container How partner work runs
+			16 heading How partner work runs, Value: 2, ID: join-how-title
+				17 text How partner work runs
+			18 definition list
+				19 container Work assigned in one place
+					20 text Work assigned in one place
+				21 text Tasks reach your drivers through the LogiTrack mobile app, with the hub, the destination and the truck.
+				22 container Proof from your drivers' phones
+					23 text Proof from your drivers' phones
+				24 text Drivers record check-in, loading and delivery with photos, location and time, so each trip is documented.
+				25 container Your own view of your fleet
+					26 text Your own view of your fleet
+				27 text Your company signs in to see its own trucks, drivers and trips, and nothing of other carriers.
+		28 container Partner interest form, ID: apply
+			29 heading Partner interest form, Value: 2, ID: join-form-title
+				30 text Partner interest form
+			31 text Fields marked * are required.
+			32 container
+				33 text Company name
+				34 text field (settable) Company name, ID: join-companyName
+				35 text Contact name
+				36 text field (settable) Contact name, ID: join-contactName
+				37 text Email
+				38 text field (settable) Email
+				39 text Phone number
+				40 text field (settable) Phone number
+				41 text Main service area
+				42 text field (settable) Main service area, ID: join-serviceArea
+				43 text Fleet size
+				44 combo box (collapsed) Fleet size, Value: Choose a size, ID: join-fleetSize, Secondary Actions: Expand
+					45 text Choose a size
+				46 text Main vehicle type
+				47 combo box (collapsed) Main vehicle type, Value: Choose a type, ID: join-vehicleType, Secondary Actions: Expand
+					48 text Choose a type
+				49 button Send application
+		50 text LogiTrack Pro by GORATECH
+		51 container Site links
+			52 content list
+				53 link Description: About, Value: localhost:3993/about
+				54 link Description: Join as a partner, Value: localhost:3993/join-network
+				55 link Description: Waitlist, Value: localhost:3993/waitlist
+				56 link Description: Open console, Value: localhost:3993/app/dashboard
+		57 text © 2026 GORATECH. All rights reserved.
+		58 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Join as a partner · LogiTrack Pro, URL: localhost:3993/join-network

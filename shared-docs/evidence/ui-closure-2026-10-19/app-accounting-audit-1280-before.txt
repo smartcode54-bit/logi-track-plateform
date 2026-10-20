@@ -1,0 +1,78 @@
+Browser tab: 2, Title: "Expense audit · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/audit".
+1 AXWebArea Expense audit · LogiTrack Pro, URL: localhost:3993/app/accounting/audit
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/audit#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Costs
+				10 link (disabled) Expense audit
+					11 text Expense audit
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 container
+					26 button (expanded) Costs, Secondary Actions: Collapse
+					27 content list
+						28 link Description: Fuel expenses, Value: localhost:3993/app/accounting/fuel
+						29 link Description: Fuel price history, Value: localhost:3993/app/accounting/fuel-price-history
+						30 link Description: Other expenses, Value: localhost:3993/app/accounting/other
+						31 link Description: Expense audit, Value: localhost:3993/app/accounting/audit
+				32 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				33 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				34 button (collapsed) Settings, Secondary Actions: Expand
+				35 button (collapsed) Platform, Secondary Actions: Expand
+			36 content list
+				37 link Description: Support, Value: localhost:3993/app/support
+		38 text Version 3.6.0
+		39 container main-content
+			40 heading Expense audit, Value: 1
+				41 text Expense audit
+			42 text Review and approve or reject expense submissions from drivers.
+			43 button Refresh
+			44 tab group
+				45 tab (selected, settable, boolean) Pending 0, Value: 1, ID: radix-_r_g_-trigger-pending
+				46 tab (selectable, settable, boolean) Approved 0, Value: 0, ID: radix-_r_g_-trigger-approved
+				47 tab (selectable, settable, boolean) Rejected 0, Value: 0, ID: radix-_r_g_-trigger-rejected
+				48 tab (selectable, settable, boolean) All, Value: 0, ID: radix-_r_g_-trigger-all
+			49 text Expense type
+			50 combo box (collapsed) Value: All types, Secondary Actions: Expand
+				51 text All types
+			52 container Audit Vehicle Expense
+				53 table
+					54 row
+						55 cell
+							56 checkbox (disabled) Description: Select all, Value: 0
+						57 cell
+							58 text Date
+						59 cell
+							60 text Type
+						61 cell
+							62 text License plate
+						63 cell
+							64 text Driver
+						65 cell
+							66 text Amount
+						67 cell
+							68 text Status
+						69 cell
+							70 text Actions
+					71 row
+						72 cell
+							73 text No expenses match these filters.
+			74 text 0 loaded
+		75 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Expense audit · LogiTrack Pro, URL: localhost:3993/app/accounting/audit

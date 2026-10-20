@@ -1,0 +1,104 @@
+Browser tab: 2, Title: "Rate cards · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/rate-card".
+1 AXWebArea Rate cards · LogiTrack Pro, URL: localhost:3993/app/accounting/rate-card
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/rate-card#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Billing
+				10 link (disabled) Rate cards
+					11 text Rate cards
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 container
+					25 button (expanded) Billing, Secondary Actions: Collapse
+					26 content list
+						27 link Description: Customers, Value: localhost:3993/app/customers
+						28 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+						29 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+						30 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+						31 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+						32 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+						33 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				34 button (collapsed) Costs, Secondary Actions: Expand
+				35 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 heading Rate cards, Value: 1
+				44 text Rate cards
+			45 text Customer billing rates and fuel-linked adjustments.
+			46 button Recompute billing
+			47 text Customer
+			48 combo box (collapsed) Description: Customer, Value: All customers, Secondary Actions: Expand
+				49 text All customers
+			50 text Each table loads for the chosen customer only when its tab is open; a change refreshes only that table.
+			51 tab group
+				52 tab (selected, settable, boolean) Rate Card, Value: 1, ID: radix-_r_i_-trigger-entries
+				53 tab (selectable, settable, boolean) Fuel adjustments, Value: 0, ID: radix-_r_i_-trigger-fuelAdj
+				54 tab (selectable, settable, boolean) Service Fees, Value: 0, ID: radix-_r_i_-trigger-serviceFees
+				55 tab (selectable, settable, boolean) Standby Rates, Value: 0, ID: radix-_r_i_-trigger-standby
+				56 tab (selectable, settable, boolean) Monthly fuel price record, Value: 0, ID: radix-_r_i_-trigger-fuelMonthly
+			57 container Description: Rate Card, ID: radix-_r_i_-content-entries
+				58 text Source
+				59 combo box (collapsed) Value: All, Secondary Actions: Expand
+					60 text All
+				61 text Destination
+				62 combo box (collapsed) Value: All, Secondary Actions: Expand
+					63 text All
+				64 text Vehicle class
+				65 combo box (collapsed) Value: All, Secondary Actions: Expand
+					66 text All
+				67 text Search
+				68 text field (settable)
+				69 container
+					70 checkbox Description: Show voided, Value: 0
+					71 text Show voided
+				72 button (disabled) Export data
+				73 button Import rate card
+				74 button Add row
+				75 text 0 of 0 loaded entries match the filters; load more to search the rest.
+				76 container Rate Card
+					77 table
+						78 row
+							79 cell
+								80 text Customer
+							81 cell
+								82 text Source
+							83 cell
+								84 text Destination
+							85 cell
+								86 text Vehicle
+							87 cell
+								88 text Job type
+							89 cell
+								90 text Base rate (THB)
+							91 cell
+								92 text Distance (km)
+							93 cell
+								94 text Effective from
+							95 cell
+								96 text Import ID
+						97 row
+							98 cell
+								99 text No rate card entries found.
+				100 text 0 loaded
+		101 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Rate cards · LogiTrack Pro, URL: localhost:3993/app/accounting/rate-card

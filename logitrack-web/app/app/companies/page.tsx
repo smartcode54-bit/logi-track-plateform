@@ -1,5 +1,6 @@
 "use client";
 
+import { usePermission } from "@/hooks/usePermission";
 import { PagePermissionGuard } from "@/components/page-permission-guard";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { useCompanies } from "@/features/companies/api/useCompanies";
@@ -9,12 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Plus, Building2, Pencil } from "lucide-react";
+import { Loader2, Building2, Pencil } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 
 export default function CompaniesPage() {
   const { t } = useLanguage();
+  const { hasPermission: canManage } = usePermission(CAPABILITIES.company_manage);
   // `['companies',{view:'all'}]` (T25): Go `GET /v1/companies` or Firestore by the `masterdata` flag.
   const { companies, isPending: loading, isError } = useCompanies();
 
@@ -36,12 +38,12 @@ export default function CompaniesPage() {
           title={t("nav.companies")}
           description={t("company.subtitle")}
           actions={
-            <Button asChild>
-              <Link href="/app/companies/new">
-                <Plus className="w-4 h-4 mr-2" aria-hidden />
-                {t("company.new")}
+            canManage ? <Button asChild>
+              <Link href="/app/settings/company-profile">
+                <Pencil className="w-4 h-4 mr-2" aria-hidden />
+                {t("nav.companyProfile")}
               </Link>
-            </Button>
+            </Button> : null
           }
         />
 
@@ -131,12 +133,12 @@ export default function CompaniesPage() {
                         {formatDate(company.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button asChild variant="ghost" size="sm">
-                          <Link href={company.companyType === "owner" ? "/app/settings/company-profile" : `/app/companies/${company.id}/edit`}>
+                        {canManage && company.companyType === "owner" ? <Button asChild variant="ghost" size="sm">
+                          <Link href="/app/settings/company-profile">
                             <Pencil className="w-3 h-3 mr-1" />
                             {t("company.edit")}
                           </Link>
-                        </Button>
+                        </Button> : null}
                       </TableCell>
                     </TableRow>
                   ))}

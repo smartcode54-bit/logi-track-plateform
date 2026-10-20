@@ -1,0 +1,142 @@
+Browser tab: 2, Title: "Truck renewals · LogiTrack Pro", URL: "http://localhost:3993/app/renewals".
+1 AXWebArea Truck renewals · LogiTrack Pro, URL: localhost:3993/app/renewals
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/renewals#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Truck renewals, Value: 1
+				10 text Truck renewals
+			11 text Manage Tax and Insurance expiration across the fleet.
+			12 checkbox All Vehicles, Value: 1
+			13 checkbox Critical Action 5, Value: 0
+			14 checkbox Expiring Soon 5, Value: 0
+			15 text Total Fleet
+			16 text 5
+			17 text Active vehicles
+			18 text Total Est. Cost
+			19 text :
+			20 text ฿
+			21 text 20,000
+			22 text Tax Critical
+			23 text 3
+			24 text Overdue payments
+			25 container
+				26 text 2 expiring soon
+			27 text Insurance Critical
+			28 text 2
+			29 text Policies expired
+			30 container
+				31 text 3 expiring soon
+			32 text Compliance Rate
+			33 container
+				34 text 0.00 %
+			35 text Renewals Rate
+			36 text Vehicle Renewal Status
+			37 text field (settable)
+			38 table
+				39 row
+					40 cell
+						41 text Vehicle
+					42 cell
+						43 text Ownership
+					44 cell
+						45 text Tax Status
+					46 cell
+						47 text Tax Cost
+					48 cell
+						49 text Insurance Status
+					50 cell
+						51 text Ins. Cost
+					52 cell
+						53 text Actions
+				54 row
+					55 cell
+						56 text 70-1234
+						57 container
+							58 text 6WH  ·  กรุงเทพมหานคร
+					59 cell
+						60 text Own Fleet
+					61 cell
+						62 text OVERDUE 01 Oct 2026
+					63 cell
+						64 text ฿2,000
+					65 cell
+						66 text EXPIRING SOON 01 Oct 2026
+					67 cell
+						68 text ฿2,000
+					69 cell
+						70 pop up button (collapsed) Actions for this row, ID: radix-_r_9_, Secondary Actions: Expand
+				71 row
+					72 cell
+						73 text 70-1235
+						74 container
+							75 text 6WH  ·  กรุงเทพมหานคร
+					76 cell
+						77 text Partner Fleet
+					78 cell
+						79 text EXPIRING SOON 01 Oct 2026
+					80 cell
+						81 text ฿2,000
+					82 cell
+						83 text OVERDUE 01 Oct 2026
+					84 cell
+						85 text ฿2,000
+					86 cell
+						87 pop up button (collapsed) Actions for this row, ID: radix-_r_b_, Secondary Actions: Expand
+				88 row
+					89 cell
+						90 text 70-1236
+						91 container
+							92 text 6WH  ·  กรุงเทพมหานคร
+					93 cell
+						94 text Own Fleet
+					95 cell
+						96 text OVERDUE 01 Oct 2026
+					97 cell
+						98 text ฿2,000
+					99 cell
+						100 text EXPIRING SOON 01 Oct 2026
+					101 cell
+						102 text ฿2,000
+					103 cell
+						104 pop up button (collapsed) Actions for this row, ID: radix-_r_d_, Secondary Actions: Expand
+				105 row
+					106 cell
+						107 text 70-1237
+						108 container
+							109 text 6WH  ·  กรุงเทพมหานคร
+					110 cell
+						111 text Partner Fleet
+					112 cell
+						113 text EXPIRING SOON 01 Oct 2026
+					114 cell
+						115 text ฿2,000
+					116 cell
+						117 text OVERDUE 01 Oct 2026
+					118 cell
+						119 text ฿2,000
+					120 cell
+						121 pop up button (collapsed) Actions for this row, ID: radix-_r_f_, Secondary Actions: Expand
+				122 row
+					123 cell
+						124 text 70-1238
+						125 container
+							126 text 6WH  ·  กรุงเทพมหานคร
+					127 cell
+						128 text Own Fleet
+					129 cell
+						130 text OVERDUE 01 Oct 2026
+					131 cell
+						132 text ฿2,000
+					133 cell
+						134 text EXPIRING SOON 01 Oct 2026
+					135 cell
+						136 text ฿2,000
+					137 cell
+						138 pop up button (collapsed) Actions for this row, ID: radix-_r_h_, Secondary Actions: Expand
+		139 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Truck renewals · LogiTrack Pro, URL: localhost:3993/app/renewals

@@ -1,0 +1,145 @@
+Browser tab: 2, Title: "Security center · LogiTrack Pro", URL: "http://localhost:3993/app/security-center".
+1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3993/app/security-center
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/security-center#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Platform
+				10 link (disabled) Security center
+					11 text Security center
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: Security center Operations fixture · Platform admin, Value: localhost:3993/app/security-center
+		20 container Security center menu
+			21 container
+				22 text Security center
+				23 content list
+					24 link Description: Overview, Value: localhost:3993/app/security-center
+					25 link Description: User management, Value: localhost:3993/app/security-center/users
+					26 link Description: Tenants, Value: localhost:3993/app/security-center/tenants
+					27 link Description: Roles and permissions, Value: localhost:3993/app/security-center/roles
+					28 link Description: Security audit log, Value: localhost:3993/app/security-center/audit
+					29 link Description: API keys, Value: localhost:3993/app/security-center/api-keys
+					30 link Description: System status, Value: localhost:3993/app/security-center/status
+					31 link Description: Mobile app clients, Value: localhost:3993/app/security-center/mobile-clients
+					32 link Description: Driver app release, Value: localhost:3993/app/security-center/mobile-release
+			33 content list
+				34 link Description: Back to the main menu, Value: localhost:3993/app/dashboard
+				35 link Description: Support, Value: localhost:3993/app/support
+		36 container main-content
+			37 heading Security center, Value: 1
+				38 text Security center
+			39 text Accounts, sessions, sign-ins, driver-app devices and security events, counted on the server.
+			40 text All organisations
+			41 text updated 19/10/2026, 21:00:03
+			42 text 3 imported records have no company yet
+			43 text System Status
+			44 text All services responding
+			45 link Description: Open system status, Value: localhost:3993/app/security-center/status
+			46 text Active Sessions
+			47 text 7
+			48 text 1 ended by an admin or sign-out in 24 h
+			49 text  ·
+			50 text 10 of 12 accounts active
+			51 link Description: User management — force logout, Value: localhost:3993/app/security-center/users
+			52 text Failed sign-ins (24 h)
+			53 text 3
+			54 text 0 accounts locked out
+			55 text Driver app devices
+			56 text 3
+			57 text 3 seen in 7 days · 0 below the minimum version · 1 behind the latest build
+			58 link Description: Open driver app devices, Value: localhost:3993/app/security-center/mobile-clients
+			59 text Recent security events
+			60 link Description: View all, Value: localhost:3993/app/security-center/audit
+			61 content list
+				62 container
+					63 text User created Info Unknown user
+					64 button (collapsed) Technical details, Secondary Actions: Expand
+						65 text Technical details
+					66 text 3 minutes ago
+				67 container
+					68 text Sign-in failed Warning admin@fixture.test
+					69 button (collapsed) Technical details, Secondary Actions: Expand
+						70 text Technical details
+					71 text 3 minutes ago
+				72 container
+					73 text App release published Info admin@fixture.test
+					74 button (collapsed) Technical details, Secondary Actions: Expand
+						75 text Technical details
+					76 text 3 minutes ago
+				77 container
+					78 text Other security event Info admin@fixture.test
+					79 button (collapsed) Technical details, Secondary Actions: Expand
+						80 text Technical details
+					81 text 3 minutes ago
+			82 text Security events
+			83 combo box (collapsed) Description: Time range, Value: Last 24 Hours, Secondary Actions: Expand
+				84 text Last 24 Hours
+			85 text 4 events in 24 h (0 critical, 1 warning) · 9 in 7 days
+			86 text These counts include your own reads across all organisations.
+			87 text Users by role
+			88 content list
+				89 container
+					90 text Drivers  ( 12  · 60% )
+				91 container
+					92 text Managers, operation staff and operators  ( 6  · 30% )
+				93 container
+					94 text Others  ( 2  · 10% )
+			95 heading Recently active users, Value: 2
+				96 text Recently active users
+			97 text Accounts with a sign-in within the last 30 days (up to 20 rows), refreshed every minute.
+			98 link Description: Open user management, Value: localhost:3993/app/security-center/users
+			99 table
+				100 row
+					101 cell
+						102 text User
+					103 cell
+						104 text Last Sign In
+					105 cell
+						106 text Actions
+				107 row
+					108 cell
+						109 text ผู้ใช้งาน 1 user0@fixture.test
+					110 cell
+						111 text 3 minutes ago
+					112 cell
+						113 button Sessions
+				114 row
+					115 cell
+						116 text ผู้ใช้งาน 2 user1@fixture.test
+					117 cell
+						118 text 3 minutes ago
+					119 cell
+						120 button Sessions
+				121 row
+					122 cell
+						123 text ผู้ใช้งาน 3 user2@fixture.test
+					124 cell
+						125 text 3 minutes ago
+					126 cell
+						127 button Sessions
+				128 row
+					129 cell
+						130 text Carrier member carrier@fixture.test
+					131 cell
+						132 text 3 minutes ago
+					133 cell
+						134 button Sessions
+				135 row
+					136 cell
+						137 text Scope-only account scope@fixture.test
+					138 cell
+						139 text 3 minutes ago
+					140 cell
+						141 button Sessions
+		142 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Security center · LogiTrack Pro, URL: localhost:3993/app/security-center

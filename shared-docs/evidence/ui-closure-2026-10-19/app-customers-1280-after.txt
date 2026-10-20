@@ -1,0 +1,17 @@
+Browser tab: 2, Title: "Customers · LogiTrack Pro", URL: "http://localhost:3991/app/customers".
+The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~1 AXWebArea Customers · LogiTrack Pro, URL: localhost:3991/app/customers
+~		3 link Description: Skip to main content, Value: localhost:3991/app/customers#main-content
+~				8 link Description: Home, Value: localhost:3991/app/dashboard
+~			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3991/app/dashboard
+~				22 link Description: Dashboard, Value: localhost:3991/app/dashboard
+~						27 link Description: Customers, Value: localhost:3991/app/customers
+~						28 link Description: Rate cards, Value: localhost:3991/app/accounting/rate-card
+~						29 link Description: Trips to bill, Value: localhost:3991/app/accounting/income
+~						30 link Description: Billing documents, Value: localhost:3991/app/accounting/billing-document
+~						31 link Description: Statements, Value: localhost:3991/app/accounting/billing-result
+~						32 link Description: Shopee Express report, Value: localhost:3991/app/accounting/shopee-express-report
+~						33 link Description: Billing utilities, Value: localhost:3991/app/utilities/backfill
+~				40 link Description: Support, Value: localhost:3991/app/support
+~			46 link Description: Add Customer, Value: localhost:3991/app/customers/new
+The focused UI element is 1 AXWebArea Customers · LogiTrack Pro, URL: localhost:3991/app/customers

@@ -1,0 +1,137 @@
+Browser tab: 2, Title: "Drivers · LogiTrack Pro", URL: "http://localhost:3993/app/drivers".
+1 AXWebArea Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/drivers#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Fleet and partners
+				10 link (disabled) Drivers
+					11 text Drivers
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 button (collapsed) Billing, Secondary Actions: Expand
+				25 button (collapsed) Costs, Secondary Actions: Expand
+				26 container
+					27 button (expanded) Fleet and partners, Secondary Actions: Collapse
+					28 content list
+						29 link Description: Trucks, Value: localhost:3993/app/trucks
+						30 link Description: Truck assignment, Value: localhost:3993/app/truck-assignment
+						31 link Description: Drivers, Value: localhost:3993/app/drivers
+						32 link Description: Truck renewals, Value: localhost:3993/app/renewals
+						33 link Description: Maintenance, Value: localhost:3993/app/maintenance
+						34 link Description: Partners, Value: localhost:3993/app/subcontractors
+				35 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				36 button (collapsed) Settings, Secondary Actions: Expand
+				37 button (collapsed) Platform, Secondary Actions: Expand
+			38 content list
+				39 link Description: Support, Value: localhost:3993/app/support
+		40 text Version 3.6.0
+		41 container main-content
+			42 heading Drivers, Value: 1
+				43 text Drivers
+			44 text Manage and track your fleet's personnel efficiently in real-time.
+			45 link Description: Add New Driver, Value: localhost:3993/app/drivers/new
+			46 text Total Drivers
+			47 heading 3, Value: 2
+				48 text 3
+			49 text Active / On-Duty
+			50 heading 2
+			51 text Inactive
+			52 heading 1, Value: 2
+				53 text 1
+			54 text field (settable)
+			55 button All
+			56 button On-Duty
+			57 button Active
+			58 button Inactive
+			59 table
+				60 row
+					61 cell
+						62 text Driver
+					63 cell
+						64 text Contact
+					65 cell
+						66 text Employment
+					67 cell
+						68 text Assigned Vehicle
+					69 cell
+						70 text License ID
+					71 cell
+						72 text License Type
+					73 cell
+						74 text Status
+					75 cell
+						76 text Actions
+				77 row
+					78 cell
+						79 text S T สมชาย ทดสอบ 1 driver@fixture.test
+					80 cell
+						81 text 0812345678
+					82 cell
+						83 text Full time
+					84 cell
+						85 text Unassigned
+					86 cell
+						87 text TEST123
+					88 cell
+						89 text ท.2
+					90 cell
+						91 text Active
+					92 cell
+						93 pop up button (collapsed) Description: Actions for สมชาย ทดสอบ 1, ID: radix-_r_g_, Secondary Actions: Expand
+				94 row
+					95 cell
+						96 text S T สมชาย ทดสอบ 2 driver@fixture.test
+					97 cell
+						98 text 0812345678
+					99 cell
+						100 text Full time
+					101 cell
+						102 text Unassigned
+					103 cell
+						104 text TEST123
+					105 cell
+						106 text ท.2
+					107 cell
+						108 text On duty
+					109 cell
+						110 pop up button (collapsed) Description: Actions for สมชาย ทดสอบ 2, ID: radix-_r_i_, Secondary Actions: Expand
+				111 row
+					112 cell
+						113 text S T สมชาย ทดสอบ 3 driver@fixture.test
+					114 cell
+						115 text 0812345678
+					116 cell
+						117 text Full time
+					118 cell
+						119 text Unassigned
+					120 cell
+						121 text TEST123
+					122 cell
+						123 text ท.2
+					124 cell
+						125 text Inactive
+					126 cell
+						127 pop up button (collapsed) Description: Actions for สมชาย ทดสอบ 3, ID: radix-_r_k_, Secondary Actions: Expand
+			128 text 3 loaded
+			129 text All rows loaded
+			130 container
+				131 text Showing 1 to 3 of 3 entries
+			132 button (disabled) Previous
+			133 button (disabled) Next
+		134 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Drivers · LogiTrack Pro, URL: localhost:3993/app/drivers

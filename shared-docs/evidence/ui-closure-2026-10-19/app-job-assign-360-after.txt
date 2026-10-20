@@ -1,0 +1,124 @@
+Browser tab: 2, Title: "Job assignment · LogiTrack Pro", URL: "http://localhost:3991/app/job-assign".
+1 AXWebArea Job assignment · LogiTrack Pro, URL: localhost:3991/app/job-assign
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3991/app/job-assign#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Job assignment, Value: 1
+				10 text Job assignment
+			11 text Create and assign First Mile / Line Haul jobs to drivers
+			12 button Refresh
+			13 button Import Excel
+			14 pop up button (collapsed) Add job, ID: radix-_r_l_, Secondary Actions: Expand
+			15 text Filters
+			16 text Date
+			17 pop up button (collapsed) 19/10/2026, Secondary Actions: Expand
+			18 button Any day, Help: Show the newest tasks of any plan day
+			19 text Job type
+			20 combo box (collapsed) Value: All, Secondary Actions: Expand
+				21 text All
+			22 text Destination (SOC)
+			23 combo box (collapsed) Value: All SOCs, Secondary Actions: Expand
+				24 text All SOCs
+			25 text Pickup Point
+			26 combo box (collapsed) Value: All Pickup Points, Secondary Actions: Expand
+				27 text All Pickup Points
+			28 container Job assignment
+				29 container FM-15102026-000
+					30 text FM-15102026-000
+					31 text Pending
+					32 container
+						33 text บางนา  →  SOCE
+					34 container
+						35 text 15/10/2026  ·  09:30
+					36 definition list
+						37 container Driver
+							38 text Driver
+						39 text สมชาย ใจดี
+						40 container License Plate
+							41 text License Plate
+						42 text 70-1111
+					43 button View FM-15102026-000
+				44 container FM-15102026-001
+					45 text FM-15102026-001
+					46 text Assigned
+					47 container
+						48 text บางนา  →  SOCE
+					49 container
+						50 text 15/10/2026  ·  09:30
+					51 definition list
+						52 container Driver
+							53 text Driver
+						54 text สมชาย ใจดี
+						55 container License Plate
+							56 text License Plate
+						57 text 70-1111
+					58 button View FM-15102026-001
+				59 container FM-15102026-002
+					60 text FM-15102026-002
+					61 text Checked in
+					62 container
+						63 text บางนา  →  SOCE
+					64 container
+						65 text 15/10/2026  ·  09:30
+					66 definition list
+						67 container Driver
+							68 text Driver
+						69 text สมชาย ใจดี
+						70 container License Plate
+							71 text License Plate
+						72 text 70-1111
+					73 button View FM-15102026-002
+				74 container FM-15102026-003
+					75 text FM-15102026-003
+					76 text In transit
+					77 container
+						78 text บางนา  →  SOCE
+					79 container
+						80 text 15/10/2026  ·  09:30
+					81 definition list
+						82 container Driver
+							83 text Driver
+						84 text สมชาย ใจดี
+						85 container License Plate
+							86 text License Plate
+						87 text 70-1111
+					88 button View FM-15102026-003
+				89 container FM-15102026-004
+					90 text FM-15102026-004
+					91 text Completed
+					92 container
+						93 text บางนา  →  SOCE
+					94 container
+						95 text 15/10/2026  ·  09:30
+					96 definition list
+						97 container Driver
+							98 text Driver
+						99 text สมชาย ใจดี
+						100 container License Plate
+							101 text License Plate
+						102 text 70-1111
+					103 button View FM-15102026-004
+				104 container FM-15102026-005
+					105 text FM-15102026-005
+					106 text Cancelled
+					107 container
+						108 text บางนา  →  SOCE
+					109 container
+						110 text 15/10/2026  ·  09:30
+					111 definition list
+						112 container Driver
+							113 text Driver
+						114 text สมชาย ใจดี
+						115 container License Plate
+							116 text License Plate
+						117 text 70-1111
+					118 button View FM-15102026-005
+			119 text 6 rows loaded
+			120 text All rows loaded
+		121 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Job assignment · LogiTrack Pro, URL: localhost:3991/app/job-assign

@@ -1,0 +1,54 @@
+Browser tab: 2, Title: "Company profile · LogiTrack Pro", URL: "http://localhost:3993/app/settings/company-profile".
+1 AXWebArea Company profile · LogiTrack Pro, URL: localhost:3993/app/settings/company-profile
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/settings/company-profile#main-content
+		4 button (collapsed) Show or hide the menu, Secondary Actions: Expand
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 text Operations fixture  ·  Platform admin
+		7 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+		8 container main-content
+			9 heading Company profile, Value: 1
+				10 text Company profile
+			11 text Active
+			12 text Your company information used on invoices and billing documents.
+			13 container
+				14 text Corporate Identity Legal entity information displayed on invoices. Company Name (Thai)  *
+				15 text field (settable) Company Name (Thai) *, Value: บริษัทขนส่งทดสอบ
+				16 text Company Name (English)
+				17 text field (settable) Company Name (English), Value: Operations fixture, ID: nameEn
+				18 text Short name (e.g. WRT)
+				19 text field (settable) Short name (e.g. WRT), Value: OPS, ID: shortName
+				20 text Tax ID (13 digits)  *
+				21 text field (settable) Tax ID (13 digits) *, Value: 1234567890123
+				22 text Branch Type
+				23 combo box (collapsed) Value: Head Office (สำนักงานใหญ่), Secondary Actions: Expand
+					24 text Head Office (สำนักงานใหญ่)
+				25 text Registered Address  *
+				26 text field (settable) Registered Address *, Value: Bangkok
+				27 text Phone
+				28 text field (settable) Phone, Value: <redacted>
+				29 text Email
+				30 text field (settable) Email, Value: <redacted>
+				31 text Authorized Signatory Name
+				32 text field (settable) Authorized Signatory Name, Value: Fixture operator, ID: signatoryName
+				33 text The name printed under the signature on billing documents. Documents & Assets Logo, stamp, and authorized signature embedded in PDF invoices. Company Logo (optional)
+				34 button Upload
+				35 text Shown in system header. Recommended: 200×60px PNG. Official Stamp (optional)
+				36 button Upload
+				37 text Official company seal, embedded in PDF invoices. Recommended: 200×200px transparent PNG. Authorized Signature (optional)
+				38 button Upload
+				39 text Authorized signatory signature, placed above signatory name in PDF. Recommended: 300×100px transparent PNG. Banking Information Payment details printed on invoices for customers. Bank Name
+				40 text field (settable) Bank Name, Value: Fixture bank, ID: bankName
+				41 text Account Number
+				42 text field (settable) Account Number, Value: 1234567890, ID: accountNumber
+				43 text Account Name (as registered)
+				44 text field (settable) Account Name (as registered), Value: Operations fixture, ID: accountName
+				45 text Withholding Tax Rate (%)
+				46 stepper (settable, integer) Withholding Tax Rate (%), Value: 3, ID: withholdingTaxRate
+				47 text Example: 3 = withhold 3% Company status
+				48 switch Description: Active, Value: 1, ID: isActive
+				49 text Active
+				50 button Save
+		51 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Company profile · LogiTrack Pro, URL: localhost:3993/app/settings/company-profile

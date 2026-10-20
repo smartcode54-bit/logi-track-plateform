@@ -1,0 +1,64 @@
+Browser tab: 2, Title: "Shopee Express report · LogiTrack Pro", URL: "http://localhost:3993/app/accounting/shopee-express-report".
+1 AXWebArea Shopee Express report · LogiTrack Pro, URL: localhost:3993/app/accounting/shopee-express-report
+	2 container
+		3 link Description: Skip to main content, Value: localhost:3993/app/accounting/shopee-express-report#main-content
+		4 button (expanded) Show or hide the menu, Secondary Actions: Collapse
+		5 pop up button (collapsed) Description: Jump to a page, Help: Shortcut: ⌘K, Secondary Actions: Expand
+		6 container Breadcrumb
+			7 content list
+				8 link Description: Home, Value: localhost:3993/app/dashboard
+				9 text Billing
+				10 link (disabled) Shopee Express report
+					11 text Shopee Express report
+		12 pop up button (collapsed) Description: Account menu for Operations fixture, Operations fixture · Platform admin, ID: radix-_r_4_, Secondary Actions: Expand
+			13 text Operations fixture
+			14 text Operations fixture
+			15 text  ·
+			16 text Platform admin
+			17 text O
+		18 content list
+			19 link Description: LogiTrack Pro Operations fixture · Platform admin, Value: localhost:3993/app/dashboard
+		20 container Main menu
+			21 content list
+				22 link Description: Dashboard, Value: localhost:3993/app/dashboard
+				23 button (collapsed) Operations, Secondary Actions: Expand
+				24 container
+					25 button (expanded) Billing, Secondary Actions: Collapse
+					26 content list
+						27 link Description: Customers, Value: localhost:3993/app/customers
+						28 link Description: Rate cards, Value: localhost:3993/app/accounting/rate-card
+						29 link Description: Trips to bill, Value: localhost:3993/app/accounting/income
+						30 link Description: Billing documents, Value: localhost:3993/app/accounting/billing-document
+						31 link Description: Statements, Value: localhost:3993/app/accounting/billing-result
+						32 link Description: Shopee Express report, Value: localhost:3993/app/accounting/shopee-express-report
+						33 link Description: Billing utilities, Value: localhost:3993/app/utilities/backfill
+				34 button (collapsed) Costs, Secondary Actions: Expand
+				35 button (collapsed) Fleet and partners, Secondary Actions: Expand
+				36 button (collapsed) Payroll and HR, Secondary Actions: Expand
+				37 button (collapsed) Settings, Secondary Actions: Expand
+				38 button (collapsed) Platform, Secondary Actions: Expand
+			39 content list
+				40 link Description: Support, Value: localhost:3993/app/support
+		41 text Version 3.6.0
+		42 container main-content
+			43 heading Shopee Express report, Value: 1
+				44 text Shopee Express report
+			45 text Generate the price-free Shopee Express support pack: a trip summary plus signed run-sheet images grouped by driver, as one PDF.
+			46 text Select Period & Customer
+			47 text Month
+			48 combo box (collapsed) Value: October, Secondary Actions: Expand
+				49 text October
+			50 text Year
+			51 combo box (collapsed) Value: 2026, Secondary Actions: Expand
+				52 text 2026
+			53 text Billing round
+			54 combo box (collapsed) Value: Whole month, Secondary Actions: Expand
+				55 text Whole month
+			56 text Customer
+			57 combo box (collapsed) Description: Customer, Value: Example Customer CJ, Secondary Actions: Expand
+				58 text Example Customer
+				59 text CJ
+			60 button Load data
+		61 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea Shopee Express report · LogiTrack Pro, URL: localhost:3993/app/accounting/shopee-express-report

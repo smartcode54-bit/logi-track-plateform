@@ -1,0 +1,67 @@
+Browser tab: 5, Title: "LogiTrack Pro by GORATECH", URL: "http://localhost:3993/".
+1 AXWebArea LogiTrack Pro by GORATECH, URL: localhost:3993/
+	2 container
+		3 container Main
+			4 link Description: LogiTrack Pro by GORATECH, Value: localhost:3993/
+			5 content list
+				6 link Description: Features, Value: localhost:3993/#solutions
+				7 link Description: About, Value: localhost:3993/about
+				8 link Description: Join as a partner, Value: localhost:3993/join-network
+			9 container Language
+				10 checkbox English, Value: 1
+				11 checkbox ไทย, Value: 0
+			12 button Switch to the dark theme
+			13 link Description: Sign in, Value: localhost:3993/login
+		14 container Run your trucking operation from assignment to payout
+			15 heading Run your trucking operation from assignment to payout, Value: 1, ID: landing-title
+				16 text Run your trucking operation from assignment to payout
+			17 text LogiTrack Pro is one system for first-mile and line-haul work in Thailand. Drivers check in, load and deliver in the mobile app with photos, location and time at every step; each trip is priced from the customer's rate card, billed and paid without re-keying.
+			18 heading Sign in, Value: 2
+				19 text Sign in
+			20 text Use the account your organisation set up for you.
+			21 container
+				22 text Email
+				23 text field (settable) Email
+				24 text Password
+				25 link Description: Forgot your password?, Value: localhost:3993/forgot-password
+				26 text field (settable) Password
+				27 button Sign in
+			28 text No account? Ask the transport company or administrator who invited you.
+			29 container
+				30 text Run a transport company?
+				31 link Description: Join the LogiTrack Pro waitlist, Value: localhost:3993/waitlist
+		32 container One record from dispatch to payout, ID: solutions
+			33 heading One record from dispatch to payout, Value: 2, ID: solutions-title
+				34 text One record from dispatch to payout
+			35 text A task, its trip evidence, its price, the customer's statement and the driver's pay stay linked, so every trip can be answered for without leaving the system.
+			36 definition list
+				37 container One system end to end
+					38 text One system end to end
+				39 text Assignment, check-in and photos on the driver's phone, the price from the rate card, billing to the customer and driver pay, with no re-keying between tools.
+				40 container Evidence on every trip
+					41 text Evidence on every trip
+				42 text Photos, GPS position and timestamps at check-in, loading and each delivery stop, ready to show the customer as proof.
+				43 container Built for Thai first-mile and line-haul
+					44 text Built for Thai first-mile and line-haul
+				45 text Marketplace hubs and sort centres (SOCs), main and extra jobs, multi-drop, standby, and the way customers are actually billed.
+				46 container Partners and customers see their own data
+					47 text Partners and customers see their own data
+				48 text Partner carriers and shippers sign in to their own view of tasks, trips and evidence, and see nothing beyond it.
+		49 container Run a transport company or a partner fleet?
+			50 heading Run a transport company or a partner fleet?, Value: 2, ID: cta-title
+				51 text Run a transport company or a partner fleet?
+			52 text GORATECH builds LogiTrack Pro in-house and runs its own fleet on it every day. Staff, customers and partners get their accounts from the company that invites them; a transport company can join the waitlist, and a carrier can apply to work with GORATECH as a partner.
+			53 link Description: Join the waitlist, Value: localhost:3993/waitlist
+			54 link Description: Apply as a partner carrier, Value: localhost:3993/join-network
+			55 link Description: How LogiTrack Pro started, Value: localhost:3993/about
+		56 text LogiTrack Pro by GORATECH
+		57 container Site links
+			58 content list
+				59 link Description: About, Value: localhost:3993/about
+				60 link Description: Join as a partner, Value: localhost:3993/join-network
+				61 link Description: Waitlist, Value: localhost:3993/waitlist
+				62 link Description: Sign in, Value: localhost:3993/login
+		63 text © 2026 GORATECH. All rights reserved.
+		64 container Notifications alt+T
+
+The focused UI element is 1 AXWebArea LogiTrack Pro by GORATECH, URL: localhost:3993/
