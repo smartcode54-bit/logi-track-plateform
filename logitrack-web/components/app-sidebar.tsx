@@ -42,6 +42,7 @@ import { useBadges } from "@/features/dashboard/api/useBadges"
 import { WEB_APP_VERSION } from "@/lib/app-version"
 import { activeNavUrl, groupOf, isNavGroup, menuFor, type NavGroup, type NavLink } from "./app-nav"
 import { ScopeLine } from "./scope-line"
+import { DisplayPreferences } from "./display-preferences"
 import { sidebarHeaderTooltip, useCloseSidebarOnPhone, useRevealCurrentEntry } from "./sidebar-shell"
 
 const NO_CAPABILITIES: readonly string[] = []
@@ -202,7 +203,10 @@ export function AppSidebar() {
                         </SidebarGroup>
                     </div>
 
-                    <SidebarFooter className="mt-auto">
+                    <SidebarFooter className="mt-auto shrink-0">
+                        <div className="md:hidden">
+                            <DisplayPreferences />
+                        </div>
                         <SidebarMenu>
                             {footer.map((link) => (
                                 <SidebarMenuItem key={link.url}>

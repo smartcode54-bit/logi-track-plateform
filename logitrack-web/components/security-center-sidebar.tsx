@@ -23,8 +23,9 @@ import type { MeDTO } from "@/features/auth/api/me"
 import { homeRouteOf } from "@/features/auth/api/homeRoute"
 import { useMe } from "@/features/auth/api/useMe"
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel"
-import { activeNavUrl, SECURITY_CENTER_PATH, securityMenuFor } from "./app-nav"
+import { activeNavUrl, SECURITY_CENTER_PATH, securityMenuFor, SUPPORT_NAV } from "./app-nav"
 import { ScopeLine } from "./scope-line"
+import { DisplayPreferences } from "./display-preferences"
 import { sidebarHeaderTooltip, useCloseSidebarOnPhone, useRevealCurrentEntry } from "./sidebar-shell"
 
 const NO_CAPABILITIES: readonly string[] = []
@@ -97,10 +98,15 @@ export function SecurityCenterSidebar() {
                             </SidebarGroupContent>
                         </SidebarGroup>
                     </div>
-                    <SidebarFooter className="mt-auto">
+                    <SidebarFooter className="mt-auto shrink-0">
                         <SidebarMenu>
                             {footer.map((link) => (
                                 <SidebarMenuItem key={link.url}>
+                                    {link.url === SUPPORT_NAV.url ? (
+                                        <div className="mb-2 md:hidden">
+                                            <DisplayPreferences />
+                                        </div>
+                                    ) : null}
                                     <SidebarMenuButton asChild tooltip={t(link.labelKey)} isActive={active === link.url}>
                                         <Link href={link.url} prefetch={false} onClick={closeOnPhone}>
                                             {link.icon ? <link.icon /> : null}

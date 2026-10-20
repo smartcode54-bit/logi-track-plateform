@@ -2,21 +2,14 @@
 
 /**
  * The user menu of the app header (UI3, issue #143): who is signed in, the scope line (which slice of the data,
- * as what: `principalRoleLabel`), a link to the account page, the interface language and theme, and the one sign-out. It is the only home
- * of the language and theme switches inside `/app`, so they are one tap away on a phone too (the header keeps
- * this menu at every width; the old EN/TH pills were hidden below `sm`).
+ * as what: `principalRoleLabel`), a link to the account page and the one sign-out.
+ * Display preferences live directly in the desktop header and mobile drawer footer.
  *
- * Inside a menu the switches are radio items (`menuitemradio` + `aria-checked`), the menu equivalent of a
- * pressed toggle button; the public navigation's EN/TH buttons carry `aria-pressed` (language-switcher.tsx).
- *
- * UI3B: the languages are named in their own words without flags (DESIGN.md keeps flags out of the chrome), the
- * items are 44 px tall on a phone, sign-out reads "Sign out" / "ออกจากระบบ", and the scope line shortens the slice,
+ * UI3B: items are 44 px tall on a phone, sign-out reads "Sign out" / "ออกจากระบบ", and the scope line shortens the slice,
  * never the role, with a line height that leaves Thai marks unclipped.
  */
-import { useId } from "react";
 import Link from "next/link";
-import { LogOut, Monitor, Moon, Sun, User } from "lucide-react";
-import { useTheme } from "next-themes";
+import { LogOut, User } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -25,13 +18,10 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuLabel,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/context/language";
-import { isLanguage } from "@/context/locales/load";
 import { meDisplayName } from "@/features/auth/api/me";
 import { useMe } from "@/features/auth/api/useMe";
 import { useScopeLabel } from "@/features/auth/hooks/useScopeLabel";
@@ -39,28 +29,14 @@ import { useSignOut } from "@/features/auth/hooks/useSignOut";
 import { initialOf } from "@/lib/initials";
 import { ScopeLine } from "./scope-line";
 
-const THEMES = [
-    { value: "light", labelKey: "shell.theme.light", icon: Sun },
-    { value: "dark", labelKey: "shell.theme.dark", icon: Moon },
-    { value: "system", labelKey: "shell.theme.system", icon: Monitor },
-] as const;
-
-const LANGUAGES = [
-    { value: "en", labelKey: "shell.language.en" },
-    { value: "th", labelKey: "shell.language.th" },
-] as const;
-
 /** Every item of the menu: 44 px tall on a phone (UI3B: they were 32 px), the desktop density otherwise. */
 const ITEM = "max-md:min-h-11";
 
 export function UserMenu() {
-    const { language, setLanguage, t } = useLanguage();
-    const { theme, setTheme } = useTheme();
+    const { t } = useLanguage();
     const { data: me = null } = useMe();
     const scope = useScopeLabel();
     const signOut = useSignOut();
-    const languageLabelId = useId();
-    const themeLabelId = useId();
 
     const name = meDisplayName(me) || t("shell.unnamedUser");
     const email = me?.email ?? "";
@@ -98,35 +74,6 @@ export function UserMenu() {
                         {t("nav.myAccount")}
                     </Link>
                 </DropdownMenuItem>
-                <DropdownMenuLabel id={languageLabelId} className="text-xs font-normal text-muted-foreground">
-                    {t("shell.language")}
-                </DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                    aria-labelledby={languageLabelId}
-                    value={language}
-                    onValueChange={(value) => {
-                        if (isLanguage(value)) setLanguage(value);
-                    }}
-                >
-                    {LANGUAGES.map((option) => (
-                        // Each language in its own words ("ไทย", "English"), so either reader finds theirs.
-                        <DropdownMenuRadioItem key={option.value} value={option.value} lang={option.value} className={ITEM}>
-                            {t(option.labelKey)}
-                        </DropdownMenuRadioItem>
-                    ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel id={themeLabelId} className="text-xs font-normal text-muted-foreground">
-                    {t("shell.theme")}
-                </DropdownMenuLabel>
-                <DropdownMenuRadioGroup aria-labelledby={themeLabelId} value={theme ?? "system"} onValueChange={setTheme}>
-                    {THEMES.map((option) => (
-                        <DropdownMenuRadioItem key={option.value} value={option.value} className={ITEM}>
-                            <option.icon className="mr-2 size-4" aria-hidden />
-                            {t(option.labelKey)}
-                        </DropdownMenuRadioItem>
-                    ))}
-                </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => void signOut()} className={ITEM}>
                     <LogOut className="mr-2 size-4" aria-hidden />

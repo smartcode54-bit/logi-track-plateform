@@ -4,7 +4,7 @@ import { useLanguage } from "@/context/language";
 import { Button } from "@/components/ui/button";
 import type { Language } from "@/context/locales/load";
 
-/** Each language in its own words, as the console's user menu names them (components/user-menu.tsx). */
+/** Each language in its own words, without flags. */
 const OPTIONS: readonly { value: Language; nameKey: string }[] = [
     { value: "en", nameKey: "shell.language.en" },
     { value: "th", nameKey: "shell.language.th" },
@@ -14,7 +14,7 @@ const OPTIONS: readonly { value: Language; nameKey: string }[] = [
  * The language toggle of the public navigation. Text only, "English" and "ไทย" (UI3E: DESIGN.md keeps flags out of
  * the chrome, and the console's user menu already names the languages this way). Each button says whether it is on
  * (`aria-pressed`, UI3) and carries its language (`lang`), so a screen reader speaks "ไทย" in Thai. On a phone each
- * button is a 44 px target. Inside `/app` the same choice is in the user menu.
+ * button is a 44 px target. The console shares it in the desktop header and mobile drawer footer.
  */
 export function LanguageSwitcher() {
     const { language, setLanguage, t } = useLanguage();
