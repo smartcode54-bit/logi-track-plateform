@@ -203,6 +203,7 @@ POST /v1/subcontractors internal
 GET /v1/subcontractors/:id internal
 PATCH /v1/subcontractors/:id internal
 GET /v1/support/customer-options internal
+GET /v1/support/files/:fileId/content internal
 GET /v1/tasks internal
 POST /v1/tasks internal
 GET /v1/tasks/:id internal
@@ -253,6 +254,7 @@ POST /v1/trucks/:id/pm-check internal
 POST /v1/trucks/:id/renewals internal
 POST /v1/trucks/import internal
 GET /v1/trucks/renewals internal
+PUT /v1/uploads/:grantId/content internal
 PUT /v1/uploads/local/* internal
 POST /v1/uploads/presign internal
 GET /v1/users internal

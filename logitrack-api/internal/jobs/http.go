@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -24,7 +25,8 @@ import (
 // read their jobs, and other jobs require the caller's own tenant and a capability for the job type
 // (TypeCapabilities; developer-spec.md §7.5, T21 first).
 type Caller struct {
-	UserID uuid.UUID
+	UserID  uuid.UUID
+	Support bool
 	// PlatformAdmin holds platform_admin and authorizes the queue replay.
 	PlatformAdmin bool
 	// PlatformSupport holds support; non-owned raw jobs still require the caller's own tenant.
@@ -54,6 +56,9 @@ func (c Caller) readerTypes() []string {
 
 // canRead preserves owner access and bounds non-owned platform payloads to their own tenant.
 func (c Caller) canRead(j Job) bool {
+	if c.Support {
+		return c.TenantID != nil && j.TenantID != nil && *c.TenantID == *j.TenantID && supportType(j.Type)
+	}
 	if j.OwnerUserID != nil && *j.OwnerUserID == c.UserID {
 		return true
 	}
@@ -71,7 +76,7 @@ func (c Caller) canRead(j Job) bool {
 // valid principal and stores it for Caller.
 type HTTPOptions struct {
 	Auth     fiber.Handler
-	Caller   func(c fiber.Ctx) (Caller, bool)
+	Caller   func(p *authz.Principal) (Caller, bool)
 	Topology mq.Topology // the work queues a replay may name
 }
 
@@ -90,8 +95,8 @@ func (s *Service) Groups(o HTTPOptions) []ingress.Group {
 	h := handlers{s: s, o: o}
 	return []ingress.Group{
 		{Prefix: "/v1/jobs", Mount: func(r fiber.Router) {
-			r.Get("", o.Auth, h.list)
-			r.Get("/:id", o.Auth, h.get)
+			ingress.Bind(r, "", jobPolicy("/v1/jobs"), o.Auth, h.list)
+			ingress.Bind(r, "/:id", jobPolicy("/v1/jobs/:id"), o.Auth, h.get)
 		}},
 		{Prefix: "/v1/admin/queues", Mount: func(r fiber.Router) {
 			r.Post("/:queue/replay", o.Auth, h.replay)
@@ -105,7 +110,11 @@ type handlers struct {
 }
 
 func (h handlers) caller(c fiber.Ctx) (Caller, error) {
-	cl, ok := h.o.Caller(c)
+	p := authz.PrincipalFrom(c)
+	if p == nil {
+		return Caller{}, httpx.ErrUnauthenticated()
+	}
+	cl, ok := h.o.Caller(p)
 	if !ok {
 		return Caller{}, httpx.ErrUnauthenticated()
 	}
@@ -150,6 +159,9 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if cl.Support {
+		return h.supportList(c, cl)
+	}
 	for k := range c.Queries() {
 		if k != "type" && k != "cursor" && k != "limit" {
 			return httpx.ErrBadRequest("unknown query parameter " + k)
@@ -164,7 +176,10 @@ func (h handlers) list(c fiber.Ctx) error {
 		p.JobType = &t
 	}
 	if v := c.Query("limit"); v != "" {
-		n := fiber.Query[int](c, "limit", -1)
+		n, parseErr := strconv.Atoi(v)
+		if parseErr != nil {
+			return errInvalid("limit", "out_of_range")
+		}
 		if n < 1 || n > MaxLimit {
 			return errInvalid("limit", "out_of_range")
 		}
@@ -191,7 +206,7 @@ func (h handlers) list(c fiber.Ctx) error {
 	for i, r := range rows {
 		out[i] = fromRow(r)
 	}
-	return httpx.Page(c, out, next, nil)
+	return httpx.OrdinaryPage(c, out, next, nil)
 }
 
 // get is GET /v1/jobs/{id}: 404 when the job does not exist or the caller may not see it.
@@ -211,7 +226,10 @@ func (h handlers) get(c fiber.Ctx) error {
 	if !ok || !cl.canRead(j) {
 		return httpx.ErrNotFound()
 	}
-	return httpx.JSON(c, http.StatusOK, j)
+	if cl.Support {
+		return httpx.JSON(c, http.StatusOK, projectJob(j))
+	}
+	return httpx.OrdinaryPage(c, j, "", nil)
 }
 
 // TypeQueueReplay is the job that moves {queue}.dead back to {queue}; the scheduler runs it.
@@ -229,6 +247,9 @@ func (h handlers) replay(c fiber.Ctx) error {
 	cl, err := h.caller(c)
 	if err != nil {
 		return err
+	}
+	if cl.Support {
+		return httpx.ErrSupportReadOnly()
 	}
 	if !cl.PlatformAdmin {
 		return errPermissionDenied()

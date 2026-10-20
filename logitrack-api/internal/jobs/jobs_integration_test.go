@@ -63,23 +63,17 @@ type fixture struct {
 	locks *jobs.RedisLocker
 }
 
-type callerKey struct{}
-
-// testAuth stands in for auth.RequireAuth (T05): X-Test-User is the principal, X-Test-Platform its
-// platform role.
+// testAuth installs a typed principal; the jobs caller cannot access or write the response.
 func testAuth(c fiber.Ctx) error {
 	id, err := uuid.Parse(c.Get("X-Test-User"))
 	if err != nil {
 		return httpx.ErrUnauthenticated()
 	}
-	role := c.Get("X-Test-Platform")
-	cl := jobs.Caller{UserID: id, PlatformAdmin: role == "platform_admin", PlatformSupport: role == "support"}
+	p := &authz.Principal{UserID: id, Platform: []authz.PlatformRole{authz.PlatformRole(c.Get("X-Test-Platform"))}, AccessMode: c.Get("X-Test-Access-Mode"), Caps: authz.NewCapSet(authz.Cap(c.Get("X-Test-Capability")))}
 	if tenant, err := uuid.Parse(c.Get("X-Test-Tenant")); err == nil {
-		cl.TenantID = &tenant
+		p.TenantID = &tenant
 	}
-	capability := c.Get("X-Test-Capability")
-	cl.Can = func(cap authz.Cap) bool { return capability == string(cap) }
-	c.Locals(callerKey{}, cl)
+	authz.SetPrincipal(c, p)
 	return c.Next()
 }
 
@@ -96,9 +90,8 @@ func setup(t *testing.T) *fixture {
 	f.app.Use(httpx.RequestID())
 	ingress.Mount(f.app, ingress.Internal, svc.Groups(jobs.HTTPOptions{
 		Auth: testAuth,
-		Caller: func(c fiber.Ctx) (jobs.Caller, bool) {
-			cl, ok := c.Locals(callerKey{}).(jobs.Caller)
-			return cl, ok
+		Caller: func(p *authz.Principal) (jobs.Caller, bool) {
+			return jobs.Caller{UserID: p.UserID, Support: authz.IsSupport(p), PlatformAdmin: !authz.IsSupport(p) && p.HasPlatform(authz.PlatformAdmin), PlatformSupport: !authz.IsSupport(p) && p.HasPlatform(authz.Support), TenantID: p.TenantID, Can: p.Can}, true
 		},
 	}), nil)
 	return f

@@ -217,7 +217,7 @@ export interface ResponseDriversDetail {
   createdAt: string;
   updatedAt: string;
   profileKey: null;
-  profileUrl: null;
+  profileUrl: string | null;
   customerDriverIds: Array<ResponseDriversCustomerId> | null;
   statusHistory: Array<ResponseDriversStatusEntry> | null;
   login: ResponseDriversLogin | null;
@@ -225,9 +225,9 @@ export interface ResponseDriversDetail {
   idCardExpiredDate: string | null;
   birthDate: string | null;
   idCardKey: null;
-  idCardUrl: null;
+  idCardUrl: string | null;
   licenseKey: null;
-  licenseUrl: null;
+  licenseUrl: string | null;
 }
 export interface ResponseDriversDriver {
   id: string;
@@ -289,7 +289,7 @@ export interface ResponseFleetAssignment {
 }
 export interface ResponseFleetFile {
   key: null;
-  url: null;
+  url: string | null;
 }
 export interface ResponseFleetInsuranceRenewal {
   expiryDate: string | null;
@@ -781,13 +781,29 @@ export interface ResponseIamTenantDetail {
 export interface ResponseIamTenantDocument {
   fileId: null;
   key: null;
-  url: null;
+  url: string | null;
   kind: string;
   position: number;
 }
 export interface ResponseIamUserCounts {
   total: number;
   byStatus: Partial<Record<"active" | "deleted" | "disabled" | "reset_required", number>> | null;
+}
+export interface ResponseJobsPhase1 {
+  id: string;
+  type: string;
+  status: string;
+  progress: ResponseJobsProgress | null;
+  params: null;
+  result: null;
+  error: null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+export interface ResponseJobsProgress {
+  done: number;
+  total: number;
 }
 export interface ResponseLocationsLocation {
   truckId: string;
@@ -808,9 +824,9 @@ export interface ResponseLocationsLocation {
   fuelPercentage: number | null;
 }
 export interface ResponseMaintenanceFiles {
-  images: Array<null> | null;
-  receipts: Array<null> | null;
-  invoices: Array<null> | null;
+  images: Array<string | null> | null;
+  receipts: Array<string | null> | null;
+  invoices: Array<string | null> | null;
 }
 export interface ResponseMaintenanceMeta {
   statusCounts: Partial<Record<"cancelled" | "completed" | "in_progress" | "pm_booking" | "scheduled", number>> | null;

@@ -460,3 +460,27 @@ func TestSupportTenantLabelCodesAndMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportEntryRequiresStorageBrokerMigration(t *testing.T) {
+	h, uid, own, s := supportHarness(t)
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, h.d.URL(db.RoleMigrator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = owner.Close(ctx) }()
+	if _, err := owner.Exec(ctx, `ALTER TABLE storage_upload_grants RENAME TO storage_upload_grants_not_ready`); err != nil {
+		t.Fatal(err)
+	}
+	refused := h.post("/v1/auth/tenant", s.access, map[string]any{"mode": "support", "tenantId": own})
+	if refused.status != 403 || refused.code() != "support_view_unavailable" {
+		t.Fatalf("entry before broker migration: %d %s", refused.status, refused.raw)
+	}
+	if scalar[int](h, `SELECT count(*) FROM support_visits WHERE actor_user_id=$1`, uid) != 0 || scalar[string](h, `SELECT access_mode FROM sessions WHERE id=$1`, s.sid) != "member" {
+		t.Fatal("refused entry changed context")
+	}
+	if _, err := owner.Exec(ctx, `ALTER TABLE storage_upload_grants_not_ready RENAME TO storage_upload_grants`); err != nil {
+		t.Fatal(err)
+	}
+	supportSwitch(t, h, s, "support", own)
+}

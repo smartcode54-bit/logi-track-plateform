@@ -3763,3 +3763,8 @@ DROP INDEX CONCURRENTLY IF EXISTS vehicle_expenses_fuel_taxinv;
 ```
 
 `CREATE UNIQUE INDEX CONCURRENTLY` fails on a surviving duplicate and leaves an INVALID index; `IF NOT EXISTS` would skip that name on a rerun, so the `DO` check stops the migration until the operator drops the invalid index, fixes the rows (the runbook re-runs the D5 duplicate queries first) and reruns `goose up` (verified on `postgres:18-alpine`). The lookup index is dropped only after all three unique indexes are valid. 0005 creates only the non-unique `customer_service_fees_party_type`, so the ETL can load legacy duplicates. The file adds no table, hence no grant and no Appendix C §C.3.0 row; later schema changes start at 0011.
+
+
+### PSA P1.4 transport extension (migration 0029)
+
+`storage_upload_grants` is an additional private operational table after the 85-table baseline: file_id primary/FK file_objects (cascade), user_id, session_id (cascade), tenant_id, auth_version, context_version, expires_at. Index every non-primary FK. ENABLE + FORCE RLS; only p_system with app.role=system and app.bypass_tenant=on. logitrack_app SELECT/INSERT/UPDATE, ETL/readonly SELECT; direct DELETE is not granted. A context transition permanently invalidates pending grants; a committed object remains readable under its domain contract. No direct human-web signed PUT is issued after rollout; drain the maximum configured old PUT TTL before enabling support entry.

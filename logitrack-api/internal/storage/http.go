@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -9,7 +10,11 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/jackc/pgx/v5"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/storage/storagedb"
 
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 )
@@ -32,10 +37,11 @@ const (
 // PresignLimit is the presign_user rate-limit middleware and EvidenceLimit the evidence_ip one of the gallery
 // (RATE_LIMIT_EVIDENCE, 60/min per client address); nil = none.
 type HTTPOptions struct {
-	Auth          fiber.Handler
-	Caller        func(c fiber.Ctx) (Caller, bool)
-	PresignLimit  fiber.Handler
-	EvidenceLimit fiber.Handler
+	Auth            fiber.Handler
+	UploadPrincipal func(context.Context, string) (*authz.Principal, error)
+	Caller          func(c fiber.Ctx) (Caller, bool)
+	PresignLimit    fiber.Handler
+	EvidenceLimit   fiber.Handler
 }
 
 // Groups returns the route groups of the storage service. A signed upload gets its own body limit, the signed
@@ -52,14 +58,21 @@ func (s *Service) Groups(o HTTPOptions) []ingress.Group {
 	// The large-body exemption exists only while the local backend does: without it the routes answer 404 and
 	// every PUT keeps the 4 MiB limit.
 	var apiUpload, mediaUpload []ingress.Upload
+	if s != nil {
+		apiUpload = []ingress.Upload{{Prefix: UploadsPrefix + "/", Limit: s.BrokerUploadLimit(o.UploadPrincipal)}}
+	}
 	if s != nil && s.local != nil {
-		apiUpload = []ingress.Upload{{Prefix: LocalUploadPath + "/", Limit: s.UploadLimit(LocalUploadPath + "/")}}
+		apiUpload = append([]ingress.Upload{{Prefix: LocalUploadPath + "/", Limit: s.UploadLimit(LocalUploadPath + "/")}}, apiUpload...)
 		mediaUpload = []ingress.Upload{{Prefix: MediaPrefix + "/", Limit: s.UploadLimit(MediaPrefix + "/")}}
 	}
 	return []ingress.Group{
 		{Prefix: UploadsPrefix, Uploads: apiUpload, Mount: func(r fiber.Router) {
 			r.Post("/presign", o.Auth, presign...)
+			r.Put("/:grantId/content", o.Auth, h.uploadBroker)
 			r.Put("/local/*", h.uploadAPI)
+		}},
+		{Prefix: SupportFilesPrefix, Mount: func(r fiber.Router) {
+			ingress.Bind(r, "/:fileId/content", supportFilePolicy(SupportFilesPrefix+"/:fileId/content", true), o.Auth, h.supportFile)
 		}},
 		{Prefix: FilesPrefix, Mount: func(r fiber.Router) {
 			r.Get("", o.Auth, h.file)
@@ -113,6 +126,9 @@ func (h handlers) presign(c fiber.Ctx) error {
 
 // file is GET /v1/files?key=: 302 to a short-lived URL of the object on its own backend.
 func (h handlers) file(c fiber.Ctx) error {
+	if authz.IsSupport(authz.PrincipalFrom(c)) {
+		return httpx.ErrSupportViewUnavailable()
+	}
 	cl, err := h.caller(c)
 	if err != nil {
 		return err
@@ -247,6 +263,23 @@ func (h handlers) upload(c fiber.Ctx, prefix string) error {
 		return httpx.NewError(http.StatusRequestEntityTooLarge, httpx.CodePayloadTooLarge, "request body too large")
 	}
 	// A cheap refusal before anything touches the disk; PublishLocal decides under the row lock.
+	var bound bool
+	err := db.WithSystem(c.Context(), h.s.pool, nil, func(tx pgx.Tx) error {
+		q := storagedb.New(tx)
+		row, e := q.GetFileByKey(c.Context(), key)
+		if e != nil {
+			return e
+		}
+		ready, e := q.ContextUploadGrantsReady(c.Context())
+		if e != nil || !ready {
+			return e
+		}
+		bound, e = q.HasUploadGrant(c.Context(), row.ID)
+		return e
+	})
+	if err != nil || bound {
+		return errPermission("authenticated_upload_required")
+	}
 	pending, err := h.s.PendingLocal(c.Context(), key)
 	if err != nil {
 		return err

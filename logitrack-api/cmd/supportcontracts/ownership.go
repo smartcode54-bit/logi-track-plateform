@@ -43,7 +43,7 @@ func FileOwner(path string) string {
 				return "P1.0"
 			}
 		}
-		if p == "deploy/Dockerfile" || p == "Makefile" || p == "sqlc.yaml" || p == "api/routes.txt" || p == "api/support-policies.json" || p == "api/support-discovery.json" {
+		if p == "internal/scope/vet_test.go" || p == "internal/scope/testdata/vetcheck/sqlc.yaml" || p == "migrations/schema_integration_test.go" || p == "deploy/Dockerfile" || p == "Makefile" || p == "go.mod" || p == "go.sum" || p == "sqlc.yaml" || p == "api/routes.txt" || p == "api/support-policies.json" || p == "api/support-discovery.json" {
 			return "P1.0"
 		}
 		for _, name := range []string{"authorize.go", "rbac.go", "authorize_test.go", "rbac_integration_test.go"} {
@@ -55,7 +55,7 @@ func FileOwner(path string) string {
 			"P1.1": {"internal/auth/", "internal/scheduler/"},
 			"P1.2": {"internal/iam/", "internal/security/", "internal/notify/", "internal/mobileapp/", "internal/forms/", "migrations/0027_"},
 			"P1.3": {"internal/dashboard/", "internal/drivers/", "internal/fleet/", "internal/maintenance/"},
-			"P1.4": {"internal/storage/", "internal/sse/", "internal/jobs/", "internal/platform/realtime/", "internal/platform/cache/"},
+			"P1.4": {"internal/storage/", "internal/sse/", "internal/jobs/", "internal/platform/realtime/", "internal/platform/cache/", "migrations/0029_context_upload_grants.sql", "api/support-transports-handoff.txt"},
 			"P1.8": {"internal/supportacceptance/"},
 		} {
 			for _, prefix := range prefixes {
@@ -65,7 +65,7 @@ func FileOwner(path string) string {
 			}
 		}
 	}
-	for _, p := range []string{".github/workflows/go-ci.yml", ".github/workflows/ci.yml", "logitrack-web/package.json", "logitrack-web/components/__tests__/page-states.test.tsx", "logitrack-web/eslint.config.mjs", "logitrack-web/scripts/check-masked-money.mjs", "logitrack-web/scripts/check-masked-money.test.mjs", "logitrack-web/scripts/support-header-baseline.json", "shared-docs/schemas/capabilities.ts", "shared-docs/schemas/supportAccess.ts"} {
+	for _, p := range []string{".github/workflows/go-ci.yml", ".github/workflows/ci.yml", "logitrack-web/package.json", "logitrack-web/components/__tests__/page-states.test.tsx", "logitrack-web/components/__tests__/quick-jump.test.tsx", "logitrack-web/eslint.config.mjs", "logitrack-web/scripts/check-masked-money.mjs", "logitrack-web/scripts/check-masked-money.test.mjs", "logitrack-web/scripts/support-header-baseline.json", "shared-docs/schemas/capabilities.ts", "shared-docs/schemas/supportAccess.ts"} {
 		if path == p {
 			return "P1.0"
 		}

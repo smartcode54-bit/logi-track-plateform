@@ -54,7 +54,7 @@ var statusSchema = httpx.NewSchema[StatusEntry]("fleet.status-entry", func() map
 	return f
 }())
 var assignmentSchema = httpx.NewSchema[Assignment]("fleet.assignment", supportFields("id driverId assignedAt", "driverName", "", "", "", ""), func(a Assignment) string { return a.driverOwner })
-var fileSchema = httpx.NewSchema[TruckFile]("fleet.file", supportFields("", "", "", "", "", "key url"))
+var fileSchema = httpx.NewSchema[TruckFile]("fleet.file", map[string]httpx.Field{"key": {Kind: httpx.File}, "url": {Kind: httpx.File, BrokerPath: true}})
 var _ = httpx.NewSchema[TruckDetail]("fleet.truck-detail", func() map[string]httpx.Field {
 	f := truckFields()
 	f["statusHistory"] = httpx.Field{Kind: httpx.Nested, Schema: statusSchema}

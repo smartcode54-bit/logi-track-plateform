@@ -245,7 +245,7 @@ func StorageCaller(c fiber.Ctx) (storage.Caller, bool) {
 	}
 	tid, role := p.EffectiveTenant(), p.EffectiveRole()
 	return storage.Caller{
-		UserID: p.UserID, TenantID: tid,
+		UserID: p.UserID, TenantID: tid, Principal: p,
 		Staff:   !authz.IsSupport(p) && tid != nil && role != "" && role != authz.Driver,
 		Steward: !authz.IsSupport(p) && (p.Steward || p.HasPlatform(authz.PlatformAdmin)),
 		Can:     p.Can,
@@ -257,7 +257,7 @@ func StorageCaller(c fiber.Ctx) (storage.Caller, bool) {
 // behind auth.RequireAuth where a principal is needed, and the evidence gallery GET /evidence[/{token}] (T49, public);
 // presign spends the presign_user budget (120/min per user), the gallery the evidence_ip one (RATE_LIMIT_EVIDENCE).
 func StorageGroups(d APIDeps) []ingress.Group {
-	o := storage.HTTPOptions{Auth: d.Auth.RequireAuth(), Caller: StorageCaller}
+	o := storage.HTTPOptions{Auth: d.Auth.RequireAuth(), Caller: StorageCaller, UploadPrincipal: d.Auth.Authenticate}
 	if d.Limiter != nil {
 		o.PresignLimit = d.Limiter.Middleware(d.RateLimitEnabled, ratelimit.Rule{Bucket: ratelimit.PresignUser,
 			By: func(c fiber.Ctx) string {

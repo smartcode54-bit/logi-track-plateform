@@ -109,6 +109,7 @@
     "GET /v1/subcontractors",
     "GET /v1/subcontractors/:id",
     "GET /v1/support/customer-options",
+    "GET /v1/support/files/:fileId/content",
     "GET /v1/tasks",
     "GET /v1/tasks/:id",
     "GET /v1/tasks/:id/trip",
@@ -266,6 +267,7 @@
     "PUT /v1/tenants/:id/members/:userId",
     "PUT /v1/tenants/:id/support-access",
     "PUT /v1/trips/:id/billing/manual",
+    "PUT /v1/uploads/:grantId/content",
     "PUT /v1/uploads/local/*",
     "PUT /v1/users/:id/driver-link",
     "PUT /v1/users/:id/scopes/:kind"

@@ -16,13 +16,13 @@ SELECT m.*,
        coalesce(t.license_plate, m.truck_license_plate_snapshot, '')::text AS plate,
        coalesce(t.brand, m.truck_brand_snapshot, '')::text AS brand,
        t.model AS truck_model, t.ownership_type AS truck_ownership, t.status AS truck_status,
-       coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
+       coalesce((SELECT array_agg(CASE WHEN sqlc.arg(broker_files)::boolean THEN f.id::text ELSE f.object_key END ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
                  WHERE mf.maintenance_id = m.id AND mf.kind = 'image'), '{}')::text[] AS image_keys,
-       coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
+       coalesce((SELECT array_agg(CASE WHEN sqlc.arg(broker_files)::boolean THEN f.id::text ELSE f.object_key END ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
                  WHERE mf.maintenance_id = m.id AND mf.kind = 'receipt'), '{}')::text[] AS receipt_keys,
-       coalesce((SELECT array_agg(f.object_key ORDER BY mf.position, f.object_key)
+       coalesce((SELECT array_agg(CASE WHEN sqlc.arg(broker_files)::boolean THEN f.id::text ELSE f.object_key END ORDER BY mf.position, f.object_key)
                  FROM maintenance_files mf JOIN file_objects f ON f.id = mf.file_id
                  WHERE mf.maintenance_id = m.id AND mf.kind = 'invoice'), '{}')::text[] AS invoice_keys
 FROM maintenance_records m

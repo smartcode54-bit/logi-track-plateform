@@ -256,6 +256,15 @@ func (s *Service) ChangeTenantContext(ctx context.Context, p *authz.Principal, m
 	var out *AccessToken
 	pc := newPostCommit()
 	err := s.systemTx(ctx, func(tx pgx.Tx, q *authdb.Queries) error {
+		if mode == AccessModeSupport {
+			var ready bool
+			if err := tx.QueryRow(ctx, supportStorageBrokerReadySQL).Scan(&ready); err != nil {
+				return err
+			}
+			if !ready {
+				return httpx.ErrSupportViewUnavailable()
+			}
+		}
 		now := s.clock()
 		u, err := q.LockUser(ctx, p.UserID)
 		if err != nil {
@@ -433,7 +442,7 @@ func (s *Service) finalizeSupportAudience(p *authz.Principal) func(context.Conte
 			if err != nil {
 				return err
 			}
-			if u.Status != "active" || u.AuthVersion != p.AuthVersion || st.revoked != nil || !st.expires.After(s.clock()) || st.mode != AccessModeSupport || st.version != p.ContextVersion || !equalTenant(st.tenant, p.TenantID) {
+			if (!p.TokenExpiresAt.IsZero() && !p.TokenExpiresAt.After(s.clock())) || u.Status != "active" || u.AuthVersion != p.AuthVersion || st.revoked != nil || !st.expires.After(s.clock()) || st.mode != AccessModeSupport || st.version != p.ContextVersion || !equalTenant(st.tenant, p.TenantID) {
 				return errTokenExpired(ReasonClaimsChanged)
 			}
 			a, err := loadAxes(ctx, q, p.UserID)

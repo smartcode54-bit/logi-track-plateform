@@ -12,7 +12,10 @@ var errorCodeToken = regexp.MustCompile(`^[a-z][a-z0-9_]{0,79}$`)
 var errorFieldToken = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.\[\]-]{0,127}$`)
 var safeFieldReasons = strings.Fields(`required invalid invalid_date invalid_utf8 malformed mismatch duplicate not_allowed not_found one_of out_of_range range_too_long length too_long too_short too_many too_many_columns too_many_rows missing_column reserved uuid after_to equals_email equals_mobile invalid_or_expired superseded too_common unknown_topic`)
 
-func init() { RegisterSafeErrorCode("masked_query_not_allowed") }
+func init() {
+	RegisterSafeErrorCode("masked_query_not_allowed")
+	RegisterSafeErrorCode("range_not_satisfiable")
+}
 
 // RegisterSafeErrorCode admits a reviewed machine code at startup. Messages and
 // arbitrary details remain excluded; callers must never register user input.

@@ -128,7 +128,9 @@ export function parseProxyTarget(rawUrl: string): ProxyTarget {
         return { ok: false, status: 404, message: "not found" };
     }
     const isEvents = lower.length === 2 && lower[1] === "events";
-    const isLocalUpload = lower.length >= 4 && lower[1] === "uploads" && lower[2] === "local";
+    // The authenticated context broker streams tenant bytes on both local/S3.
+    const isBrokerUpload = lower.length === 4 && lower[1] === "uploads" && lower[3] === "content" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lower[2]);
+    const isLocalUpload = isBrokerUpload || (lower.length >= 4 && lower[1] === "uploads" && lower[2] === "local");
     return { ok: true, segments, search, isEvents, isLocalUpload };
 }
 

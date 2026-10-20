@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/xuri/excelize/v2"
@@ -135,7 +136,20 @@ func DetailXLSX(in DetailInput) ([]byte, error) {
 			return
 		}
 		c := cell(col, row)
-		if err = f.SetCellValue(sheet, c, v); err == nil && styleID != 0 {
+		if n, ok := v.(float64); ok {
+			// Automatic precision now truncates at Excel's 15 significant digits.
+			// Keep the browser's existing round-trip numeric cells (not strings),
+			// including unrounded row totals; display still uses #,##0.00.
+			raw := strconv.FormatFloat(n, 'f', -1, 64)
+			precision := 0
+			if dot := strings.IndexByte(raw, '.'); dot >= 0 {
+				precision = len(raw) - dot - 1
+			}
+			err = f.SetCellFloat(sheet, c, n, precision, 64)
+		} else {
+			err = f.SetCellValue(sheet, c, v)
+		}
+		if err == nil && styleID != 0 {
 			err = f.SetCellStyle(sheet, c, c, styleID)
 		}
 	}

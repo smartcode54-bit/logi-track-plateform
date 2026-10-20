@@ -49,3 +49,6 @@ var supportStampPlatformCredentialResetSQL string
 
 //go:embed queries/support_write_session_context.sql
 var supportWriteSessionContextSQL string
+
+//go:embed queries/support_storage_broker_ready.sql
+var supportStorageBrokerReadySQL string

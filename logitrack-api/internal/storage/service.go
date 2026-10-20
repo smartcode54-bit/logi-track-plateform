@@ -56,7 +56,8 @@ type Config struct {
 
 // Caller is the authenticated principal of a storage request as the auth middleware resolved it.
 type Caller struct {
-	UserID uuid.UUID
+	UserID    uuid.UUID
+	Principal *authz.Principal
 	// TenantID is the tenant the request acts in; nil for customer-scope and platform-only principals.
 	TenantID *uuid.UUID
 	// Staff holds a staff role in TenantID (tenant_admin, manager, operation_staff, operator, user): it reads the
@@ -238,6 +239,9 @@ func normalizeType(t string) string {
 // Presign creates a pending upload and signs its PUT, or re-signs a pending key of the caller (offline retry after
 // the URL expired). Validation failures are 422 invalid_argument naming the fields.
 func (s *Service) Presign(ctx context.Context, c Caller, in PresignInput, opts PutOptions) (*Presigned, error) {
+	if authz.IsSupport(c.Principal) {
+		return nil, httpx.ErrSupportReadOnly()
+	}
 	if in.Key != "" {
 		return s.resign(ctx, c, in, opts)
 	}
@@ -315,7 +319,7 @@ func (s *Service) Presign(ctx context.Context, c Caller, in PresignInput, opts P
 				return err
 			}
 			// Signed inside the transaction: a backend that cannot sign leaves no pending row behind.
-			put, err := b.PresignPut(ctx, object(row), ct, in.SizeBytes, s.cfg.PresignPutTTL, opts)
+			put, err := s.uploadGrant(ctx, qFor(tx), row, c, ct, in.SizeBytes, opts)
 			if err != nil {
 				return httpx.ErrUnavailable("storage cannot sign the upload").Wrap(err)
 			}
@@ -364,18 +368,14 @@ func (s *Service) resign(ctx context.Context, c Caller, in PresignInput, opts Pu
 		if len(v) > 0 {
 			return httpx.ErrInvalidArgument(v...)
 		}
-		b, err := s.backend(row.StorageBackend)
-		if err != nil {
-			return err
-		}
 		if row, err = q.ExtendPending(ctx, storagedb.ExtendPendingParams{ExpiresAt: s.now().Add(PendingTTL), ID: row.ID}); err != nil {
 			return err
 		}
-		put, err := b.PresignPut(ctx, object(row), ct, deref(row.SizeBytes), s.cfg.PresignPutTTL, opts)
+		put, err := s.uploadGrant(ctx, q, row, c, ct, deref(row.SizeBytes), opts)
 		if err != nil {
 			return httpx.ErrUnavailable("storage cannot sign the upload").Wrap(err)
 		}
-		out = &Presigned{Key: row.ObjectKey, URL: put.URL, Method: put.Method, Headers: put.Headers, ExpiresAt: put.Expires.UTC(), StorageBackend: b.Name()}
+		out = &Presigned{Key: row.ObjectKey, URL: put.URL, Method: put.Method, Headers: put.Headers, ExpiresAt: put.Expires.UTC(), StorageBackend: row.StorageBackend}
 		return nil
 	})
 	return out, err
@@ -457,6 +457,17 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, in CommitInput) (Commit
 	case "pending":
 	default:
 		return Committed{}, bad("not_found", nil)
+	}
+	ready, err := q.ContextUploadGrantsReady(ctx)
+	if err != nil {
+		return Committed{}, err
+	}
+	if ready {
+		if allowed, err := q.CommittableUploadGrant(ctx, storagedb.CommittableUploadGrantParams{FileID: row.ID, Now: s.now()}); err != nil {
+			return Committed{}, err
+		} else if !allowed {
+			return Committed{}, errPermission("upload_context_changed")
+		}
 	}
 	b, err := s.backend(row.StorageBackend)
 	if err != nil {

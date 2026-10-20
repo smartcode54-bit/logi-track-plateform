@@ -36,6 +36,9 @@ type Field struct {
 	Schema *ResponseSchema
 	// NullMasked preserves structured/private identifiers as null instead of masked text.
 	NullMasked bool
+	// BrokerPath permits only canonical same-origin authenticated support file paths,
+	// never object keys, public/signed URLs or arbitrary file strings. Consent is still required.
+	BrokerPath bool
 	// Owner resolves joined-field provenance independently of the containing row.
 	Owner func(any) string
 	// PublicWhen is restricted to reviewed organization labels. Callers bind label versions at finalization.
@@ -196,6 +199,9 @@ func validateSchema(t reflect.Type, s *ResponseSchema, stack map[reflect.Type]bo
 		if rule.PublicWhen != nil && rule.Kind != Person {
 			return fmt.Errorf("public-label exception requires person classification")
 		}
+		if rule.BrokerPath && rule.Kind != File {
+			return fmt.Errorf("broker path requires file classification")
+		}
 		ft := f.typ
 		for ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
@@ -215,7 +221,16 @@ func validateSchema(t reflect.Type, s *ResponseSchema, stack map[reflect.Type]bo
 			if !plainType(ft) {
 				return fmt.Errorf("unclassified nested field %s", f.name)
 			}
-		case File, Secret: // The entire classified opaque value is removed, even ON.
+		case File, Secret:
+			if rule.BrokerPath {
+				leaf := ft
+				for leaf.Kind() == reflect.Array || leaf.Kind() == reflect.Slice || leaf.Kind() == reflect.Pointer {
+					leaf = leaf.Elem()
+				}
+				if leaf.Kind() != reflect.String {
+					return fmt.Errorf("broker path must be a string")
+				}
+			}
 		default:
 			return fmt.Errorf("unknown classification %s", rule.Kind)
 		}
@@ -359,7 +374,7 @@ func (p *projection) field(v reflect.Value, rule Field, path, owner string) (any
 			if !slices.Contains(rule.MapKeys, key.String()) {
 				return nil, fmt.Errorf("unreviewed map key")
 			}
-			val, err := p.field(v.MapIndex(key), Field{Kind: rule.Kind, Schema: rule.Schema, NullMasked: rule.NullMasked}, path+"/"+pointerPart(key.String()), owner)
+			val, err := p.field(v.MapIndex(key), Field{Kind: rule.Kind, Schema: rule.Schema, NullMasked: rule.NullMasked, BrokerPath: rule.BrokerPath}, path+"/"+pointerPart(key.String()), owner)
 			if err != nil {
 				return nil, err
 			}
@@ -369,6 +384,15 @@ func (p *projection) field(v reflect.Value, rule Field, path, owner string) (any
 	}
 	if rule.Kind == Nested {
 		return p.walk(v, rule.Schema, path, owner)
+	}
+	if rule.Kind == File && rule.BrokerPath && p.audience.Support && owner == p.audience.Tenant && p.clear(owner) {
+		if nilValue(v) {
+			return nil, nil
+		}
+		if v.Kind() != reflect.String || !validSupportFilePath(v.String()) {
+			return nil, fmt.Errorf("unreviewed broker path")
+		}
+		return v.String(), nil
 	}
 	if rule.Kind == Secret || rule.Kind == File || (rule.Kind != Safe && !p.clear(owner)) {
 		p.redacted = append(p.redacted, RedactedField{path, rule.Kind})
@@ -506,6 +530,7 @@ func cleanProjectionHeaders(c fiber.Ctx) {
 	}
 	c.Set(fiber.HeaderCacheControl, "private, no-store")
 	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("Content-Security-Policy", "sandbox; default-src 'none'")
 }
 
 type projectionReceipt struct{ digest [32]byte }
@@ -677,6 +702,9 @@ func schemaTypeScript(t reflect.Type, rule Field) string {
 		return "Partial<Record<" + strings.Join(keys, " | ") + ", " + schemaTypeScript(t.Elem(), rule) + ">> | null"
 	}
 	if rule.Kind == File {
+		if rule.BrokerPath {
+			return "string | null"
+		}
 		return "null"
 	}
 	if rule.Kind == Nested && rule.Schema != nil {
@@ -706,4 +734,18 @@ func schemaTypeScript(t reflect.Type, rule Field) string {
 		return "number"
 	}
 	return "unknown"
+}
+
+func validSupportFilePath(path string) bool {
+	const prefix = "/api/go/v1/support/files/"
+	raw, ok := strings.CutPrefix(path, prefix)
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(raw, "/content")
+	if !ok {
+		return false
+	}
+	parsed, err := uuid.Parse(id)
+	return err == nil && parsed != uuid.Nil && parsed.String() == id
 }

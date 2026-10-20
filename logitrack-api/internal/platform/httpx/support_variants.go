@@ -26,3 +26,13 @@ func OrdinaryPage(c fiber.Ctx, items any, next string, meta any) error {
 	}
 	return Page(c, items, next, meta)
 }
+
+// OrdinaryRedirect preserves member downloads while refusing any projected caller.
+func OrdinaryRedirect(c fiber.Ctx, target string) error {
+	if projectionRequired(c) {
+		return ErrSupportViewUnavailable()
+	}
+	c.Set(fiber.HeaderCacheControl, "private, no-store")
+	c.Set(fiber.HeaderLocation, target)
+	return c.SendStatus(fiber.StatusFound)
+}

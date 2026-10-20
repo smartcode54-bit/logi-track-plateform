@@ -1883,3 +1883,8 @@ Fixture: own fleet **O**; carriers **A** and **B** with `contractor_tenant_id = 
 - Revoking the user's sessions from the Security Center signs out an open tab within 5 s; a `claims_changed` revocation keeps the tab signed in and refreshes `['me']`.
 - Two tabs refreshing at token expiry run one refresh (`navigator.locks` + `lt:lastRefreshAt`, `lib/goFetch.test.ts`) and both continue; with the lock disabled the 30 s reuse grace still keeps both signed in; a role change answered with `401 token_expired` / `claims_changed` triggers one `{"force":true}` refresh although `lt_at` has more than 120 s left.
 - `POST /api/forms/waitlist` (no cookie) reaches `POST /v1/waitlist`, rate-limited per visitor IP.
+
+
+### PSA P1.4 transport extension (migration 0029)
+
+`storage_upload_grants` has ENABLE + FORCE RLS with only p_system (system AND bypass), and no tenant/member/steward policy. logitrack_app receives SELECT/INSERT/UPDATE only; ETL and readonly receive SELECT. Every issue/read/publish/commit validates its immutable session, user/auth/context version, selected tenant and effective refresh/absolute expiry. Support mode cannot issue or use a tenant upload grant. Raw local PUT rejects context-bound grants, and S3 never receives a new signed human-web PUT. These are additional operational-table grants after the baseline coverage table, mirrored by rls_catalog_test.go.

@@ -160,7 +160,7 @@
         "owner": "P1.3",
         "allowHead": false
       },
-      "status": "pending binding: P1.3"
+      "status": "bound"
     },
     {
       "policy": {
@@ -240,7 +240,7 @@
         "owner": "P1.4",
         "allowHead": true
       },
-      "status": "pending binding: P1.4"
+      "status": "bound"
     },
     {
       "policy": {
@@ -288,7 +288,7 @@
         "owner": "P1.4",
         "allowHead": false
       },
-      "status": "pending binding: P1.4"
+      "status": "bound"
     },
     {
       "policy": {
@@ -304,7 +304,7 @@
         "owner": "P1.4",
         "allowHead": false
       },
-      "status": "pending binding: P1.4"
+      "status": "bound"
     },
     {
       "policy": {
@@ -320,7 +320,7 @@
         "owner": "P1.4",
         "allowHead": false
       },
-      "status": "pending binding: P1.4"
+      "status": "bound"
     },
     {
       "policy": {
@@ -1733,26 +1733,27 @@
         "id": "GET /v1/drivers/:id/documents/:kind",
         "method": "GET",
         "route": "/v1/drivers/:id/documents/:kind",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "selected-tenant,admitted-source,broker-only",
+        "schema": "stream:storage.phase1",
+        "owner": "P1.3",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/events",
         "method": "GET",
         "route": "/v1/events",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
+        "target": "selected_tenant",
+        "predicate": "admitted-source,exact-owner,current-context,ready-only,no-submission,broker-or-identifier-events",
+        "schema": "stream:sse.phase1",
+        "owner": "P1.4",
         "allowHead": false
       },
       {
@@ -1902,27 +1903,29 @@
         "id": "GET /v1/jobs",
         "method": "GET",
         "route": "/v1/jobs",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "admitted-source,exact-owner,current-context,ready-only,no-submission,broker-or-identifier-events",
+        "schema": "jobs.phase1",
+        "owner": "P1.4",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/jobs/:id",
         "method": "GET",
         "route": "/v1/jobs/:id",
-        "class": "deny",
-        "phase": 0,
+        "class": "tenant_read",
+        "phase": 1,
         "plane": "tenant",
-        "target": "none",
-        "predicate": "deny",
-        "schema": "none",
-        "owner": "",
-        "allowHead": false
+        "target": "selected_tenant",
+        "predicate": "admitted-source,exact-owner,current-context,ready-only,no-submission,broker-or-identifier-events",
+        "schema": "jobs.phase1",
+        "owner": "P1.4",
+        "allowHead": false,
+        "cursor": "support-page-v1"
       },
       {
         "id": "GET /v1/leave-requests",
@@ -2420,6 +2423,19 @@
         "schema": "support.customer_option",
         "owner": "P1.0",
         "allowHead": false
+      },
+      {
+        "id": "GET /v1/support/files/:fileId/content",
+        "method": "GET",
+        "route": "/v1/support/files/:fileId/content",
+        "class": "tenant_read",
+        "phase": 1,
+        "plane": "tenant",
+        "target": "selected_tenant",
+        "predicate": "admitted-source,exact-owner,current-context,ready-only,no-submission,broker-or-identifier-events",
+        "schema": "stream:storage.phase1",
+        "owner": "P1.4",
+        "allowHead": true
       },
       {
         "id": "GET /v1/tasks",
@@ -4486,6 +4502,19 @@
         "allowHead": false
       },
       {
+        "id": "PUT /v1/uploads/:grantId/content",
+        "method": "PUT",
+        "route": "/v1/uploads/:grantId/content",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "PUT /v1/uploads/local/*",
         "method": "PUT",
         "route": "/v1/uploads/local/*",
@@ -5050,6 +5079,8 @@
     "iam.tenant-detail",
     "iam.tenant-document",
     "iam.user-counts",
+    "jobs.phase1",
+    "jobs.progress",
     "locations.location",
     "maintenance.files",
     "maintenance.meta",

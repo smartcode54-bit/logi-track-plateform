@@ -33,7 +33,7 @@ func Groups(s *Service, requireAuth fiber.Handler) []ingress.Group {
 		r.Post("", requireAuth, need(authz.DriversCreate), h.create)
 		ingress.Bind(r, "/:id", supportPolicy(Prefix+"/:id", "drivers.detail", ""), requireAuth, need(authz.DriversView), h.get)
 		r.Patch("/:id", requireAuth, need(authz.DriversEdit), h.patch)
-		r.Get("/:id/documents/:kind", requireAuth, need(authz.DriversViewPII), h.document)
+		ingress.Bind(r, "/:id/documents/:kind", supportPolicy(Prefix+"/:id/documents/:kind", "stream:storage.phase1", ""), requireAuth, need(authz.DriversViewPII), h.document)
 	}}}
 }
 
@@ -200,11 +200,12 @@ func (h handlers) document(c fiber.Ctx) error {
 	if err := onlyQuery(c); err != nil {
 		return err
 	}
+	if authz.IsSupport(p) {
+		return h.s.supportDocument(c, p, id, c.Params("kind"))
+	}
 	u, err := h.s.DocumentURL(c.Context(), p, id, c.Params("kind"))
 	if err != nil {
 		return err
 	}
-	c.Set(fiber.HeaderCacheControl, "private, no-store")
-	c.Set(fiber.HeaderLocation, u)
-	return c.SendStatus(http.StatusFound)
+	return httpx.OrdinaryRedirect(c, u)
 }

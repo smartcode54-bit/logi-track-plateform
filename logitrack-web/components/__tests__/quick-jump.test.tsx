@@ -169,8 +169,12 @@ describe("shortcuts and lifecycle", () => {
         const remove = vi.spyOn(window, "removeEventListener");
         const view = mount();
         await screen.findByTestId("quick-jump-trigger");
-        const listeners = add.mock.calls.filter(([name]) => name === "keydown");
-        expect(listeners).toHaveLength(1);
+        // Async provider mounting can expose the trigger before its passive effect runs.
+        const listeners = await waitFor(() => {
+            const current = add.mock.calls.filter(([name]) => name === "keydown");
+            expect(current).toHaveLength(1);
+            return current;
+        });
         act(() => view.client.setQueryData(["me"], { ...customer, displayName: "Changed" }));
         await userEvent.setup().click(trigger());
         await screen.findByRole("dialog");

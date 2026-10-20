@@ -292,7 +292,10 @@ func notify(ctx context.Context, tx pgx.Tx, j Job) error {
 	}
 	_, err := outbox.Append(ctx, tx, outbox.Event{
 		RoutingKey: RoutingKeyUpdated, AggregateType: "job", AggregateID: j.ID.String(), TenantID: j.TenantID,
-		Payload: j, Topics: []string{"user:" + j.OwnerUserID.String()},
+		Payload: struct {
+			Job
+			SourceTenant *uuid.UUID `json:"tenantId"`
+		}{j, j.TenantID}, Topics: []string{"user:" + j.OwnerUserID.String()},
 	})
 	return err
 }

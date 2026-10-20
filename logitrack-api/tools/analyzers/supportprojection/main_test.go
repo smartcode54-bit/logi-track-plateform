@@ -50,6 +50,9 @@ func Mounted(r fiber.Router){ingress.Bind(r,"",httpx.EndpointPolicy{SchemaID:"ou
 	}{
 		{"complete", "", "", false},
 		{"wrapped complete", "", "", false},
+		{"wrapped parameter policy", "", "", false},
+		{"wrapped framework policy", "", "", false},
+		{"wrapped framework wrong schema", "httpx.JSON(c,200,Output{})", "httpx.JSON(c,200,NewDTO{})", true},
 		{"wrapped new DTO", "httpx.JSON(c,200,Output{})", "httpx.JSON(c,200,NewDTO{})", true},
 		{"wrapped direct writer", "httpx.JSON(c,200,Output{})", "c.JSON(Output{})", true},
 		{"helper fields complete", "", "", false},
@@ -82,6 +85,12 @@ func policy(schema string) httpx.EndpointPolicy { p:=httpx.EndpointPolicy{};p.Sc
 func bind(r fiber.Router,schema string,handler any,handlers ...any) {ingress.Bind(r,"",policy(schema),handler,handlers...)}
 `
 				source = strings.Replace(source, `ingress.Bind(r,"",httpx.EndpointPolicy{SchemaID:"output"},`, `bind(r,"output",`, 1)
+			}
+			if strings.HasPrefix(tc.name, "wrapped framework") {
+				source = strings.Replace(source, `func policy(schema string) httpx.EndpointPolicy { p:=httpx.EndpointPolicy{};p.SchemaID=schema;return p }`, `func policy(schema string) httpx.EndpointPolicy { return httpx.TenantReadPolicy(httpx.EndpointPolicy{},schema,"",true) }`, 1)
+			}
+			if tc.name == "wrapped parameter policy" {
+				source = strings.Replace(source, `func policy(schema string) httpx.EndpointPolicy { p:=httpx.EndpointPolicy{};p.SchemaID=schema;return p }`, `func policyBase(p httpx.EndpointPolicy, schema string) httpx.EndpointPolicy { p.SchemaID=schema; return p }; func policy(schema string) httpx.EndpointPolicy { for _,p:= range []httpx.EndpointPolicy{{}} { return policyBase(p,schema) }; panic("no policy") }`, 1)
 			}
 			if strings.HasPrefix(tc.name, "helper fields ") {
 				source = strings.Replace(source, `map[string]httpx.Field{"label":{Kind:httpx.Person}}`, `childFields()`, 1)

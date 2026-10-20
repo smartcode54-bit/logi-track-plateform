@@ -60,6 +60,15 @@ func isStaff(p *authz.Principal) bool {
 //   - nothing tenant-scoped for a customer-scope principal or under X-Act-On-Tenant: *.
 func WebTopics(p *authz.Principal) []string {
 	out := []string{rt.UserTopic(p.UserID.String())}
+	if authz.IsSupport(p) {
+		if tid := p.EffectiveTenant(); tid != nil {
+			for _, family := range []string{rt.FamilyConfig, rt.FamilyFleet, rt.FamilyVehicleLocations} {
+				out = append(out, rt.TenantTopic(tid.String(), family))
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
 	if p.DriverID != nil {
 		out = append(out, rt.DriverTopic(p.DriverID.String()))
 	}
@@ -110,6 +119,15 @@ func WebTopics(p *authz.Principal) []string {
 // for a driver, driver:{did}. Chats are explicit.
 func MobileTopics(p *authz.Principal) []string {
 	out := []string{rt.UserTopic(p.UserID.String())}
+	if authz.IsSupport(p) {
+		if tid := p.EffectiveTenant(); tid != nil {
+			for _, family := range []string{rt.FamilyConfig, rt.FamilyFleet, rt.FamilyVehicleLocations} {
+				out = append(out, rt.TenantTopic(tid.String(), family))
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
 	if p.DriverID != nil {
 		out = append(out, rt.DriverTopic(p.DriverID.String()))
 	}
