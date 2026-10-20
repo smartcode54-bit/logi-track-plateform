@@ -31,17 +31,18 @@ export function AccountPasswordPanel() {
     const { t } = useLanguage();
     const id = useId();
     const form = useForm<PasswordValues>({ defaultValues: { currentPassword: "", newPassword: "", confirm: "" } });
-    const { setFocus } = form;
+    const { getFieldState, setFocus } = form;
     const { errors, isSubmitting } = form.formState;
     const [failure, setFailure] = useState<unknown>(null);
     const [success, setSuccess] = useState(false);
     const hasFieldFailure = isApiError(failure) && ["currentPassword", "newPassword"].some((name) => violationFor(failure, name));
 
+    // Invalid-submit focus can run while inputs are disabled; retry after React re-enables them.
     useEffect(() => {
-        if (isSubmitting || !failure) return;
-        const first = (["currentPassword", "newPassword"] as const).find((name) => violationFor(failure, name));
-        if (first) setFocus(first);
-    }, [failure, isSubmitting, setFocus]);
+        if (isSubmitting) return;
+        const first = FIELDS.find(({ name }) => getFieldState(name).invalid);
+        if (first) setFocus(first.name);
+    }, [getFieldState, isSubmitting, setFocus]);
 
     const onValid = async ({ currentPassword, newPassword }: PasswordValues) => {
         setFailure(null);

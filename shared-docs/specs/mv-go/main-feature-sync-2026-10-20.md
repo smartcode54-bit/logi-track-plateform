@@ -67,3 +67,23 @@ Final form regression: duplicate a multi-drop task billed to old-party, switch
 kind, and prove the previous customer is cleared. Pick a new route whose hub
 links p1 and verify that the new task posts p1 and no old delivery stops. The
 red reproducer retained old-party; the fix reuses the existing create initializer.
+
+## CI repairs
+
+Two full CI web runs exposed the existing password-form focus race; the second
+also exposed keyboard tests firing before Quick Jump's passive listener. Unit
+CI uses Node20; build/bundle use Node22. Match the failing job's runtime.
+
+A deterministic password regression flushes disabled inputs before onInvalid
+and makes zero-delay focus callbacks run before the final re-enable commit.
+The original fails with focus on submit; the existing post-submit effect now
+reads the first invalid field through getFieldState after isSubmitting clears.
+It retains field order, server422 behavior and focus while correcting a field;
+no validation, auth API, shared invalid handler or timeout change. All37 affected
+password/Quick Jump tests pass on Node20. The new case adds one web test (3088).
+
+The Quick Jump test mount waits for exactly one window keydown registration,
+then every shortcut test starts. Preserve the existing no-duplicate listener
+and same-callback cleanup assertions; no production Quick Jump edit.
+
+CI repair files: AccountPasswordPanel.tsx and its test, Quick Jump's test only.
