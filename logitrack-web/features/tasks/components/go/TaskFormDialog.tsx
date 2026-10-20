@@ -224,22 +224,38 @@ export function TaskFormDialog({
         }
     };
 
-    const title = mode === "edit" ? t("firstMile.task.editTitle") : t("firstMile.task.createTitle");
+    const formKeys = fm ? {
+        title: mode === "edit" ? "firstMile.task.editTitle" : "firstMile.task.createTitle",
+        description: mode === "edit" ? "firstMile.task.editDesc" : "firstMile.task.createDesc",
+        source: "firstMile.task.sourceHub", selectSource: "firstMile.task.selectHub",
+        destination: "firstMile.task.destination", selectDestination: "firstMile.task.selectSOC",
+    } : {
+        title: mode === "edit" ? "lineHaul.task.editTitle" : "lineHaul.task.createTitle",
+        description: mode === "edit" ? "lineHaul.task.editDesc" : "lineHaul.task.createDesc",
+        source: "lineHaul.task.sourceSoc", selectSource: "lineHaul.task.selectSourceSoc",
+        destination: "lineHaul.task.destinationHub", selectDestination: "lineHaul.task.selectDestinationHub",
+    };
     return (
         <Dialog open onOpenChange={(o) => !o && !saving && onClose()}>
             <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>
-                        {title}
+                        {t(formKeys.title)}
                         {task?.taskNo && mode === "edit" ? <span className="ml-2 font-mono text-sm text-muted-foreground">{task.taskNo}</span> : null}
                     </DialogTitle>
-                    <DialogDescription>{mode === "edit" ? t("firstMile.task.editDesc") : t("firstMile.task.createDesc")}</DialogDescription>
+                    <DialogDescription>{t(formKeys.description)}</DialogDescription>
                 </DialogHeader>
 
                 <div className="grid gap-4 py-2 sm:grid-cols-2">
                     {allowTypeSwitch ? (
                         <Field label={t("jobAssign.taskTypeLabel")}>
-                            <Select value={v.taskType} onValueChange={(x) => setV((prev) => ({ ...prev, taskType: x as TaskType, sourceHub: "", destination: "" }))}>
+                            <Select value={v.taskType} onValueChange={(x) => {
+                                if (x === v.taskType) return;
+                                setV(initialValues("create", x as TaskType, undefined));
+                                setStopsTouched(false);
+                                setError(null);
+                                setLocal(null);
+                            }}>
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
@@ -256,13 +272,13 @@ export function TaskFormDialog({
                     <Field label={t("firstMile.task.actualPickupAt")} htmlFor="task-pickup">
                         <Input id="task-pickup" type="datetime-local" value={v.actualPickupAt} onChange={(e) => set("actualPickupAt", e.target.value)} />
                     </Field>
-                    <Field label={t("firstMile.task.sourceHub")}>
-                        <HubSelect value={v.sourceHub} prefer={fm ? "HUB" : "SOC"} placeholder={t("firstMile.task.selectHub")} className="w-full"
-                            aria-label={t("firstMile.task.sourceHub")} onHubChange={(code, h) => pickPlace("sourceHub", code, h)} />
+                    <Field label={t(formKeys.source)}>
+                        <HubSelect value={v.sourceHub} prefer={fm ? "HUB" : "SOC"} placeholder={t(formKeys.selectSource)} className="w-full"
+                            aria-label={t(formKeys.source)} onHubChange={(code, h) => pickPlace("sourceHub", code, h)} />
                     </Field>
-                    <Field label={t("firstMile.task.destination")}>
-                        <HubSelect value={v.destination} prefer={fm ? "SOC" : "HUB"} placeholder={t("firstMile.task.selectSOC")} className="w-full"
-                            aria-label={t("firstMile.task.destination")} onHubChange={(code, h) => pickPlace("destination", code, h)} />
+                    <Field label={t(formKeys.destination)}>
+                        <HubSelect value={v.destination} prefer={fm ? "SOC" : "HUB"} placeholder={t(formKeys.selectDestination)} className="w-full"
+                            aria-label={t(formKeys.destination)} onHubChange={(code, h) => pickPlace("destination", code, h)} />
                     </Field>
                     <Field label={t("firstMile.task.customer")}>
                         <CustomerPartySelect aria-label={t("firstMile.task.customer")} value={v.billingPartyId} onValueChange={(id) => set("billingPartyId", id)}

@@ -1,4 +1,5 @@
 import React from "react";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,6 +7,7 @@ import { toast } from "sonner";
 
 import { LanguageProvider } from "@/context/language";
 import { fakeWeb, goErr } from "@/test-utils/fakeWeb";
+import * as invalidHandler from "@/lib/formInvalidHandler";
 import { AccountPasswordPanel } from "./AccountPasswordPanel";
 
 const PATH = "/api/go/v1/auth/password/change";
@@ -38,6 +40,35 @@ async function fill(view: Awaited<ReturnType<typeof setup>>, password = "A-Bette
 }
 
 describe("AccountPasswordPanel", () => {
+    it("focuses client errors after inputs re-enable when focus timers run before the final commit", async () => {
+        const originalInvalidHandler = invalidHandler.createInvalidHandler;
+        vi.spyOn(invalidHandler, "createInvalidHandler").mockImplementation((form, t) => {
+            const onInvalid = originalInvalidHandler(form, t);
+            return (errors) => {
+                flushSync(() => undefined);
+                expect(screen.getByLabelText(/^Current password/)).toBeDisabled();
+                onInvalid(errors);
+            };
+        });
+        const originalSetTimeout = globalThis.setTimeout;
+        vi.spyOn(globalThis, "setTimeout").mockImplementation((...args) => {
+            const current = document.querySelector<HTMLInputElement>('input[name="currentPassword"]');
+            if (typeof args[0] === "function" && !args[1] && current?.disabled) {
+                args[0]();
+                return originalSetTimeout(() => undefined, 0);
+            }
+            return originalSetTimeout(...args);
+        });
+        const view = await setup();
+        await view.submit();
+        await waitFor(() => expect(view.current).toBeEnabled());
+        await waitFor(() => expect(view.current).toHaveFocus());
+        await view.user.click(view.confirm);
+        await view.user.type(view.confirm, "a");
+        expect(view.confirm).toHaveFocus();
+        expect(view.web.calls).toHaveLength(0);
+    });
+
     it("shows required labels, associated errors and shared feedback, sending nothing for empty fields", async () => {
         const summary = vi.spyOn(toast, "error");
         const view = await setup();

@@ -34,11 +34,14 @@ function LanguageSwitch() {
     return <button onClick={() => setLanguage("th")}>Thai</button>;
 }
 
-function mount(me: MeDTO = customer) {
+async function mount(me: MeDTO = customer) {
+    const add = vi.spyOn(window, "addEventListener");
     const client = createQueryClient();
     client.setQueryData(["me"], me);
     const content = <><button>Invoker</button><input aria-label="Editor" /><LanguageSwitch /><QuickJump /><main id="main-content" tabIndex={-1}>Page</main></>;
     const view = renderWithProviders(content, client);
+    await screen.findByTestId("quick-jump-trigger");
+    await waitFor(() => expect(add.mock.calls.filter(([name]) => name === "keydown")).toHaveLength(1));
     return { ...view, content };
 }
 
@@ -81,7 +84,7 @@ describe("palette destinations", () => {
 describe("shortcuts and lifecycle", () => {
     it.each([false, true])("opens with the platform modifier (Apple: %s), focuses search and restores the invoker", async (apple) => {
         vi.spyOn(navigator, "userAgent", "get").mockReturnValue(apple ? "Macintosh" : "Linux");
-        mount();
+        await mount();
         await screen.findByTestId("quick-jump-trigger");
         expect(trigger()).toHaveAttribute("aria-keyshortcuts", apple ? "Meta+K" : "Control+K");
         expect(trigger()).toHaveTextContent(apple ? "⌘K" : "Ctrl+K");
@@ -99,7 +102,7 @@ describe("shortcuts and lifecycle", () => {
     });
 
     it("ignores ordinary, extra-modifier, repeated, composing, handled and editable keystrokes", async () => {
-        mount();
+        await mount();
         await screen.findByTestId("quick-jump-trigger");
         for (const init of [{ ctrlKey: false }, { shiftKey: true }, { altKey: true }, { metaKey: true }, { repeat: true }, { isComposing: true }, { keyCode: 229 }]) shortcut(init);
         const handled = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
@@ -117,7 +120,7 @@ describe("shortcuts and lifecycle", () => {
     });
 
     it.each(["dialog", "alertdialog", "menu", "listbox"])("does not open over another %s", async (role) => {
-        mount();
+        await mount();
         await screen.findByTestId("quick-jump-trigger");
         const overlay = document.createElement("div");
         overlay.setAttribute("role", role);
@@ -129,7 +132,7 @@ describe("shortcuts and lifecycle", () => {
     });
 
     it("keeps Tab trapped, refocuses search on another shortcut, and falls back to the trigger for a removed invoker", async () => {
-        mount();
+        await mount();
         await screen.findByTestId("quick-jump-trigger");
         const invoker = document.createElement("button");
         document.body.append(invoker);
@@ -152,7 +155,7 @@ describe("shortcuts and lifecycle", () => {
         const viewport = Object.assign(new EventTarget(), { width: 360, height: 300, offsetTop: 40, offsetLeft: 0 });
         const remove = vi.spyOn(viewport, "removeEventListener");
         vi.stubGlobal("visualViewport", viewport);
-        const view = mount();
+        const view = await mount();
         await userEvent.setup().click(await screen.findByTestId("quick-jump-trigger"));
         const dialog = await screen.findByRole("dialog");
         await waitFor(() => expect(dialog.style.getPropertyValue("--quick-jump-height")).toBe("300px"));
@@ -167,7 +170,7 @@ describe("shortcuts and lifecycle", () => {
     it("registers one listener across rerenders and removes it on unmount", async () => {
         const add = vi.spyOn(window, "addEventListener");
         const remove = vi.spyOn(window, "removeEventListener");
-        const view = mount();
+        const view = await mount();
         await screen.findByTestId("quick-jump-trigger");
         // Async provider mounting can expose the trigger before its passive effect runs.
         const listeners = await waitFor(() => {
@@ -184,7 +187,7 @@ describe("shortcuts and lifecycle", () => {
     });
 
     it.each(["principal", "tenant"])("closes and resets the query on a %s change", async (change) => {
-        const view = mount(staff);
+        const view = await mount(staff);
         await screen.findByTestId("quick-jump-trigger");
         const user = userEvent.setup();
         await user.click(trigger());
@@ -198,7 +201,7 @@ describe("shortcuts and lifecycle", () => {
 
 describe("search and selection", () => {
     it("matches normalized current-language labels, group names and routes without changing order", async () => {
-        const view = mount(staff);
+        const view = await mount(staff);
         const user = userEvent.setup();
         await user.click(await screen.findByTestId("quick-jump-trigger"));
         const input = await screen.findByRole("combobox");
@@ -218,7 +221,7 @@ describe("search and selection", () => {
     });
 
     it("updates open labels and matching when the language changes, folding Thai tone marks", async () => {
-        mount(staff);
+        await mount(staff);
         const user = userEvent.setup();
         await screen.findByTestId("quick-jump-trigger");
         await user.click(screen.getByRole("button", { name: "Thai" }));
@@ -231,7 +234,7 @@ describe("search and selection", () => {
     });
 
     it("handles arrows and Enter, closes, and focuses main only when the route commits", async () => {
-        const view = mount();
+        const view = await mount();
         const user = userEvent.setup();
         await user.click(await screen.findByTestId("quick-jump-trigger"));
         await screen.findByRole("combobox");
@@ -247,7 +250,7 @@ describe("search and selection", () => {
     });
 
     it("selects the current route without pushing and focuses main immediately", async () => {
-        mount();
+        await mount();
         const user = userEvent.setup();
         await user.click(await screen.findByTestId("quick-jump-trigger"));
         await user.type(await screen.findByRole("combobox"), "support");
@@ -257,7 +260,7 @@ describe("search and selection", () => {
     });
 
     it("rejects a stale selection against the current cache before the component rerenders", async () => {
-        const view = mount(staff);
+        const view = await mount(staff);
         const user = userEvent.setup();
         await user.click(await screen.findByTestId("quick-jump-trigger"));
         await user.type(await screen.findByRole("combobox"), "/app/trucks");
@@ -289,7 +292,7 @@ describe("search and selection", () => {
 
     it("offers a localized retry after a lazy chunk failure and recovers on retry", async () => {
         vi.doMock("@/components/quick-jump-dialog", () => { throw new Error("chunk unavailable"); });
-        mount();
+        await mount();
         const user = userEvent.setup();
         await user.click(await screen.findByTestId("quick-jump-trigger"));
         expect(await screen.findByRole("alert")).toHaveTextContent("This dialog could not be opened");

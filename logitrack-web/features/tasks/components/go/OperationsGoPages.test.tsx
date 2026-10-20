@@ -25,7 +25,7 @@ import { fakeWeb, json, makeMe } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
 
-import { FirstMileBoardPage } from "./TaskBoardPage";
+import { FirstMileBoardPage, JobAssignBoardPage } from "./TaskBoardPage";
 import { DriverMonitorPage } from "@/features/drivers/components/go/DriverMonitorPage";
 import { StandbyRecordsPage } from "@/features/standby/components/go/StandbyRecordsPage";
 import { IncidentReportsPage } from "@/features/incident-reports/components/go/IncidentReportsPage";
@@ -48,6 +48,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     mobile.value = false;
+    localStorage.removeItem("jobAssign.visibleColumns");
     resetQueryClientForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -89,6 +90,71 @@ const task = (status: string) => ({
 });
 
 describe("Go operations pages (T34)", () => {
+    it("unified assignment opens one form directly, defaults to the filtered type and switches within the same dialog", async () => {
+        const web = setup();
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [] }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
+        web.on("GET", "/api/go/v1/customers", () => json(200, { data: [] }));
+        renderPage("/app/job-assign", <JobAssignBoardPage />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Job type" }));
+        await u.click(await screen.findByRole("option", { name: "Line Haul" }));
+        await waitFor(() => expect(web.calls.some((c) => params(c.url).taskType === "line_haul")).toBe(true));
+        await u.click(screen.getByRole("button", { name: "Add job" }));
+        const dialog = await screen.findByRole("dialog");
+        expect(within(dialog).getByRole("heading", { name: "Create Line Haul Task" })).toBeInTheDocument();
+        expect(within(dialog).getByRole("combobox", { name: "Source (SOC)" })).toBeInTheDocument();
+        await u.click(within(dialog).getByRole("combobox", { name: "Job type" }));
+        await u.click(await screen.findByRole("option", { name: "First Mile" }));
+        expect(screen.getAllByRole("dialog")).toEqual([dialog]);
+        expect(within(dialog).getByRole("combobox", { name: "Pickup Point" })).toBeInTheDocument();
+        expect(web.calls.some((c) => c.method === "POST")).toBe(false);
+    });
+
+    it("unified columns show actual pickup, save visibility, and restore it without hiding mobile summaries", async () => {
+        const web = setup();
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [{ ...task("assigned"), actualPickupAt: "2026-10-14T03:00:00Z" }] }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
+        const view = renderPage("/app/job-assign", <JobAssignBoardPage />);
+        expect(await screen.findByText("14/10/2026")).toBeInTheDocument();
+        expect(screen.queryByRole("columnheader", { name: "Time" })).toBeNull();
+        const table = screen.getByRole("table");
+        expect(within(table).getByRole("columnheader", { name: "Actual pickup" })).toBeInTheDocument();
+        const u = userEvent.setup();
+        await u.click(screen.getByRole("button", { name: "Choose columns" }));
+        const driver = screen.getByRole("menuitemcheckbox", { name: "Driver" });
+        await u.click(driver);
+        await u.keyboard("{Escape}");
+        expect(screen.queryByRole("columnheader", { name: "Driver" })).toBeNull();
+        expect(JSON.parse(localStorage.getItem("jobAssign.visibleColumns")!)).not.toContain("driver");
+        view.unmount();
+        const restored = renderPage("/app/job-assign", <JobAssignBoardPage />);
+        await screen.findByText("FM-12102026-001");
+        expect(screen.queryByRole("columnheader", { name: "Driver" })).toBeNull();
+        restored.unmount();
+        mobile.value = true;
+        renderPage("/app/job-assign", <JobAssignBoardPage />);
+        const summary = await screen.findByRole("article", { name: "FM-12102026-001" });
+        expect(within(summary).getByText("สมชาย ใจดี")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Choose columns" })).toBeNull();
+    });
+
+    it.each(["invalid JSON", "[]", '["unknown"]', '["driver","unknown"]'])("recovers column preference %s and keeps one data column", async (saved) => {
+        localStorage.setItem("jobAssign.visibleColumns", saved);
+        const web = setup();
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [] }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
+        renderPage("/app/job-assign", <JobAssignBoardPage />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("button", { name: "Choose columns" }));
+        expect(screen.getAllByRole("menuitemcheckbox")).toHaveLength(12);
+        if (saved.includes("driver")) {
+            expect(screen.getByRole("menuitemcheckbox", { name: "Driver" })).toHaveAttribute("aria-disabled", "true");
+        }
+        await u.keyboard("{Escape}");
+        expect(screen.getAllByRole("columnheader")).toHaveLength(saved.includes("driver") ? 2 : 13);
+    });
+
     it("mobile summary shows the task, driver and status, opens the same details, and fetches one list", async () => {
         mobile.value = true;
         const web = setup();
