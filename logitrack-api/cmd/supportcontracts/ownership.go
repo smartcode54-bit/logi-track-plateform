@@ -65,7 +65,7 @@ func FileOwner(path string) string {
 			}
 		}
 	}
-	for _, p := range []string{".github/workflows/go-ci.yml", ".github/workflows/ci.yml", "logitrack-web/package.json", "logitrack-web/components/__tests__/page-states.test.tsx", "logitrack-web/eslint.config.mjs", "logitrack-web/scripts/check-masked-money.mjs", "logitrack-web/scripts/check-masked-money.test.mjs", "logitrack-web/scripts/support-header-baseline.json", "shared-docs/schemas/capabilities.ts", "shared-docs/schemas/supportAccess.ts"} {
+	for _, p := range []string{".github/workflows/go-ci.yml", ".github/workflows/ci.yml", "logitrack-web/package.json", "logitrack-web/components/__tests__/page-states.test.tsx", "logitrack-web/components/__tests__/quick-jump.test.tsx", "logitrack-web/eslint.config.mjs", "logitrack-web/scripts/check-masked-money.mjs", "logitrack-web/scripts/check-masked-money.test.mjs", "logitrack-web/scripts/support-header-baseline.json", "shared-docs/schemas/capabilities.ts", "shared-docs/schemas/supportAccess.ts"} {
 		if path == p {
 			return "P1.0"
 		}
