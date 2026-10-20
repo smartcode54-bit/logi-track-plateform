@@ -85,6 +85,53 @@ async function targetSize(page: Page, selector: string) {
     expect(bounds!.height).toBeGreaterThanOrEqual(44);
 }
 
+for (const width of [360, 1280]) {
+    for (const language of ["en", "th"] as const) {
+        for (const route of ["/app/support", "/app/security-center/api-keys"]) {
+            test(`display preferences: ${width}px ${language} ${route}`, async ({ browser }) => {
+                const { page, context } = await openShell(browser, "staff", language, width, true, route);
+                try {
+                    const mobile = width < 768;
+                    if (mobile) await page.setViewportSize({ width, height: 640 });
+                    if (mobile) await page.locator("[data-slot=sidebar-trigger]").click();
+                    const surface = mobile ? page.getByRole("dialog") : page.getByRole("banner");
+                    const controls = surface.locator("[data-slot=display-preferences]");
+                    await expect(controls).toBeVisible();
+                    if (mobile) {
+                        await expect(page.getByRole("banner").locator("[data-slot=display-preferences]")).toBeHidden();
+                        const support = surface.getByRole("link", { name: language === "en" ? "Support" : "ศูนย์ช่วยเหลือ", exact: true });
+                        const before = (await controls.boundingBox())!;
+                        expect(before.y + before.height).toBeLessThanOrEqual((await support.boundingBox())!.y);
+                        expect(await surface.locator("[data-sidebar-scroll]").evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+                        await surface.locator("[data-sidebar-scroll]").evaluate((node) => { node.scrollTop = node.scrollHeight; });
+                        expect((await controls.boundingBox())!.y).toBe(before.y);
+                        expect(before.y + before.height).toBeLessThanOrEqual(640);
+                        for (const button of await controls.getByRole("button").all()) {
+                            const box = (await button.boundingBox())!;
+                            expect(box.width).toBeGreaterThanOrEqual(44);
+                            expect(box.height).toBeGreaterThanOrEqual(44);
+                        }
+                    }
+                    for (const [label, theme] of [[language === "en" ? "Dark" : "มืด", "dark"], [language === "en" ? "Light" : "สว่าง", "light"]]) {
+                        await controls.getByRole("button", { name: language === "en" ? "Theme" : "ธีม", exact: true }).click();
+                        await page.getByRole("menuitemradio", { name: label, exact: true }).click();
+                        await expect(page.locator("html")).toHaveClass(new RegExp(`\\b${theme}\\b`));
+                        if (mobile) await expect(surface).toBeVisible();
+                        const output = process.env.SHELL_PREFERENCES_SCREENSHOTS;
+                        if (output) await page.screenshot({ path: `${output}/${width}-${language}-${route.includes("security-center") ? "security" : "main"}-${theme}.png` });
+                    }
+                    await controls.getByRole("button", { name: language === "en" ? "ไทย" : "English", exact: true }).click();
+                    await expect(page.locator("html")).toHaveAttribute("lang", language === "en" ? "th" : "en");
+                    if (mobile) await expect(surface).toBeVisible();
+                    await noOverflow(page);
+                } finally {
+                    await context.close();
+                }
+            });
+        }
+    }
+}
+
 async function startKeyboardSequence(page: Page) {
     await page.evaluate(() => {
         document.body.tabIndex = -1;
@@ -127,7 +174,7 @@ for (const profile of ["staff", "customer", "partner"] as const) {
                     }
                     // Start at body, counting the skip link; sidebar controls must follow the account trigger.
                     await startKeyboardSequence(page);
-                    const limit = width < 768 ? 5 : 7;
+                    const limit = width < 768 ? 5 : 10;
                     const stops: string[] = [];
                     for (let count = 0; count < limit; count++) {
                         await page.keyboard.press("Tab");
@@ -187,7 +234,7 @@ for (const width of [768, 1280]) {
                 expect(header!.height).toBe(64);
                 await noOverflow(page);
                 await startKeyboardSequence(page);
-                for (let count = 0; count < 7; count++) {
+                for (let count = 0; count < 10; count++) {
                     await page.keyboard.press("Tab");
                     const account = await page.getByTestId("user-menu-trigger").evaluate((node) => node === document.activeElement);
                     expect(await page.evaluate(() => Boolean(document.activeElement?.closest("[data-slot=sidebar]")))).toBe(false);

@@ -13,6 +13,7 @@ import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { ScopeLine } from "@/components/scope-line";
 import { initialSidebarOpen, sidebarShortcutKeys } from "@/components/sidebar-shell";
 import { UserMenu } from "@/components/user-menu";
+import { DisplayPreferences } from "@/components/display-preferences";
 import { QuickJump } from "@/components/quick-jump";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -26,7 +27,7 @@ const MAIN_CONTENT_ID = "main-content";
 
 /**
  * The `/app` shell (UI3, issue #143): sidebar, a 64 px header (sidebar trigger, breadcrumb from the menu's labels,
- * tenant switcher, user menu with the scope line, language, theme and sign-out) and the page. The header holds
+ * tenant switcher, desktop display preferences, user menu with the scope line and sign-out) and the page. The header holds
  * only working controls: the dead searches, the unwired report button and bell, and the "real-time" label over a
  * 60 s poll were removed.
  *
@@ -108,6 +109,9 @@ export default function AdminLayout({
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                         <TenantSwitcher />
+                        <div className="hidden md:block">
+                            <DisplayPreferences />
+                        </div>
                         <UserMenu />
                     </div>
                 </header>

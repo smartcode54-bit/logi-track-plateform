@@ -1,6 +1,6 @@
 // UI3 (#143): the `/app` shell after the critique's four P1s. The header holds no decoys and keeps one height; the
-// sidebar and the user menu name the slice of the data from one label source; the language and theme live in the
-// user menu (reachable at every width), `<html lang>` follows the language, the breadcrumb reads the menu's labels
+// sidebar and the user menu name the slice of the data from one label source; display preferences live in the
+// desktop header and pinned mobile drawer footer, `<html lang>` follows the language, the breadcrumb reads the menu's labels
 // in Thai, there is a skip link, and sign-out has one destination. The browser talks to a fake BFF.
 import fs from "node:fs";
 import path from "node:path";
@@ -84,7 +84,7 @@ describe("the app header", () => {
         expect(within(bar).queryByRole("button", { name: /generate report/i })).toBeNull();
         expect(within(bar).queryByText(/real-time/i)).toBeNull();
         expect(screen.queryByPlaceholderText(/search (data|security logs)/i)).toBeNull();
-        // Every control in the header has a name (the old bell had none) and none is a toggle of language or theme.
+        // Every control in the header has a name (the old bell had none).
         for (const button of within(bar).getAllByRole("button")) expect(button).toHaveAccessibleName();
         expect(within(bar).getByRole("button", { name: "Show or hide the menu" })).toBeInTheDocument();
         expect(within(bar).queryByRole("button", { name: /^(EN|TH)$/ })).toBeNull();
@@ -162,8 +162,8 @@ describe("the scope line (one label source)", () => {
     });
 });
 
-describe("language, theme and sign-out in the user menu", () => {
-    it("switches the language from the user menu, and <html lang> and the breadcrumb follow in Thai", async () => {
+describe("display preferences and account actions", () => {
+    it("switches language directly from the desktop header, and <html lang> and the breadcrumb follow in Thai", async () => {
         mockPathname = "/app/accounting/income";
         await renderShell(tenantAdmin);
         const crumbs = () => screen.getByRole("navigation", { name: /Breadcrumb|ตำแหน่งของหน้า/ });
@@ -172,13 +172,10 @@ describe("language, theme and sign-out in the user menu", () => {
         expect(document.documentElement.lang).toBe("en");
 
         const user = userEvent.setup();
-        // The trigger is never hidden: the menu, and the language in it, is there at every width.
-        expect(screen.getByTestId("user-menu-trigger").className).not.toMatch(/\bhidden\b/);
-        await user.click(screen.getByTestId("user-menu-trigger"));
-        const english = await screen.findByRole("menuitemradio", { name: "English" });
-        expect(english).toHaveAttribute("aria-checked", "true");
-        const thai = screen.getByRole("menuitemradio", { name: "ไทย" });
-        expect(thai).toHaveAttribute("aria-checked", "false");
+        const english = within(header()).getByRole("button", { name: "English" });
+        expect(english).toHaveAttribute("aria-pressed", "true");
+        const thai = within(header()).getByRole("button", { name: "ไทย" });
+        expect(thai).toHaveAttribute("aria-pressed", "false");
         expect(thai).toHaveAttribute("lang", "th");
         await user.click(thai);
 
@@ -208,9 +205,9 @@ describe("language, theme and sign-out in the user menu", () => {
         expect(within(crumbs).getByText("Details")).toHaveAttribute("aria-current", "page");
     });
 
-    it("offers the theme in the user menu", async () => {
+    it("offers light, dark and device theme directly from the desktop header", async () => {
         await renderShell(tenantAdmin);
-        await userEvent.setup().click(screen.getByTestId("user-menu-trigger"));
+        await userEvent.setup().click(within(header()).getByRole("button", { name: "Theme" }));
         expect(await screen.findByRole("menuitemradio", { name: "Light" })).toBeInTheDocument();
         expect(screen.getByRole("menuitemradio", { name: "Dark" })).toBeInTheDocument();
         expect(screen.getByRole("menuitemradio", { name: "Same as device" })).toHaveAttribute("aria-checked", "true");
@@ -249,6 +246,26 @@ describe("on a phone", () => {
     });
     afterEach(() => {
         Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: desktopWidth });
+    });
+
+    it.each(["/app/dashboard", "/app/security-center/users"])("keeps preferences above Support in the drawer footer at %s", async (pathname) => {
+        mockPathname = pathname;
+        await renderShell(makeMe({ ...platformAdmin, capabilities: ["security:view_overview", "users:view"] }));
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: "Show or hide the menu" }));
+        const sheet = await screen.findByRole("dialog", { name: "Menu" });
+        const support = within(sheet).getByRole("link", { name: "Support" });
+        const footer = support.closest("[data-sidebar=footer]") as HTMLElement;
+        const thai = within(footer).getByRole("button", { name: "ไทย" });
+        expect(thai.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(thai.closest("[data-sidebar-scroll]")).toBeNull();
+        await user.click(within(footer).getByRole("button", { name: "Theme" }));
+        await user.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
+        expect(sheet).toBeInTheDocument();
+        await user.click(thai);
+        await waitFor(() => expect(document.documentElement.lang).toBe("th"));
+        expect(sheet).toBeInTheDocument();
+        expect(within(footer).getByRole("button", { name: "ไทย" })).toHaveAttribute("aria-pressed", "true");
     });
 
     it("opens the menu as a titled sheet that closes once a link is tapped (main sidebar)", async () => {
@@ -327,12 +344,13 @@ describe("on a phone", () => {
         expect(screen.getByRole("navigation", { name: "Breadcrumb" }).className).toMatch(/\bhidden\b.*\bmd:block\b/);
     });
 
-    it("makes every item of the user menu 44 px tall, and names languages without flags (UI3B)", async () => {
+    it("keeps both account actions at 44 px on a phone", async () => {
         await renderShell(tenantAdmin);
         await userEvent.setup().click(screen.getByTestId("user-menu-trigger"));
         const menu = await screen.findByRole("menu");
-        const items = [...within(menu).getAllByRole("menuitemradio"), ...within(menu).getAllByRole("menuitem")];
-        expect(items).toHaveLength(7);
+        const items = within(menu).getAllByRole("menuitem");
+        expect(items).toHaveLength(2);
+        expect(within(menu).queryByRole("menuitemradio")).toBeNull();
         for (const item of items) expect(item.className, item.textContent ?? "").toMatch(/\bmax-md:min-h-11\b/);
         expect(menu.querySelector("img")).toBeNull();
     });
@@ -344,8 +362,10 @@ describe("on a phone", () => {
         const tenants = Array.from({ length: 9 }, (_, index) => ({ ...tenant, id: index === 0 ? tenant.id : `t-${index}`, status: "active" }));
         await renderShell(makeMe({ ...tenantAdmin, displayName: name, tenant, tenants }));
         const user = userEvent.setup();
-        await user.click(screen.getByTestId("user-menu-trigger"));
-        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
+        await user.click(within(header()).getByRole("button", { name: "Show or hide the menu" }));
+        const drawer = await screen.findByRole("dialog", { name: "Menu" });
+        await user.click(within(drawer).getByRole("button", { name: "ไทย" }));
+        await user.click(within(drawer).getByRole("button", { name: "ปิดเมนู" }));
         const picker = await screen.findByRole("combobox", { name: `เปลี่ยนบริษัท (ปัจจุบัน: ${name})` });
         expect(picker.className).toMatch(/\bsize-11\b/);
         expect(picker.querySelector("[data-slot=select-value]")?.className).toMatch(/\bhidden\b.*\bmd:flex\b/);
@@ -378,12 +398,12 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         expect(document.querySelector('[tabindex]:not([tabindex="-1"]):not([tabindex="0"])')).toBeNull();
     });
 
-    it("reaches the account controls before any sidebar entry, within seven Tabs (UI3F)", async () => {
+    it("reaches the account controls before any sidebar entry, within ten Tabs (UI3F)", async () => {
         mockPathname = "/app/customers/abc/edit";
         await renderShell(makeMe({ ...tenantAdmin, capabilities: ["fleet:manage_customers"] }));
         const user = userEvent.setup();
         const account = screen.getByTestId("user-menu-trigger");
-        for (let count = 0; count < 7 && document.activeElement !== account; count++) {
+        for (let count = 0; count < 10 && document.activeElement !== account; count++) {
             await user.tab();
             expect(document.querySelector("[data-slot=sidebar]")?.contains(document.activeElement)).toBe(false);
         }
@@ -409,8 +429,7 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         await renderShell(tenantAdmin);
         await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
         const user = userEvent.setup();
-        await user.click(screen.getByTestId("user-menu-trigger"));
-        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
+        await user.click(within(header()).getByRole("button", { name: "ไทย" }));
         await waitFor(() => expect(document.title).toBe("เที่ยวที่ต้องวางบิล · LogiTrack Pro"));
     });
 
@@ -454,8 +473,7 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         await user.click(trigger);
         expect(document.cookie).toContain("sidebar_state=true");
 
-        await user.click(screen.getByTestId("user-menu-trigger"));
-        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
+        await user.click(within(header()).getByRole("button", { name: "ไทย" }));
         await waitFor(() => expect(within(header()).getByRole("button", { name: "แสดงหรือซ่อนเมนู" })).toBeInTheDocument());
         expect(header().textContent).not.toMatch(/Toggle Sidebar/);
     });

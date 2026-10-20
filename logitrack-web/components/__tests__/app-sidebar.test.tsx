@@ -373,7 +373,7 @@ describe("profile menus and navigation landmarks (UI3F)", () => {
         const me = makeMe({ capabilities, tenant: profile === "customer" ? null : { id: "carrier", nameTh: "รถร่วม", nameEn: "Carrier", kind: "carrier", role: "tenant_admin" }, customerScopes: profile === "customer" ? [{ billingPartyId: "customer", name: "Customer" }] : [] });
         mockPathname = "/app/driver-monitor";
         await renderSidebar(capabilities, { me });
-        for (const button of screen.queryAllByRole("button", { expanded: false })) await userEvent.setup().click(button);
+        for (const button of document.querySelectorAll<HTMLElement>('[data-slot=collapsible-trigger][aria-expanded=false]')) await userEvent.setup().click(button);
         const nav = screen.getByRole("navigation", { name: "Main menu" });
         const expected = menuLinksFor(menuFor(new Set(capabilities), homeRouteOf(me), navigationProfileOf(me)));
         expect(expected).toHaveLength(profile === "customer" ? 4 : 9);

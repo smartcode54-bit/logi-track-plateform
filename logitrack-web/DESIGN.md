@@ -246,7 +246,7 @@ case, so the pattern makes the two languages look different.
 The app shell has a sticky 64 px header and a collapsible icon sidebar (16 rem open, 3 rem as icons, an 18 rem sheet
 on mobile). Keyboard and DOM order is skip link → header/banner → sidebar → main; explicit grid slots place the
 header above the page and the sidebar at its left on desktop. The header has the sidebar trigger, breadcrumb, tenant
-switcher and user menu; the language and theme live in the user menu at every width. Content sits in a single
+switcher, display preferences and user menu. Language and theme are directly in the desktop header; on mobile they stay in the drawer footer above Support, outside the scrolling menu. Content sits in a single
 column with a 16 px gutter (`gutter`), sections 24 px apart (`section`), fields and cards 16 px apart
 (`stack`), inline controls 8 px apart. All spacing is on Tailwind's 4 px step; the named steps are tokens
 (`p-gutter`, `gap-section`, `space-y-stack`).
@@ -434,8 +434,9 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   `principalRoleLabel` / `principalScope` over `['me']` (`components/scope-line.tsx` renders it); customer scopes
   name the slice only for a customer view (no tenant, platform role or dispatcher grant). When space runs out the
   slice is shortened, never the role, and the line height is normal so Thai marks are not clipped.
-- **The user menu** holds the name, email and scope line, the language (in its own words, "ไทย" / "English", no
-  flags), theme (radio items), **My account** (`/my-account`) and the one sign-out ("Sign out" / "ออกจากระบบ"),
+- **Display preferences** share the public language buttons ("ไทย" / "English", no flags) and theme radio items
+  (light, dark, device). They sit in the desktop header and the pinned mobile drawer footer above Support in both sidebars.
+- **The user menu** holds the name, email and scope line, **My account** (`/my-account`) and the one sign-out ("Sign out" / "ออกจากระบบ"),
   which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.
 - A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
   targets are 44 px on phones. The page area takes `min-w-0`, so a wide page scrolls without pushing the header out.

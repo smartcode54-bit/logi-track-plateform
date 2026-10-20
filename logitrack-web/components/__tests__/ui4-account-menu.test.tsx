@@ -20,7 +20,7 @@ const PROFILES = {
 };
 
 describe("account link in the console user menu", () => {
-    it.each(Object.entries(PROFILES))("is after identity and before language for %s", async (_profile, me) => {
+    it.each(Object.entries(PROFILES))("is after identity and before sign-out for %s", async (_profile, me) => {
         const web = fakeWeb();
         web.on("GET", "/api/go/v1/me", () => json(200, { data: me }));
         render(<QueryClientProvider client={createQueryClient()}><LanguageProvider><UserMenu /></LanguageProvider></QueryClientProvider>);
@@ -37,9 +37,10 @@ describe("account link in the console user menu", () => {
         expect(item.className).toContain("max-md:min-h-11");
         const menu = screen.getByRole("menu");
         const identity = within(menu).getByText(me.email!);
-        const language = within(menu).getByRole("group", { name: "Language" });
+        const signOut = within(menu).getByRole("menuitem", { name: "Sign out" });
         expect(identity.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        expect(item.compareDocumentPosition(language) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(item.compareDocumentPosition(signOut) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(within(menu).queryByRole("menuitemradio")).toBeNull();
         expect(within(menu).getAllByRole("menuitem")[0]).toBe(item);
         expect(item).toHaveFocus();
     });
