@@ -43,7 +43,7 @@ func FileOwner(path string) string {
 				return "P1.0"
 			}
 		}
-		if p == "internal/scope/vet_test.go" || p == "internal/scope/testdata/vetcheck/sqlc.yaml" || p == "migrations/schema_integration_test.go" || p == "deploy/Dockerfile" || p == "Makefile" || p == "sqlc.yaml" || p == "api/routes.txt" || p == "api/support-policies.json" || p == "api/support-discovery.json" {
+		if p == "internal/scope/vet_test.go" || p == "internal/scope/testdata/vetcheck/sqlc.yaml" || p == "migrations/schema_integration_test.go" || p == "deploy/Dockerfile" || p == "Makefile" || p == "go.mod" || p == "go.sum" || p == "sqlc.yaml" || p == "api/routes.txt" || p == "api/support-policies.json" || p == "api/support-discovery.json" {
 			return "P1.0"
 		}
 		for _, name := range []string{"authorize.go", "rbac.go", "authorize_test.go", "rbac_integration_test.go"} {

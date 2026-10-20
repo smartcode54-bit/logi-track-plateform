@@ -2,6 +2,7 @@ PSA P1.4 transport handoff (2026-10-19)
 
 Support entry remains OFF. Merge/build success does not authorize entry or production rollout.
 P1.5-P1.8 and the operational old-grant drain below remain required.
+Human operational drain evidence is tracked in smartcode54-bit/logi-track-plateform#226.
 
 FILES AND READY ARTIFACTS
 - GET/HEAD /v1/support/files/:fileId/content is an authenticated same-origin broker. Drivers'

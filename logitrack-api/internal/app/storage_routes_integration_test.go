@@ -1,10 +1,8 @@
 //go:build integration
 
-// The storage routes as cmd/api mounts them (T11) with STORAGE_BACKEND=local, end to end through both listeners:
-// presign (web, an API path through the BFF) -> PUT with the upload route's own body limit, granted from a signed
-// request head only -> commit through PATCH /v1/me photoKey -> GET /v1/me photoUrl and GET /v1/files 302 to a
-// signed /media URL on the public listener; unsigned or tampered uploads 413 from their head (large) or 403
-// (small), directory paths 404, a committed key cannot be overwritten, and every other route keeps the 4 MiB limit.
+// The storage routes as cmd/api mounts them (T11), with STORAGE_BACKEND=local and both listeners.
+// Current web sessions use the authenticated context-bound broker; legacy callers retain signed upload
+// admission/body limits. Both paths commit through PATCH /v1/me and retain signed public media reads.
 package app_test
 
 import (
@@ -215,11 +213,45 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	}
 	r = do(t, http.MethodPost, internal+"/v1/uploads/presign", at, map[string]any{"purpose": "user_photo", "contentType": "image/jpeg", "sizeBytes": len(photo)})
 	data, _ := r.body["data"].(map[string]any)
-	key, _ := data["key"].(string)
-	upURL, _ := data["url"].(string)
-	if r.status != http.StatusOK || !strings.HasPrefix(upURL, "/v1/uploads/local/users/"+alice+"/photo-") || data["method"] != "PUT" ||
-		data["storageBackend"] != "local" || data["headers"].(map[string]any)["Content-Type"] != "image/jpeg" {
-		t.Fatalf("presign: %d %v", r.status, r.body)
+	webKey, _ := data["key"].(string)
+	webURL, _ := data["url"].(string)
+	grantID := strings.TrimSuffix(strings.TrimPrefix(webURL, "/v1/uploads/"), "/content")
+	if r.status != http.StatusOK || webURL != "/v1/uploads/"+mustUUID(t, grantID).String()+"/content" ||
+		data["method"] != "PUT" || data["storageBackend"] != "local" || data["headers"].(map[string]any)["Content-Type"] != "image/jpeg" {
+		t.Fatalf("web presign: %d %v", r.status, r.body)
+	}
+	if s, _, _ := raw(t, http.MethodPut, internal+webURL, "image/jpeg", photo[:1], ""); s != http.StatusUnauthorized {
+		t.Fatalf("anonymous web broker: %d", s)
+	}
+	if s := announce(t, http.MethodPut, internal+webURL, len(photo)); s != http.StatusRequestEntityTooLarge {
+		t.Fatalf("large anonymous web broker head: %d", s)
+	}
+	if s, _, _ := raw(t, http.MethodPut, internal+webURL, "image/jpeg", photo[:1<<20], at); s != http.StatusForbidden {
+		t.Fatalf("web broker size mismatch: %d", s)
+	}
+	if s, h, b := raw(t, http.MethodPut, internal+webURL, "image/jpeg", photo, at); s != http.StatusOK || h.Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("authenticated large web PUT: %d %s", s, b)
+	}
+	if r := do(t, http.MethodPatch, internal+"/v1/me", at, map[string]any{"photoKey": webKey}); r.status != http.StatusOK {
+		t.Fatalf("web broker commit: %d %v", r.status, r.body)
+	}
+	if s, _, _ := raw(t, http.MethodPut, internal+webURL, "image/jpeg", photo[:1], at); s != http.StatusForbidden {
+		t.Fatalf("committed web broker overwrite: %d", s)
+	}
+
+	// Explicitly model a legacy/mobile caller without a web Principal. Preserve the
+	// signed API-path ingress regressions; ordinary web presign above must never emit it.
+	legacyTenant := mustUUID(t, tenant)
+	legacy, err := st.Presign(ctx, storage.Caller{UserID: mustUUID(t, alice), TenantID: &legacyTenant}, storage.PresignInput{
+		Purpose: "user_photo", ContentType: "image/jpeg", SizeBytes: int64(len(photo)),
+	}, storage.PutOptions{APIPath: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, upURL := legacy.Key, legacy.URL
+	if !strings.HasPrefix(upURL, "/v1/uploads/local/users/"+alice+"/photo-") || legacy.Method != "PUT" ||
+		legacy.StorageBackend != "local" || legacy.Headers["Content-Type"] != "image/jpeg" {
+		t.Fatalf("legacy presign: %+v", legacy)
 	}
 	var backend string
 	if err := etl.QueryRow(ctx, `SELECT storage_backend FROM file_objects WHERE object_key = $1 AND status = 'pending'`, key).Scan(&backend); err != nil || backend != "local" {
@@ -229,7 +261,7 @@ func TestLocalStorageEndToEnd(t *testing.T) {
 	// The upload route: only a head whose signature covers its path, Content-Type and Content-Length earns the
 	// upload body limit, so a 5 MiB body with another content type, a tampered signature or no signature is refused
 	// with 413 from its head (unread, the 4 MiB default); a small one is 403. The public listener has no
-	// /v1/uploads route; then the web's PUT (through the BFF) lands.
+	// /v1/uploads route; then the legacy signed API-path PUT lands.
 	tampered := strings.Replace(upURL, "X-LT-Signature=", "X-LT-Signature=x", 1)
 	if s := announceType(t, http.MethodPut, internal+upURL, "text/html", len(photo)); s != http.StatusRequestEntityTooLarge {
 		t.Fatalf("5 MiB PUT with another content type: %d", s)
