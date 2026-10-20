@@ -396,7 +396,9 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   stripe. A detail page keeps its entry current. When the sidebar or the phone sheet opens, the current entry is
   scrolled into view (nearest edge).
 - **The order is the work loop** (UI3B/UI3F): staff see their home first, then Operations → Billing → Costs → Fleet
-  and partners → Payroll and HR → Settings → Platform → Support. Customers have a four-destination short menu
+  and partners → Payroll and HR → Settings → Platform → Support. First Mile and Line Haul share the Job assignment
+  destination: select the type on its board or in its single Add job dialog. Their old URLs keep their own
+  headings and breadcrumbs, but stay out of the sidebar and Quick Jump. Customers have a four-destination short menu
   (Trips, Tasks, Delivery issues, Support); partners have nine (Fleet trips, Tasks, Delivery issues, Chat, Fleet
   with Trucks, Drivers and Maintenance, Billing documents, Support). These menus are presentation subsets of
   allowed routes. Only the group of the current page starts open. Labels are sentence case and say "and", never

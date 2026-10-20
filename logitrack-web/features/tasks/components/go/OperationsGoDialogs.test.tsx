@@ -328,6 +328,32 @@ describe("task form: the stops as stored, sent only when touched", () => {
     const multi = (over: Partial<TaskDTO> = {}) => task({ isMultiDelivery: true, stops: [stop(1, "SPK1"), stop(2, "SPK2")], ...over });
     const patches = (web: ReturnType<typeof setup>) => web.calls.filter((c: FakeCall) => c.method === "PATCH");
 
+    it("switching a duplicated multi-drop job clears the old route and stops before creating the other type", async () => {
+        const web = setup();
+        web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskType: "line_haul", taskNo: "LH-NEW" }) }));
+        const onClose = vi.fn();
+        renderPage("/app/job-assign", <TaskFormDialog mode="duplicate" taskType="first_mile" task={multi()} allowTypeSwitch onClose={onClose} />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Job type" }));
+        await u.click(await screen.findByRole("option", { name: "Line Haul" }));
+        expect(screen.getByRole("checkbox")).not.toBeChecked();
+        expect(screen.queryByText("SPK1")).toBeNull();
+        expect(screen.queryByText("SPK2")).toBeNull();
+        const source = screen.getByRole("combobox", { name: "Source (SOC)" });
+        expect(source).toHaveTextContent("Select Source (SOC)");
+        await u.click(source);
+        await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
+        await u.click(screen.getByRole("combobox", { name: "Destination (Hub)" }));
+        await u.type(screen.getByPlaceholderText("Search..."), "SPK890174");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        await u.click(screen.getByRole("button", { name: "Create Assignment" }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        const body = web.calls.find((c) => c.method === "POST")!.body as Record<string, unknown>;
+        expect(body).toMatchObject({ taskType: "line_haul", sourceHub: "SOCE", destination: "SPK890174", billingPartyId: "p1" });
+        expect(body).not.toHaveProperty("deliveryStops");
+        expect(body).not.toHaveProperty("isMultiDelivery");
+    });
+
     async function open(t: TaskDTO) {
         const web = setup();
         web.on("PATCH", `/api/go/v1/tasks/${t.id}`, () => json(200, { data: t }));

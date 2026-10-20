@@ -456,10 +456,18 @@ describe("profile presentation (UI3F)", () => {
         expect(menuLinksFor(menuFor(new Set(), DRIVER_MONITOR_PATH, profile)).map((link) => link.href)).toEqual(["/app/support"]);
     });
 
-    it("keeps staff destinations and canonical labels, without mutating the catalog", () => {
+    it("consolidates staff boards in Job assignment, retaining allowed direct routes and canonical labels", () => {
+        const oldBoards = ["/app/first-mile", "/app/line-haul"];
         for (const principal of Object.values(PRINCIPALS)) {
             const held = new Set(principal.capabilities);
-            expect(menuFor(held, principal.home, "staff")).toEqual(allowedMenuFor(held, principal.home));
+            const before = menuLinksFor(allowedMenuFor(held, principal.home));
+            const after = menuLinksFor(menuFor(held, principal.home, "staff"));
+            expect(after).toEqual(before.filter((link) => !oldBoards.includes(link.href)));
+            expect(after.filter((link) => link.href === "/app/job-assign")).toHaveLength(routeAllowed(held, "/app/job-assign") ? 1 : 0);
+            for (const href of oldBoards.filter((href) => routeAllowed(held, href))) {
+                expect(before.some((link) => link.href === href)).toBe(true);
+                expect(breadcrumbTrail(href, principal.home).crumbs.at(-1)?.href).toBe(href);
+            }
         }
         menuFor(new Set(PRINCIPALS.partner.capabilities), DRIVER_MONITOR_PATH, "partner");
         expect(breadcrumbTrail(DRIVER_MONITOR_PATH).crumbs.at(-1)?.labelKey).toBe("nav.driverMonitor");

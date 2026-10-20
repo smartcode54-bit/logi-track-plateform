@@ -227,7 +227,14 @@ export function allowedMenuFor(held: ReadonlySet<string>, home: string | null | 
 }
 
 function profileMenu(menu: NavMenu, home: string | null | undefined, profile: NavigationProfile): NavMenu {
-    if (profile === "staff") return menu;
+    if (profile === "staff") {
+        // Both boards live in Job assignment; keep their catalog entries for existing links and breadcrumbs.
+        return { ...menu, main: menu.main.flatMap((entry): NavEntry[] => {
+            if (!isNavGroup(entry)) return [entry];
+            const items = entry.items.filter((link) => link.url !== "/app/first-mile" && link.url !== "/app/line-haul");
+            return items.length ? [{ ...entry, items }] : [];
+        }) };
+    }
     const catalog = new Map<string, NavLink>();
     for (const entry of [...menu.main, ...menu.footer]) {
         for (const link of isNavGroup(entry) ? entry.items : [entry]) {

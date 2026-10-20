@@ -13,7 +13,7 @@
  * {fields:'minimal'}]`) and server searches (drivers, trucks). SSE `task.*` refreshes the board in every tab
  * (500 ms window), so a mobile check-in shows without a reload.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -40,7 +40,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -66,6 +66,23 @@ const TaskDetailDialog = dynamic(() => import("./TaskDetailDialog").then((m) => 
 const TaskImportDialog = dynamic(() => import("./TaskImportDialog").then((m) => m.TaskImportDialog), { ssr: false });
 
 const SOC_FILTERS = ["SOCE", "SOCN", "SOCW"] as const;
+
+const JOB_COLUMNS = [
+    ["date", "firstMile.table.date"],
+    ["jobType", "jobAssign.table.jobType"],
+    ["source", "firstMile.table.sourceHub"],
+    ["destination", "firstMile.table.destination"],
+    ["actualPickup", "jobAssign.table.actualPickup"],
+    ["truckType", "firstMile.table.type"],
+    ["taskId", "firstMile.table.shipmentId"],
+    ["licensePlate", "firstMile.table.licensePlate"],
+    ["driver", "firstMile.table.driver"],
+    ["trip", "taskBoard.table.trip"],
+    ["status", "taskBoard.table.status"],
+    ["checkIn", "taskBoard.table.checkIn"],
+] as const;
+const DEFAULT_COLUMNS: string[] = JOB_COLUMNS.map(([key]) => key);
+const COLUMNS_STORAGE_KEY = "jobAssign.visibleColumns";
 
 type BoardKind = TaskBoardType;
 
@@ -131,6 +148,23 @@ function Board({ kind }: { kind: BoardKind }) {
     const [cancelling, setCancelling] = useState<TaskDTO | null>(null);
     const [busy, setBusy] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
+    const [visibleColumns, setVisibleColumns] = useState(DEFAULT_COLUMNS);
+    useEffect(() => {
+        if (kind !== "all") return;
+        try {
+            const saved: unknown = JSON.parse(localStorage.getItem(COLUMNS_STORAGE_KEY) ?? "null");
+            if (!Array.isArray(saved)) return;
+            const columns = DEFAULT_COLUMNS.filter((key) => saved.includes(key));
+            if (columns.length) setVisibleColumns(columns);
+        } catch { /* A missing or invalid browser preference uses all columns. */ }
+    }, [kind]);
+    const showColumn = (key: string) => kind !== "all" || visibleColumns.includes(key);
+    const toggleColumn = (key: string, checked: boolean) => {
+        const next = DEFAULT_COLUMNS.filter((column) => column === key ? checked : visibleColumns.includes(column));
+        if (!next.length) return;
+        setVisibleColumns(next);
+        try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(next)); } catch { /* Storage can be unavailable. */ }
+    };
 
     const type: TaskBoardType = kind === "all" ? typeFilter : kind;
     const filter = { date: date ? format(date, "yyyy-MM-dd") : "", type, soc, hub };
@@ -139,7 +173,7 @@ function Board({ kind }: { kind: BoardKind }) {
     const hubs = useGoHubs();
     const hubOptions = useMemo(() => goHubFilterOptions(hubs.list), [hubs.list]);
     const keys = titleKeys(kind, profile);
-    const defaultType: TaskType = kind === "line_haul" ? "line_haul" : "first_mile";
+    const defaultType: TaskType = type === "line_haul" ? "line_haul" : "first_mile";
 
     const confirmCancel = async () => {
         if (!cancelling) return;
@@ -155,7 +189,7 @@ function Board({ kind }: { kind: BoardKind }) {
         }
     };
 
-    const colSpan = kind === "all" ? 13 : 12;
+    const colSpan = kind === "all" ? visibleColumns.length + 1 : 12;
     return (
         <div className="flex flex-1 flex-col gap-section">
             <PageHeader
@@ -172,25 +206,10 @@ function Board({ kind }: { kind: BoardKind }) {
                                     <FileSpreadsheet className="h-4 w-4" aria-hidden />
                                     {t("firstMile.import.button")}
                                 </Button>
-                                {kind === "all" ? (
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button>
-                                                <Plus className="mr-2 h-4 w-4" aria-hidden />
-                                                {t("jobAssign.addJob")}
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => setForm({ mode: "create", taskType: "first_mile" })}>{t("jobAssign.addFirstMile")}</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setForm({ mode: "create", taskType: "line_haul" })}>{t("jobAssign.addLineHaul")}</DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                ) : (
-                                    <Button onClick={() => setForm({ mode: "create", taskType: defaultType })}>
-                                        <Plus className="mr-2 h-4 w-4" aria-hidden />
-                                        {t(keys.add)}
-                                    </Button>
-                                )}
+                                <Button onClick={() => setForm({ mode: "create", taskType: defaultType })}>
+                                    <Plus className="mr-2 h-4 w-4" aria-hidden />
+                                    {t(keys.add)}
+                                </Button>
                             </>
                         ) : null}
                     </>
@@ -225,9 +244,9 @@ function Board({ kind }: { kind: BoardKind }) {
                     </div>
                     {kind === "all" ? (
                         <div className="flex min-w-[160px] flex-col gap-2">
-                            <label className="text-sm font-medium">{t("jobAssign.filter.type")}</label>
+                            <label htmlFor="task-board-type" className="text-sm font-medium">{t("jobAssign.filter.type")}</label>
                             <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as TaskBoardType)}>
-                                <SelectTrigger>
+                                <SelectTrigger id="task-board-type">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -263,6 +282,23 @@ function Board({ kind }: { kind: BoardKind }) {
 
             <ApiErrorAlert error={q.error} />
 
+            {kind === "all" && !isMobile ? (
+                <div className="flex justify-end">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild><Button variant="outline">{t("jobAssign.columns")}</Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            {JOB_COLUMNS.map(([key, label]) => (
+                                <DropdownMenuCheckboxItem key={key} checked={visibleColumns.includes(key)}
+                                    disabled={visibleColumns.length === 1 && visibleColumns.includes(key)}
+                                    onSelect={(event) => event.preventDefault()} onCheckedChange={(checked) => toggleColumn(key, checked)}>
+                                    {t(label)}
+                                </DropdownMenuCheckboxItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            ) : null}
+
             {isMobile ? <div className="divide-y rounded-md border bg-card md:hidden" aria-label={t(keys.title)}>
                 {q.isPending ? <p className="p-4 text-sm text-muted-foreground">{t("taskBoard.loading")}</p> : shown.length === 0 ? (
                     <p className="p-4 text-sm">{t("firstMile.table.noTasks")}</p>
@@ -291,18 +327,9 @@ function Board({ kind }: { kind: BoardKind }) {
                     <Table>
                         <TableHeader className="bg-muted/50">
                             <TableRow>
-                                <TableHead>{t("firstMile.table.date")}</TableHead>
-                                {kind === "all" ? <TableHead>{t("jobAssign.table.jobType")}</TableHead> : null}
-                                <TableHead>{t("firstMile.table.sourceHub")}</TableHead>
-                                <TableHead>{t("firstMile.table.destination")}</TableHead>
-                                <TableHead>{t("firstMile.table.time")}</TableHead>
-                                <TableHead>{t("firstMile.table.type")}</TableHead>
-                                <TableHead>{t("firstMile.table.shipmentId")}</TableHead>
-                                <TableHead>{t("firstMile.table.licensePlate")}</TableHead>
-                                <TableHead>{t("firstMile.table.driver")}</TableHead>
-                                <TableHead>{t("taskBoard.table.trip")}</TableHead>
-                                <TableHead>{t("taskBoard.table.status")}</TableHead>
-                                <TableHead>{t("taskBoard.table.checkIn")}</TableHead>
+                                {JOB_COLUMNS.filter(([key]) => showColumn(key) && (kind === "all" || key !== "jobType")).map(([key, label]) => (
+                                    <TableHead key={key}>{t(key === "actualPickup" && kind !== "all" ? "firstMile.table.time" : label)}</TableHead>
+                                ))}
                                 <TableHead className="text-right">{t("firstMile.table.actions")}</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -322,40 +349,38 @@ function Board({ kind }: { kind: BoardKind }) {
                             ) : (
                                 shown.map((task) => (
                                     <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setDetail(task)}>
-                                        <TableCell>{formatDay(task.planDate)}</TableCell>
-                                        {kind === "all" ? (
+                                        {showColumn("date") ? <TableCell>{formatDay(task.planDate)}</TableCell> : null}
+                                        {kind === "all" && showColumn("jobType") ? (
                                             <TableCell>
                                                 <Badge variant="secondary">{task.taskType === "line_haul" ? t("jobAssign.addLineHaul") : t("jobAssign.addFirstMile")}</Badge>
                                             </TableCell>
                                         ) : null}
-                                        <TableCell className="max-w-[220px]">
+                                        {showColumn("source") ? <TableCell className="max-w-[220px]">
                                             <span className="block font-medium leading-tight">{task.source?.label || task.sourceHub}</span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge variant="outline" className="font-normal">
-                                                {task.destinationPlace?.label || task.destination}
-                                            </Badge>
+                                        </TableCell> : null}
+                                        {showColumn("destination") ? <TableCell>
+                                            {task.destinationPlace?.label || task.destination}
                                             {task.isMultiDelivery && task.stops.length > 1 ? (
                                                 <span className="ml-1 text-xs text-muted-foreground">{t("taskBoard.stops", { count: task.stops.length })}</span>
                                             ) : null}
-                                        </TableCell>
-                                        <TableCell>{boardTime(task) || "—"}</TableCell>
-                                        <TableCell>
+                                        </TableCell> : null}
+                                        {showColumn("actualPickup") ? <TableCell>{kind === "all" ? formatDay(task.actualPickupAt) : boardTime(task) || "—"}</TableCell> : null}
+                                        {showColumn("truckType") ? <TableCell>
                                             <VehicleClassChip value={task.truckType} />
-                                        </TableCell>
-                                        <TableCell className="font-mono text-sm"><Button variant="link" className="h-auto px-0 max-md:min-h-11" onClick={(event) => { event.stopPropagation(); setDetail(task); }} aria-label={`${t("common.view")} ${task.taskNo ?? task.source?.label ?? task.sourceHub}`}>
+                                        </TableCell> : null}
+                                        {showColumn("taskId") ? <TableCell className="font-mono text-sm"><Button variant="link" className="h-auto px-0 max-md:min-h-11" onClick={(event) => { event.stopPropagation(); setDetail(task); }} aria-label={`${t("common.view")} ${task.taskNo ?? task.source?.label ?? task.sourceHub}`}>
                                             {task.taskNo ?? t("common.view")}
-                                        </Button></TableCell>
-                                        <TableCell className="font-mono">{task.licensePlate ?? "—"}</TableCell>
-                                        <TableCell>
+                                        </Button></TableCell> : null}
+                                        {showColumn("licensePlate") ? <TableCell className="font-mono">{task.licensePlate ?? "—"}</TableCell> : null}
+                                        {showColumn("driver") ? <TableCell>
                                             {task.driverName ?? "—"}
                                             {task.helperName ? <span className="block text-xs text-muted-foreground">+ {task.helperName}</span> : null}
-                                        </TableCell>
-                                        <TableCell className="font-mono text-xs">{task.trip ? task.trip.tripNo : "—"}</TableCell>
-                                        <TableCell>
+                                        </TableCell> : null}
+                                        {showColumn("trip") ? <TableCell className="font-mono text-xs">{task.trip ? task.trip.tripNo : "—"}</TableCell> : null}
+                                        {showColumn("status") ? <TableCell>
                                             <TaskStatusBadge status={task.status} />
-                                        </TableCell>
-                                        <TableCell className="text-sm">
+                                        </TableCell> : null}
+                                        {showColumn("checkIn") ? <TableCell className="text-sm">
                                             {task.checkInAt ? (
                                                 <span className="flex flex-col gap-0.5">
                                                     <span>{formatDateTime(task.checkInAt)}</span>
@@ -368,7 +393,7 @@ function Board({ kind }: { kind: BoardKind }) {
                                             ) : (
                                                 <span className="text-muted-foreground">—</span>
                                             )}
-                                        </TableCell>
+                                        </TableCell> : null}
                                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                                             {canManage ? (
                                                 <DropdownMenu>
