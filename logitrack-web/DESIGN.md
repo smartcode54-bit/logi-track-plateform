@@ -436,6 +436,7 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   slice is shortened, never the role, and the line height is normal so Thai marks are not clipped.
 - **Display preferences** share the public language dropdown ("ไทย" / "English", no flags) and theme radio items
   (light, dark, device). They sit in the desktop header and the pinned mobile drawer footer above Support in both sidebars.
+  On phones, group the two controls at the start of the footer with an 8 px gap.
   The compact ghost trigger shows only the current language and a small chevron. The menu names both languages in their own words and marks the selection; phone triggers and menu items stay 44 px.
 - **The user menu** holds the name, email and scope line, **My account** (`/my-account`) and the one sign-out ("Sign out" / "ออกจากระบบ"),
   which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.

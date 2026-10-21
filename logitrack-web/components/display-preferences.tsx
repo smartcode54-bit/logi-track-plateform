@@ -27,7 +27,7 @@ export function DisplayPreferences() {
     const selected = THEMES.find((option) => option.value === theme) ?? THEMES[2];
 
     return (
-        <div className="flex items-center justify-between gap-2" data-slot="display-preferences">
+        <div className="flex items-center justify-start gap-2 md:justify-between" data-slot="display-preferences">
             <LanguageSwitcher />
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
