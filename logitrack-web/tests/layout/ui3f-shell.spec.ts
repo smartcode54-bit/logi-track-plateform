@@ -79,6 +79,30 @@ async function noOverflow(page: Page) {
     expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width + 1);
 }
 
+for (const width of [360, 390]) {
+    for (const language of ["en", "th"] as const) {
+        test(`pickup form contains the loaded map: ${width}px ${language}`, async ({ browser }) => {
+            const { page, context } = await openShell(browser, "staff", language, width, false, "/app/sources");
+            try {
+                await page.getByRole("button", { name: language === "th" ? "เพิ่มสถานีรับ-ส่งงานใหม่" : "New Pickup-Delivery Point", exact: true }).click();
+                const dialog = page.getByRole("dialog");
+                await expect(dialog.getByPlaceholder("Search for a place...", { exact: true })).toBeVisible();
+                await expect.poll(() => dialog.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+                for (const field of await dialog.locator("input, button[role=combobox]").all()) {
+                    const box = await field.boundingBox();
+                    if (box) {
+                        expect(box.x).toBeGreaterThanOrEqual(0);
+                        expect(box.x + box.width).toBeLessThanOrEqual(width);
+                    }
+                }
+                await noOverflow(page);
+            } finally {
+                await context.close();
+            }
+        });
+    }
+}
+
 async function targetSize(page: Page, selector: string) {
     const bounds = await page.locator(selector).boundingBox();
     expect(bounds!.width).toBeGreaterThanOrEqual(44);

@@ -86,7 +86,7 @@ function setup(principal: MeDTO = customer, reply: (call: FakeCall) => Response 
 }
 
 describe("scoped monitor presentation", () => {
-    it.each([[customer, "Your trips"], [partner, "Fleet trips"]] as const)("phone profile has collapsed panels and one named trip button (%s)", async (principal, title) => {
+    it.each([[customer, "Your trips"], [partner, "Fleet trips"], [makeMe({ capabilities: caps }), "Driver monitor"]] as const)("phone profile has collapsed panels and one named trip button (%s)", async (principal, title) => {
         const { calls, client } = setup(principal);
         expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Trip summary" })).toHaveAttribute("aria-expanded", "false");
@@ -191,7 +191,8 @@ describe("scoped monitor presentation", () => {
         expect(document.body).not.toHaveTextContent("driverMonitor.");
     });
 
-    it("staff phones retain the full presentation", async () => {
+    it("staff desktops retain the full presentation", async () => {
+        resize(1280);
         setup(makeMe({ capabilities: caps }));
         expect(await screen.findByRole("heading", { level: 1, name: "Driver monitor" })).toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Trip summary" })).toBeNull();

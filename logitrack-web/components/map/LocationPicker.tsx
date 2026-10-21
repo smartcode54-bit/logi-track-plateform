@@ -97,7 +97,7 @@ export default function LocationPicker({ value, onChange, searchPlaceholder = "S
     }, [mapId]);
 
     return (
-        <div className="h-[300px] w-full rounded-md overflow-hidden border">
+        <div className="location-picker h-[300px] w-full min-w-0 max-w-full rounded-md overflow-hidden border">
             <MapContainer
                 id={mapId}
                 key={mapId}
@@ -106,6 +106,16 @@ export default function LocationPicker({ value, onChange, searchPlaceholder = "S
                 className="h-full w-full"
             >
                 <style jsx global>{`
+                    .location-picker .leaflet-geosearch-bar {
+                        width: auto;
+                        max-width: none;
+                        margin-left: 62px;
+                        margin-right: 10px;
+                    }
+                    .location-picker .leaflet-control-geosearch form input {
+                        min-width: 0;
+                        padding-right: 32px;
+                    }
                     .leaflet-control-geosearch form input {
                         color: var(--foreground) !important;
                         background: var(--background) !important;
@@ -118,6 +128,22 @@ export default function LocationPicker({ value, onChange, searchPlaceholder = "S
                     .leaflet-control-geosearch .results > :hover {
                         color: var(--accent-foreground) !important;
                         background-color: var(--accent) !important;
+                    }
+                    @media (max-width: 767px) {
+                        .location-picker .leaflet-bar a,
+                        .location-picker .leaflet-control-geosearch button.reset {
+                            min-width: 44px;
+                            height: 44px;
+                            line-height: 44px;
+                        }
+                        .location-picker .leaflet-control-geosearch form input {
+                            height: 44px;
+                            padding-right: 44px;
+                        }
+                        .location-picker .leaflet-control-geosearch .results > * {
+                            min-height: 44px;
+                            white-space: normal;
+                        }
                     }
                 `}</style>
                 <TileLayer

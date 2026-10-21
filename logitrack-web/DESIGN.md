@@ -572,3 +572,10 @@ head if UI4F or UI4G lands first, reviews the diff and runs the guard; routine c
 - **Don't** scale or lift cards on hover, stack icon tiles above headings, or put uppercase kickers above titles.
 - **Don't** use static inline `style={{...}}` for layout or colour; only values computed from data (a width, a
   transform, a chart coordinate) may be inline.
+
+### Mobile controls and operational tables
+- Below md, shared buttons, inputs, tabs and picker triggers use44px targets. Keep desktop dimensions and existing minimum widths of named pickers.
+- Dialog forms and embedded maps use min-width0; map search controls fit their container after loading. Pickup-point fields stack on phones.
+- Rate and expense-audit tabs keep one-line names in a horizontal strip on phones, without squeezing labels.
+- Summary cards use compact mobile padding/grids; staff monitors reuse the existing compact summary and collapsed filters.
+- Appointment queues expose labeled fields in mobile rows; history uses the existing detail action in a one-column summary. Row dropdown menus in wide tables stick to the right edge on phones.

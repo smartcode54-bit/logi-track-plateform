@@ -77,12 +77,12 @@ export function RateCardPage() {
             </Card>
 
             <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-                <TabsList className="h-auto flex-wrap justify-start gap-1">
-                    <TabsTrigger className="h-auto min-h-11 whitespace-normal" value="entries">{t("accounting.rateCard.title")}</TabsTrigger>
-                    <TabsTrigger className="h-auto min-h-11 whitespace-normal" value="fuelAdj">{t("accounting.rateCard.fuelAdjustments.title")}</TabsTrigger>
-                    <TabsTrigger className="h-auto min-h-11 whitespace-normal" value="serviceFees">{t("accounting.serviceFees.title")}</TabsTrigger>
-                    <TabsTrigger className="h-auto min-h-11 whitespace-normal" value="standby">{t("accounting.standbyRates.title")}</TabsTrigger>
-                    <TabsTrigger className="h-auto min-h-11 whitespace-normal" value="fuelMonthly">{t("accounting.rateCard.fuelMonthly.title")}</TabsTrigger>
+                <TabsList className="h-auto flex-wrap justify-start gap-1 max-md:w-full max-md:flex-nowrap max-md:overflow-x-auto">
+                    <TabsTrigger className="h-auto min-h-11 whitespace-normal max-md:flex-none max-md:whitespace-nowrap" value="entries">{t("accounting.rateCard.title")}</TabsTrigger>
+                    <TabsTrigger className="h-auto min-h-11 whitespace-normal max-md:flex-none max-md:whitespace-nowrap" value="fuelAdj">{t("accounting.rateCard.fuelAdjustments.title")}</TabsTrigger>
+                    <TabsTrigger className="h-auto min-h-11 whitespace-normal max-md:flex-none max-md:whitespace-nowrap" value="serviceFees">{t("accounting.serviceFees.title")}</TabsTrigger>
+                    <TabsTrigger className="h-auto min-h-11 whitespace-normal max-md:flex-none max-md:whitespace-nowrap" value="standby">{t("accounting.standbyRates.title")}</TabsTrigger>
+                    <TabsTrigger className="h-auto min-h-11 whitespace-normal max-md:flex-none max-md:whitespace-nowrap" value="fuelMonthly">{t("accounting.rateCard.fuelMonthly.title")}</TabsTrigger>
                 </TabsList>
                 <Card className="mt-4">
                     <CardContent className="pt-4">

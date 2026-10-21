@@ -158,19 +158,19 @@ export default function TruckAssignmentPage() {
             {isLoading ? <QueryLoading /> : null}
             {failedQueries.length > 0 ? <QueryError label={t("assignments.toast.loadError")} onRetry={() => { for (const query of failedQueries) void query.refetch(); }} retrying={failedQueries.some((query) => query.isFetching)} /> : null}
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-2 md:gap-4">
                 <Card className="bg-card/50 border-border/50 shadow-sm relative overflow-hidden group">
-                    <CardContent className="p-6">
+                    <CardContent className="p-6 max-md:p-2">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.totalTrucks')}</p>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-3xl font-bold font-mono text-foreground">
+                                    <span className="text-3xl max-md:text-2xl font-bold font-mono text-foreground">
                                         {isUnavailable ? "—" : stats.totalTrucks}
                                     </span>
                                 </div>
                             </div>
-                            <div className="p-2 bg-primary/10 rounded-lg text-primary transition-transform">
+                            <div className="p-2 bg-primary/10 rounded-lg max-md:hidden text-primary transition-transform">
                                 <Truck className="h-5 w-5" />
                             </div>
                         </div>
@@ -178,17 +178,17 @@ export default function TruckAssignmentPage() {
                 </Card>
 
                 <Card className="bg-card/50 border-border/50 shadow-sm relative overflow-hidden group">
-                    <CardContent className="p-6">
+                    <CardContent className="p-6 max-md:p-2">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.availableDrivers')}</p>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-3xl font-bold font-mono text-foreground">
+                                    <span className="text-3xl max-md:text-2xl font-bold font-mono text-foreground">
                                         {isUnavailable ? "—" : stats.availableDrivers}
                                     </span>
                                 </div>
                             </div>
-                            <div className="p-2 bg-primary/10 rounded-lg text-primary transition-transform">
+                            <div className="p-2 bg-primary/10 rounded-lg max-md:hidden text-primary transition-transform">
                                 <User className="h-5 w-5" />
                             </div>
                         </div>
@@ -196,17 +196,17 @@ export default function TruckAssignmentPage() {
                 </Card>
 
                 <Card className="bg-card/50 border-border/50 shadow-sm relative overflow-hidden group">
-                    <CardContent className="p-6">
+                    <CardContent className="p-6 max-md:p-2">
                         <div className="flex justify-between items-start">
                             <div className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground">{t('assignments.activeAssignments')}</p>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-3xl font-bold font-mono text-foreground">
+                                    <span className="text-3xl max-md:text-2xl font-bold font-mono text-foreground">
                                         {isUnavailable ? "—" : stats.activeAssignments}
                                     </span>
                                 </div>
                             </div>
-                            <div className="p-2 bg-primary/10 rounded-lg text-primary transition-transform">
+                            <div className="p-2 bg-primary/10 rounded-lg max-md:hidden text-primary transition-transform">
                                 <ClipboardList className="h-5 w-5" />
                             </div>
                         </div>
@@ -216,16 +216,16 @@ export default function TruckAssignmentPage() {
 
             {/* New Assignment Section */}
             <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
-                <div className="p-6 border-b border-border/50">
+                <div className="p-6 max-md:p-4 border-b border-border/50">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
                         <ArrowRight className="h-4 w-4 text-primary" />
                         {t('assignments.new')}
                     </h2>
                 </div>
-                <div className="p-8">
-                    <div className="flex flex-col lg:flex-row items-stretch gap-6">
+                <div className="p-8 max-md:p-4">
+                    <div className="flex flex-col lg:flex-row items-stretch gap-6 max-md:gap-4">
                         {/* Driver Select */}
-                        <div className="flex-1 space-y-4">
+                        <div className="flex-1 space-y-4 max-md:space-y-2">
                             <label className="text-sm font-medium text-foreground">{t('assignments.selectDriver')}</label>
 
                             <DriverSelect
@@ -241,7 +241,7 @@ export default function TruckAssignmentPage() {
                                 className="h-12 text-base bg-background/50 border-border/50"
                             />
 
-                            <div className="h-24 rounded-lg border border-dashed border-border/60 flex items-center gap-4 px-4 bg-muted/20">
+                            <div className="hidden md:flex h-24 rounded-lg border border-dashed border-border/60 items-center gap-4 px-4 bg-muted/20">
                                 <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
                                     <User className="h-5 w-5" />
                                 </div>
@@ -262,7 +262,7 @@ export default function TruckAssignmentPage() {
                         </div>
 
                         {/* Truck Select */}
-                        <div className="flex-1 space-y-4">
+                        <div className="flex-1 space-y-4 max-md:space-y-2">
                             <label className="text-sm font-medium text-foreground">{t('assignments.selectTruck')}</label>
 
                             <TruckSelect
@@ -278,7 +278,7 @@ export default function TruckAssignmentPage() {
                                 className="h-12 text-base bg-background/50 border-border/50"
                             />
 
-                            <div className="h-24 rounded-lg border border-dashed border-border/60 flex items-center gap-4 px-4 bg-muted/20">
+                            <div className="hidden md:flex h-24 rounded-lg border border-dashed border-border/60 items-center gap-4 px-4 bg-muted/20">
                                 <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
                                     <Truck className="h-5 w-5" />
                                 </div>
@@ -292,7 +292,7 @@ export default function TruckAssignmentPage() {
                         </div>
                     </div>
 
-                    <div className="mt-8 flex flex-col items-center gap-4">
+                    <div className="mt-8 max-md:mt-4 flex flex-col items-center gap-4">
                         <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-sm">
                             <Button
                                 size="lg"

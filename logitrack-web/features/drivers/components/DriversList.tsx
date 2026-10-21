@@ -96,11 +96,11 @@ export default function DriversList() {
             />
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-2 md:gap-4">
                 <Card className="bg-card">
-                    <CardContent className="p-6 flex items-center justify-between">
+                    <CardContent className="p-6 max-md:p-2 flex items-center justify-between max-md:[&>div:last-child]:hidden">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.totalDrivers")}</p>
+                            <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t("drivers.stats.totalDrivers")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <h2 className="text-3xl font-bold">{unavailable ? "—" : stats.total}</h2>
                             </div>
@@ -111,9 +111,9 @@ export default function DriversList() {
                     </CardContent>
                 </Card>
                 <Card className="bg-card">
-                    <CardContent className="p-6 flex items-center justify-between">
+                    <CardContent className="p-6 max-md:p-2 flex items-center justify-between max-md:[&>div:last-child]:hidden">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.activeOnDuty")}</p>
+                            <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t("drivers.stats.activeOnDuty")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <h2 className="text-3xl font-bold">{unavailable ? "—" : stats.active}</h2>
                             </div>
@@ -124,9 +124,9 @@ export default function DriversList() {
                     </CardContent>
                 </Card>
                 <Card className="bg-card">
-                    <CardContent className="p-6 flex items-center justify-between">
+                    <CardContent className="p-6 max-md:p-2 flex items-center justify-between max-md:[&>div:last-child]:hidden">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">{t("drivers.stats.inactive")}</p>
+                            <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t("drivers.stats.inactive")}</p>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <h2 className="text-3xl font-bold">{unavailable ? "—" : stats.onLeave}</h2>
                             </div>

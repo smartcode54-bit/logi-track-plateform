@@ -21,11 +21,11 @@ export function SubcontractorStats({ stats, loading }: SubcontractorStatsProps) 
     ];
 
     return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-3 gap-2 md:gap-4">
             {items.map(({ label, value }) => (
                 <Card key={label}>
-                    <CardContent className="space-y-2 p-6">
-                        <p className="text-sm font-medium text-muted-foreground">{t(label)}</p>
+                    <CardContent className="space-y-2 p-6 max-md:p-2">
+                        <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t(label)}</p>
                         <p className="text-2xl font-semibold tabular-nums">{loading ? "-" : value}</p>
                         <p className="text-xs text-muted-foreground">{t(`${label}.desc`)}</p>
                     </CardContent>

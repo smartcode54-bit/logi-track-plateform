@@ -86,7 +86,7 @@ function Monitor() {
     const { t, language } = useLanguage();
     const { data: me } = useMe();
     const profile = navigationProfileOf(me);
-    const compact = useIsMobile() && profile !== "staff";
+    const compact = useIsMobile();
     const title = t(profileRouteLabelKey("/app/driver-monitor", profile) ?? "nav.driverMonitor");
     const id = useId();
     const [summaryOpen, setSummaryOpen] = useState(false);

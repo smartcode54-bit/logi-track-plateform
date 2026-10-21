@@ -42,7 +42,7 @@ function PeriodSwitch({ value, onChange }: { value: DashboardPeriodName; onChang
             type="button"
             aria-pressed={value === p}
             onClick={() => onChange(p)}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${value === p ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`max-md:min-h-11 max-md:min-w-11 px-3 py-1 text-xs font-medium rounded-md transition-all ${value === p ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
         >
             {label}
         </button>
