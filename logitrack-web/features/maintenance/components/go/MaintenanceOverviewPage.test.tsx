@@ -11,12 +11,14 @@ const viewport = vi.hoisted(() => ({ mobile: true }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => viewport.mobile }));
 
 const record: MaintenanceRecordDTO = {
-    id: "m1", truckId: "truck-1", licensePlate: "70-1234", truckBrand: "Isuzu", type: "PM",
+    id: "m1", tenantId: "tenant-1", truckId: "truck-1", licensePlate: "70-1234", truckBrand: "Isuzu", type: "PM",
+    truckModel: null, truckOwnership: null, truckStatus: null,
     serviceType: "periodic_check", startDate: "2026-10-01", endDate: null, status: "pm_booking",
     appointmentTime: null, pickupAppointmentAt: null, costLaborThb: null, costPartsThb: null,
     totalCostThb: null, invoiceAmountThb: 1500, displayCostThb: 1500, provider: null,
     providerLat: null, providerLng: null, paymentMethod: null, currentMileage: 120000,
     nextServiceMileage: null, driverSubmitted: true, notes: null,
+    checkInAt: null, checkOutAt: null, createdBy: null, updatedBy: null,
     files: { images: [], receipts: [], invoices: [] }, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z",
 };
 let restoreLayout: (() => void) | undefined;
