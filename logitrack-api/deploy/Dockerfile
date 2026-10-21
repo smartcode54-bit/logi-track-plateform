@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # One image, every binary (developer-spec.md §2.1): /app/bin/{api,worker,scheduler,migrate,seed,etl,release}.
-FROM golang:1.27.2-alpine3.23 AS build
+FROM golang:1.27.3-alpine3.23 AS build
 ENV GOTOOLCHAIN=local CGO_ENABLED=0
 WORKDIR /src
 COPY go.mod go.sum ./
