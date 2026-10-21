@@ -21,39 +21,53 @@ describe("LanguageSwitcher", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {});
   });
 
-  it("names each language in its own words, text only: no flags (UI3E, DESIGN.md)", async () => {
+  it("shows only the current language, in its own words without flags", async () => {
     const { container } = renderSwitcher();
-    const english = await screen.findByRole("button", { name: "English" });
-    const thai = screen.getByRole("button", { name: "ไทย" });
+    const english = await screen.findByRole("button", { name: "Language: English" });
     expect(english).toHaveTextContent(/^English$/);
-    expect(thai).toHaveTextContent(/^ไทย$/);
     expect(english).toHaveAttribute("lang", "en");
-    expect(thai).toHaveAttribute("lang", "th");
-    expect(container.querySelector("img, svg")).toBeNull();
+    expect(screen.queryByText("ไทย")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).not.toMatch(/\b(EN|TH)\b|🇹🇭|🇺🇸/u);
   });
 
-  it("says which language is on (aria-pressed), in a named group", async () => {
+  it("names both menu options and marks the stored language as selected", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockReturnValue("th");
+    const user = userEvent.setup();
     renderSwitcher();
-    expect(await screen.findByRole("button", { name: "ไทย" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "false");
+    const trigger = await screen.findByRole("button", { name: "ภาษา: ไทย" });
+    expect(trigger).toHaveTextContent(/^ไทย$/);
+    await user.click(trigger);
+    const thai = screen.getByRole("menuitemradio", { name: "ไทย" });
+    const english = screen.getByRole("menuitemradio", { name: "English" });
+    expect(thai).toHaveAttribute("aria-checked", "true");
+    expect(thai).toHaveAttribute("lang", "th");
+    expect(english).toHaveAttribute("aria-checked", "false");
+    expect(english).toHaveAttribute("lang", "en");
     expect(screen.getByRole("group", { name: "ภาษา" })).toBeInTheDocument();
   });
 
-  it("is a 44 px target on a phone", async () => {
+  it("keeps the trigger and menu options as 44 px targets on a phone", async () => {
+    const user = userEvent.setup();
     renderSwitcher();
-    for (const button of [await screen.findByRole("button", { name: "English" }), screen.getByRole("button", { name: "ไทย" })]) {
-      expect(button.className).toContain("max-md:h-11");
-      expect(button.className).toContain("max-md:min-w-11");
+    const trigger = await screen.findByRole("button", { name: "Language: English" });
+    expect(trigger.className).toContain("max-md:h-11");
+    expect(trigger.className).toContain("max-md:min-w-11");
+    await user.click(trigger);
+    for (const option of screen.getAllByRole("menuitemradio")) {
+      expect(option.className).toContain("max-md:min-h-11");
     }
   });
 
-  it("switches to Thai", async () => {
+  it("selects Thai, updates the compact label, persists and closes the menu", async () => {
     const user = userEvent.setup();
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     renderSwitcher();
-    await user.click(await screen.findByRole("button", { name: "ไทย" }));
+    await user.click(await screen.findByRole("button", { name: "Language: English" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "ไทย" }));
+    expect(await screen.findByRole("button", { name: "ภาษา: ไทย" })).toHaveTextContent(/^ไทย$/);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(setItem).toHaveBeenCalledWith("language", "th");
   });
 
@@ -62,8 +76,24 @@ describe("LanguageSwitcher", () => {
     vi.spyOn(Storage.prototype, "getItem").mockReturnValue("th");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     renderSwitcher();
-    await user.click(await screen.findByRole("button", { name: "English" }));
+    await user.click(await screen.findByRole("button", { name: "ภาษา: ไทย" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "English" }));
+    expect(await screen.findByRole("button", { name: "Language: English" })).toHaveTextContent(/^English$/);
     expect(setItem).toHaveBeenCalledWith("language", "en");
+  });
+
+  it("opens, selects and dismisses with the keyboard, returning focus to the trigger", async () => {
+    const user = userEvent.setup();
+    renderSwitcher();
+    const trigger = await screen.findByRole("button", { name: "Language: English" });
+    await user.tab();
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{ArrowDown}{End}{Enter}");
+    const thai = await screen.findByRole("button", { name: "ภาษา: ไทย" });
+    expect(thai).toHaveFocus();
+    await user.keyboard("{Enter}{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(thai).toHaveFocus();
   });
 
   it("leaves no flag image in public/ (nothing refers to one any more)", () => {

@@ -434,9 +434,9 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
   `principalRoleLabel` / `principalScope` over `['me']` (`components/scope-line.tsx` renders it); customer scopes
   name the slice only for a customer view (no tenant, platform role or dispatcher grant). When space runs out the
   slice is shortened, never the role, and the line height is normal so Thai marks are not clipped.
-- **Display preferences** share the public language buttons ("ไทย" / "English", no flags) and theme radio items
+- **Display preferences** share the public language dropdown ("ไทย" / "English", no flags) and theme radio items
   (light, dark, device). They sit in the desktop header and the pinned mobile drawer footer above Support in both sidebars.
-  Language labels use a quiet 28 px selected surface without an enclosing frame or primary fill; phone tap targets stay 44 px.
+  The compact ghost trigger shows only the current language and a small chevron. The menu names both languages in their own words and marks the selection; phone triggers and menu items stay 44 px.
 - **The user menu** holds the name, email and scope line, **My account** (`/my-account`) and the one sign-out ("Sign out" / "ออกจากระบบ"),
   which lands on `/login`. The header carries only controls that work: no placeholder search, bell or report button.
 - A skip link ("Skip to main content") is the first stop of the keyboard and lands below the sticky header; header
