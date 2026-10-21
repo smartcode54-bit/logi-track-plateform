@@ -81,6 +81,30 @@ async function noOverflow(page: Page) {
 
 for (const width of [360, 390]) {
     for (const language of ["en", "th"] as const) {
+        test(`pending expense toolbar fits: ${width}px ${language}`, async ({ browser }) => {
+            const { page, context } = await openShell(browser, "staff", language, width, false, "/app/accounting/audit");
+            try {
+                await context.route("**/api/go/v1/expenses**", async (intercept) => {
+                    await intercept.fulfill({ json: {
+                        data: [{ id: "p1", type: "fuel", status: "pending", date: "2026-10-01T03:00:00Z", expenseDate: "2026-10-01", amountThb: 500, driverName: "Pending fixture", licensePlate: "TEST-1234" }],
+                        meta: { statusCounts: { pending: 1, approved: 0, rejected: 0 } },
+                    } });
+                });
+                await page.reload();
+                for (const name of language === "th" ? ["เลือกทั้งหมด", "ล้างการเลือก", "อนุมัติที่เลือก"] : ["Select all", "Clear selection", "Approve selected"]) {
+                    const button = page.getByRole("button", { name, exact: true });
+                    await expect(button).toBeVisible();
+                    const box = (await button.boundingBox())!;
+                    expect(box.x).toBeGreaterThanOrEqual(0);
+                    expect(box.x + box.width).toBeLessThanOrEqual(width);
+                    expect(box.height).toBeGreaterThanOrEqual(44);
+                }
+                await noOverflow(page);
+            } finally {
+                await context.close();
+            }
+        });
+
         test(`pickup form contains the loaded map: ${width}px ${language}`, async ({ browser }) => {
             const { page, context } = await openShell(browser, "staff", language, width, false, "/app/sources");
             try {

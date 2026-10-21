@@ -579,3 +579,4 @@ head if UI4F or UI4G lands first, reviews the diff and runs the guard; routine c
 - Rate and expense-audit tabs keep one-line names in a horizontal strip on phones, without squeezing labels.
 - Summary cards use compact mobile padding/grids; staff monitors reuse the existing compact summary and collapsed filters.
 - Appointment queues expose labeled fields in mobile rows; history uses the existing detail action in a one-column summary. Row dropdown menus in wide tables stick to the right edge on phones.
+- Conditional bulk-action toolbars fit phone widths even when pending records enable every action. Leaflet zoom and calendar navigation keep the same 44px mobile targets as shared controls.

@@ -130,7 +130,6 @@ export default function LocationPicker({ value, onChange, searchPlaceholder = "S
                         background-color: var(--accent) !important;
                     }
                     @media (max-width: 767px) {
-                        .location-picker .leaflet-bar a,
                         .location-picker .leaflet-control-geosearch button.reset {
                             min-width: 44px;
                             height: 44px;
