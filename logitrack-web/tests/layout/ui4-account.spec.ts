@@ -89,7 +89,7 @@ test.describe("Account layout (UI4F)", () => {
             await expect(account).toBeFocused();
             await expect(account).toHaveAttribute("href", "/my-account");
             await page.keyboard.press("ArrowDown");
-            await expect(page.getByRole("menuitemradio", { name: "English" })).toBeFocused();
+            await expect(page.getByRole("menuitem", { name: "Sign out", exact: true })).toBeFocused();
             await page.keyboard.press("ArrowUp");
             await page.keyboard.press("Enter");
             await expect(page).toHaveURL(`${BASE}/my-account`);

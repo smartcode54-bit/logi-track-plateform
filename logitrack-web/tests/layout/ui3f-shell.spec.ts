@@ -120,7 +120,10 @@ for (const width of [360, 1280]) {
                         const output = process.env.SHELL_PREFERENCES_SCREENSHOTS;
                         if (output) await page.screenshot({ path: `${output}/${width}-${language}-${route.includes("security-center") ? "security" : "main"}-${theme}.png` });
                     }
-                    await controls.getByRole("button", { name: language === "en" ? "ไทย" : "English", exact: true }).click();
+                    await controls.getByRole("button", { name: language === "en" ? "Language: English" : "ภาษา: ไทย", exact: true }).click();
+                    await expect(page.getByRole("menuitemradio", { name: language === "en" ? "English" : "ไทย", exact: true })).toHaveAttribute("aria-checked", "true");
+                    await page.getByRole("menuitemradio", { name: language === "en" ? "ไทย" : "English", exact: true }).click();
+                    await expect(controls.getByRole("button", { name: language === "en" ? "ภาษา: ไทย" : "Language: English", exact: true })).toBeVisible();
                     await expect(page.locator("html")).toHaveAttribute("lang", language === "en" ? "th" : "en");
                     if (mobile) await expect(surface).toBeVisible();
                     await noOverflow(page);

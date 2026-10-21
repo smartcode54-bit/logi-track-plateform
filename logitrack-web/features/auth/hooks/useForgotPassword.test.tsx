@@ -36,7 +36,8 @@ describe("password reset email language", () => {
         expect(screen.getByTestId("language")).toHaveTextContent("th");
         const user = userEvent.setup();
         if (locale === "en") {
-            await user.click(screen.getByRole("button", { name: "English" }));
+            await user.click(screen.getByRole("button", { name: "ภาษา: ไทย" }));
+            await user.click(screen.getByRole("menuitemradio", { name: "English" }));
             await waitFor(() => expect(screen.getByTestId("language")).toHaveTextContent("en"));
         }
         await user.type(email, "driver@example.test");

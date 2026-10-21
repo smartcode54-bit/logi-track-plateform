@@ -172,10 +172,10 @@ describe("display preferences and account actions", () => {
         expect(document.documentElement.lang).toBe("en");
 
         const user = userEvent.setup();
-        const english = within(header()).getByRole("button", { name: "English" });
-        expect(english).toHaveAttribute("aria-pressed", "true");
-        const thai = within(header()).getByRole("button", { name: "ไทย" });
-        expect(thai).toHaveAttribute("aria-pressed", "false");
+        await user.click(within(header()).getByRole("button", { name: "Language: English" }));
+        expect(screen.getByRole("menuitemradio", { name: "English" })).toHaveAttribute("aria-checked", "true");
+        const thai = screen.getByRole("menuitemradio", { name: "ไทย" });
+        expect(thai).toHaveAttribute("aria-checked", "false");
         expect(thai).toHaveAttribute("lang", "th");
         await user.click(thai);
 
@@ -256,16 +256,17 @@ describe("on a phone", () => {
         const sheet = await screen.findByRole("dialog", { name: "Menu" });
         const support = within(sheet).getByRole("link", { name: "Support" });
         const footer = support.closest("[data-sidebar=footer]") as HTMLElement;
-        const thai = within(footer).getByRole("button", { name: "ไทย" });
-        expect(thai.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        expect(thai.closest("[data-sidebar-scroll]")).toBeNull();
+        const language = within(footer).getByRole("button", { name: "Language: English" });
+        expect(language.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(language.closest("[data-sidebar-scroll]")).toBeNull();
         await user.click(within(footer).getByRole("button", { name: "Theme" }));
         await user.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
         expect(sheet).toBeInTheDocument();
-        await user.click(thai);
+        await user.click(language);
+        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
         await waitFor(() => expect(document.documentElement.lang).toBe("th"));
         expect(sheet).toBeInTheDocument();
-        expect(within(footer).getByRole("button", { name: "ไทย" })).toHaveAttribute("aria-pressed", "true");
+        expect(within(footer).getByRole("button", { name: "ภาษา: ไทย" })).toHaveTextContent(/^ไทย$/);
     });
 
     it("opens the menu as a titled sheet that closes once a link is tapped (main sidebar)", async () => {
@@ -364,7 +365,8 @@ describe("on a phone", () => {
         const user = userEvent.setup();
         await user.click(within(header()).getByRole("button", { name: "Show or hide the menu" }));
         const drawer = await screen.findByRole("dialog", { name: "Menu" });
-        await user.click(within(drawer).getByRole("button", { name: "ไทย" }));
+        await user.click(within(drawer).getByRole("button", { name: "Language: English" }));
+        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
         await user.click(within(drawer).getByRole("button", { name: "ปิดเมนู" }));
         const picker = await screen.findByRole("combobox", { name: `เปลี่ยนบริษัท (ปัจจุบัน: ${name})` });
         expect(picker.className).toMatch(/\bsize-11\b/);
@@ -429,7 +431,8 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         await renderShell(tenantAdmin);
         await waitFor(() => expect(document.title).toBe("Trips to bill · LogiTrack Pro"));
         const user = userEvent.setup();
-        await user.click(within(header()).getByRole("button", { name: "ไทย" }));
+        await user.click(within(header()).getByRole("button", { name: "Language: English" }));
+        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
         await waitFor(() => expect(document.title).toBe("เที่ยวที่ต้องวางบิล · LogiTrack Pro"));
     });
 
@@ -473,7 +476,8 @@ describe("landmarks, the tab title and the sidebar trigger (UI3B)", () => {
         await user.click(trigger);
         expect(document.cookie).toContain("sidebar_state=true");
 
-        await user.click(within(header()).getByRole("button", { name: "ไทย" }));
+        await user.click(within(header()).getByRole("button", { name: "Language: English" }));
+        await user.click(await screen.findByRole("menuitemradio", { name: "ไทย" }));
         await waitFor(() => expect(within(header()).getByRole("button", { name: "แสดงหรือซ่อนเมนู" })).toBeInTheDocument());
         expect(header().textContent).not.toMatch(/Toggle Sidebar/);
     });
