@@ -32,6 +32,7 @@ import { canTransitionMaintenance } from "../../utils/maintenanceTransitions";
 import { PageHeader } from "@/components/page-header";
 import { apiErrorText } from "@/lib/apiError";
 import { LoadMore } from "@/components/load-more";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -127,8 +128,8 @@ function PendingQueue() {
                     </div>
                 ))}
                 {booking.isSuccess && scheduled.isSuccess && rows.length === 0 ? <p className="py-4 text-sm text-muted-foreground">{t("maintenance.go.queueEmpty")}</p> : null}
-                {rows.length > 0 ? <div className="overflow-x-auto"><Table>
-                    <TableHeader>
+                {rows.length > 0 ? <div className="overflow-x-auto"><Table className="max-md:block">
+                    <TableHeader className="max-md:sr-only">
                         <TableRow>
                             <TableHead>{t("maintenance.col.triggerDate")}</TableHead>
                             <TableHead>{t("maintenance.table.vehicle")}</TableHead>
@@ -140,28 +141,39 @@ function PendingQueue() {
                             <TableHead className="text-right">{t("maintenance.table.actions")}</TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <TableBody className="max-md:grid max-md:gap-4">
                         {rows.map((r) => {
                             const d = draftOf(r.id);
                             const isBooking = r.status === "pm_booking" && canTransitionMaintenance(r.status, "scheduled");
                             return (
-                                <TableRow key={r.id}>
-                                    <TableCell className="whitespace-nowrap font-mono text-xs">{formatDay(r.createdAt)}</TableCell>
+                                <TableRow key={r.id} className="max-md:grid max-md:grid-cols-2 max-md:gap-3 max-md:rounded-lg max-md:border max-md:p-3 max-md:[&>td]:min-w-0 max-md:[&>td]:whitespace-normal max-md:[&>td]:p-0">
+                                    <TableCell className="whitespace-nowrap text-xs">
+                                        <span className="block text-muted-foreground md:hidden">{t("maintenance.col.triggerDate")}</span>
+                                        {formatDay(r.createdAt)}
+                                    </TableCell>
                                     <TableCell>
+                                        <span className="block text-xs text-muted-foreground md:hidden">{t("maintenance.table.vehicle")}</span>
                                         <div className="font-semibold">{r.licensePlate}</div>
                                         <div className="text-xs text-muted-foreground">{r.truckBrand}</div>
                                     </TableCell>
-                                    <TableCell className="text-right font-semibold">{r.currentMileage?.toLocaleString() ?? "—"}</TableCell>
-                                    <TableCell>
-                                        <Badge variant="outline">{maintenanceStatusLabel(r.status, t)}</Badge>
+                                    <TableCell className="text-right font-semibold max-md:text-left">
+                                        <span className="block text-xs font-normal text-muted-foreground md:hidden">{t("maintenance.form.odometer")}</span>
+                                        {r.currentMileage?.toLocaleString() ?? "—"}
                                     </TableCell>
                                     <TableCell>
+                                        <span className="block text-xs text-muted-foreground md:hidden">{t("maintenance.table.status")}</span>
+                                        <Badge variant="outline">{maintenanceStatusLabel(r.status, t)}</Badge>
+                                    </TableCell>
+                                    <TableCell className="max-md:col-span-2">
+                                        <span className="mb-1 block text-xs text-muted-foreground md:hidden">{t("maintenance.col.appointmentDate")}</span>
                                         {isBooking ? <Input aria-label={`${t("maintenance.col.appointmentDate")} · ${r.licensePlate}`} type="date" className="h-9" value={d.date} onChange={(e) => patch(r.id, { date: e.target.value })} /> : <span className="font-mono text-sm">{r.startDate}</span>}
                                     </TableCell>
                                     <TableCell>
+                                        <span className="mb-1 block text-xs text-muted-foreground md:hidden">{t("maintenance.col.time")}</span>
                                         {isBooking ? <Input aria-label={`${t("maintenance.col.time")} · ${r.licensePlate}`} type="time" className="h-9" value={d.time} onChange={(e) => patch(r.id, { time: e.target.value })} /> : <span className="font-mono text-sm">{r.appointmentTime ?? "—"}</span>}
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell className="max-md:col-span-2">
+                                        <span className="mb-1 block text-xs text-muted-foreground md:hidden">{t("maintenance.col.place")}</span>
                                         {isBooking ? (
                                             <div className="flex flex-col gap-2">
                                                 <Input aria-label={`${t("maintenance.col.place")} · ${r.licensePlate}`} className="h-9" placeholder={t("maintenance.form.enterGarage")} value={d.location} onChange={(e) => patch(r.id, { location: e.target.value })} />
@@ -177,7 +189,7 @@ function PendingQueue() {
                                             <span className="block text-sm">{r.provider ?? "—"}</span>
                                         )}
                                     </TableCell>
-                                    <TableCell className="text-right">
+                                    <TableCell className="text-right max-md:col-span-2 max-md:[&>button]:w-full">
                                         {isBooking ? (
                                             <Button size="sm" onClick={() => void book(r)} disabled={busy !== null}>
                                                 {busy === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : t("maintenance.saveBooking")}
@@ -242,6 +254,7 @@ function PendingQueue() {
 export function MaintenanceOverviewPage() {
     const client = useQueryClient();
     const { t } = useLanguage();
+    const mobile = useIsMobile();
     const [type, setType] = useState<"all" | "PM" | "CM">("all");
     const [status, setStatus] = useState<string>("all");
     const [adding, setAdding] = useState(false);
@@ -255,7 +268,31 @@ export function MaintenanceOverviewPage() {
     const pct = (part: number) => (totals.total > 0 ? ((part / totals.total) * 100).toFixed(1) : "0.0");
 
     const columns = useMemo(
-        () => [
+        () => mobile ? [
+            col.display({
+                id: "summary",
+                header: () => t("maintenance.serviceHistory"),
+                meta: { cellClassName: "whitespace-normal p-3" },
+                cell: ({ row: { original: r } }) => (
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold">{r.licensePlate}</span>
+                            <Badge variant="secondary">{maintenanceStatusLabel(r.status, t)}</Badge>
+                        </div>
+                        <p>{maintenanceServiceLabel(r.serviceType, t)}</p>
+                        <p className="text-xs text-muted-foreground">{formatDay(r.startDate)} · {r.truckBrand}</p>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold">{formatThb(r.displayCostThb)}</span>
+                            {r.truckId ? <Button asChild size="sm" variant="outline">
+                                <Link href={`/app/trucks/maintenance?id=${encodeURIComponent(r.truckId)}`} prefetch={false}>
+                                    {t("maintenance.manageUpdate")}
+                                </Link>
+                            </Button> : null}
+                        </div>
+                    </div>
+                ),
+            }),
+        ] : [
             col.accessor("startDate", { header: () => t("maintenance.table.date"), cell: (c) => formatDay(c.getValue()), meta: { cellClassName: "whitespace-nowrap text-xs" } }),
             col.display({
                 id: "vehicle",
@@ -289,7 +326,7 @@ export function MaintenanceOverviewPage() {
                     ) : null,
             }),
         ],
-        [t]
+        [t, mobile]
     );
 
     return (
@@ -312,7 +349,7 @@ export function MaintenanceOverviewPage() {
                 }
             />
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-4">
                 {list.isPending ? <div className="md:col-span-2 lg:col-span-3"><QueryLoading label={t("maintenance.go.statsLoading")} /></div> : list.isError && !list.data ? (
                     <div className="md:col-span-2 lg:col-span-3"><QueryError error={list.error} label={t("maintenance.go.statsError")} onRetry={() => void list.refetch()} retrying={list.isFetching} /></div>
                 ) : <>

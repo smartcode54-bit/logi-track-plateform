@@ -101,7 +101,7 @@ export function RenewalsPage() {
 
             {query.isError && <TruckQueryError onRetry={() => void query.refetch()} retrying={query.isFetching} />}
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">{t("renewals.card.totalFleet")}</CardTitle>
@@ -110,7 +110,7 @@ export function RenewalsPage() {
                     <CardContent>
                         <div className="text-2xl font-bold">{totalTrucks}</div>
                         <p className="text-xs text-muted-foreground">{t("renewals.card.activeVehicles")}</p>
-                        <div className="mt-2 pt-2 border-t text-xs flex justify-between items-center text-muted-foreground">
+                        <div className="mt-2 pt-2 border-t text-xs flex flex-wrap gap-1 justify-between items-center text-muted-foreground">
                             <span>{t("renewals.card.totalEstCost")}:</span>
                             <span className="font-semibold text-foreground">฿{totalCost.toLocaleString()}</span>
                         </div>

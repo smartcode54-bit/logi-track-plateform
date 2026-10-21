@@ -75,11 +75,11 @@ export function LeaveRequestsPage() {
                 }
             />
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2 md:gap-4">
                 <Card>
-                    <CardContent className="flex items-center justify-between p-6">
+                    <CardContent className="flex items-center justify-between p-6 max-md:p-2 max-md:[&>svg]:hidden">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">{t("leaveRequests.stats.totalRequests")}</p>
+                            <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t("leaveRequests.stats.totalRequests")}</p>
                             <h2 className="text-3xl font-semibold" data-testid="leave-total">
                                 {allCount !== undefined ? allCount.toLocaleString() : "—"}
                             </h2>
@@ -88,9 +88,9 @@ export function LeaveRequestsPage() {
                     </CardContent>
                 </Card>
                 <Card>
-                    <CardContent className="flex items-center justify-between p-6">
+                    <CardContent className="flex items-center justify-between p-6 max-md:p-2 max-md:[&>svg]:hidden">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">{t("leaveRequests.stats.pendingReview")}</p>
+                            <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t("leaveRequests.stats.pendingReview")}</p>
                             <h2 className="text-3xl font-semibold tabular-nums text-warning" data-testid="leave-pending">
                                 {counts ? counts.pending.toLocaleString() : "—"}
                             </h2>
@@ -99,9 +99,9 @@ export function LeaveRequestsPage() {
                     </CardContent>
                 </Card>
                 <Card>
-                    <CardContent className="flex items-center justify-between p-6">
+                    <CardContent className="flex items-center justify-between p-6 max-md:p-2 max-md:[&>svg]:hidden">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">{t("hr.leave.approvedTotal")}</p>
+                            <p className="text-sm max-md:text-xs break-words font-medium text-muted-foreground">{t("hr.leave.approvedTotal")}</p>
                             <h2 className="text-3xl font-semibold tabular-nums" data-testid="leave-approved">
                                 {counts ? counts.approved.toLocaleString() : "—"}
                             </h2>

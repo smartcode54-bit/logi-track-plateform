@@ -185,8 +185,8 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                 </DialogHeader>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
+                    <form onSubmit={form.handleSubmit(onSubmit, createInvalidHandler(form, t))} className="min-w-0 space-y-4">
+                        <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
                             <FormField
                                 control={form.control}
                                 name="source_id"
@@ -255,7 +255,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                             )}
                         />
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid min-w-0 grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField
                                 control={form.control}
                                 name="customerLinkKind"
@@ -324,7 +324,7 @@ export function HubDialog({ trigger, open, onOpenChange, onSuccess, defaultValue
                             />
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="min-w-0 space-y-2">
                             <FormLabel>{t("firstMile.hub.location")}</FormLabel>
                             <div className="border rounded-md p-1">
                                 <SimpleMap

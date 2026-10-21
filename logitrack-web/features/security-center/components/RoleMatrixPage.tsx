@@ -159,13 +159,13 @@ export function RoleMatrixPage() {
             />
 
             {canViewOverview && counts.data ? (
-                <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6" data-testid="role-counts">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6" data-testid="role-counts">
                     {MATRIX_ROLES.map((role) => {
                         const n = counts.data.tenantRoles[role] ?? 0;
                         const max = Math.max(1, ...MATRIX_ROLES.map((r) => counts.data.tenantRoles[r] ?? 0));
                         return (
                             <Card key={role}>
-                                <CardContent className="pb-2 pt-6">
+                                <CardContent className="pb-2 pt-6 max-md:pt-0">
                                     <span className="text-2xl font-semibold tabular-nums">{n.toLocaleString(language === "th" ? "th-TH" : "en-GB")}</span>
                                     <p className="mt-1 text-sm font-medium text-muted-foreground">{organisationRoleLabel(role, t)}</p>
                                     <div className="mt-3 h-1 overflow-hidden rounded-full bg-primary/20">

@@ -22,14 +22,14 @@ interface StatCardProps {
 
 function StatCard({ title, value, hint, icon: Icon, testId }: StatCardProps) {
     return (
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm" data-testid={testId}>
-            <div className="flex justify-between items-start mb-4">
+        <div className="bg-card border border-border rounded-xl p-6 max-md:p-3 shadow-sm" data-testid={testId}>
+            <div className="flex justify-between items-start mb-4 max-md:mb-2">
                 <div className="text-muted-foreground">
                     <Icon className="w-6 h-6" />
                 </div>
             </div>
             <p className="text-muted-foreground text-xs font-medium mb-1">{title}</p>
-            <p className="text-3xl font-semibold text-foreground tabular-nums">{value}</p>
+            <p className="text-3xl max-md:text-xl font-semibold text-foreground tabular-nums">{value}</p>
             {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
         </div>
     );
@@ -37,9 +37,9 @@ function StatCard({ title, value, hint, icon: Icon, testId }: StatCardProps) {
 
 export function StatCardsSkeleton() {
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" aria-busy="true">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6" aria-busy="true">
             {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="bg-card border border-border rounded-xl p-6 shadow-sm animate-pulse flex items-center gap-4">
+                <div key={i} className="bg-card border border-border rounded-xl p-6 max-md:p-3 shadow-sm animate-pulse flex items-center gap-4">
                     <div className="h-12 w-12 rounded-lg bg-muted" />
                     <div className="flex-1">
                         <div className="h-3 w-16 bg-muted rounded mb-2" />
@@ -58,7 +58,7 @@ export function DashboardStatCards({ usersByRole, drivers, trips }: { usersByRol
     if (!usersByRole && !drivers && !trips) return null;
     const people = usersByRole ? roleDistribution(usersByRole) : undefined;
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
             {people && (
                 <StatCard
                     testId="stat-users"

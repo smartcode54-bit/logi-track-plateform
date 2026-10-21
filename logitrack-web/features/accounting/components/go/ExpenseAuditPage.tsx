@@ -192,7 +192,7 @@ export function ExpenseAuditPage() {
     );
 
     const statusTab = (s: ExpenseStatus | "all", key: string) => (
-        <TabsTrigger value={s} className="h-auto min-h-11 gap-2 whitespace-normal">
+        <TabsTrigger value={s} className="h-auto min-h-11 gap-2 whitespace-normal max-md:flex-none max-md:whitespace-nowrap">
             {t(`accounting.audit.${key}`)}
             {s !== "all" ? (
                 <Badge variant={s === "pending" ? "destructive" : "secondary"} className="ml-1">
@@ -217,8 +217,8 @@ export function ExpenseAuditPage() {
 
             <Card>
                 <CardContent className="flex flex-wrap items-end gap-4 pt-4">
-                    <Tabs value={status} onValueChange={(v) => changeFilter(() => setStatus(v as ExpenseStatus | "all"))}>
-                        <TabsList className="h-auto max-w-full flex-wrap justify-start">
+                    <Tabs className="min-w-0 max-md:w-full" value={status} onValueChange={(v) => changeFilter(() => setStatus(v as ExpenseStatus | "all"))}>
+                        <TabsList className="h-auto max-w-full flex-wrap justify-start max-md:w-full max-md:flex-nowrap max-md:overflow-x-auto">
                             {statusTab("pending", "statusPending")}
                             {statusTab("approved", "statusApproved")}
                             {statusTab("rejected", "statusRejected")}
