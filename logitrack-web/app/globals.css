@@ -19,6 +19,12 @@
 
 /* Keep row menus in view while a wide table scrolls on a phone. */
 @media (max-width: 767px) {
+  .leaflet-container .leaflet-control-zoom.leaflet-bar a {
+    min-width: 44px;
+    min-height: 44px;
+    line-height: 44px;
+  }
+
   [data-slot="table"]:has(> tbody > tr > td:last-child [aria-haspopup="menu"]) > :is(thead, tbody) > tr > :is(th, td):last-child {
     position: sticky;
     right: 0;

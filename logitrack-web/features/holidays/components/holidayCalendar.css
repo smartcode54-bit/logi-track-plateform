@@ -150,6 +150,10 @@
 }
 
 @media (max-width: 767px) {
+    .fc .fc-button {
+        min-width: 44px;
+        min-height: 44px;
+    }
     .fc .fc-toolbar {
         flex-direction: column;
         gap: 0.75rem;

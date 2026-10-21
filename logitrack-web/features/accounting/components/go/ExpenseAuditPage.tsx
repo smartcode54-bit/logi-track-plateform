@@ -243,7 +243,7 @@ export function ExpenseAuditPage() {
                         </Select>
                     </Field>
                     {canAudit && pending.length > 0 ? (
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="ml-auto flex items-center gap-2 max-md:ml-0 max-md:grid max-md:w-full max-md:grid-cols-2">
                             <span className="text-sm text-muted-foreground">{t("accounting.audit.selectedCount", { count: selectedPending.length })}</span>
                             <Button variant="outline" size="sm" onClick={() => setSelected(new Set(pending.map((r) => r.id)))}>
                                 {t("accounting.audit.selectAll")}
