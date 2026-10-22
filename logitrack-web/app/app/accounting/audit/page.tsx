@@ -729,16 +729,11 @@ export default function AccountingAuditPage() {
                                                     <Input
                                                         type="number"
                                                         step="0.01"
-                                                        value={
-                                                            editForm.pricePerLiter != null && typeof editForm.pricePerLiter === "number" && !isNaN(editForm.pricePerLiter)
-                                                                ? editForm.pricePerLiter.toFixed(2)
-                                                                : ""
-                                                        }
+                                                        value={editForm.pricePerLiter ?? ""}
                                                         onChange={(e) => {
                                                             const v = e.target.value;
-                                                            const n = v === "" ? undefined : parseFloat(v);
                                                             setEditForm((prev) =>
-                                                                prev ? { ...prev, pricePerLiter: n } : null
+                                                                prev ? { ...prev, pricePerLiter: v === "" ? undefined : Number(v) } : null
                                                             );
                                                         }}
                                                         className="h-9"
