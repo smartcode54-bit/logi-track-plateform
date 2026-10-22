@@ -175,8 +175,21 @@ export const updateDriverAccount = onCall(
                         if (userRecord.email !== wantEmail) {
                             authUpdates.email = wantEmail;
                         }
-                    } catch (error) {
+                        // A Google link is bound to the old Gmail identity, not the email field.
+                        // Left in place, "Sign in with Google" with the new Gmail fails with
+                        // "provider already linked" — unlink so the next Google sign-in re-links.
+                        const googleLink = userRecord.providerData.find(p => p.providerId === "google.com");
+                        if (googleLink && googleLink.email?.toLowerCase() !== wantEmail.toLowerCase()) {
+                            authUpdates.providersToUnlink = ["google.com"];
+                        }
+                    } catch (error: any) {
                         console.error("[updateDriverAccount] Error fetching Auth user:", error);
+                        // Fail loudly: swallowing this still wrote drivers.email below while the
+                        // Auth record kept the old email → driver locked out with no error shown.
+                        throw new HttpsError(
+                            "failed-precondition",
+                            `Login account ${authId} could not be loaded (${error.code || error.message}). No changes were saved.`
+                        );
                     }
                 }
 
