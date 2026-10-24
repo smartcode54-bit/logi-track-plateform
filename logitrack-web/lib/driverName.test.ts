@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { driverDisplayName, matchDriverOptionId, type DriverNameSource } from "./driverName";
+import { driverDisplayName, driverIdentityKeys, matchDriverOptionId, type DriverNameSource } from "./driverName";
 
 const somchai: DriverNameSource = {
     id: "drv_1",
@@ -28,6 +28,37 @@ describe("driverDisplayName", () => {
 
     it("treats a whitespace-only Thai name as absent", () => {
         expect(driverDisplayName({ fullNameTh: "   ", firstName: "A", lastName: "B" })).toBe("A B");
+    });
+});
+
+describe("driverIdentityKeys", () => {
+    it("returns the current Auth UID and every past one from authIdHistory", () => {
+        expect(
+            driverIdentityKeys({ authId: "uid_new", authIdHistory: ["W47P8pGs", "uid_old2"] })
+        ).toEqual(["uid_new", "W47P8pGs", "uid_old2"]);
+    });
+
+    it("includes the doc id first when given, so old trips keyed by uid still resolve", () => {
+        expect(
+            driverIdentityKeys({ authId: "uid_new", authIdHistory: ["uid_old"] }, "drv_1")
+        ).toEqual(["drv_1", "uid_new", "uid_old"]);
+    });
+
+    it("accepts the legacy authUid field and de-dupes repeated ids", () => {
+        expect(driverIdentityKeys({ authUid: "uid_x", authIdHistory: ["uid_x", "uid_y"] })).toEqual([
+            "uid_x",
+            "uid_y",
+        ]);
+    });
+
+    it("ignores blank / whitespace entries and a missing history", () => {
+        expect(driverIdentityKeys({ authId: "uid_1", authIdHistory: ["", "   ", "uid_2"] })).toEqual([
+            "uid_1",
+            "uid_2",
+        ]);
+        expect(driverIdentityKeys({ authId: "uid_1" })).toEqual(["uid_1"]);
+        expect(driverIdentityKeys(null, "drv_9")).toEqual(["drv_9"]);
+        expect(driverIdentityKeys(null)).toEqual([]);
     });
 });
 

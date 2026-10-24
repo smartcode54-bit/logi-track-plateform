@@ -63,6 +63,8 @@ interface IncidentReport {
 interface Driver {
     id: string
     authId?: string
+    /** Past Auth UIDs (before an email / Google re-link) — so old reports resolve. */
+    authIdHistory?: string[]
     firstName?: string
     lastName?: string
 }
@@ -168,6 +170,10 @@ export default function IncidentReportsPage() {
         const byAuth: Record<string, Driver> = {}
         Object.values(drivers).forEach((d) => {
             if (d.authId) byAuth[d.authId] = d
+            // Past uids too: a report written before an email re-link carries the old uid.
+            for (const legacy of d.authIdHistory ?? []) {
+                if (legacy) byAuth[legacy] = d
+            }
         })
         return byAuth
     }, [drivers])

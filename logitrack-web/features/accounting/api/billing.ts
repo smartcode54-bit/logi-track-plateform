@@ -25,7 +25,7 @@ import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
 import { bangkokMidnightFromPickedDate, pickedDateToDateStr } from "@/lib/billingDate";
-import { driverDisplayName } from "@/lib/driverName";
+import { driverDisplayName, driverIdentityKeys } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { billingAxisDate, type BillingTripRow } from "@/lib/billingDocument";
@@ -886,12 +886,11 @@ export async function fetchBillingTripRows(
             const dd = ds.data();
             const name = driverDisplayName(dd, ds.id);
             const sub = (dd.subcontractorName as string | undefined)?.trim();
-            driverNameByKey.set(ds.id, name);
-            if (sub) driverSubByKey.set(ds.id, sub);
-            const authId = (dd.authId ?? dd.authUid) as string | undefined;
-            if (authId) {
-                driverNameByKey.set(authId, name);
-                if (sub) driverSubByKey.set(authId, sub);
+            // Index the doc id, current Auth UID and every past uid (authIdHistory),
+            // so trips written under a pre-re-link uid still resolve to the name.
+            for (const key of driverIdentityKeys(dd, ds.id)) {
+                driverNameByKey.set(key, name);
+                if (sub) driverSubByKey.set(key, sub);
             }
         });
     } catch (e) {
@@ -1218,9 +1217,8 @@ async function buildDriverNameResolver(): Promise<{
         driversSnap.forEach((ds) => {
             const dd = ds.data();
             const name = driverDisplayName(dd, ds.id);
-            driverNameByKey.set(ds.id, name);
-            const authId = (dd.authId ?? dd.authUid) as string | undefined;
-            if (authId) driverNameByKey.set(authId, name);
+            // doc id + current Auth UID + every past uid (authIdHistory) → name.
+            for (const key of driverIdentityKeys(dd, ds.id)) driverNameByKey.set(key, name);
         });
     } catch (e) {
         console.warn("[buildDriverNameResolver] failed to load drivers:", e);
@@ -1571,9 +1569,8 @@ export async function fetchStandbyBillingDiagnostics(
         driversSnap.forEach((ds) => {
             const dd = ds.data();
             const name = driverDisplayName(dd, ds.id);
-            driverNameByKey.set(ds.id, name);
-            const authId = (dd.authId ?? dd.authUid) as string | undefined;
-            if (authId) driverNameByKey.set(authId, name);
+            // doc id + current Auth UID + every past uid (authIdHistory) → name.
+            for (const key of driverIdentityKeys(dd, ds.id)) driverNameByKey.set(key, name);
         });
     } catch (e) {
         console.warn("[fetchStandbyBillingDiagnostics] driver name lookup failed:", e);

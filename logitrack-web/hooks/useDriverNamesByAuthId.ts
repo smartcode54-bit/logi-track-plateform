@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
-import { driverDisplayName } from "@/lib/driverName";
+import { driverDisplayName, driverIdentityKeys } from "@/lib/driverName";
 
 /**
  * Resolve driver Auth UIDs → Thai display names.
@@ -36,6 +36,26 @@ export function useDriverNamesByAuthId(
                     const data = d.data();
                     const aid = String(data.authId ?? "");
                     if (aid) result[aid] = driverDisplayName(data, aid);
+                });
+            }
+            // Any id not matched by the current authId may be a PAST uid (before an
+            // email / Google re-link) kept in authIdHistory — resolve those too, so
+            // helper names on old tasks don't show a raw uid.
+            const unresolved = ids.filter((id) => !result[id]);
+            for (let i = 0; i < unresolved.length; i += 30) {
+                const chunk = unresolved.slice(i, i + 30);
+                const snap = await getDocs(
+                    query(
+                        collection(db, COLLECTIONS.DRIVERS),
+                        where("authIdHistory", "array-contains-any", chunk)
+                    )
+                );
+                snap.forEach((d) => {
+                    const data = d.data();
+                    const name = driverDisplayName(data, String(data.authId ?? d.id));
+                    for (const key of driverIdentityKeys(data, d.id)) {
+                        if (chunk.includes(key)) result[key] = name;
+                    }
                 });
             }
             if (!cancelled) setNames(result);

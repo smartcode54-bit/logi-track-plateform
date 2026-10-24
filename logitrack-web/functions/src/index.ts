@@ -34,6 +34,7 @@ export * from "./multiDeliveryTrips";
 export * from "./standbyBilling";
 export * from "./backfillTripTruckData";
 export * from "./backfillTruckType";
+export * from "./backfillDriverAuthHistory";
 export * from "./driverCompensation";
 export * from "./lineNotify";
 export * from "./tripEvidence";

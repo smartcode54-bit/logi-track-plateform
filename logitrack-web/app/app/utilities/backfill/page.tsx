@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { httpsCallable } from "firebase/functions";
-import { AlertCircle, CheckCircle2, Loader2, PauseCircle, Truck, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, PauseCircle, Truck, UserCog, Zap } from "lucide-react";
 import { functions } from "@/firebase/client";
 import { useAuth } from "@/context/auth";
 import { useLanguage } from "@/context/language";
@@ -161,6 +161,38 @@ export default function BackfillPage() {
         }
     };
 
+    interface AuthHealProposal { orphanUid: string; driverDocId: string; driverName: string; trips: number }
+    interface AuthHealUnresolved { orphanUid: string; trips: number; reason: string }
+    interface AuthHealResult {
+        success: boolean;
+        dryRun: boolean;
+        scannedTrips: number;
+        orphanUids: number;
+        proposals: AuthHealProposal[];
+        unresolved: AuthHealUnresolved[];
+        applied: number;
+    }
+
+    const [authHealLoading, setAuthHealLoading] = useState(false);
+    const [authHealResult, setAuthHealResult] = useState<AuthHealResult | null>(null);
+    const [authHealError, setAuthHealError] = useState<string | null>(null);
+
+    const runDriverAuthHistoryHeal = async (dryRun: boolean) => {
+        if (!auth?.currentUser) return;
+        setAuthHealLoading(true);
+        setAuthHealError(null);
+        setAuthHealResult(null);
+        try {
+            const fn = httpsCallable(functions, "backfillDriverAuthHistory");
+            const res = await fn({ dryRun });
+            setAuthHealResult(res.data as AuthHealResult);
+        } catch (err) {
+            setAuthHealError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setAuthHealLoading(false);
+        }
+    };
+
     const runBackfillTaskCustomerLinks = async () => {
         if (!auth?.currentUser) return;
 
@@ -192,6 +224,106 @@ export default function BackfillPage() {
             </div>
 
             <div className="grid gap-6">
+                {/* Repair Driver Name Links (authIdHistory) */}
+                <Card className="border-l-4 border-l-purple-500">
+                    <CardHeader>
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <UserCog className="h-5 w-5 text-purple-600" />
+                                    ซ่อมชื่อคนขับในรายงาน (Driver Name Links)
+                                </CardTitle>
+                                <CardDescription>
+                                    ใช้เมื่อรายงานเที่ยวแสดงเป็นรหัส (เช่น <code className="bg-muted px-1 rounded">W47P8pGs…</code>) แทนชื่อ
+                                    หลังคนขับเปลี่ยนเมล/ผูกบัญชี Google ใหม่จน Auth UID เปลี่ยน
+                                </CardDescription>
+                            </div>
+                            <Badge variant="outline">Admin Only</Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="rounded-lg bg-purple-50 p-4 text-sm text-purple-900">
+                            <p className="font-medium mb-2">วิธีทำงาน:</p>
+                            <ul className="list-disc list-inside space-y-1 text-xs">
+                                <li>สแกน <code className="bg-muted px-1 rounded">trip_records</code> หา <code className="bg-muted px-1 rounded">driverId</code> (Auth UID) ที่ไม่ตรงกับคนขับคนไหนแล้ว</li>
+                                <li>เชื่อมแต่ละ UID เก่ากับเจ้าของจริงผ่านงานที่ผูกไว้ (<code className="bg-muted px-1 rounded">tasks.driverId</code> = รหัส doc คนขับที่แอดมินเลือกตอนมอบงาน)</li>
+                                <li>เพิ่ม UID เก่าเข้า <code className="bg-muted px-1 rounded">drivers/…/authIdHistory</code> → ชื่อกลับมาแสดงทุกเที่ยว/รายงาน</li>
+                                <li>ทำซ้ำได้ปลอดภัย (idempotent). <strong>กด &quot;ดูตัวอย่างก่อน&quot; เพื่อเช็กการจับคู่ แล้วค่อยกด &quot;ยืนยันซ่อม&quot;</strong></li>
+                            </ul>
+                        </div>
+
+                        {authHealError && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>Error</AlertTitle>
+                                <AlertDescription>{authHealError}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        {authHealResult && (
+                            <Alert className="border-green-200 bg-green-50">
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                <AlertTitle className="text-green-900">
+                                    {authHealResult.dryRun ? "ตัวอย่าง (ยังไม่เขียนข้อมูล)" : "ซ่อมเสร็จแล้ว"}
+                                </AlertTitle>
+                                <AlertDescription className="text-green-800 mt-2">
+                                    <div className="grid grid-cols-3 gap-3 text-sm font-mono">
+                                        {[
+                                            ["สแกนเที่ยว", authHealResult.scannedTrips],
+                                            ["UID ที่ไม่รู้จัก", authHealResult.orphanUids],
+                                            ["จับคู่ได้", authHealResult.proposals.length],
+                                            ["ยังจับคู่ไม่ได้", authHealResult.unresolved.length],
+                                            ["เพิ่มเข้า history", authHealResult.applied],
+                                        ].map(([label, val]) => (
+                                            <div key={String(label)}>
+                                                <div className="text-xs opacity-75">{label}</div>
+                                                <div className="text-lg font-bold">{val}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {authHealResult.proposals.length > 0 && (
+                                        <div className="mt-3 text-xs">
+                                            <p className="font-semibold mb-1">การจับคู่ UID เก่า → คนขับ:</p>
+                                            <div className="bg-white bg-opacity-50 rounded p-2 max-h-48 overflow-y-auto space-y-1">
+                                                {authHealResult.proposals.map((p) => (
+                                                    <div key={p.orphanUid} className="break-words">
+                                                        <code>{p.orphanUid}</code> → <strong>{p.driverName}</strong>{" "}
+                                                        <span className="opacity-75">({p.trips} เที่ยว)</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {authHealResult.unresolved.length > 0 && (
+                                        <div className="mt-3 text-xs">
+                                            <p className="font-semibold mb-1 text-orange-700">ยังจับคู่ไม่ได้ (ต้องเพิ่ม UID เองในโปรไฟล์คนขับ):</p>
+                                            <div className="bg-white bg-opacity-50 rounded p-2 max-h-32 overflow-y-auto space-y-1">
+                                                {authHealResult.unresolved.map((u) => (
+                                                    <div key={u.orphanUid} className="break-words">
+                                                        <code>{u.orphanUid}</code> ({u.trips} เที่ยว) — {u.reason}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="flex gap-2">
+                            <Button onClick={() => runDriverAuthHistoryHeal(true)} disabled={authHealLoading} variant="outline" className="gap-2">
+                                {authHealLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />}
+                                ดูตัวอย่างก่อน (Preview)
+                            </Button>
+                            <Button onClick={() => runDriverAuthHistoryHeal(false)} disabled={authHealLoading} className="gap-2 bg-purple-600 hover:bg-purple-700">
+                                {authHealLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                                ยืนยันซ่อม (Apply)
+                            </Button>
+                            {authHealResult && <Button variant="ghost" onClick={() => setAuthHealResult(null)}>Clear</Button>}
+                        </div>
+                    </CardContent>
+                </Card>
+
                 {/* Standby Billing Backfill */}
                 <Card className="border-l-4 border-l-orange-500">
                     <CardHeader>

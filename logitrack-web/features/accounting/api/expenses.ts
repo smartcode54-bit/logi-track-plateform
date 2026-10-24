@@ -15,7 +15,7 @@ import {
 } from "firebase/firestore";
 import { ref as storageRefFn, uploadBytes, getDownloadURL } from "firebase/storage";
 import { COLLECTIONS } from "@/lib/collections";
-import { driverDisplayName } from "@/lib/driverName";
+import { driverDisplayName, driverIdentityKeys } from "@/lib/driverName";
 
 export type VehicleExpenseType = "fuel" | "other";
 
@@ -103,9 +103,9 @@ export async function getVehicleExpensesByType(type: VehicleExpenseType): Promis
         driversSnapshot.forEach((docSnap) => {
             const d = docSnap.data();
             const name = driverDisplayName(d, docSnap.id);
-            driverNameByKey.set(docSnap.id, name);
-            const authId = (d.authId ?? d.authUid) as string | undefined;
-            if (authId) driverNameByKey.set(authId, name);
+            // doc id + current Auth UID + every past uid (authIdHistory) → name,
+            // so expenses written under a pre-re-link uid still show the name.
+            for (const key of driverIdentityKeys(d, docSnap.id)) driverNameByKey.set(key, name);
         });
         const truckPlateMap = new Map<string, string>();
         trucksSnapshot.forEach((docSnap) => {

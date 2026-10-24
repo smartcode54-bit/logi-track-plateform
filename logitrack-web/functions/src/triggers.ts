@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import { isMaintenanceDue, PM_ALERT_THRESHOLD_KM } from "./core/maintenance";
+import { buildDriverRelinkUpdate } from "./core/driverAuthLink";
 
 // asia-southeast3 (Firestore region) does not support 1st Gen Cloud Functions.
 // FCM for tasks is triggered by the app via callable notifyTaskUpdate.
@@ -246,7 +247,12 @@ export const updateDriverAccount = onCall(
                     }
                 }
 
-                updates.authId = userRecord.uid;
+                // Preserve any prior uid in authIdHistory so historical trips keep
+                // resolving to this driver's name after the re-link.
+                Object.assign(
+                    updates,
+                    buildDriverRelinkUpdate(driverData.authId ?? driverData.authUid, userRecord.uid)
+                );
                 await admin.auth().setCustomUserClaims(userRecord.uid, {
                     role: "driver",
                     driverId: id,

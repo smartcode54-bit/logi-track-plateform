@@ -20,6 +20,7 @@ import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import { TripRecord } from "@/validate/tripRecordSchema";
 import { Driver } from "@/validate/driverSchema";
+import { driverIdentityKeys } from "@/lib/driverName";
 import { buildHubCodeToDisplayMapFromEntries, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
 import { Task } from "@/validate/taskSchema";
 import {
@@ -528,7 +529,10 @@ export function useDriverMonitor() {
     const driversByAuthId = useMemo(() => {
         const byAuth: Record<string, Driver> = {};
         Object.values(drivers).forEach((d) => {
-            if (d.authId) byAuth[d.authId] = d;
+            // Index the current Auth UID AND every past one (authIdHistory): a trip
+            // written before an email / Google re-link carries the old uid, which
+            // otherwise resolves to no driver and shows a raw id (W47P8pGs…).
+            for (const key of driverIdentityKeys(d)) byAuth[key] = d;
         });
         return byAuth;
     }, [drivers]);
