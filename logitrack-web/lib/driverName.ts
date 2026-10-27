@@ -21,6 +21,41 @@ export function driverDisplayName(
     return fallbackId ?? "";
 }
 
+/**
+ * Every identifier a driver can be referenced by in denormalized data: the
+ * Firestore doc id, the current Auth UID (`authId`, or legacy `authUid`), and
+ * any past Auth UIDs kept in `authIdHistory`.
+ *
+ * `trip_records.driverId` (and `vehicle_expenses` / `standby_records` /
+ * `incident_reports` likewise) store whichever Auth UID was current when the
+ * doc was written. When an email / Google re-link moves the driver to a NEW
+ * uid, docs written under an old uid would resolve to no driver and a report
+ * would show a raw id (e.g. `W47P8pGs…`). Indexing every past uid here lets
+ * name resolution find them again. See the `backfillDriverAuthHistory` callable
+ * for how old uids get recorded onto a driver after a re-link.
+ *
+ * Pass `docId` to also include the Firestore doc id (for maps keyed by both id
+ * and uid); omit it for auth-uid-only maps.
+ */
+export function driverIdentityKeys(
+    d: Record<string, unknown> | null | undefined,
+    docId?: string
+): string[] {
+    const keys: string[] = [];
+    const push = (v: unknown) => {
+        const s = String(v ?? "").trim();
+        if (s && !keys.includes(s)) keys.push(s);
+    };
+    if (docId) push(docId);
+    if (d) {
+        push(d.authId);
+        push(d.authUid);
+        const hist = d.authIdHistory;
+        if (Array.isArray(hist)) hist.forEach(push);
+    }
+    return keys;
+}
+
 /** Minimal shape needed to identify a driver in a picker. */
 export type DriverNameSource = {
     id?: string;

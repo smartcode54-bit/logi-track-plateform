@@ -868,7 +868,16 @@ func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error
 		if err := q.UpdateAdminUser(c.ctx, params); err != nil {
 			return err
 		}
+		googleRemoved := false
 		if emailChanged {
+			// The Google link belongs to the old address's Google account: kept, a Google sign-in with the new
+			// address is no_account (the user is linked to another Google account, resolveGoogle). Dropped, that
+			// sign-in links again by its verified email.
+			n, err := q.DeleteUserGoogleIdentity(c.ctx, id)
+			if err != nil {
+				return err
+			}
+			googleRemoved = n > 0
 			if c.p.IsPlatform() {
 				if err := a.platformCredential(c, tx, id); err != nil {
 					return err
@@ -887,7 +896,7 @@ func (a *Admin) PatchUser(c call, id uuid.UUID, in PatchUserInput) (*User, error
 			}
 		}
 		return a.audit(c, tx, EventUserUpdated, "user profile changed by an admin", &id, nil,
-			map[string]any{"fields": fields, "emailChanged": emailChanged})
+			map[string]any{"fields": fields, "emailChanged": emailChanged, "googleIdentityRemoved": googleRemoved})
 	})
 	if err != nil {
 		return nil, err

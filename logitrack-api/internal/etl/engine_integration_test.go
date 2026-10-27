@@ -115,3 +115,60 @@ func TestPendingDocumentsApplyOnTheFirstMappedDeltaLoad(t *testing.T) {
 		}
 	}
 }
+
+// A row written before an email / Google re-link names its driver by the uid the re-link replaced, which the 3.x
+// callables keep in the driver document's authIdHistory: it resolves to that driver like the current uid does.
+func TestDriverByRefResolvesAPastAuthUID(t *testing.T) {
+	e, _ := testEngine(t)
+	ctx := context.Background()
+	ut := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	w, err := dump.NewWriter(dir, ut.Add(time.Hour), "p", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	drivers := []dump.Doc{
+		{ID: "drv_relinked", Path: "drivers/drv_relinked", UpdateTime: ut, Fields: map[string]any{"firstName": "สมชาย",
+			"lastName": "ใจดี", "mobile": "0811111111", "authId": "uid_new", "authIdHistory": []any{"uid_old"}}},
+		{ID: "drv_other", Path: "drivers/drv_other", UpdateTime: ut, Fields: map[string]any{"firstName": "สมศรี",
+			"lastName": "มีสุข", "mobile": "0822222222", "authId": "uid_other"}},
+	}
+	if err := w.WriteCollection("drivers", false, drivers); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d, err := dump.OpenDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Load(ctx, d, LoadOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	err = e.cfg.Tx(ctx, func(tx pgx.Tx) error {
+		ids := map[string]uuid.UUID{}
+		for _, doc := range []string{"drv_relinked", "drv_other"} {
+			var id uuid.UUID
+			if err := tx.QueryRow(ctx, `SELECT id FROM drivers WHERE legacy_doc_id = $1`, doc).Scan(&id); err != nil {
+				return err
+			}
+			ids[doc] = id
+		}
+		c := &docCtx{ctx: ctx, tx: tx, e: e, doc: dump.Doc{Path: "trip_records/t1"}}
+		for raw, want := range map[string][2]string{"drv_relinked": {"doc_id", "drv_relinked"}, "uid_new": {"auth_uid", "drv_relinked"},
+			"uid_old": {"auth_uid", "drv_relinked"}, "uid_other": {"auth_uid", "drv_other"}, "uid_unknown": {"none", ""}} {
+			m, err := c.driverByRef(raw, "")
+			if err != nil {
+				return err
+			}
+			if m.match != want[0] || m.id != ids[want[1]] {
+				t.Errorf("%s: match %s id %v, want %s %s", raw, m.match, m.id, want[0], want[1])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
