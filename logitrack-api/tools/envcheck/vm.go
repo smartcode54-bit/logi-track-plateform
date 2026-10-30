@@ -32,6 +32,7 @@ var vmPrograms = map[string][]string{
 	"scheduler": {"scheduler", "all-go"},
 	"migrate":   {"migrate", "all-go"},
 	"seed":      {"seed", "all-go"},
+	"etl":       {"etl", "all-go"},
 	"web":       {"web-server"},
 	"release":   {"release"},
 }

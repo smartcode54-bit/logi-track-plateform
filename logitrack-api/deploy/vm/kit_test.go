@@ -150,7 +150,7 @@ func processEnv(t *testing.T) map[string]map[string]string {
 		"scheduler": {"METRICS_ADDR": lb("kit_scheduler_metrics_port")},
 		"web": {"GO_API_INTERNAL_URL": "http://" + lb("kit_api_internal_port"), "PORT": k["kit_web_port"],
 			"HOSTNAME": "127.0.0.1", "NODE_ENV": "production"},
-		"migrate": {}, "seed": {}, "release": {},
+		"migrate": {}, "seed": {}, "etl": {}, "release": {},
 	}
 }
 
@@ -345,6 +345,7 @@ func TestTemplateStartsEveryProgram(t *testing.T) {
 		"scheduler": loader[app.SchedulerConfig],
 		"migrate":   loader[app.MigrateConfig],
 		"seed":      loader[app.SeedConfig],
+		"etl":       loader[app.ETLConfig],
 	}
 	for program, f := range load {
 		declared, err := f(environ(program))
@@ -356,7 +357,7 @@ func TestTemplateStartsEveryProgram(t *testing.T) {
 		for n := range declared {
 			// Common declares OTEL_* for every binary, but only api, worker and scheduler export traces
 			// (§16.1 consumers); the one-shot programs run with them unset, as in compose.
-			if (program == "migrate" || program == "seed") && strings.HasPrefix(n, "OTEL_") {
+			if (program == "migrate" || program == "seed" || program == "etl") && strings.HasPrefix(n, "OTEL_") {
 				continue
 			}
 			// The worker binary reads ETL_DATABASE_URL only as worker-sync, the replica of the etl.sync mirror (§16.1
@@ -522,7 +523,7 @@ func TestRunAppEnvironment(t *testing.T) {
 	rel := fakeRelease(t, s, "0123456789abcdef0123456789abcdef01234567")
 	sec := secrets(t, env, "")
 	procEnv := processEnv(t)
-	for _, program := range []string{"api", "worker", "scheduler", "migrate", "seed", "release", "web"} {
+	for _, program := range []string{"api", "worker", "scheduler", "migrate", "seed", "etl", "release", "web"} {
 		cmd := exec.Command("bash", filepath.Join(rel, "deploy", "vm", "run-app.sh"), program, "--flag")
 		base := s.env()
 		// An inherited secret of another program must not survive (the web never sees DATABASE_URL).
@@ -583,7 +584,7 @@ func fakeRelease(t *testing.T, s *sandbox, id string) string {
 		return "#!/bin/sh\necho \"" + program + " $* cwd=$(pwd)\" >>\"" + s.state + "/programs.log\"\n" +
 			"env | cut -d= -f1 | sort >\"" + s.state + "/env-" + program + "\"\n"
 	}
-	for _, p := range []string{"api", "worker", "scheduler", "migrate", "seed"} {
+	for _, p := range []string{"api", "worker", "scheduler", "migrate", "seed", "etl"} {
 		writeFile(t, filepath.Join(rel, "bin", p), strings.Replace(record(p), " cwd=$(pwd)", "", 1), 0o755)
 	}
 	// cmd/release also records the internal listener's URL it was given (not a secret).
