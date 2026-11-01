@@ -55,6 +55,12 @@ export interface VehicleExpenseRow {
 export interface DriverOption {
     id: string;
     name: string;
+    /**
+     * Every `driverId` this driver's expenses can carry: doc id, current Auth UID and past uids
+     * (`authIdHistory`). Filter with `driverFilterKeys` so refuels saved before an email / Google
+     * re-link still show when this driver is picked.
+     */
+    identityKeys: string[];
 }
 
 export interface TruckOption {
@@ -167,7 +173,7 @@ export async function getDriversForFilter(): Promise<DriverOption[]> {
             const d = docSnap.data();
             const name = driverDisplayName(d, docSnap.id);
             const authId = (d.authId ?? d.authUid) as string | undefined;
-            return { id: authId ?? docSnap.id, name };
+            return { id: authId ?? docSnap.id, name, identityKeys: driverIdentityKeys(d, docSnap.id) };
         }).filter((x) => x.name);
     } catch (err) {
         console.error("Error fetching drivers:", err);

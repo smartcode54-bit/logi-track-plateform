@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
+import { driverFilterKeys } from "@/lib/driverName";
 import { AddOtherExpenseDialog } from "@/features/accounting/components/AddOtherExpenseDialog";
 
 const categoryKeys: Record<string, string> = {
@@ -169,7 +170,10 @@ export default function AccountingOtherPage() {
 
     const filteredRecords = useMemo(() => {
         let list = records;
-        if (filterDriverId !== "all") list = list.filter((r) => r.driverId === filterDriverId);
+        // Match every uid the driver has had, not just the current one — refuels saved before an
+        // email / Google re-link carry the old uid and would otherwise vanish under this filter.
+        const driverKeys = driverFilterKeys(drivers, filterDriverId);
+        if (driverKeys) list = list.filter((r) => driverKeys.has(r.driverId));
         if (filterTruckId !== "all") list = list.filter((r) => r.truckId === filterTruckId);
         if (plateSearch.trim()) {
             const q = plateSearch.trim().toLowerCase();
@@ -199,7 +203,7 @@ export default function AccountingOtherPage() {
             list = list.filter((r) => r.date >= cutoff);
         }
         return list;
-    }, [records, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth, quickDateFilter]);
+    }, [records, drivers, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth, quickDateFilter]);
 
     const applyQuickDateFilter = (next: "thisMonth" | "last30Days") => {
         setFilterMonth("all");

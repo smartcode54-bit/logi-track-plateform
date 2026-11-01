@@ -161,12 +161,13 @@ export default function BackfillPage() {
         }
     };
 
-    interface AuthHealProposal { orphanUid: string; driverDocId: string; driverName: string; trips: number }
-    interface AuthHealUnresolved { orphanUid: string; trips: number; reason: string }
+    interface AuthHealProposal { orphanUid: string; driverDocId: string; driverName: string; trips: number; expenses: number }
+    interface AuthHealUnresolved { orphanUid: string; trips: number; expenses: number; reason: string }
     interface AuthHealResult {
         success: boolean;
         dryRun: boolean;
         scannedTrips: number;
+        scannedExpenses: number;
         orphanUids: number;
         proposals: AuthHealProposal[];
         unresolved: AuthHealUnresolved[];
@@ -246,6 +247,7 @@ export default function BackfillPage() {
                             <p className="font-medium mb-2">วิธีทำงาน:</p>
                             <ul className="list-disc list-inside space-y-1 text-xs">
                                 <li>สแกน <code className="bg-muted px-1 rounded">trip_records</code> หา <code className="bg-muted px-1 rounded">driverId</code> (Auth UID) ที่ไม่ตรงกับคนขับคนไหนแล้ว</li>
+                                <li>{t("drivers.authHeal.scansExpenses")}</li>
                                 <li>เชื่อมแต่ละ UID เก่ากับเจ้าของจริงผ่านงานที่ผูกไว้ (<code className="bg-muted px-1 rounded">tasks.driverId</code> = รหัส doc คนขับที่แอดมินเลือกตอนมอบงาน)</li>
                                 <li>เพิ่ม UID เก่าเข้า <code className="bg-muted px-1 rounded">drivers/…/authIdHistory</code> → ชื่อกลับมาแสดงทุกเที่ยว/รายงาน</li>
                                 <li>ทำซ้ำได้ปลอดภัย (idempotent). <strong>กด &quot;ดูตัวอย่างก่อน&quot; เพื่อเช็กการจับคู่ แล้วค่อยกด &quot;ยืนยันซ่อม&quot;</strong></li>
@@ -270,6 +272,7 @@ export default function BackfillPage() {
                                     <div className="grid grid-cols-3 gap-3 text-sm font-mono">
                                         {[
                                             ["สแกนเที่ยว", authHealResult.scannedTrips],
+                                            [t("drivers.authHeal.scannedExpenses"), authHealResult.scannedExpenses ?? 0],
                                             ["UID ที่ไม่รู้จัก", authHealResult.orphanUids],
                                             ["จับคู่ได้", authHealResult.proposals.length],
                                             ["ยังจับคู่ไม่ได้", authHealResult.unresolved.length],
@@ -288,7 +291,10 @@ export default function BackfillPage() {
                                                 {authHealResult.proposals.map((p) => (
                                                     <div key={p.orphanUid} className="break-words">
                                                         <code>{p.orphanUid}</code> → <strong>{p.driverName}</strong>{" "}
-                                                        <span className="opacity-75">({p.trips} เที่ยว)</span>
+                                                        <span className="opacity-75">
+                                                            ({p.trips} เที่ยว
+                                                            {p.expenses > 0 && <>, {t("drivers.authHeal.expenseCount", { count: p.expenses })}</>})
+                                                        </span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -300,7 +306,8 @@ export default function BackfillPage() {
                                             <div className="bg-white bg-opacity-50 rounded p-2 max-h-32 overflow-y-auto space-y-1">
                                                 {authHealResult.unresolved.map((u) => (
                                                     <div key={u.orphanUid} className="break-words">
-                                                        <code>{u.orphanUid}</code> ({u.trips} เที่ยว) — {u.reason}
+                                                        <code>{u.orphanUid}</code> ({u.trips} เที่ยว
+                                                        {u.expenses > 0 && <>, {t("drivers.authHeal.expenseCount", { count: u.expenses })}</>}) — {u.reason}
                                                     </div>
                                                 ))}
                                             </div>

@@ -214,4 +214,9 @@ export default {
     // Toast
     "drivers.toast.accountCreated": "สร้างบัญชีและผูกกับข้อมูลคนขับสำเร็จ",
     "drivers.toast.accountCreateError": "ไม่สามารถสร้างบัญชีได้",
+
+    // Utilities → ซ่อมชื่อคนขับในรายงาน (backfillDriverAuthHistory)
+    "drivers.authHeal.scansExpenses": "สแกน vehicle_expenses (เติมน้ำมัน / ค่าใช้จ่ายอื่น) ด้วย — UID เก่าที่เจอเฉพาะในนั้นไม่มีงานให้จับคู่เจ้าของ ต้องเพิ่มเข้า authIdHistory ของคนขับเอง",
+    "drivers.authHeal.scannedExpenses": "สแกนค่าใช้จ่าย",
+    "drivers.authHeal.expenseCount": "ค่าใช้จ่าย {count} รายการ",
 };

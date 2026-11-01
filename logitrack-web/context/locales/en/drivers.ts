@@ -214,4 +214,9 @@ export default {
     // Toast
     "drivers.toast.accountCreated": "Login account created and linked successfully",
     "drivers.toast.accountCreateError": "Failed to create login account",
+
+    // Utilities → Repair driver name links (backfillDriverAuthHistory)
+    "drivers.authHeal.scansExpenses": "Also scans vehicle_expenses (refuel / other). An old UID found only there has no task to match its owner, so add it to that driver's authIdHistory by hand.",
+    "drivers.authHeal.scannedExpenses": "Expenses scanned",
+    "drivers.authHeal.expenseCount": "{count} expenses",
 };

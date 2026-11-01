@@ -358,11 +358,23 @@ service cloud.firestore {
         && (d.status == 'PENDING' || d.status == 'APPROVED' || d.status == 'REJECTED');
     }
 
+    // True when `uid` is one of the caller's PAST Auth UIDs (drivers/{token.driverId}.authIdHistory).
+    // Rows written before an email / Google re-link carry the old uid, which matches neither
+    // request.auth.uid nor a driver doc id — without this the driver loses their own history.
+    // No driverId claim → driverDocData() is {} → false (same as before the history existed).
+    function pastAuthUidOfCaller(uid) {
+      return uid is string && uid != ''
+        && uid in driverDocData().get('authIdHistory', []);
+    }
+
     // Vehicle expenses: admin full; drivers create/read/update own only (driverId = auth UID or driver doc id).
+    // Read/update/delete also accept a past uid of the caller (authIdHistory); create does not —
+    // new rows are always written under the current uid.
     match /vehicle_expenses/{docId} {
       allow read: if request.auth != null && (
         isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
+        pastAuthUidOfCaller(resource.data.get('driverId', '')) ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
@@ -373,6 +385,7 @@ service cloud.firestore {
       allow update, delete: if isAppCheckVerified() && request.auth != null && (
         isWebAdmin() ||
         resource.data.driverId == request.auth.uid ||
+        pastAuthUidOfCaller(resource.data.get('driverId', '')) ||
         (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
     }
