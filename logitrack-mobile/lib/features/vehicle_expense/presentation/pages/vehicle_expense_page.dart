@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../../../core/route_observer.dart';
+import '../../../../core/utils/driver_identity.dart';
 import '../../data/models/vehicle_expense.dart';
 import '../../data/repositories/vehicle_expense_repository.dart';
 import 'refuel_form_page.dart';
@@ -107,7 +108,13 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
     try {
       await syncPendingVehicleExpenses(uid);
       _driverData = await _driverRepository.getCurrentDriver(uid);
-      final fromServer = await getVehicleExpensesByDriver(uid, limit: 20);
+      // Past Auth UIDs (authIdHistory): refuels saved before an email / Google re-link carry
+      // the old uid and would otherwise drop out of this history.
+      final fromServer = await getVehicleExpensesByDriver(
+        uid,
+        limit: 20,
+        pastDriverIds: driverIdentityKeys(_driverData),
+      );
       final truckId = _truckIdForMaintenance(_driverData);
       final fromCompletedMaintenance =
           await MaintenanceRepository().fetchCompletedMaintenanceAsExpenses(
@@ -181,6 +188,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
       builder: (_) => RefuelFormPage(
         truckId: truckId.isEmpty ? null : truckId,
         truckLicensePlate: truckPlate,
+        pastDriverIds: driverIdentityKeys(driver),
       ),
     ));
     if (result == true) _loadRecent();
@@ -623,7 +631,10 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
             if (e.type == VehicleExpenseType.fuel) {
               final result = await Navigator.of(context).push<bool>(
                 MaterialPageRoute(
-                  builder: (_) => RefuelFormPage(initialData: e),
+                  builder: (_) => RefuelFormPage(
+                    initialData: e,
+                    pastDriverIds: driverIdentityKeys(_driverData),
+                  ),
                 ),
               );
               if (result == true) _loadRecent();

@@ -45,6 +45,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { CAPABILITIES } from "@/lib/capabilities";
 import { updateVehicleExpense } from "../actions.client";
 import { functions } from "@/firebase/client";
+import { driverFilterKeys } from "@/lib/driverName";
 import { AddFuelExpenseDialog } from "@/features/accounting/components/AddFuelExpenseDialog";
 
 /** เหตุผลที่ค่า km/L ของแถวนั้นไม่น่าเชื่อถือ (ไม่นำไปคิดค่าเฉลี่ย) */
@@ -349,7 +350,10 @@ export default function AccountingFuelPage() {
 
     const filteredRecords = useMemo(() => {
         let list = rowsWithKm;
-        if (filterDriverId !== "all") list = list.filter((r) => r.driverId === filterDriverId);
+        // Match every uid the driver has had, not just the current one — refuels saved before an
+        // email / Google re-link carry the old uid and would otherwise vanish under this filter.
+        const driverKeys = driverFilterKeys(drivers, filterDriverId);
+        if (driverKeys) list = list.filter((r) => driverKeys.has(r.driverId));
         if (filterTruckId !== "all") list = list.filter((r) => r.truckId === filterTruckId);
         if (plateSearch.trim()) {
             const q = plateSearch.trim().toLowerCase();
@@ -392,7 +396,7 @@ export default function AccountingFuelPage() {
             }
         }
         return list;
-    }, [rowsWithKm, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth, filterKmOp, filterKmValue, filterKmMin, filterKmMax]);
+    }, [rowsWithKm, drivers, filterDriverId, filterTruckId, plateSearch, filterYear, filterMonth, filterKmOp, filterKmValue, filterKmMin, filterKmMax]);
 
     const totalAmount = filteredRecords.reduce((s, r) => s + r.amount, 0);
     const count = filteredRecords.length;

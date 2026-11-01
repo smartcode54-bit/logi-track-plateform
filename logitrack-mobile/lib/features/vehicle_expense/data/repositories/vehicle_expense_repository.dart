@@ -194,46 +194,92 @@ Future<String?> _saveToFirestoreOnly(VehicleExpense expense) async {
 /// ตรวจว่า driver นี้เคยบันทึก TAX INV ID นี้แล้วหรือยัง (เติมน้ำมันเท่านั้น)
 /// ใช้ก่อน save เพื่อกันบันทึกซ้ำ
 /// หมายเหตุ: Firestore ต้องมี composite index: driverId (ASC), taxInvId (ASC), type (ASC)
-Future<bool> existsTaxInvIdForDriver(String driverId, String taxInvId) async {
+///
+/// [pastDriverIds] = Auth UID เก่าของคนขับ (`authIdHistory`) — บิลที่บันทึกก่อนเปลี่ยนเมล/ผูก Google ใหม่
+/// อยู่ใต้ uid เก่า ถ้าไม่เช็คด้วยจะส่งบิลเดิมซ้ำได้. [excludeDocId] = รายการที่กำลังแก้ (ไม่นับตัวเอง)
+Future<bool> existsTaxInvIdForDriver(
+  String driverId,
+  String taxInvId, {
+  Iterable<String> pastDriverIds = const [],
+  String? excludeDocId,
+}) async {
   if (driverId.isEmpty || taxInvId.trim().isEmpty) return false;
   final tid = taxInvId.trim();
-  try {
-    final snapshot = await FirebaseFirestore.instance
-        .collection(vehicleExpensesCollection)
-        .where('driverId', isEqualTo: driverId)
-        .where('taxInvId', isEqualTo: tid)
-        .where('type', isEqualTo: 'fuel')
-        .limit(1)
-        .get();
-    return snapshot.docs.isNotEmpty;
-  } catch (_) {
-    return false;
+  final ids = <String>{driverId, ...pastDriverIds.where((id) => id.isNotEmpty)};
+  for (final id in ids) {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection(vehicleExpensesCollection)
+          .where('driverId', isEqualTo: id)
+          .where('taxInvId', isEqualTo: tid)
+          .where('type', isEqualTo: 'fuel')
+          .limit(2)
+          .get();
+      if (snapshot.docs.any((d) => d.id != excludeDocId)) return true;
+    } catch (_) {
+      // เช็คไม่ได้ (เน็ต / rules ยังไม่ deploy สำหรับ uid เก่า) — ไม่บล็อกการบันทึก
+    }
   }
+  return false;
 }
 
 /// ดึงรายการค่าใช้จ่ายรถของคนขับ เรียงวันที่ล่าสุดก่อน
 /// หมายเหตุ: Firestore ต้องมี composite index: collection vehicle_expenses, fields driverId (ASC), date (DESC)
 /// ถ้า index ยังไม่มี ให้กดลิงก์ในข้อความ error เพื่อสร้าง index ในคอนโซล Firebase
+///
+/// [pastDriverIds] = Auth UID เก่าของคนขับ (`authIdHistory`, ดู `driverIdentityKeys`). รายการที่บันทึก
+/// ก่อนเปลี่ยนเมล/ผูก Google ใหม่เก็บ driverId เป็น uid เก่า — query ทีละ uid (equality) เพื่อใช้ index เดิม
+/// และให้ rules ตรวจได้ทีละค่า. uid เก่าที่ query ไม่ผ่าน (เช่น rules ยังไม่ deploy) ข้ามไป ไม่ทำให้ทั้งรายการพัง
 Future<List<VehicleExpense>> getVehicleExpensesByDriver(
   String driverId, {
   int limit = 50,
   VehicleExpenseType? type,
+  Iterable<String> pastDriverIds = const [],
 }) async {
   if (driverId.isEmpty) return [];
-  Query<Map<String, dynamic>> query = FirebaseFirestore.instance
-      .collection(vehicleExpensesCollection)
-      .where('driverId', isEqualTo: driverId);
-  if (type != null) {
-    query = query.where(
-      'type',
-      isEqualTo: type == VehicleExpenseType.fuel ? 'fuel' : 'other',
-    );
+  Future<List<VehicleExpense>> byDriverId(String id) async {
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection(vehicleExpensesCollection)
+        .where('driverId', isEqualTo: id);
+    if (type != null) {
+      query = query.where(
+        'type',
+        isEqualTo: type == VehicleExpenseType.fuel ? 'fuel' : 'other',
+      );
+    }
+    final snapshot = await query
+        .orderBy('date', descending: true)
+        .limit(limit)
+        .get();
+    return snapshot.docs
+        .map((doc) => VehicleExpense.fromMap(doc.data(), id: doc.id))
+        .toList();
   }
-  final snapshot = await query
-      .orderBy('date', descending: true)
-      .limit(limit)
-      .get();
-  return snapshot.docs
-      .map((doc) => VehicleExpense.fromMap(doc.data(), id: doc.id))
-      .toList();
+
+  Future<List<VehicleExpense>> pastOrEmpty(String id) async {
+    try {
+      return await byDriverId(id);
+    } catch (e) {
+      debugPrint('VehicleExpense: history query for past uid $id failed: $e');
+      return const [];
+    }
+  }
+
+  final past = pastDriverIds
+      .where((id) => id.isNotEmpty && id != driverId)
+      .toSet();
+  // The current uid's query still throws on failure (as before) — only past uids are best-effort.
+  final results = await Future.wait([
+    byDriverId(driverId),
+    ...past.map(pastOrEmpty),
+  ]);
+  if (past.isEmpty) return results.first;
+  final seen = <String?>{};
+  final merged = [
+    for (final list in results)
+      for (final e in list)
+        if (seen.add(e.id)) e,
+  ];
+  merged.sort((a, b) => b.date.compareTo(a.date));
+  return merged.take(limit).toList();
 }
