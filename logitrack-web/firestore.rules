@@ -109,10 +109,14 @@ service cloud.firestore {
     }
 
     // Standby records: drivers create/read own; admin/manager/operation_staff may backfill; admins update/delete.
+    // Read also accepts a past uid of the caller (authIdHistory — rows saved before an email / Google
+    // re-link) and the caller's driver doc id, so the mobile Trip History standby section finds them.
     match /standby_records/{recordId} {
       allow read: if request.auth != null && (
         isWebAdmin() ||
-        resource.data.driverId == request.auth.uid
+        resource.data.driverId == request.auth.uid ||
+        pastAuthUidOfCaller(resource.data.get('driverId', '')) ||
+        (resource.data.get('driverId', '') != '' && get(/databases/$(database)/documents/drivers/$(resource.data.driverId)).data.get('authId', '') == request.auth.uid)
       );
       allow create: if isAppCheckVerified() && request.auth != null && (
         request.resource.data.driverId == request.auth.uid ||
@@ -258,7 +262,15 @@ service cloud.firestore {
     match /drivers/{driverId} {
       allow read: if request.auth != null;
       allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin();
-      allow update, delete: if isAppCheckVerified() && request.auth != null && (
+      // A driver may update their own doc but never its identity fields: authIdHistory grants read
+      // access to rows under those uids (pastAuthUidOfCaller), so a self-written entry could expose
+      // another driver's records. Only server code (Admin SDK) re-links — core/driverAuthLink.ts.
+      allow update: if isAppCheckVerified() && request.auth != null && (
+        isWebAdmin() ||
+        (resource.data.authId == request.auth.uid &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['authId', 'authUid', 'authIdHistory']))
+      );
+      allow delete: if isAppCheckVerified() && request.auth != null && (
         isWebAdmin() ||
         resource.data.authId == request.auth.uid
       );
