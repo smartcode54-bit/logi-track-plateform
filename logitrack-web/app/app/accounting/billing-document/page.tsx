@@ -1073,6 +1073,11 @@ export default function BillingDocumentPage() {
                                                     <Badge variant="outline">
                                                         {t("accounting.billingDocument.badge.jobCategoryPrimary")}
                                                     </Badge>
+                                                ) : trip.rowType === "standby" ? (
+                                                    // Standby is a flat per-event rate that never reads หลัก/เสริม, and one
+                                                    // saved with no task has nowhere to set it — a red "ตรวจสอบ" here could
+                                                    // never be cleared. The loud marker stays for trips (ADR 0010).
+                                                    <span className="text-xs text-muted-foreground">-</span>
                                                 ) : (
                                                     <Badge variant="outline" className="text-red-600 border-red-500">
                                                         {t("accounting.billingDocument.badge.jobCategoryUnknown")}

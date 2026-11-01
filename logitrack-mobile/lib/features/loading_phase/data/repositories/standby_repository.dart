@@ -3,8 +3,14 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import '../../../home/data/services/image_compression_service.dart';
 import '../../../../core/services/cloud_functions_service.dart';
+import '../../../../core/utils/truck_type.dart';
 
 const String _standbyCollection = 'standby_records';
+
+String? _nonEmpty(String? value) {
+  final trimmed = value?.trim();
+  return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+}
 
 String _standbyPhotoPath(String recordId, String photoType) =>
     'standby_records/$recordId/$photoType.jpg';
@@ -46,6 +52,8 @@ Future<void> submitStandbyRecord({
   double? lng,
   String? truckId,
   String? truckLicensePlate,
+  /// ประเภทรถแบบที่ task ใช้ (4WJ/6WH…) — ใช้แสดงบรรทัด standby ในใบแจ้งหนี้ ไม่มีผลต่อราคา
+  String? truckType,
   String? customerId,
   /// ที่มาของ [customerId] — 'task' | 'origin_hub' | 'manual'
   String? customerResolvedFrom,
@@ -96,6 +104,57 @@ Future<void> submitStandbyRecord({
     }
   }
 
+  // The truck must live on the record too (ADR 0008 §1). The loading page fills it only from the
+  // task, so a standby saved with no task (ADR 0008 §A) used to carry no truck at all and its
+  // invoice line showed vehicle class "-". Fall back to the driver's truck in the same order as the
+  // expense forms — activeTruck (the truck of the job checked in on) before currentAssignment (home
+  // truck) — and read the class off the truck master. Best-effort: never block the driver's submit.
+  String? resolvedTruckId = _nonEmpty(truckId);
+  String? resolvedTruckPlate = _nonEmpty(truckLicensePlate);
+  String? resolvedTruckType = _nonEmpty(truckType);
+  final hasTaskTruck = resolvedTruckId != null || resolvedTruckPlate != null;
+  String? truckResolvedFrom = hasTaskTruck ? 'task' : null;
+  // Only when the task gave no truck at all — a legacy task's plate is never paired with an id
+  // taken from somewhere else.
+  if (!hasTaskTruck) {
+    try {
+      final driverSnap = await db
+          .collection('drivers')
+          .where('authId', isEqualTo: driverId)
+          .limit(1)
+          .get();
+      final driver =
+          driverSnap.docs.isEmpty ? null : driverSnap.docs.first.data();
+      for (final entry in const [
+        ('activeTruck', 'active_truck'),
+        ('currentAssignment', 'home_truck'),
+      ]) {
+        final truck = driver?[entry.$1];
+        if (truck is! Map) continue;
+        final id = _nonEmpty(truck['truckId'] as String?);
+        if (id == null) continue;
+        resolvedTruckId = id;
+        resolvedTruckPlate ??= _nonEmpty(truck['truckPlate'] as String?);
+        truckResolvedFrom = entry.$2;
+        break;
+      }
+    } catch (_) {
+      // offline / read failure — save without a truck rather than block the driver
+    }
+  }
+  if (resolvedTruckId != null &&
+      (resolvedTruckType == null || resolvedTruckPlate == null)) {
+    try {
+      final truck =
+          (await db.collection('trucks').doc(resolvedTruckId).get()).data();
+      // Unknown type ⇒ null: never invent a class (truck_type.dart).
+      resolvedTruckType ??= taskTruckTypeFromTruckDoc(truck?['type'] as String?);
+      resolvedTruckPlate ??= _nonEmpty(truck?['licensePlate'] as String?);
+    } catch (_) {
+      // leave the class/plate blank on read failure — the web reads the truck master as well
+    }
+  }
+
   // tripId is the loading page's Trip ID field (= trip_records doc id), and Standby is pressed
   // before loading is saved — so that trip usually does not exist yet. The rules reject updating a
   // missing or another driver's trip, and inside the batch that rejection also dropped the standby
@@ -141,8 +200,11 @@ Future<void> submitStandbyRecord({
     'status': 'completed',
     'lat': lat,
     'lng': lng,
-    if (truckId != null) 'truckId': truckId,
-    if (truckLicensePlate != null) 'truckLicensePlate': truckLicensePlate,
+    if (resolvedTruckId != null) 'truckId': resolvedTruckId,
+    if (resolvedTruckPlate != null) 'truckLicensePlate': resolvedTruckPlate,
+    if (resolvedTruckType != null) 'truckType': resolvedTruckType,
+    // ที่มาของรถ — 'task' | 'active_truck' | 'home_truck' (รถประจำ = ค่าเดาที่ดีที่สุด ตรวจได้จากฟิลด์นี้)
+    if (truckResolvedFrom != null) 'truckResolvedFrom': truckResolvedFrom,
     'createdAt': Timestamp.fromDate(now),
     'updatedAt': Timestamp.fromDate(now),
   };

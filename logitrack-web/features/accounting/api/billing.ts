@@ -29,6 +29,7 @@ import { driverDisplayName, driverIdentityKeys } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
 import { SOC_DESTINATIONS, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { billingAxisDate, type BillingTripRow } from "@/lib/billingDocument";
+import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 
 export interface CustomerRateEntryInput {
     hubId: string;
@@ -877,6 +878,36 @@ export async function fetchBillingTripRows(
         });
     }));
 
+    // ── Standby truck identity (ADR 0008 §1) ─────────────────────────────────────
+    // A standby saved with no task (`taskId: null` — ADR 0008 §A) has no task to join a vehicle
+    // class from, which left its invoice line and Excel row at "-". The record carries its own truck,
+    // so the class is read off that truck's master doc instead. Only fetched when nothing else gives one.
+    const recordString = (v: unknown): string | undefined =>
+        typeof v === "string" && v.trim() ? v.trim() : undefined;
+    const standbyTruckIds = new Set<string>();
+    standbySnap?.forEach((d) => {
+        const data = d.data();
+        const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+        if (taskInfo?.truckType || recordString(data.truckType)) return;
+        const truckId = taskInfo?.truckId ?? recordString(data.truckId);
+        if (truckId) standbyTruckIds.add(truckId);
+    });
+    const truckById = new Map<string, { vehicleClass?: string; licensePlate?: string }>();
+    const truckIdList = Array.from(standbyTruckIds);
+    const truckIdChunks: string[][] = [];
+    for (let i = 0; i < truckIdList.length; i += 30) truckIdChunks.push(truckIdList.slice(i, i + 30));
+    await Promise.allSettled(truckIdChunks.map(async (chunk) => {
+        const truckSnap = await getDocs(query(collection(db, COLLECTIONS.TRUCKS), where(documentId(), "in", chunk)));
+        truckSnap.forEach((truckDoc) => {
+            const t = truckDoc.data();
+            truckById.set(truckDoc.id, {
+                // Unknown type ⇒ undefined: never invent a class (lib/truckType.ts).
+                vehicleClass: taskTruckTypeFromTruckDoc(t.type),
+                licensePlate: recordString(t.licensePlate),
+            });
+        });
+    }));
+
     // ── Drivers: resolve names to Thai + subcontractor name ───────────────────────
     const driverNameByKey = new Map<string, string>();
     const driverSubByKey = new Map<string, string>();
@@ -1045,6 +1076,10 @@ export async function fetchBillingTripRows(
         if (customerId !== "all" && cid !== customerId) return;
 
         const taskInfo = data.taskId ? taskMap.get(data.taskId) : undefined;
+        // Task first (same source as trip rows), then the record's own snapshot, then the truck master
+        // — each only fills what the one before left blank, so a standby with a task reads unchanged.
+        const truckId = taskInfo?.truckId ?? recordString(data.truckId);
+        const truckMaster = truckId ? truckById.get(truckId) : undefined;
 
         rows.push({
             id: d.id,
@@ -1061,13 +1096,14 @@ export async function fetchBillingTripRows(
             planDate: taskInfo?.planDate,
             billingEstimateThb: billingAmt,
             billingCustomerId: cid,
-            vehicleClass: taskInfo?.truckType,
+            vehicleClass: taskInfo?.truckType ?? recordString(data.truckType) ?? truckMaster?.vehicleClass,
             driverName: resolveDriverName([data.driverId, taskInfo?.driverId], taskInfo?.driverName),
             driverPhone: taskInfo?.driverPhone,
             subcontractorName: resolveSubcontractor([data.driverId, taskInfo?.driverId]),
-            truckLicensePlate: taskInfo?.truckLicensePlate,
+            truckLicensePlate:
+                taskInfo?.truckLicensePlate ?? recordString(data.truckLicensePlate) ?? truckMaster?.licensePlate,
             actualPickupAt: taskInfo?.actualPickupAt,
-            truckId: taskInfo?.truckId,
+            truckId,
             hubDisplayName: resolveDisplayName(
                 (taskInfo?.sourceHub as string | undefined) ?? (data.startLocation as string | undefined)
             ),
