@@ -40,6 +40,9 @@ class _CheckInPageState extends State<CheckInPage> {
   /// Task IDs ที่เที่ยวส่งแล้ว (จาก trip_records status=delivered) — ใช้ไม่ให้บล็อกการเพิ่มงานใหม่
   Set<String> _deliveredTaskIds = {};
 
+  /// ทุก id ของคนขับ (DriverRepository.getIdentityKeys) — resolve ครั้งเดียว ใช้ซ้ำทุกครั้งที่กด +
+  List<String>? _driverIdentityKeys;
+
   /// เก็บ tasks ล่าสุดจาก stream สำหรับใช้ตอนกด + หลัง refresh delivered
   List<Map<String, dynamic>> _latestTasks = [];
 
@@ -73,9 +76,11 @@ class _CheckInPageState extends State<CheckInPage> {
     try {
       // trip_records.driverId stores Auth UID (set from FirebaseAuth.instance.currentUser?.uid
       // in loading_phase_page). Use Auth UID so delivered trips are correctly identified and
-      // old "Checked in" tasks do not block subsequent check-ins.
+      // old "Checked in" tasks do not block subsequent check-ins. Trips delivered before an
+      // email / Google re-link sit under a past uid (authIdHistory) — query every id.
       final authUid = FirebaseAuth.instance.currentUser?.uid ?? widget.driverId;
-      final ids = await getDeliveredTaskIdsForDriver(authUid);
+      _driverIdentityKeys ??= await DriverRepository().getIdentityKeys(authUid);
+      final ids = await getDeliveredTaskIdsForDriver(_driverIdentityKeys!);
       if (mounted) setState(() => _deliveredTaskIds = ids);
     } catch (_) {}
   }
