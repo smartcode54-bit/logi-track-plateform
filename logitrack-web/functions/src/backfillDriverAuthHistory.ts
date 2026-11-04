@@ -1,0 +1,214 @@
+import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+
+const COL_DRIVERS = "drivers";
+const COL_TRIPS = "trip_records";
+const COL_TASKS = "tasks";
+const COL_EXPENSES = "vehicle_expenses";
+
+/** Thai-first display name, mirrors lib/driverName.ts `driverDisplayName`. */
+function resolveName(d: FirebaseFirestore.DocumentData | undefined, fallback: string): string {
+    if (!d) return fallback;
+    const th = String(d.fullNameTh ?? "").trim();
+    if (th) return th;
+    const n = String(d.name ?? "").trim();
+    if (n) return n;
+    const c = [d.firstName, d.lastName].filter(Boolean).join(" ").trim();
+    if (c) return c;
+    const e = String(d.email ?? "").trim();
+    if (e) return e;
+    return fallback;
+}
+
+interface Proposal {
+    orphanUid: string;
+    driverDocId: string;
+    driverName: string;
+    trips: number;
+    /** vehicle_expenses (fuel / other) rows under this uid — healed by the same history entry. */
+    expenses: number;
+}
+interface Unresolved {
+    orphanUid: string;
+    trips: number;
+    expenses: number;
+    reason: string;
+}
+
+/**
+ * Heal driver-name resolution after an email / Google re-link changed a
+ * driver's Auth UID.
+ *
+ * trip_records.driverId stores the Auth UID that was current when the trip was
+ * written. A re-link moves the driver to a NEW uid, so old trips carry an
+ * "orphan" uid that matches no current driver (authId / doc id / authIdHistory)
+ * and the report shows a raw id (e.g. `W47P8pGs…`).
+ *
+ * This scans trip_records for orphan driverIds, joins each orphan trip to its
+ * task (`tasks.driverId` is the driver DOC id the admin picked when assigning),
+ * and appends the orphan uid to that driver's `authIdHistory` (arrayUnion).
+ * Name resolution then finds the driver again — for every past trip of that
+ * uid, across every report and invoice.
+ *
+ * vehicle_expenses (fuel / other) carry the same uid, so they are scanned too:
+ * an orphan that only ever refuelled would otherwise never show up here. They
+ * have no taskId, so an expense-only orphan cannot be matched to its owner and
+ * is reported as unresolved. The expense rows themselves are never rewritten —
+ * the history entry is what makes them resolve (web names / filters, mobile
+ * history and the vehicle_expenses read rule all read authIdHistory).
+ *
+ * `dryRun: true` scans and returns the proposed mappings without writing.
+ * Idempotent (arrayUnion). Admin only.
+ */
+export const backfillDriverAuthHistory = onCall(
+    { region: "asia-southeast1", enforceAppCheck: false, timeoutSeconds: 540 },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "User must be logged in");
+        }
+        const db = admin.firestore();
+        const user = await admin.auth().getUser(request.auth.uid);
+        const claims = (user.customClaims as { admin?: boolean } | null) || {};
+        if (!claims.admin) {
+            throw new HttpsError("permission-denied", "Only admins can repair driver links");
+        }
+
+        const dryRun = request.data?.dryRun === true;
+
+        // 1. Current driver identity: every uid already resolvable, every doc id.
+        const driversSnap = await db.collection(COL_DRIVERS).get();
+        const knownUids = new Set<string>(); // authId + authUid + authIdHistory
+        const driverDocIds = new Set<string>();
+        const driverDataById = new Map<string, FirebaseFirestore.DocumentData>();
+        driversSnap.forEach((d) => {
+            driverDocIds.add(d.id);
+            const data = d.data();
+            driverDataById.set(d.id, data);
+            for (const v of [data.authId, data.authUid]) {
+                const s = String(v ?? "").trim();
+                if (s) knownUids.add(s);
+            }
+            const hist = data.authIdHistory;
+            if (Array.isArray(hist)) {
+                hist.forEach((h) => {
+                    const s = String(h ?? "").trim();
+                    if (s) knownUids.add(s);
+                });
+            }
+        });
+
+        // 2. Scan trips + vehicle_expenses → orphan driverIds (+ one taskId each to infer the owner).
+        const [tripsSnap, expensesSnap] = await Promise.all([
+            db.collection(COL_TRIPS).get(),
+            db.collection(COL_EXPENSES).get(),
+        ]);
+        const orphans = new Map<string, { trips: number; expenses: number; taskId?: string }>();
+        const orphanEntry = (driverId: unknown) => {
+            const did = String(driverId ?? "").trim();
+            if (!did) return undefined;
+            if (knownUids.has(did) || driverDocIds.has(did)) return undefined; // already resolves
+            const entry = orphans.get(did) ?? { trips: 0, expenses: 0 };
+            orphans.set(did, entry);
+            return entry;
+        };
+        tripsSnap.forEach((t) => {
+            const data = t.data();
+            const entry = orphanEntry(data.driverId);
+            if (!entry) return;
+            entry.trips += 1;
+            if (!entry.taskId) {
+                const tid = String(data.taskId ?? "").trim();
+                if (tid) entry.taskId = tid;
+            }
+        });
+        expensesSnap.forEach((e) => {
+            const entry = orphanEntry(e.data().driverId);
+            if (entry) entry.expenses += 1;
+        });
+
+        // 3. Infer the owning driver for each orphan via its task's driverId (doc id).
+        const proposals: Proposal[] = [];
+        const unresolved: Unresolved[] = [];
+        for (const [uid, info] of orphans) {
+            if (!info.taskId) {
+                unresolved.push({
+                    orphanUid: uid,
+                    trips: info.trips,
+                    expenses: info.expenses,
+                    reason: info.trips === 0 ? "only in vehicle_expenses (no task to infer the owner)" : "no taskId on its trips",
+                });
+                continue;
+            }
+            let taskData: FirebaseFirestore.DocumentData | undefined;
+            try {
+                taskData = (await db.collection(COL_TASKS).doc(info.taskId).get()).data();
+            } catch {
+                // ignore; treated as unresolved below
+            }
+            const ownerDocId = String(taskData?.driverId ?? "").trim();
+            if (!ownerDocId || !driverDocIds.has(ownerDocId)) {
+                unresolved.push({
+                    orphanUid: uid,
+                    trips: info.trips,
+                    expenses: info.expenses,
+                    reason: ownerDocId ? "task.driverId is not a known driver doc" : "task has no driverId (doc id)",
+                });
+                continue;
+            }
+            proposals.push({
+                orphanUid: uid,
+                driverDocId: ownerDocId,
+                driverName: resolveName(driverDataById.get(ownerDocId), ownerDocId),
+                trips: info.trips,
+                expenses: info.expenses,
+            });
+        }
+
+        // 4. Apply: arrayUnion each orphan uid into its owner's authIdHistory.
+        let applied = 0;
+        if (!dryRun && proposals.length > 0) {
+            const byDriver = new Map<string, string[]>();
+            for (const p of proposals) {
+                const arr = byDriver.get(p.driverDocId) ?? [];
+                arr.push(p.orphanUid);
+                byDriver.set(p.driverDocId, arr);
+            }
+            let batch = db.batch();
+            let n = 0;
+            for (const [docId, uids] of byDriver) {
+                batch.update(db.collection(COL_DRIVERS).doc(docId), {
+                    authIdHistory: admin.firestore.FieldValue.arrayUnion(...uids),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                applied += uids.length;
+                n++;
+                if (n >= 400) {
+                    await batch.commit();
+                    batch = db.batch();
+                    n = 0;
+                }
+            }
+            if (n > 0) await batch.commit();
+        }
+
+        logger.info("[backfillDriverAuthHistory] done", {
+            dryRun,
+            orphanUids: orphans.size,
+            proposals: proposals.length,
+            unresolved: unresolved.length,
+            applied,
+        });
+
+        return {
+            success: true,
+            dryRun,
+            scannedTrips: tripsSnap.size,
+            scannedExpenses: expensesSnap.size,
+            orphanUids: orphans.size,
+            proposals,
+            unresolved,
+            applied,
+        };
+    }
+);

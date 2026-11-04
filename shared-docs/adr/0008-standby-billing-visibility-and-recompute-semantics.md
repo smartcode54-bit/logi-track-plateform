@@ -113,6 +113,16 @@ mismatch.
    edited, cancelled, or deleted after the fact. Resolution reuses the `HubDoc` the page already
    holds (`_allHubs`, loaded by `_loadHubs()` at `loading_phase_page.dart:355`, resolved at
    `:838-843`) → `HubDoc.linkedCustomerId` — no new fetch and no new string matching.
+   - *Amendment 2026-11-01:* this also covers the **truck**. The Loading page fills
+     `truckId`/`truckLicensePlate` only from the task, so a standby saved with `taskId: null` (§A)
+     carried no truck. Its invoice line then showed vehicle class `-`, and the Billing Document gave
+     it a red หลัก/เสริม marker that nobody could clear. Mobile now writes `truckType` and
+     `truckResolvedFrom` (`"task" | "active_truck" | "home_truck"`). When the task gives no truck it
+     falls back to the driver's `activeTruck`, then `currentAssignment`, best-effort and never
+     blocking. The web fills only the blank fields of a standby row: task first, then the record's own
+     snapshot, then `trucks/{truckId}.type` via `taskTruckTypeFromTruckDoc` (an unknown type stays
+     blank). A standby row with no หลัก/เสริม shows a neutral `-`, because standby is a flat
+     per-event rate. Trips keep the loud marker (ADR 0010).
 
 2. **Unresolvable customer is flagged, never blocking.** If neither a task nor an origin hub yields a
    customer, mobile still saves the record and sets `customerResolved: false`. The driver's job is to

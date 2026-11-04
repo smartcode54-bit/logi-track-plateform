@@ -9,6 +9,16 @@ export const driverSchema = z.object({
     /** Firebase Auth UID – trip_records.driverId references this */
     authId: z.string().optional(),
 
+    /**
+     * Past Auth UIDs this driver was linked to before an email / Google re-link
+     * moved them to the current `authId`. Historical trip_records / vehicle_expenses
+     * / standby_records store whichever uid was current when written, so name
+     * resolution indexes these too (see lib/driverName.ts `driverIdentityKeys`) —
+     * otherwise old trips show a raw uid instead of the driver's name. Appended
+     * automatically by server callables whenever a re-link changes `authId`.
+     */
+    authIdHistory: z.array(z.string()).optional(),
+
     // Personal Info
     firstName: z.string({ error: "drivers.validation.firstName" }).trim().min(1, "drivers.validation.firstName"),
     lastName: z.string({ error: "drivers.validation.lastName" }).trim().min(1, "drivers.validation.lastName"),

@@ -69,6 +69,7 @@ __exportStar(require("./multiDeliveryTrips"), exports);
 __exportStar(require("./standbyBilling"), exports);
 __exportStar(require("./backfillTripTruckData"), exports);
 __exportStar(require("./backfillTruckType"), exports);
+__exportStar(require("./backfillDriverAuthHistory"), exports);
 __exportStar(require("./driverCompensation"), exports);
 __exportStar(require("./lineNotify"), exports);
 __exportStar(require("./tripEvidence"), exports);
