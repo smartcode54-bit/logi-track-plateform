@@ -42,6 +42,13 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
   /// Client-side filter by `partnerCode` (OCR); `__ALL__` = ทั้งหมด, `__NONE__` = ไม่ระบุ
   String _partnerFilter = _tripPartnerFilterAll;
 
+  /// Every id this driver's records may carry (DriverRepository.getIdentityKeys) — resolved on
+  /// page open / refresh, reused when only the month changes.
+  List<String>? _driverIds;
+
+  /// Bumped per load so a slower, older month load cannot overwrite the month now selected.
+  int _loadSeq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -51,7 +58,9 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     _loadTrips();
   }
 
-  Future<void> _loadTrips() async {
+  /// Loads trips + standby records of the selected month. [refreshLookups] (page open / pull to
+  /// refresh) re-reads the driver doc and hubs; a month/year change reuses the cached ones.
+  Future<void> _loadTrips({bool refreshLookups = true}) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       if (mounted) {
@@ -61,65 +70,57 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
       }
       return;
     }
+    final seq = ++_loadSeq;
+    final year = _selectedYear;
+    final month = _selectedMonth;
     setState(() => _loading = true);
     try {
-      // Trip records may store driverId as auth UID or as driver document ID — query both and merge.
-      List<TripRecord> list = [];
-      try {
-        list = await getTripHistoryByDriver(uid);
-      } catch (_) {}
-      if (list.isEmpty) {
-        final driver = await DriverRepository().getCurrentDriver(uid);
-        final driverDocId = driver?['id'] as String?;
-        if (driverDocId != null && driverDocId.isNotEmpty) {
-          try {
-            list = await getTripHistoryByDriver(driverDocId);
-          } catch (_) {}
-        }
+      // driverId may be the current Auth UID, the driver doc id, or a past uid from before an
+      // email / Google re-link (authIdHistory) — query every one and merge.
+      if (refreshLookups || _driverIds == null) {
+        _driverIds = await DriverRepository().getIdentityKeys(uid);
       }
+      final driverIds = _driverIds!;
+      final tripsFuture =
+          getTripHistoryForMonth(driverIds, year: year, month: month);
+      final standbyFuture =
+          getStandbyHistoryForMonth(driverIds, year: year, month: month);
+      final list = await tripsFuture;
+      final standbyList = await standbyFuture;
+      debugPrint(
+        '✅ Trip history $year-$month: ${list.length} trips, ${standbyList.length} standby '
+        'for ${driverIds.length} driver id(s)',
+      );
 
-      // Load standby records — no orderBy to avoid composite index requirement; sort client-side
-      List<Map<String, dynamic>> standbyList = [];
-      try {
-        final snapshot = await FirebaseFirestore.instance
-            .collection('standby_records')
-            .where('driverId', isEqualTo: uid)
-            .get();
-        standbyList = snapshot.docs.map((doc) => doc.data()).toList();
-        standbyList.sort((a, b) {
-          final aMs = (a['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-          final bMs = (b['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-          return bMs.compareTo(aMs);
-        });
-        debugPrint('✅ Standby records loaded: ${standbyList.length} records for driverId=$uid');
-      } catch (e) {
-        debugPrint('❌ Error loading standby records: $e');
+      Map<String, String>? hubMap;
+      if (refreshLookups || _sourceIdToName.isEmpty) {
+        try {
+          final hubs = await fetchAllHubs();
+          hubMap = <String, String>{};
+          for (final h in hubs) {
+            final id = h.sourceId.trim();
+            if (id.isEmpty) continue;
+            final name = h.sourceNameTh.isNotEmpty
+                ? h.sourceNameTh
+                : h.sourceNameEn;
+            // Display as "code - name" format
+            final displayName = name.isNotEmpty && name.toUpperCase() != id.toUpperCase()
+                ? '$id - $name'
+                : id;
+            hubMap[id] = displayName;
+          }
+        } catch (_) {}
       }
-
-      final hubs = await fetchAllHubs();
-      final map = <String, String>{};
-      for (final h in hubs) {
-        final id = h.sourceId.trim();
-        if (id.isEmpty) continue;
-        final name = h.sourceNameTh.isNotEmpty
-            ? h.sourceNameTh
-            : h.sourceNameEn;
-        // Display as "code - name" format
-        final displayName = name.isNotEmpty && name.toUpperCase() != id.toUpperCase()
-            ? '$id - $name'
-            : id;
-        map[id] = displayName;
-      }
-      if (mounted) {
-        setState(() {
-          _allTrips = list;
-          _standbyRecords = standbyList;
-          _sourceIdToName = map;
-          _loading = false;
-        });
-      }
+      // A newer load (month changed again) owns the screen — drop this result.
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _allTrips = list;
+        _standbyRecords = standbyList;
+        if (hubMap != null) _sourceIdToName = hubMap;
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && seq == _loadSeq) setState(() => _loading = false);
     }
   }
 
@@ -261,11 +262,12 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                                 )
                                 .toList(),
                             onChanged: (v) {
-                              if (v != null) {
+                              if (v != null && v != _selectedYear) {
                                 setState(() {
                                   _selectedYear = v;
                                   _partnerFilter = _tripPartnerFilterAll;
                                 });
+                                _loadTrips(refreshLookups: false);
                               }
                             },
                           ),
@@ -287,11 +289,12 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                                 )
                                 .toList(),
                             onChanged: (v) {
-                              if (v != null) {
+                              if (v != null && v != _selectedMonth) {
                                 setState(() {
                                   _selectedMonth = v;
                                   _partnerFilter = _tripPartnerFilterAll;
                                 });
+                                _loadTrips(refreshLookups: false);
                               }
                             },
                           ),

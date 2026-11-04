@@ -23,7 +23,9 @@ type mapper func(c *docCtx) error
 // their _updateTime is unchanged or before the --since mark (a hub duplicate that takes the row over once the
 // winner was deleted at source). after (optional) runs once the collection's documents are applied, with the
 // documents this run applied, for the links that point forward in the load order (drivers.current_assignment_id
-// after the truck assignments, the task number counters after the tasks).
+// after the truck assignments, the task number counters after the tasks), and for a link an earlier load could
+// not resolve that no load of its own document would revisit (the driver history rows of a past Auth UID,
+// afterDrivers).
 type collectionSpec struct {
 	name    string
 	mapper  mapper
@@ -56,7 +58,7 @@ func mappedCollections() []collectionSpec {
 		{name: "soc_hub_distances", mapper: loadDistance},
 		{name: "metadata", mapper: loadMetadata},
 		{name: "trucks", mapper: loadTruck},
-		{name: "drivers", mapper: loadDriver},
+		{name: "drivers", mapper: loadDriver, after: afterDrivers},
 		{name: "truckAssignment", mapper: loadTruckAssignment, after: afterTruckAssignments},
 		{name: "mobile_installations", mapper: loadInstallation},
 		{name: "tasks", mapper: loadTask, after: afterTasks},

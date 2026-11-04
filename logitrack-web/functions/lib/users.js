@@ -37,6 +37,7 @@ exports.syncExistingUsers = exports.linkDriverToUser = exports.setUserDisabled =
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const securityEvents_1 = require("./securityEvents");
+const driverAuthLink_1 = require("./core/driverAuthLink");
 /**
  * Cloud Function to get all users (Admin only)
  */
@@ -261,8 +262,11 @@ exports.createUser = (0, https_1.onCall)(async (request) => {
         // Link to driver document if provided — writes authId so the mobile app can find tasks
         if (typeof driverDocId === "string" && driverDocId.trim()) {
             try {
-                await admin.firestore().collection("drivers").doc(driverDocId.trim()).update({
-                    authId: userRecord.uid,
+                const driverRef = admin.firestore().collection("drivers").doc(driverDocId.trim());
+                const existingDriver = (await driverRef.get()).data();
+                await driverRef.update({
+                    // Keep any prior uid in authIdHistory so old trips still resolve to the name.
+                    ...(0, driverAuthLink_1.buildDriverRelinkUpdate)(existingDriver?.authId ?? existingDriver?.authUid, userRecord.uid),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
                 console.log(`[createUser] Linked driver doc ${driverDocId} → uid ${userRecord.uid}`);
@@ -395,8 +399,12 @@ exports.linkDriverToUser = (0, https_1.onCall)(async (request) => {
     }
     const did = typeof driverDocId === "string" ? driverDocId.trim() : "";
     if (did) {
-        await firestore.collection("drivers").doc(did).update({
-            authId: targetUid,
+        const didRef = firestore.collection("drivers").doc(did);
+        const existingDid = (await didRef.get()).data();
+        await didRef.update({
+            // Re-linking this driver to a new uid: keep the prior uid in authIdHistory
+            // so trips written under it still resolve to the driver's name.
+            ...(0, driverAuthLink_1.buildDriverRelinkUpdate)(existingDid?.authId ?? existingDid?.authUid, targetUid),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         console.log(`[linkDriverToUser] Linked driver doc ${did} → uid ${targetUid}`);
