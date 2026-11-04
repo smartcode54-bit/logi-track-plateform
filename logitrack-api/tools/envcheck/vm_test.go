@@ -68,6 +68,7 @@ func TestVMNames(t *testing.T) {
 		"scheduler": "APP_ENV\nDATABASE_URL\n",
 		"migrate":   "APP_ENV\nMIGRATE_DATABASE_URL\n",
 		"seed":      "APP_ENV\nDATABASE_URL\nMIGRATE_DATABASE_URL\nETL_DATABASE_URL\n",
+		"etl":       "APP_ENV\nETL_DATABASE_URL\n",
 		"web":       "JWT_ISSUER\nGO_API_INTERNAL_URL\nWEB_PUBLIC_ORIGIN\nPORT\nHOSTNAME\n",
 		"release":   "GO_API_INTERNAL_URL\n",
 	}
@@ -92,7 +93,7 @@ func TestVMNames(t *testing.T) {
 		"scheduler gets the ETL URL": {func(m map[string]string) { m["scheduler"] += "ETL_DATABASE_URL\n" }, "scheduler.txt: ETL_DATABASE_URL is not a §16.1 name"},
 		"worker gets the ETL URL":    {func(m map[string]string) { m["worker"] += "ETL_DATABASE_URL\n" }, "worker.txt: ETL_DATABASE_URL is not a §16.1 name"},
 		"missing file":               {func(m map[string]string) { delete(m, "seed") }, "seed.txt is missing"},
-		"unknown program":            {func(m map[string]string) { m["etl"] = "APP_ENV\n" }, "etl.txt is not a program"},
+		"unknown program":            {func(m map[string]string) { m["vmenv"] = "APP_ENV\n" }, "vmenv.txt is not a program"},
 		"not a name":                 {func(m map[string]string) { m["migrate"] += "APP_ENV=dev\n" }, "expected one variable name per line"},
 	}
 	for name, c := range cases {

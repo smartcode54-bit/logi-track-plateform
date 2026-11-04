@@ -4,7 +4,7 @@
 # rollout.sh runs migrate and seed through it; the operator runs cmd/release through it (README "Publishing a
 # driver-app APK"), which gets the internal listener's URL from kit.conf.
 #
-#   run-app.sh api|worker|scheduler|migrate|seed|release [ARGS...]
+#   run-app.sh api|worker|scheduler|migrate|seed|etl|release [ARGS...]
 #   run-app.sh web
 #
 # The .env (0640 root:logitrack) is read here, at exec time: only the names of env-names/<program>.txt
@@ -18,14 +18,14 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: run-app.sh api|worker|scheduler|migrate|seed|release|web [ARGS...]" >&2
+  echo "usage: run-app.sh api|worker|scheduler|migrate|seed|etl|release|web [ARGS...]" >&2
   exit 2
 }
 [ $# -ge 1 ] || usage
 program=$1
 shift
 case $program in
-  api | worker | scheduler | migrate | seed | release | web) ;;
+  api | worker | scheduler | migrate | seed | etl | release | web) ;;
   *) usage ;;
 esac
 
