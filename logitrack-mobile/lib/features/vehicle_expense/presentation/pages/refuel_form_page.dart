@@ -36,7 +36,16 @@ class RefuelFormPage extends StatefulWidget {
   final String? truckId;
   final String? truckLicensePlate;
 
-  const RefuelFormPage({super.key, this.initialData, this.truckId, this.truckLicensePlate});
+  /// Auth UID เก่าของคนขับ (`authIdHistory`) — ใช้เช็คบิลซ้ำกับรายการที่บันทึกก่อนเปลี่ยนเมล/ผูก Google ใหม่
+  final List<String> pastDriverIds;
+
+  const RefuelFormPage({
+    super.key,
+    this.initialData,
+    this.truckId,
+    this.truckLicensePlate,
+    this.pastDriverIds = const [],
+  });
 
   @override
   State<RefuelFormPage> createState() => _RefuelFormPageState();
@@ -370,7 +379,12 @@ class _RefuelFormPageState extends State<RefuelFormPage> {
     }
     final taxInvId = _taxInvIdController.text.trim();
     if (taxInvId.isNotEmpty) {
-      final isDuplicate = await existsTaxInvIdForDriver(driverId, taxInvId);
+      final isDuplicate = await existsTaxInvIdForDriver(
+        driverId,
+        taxInvId,
+        pastDriverIds: widget.pastDriverIds,
+        excludeDocId: widget.initialData?.id,
+      );
       if (isDuplicate && mounted) {
         setState(() => _saveError = 'vehicle_expense_tax_inv_duplicate'.tr());
         return;

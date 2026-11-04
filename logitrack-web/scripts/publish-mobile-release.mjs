@@ -207,6 +207,36 @@ function downloadUrl(bucketName, objectPath, token) {
     return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(objectPath)}?alt=media&token=${token}`;
 }
 
+/**
+ * The pubspec build number is the Android versionCode, and Android refuses to install a lower one over
+ * a higher one ("package appears to be invalid"). 3.5.0+1 was published over 3.4.0+6 and no driver
+ * could install it — with the floor already raised, the whole fleet was stranded. Compare against
+ * every APK already published for this flavor, not just `latestBuildNumber`, because that field is
+ * overwritten by whatever was published last, including a bad release.
+ */
+async function assertBuildNumberIncreases(bucket, flavor, objectPath, buildNumber) {
+    const code = Number.parseInt(buildNumber, 10);
+    if (!Number.isInteger(code) || String(code) !== buildNumber) {
+        fail(`pubspec build number "+${buildNumber}" is not an integer — it becomes the Android versionCode.`);
+    }
+
+    const [files] = await bucket.getFiles({ prefix: `app_releases/${flavor}/` });
+    const published = files
+        .filter((f) => f.name !== objectPath) // --force republishes this same version
+        .map((f) => ({ name: f.name, code: Number.parseInt(f.metadata?.metadata?.buildNumber ?? "", 10) }))
+        .filter((p) => Number.isInteger(p.code));
+    const highest = published.reduce((max, p) => (p.code > max.code ? p : max), { name: null, code: 0 });
+    log(`highest published versionCode for ${flavor}: ${highest.code} (${highest.name ?? "none"})`);
+
+    if (code <= highest.code) {
+        fail(
+            `versionCode ${code} is not higher than ${highest.code} (${highest.name}).\n` +
+            `  Android rejects a lower versionCode as a downgrade, so no driver could install this APK.\n` +
+            `  Set the build number in pubspec.yaml to +${highest.code + 1} or higher and rebuild.`
+        );
+    }
+}
+
 async function main() {
     const { flavor, projectId } = resolveTarget();
     const { versionName, buildNumber } = readPubspecVersion();
@@ -243,6 +273,8 @@ async function main() {
         if (dryRun) console.warn(`\n⚠  ${collision}`);
         else fail(collision);
     }
+
+    await assertBuildNumberIncreases(bucket, flavor, objectPath, buildNumber);
 
     const token = randomUUID();
     const url = downloadUrl(bucketName, objectPath, token);
