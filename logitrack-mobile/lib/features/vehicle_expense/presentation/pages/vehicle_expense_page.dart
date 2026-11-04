@@ -412,69 +412,84 @@ class _VehicleExpensePageState extends State<VehicleExpensePage>
         side: BorderSide(color: Colors.amber.shade400, width: 1),
         borderRadius: BorderRadius.circular(12),
       ),
+      // ปุ่มอยู่แถวล่างเต็มความกว้าง — ธีมตั้ง FilledButton เป็น Size.fromHeight (กว้างไม่จำกัด)
+      // ถ้าใส่ใน ListTile.trailing ปุ่มจะกินทั้งแถวจนชื่องานเหลือกว้างตัวอักษรเดียว
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: Colors.amber.shade600,
-            child: const Icon(Icons.build_circle_outlined, color: Colors.white),
-          ),
-          title: Text(
-            serviceLabel,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: Colors.black87,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Column(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'maintenance_vehicle_status_line'.tr(
-                    namedArgs: {'status': trMaintenanceStatus(status)},
-                  ),
-                  style: TextStyle(
-                    color: Colors.amber.shade900,
-                    fontWeight: FontWeight.bold,
+                CircleAvatar(
+                  backgroundColor: Colors.amber.shade600,
+                  child: const Icon(
+                    Icons.build_circle_outlined,
+                    color: Colors.white,
                   ),
                 ),
-                if (loc != null)
-                  Text(
-                    loc,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.amber.shade800,
-                      fontSize: 13,
-                    ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        serviceLabel,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'maintenance_vehicle_status_line'.tr(
+                          namedArgs: {'status': trMaintenanceStatus(status)},
+                        ),
+                        style: TextStyle(
+                          color: Colors.amber.shade900,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (loc != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          loc,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.amber.shade800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
+                ),
               ],
             ),
-          ),
-          trailing: FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              backgroundColor: Colors.amber.shade200,
-              foregroundColor: Colors.amber.shade900,
+            const SizedBox(height: 12),
+            FilledButton.tonal(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.amber.shade200,
+                foregroundColor: Colors.amber.shade900,
+              ),
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MaintenanceActionPage(task: task),
+                  ),
+                );
+                if (result == true) _loadRecent();
+              },
+              child: Text(
+                'maintenance_vehicle_card_cta'.tr(),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
-            onPressed: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MaintenanceActionPage(task: task),
-                ),
-              );
-              if (result == true) _loadRecent();
-            },
-            child: Text(
-              'maintenance_vehicle_card_cta'.tr(),
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
+          ],
         ),
       ),
     );
