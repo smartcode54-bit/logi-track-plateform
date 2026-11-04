@@ -415,7 +415,7 @@ Off the VM, in `logitrack-api/` (`sec/` is gitignored). The source project is th
 its value is read when the command runs and written nowhere:
 
 ```sh
-src=$(sed -n 's/^NEXT_PUBLIC_FIREBASE_PROJECT_ID=//p' .env.old.prod)
+src=$(sed -n 's/^NEXT_PUBLIC_FIREBASE_PROJECT_ID=//p' .env.old.prod | tr -d '\r')   # the file may have CRLF line ends
 # 1. owner: Console of $src -> IAM -> service account etl-reader, role Cloud Datastore Viewer only -> JSON key
 #    saved as sec/prod-reader-sa.json
 # 2. owner: the Auth export (signed in as the owner; a secret: hashes and salts)
