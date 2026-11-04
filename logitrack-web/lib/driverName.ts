@@ -56,6 +56,23 @@ export function driverIdentityKeys(
     return keys;
 }
 
+/**
+ * The set of `driverId` values a driver filter must match, or `null` for "all".
+ *
+ * A driver picker keeps one `id` per option (the current Auth UID), but rows written before an
+ * email / Google re-link carry an OLD uid — an exact `row.driverId === id` match would silently
+ * hide them. Each option therefore carries its `identityKeys` (see `driverIdentityKeys`); an option
+ * without them, or an id no longer in the list, still matches itself.
+ */
+export function driverFilterKeys(
+    options: { id: string; identityKeys?: string[] }[],
+    selectedId: string
+): Set<string> | null {
+    if (!selectedId || selectedId === "all") return null;
+    const opt = options.find((o) => o.id === selectedId);
+    return new Set([selectedId, ...(opt?.identityKeys ?? [])]);
+}
+
 /** Minimal shape needed to identify a driver in a picker. */
 export type DriverNameSource = {
     id?: string;

@@ -2255,6 +2255,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                             DateTime.now(),
                                         truckId: _truckId,
                                         truckLicensePlate: _truckLicensePlate,
+                                        truckType: _truckType,
                                       ),
                                     ),
                                   )

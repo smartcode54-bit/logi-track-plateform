@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { driverDisplayName, driverIdentityKeys, matchDriverOptionId, type DriverNameSource } from "./driverName";
+import {
+    driverDisplayName,
+    driverFilterKeys,
+    driverIdentityKeys,
+    matchDriverOptionId,
+    type DriverNameSource,
+} from "./driverName";
 
 const somchai: DriverNameSource = {
     id: "drv_1",
@@ -59,6 +65,30 @@ describe("driverIdentityKeys", () => {
         expect(driverIdentityKeys({ authId: "uid_1" })).toEqual(["uid_1"]);
         expect(driverIdentityKeys(null, "drv_9")).toEqual(["drv_9"]);
         expect(driverIdentityKeys(null)).toEqual([]);
+    });
+});
+
+describe("driverFilterKeys", () => {
+    const options = [
+        { id: "uid_new", identityKeys: ["drv_1", "uid_new", "W47P8pGs"] },
+        { id: "uid_b", identityKeys: ["drv_2", "uid_b"] },
+    ];
+
+    it("returns null for \"all\" so the caller skips the filter", () => {
+        expect(driverFilterKeys(options, "all")).toBeNull();
+        expect(driverFilterKeys(options, "")).toBeNull();
+    });
+
+    it("matches every past uid of the picked driver — old refuels stay visible after a re-link", () => {
+        const keys = driverFilterKeys(options, "uid_new");
+        expect(keys?.has("W47P8pGs")).toBe(true);
+        expect(keys?.has("drv_1")).toBe(true);
+        expect(keys?.has("uid_b")).toBe(false);
+    });
+
+    it("still matches the id itself when the option has no keys or is no longer listed", () => {
+        expect([...(driverFilterKeys([{ id: "uid_c" }], "uid_c") ?? [])]).toEqual(["uid_c"]);
+        expect([...(driverFilterKeys(options, "uid_gone") ?? [])]).toEqual(["uid_gone"]);
     });
 });
 

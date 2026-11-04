@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../core/utils/driver_identity.dart';
 
 class DriverRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -22,6 +23,21 @@ class DriverRepository {
     } catch (e) {
       throw Exception('Failed to fetch driver data: $e');
     }
+  }
+
+  /// Every id this driver's `trip_records` / `standby_records` may carry in `driverId`: the
+  /// signed-in [authUid], the driver doc id, and past Auth UIDs in `authIdHistory` (an email /
+  /// Google re-link moves the driver to a new uid). Query each one to find older records.
+  /// If the driver doc can't be read (offline), returns just [authUid] so the list still loads.
+  Future<List<String>> getIdentityKeys(String authUid) async {
+    Map<String, dynamic>? driver;
+    try {
+      driver = await getCurrentDriver(authUid);
+    } catch (_) {}
+    return {
+      authUid,
+      ...driverIdentityKeys(driver, docId: driver?['id'] as String?),
+    }.toList();
   }
 
   /// Record the truck this driver is responsible for RIGHT NOW (the truck of the task they just

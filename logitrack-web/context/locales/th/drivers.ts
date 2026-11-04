@@ -229,4 +229,9 @@ export default {
     "drivers.form.customerSettingsRestricted": "สิทธิ์ของคุณไม่สามารถดูการตั้งค่ารหัสของลูกค้าได้ แต่ยังแก้ไขรหัสที่มีอยู่ได้",
     "drivers.form.customerIdType": "รหัสคนขับของลูกค้า ({key})",
     "drivers.form.noCustomerIdTypes": "ลูกค้ารายนี้ยังไม่ได้ตั้งค่าประเภทรหัสพนักงานขับรถ",
+
+    // Utilities → ซ่อมชื่อคนขับในรายงาน (backfillDriverAuthHistory)
+    "drivers.authHeal.scansExpenses": "สแกน vehicle_expenses (เติมน้ำมัน / ค่าใช้จ่ายอื่น) ด้วย — UID เก่าที่เจอเฉพาะในนั้นไม่มีงานให้จับคู่เจ้าของ ต้องเพิ่มเข้า authIdHistory ของคนขับเอง",
+    "drivers.authHeal.scannedExpenses": "สแกนค่าใช้จ่าย",
+    "drivers.authHeal.expenseCount": "ค่าใช้จ่าย {count} รายการ",
 };

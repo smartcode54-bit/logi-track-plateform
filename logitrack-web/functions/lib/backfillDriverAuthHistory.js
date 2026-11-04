@@ -40,6 +40,7 @@ const https_1 = require("firebase-functions/v2/https");
 const COL_DRIVERS = "drivers";
 const COL_TRIPS = "trip_records";
 const COL_TASKS = "tasks";
+const COL_EXPENSES = "vehicle_expenses";
 /** Thai-first display name, mirrors lib/driverName.ts `driverDisplayName`. */
 function resolveName(d, fallback) {
     if (!d)
@@ -72,6 +73,13 @@ function resolveName(d, fallback) {
  * and appends the orphan uid to that driver's `authIdHistory` (arrayUnion).
  * Name resolution then finds the driver again — for every past trip of that
  * uid, across every report and invoice.
+ *
+ * vehicle_expenses (fuel / other) carry the same uid, so they are scanned too:
+ * an orphan that only ever refuelled would otherwise never show up here. They
+ * have no taskId, so an expense-only orphan cannot be matched to its owner and
+ * is reported as unresolved. The expense rows themselves are never rewritten —
+ * the history entry is what makes them resolve (web names / filters, mobile
+ * history and the vehicle_expenses read rule all read authIdHistory).
  *
  * `dryRun: true` scans and returns the proposed mappings without writing.
  * Idempotent (arrayUnion). Admin only.
@@ -110,31 +118,50 @@ exports.backfillDriverAuthHistory = (0, https_1.onCall)({ region: "asia-southeas
             });
         }
     });
-    // 2. Scan trips → orphan driverIds (+ one taskId each to infer the owner).
-    const tripsSnap = await db.collection(COL_TRIPS).get();
+    // 2. Scan trips + vehicle_expenses → orphan driverIds (+ one taskId each to infer the owner).
+    const [tripsSnap, expensesSnap] = await Promise.all([
+        db.collection(COL_TRIPS).get(),
+        db.collection(COL_EXPENSES).get(),
+    ]);
     const orphans = new Map();
+    const orphanEntry = (driverId) => {
+        const did = String(driverId ?? "").trim();
+        if (!did)
+            return undefined;
+        if (knownUids.has(did) || driverDocIds.has(did))
+            return undefined; // already resolves
+        const entry = orphans.get(did) ?? { trips: 0, expenses: 0 };
+        orphans.set(did, entry);
+        return entry;
+    };
     tripsSnap.forEach((t) => {
         const data = t.data();
-        const did = String(data.driverId ?? "").trim();
-        if (!did)
+        const entry = orphanEntry(data.driverId);
+        if (!entry)
             return;
-        if (knownUids.has(did) || driverDocIds.has(did))
-            return; // already resolves
-        const entry = orphans.get(did) ?? { count: 0 };
-        entry.count += 1;
+        entry.trips += 1;
         if (!entry.taskId) {
             const tid = String(data.taskId ?? "").trim();
             if (tid)
                 entry.taskId = tid;
         }
-        orphans.set(did, entry);
+    });
+    expensesSnap.forEach((e) => {
+        const entry = orphanEntry(e.data().driverId);
+        if (entry)
+            entry.expenses += 1;
     });
     // 3. Infer the owning driver for each orphan via its task's driverId (doc id).
     const proposals = [];
     const unresolved = [];
     for (const [uid, info] of orphans) {
         if (!info.taskId) {
-            unresolved.push({ orphanUid: uid, trips: info.count, reason: "no taskId on its trips" });
+            unresolved.push({
+                orphanUid: uid,
+                trips: info.trips,
+                expenses: info.expenses,
+                reason: info.trips === 0 ? "only in vehicle_expenses (no task to infer the owner)" : "no taskId on its trips",
+            });
             continue;
         }
         let taskData;
@@ -148,7 +175,8 @@ exports.backfillDriverAuthHistory = (0, https_1.onCall)({ region: "asia-southeas
         if (!ownerDocId || !driverDocIds.has(ownerDocId)) {
             unresolved.push({
                 orphanUid: uid,
-                trips: info.count,
+                trips: info.trips,
+                expenses: info.expenses,
                 reason: ownerDocId ? "task.driverId is not a known driver doc" : "task has no driverId (doc id)",
             });
             continue;
@@ -157,7 +185,8 @@ exports.backfillDriverAuthHistory = (0, https_1.onCall)({ region: "asia-southeas
             orphanUid: uid,
             driverDocId: ownerDocId,
             driverName: resolveName(driverDataById.get(ownerDocId), ownerDocId),
-            trips: info.count,
+            trips: info.trips,
+            expenses: info.expenses,
         });
     }
     // 4. Apply: arrayUnion each orphan uid into its owner's authIdHistory.
@@ -198,6 +227,7 @@ exports.backfillDriverAuthHistory = (0, https_1.onCall)({ region: "asia-southeas
         success: true,
         dryRun,
         scannedTrips: tripsSnap.size,
+        scannedExpenses: expensesSnap.size,
         orphanUids: orphans.size,
         proposals,
         unresolved,

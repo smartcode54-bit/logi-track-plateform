@@ -35,8 +35,11 @@ version is kept. Their Go views name drivers through `driver_id`, not an auth ui
   While the bridge mirror is on, a 3.x Google sign-in with the new address can still hit main's original bug.
 - The shadow projection writes `drivers.authId` after a Go re-link but does not append the old uid to
   `authIdHistory`. main's web would then show raw uids on older trips of that driver.
-- ETL re-resolution: a trip loaded before its driver's `authIdHistory` arrived keeps `driver_id` NULL until the
-  trip document changes. A cut-over full load (drivers before trips) is unaffected.
+- Rows stored before their driver's `authIdHistory` arrived are healed by `afterDrivers` (PR #236,
+  `driver-past-uid-console.md`); this change resolves a past uid while a row loads.
+
+Main itself reached mv-go first through PR #235 (`a53bdd02`), so after mv-go was merged back into this branch the PR
+carries only the Go port and these notes.
 
 ## Validation results
 

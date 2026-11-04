@@ -481,6 +481,79 @@ func loadDriver(c *docCtx) error {
 	return nil
 }
 
+// driverHistoryTables are the console's driver-history surfaces (shared-docs/.vibe-rules.md "🪪 Driver identity"):
+// every row keeps the driverId of its 3.x document, which is the Auth UID that was current when the driver wrote
+// it. transactions, payroll_runs, driver_penalties, chats and leave_requests carry a legacy driver ref too and are
+// deliberately left out: the ledger is append-only, and none of them is read as a driver's own history.
+var driverHistoryTables = []string{"trip_records", "standby_records", "incident_reports", "vehicle_expenses"}
+
+// afterDrivers points the rows an earlier load stored unresolved at the driver whose document now names their uid
+// in authIdHistory. An email / Google re-link moves a driver to a new Auth UID; a row written under the old one
+// resolves to no driver (driver_id NULL, the raw uid kept in legacy_driver_ref), and the old uid becomes known only
+// once the 3.x side records it (buildDriverRelinkUpdate, the backfillDriverAuthHistory callable). driverByRef
+// resolves a past uid while a row loads, but a row already stored is never revisited by a load of its own
+// document, so the console would go on hiding it from that driver's history — and, unlike the hub case that
+// `quarantine resolve --action=retry` re-resolves per document, one re-link orphans every row of one driver at
+// once and names them exactly, so the heal belongs here.
+//
+// Only rows in the driver's own tenant: a row stamped elsewhere (the quarantine tenant included) is re-homed, never
+// re-pointed here, a quarantined driver links nothing (C.1.8), and a uid another driver holds is skipped.
+// legacy_driver_ref itself is never rewritten
+// (.vibe-rules.md: a driver's history keeps the raw ids it was written with).
+func afterDrivers(r *runState, coll string) error {
+	docs, err := r.appliedDocsOr(coll, []string{"authIdHistory"}, nil)
+	if err != nil {
+		return err
+	}
+	for _, docID := range sortedDocKeys(docs) {
+		raw, _ := docs[docID]["authIdHistory"].([]any)
+		past := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, _ := v.(string); strings.TrimSpace(s) != "" && !slices.Contains(past, strings.TrimSpace(s)) {
+				past = append(past, strings.TrimSpace(s))
+			}
+		}
+		if len(past) == 0 {
+			continue
+		}
+		var id, tenant uuid.UUID
+		switch err := r.tx.QueryRow(r.ctx, `SELECT id, tenant_id FROM drivers WHERE legacy_doc_id = $1`, docID).
+			Scan(&id, &tenant); {
+		case errors.Is(err, pgx.ErrNoRows):
+			continue // the document was rejected: it has no row to point at
+		case err != nil:
+			return fmt.Errorf("driver %s: %w", docID, err)
+		}
+		if tenant == r.e.quar {
+			continue
+		}
+		// A uid another driver holds now, as its auth uid or as its document id, is not this driver's past: only
+		// the server writes authIdHistory, but taking it would hand one driver the other's rows, which is also how
+		// authIdHistory grants read access (.vibe-rules.md). Those rows resolved to their own driver anyway.
+		q, err := r.tx.Query(r.ctx, `SELECT u FROM unnest($1::text[]) u WHERE NOT EXISTS (SELECT 1 FROM drivers d
+			WHERE d.id <> $2 AND (d.legacy_auth_uid = u OR d.legacy_doc_id = u))`, past, id)
+		if err != nil {
+			return fmt.Errorf("driver %s: past uids: %w", docID, err)
+		}
+		past, err = pgx.CollectRows(q, pgx.RowTo[string])
+		if err != nil {
+			return fmt.Errorf("driver %s: past uids: %w", docID, err)
+		}
+		if len(past) == 0 {
+			continue
+		}
+		for _, table := range driverHistoryTables {
+			// table is a constant of driverHistoryTables, never a value read from a document.
+			if _, err := r.tx.Exec(r.ctx, `UPDATE `+table+` SET driver_id = $1, driver_ref_match = 'auth_uid'
+				WHERE tenant_id = $2 AND driver_id IS NULL AND legacy_driver_ref = ANY($3::text[])`,
+				id, tenant, past); err != nil {
+				return fmt.Errorf("driver %s: %s: %w", docID, table, err)
+			}
+		}
+	}
+	return nil
+}
+
 // licenseType keeps the Thai licence classes exactly (บ.1 ... ท.4); anything else is NULL + a field finding.
 func (c *docCtx) licenseType() *string {
 	s := c.str("licenseType")

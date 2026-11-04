@@ -229,4 +229,9 @@ export default {
     "drivers.form.customerSettingsRestricted": "Customer ID settings are unavailable for your role. You can edit existing IDs.",
     "drivers.form.customerIdType": "Customer ID ({key})",
     "drivers.form.noCustomerIdTypes": "This customer has no driver ID types configured.",
+
+    // Utilities → Repair driver name links (backfillDriverAuthHistory)
+    "drivers.authHeal.scansExpenses": "Also scans vehicle_expenses (refuel / other). An old UID found only there has no task to match its owner, so add it to that driver's authIdHistory by hand.",
+    "drivers.authHeal.scannedExpenses": "Expenses scanned",
+    "drivers.authHeal.expenseCount": "{count} expenses",
 };
