@@ -75,6 +75,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
         socOptions,
         trucks,
         drivers,
+        driverChoices,
         hubDropdownOpen,
         setHubDropdownOpen,
         hubSearch,
@@ -89,8 +90,13 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
         watchedTruckType,
         onSubmit,
         normalizeSocIdToKey,
-        customerOptions
+        customerOptions,
+        customerSocOptions,
+        customerHubOptions,
+        selectCustomer,
+        stopDestinationOptions,
     } = useLineHaulTask({ mode, task, isOpen, setIsOpen, onSuccess });
+    const selectedCustomerId = form.watch("billingCustomerId");
 
     const body = (
         <>
@@ -166,6 +172,34 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                             )}
                         />
 
+                        {/* Billing customer FIRST (required, ADR 0027) — one job = one customer, so the
+                            source / destination / stop lists below show only this customer's places. */}
+                        <FormField
+                            control={form.control}
+                            name="billingCustomerId"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.customer", "Customer")} *</FormLabel>
+                                    <Select onValueChange={selectCustomer} value={field.value ?? ""}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={t("firstMile.task.selectCustomer", "Select customer")} />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent className="z-[1005]" position="popper">
+                                            {customerOptions.map((c) => (
+                                                <SelectItem key={c.id} value={c.id}>
+                                                    {c.code ? `${c.code} — ${c.name}` : c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">{t("firstMile.task.customerFirstHint")}</p>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Source Field (SOC) */}
                             <FormField
@@ -180,7 +214,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                         return socOptions.find((s) => normalizeSocIdToKey(s.source_id) === normalized)?.source_id ?? "";
                                     })();
                                     const selectedSoc = socOptions.find((s) => s.source_id === resolvedValue);
-                                    const filteredSocs = socOptions.filter((s) => {
+                                    const filteredSocs = customerSocOptions.filter((s) => {
                                         const q = socSearch.toLowerCase();
                                         return s.source_id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
                                     });
@@ -194,10 +228,15 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             type="button"
                                                             variant="outline"
                                                             role="combobox"
+                                                            disabled={!selectedCustomerId}
                                                             className={cn("w-full justify-between h-auto min-h-10 py-2", !resolvedValue && "text-muted-foreground")}
                                                         >
                                                             <span className="block truncate text-left flex-1 min-w-0">
-                                                                {selectedSoc ? selectedSoc.name || selectedSoc.source_id : t("lineHaul.task.selectSourceSoc")}
+                                                                {selectedSoc
+                                                                    ? selectedSoc.name || selectedSoc.source_id
+                                                                    : selectedCustomerId
+                                                                        ? t("lineHaul.task.selectSourceSoc")
+                                                                        : t("firstMile.task.selectCustomerFirst")}
                                                             </span>
                                                             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
                                                         </Button>
@@ -216,7 +255,9 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     </div>
                                                     <div className="max-h-[220px] overflow-y-auto p-1">
                                                         {filteredSocs.length === 0 ? (
-                                                            <div className="py-4 text-center text-sm text-muted-foreground">{t("lineHaul.task.noSoc")}</div>
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">
+                                                                {customerSocOptions.length === 0 ? t("firstMile.task.noCustomerPlaces") : t("lineHaul.task.noSoc")}
+                                                            </div>
                                                         ) : (
                                                             filteredSocs.map((soc) => (
                                                                 <div
@@ -235,18 +276,22 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     </div>
                                                 </PopoverContent>
                                             </Popover>
+                                            {resolvedValue && selectedCustomerId &&
+                                                !customerSocOptions.some((s) => s.source_id === resolvedValue) && (
+                                                <p className="text-xs text-amber-700">{t("firstMile.task.placeNotLinkedToCustomer")}</p>
+                                            )}
                                             <FormMessage />
                                         </FormItem>
                                     );
                                 }}
                             />
 
-                            {/* Destination Field (Hub) */}
+                            {/* Destination Field (Hub) — the selected customer's hubs only */}
                             <FormField
                                 control={form.control}
                                 name="destination"
                                 render={({ field }) => {
-                                    const filteredHubs = hubOptions.filter((hub) => {
+                                    const filteredHubs = customerHubOptions.filter((hub) => {
                                         const val = String(hub['Hub Code'] ?? '');
                                         const name = String(hub['Hub Name'] ?? '');
                                         const nameTh = String(hub['Hub Name Th'] ?? '');
@@ -268,10 +313,14 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                             type="button"
                                                             variant="outline"
                                                             role="combobox"
+                                                            disabled={!selectedCustomerId}
                                                             className={cn("w-full justify-between h-auto min-h-10 py-2", !field.value && "text-muted-foreground")}
                                                         >
                                                             <span className="block truncate text-left flex-1 min-w-0">
-                                                                {selectedLabel || t("lineHaul.task.selectDestinationHub")}
+                                                                {selectedLabel ||
+                                                                    (selectedCustomerId
+                                                                        ? t("lineHaul.task.selectDestinationHub")
+                                                                        : t("firstMile.task.selectCustomerFirst"))}
                                                             </span>
                                                             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
                                                         </Button>
@@ -290,7 +339,9 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     </div>
                                                     <div className="max-h-[220px] overflow-y-auto p-1">
                                                         {filteredHubs.length === 0 ? (
-                                                            <div className="py-4 text-center text-sm text-muted-foreground">{t("lineHaul.task.noHub")}</div>
+                                                            <div className="py-4 text-center text-sm text-muted-foreground">
+                                                                {customerHubOptions.length === 0 ? t("firstMile.task.noCustomerPlaces") : t("lineHaul.task.noHub")}
+                                                            </div>
                                                         ) : (
                                                             filteredHubs.slice(0, 100).map((hub, idx) => {
                                                                 const val = String(hub['Hub Code'] ?? '');
@@ -317,38 +368,16 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                     </div>
                                                 </PopoverContent>
                                             </Popover>
+                                            {field.value && selectedCustomerId &&
+                                                !customerHubOptions.some((h) => (h['Hub Code'] ?? '') === field.value) && (
+                                                <p className="text-xs text-amber-700">{t("firstMile.task.placeNotLinkedToCustomer")}</p>
+                                            )}
                                             <FormMessage />
                                         </FormItem>
                                     );
                                 }}
                             />
                         </div>
-
-                        {/* Billing customer (required, overrides the hub-derived link — ADR 0027) */}
-                        <FormField
-                            control={form.control}
-                            name="billingCustomerId"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>{t("firstMile.task.customer", "Customer")} *</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder={t("firstMile.task.selectCustomer", "Select customer")} />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent className="z-[1005]" position="popper">
-                                            {customerOptions.map((c) => (
-                                                <SelectItem key={c.id} value={c.id}>
-                                                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
 
                         {/* Actual pickup date-time — set by the admin at assign (ops only, not billing; ADR 0028) */}
                         <FormField
@@ -412,11 +441,25 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                             )}
                         />
 
+                        {/* Delivery Stops — only the chosen customer's destination hubs (one customer per job) */}
                         {form.watch("isMultiDelivery") && (
-                            <DeliveryStopsEditor
-                                socOptions={socOptions}
-                                customerOptions={customerOptions}
-                            />
+                            <FormItem>
+                                <FormLabel>{t("firstMile.task.deliveryStops")}</FormLabel>
+                                <p className="text-xs text-muted-foreground mb-3">
+                                    {t("lineHaul.task.deliveryStopsHint")}
+                                </p>
+                                <DeliveryStopsEditor
+                                    destinationOptions={stopDestinationOptions}
+                                    placeholder={t("lineHaul.task.selectDestinationHub")}
+                                    searchPlaceholder={t("lineHaul.task.searchHub")}
+                                    noMatchMessage={t("lineHaul.task.noHub")}
+                                    emptyOptionsMessage={
+                                        selectedCustomerId
+                                            ? t("lineHaul.task.stopsNoCustomerHubs")
+                                            : t("lineHaul.task.stopsSelectCustomerFirst")
+                                    }
+                                />
+                            </FormItem>
                         )}
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -541,7 +584,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                                 </FormControl>
                                                 <SelectContent className="z-[1005]" position="popper">
                                                     <SelectItem value="__none__">{t("firstMile.task.selectDriver")}</SelectItem>
-                                                    {drivers.map((driver) => {
+                                                    {driverChoices.map((driver) => {
                                                         const isActive = driver.id ? activeTaskDriverIds.has(driver.id) : false;
                                                         return (
                                                             <SelectItem key={driver.id} value={driver.id || "unknown"}>
@@ -586,7 +629,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                         <FormItem>
                                             <FormControl>
                                                 <HelperDriverField
-                                                    drivers={drivers}
+                                                    drivers={driverChoices}
                                                     value={field.value as string[] | undefined}
                                                     onChange={field.onChange}
                                                     excludeDriverId={form.watch("driverId") || undefined}

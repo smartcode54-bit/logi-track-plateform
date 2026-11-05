@@ -419,7 +419,18 @@ export const addDeliveryStop = onCall(
             if (data.isCustom === true) {
                 newStop.isCustom = true;
             }
-            if (typeof data.destinationLinkedCustomerId === "string" && data.destinationLinkedCustomerId.trim()) {
+            // One job = one customer: a stop added mid-trip belongs to the job's customer, not to the
+            // hub's own link — a customer may run on another customer's points (JWT on TTP's SPX
+            // points, customers.usePlacesOfCustomerId), and customer-scoped task lists match on this.
+            // Legacy tasks without a billing customer keep the hub link the app sends.
+            const jobCustomerId =
+                typeof task.billingCustomerId === "string" ? task.billingCustomerId.trim() : "";
+            if (jobCustomerId) {
+                newStop.destinationLinkedCustomerId = jobCustomerId;
+            } else if (
+                typeof data.destinationLinkedCustomerId === "string" &&
+                data.destinationLinkedCustomerId.trim()
+            ) {
                 newStop.destinationLinkedCustomerId = data.destinationLinkedCustomerId.trim();
             }
             if (typeof data.destinationLinkedCustomerName === "string" && data.destinationLinkedCustomerName.trim()) {

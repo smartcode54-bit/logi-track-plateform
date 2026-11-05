@@ -319,6 +319,10 @@ export default {
     "lineHaul.task.selectDestinationHub": "เลือกปลายทาง (ฮับ)",
     "lineHaul.task.searchHub": "ค้นหาฮับ...",
     "lineHaul.task.noHub": "ไม่พบฮับ",
+    "lineHaul.task.deliveryStopsHint": "เพิ่มจุดส่ง 2 จุดขึ้นไป — เลือกได้เฉพาะฮับปลายทางของลูกค้าที่เลือก (งานพ่วงต้องเป็นลูกค้ารายเดียวกัน)",
+    "lineHaul.task.stopsSelectCustomerFirst": "เลือกลูกค้าก่อน แล้วจึงเพิ่มจุดส่ง",
+    "lineHaul.task.stopsNoCustomerHubs": "ลูกค้ารายนี้ยังไม่มีฮับปลายทางที่ผูกไว้ — ผูกฮับกับลูกค้าที่หน้าจุดรับส่งก่อน",
+    "lineHaul.task.stopsWrongCustomer": "จุดส่งต้องเป็นฮับปลายทางของลูกค้าที่เลือก — แก้จุดที่ {stops}",
 
     // Payroll (admin)
     "payroll.subtitle": "จัดการรายได้ การหัก และรอบการจ่ายของคนขับ",

@@ -9,7 +9,10 @@ import { COLLECTIONS } from "@/lib/collections";
 import { uploadCheckInPhoto } from "@/lib/uploadCheckInPhoto";
 import { taskSchema as firstMileTaskSchema, Task as FirstMileTask, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { hubSourceIdHasSpxSuffix } from "@/validate/hubSchema";
+import { linkCustomerIdForPlace, placeOwnerIds, placesOfCustomer, samePlaceCode } from "@/lib/customerPlaces";
 import { Driver } from "@/validate/driverSchema";
+import { selectableDrivers } from "@/lib/driverStatus";
+import { matchDriverOptionId } from "@/lib/driverName";
 import { taskService, TaskTruck } from "../services/taskService";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 
@@ -28,7 +31,7 @@ export function useFirstMileTask({
 }) {
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
     const [hubOptions, setHubOptions] = useState<Record<string, any>[]>([]);
-    const [socOptions, setSocOptions] = useState<{ source_id: string; name: string }[]>([]);
+    const [socOptions, setSocOptions] = useState<{ source_id: string; name: string; linkedCustomerId?: string }[]>([]);
     const [trucks, setTrucks] = useState<TaskTruck[]>([]);
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState(false);
@@ -85,6 +88,7 @@ export function useFirstMileTask({
                     .map((h: any) => ({
                         source_id: (h["Hub Code"] ?? "").toString(),
                         name: (h["Hub Name Th"] ?? h["Hub Name"] ?? h["Hub Code"] ?? "").toString(),
+                        linkedCustomerId: String(h.linkedCustomerId ?? "").trim() || undefined,
                     }))
                     .filter((s: any) => s.source_id.length > 0);
                 setSocOptions(socList);
@@ -174,24 +178,36 @@ export function useFirstMileTask({
         }
     }, [isOpen, mode, task, form]);
 
-    useEffect(() => {
-        if (isOpen && mode === "create" && socOptions.length > 0 && !form.getValues("destination")) {
-            form.setValue("destination", socOptions[0].source_id);
-        }
-    }, [isOpen, mode, socOptions, form]);
+    // Customer first (one job = one customer): source hubs, destination SOCs and delivery stops are
+    // listed only from places linked to the chosen billing customer. This replaces the old flow that
+    // defaulted the first SOC and back-filled the customer from whichever hub was picked.
+    // A customer that borrows another's places (customers.usePlacesOfCustomerId) also sees those.
+    const placeOwnersOf = (customerId: string | undefined) =>
+        placeOwnerIds(customerId, (id) => customersById.get(id));
+    const watchedBillingCustomerId = form.watch("billingCustomerId");
+    const customerHubOptions = placesOfCustomer(hubOptions, placeOwnersOf(watchedBillingCustomerId));
+    const customerSocOptions = placesOfCustomer(socOptions, placeOwnersOf(watchedBillingCustomerId));
 
-    // Prefill the billing customer (ADR 0027) from the selected hub's linked customer as a convenience;
-    // the admin can override. Only when nothing is chosen yet, so it never clobbers a manual pick.
-    const watchedSourceHubForCustomer = form.watch("sourceHub");
-    const watchedDestinationForCustomer = form.watch("destination");
-    useEffect(() => {
-        if (mode !== "create" || !isOpen) return;
-        if (form.getValues("billingCustomerId")) return;
-        const src = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(watchedSourceHubForCustomer ?? "").trim());
-        const dst = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(watchedDestinationForCustomer ?? "").trim());
-        const cid = src?.linkedCustomerId || dst?.linkedCustomerId;
-        if (cid && customersById.has(cid)) form.setValue("billingCustomerId", cid);
-    }, [watchedSourceHubForCustomer, watchedDestinationForCustomer, hubs, customersById, mode, isOpen, form]);
+    /** Pick the customer, then drop route picks that belong to someone else; auto-pick a lone option. */
+    const selectCustomer = (customerId: string) => {
+        form.setValue("billingCustomerId", customerId, { shouldDirty: true, shouldValidate: true });
+        const owners = placeOwnersOf(customerId);
+        const hubCodes = placesOfCustomer(hubOptions, owners).map((h) => String(h["Hub Code"] ?? ""));
+        const socCodes = placesOfCustomer(socOptions, owners).map((s) => s.source_id);
+        const keepOrSingle = (current: string, codes: string[]) =>
+            codes.some((code) => samePlaceCode(code, current)) ? current : codes.length === 1 ? codes[0] : "";
+        form.setValue("sourceHub", keepOrSingle(form.getValues("sourceHub") ?? "", hubCodes));
+        form.setValue("destination", keepOrSingle(form.getValues("destination") ?? "", socCodes));
+        const stops = form.getValues("deliveryStops");
+        if (stops?.length) {
+            form.setValue(
+                "deliveryStops",
+                stops.map((stop) =>
+                    socCodes.some((code) => samePlaceCode(code, stop.destination)) ? stop : { ...stop, destination: "" }
+                )
+            );
+        }
+    };
 
     const watchedDate = form.watch("date");
     const watchedDestination = form.watch("destination");
@@ -226,8 +242,12 @@ export function useFirstMileTask({
     const buildHubLinkFields = (values: FirstMileTask, useDeleteFieldForMissing: boolean) => {
         const sourceHub = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(values.sourceHub ?? "").trim());
         const destinationHub = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(values.destination ?? "").trim());
-        const sourceCustomer = sourceHub?.linkedCustomerId ? customersById.get(sourceHub.linkedCustomerId) : undefined;
-        const destinationCustomer = destinationHub?.linkedCustomerId ? customersById.get(destinationHub.linkedCustomerId) : undefined;
+        // Stamp the job's customer on places it may use (its own or borrowed) — see linkCustomerIdForPlace.
+        const owners = placeOwnersOf(values.billingCustomerId);
+        const sourceCustomerId = linkCustomerIdForPlace(sourceHub, owners);
+        const destinationCustomerId = linkCustomerIdForPlace(destinationHub, owners);
+        const sourceCustomer = sourceCustomerId ? customersById.get(sourceCustomerId) : undefined;
+        const destinationCustomer = destinationCustomerId ? customersById.get(destinationCustomerId) : undefined;
         const missing = useDeleteFieldForMissing ? deleteField() : undefined;
 
         const sourceCode =
@@ -242,14 +262,30 @@ export function useFirstMileTask({
                 : destinationCustomer?.code;
 
         return {
-            sourceHubLinkedCustomerId: sourceHub?.linkedCustomerId || missing,
+            sourceHubLinkedCustomerId: sourceCustomerId || missing,
             sourceHubLinkedCustomerName: sourceCustomer?.name || missing,
             sourceHubLinkedCustomerCode: sourceCode || missing,
             sourceHubCustomerLinkKind: sourceHub?.customerLinkKind || missing,
-            destinationLinkedCustomerId: destinationHub?.linkedCustomerId || missing,
+            destinationLinkedCustomerId: destinationCustomerId || missing,
             destinationLinkedCustomerName: destinationCustomer?.name || missing,
             destinationLinkedCustomerCode: destCode || missing,
             destinationCustomerLinkKind: destinationHub?.customerLinkKind || missing,
+        };
+    };
+
+    // A multi-delivery job belongs to one customer, so admins no longer pick a customer per stop.
+    // The stop's link comes from its hub doc, stamped with the job's customer when the hub is one it
+    // may use — customer-scoped task lists match on it.
+    const buildStopLinkFields = (destination: string, jobCustomerId: string | undefined) => {
+        const hub = hubs.find((h) => String(h["Hub Code"] ?? "").trim() === String(destination ?? "").trim());
+        const customerId = linkCustomerIdForPlace(hub, placeOwnersOf(jobCustomerId));
+        const customer = customerId ? customersById.get(customerId) : undefined;
+        const code = hub && hubSourceIdHasSpxSuffix(String(hub["Hub Code"] ?? "")) ? "SPX" : customer?.code;
+        return {
+            destinationLinkedCustomerId: customerId || undefined,
+            destinationLinkedCustomerName: customer?.name,
+            destinationLinkedCustomerCode: code,
+            destinationCustomerLinkKind: hub?.customerLinkKind || undefined,
         };
     };
 
@@ -284,7 +320,9 @@ export function useFirstMileTask({
                     destination: values.destination,
                     jobCategory: values.jobCategory,
                     date: values.date ? format(values.date, "yyyy-MM-dd") : new Date().toISOString(),
+                    dateStr: values.date ? format(values.date, "ddMMyyyy") : undefined,
                     time: values.time,
+                    taskId: values.taskId || undefined,
                     taskType: values.taskType,
                     truckType: values.truckType,
                     truckId: values.truckId,
@@ -297,10 +335,7 @@ export function useFirstMileTask({
                     deliveryStops: values.deliveryStops.map((stop) => ({
                         index: stop.index,
                         destination: stop.destination,
-                        destinationLinkedCustomerId: stop.destinationLinkedCustomerId,
-                        destinationLinkedCustomerName: stop.destinationLinkedCustomerName,
-                        destinationLinkedCustomerCode: stop.destinationLinkedCustomerCode,
-                        destinationCustomerLinkKind: stop.destinationCustomerLinkKind,
+                        ...buildStopLinkFields(stop.destination, values.billingCustomerId),
                     })),
                     ...buildHubLinkFields(values, false),
                     ...billingCustomerFields,
@@ -414,6 +449,15 @@ export function useFirstMileTask({
         }
     };
 
+    // Driver/helper pickers list active drivers only, plus whoever this task already holds so an
+    // edit never blanks out a driver made inactive since (lib/driverStatus.ts).
+    const watchedDriverId = form.watch("driverId");
+    const driverChoices = selectableDrivers(drivers, [
+        watchedDriverId,
+        matchDriverOptionId(drivers, watchedDriverId, form.watch("driverName")),
+        ...(form.watch("helperDriverIds") ?? []),
+    ]);
+
     const customerOptions = Array.from(customersById.values()).map((customer) => ({
         id: customer.id,
         name: customer.name,
@@ -426,8 +470,12 @@ export function useFirstMileTask({
         hubs,
         hubOptions,
         socOptions,
+        customerHubOptions,
+        customerSocOptions,
+        selectCustomer,
         trucks,
         drivers,
+        driverChoices,
         customerOptions,
         hubDropdownOpen,
         setHubDropdownOpen,

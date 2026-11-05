@@ -63,6 +63,12 @@ export default {
     "customers.form.billingDateBasis.plan": "Plan date (work date)",
     "customers.form.billingDateBasis.desc": "Which date decides the billing period + rate round. Choose Plan date for customers (e.g. CJSF) who reconcile by the day-by-day plan they send, so a job delivered late still bills in the planned month.",
 
+    // ── Pickup / delivery points card ────────────────────────────────────────
+    "customers.form.places.title": "Pickup / Delivery Points",
+    "customers.form.usePlacesOfCustomer": "Also use the points of",
+    "customers.form.usePlacesOfCustomer.none": "Own points only",
+    "customers.form.usePlacesOfCustomer.desc": "For a customer that runs on another customer's points (e.g. JWT on TTP's SPX points). Job forms for this customer list its own points plus that customer's; jobs are still recorded under this customer.",
+
     // ── LINE Notifications card ──────────────────────────────────────────────
     "customers.form.line.title": "LINE Notifications",
     "customers.form.lineGroupId": "LINE Group ID",

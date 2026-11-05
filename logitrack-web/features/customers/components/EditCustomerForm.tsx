@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { getCustomerById, updateCustomer } from "@/features/customers/api/customers";
+import { getCustomerById, getCustomers, updateCustomer, type CustomerData } from "@/features/customers/api/customers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +45,8 @@ export default function EditCustomerForm() {
     const [loading, setLoading] = useState(true);
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
+    /** Other customers — choices for "also use the points of". */
+    const [otherCustomers, setOtherCustomers] = useState<CustomerData[]>([]);
 
     const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -79,6 +81,7 @@ export default function EditCustomerForm() {
             paymentTermsDays: undefined,
             invoiceNote: "",
             billingDateBasis: "delivered",
+            usePlacesOfCustomerId: "",
             lineGroupId: "",
         },
     });
@@ -113,10 +116,12 @@ export default function EditCustomerForm() {
                         paymentTermsDays: data.paymentTermsDays ?? undefined,
                         invoiceNote: data.invoiceNote ?? "",
                         billingDateBasis: data.billingDateBasis ?? "delivered",
+                        usePlacesOfCustomerId: data.usePlacesOfCustomerId ?? "",
                         lineGroupId: data.lineGroupId ?? "",
                     });
                     if (data.logoUrl) setLogoPreview(data.logoUrl);
                 }
+                setOtherCustomers((await getCustomers()).filter((c) => c.id !== id));
             } catch (error) {
                 console.error("Error loading customer", error);
                 toast.error(t("customers.toast.updateError"));
@@ -490,6 +495,46 @@ export default function EditCustomerForm() {
                                     )}
                                 />
                             </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* ── Pickup / delivery points ── */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>{t("customers.form.places.title")}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <FormField
+                                control={form.control}
+                                name="usePlacesOfCustomerId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t("customers.form.usePlacesOfCustomer")}</FormLabel>
+                                        <Select
+                                            onValueChange={(value) => field.onChange(value === "__none__" ? "" : value)}
+                                            value={field.value || "__none__"}
+                                        >
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="__none__">
+                                                    {t("customers.form.usePlacesOfCustomer.none")}
+                                                </SelectItem>
+                                                {otherCustomers.map((c) => (
+                                                    <SelectItem key={c.id} value={c.id}>
+                                                        {c.code} — {c.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <FormDescription>{t("customers.form.usePlacesOfCustomer.desc")}</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         </CardContent>
                     </Card>
 

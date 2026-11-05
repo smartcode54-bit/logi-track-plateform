@@ -63,6 +63,12 @@ export default {
     "customers.form.billingDateBasis.plan": "วันที่แผนงาน (วันที่ทำงาน)",
     "customers.form.billingDateBasis.desc": "ใช้วันไหนตัดรอบบิล + เลือกเรทน้ำมัน เลือก 'วันที่แผนงาน' สำหรับลูกค้า (เช่น CJSF) ที่ยึดแผนงานที่แจ้งวันต่อวัน เพื่อให้เที่ยวที่ส่งช้าข้ามวันยังตกบิลในเดือนของแผนงาน",
 
+    // ── Pickup / delivery points card ────────────────────────────────────────
+    "customers.form.places.title": "จุดรับส่ง",
+    "customers.form.usePlacesOfCustomer": "ใช้จุดรับส่งของลูกค้า",
+    "customers.form.usePlacesOfCustomer.none": "เฉพาะจุดของตัวเอง",
+    "customers.form.usePlacesOfCustomer.desc": "สำหรับลูกค้าที่วิ่งงานที่จุดของลูกค้ารายอื่น (เช่น JWT ใช้จุด SPX ของ TTP) ฟอร์มงานของลูกค้ารายนี้จะแสดงจุดของตัวเอง + จุดของลูกค้าที่เลือก และงานยังบันทึกเป็นลูกค้ารายนี้",
+
     // ── LINE Notifications card ──────────────────────────────────────────────
     "customers.form.line.title": "การแจ้งเตือน LINE",
     "customers.form.lineGroupId": "LINE Group ID",

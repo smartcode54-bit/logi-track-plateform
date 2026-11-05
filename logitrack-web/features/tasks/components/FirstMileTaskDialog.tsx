@@ -75,9 +75,13 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
         loading,
         hubOptions,
         socOptions,
+        customerHubOptions,
+        customerSocOptions,
+        selectCustomer,
         customerOptions,
         trucks,
         drivers,
+        driverChoices,
         hubDropdownOpen,
         setHubDropdownOpen,
         hubSearch,
@@ -89,6 +93,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
         onSubmit,
         normalizeSocIdToKey
     } = useFirstMileTask({ mode, task, isOpen, setIsOpen, onSuccess });
+    const selectedCustomerId = form.watch("billingCustomerId");
 
     const body = (
         <>
@@ -164,13 +169,41 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                             )}
                         />
 
+                        {/* Billing customer FIRST (required, ADR 0027) — one job = one customer, so the
+                            source / destination / stop lists below show only this customer's places. */}
+                        <FormField
+                            control={form.control}
+                            name="billingCustomerId"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>{t("firstMile.task.customer")} *</FormLabel>
+                                    <Select onValueChange={selectCustomer} value={field.value ?? ""}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={t("firstMile.task.selectCustomer")} />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent className="z-[1005]" position="popper">
+                                            {customerOptions.map((c) => (
+                                                <SelectItem key={c.id} value={c.id}>
+                                                    {c.code ? `${c.code} — ${c.name}` : c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">{t("firstMile.task.customerFirstHint")}</p>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Source Hub - Searchable Dropdown */}
                             <FormField
                                 control={form.control}
                                 name="sourceHub"
                                 render={({ field }) => {
-                                    const filteredHubs = hubOptions.filter((hub) => {
+                                    const filteredHubs = customerHubOptions.filter((hub) => {
                                         const val = hub['Hub Code'] ?? '';
                                         const name = hub['Hub Name'] ?? '';
                                         const nameTh = hub['Hub Name Th'] ?? '';
@@ -194,6 +227,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                         "w-full justify-between h-auto min-h-10 py-2",
                                                         !field.value && "text-muted-foreground"
                                                     )}
+                                                    disabled={!selectedCustomerId}
                                                     onClick={() => {
                                                         setHubDropdownOpen(!hubDropdownOpen);
                                                         setHubSearch("");
@@ -218,8 +252,10 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                                         </span>
                                                                     );
                                                                 })()
-                                                            ) : (
+                                                            ) : selectedCustomerId ? (
                                                                 t("firstMile.task.selectHub")
+                                                            ) : (
+                                                                t("firstMile.task.selectCustomerFirst")
                                                             )}
                                                         </div>
                                                         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
@@ -243,7 +279,9 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                         <div className="max-h-[200px] overflow-y-auto p-1">
                                                             {filteredHubs.length === 0 ? (
                                                                 <div className="py-4 text-center text-sm text-muted-foreground">
-                                                                    {t("firstMile.task.noHub")}
+                                                                    {customerHubOptions.length === 0
+                                                                        ? t("firstMile.task.noCustomerPlaces")
+                                                                        : t("firstMile.task.noHub")}
                                                                 </div>
                                                             ) : (
                                                                 filteredHubs.slice(0, 100).map((hub, idx) => {
@@ -283,82 +321,83 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                     </div>
                                                 </>
                                             )}
+                                            {field.value && selectedCustomerId &&
+                                                !customerHubOptions.some((hub) => (hub['Hub Code'] ?? '') === field.value) && (
+                                                <p className="text-xs text-amber-700">{t("firstMile.task.placeNotLinkedToCustomer")}</p>
+                                            )}
                                             <FormMessage />
                                         </FormItem>
                                     );
                                 }}
                             />
 
-                            {/* Destination (SOC) */}
+                            {/* Destination (SOC) — the selected customer's SOCs only */}
                             <FormField
                                 control={form.control}
                                 name="destination"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>{t("firstMile.task.destination")}</FormLabel>
-                                        <Select
-                                            onValueChange={field.onChange}
-                                            value={(() => {
-                                                const v = field.value ?? "";
-                                                if (!v) return "";
-                                                if (socOptions.some((s) => s.source_id === v)) return v;
-                                                const normalized = normalizeSocIdToKey(v);
-                                                const matched = socOptions.find((s) => normalizeSocIdToKey(s.source_id) === normalized);
-                                                return matched?.source_id ?? "";
-                                            })()}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={t("firstMile.task.selectSOC")} />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent className="z-[1005]" position="popper">
-                                                {socOptions.length === 0 ? (
-                                                    <SelectGroup>
-                                                        <SelectLabel className="text-muted-foreground">
-                                                            {t("firstMile.task.noSOC", "No SOC locations. Add pickup points with station type SOC.")}
-                                                        </SelectLabel>
-                                                    </SelectGroup>
-                                                ) : (
-                                                    socOptions.map((soc) => (
-                                                        <SelectItem key={soc.source_id} value={soc.source_id}>
-                                                            {soc.name || soc.source_id}
+                                render={({ field }) => {
+                                    const resolvedValue = (() => {
+                                        const v = field.value ?? "";
+                                        if (!v) return "";
+                                        if (socOptions.some((s) => s.source_id === v)) return v;
+                                        const normalized = normalizeSocIdToKey(v);
+                                        const matched = socOptions.find((s) => normalizeSocIdToKey(s.source_id) === normalized);
+                                        return matched?.source_id ?? "";
+                                    })();
+                                    const selectedSoc = socOptions.find((s) => s.source_id === resolvedValue);
+                                    const isCustomerSoc = customerSocOptions.some((s) => s.source_id === resolvedValue);
+                                    return (
+                                        <FormItem>
+                                            <FormLabel>{t("firstMile.task.destination")}</FormLabel>
+                                            <Select
+                                                onValueChange={field.onChange}
+                                                value={resolvedValue}
+                                                disabled={!selectedCustomerId}
+                                            >
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue
+                                                            placeholder={
+                                                                selectedCustomerId
+                                                                    ? t("firstMile.task.selectSOC")
+                                                                    : t("firstMile.task.selectCustomerFirst")
+                                                            }
+                                                        />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent className="z-[1005]" position="popper">
+                                                    {/* A saved SOC outside this customer still needs an item, or the trigger
+                                                        renders blank. Don't pass children to SelectValue instead: Radix throws
+                                                        when they appear together with the selected item's portaled text. */}
+                                                    {selectedSoc && !isCustomerSoc && (
+                                                        <SelectItem value={selectedSoc.source_id} disabled>
+                                                            {selectedSoc.name || selectedSoc.source_id}
                                                         </SelectItem>
-                                                    ))
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
+                                                    )}
+                                                    {customerSocOptions.length === 0 ? (
+                                                        <SelectGroup>
+                                                            <SelectLabel className="text-muted-foreground">
+                                                                {t("firstMile.task.noCustomerPlaces")}
+                                                            </SelectLabel>
+                                                        </SelectGroup>
+                                                    ) : (
+                                                        customerSocOptions.map((soc) => (
+                                                            <SelectItem key={soc.source_id} value={soc.source_id}>
+                                                                {soc.name || soc.source_id}
+                                                            </SelectItem>
+                                                        ))
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                            {resolvedValue && selectedCustomerId && !isCustomerSoc && (
+                                                <p className="text-xs text-amber-700">{t("firstMile.task.placeNotLinkedToCustomer")}</p>
+                                            )}
+                                            <FormMessage />
+                                        </FormItem>
+                                    );
+                                }}
                             />
                         </div>
-
-                        {/* Billing customer (required, overrides the hub-derived link — ADR 0027) */}
-                        <FormField
-                            control={form.control}
-                            name="billingCustomerId"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>{t("firstMile.task.customer")} *</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder={t("firstMile.task.selectCustomer")} />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent className="z-[1005]" position="popper">
-                                            {customerOptions.map((c) => (
-                                                <SelectItem key={c.id} value={c.id}>
-                                                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
 
                         {/* Actual pickup date-time — set by the admin at assign (ops only, not billing; ADR 0028) */}
                         <FormField
@@ -431,8 +470,15 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                     {t("firstMile.task.deliveryStopsHint")}
                                 </p>
                                 <DeliveryStopsEditor
-                                    socOptions={socOptions}
-                                    customerOptions={customerOptions}
+                                    destinationOptions={customerSocOptions.map((soc) => ({ code: soc.source_id, name: soc.name }))}
+                                    placeholder={t("firstMile.task.selectSOC")}
+                                    searchPlaceholder={t("lineHaul.task.searchSoc")}
+                                    noMatchMessage={t("lineHaul.task.noSoc")}
+                                    emptyOptionsMessage={
+                                        selectedCustomerId
+                                            ? t("firstMile.task.noCustomerPlaces")
+                                            : t("firstMile.task.selectCustomerFirst")
+                                    }
                                 />
                             </FormItem>
                         )}
@@ -561,7 +607,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                                 </FormControl>
                                                 <SelectContent className="z-[1005]" position="popper">
                                                     <SelectItem value="__none__">{t("firstMile.task.selectDriver")}</SelectItem>
-                                                    {drivers.map((driver) => {
+                                                    {driverChoices.map((driver) => {
                                                         const isActive = driver.id ? activeTaskDriverIds.has(driver.id) : false;
                                                         return (
                                                             <SelectItem key={driver.id} value={driver.id || "unknown"}>
@@ -606,7 +652,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                         <FormItem>
                                             <FormControl>
                                                 <HelperDriverField
-                                                    drivers={drivers}
+                                                    drivers={driverChoices}
                                                     value={field.value as string[] | undefined}
                                                     onChange={field.onChange}
                                                     excludeDriverId={form.watch("driverId") || undefined}

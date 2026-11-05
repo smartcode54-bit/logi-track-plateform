@@ -7,6 +7,7 @@ import { Loader2, Plus, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { db } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
+import { isDriverActive } from "@/lib/driverStatus";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,7 +51,8 @@ export default function PenaltiesPage() {
                 const drvs: DriverOpt[] = [];
                 drvSnap.forEach((d) => {
                     const data = d.data();
-                    if (data.authId) {
+                    // The list feeds only the create form — no penalty for a driver who has left.
+                    if (data.authId && isDriverActive(data)) {
                         drvs.push({
                             authId: data.authId,
                             name: `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim() || data.fullNameTh || data.authId,

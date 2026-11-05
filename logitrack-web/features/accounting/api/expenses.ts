@@ -16,6 +16,7 @@ import {
 import { ref as storageRefFn, uploadBytes, getDownloadURL } from "firebase/storage";
 import { COLLECTIONS } from "@/lib/collections";
 import { driverDisplayName, driverIdentityKeys } from "@/lib/driverName";
+import { isDriverActive } from "@/lib/driverStatus";
 
 export type VehicleExpenseType = "fuel" | "other";
 
@@ -194,11 +195,15 @@ export async function getTrucksForFilter(): Promise<TruckOption[]> {
     }
 }
 
-/** สำหรับ import ค่าผ่านทาง: ดึงคนขับทั้งหมดพร้อม truck จาก currentAssignment (หรือ legacy truckId) */
+/**
+ * Driver picker of the create forms (add fuel / add other expense / toll import): active drivers only
+ * (lib/driverStatus.ts), each with the truck from currentAssignment (or legacy truckId).
+ * List-page filters use getDriversForFilter, which keeps inactive drivers for their past records.
+ */
 export async function getDriversWithTruckAssignments(): Promise<DriverWithTruckAssignment[]> {
     try {
         const snapshot = await getDocs(collection(db, COLLECTIONS.DRIVERS));
-        return snapshot.docs.map((docSnap) => {
+        return snapshot.docs.filter((docSnap) => isDriverActive(docSnap.data())).map((docSnap) => {
             const d = docSnap.data();
             const name = driverDisplayName(d, docSnap.id);
             const authId = (d.authId ?? d.authUid) as string | undefined;
