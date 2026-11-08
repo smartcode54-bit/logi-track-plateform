@@ -74,11 +74,12 @@ const ALL_CAPS = [
 
 const HUBS = [
     { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" },
-    { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC" },
+    { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC", linkedPartyId: "p1", linkedCustomerKind: "customer" },
     { id: "h3", sourceId: "SPK890174", sourceNameTh: "ห้วยขวาง10", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" },
     { id: "h4", sourceId: "RC-01", sourceNameTh: "ศูนย์คืนสินค้า", sourceNameEn: null, stationType: "SOC" },
+    // Linked to the same customer as the rest, so a form that asks for the customer first still pages through them.
     ...Array.from({ length: 60 }, (_, i) => ({ id: `hx${i}`, sourceId: `HUB-${String(i).padStart(3, "0")}`, sourceNameTh: `ฮับ ${i}`,
-        sourceNameEn: null, stationType: "HUB" })),
+        sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" })),
 ];
 
 /**
@@ -88,7 +89,11 @@ const HUBS = [
 function goHubs(call: FakeCall) {
     const q = params(call.url);
     const terms = searchTerms(q.q);
+    // ?linkedPartyId keeps the stations of those billing parties, as hubs.linkedToAny does: a station linked to
+    // nobody (RC-01) is no pick of a form that asks for the customer first.
+    const parties = q.linkedPartyId ? q.linkedPartyId.split(",") : [];
     const rows = HUBS.filter((h) => (!q.stationType || h.stationType === q.stationType) &&
+        (parties.length === 0 || (h.linkedPartyId != null && parties.includes(h.linkedPartyId))) &&
         matchesTerms(foldSearchText(`${h.sourceId} ${h.sourceNameTh} ${h.sourceNameEn ?? ""}`), terms))
         .sort((a, b) => (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
     if (!q.limit) return json(200, { data: rows });
@@ -341,7 +346,12 @@ describe("task form: the stops as stored, sent only when touched", () => {
         expect(screen.queryByText("SPK1")).toBeNull();
         expect(screen.queryByText("SPK2")).toBeNull();
         const source = screen.getByRole("combobox", { name: "Source (SOC)" });
-        expect(source).toHaveTextContent("Select Source (SOC)");
+        // The customer went with the route: until one is chosen again, no place can be picked.
+        expect(source).toBeDisabled();
+        expect(source).toHaveTextContent("Select the customer first");
+        await u.click(screen.getByRole("combobox", { name: "Customer" }));
+        await u.click(await screen.findByRole("option", { name: /CJSF/ }));
+        await waitFor(() => expect(source).toBeEnabled());
         await u.click(source);
         await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
         await u.click(screen.getByRole("combobox", { name: "Destination (Hub)" }));
@@ -408,34 +418,53 @@ describe("hub pickers: a server search per term, each value labelled by a single
     const hubCalls = (web: ReturnType<typeof setup>) => web.calls.filter((c) => c.url.split("?")[0] === "/api/go/v1/hubs");
     const lookups = (web: ReturnType<typeof setup>) => web.calls.filter((c) => c.url.startsWith("/api/go/v1/hubs/")).map((c) => c.url);
 
-    it("task form: no whole-master read; a Thai term without its tone mark finds the hub; the pick prefills the customer and posts its code", async () => {
+    it("task form: the customer first narrows both place searches to its party; a Thai term without its tone mark finds the hub", async () => {
         const web = setup();
         web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskNo: "FM-NEW-1" }) }));
         const onClose = vi.fn();
         renderPage("/app/first-mile", <TaskFormDialog mode="create" taskType="first_mile" allowTypeSwitch={false} onClose={onClose} />);
         const source = await screen.findByRole("combobox", { name: "Pickup Point" });
         expect(hubCalls(web)).toEqual([]); // nothing is read before a list opens: no whole master
+        expect(source).toBeDisabled(); // and no place is pickable before the customer
 
         const u = userEvent.setup();
+        await u.click(screen.getByRole("combobox", { name: "Customer" }));
+        await u.click(await screen.findByRole("option", { name: /CJSF/ }));
+        await waitFor(() => expect(source).toBeEnabled());
+
         await u.click(source);
-        // Both kinds stay selectable, the preferred one (HUB for a first-mile source) first: one page of each.
-        await waitFor(() => expect(hubCalls(web).map((c) => params(c.url))).toEqual([{ stationType: "HUB", limit: "50" }, { stationType: "SOC", limit: "50" }]));
+        // Both kinds stay selectable, the preferred one (HUB for a first-mile source) first: one page of each,
+        // each narrowed to the customer's billing party.
+        await waitFor(() => expect(hubCalls(web).map((c) => params(c.url))).toEqual([
+            { stationType: "HUB", linkedPartyId: "p1", limit: "50" },
+            { stationType: "SOC", linkedPartyId: "p1", limit: "50" },
+        ]));
         await u.type(screen.getByPlaceholderText("Search..."), "หวยขวาง");
+        // SPK890174 is past the first page by code, so the term has to reach the server: one request per kind.
+        await waitFor(() => expect(hubCalls(web).filter((c) => params(c.url).q).map((c) => params(c.url))).toEqual([
+            { q: "หวยขวาง", stationType: "HUB", linkedPartyId: "p1", limit: "50" },
+            { q: "หวยขวาง", stationType: "SOC", linkedPartyId: "p1", limit: "50" },
+        ]));
         await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
-        expect(hubCalls(web).filter((c) => params(c.url).q).map((c) => params(c.url))).toEqual([
-            { q: "หวยขวาง", stationType: "HUB", limit: "50" },
-            { q: "หวยขวาง", stationType: "SOC", limit: "50" },
-        ]);
         await waitFor(() => expect(source).toHaveTextContent("SPK890174 — ห้วยขวาง10"), { timeout: 3000 });
 
         await u.click(screen.getByRole("combobox", { name: "Destination (SOC)" }));
         await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
         await u.click(screen.getByRole("button", { name: "Create Assignment" }));
         await waitFor(() => expect(onClose).toHaveBeenCalled());
-        // No customer was picked: the hub's billing party (p1) prefilled it.
         expect(web.calls.find((c) => c.method === "POST")!.body).toMatchObject({ sourceHub: "SPK890174", destination: "SOCE", billingPartyId: "p1" });
         // A picked record labels its own code: no lookup request.
         expect(lookups(web)).toEqual([]);
+    });
+
+    it("task form: a place the chosen customer does not own is flagged, not rewritten", async () => {
+        setup();
+        // RC-01 is linked to nobody: a legacy task keeps it, and the form says so instead of clearing it.
+        renderPage("/app/first-mile",
+            <TaskFormDialog mode="edit" taskType="first_mile" task={task({ sourceHub: "RC-01", sourceHubId: "h4", source: place("RC-01") })}
+                allowTypeSwitch={false} onClose={vi.fn()} />);
+        expect(await screen.findByText("This place is not linked to the selected customer — pick again")).toBeInTheDocument();
+        expect(await screen.findByRole("combobox", { name: "Pickup Point" })).toHaveTextContent("RC-01");
     });
 
     it("task form: a value outside the current page keeps its label (a lookup by code); a code not in the master shows as is", async () => {

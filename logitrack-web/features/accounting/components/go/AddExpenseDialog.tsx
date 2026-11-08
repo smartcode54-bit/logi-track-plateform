@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { attachExpenseFiles, createExpense, EXPENSE_CATEGORIES, type ExpenseDTO, type ExpenseInput, type ExpenseType } from "../../api/expenses.go";
 import { categoryLabel } from "./ExpenseDetailDialog";
+import { SELECTABLE_DRIVER_STATUSES } from "@/features/accounting/api/pickers.go";
 import { SearchPicker, todayKey, type PickValue } from "./shared";
 
 export function AddExpenseDialog({ type, open, onOpenChange }: { type: ExpenseType; open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -140,7 +141,7 @@ export function AddExpenseDialog({ type, open, onOpenChange }: { type: ExpenseTy
                     <div className="grid grid-cols-2 gap-3">
                         <AccessibleField className="space-y-1" label={t("accounting.fuel.addDialog.driver")} labelClassName="text-xs">
 
-                            <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("accounting.fuel.addDialog.selectDriver")} className="w-full" />
+                            <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("accounting.fuel.addDialog.selectDriver")} status={SELECTABLE_DRIVER_STATUSES} className="w-full" />
                         </AccessibleField>
                         <AccessibleField className="space-y-1" label={t("accounting.fuel.addDialog.truck")} labelClassName="text-xs">
 

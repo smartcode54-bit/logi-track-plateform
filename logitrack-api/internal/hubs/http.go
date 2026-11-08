@@ -29,7 +29,7 @@ const (
 // Groups are the routes of T21 on the internal listener behind requireAuth (auth.Service.RequireAuth, which resolves
 // the principal through iam.RBAC.Authorize). s may be nil while the route table is only listed.
 //
-//	GET   /v1/hubs                                   authenticated (?stationType&q; ETag; ?limit&cursor: one keyset page)
+//	GET   /v1/hubs                                   authenticated (?stationType&q&linkedPartyId; ETag; ?limit&cursor: one keyset page)
 //	GET   /v1/hubs/maps                              authenticated (ETag)
 //	GET   /v1/hubs/{id}                              authenticated (a uuid or a code; ETag)
 //	POST  /v1/hubs                                   operations:manage_sources (a steward key, R60)
@@ -123,12 +123,18 @@ func (h handlers) list(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := onlyQuery(c, "stationType", "q", "limit", "cursor"); err != nil {
+	if err := onlyQuery(c, "stationType", "q", "linkedPartyId", "limit", "cursor"); err != nil {
 		return err
 	}
 	// ?limit or ?cursor asks for one keyset page; neither keeps the whole master in one response (the maps, the
 	// distance matrix and the master-data pages read it so).
 	in := ListInput{StationType: c.Query("stationType"), Q: c.Query("q"), Cursor: c.Query("cursor")}
+	// ?linkedPartyId=<uuid>[,<uuid>…] keeps the stations of those billing parties (the task form's customer).
+	parties, bad := ParseLinkedParties(c.Query("linkedPartyId"))
+	if bad != "" {
+		return httpx.ErrInvalidArgument(violation("linkedPartyId", bad))
+	}
+	in.LinkedPartyIDs = parties
 	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n == 0 {
