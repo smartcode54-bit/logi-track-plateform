@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DriverSelect, TruckSelect } from "@/components/entity-pickers";
 import { FieldLabelContext } from "@/components/ui/field-label";
-import { nodeText } from "@/components/ui/search-select";
+import { nodeText, type SearchSelectOption } from "@/components/ui/search-select";
 
 /** `฿1,234.50` (two decimals only when the amount has them). */
 export function formatThb(n: number | null | undefined): string {
@@ -92,6 +92,11 @@ interface SearchPickerProps {
     clearLabel?: string;
     className?: string;
     disabled?: boolean;
+    /**
+     * `kind="driver"` only: the statuses the search offers (`SELECTABLE_DRIVER_STATUSES` on a form that creates
+     * a record, so a driver who has left is no pick). None = every driver, which is what a filter wants.
+     */
+    status?: string;
 }
 
 /**
@@ -99,19 +104,19 @@ interface SearchPickerProps {
  * `['trucks',{view:'picker',q}]`): no list of every driver or truck is read in the browser. The shared
  * `DriverSelect` / `TruckSelect` (UI2); `clearLabel` makes it clearable (a filter's "all").
  */
-export function SearchPicker({ kind, value, onChange, placeholder, clearLabel, className, disabled }: SearchPickerProps) {
-    const Picker = kind === "driver" ? DriverSelect : TruckSelect;
-    return (
-        <Picker
-            value={value?.id ?? ""}
-            selectedLabel={value?.label}
-            onValueChange={(id, option) => onChange(id && option ? { id, label: option.text ?? nodeText(option.label) } : null)}
-            placeholder={placeholder}
-            clearable={!!clearLabel}
-            disabled={disabled}
-            className={cn("w-[220px]", className)}
-        />
-    );
+export function SearchPicker({ kind, value, onChange, placeholder, clearLabel, className, disabled, status }: SearchPickerProps) {
+    const shared = {
+        value: value?.id ?? "",
+        selectedLabel: value?.label,
+        onValueChange: (id: string, option: SearchSelectOption | null) =>
+            onChange(id && option ? { id, label: option.text ?? nodeText(option.label) } : null),
+        placeholder,
+        clearable: !!clearLabel,
+        disabled,
+        className: cn("w-[220px]", className),
+    };
+    // Branched rather than one component in a variable: only the driver picker takes a status.
+    return kind === "driver" ? <DriverSelect {...shared} status={status} /> : <TruckSelect {...shared} />;
 }
 
 /** A labelled control of a filter bar. */

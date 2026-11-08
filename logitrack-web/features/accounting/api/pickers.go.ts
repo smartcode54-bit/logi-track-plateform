@@ -162,8 +162,21 @@ export interface DriverPick {
     currentAssignment?: { truckPlate: string | null } | null;
 }
 
+/**
+ * The driver statuses a form that creates a record offers: every status Go knows
+ * (`active` | `inactive` | `on_duty`, `internal/drivers`) but `inactive`, so a driver who has left is no pick of
+ * a new task, expense, toll row or penalty. The legacy `lib/driverStatus.ts` said the same of the Firestore
+ * vocabulary. Filters, reports, history (the trip editor, the standby backfill) and chat keep listing everyone:
+ * a record already holding an inactive driver must still show and still be searchable.
+ */
+export const SELECTABLE_DRIVER_STATUSES = "active,on_duty";
+
 export interface DriverPickFilter {
-    /** One driver status, a server filter (`active`, `inactive`, `on_duty`). */
+    /**
+     * A server filter on the driver status (`active`, `inactive`, `on_duty`), or several of them comma separated
+     * (`SELECTABLE_DRIVER_STATUSES`). Go takes one status per request, so a list is one request per status merged
+     * here and ordered by name rather than newest first.
+     */
     status?: string;
     /** The full rows (licence type, status, home truck) instead of `fields=minimal`. */
     details?: boolean;
@@ -181,8 +194,19 @@ export function driverPicksQuery(q: string, filter: DriverPickFilter = {}) {
             details || status
                 ? queryKeys.drivers.list({ view: "picker", q: term, details: !!details, status: status ?? "" })
                 : queryKeys.drivers.list({ fields: "minimal", q: term }),
-        queryFn: ({ signal }) =>
-            goFetch<DriverPick[]>("/v1/drivers", { signal, query: { fields: details ? undefined : "minimal", status, q: term || undefined, limit: 20 } }),
+        queryFn: async ({ signal }) => {
+            const page = (one: string | undefined) =>
+                goFetch<DriverPick[]>("/v1/drivers", {
+                    signal,
+                    query: { fields: details ? undefined : "minimal", status: one, q: term || undefined, limit: 20 },
+                });
+            const statuses = (status ?? "").split(",").filter(Boolean);
+            if (statuses.length < 2) return page(status);
+            const pages = await Promise.all(statuses.map(page));
+            // A status changing between the requests can repeat a driver, and two rows of one id break the list.
+            const byId = new Map(pages.flat().map((d) => [d.id, d]));
+            return [...byId.values()].sort((a, b) => (a.displayName ?? a.id).localeCompare(b.displayName ?? b.id));
+        },
         staleTime: 5 * 60_000,
     });
 }
@@ -307,12 +331,21 @@ export function customerSearchQuery(q: string) {
     });
 }
 
-export function hubSearchQuery(q: string, stationType?: string) {
+/**
+ * One page of `GET /v1/hubs?q&stationType&linkedPartyId`. `linkedPartyId` (a billing party, or several comma
+ * separated) keeps the stations of that customer, so a form that asks for the customer first offers only its
+ * places; a station linked to no customer is then no pick at all (`hubs.ListInput.LinkedPartyIDs`).
+ */
+export function hubSearchQuery(q: string, stationType?: string, linkedPartyId?: string) {
     const term = q.trim();
+    const party = (linkedPartyId ?? "").trim();
     return queryOptions({
-        queryKey: [...queryKeys.hubs.all(), { view: "picker", q: term, stationType: stationType ?? "" }] as const,
+        queryKey: [...queryKeys.hubs.all(), { view: "picker", q: term, stationType: stationType ?? "", linkedPartyId: party }] as const,
         queryFn: ({ signal }) =>
-            goFetch<HubPick[]>("/v1/hubs", { signal, query: { q: term || undefined, stationType: stationType || undefined, limit: PICKER_PAGE_SIZE } }),
+            goFetch<HubPick[]>("/v1/hubs", {
+                signal,
+                query: { q: term || undefined, stationType: stationType || undefined, linkedPartyId: party || undefined, limit: PICKER_PAGE_SIZE },
+            }),
         staleTime: 5 * 60_000,
     });
 }
