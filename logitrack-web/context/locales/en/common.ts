@@ -360,6 +360,10 @@ export default {
     "lineHaul.task.selectDestinationHub": "Select Destination Hub",
     "lineHaul.task.searchHub": "Search Hub...",
     "lineHaul.task.noHub": "No hubs found.",
+    "lineHaul.task.deliveryStopsHint": "Add 2 or more stops — only the selected customer's destination hubs (a multi-delivery job is one customer)",
+    "lineHaul.task.stopsSelectCustomerFirst": "Select the customer first, then add stops",
+    "lineHaul.task.stopsNoCustomerHubs": "This customer has no linked destination hubs — link hubs to the customer on the Sources page first",
+    "lineHaul.task.stopsWrongCustomer": "Delivery stops must be the selected customer's destination hubs — fix stop {stops}",
 
     // Payroll (admin)
     "payroll.subtitle": "Manage driver earnings, deductions, and payment cycles.",

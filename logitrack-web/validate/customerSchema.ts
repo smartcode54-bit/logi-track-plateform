@@ -51,6 +51,14 @@ export const customerSchema = z.object({
      */
     billingDateBasis: z.enum(["delivered", "plan"]).optional(),
 
+    // ── Pickup / delivery points ─────────────────────────────────────────────
+    /**
+     * ใช้จุดรับส่งของลูกค้ารายอื่น (doc id ใน `customers`) — เช่น JWT วิ่งงาน SPX ที่จุดเดียวกับ TTP.
+     * ฟอร์มงาน FM/LH ของลูกค้ารายนี้แสดงจุดที่ผูกกับตัวเอง + จุดที่ผูกกับลูกค้ารายนั้น (ชั้นเดียว ไม่ไล่ต่อ)
+     * และงานที่สร้างยังบันทึกลูกค้าของงานเอง (lib/customerPlaces.ts). ว่าง = ใช้เฉพาะจุดของตัวเอง.
+     */
+    usePlacesOfCustomerId: z.string().optional(),
+
     // ── LINE notifications ───────────────────────────────────────────────────
     /** LINE group id (ขึ้นต้นด้วย "C…") ที่จะส่งแจ้งเตือนเช็คอิน/จบงานเข้าไป — ว่าง = ปิดการแจ้งเตือน */
     lineGroupId: z.string().optional(),
