@@ -967,6 +967,30 @@ build → ประกาศเวอร์ชันขึ้น Firestore อ�
 
 ---
 
+#### 48. Multi-drop พร้อมใช้กับงาน Lotus + หมุดรูปหลักฐานอัปเดตตามจุดที่ถ่าย — [11 พ.ย. 2026] — web 3.6.6 / mobile 3.6.6+11 (tag `v3.6.6-web-mobile-3.6.6+11`)
+
+งานกำลังเปลี่ยนเป็นโหมด multi-drop (งาน Lotus) — แก้ 3 เรื่องที่ขวางอยู่ (รายละเอียด: `.vibe-rules.md` Change Log 2026-11-11)
+
+| เรื่อง | ต้นเหตุ | แก้ |
+|-------|--------|-----|
+| บันทึกงาน multi-drop ที่มีคนขับแล้วไม่เกิดอะไร | `createOrUpdateTask` query `where(driverId).orderBy(runOrder)` ไม่มี index → code 9; เว็บกลืน error | `functions/src/tasks.ts` `nextRunOrderForDriver` (select + max ในหน่วยความจำ, ไม่ต้องมี index); hooks FM/LH แสดง toast `common.toast.saveFailed` |
+| ฟอร์ม multi-drop สับสน | ช่องปลายทางเดี่ยวยังโชว์, `destination` ไม่ตรงกับจุดที่ 1, เอาติ๊กออกแล้ว stops ค้าง | `setMultiDelivery()` ใน `useFirstMileTask`/`useLineHaulTask`; sync `destination` = จุดที่ 1; `deleteField()` ตอนกลับเป็นจุดเดียว; error ต่อจุดใน `DeliveryStopsEditor` |
+| คนขับไม่รู้ว่างานมีหลายจุด | การ์ดใน check-in แสดงปลายทางเดียว | `check_in_page.dart` badge "ส่งหลายจุด · N จุด" + รายชื่อจุด |
+| หมุด/ที่อยู่บนรูปไม่เปลี่ยนตามจุดที่ถ่าย | หน้าใน `IndexedStack` cache GPS + overlay ครั้งแรกไว้ตลอด; multi-drop อ่าน GPS ครั้งเดียวใน `initState` | `evidence_location_cache.dart` (ใหม่) — fix อายุ ≤ 60 วิ, overlay ใหม่เมื่อย้าย > 100 ม., GPS ล้ม = ไม่ใส่หมุด; ใช้ใน loading / delivery / delivery multi |
+| แอดมินไม่เห็นว่างาน/เที่ยวมีหลายจุด | Job Assign แสดงปลายทางเดียว; Driver Monitor อ่านแค่ `deliveryStopsProgress` (เติมเมื่อส่งจุดนั้นเสร็จ) | Job Assign chip "N จุด" + expand; Driver Monitor `getTripStops` รวมแผนจาก task (display-only) |
+| คนขับไม่เห็นจุดส่งตอนบันทึกรับงาน | หน้า loading แสดงช่องปลายทางเดียว | การ์ดรายการจุดจาก task + preview ครบทุกจุด |
+| ZX ขึ้น "ซีลซ้ำ" ทั้งที่ยังไม่บันทึก (ตอนถ่ายใหม่) | เช็คซ้ำตอน OCR ใช้เลข OCR ที่ไม่ใช่ซีลจริง + error ไม่ถูกล้าง | เช็คจากค่าในฟอร์ม และล้าง error เมื่อไม่ซ้ำ |
+
+**Pattern:**
+- ห้าม query `tasks` แบบ `where + orderBy` บน field คนละตัวใน callable โดยไม่เพิ่ม composite index ใน `firestore.indexes.json` (และ deploy) — ไม่อย่างนั้นล้มเงียบบน prod
+- รูปหลักฐานต้องได้ตำแหน่งจาก `EvidenceLocationCache.current()` ทุกครั้ง — ห้ามเก็บ `Position` / `OverlayContext` ไว้เป็น field ของหน้าข้ามจุด/ข้ามเที่ยว
+
+- จุดส่งที่ยังไม่ส่งใน Driver Monitor มาจาก `task.deliveryStops` เพื่อแสดงผลเท่านั้น — ห้ามเขียนกลับลง `trip_records.deliveryStopsProgress`
+
+**สถานะ:** functions build + web `tsc` + `flutter analyze` (0 errors) ผ่าน; commit + tag แล้ว (ยังไม่ push); deploy dev + prod โดยผู้ใช้. รูปเก่าที่หมุดผิดแก้ย้อนหลังไม่ได้. Lotus: ตัวเลือกจุดส่ง FM จำกัดเฉพาะจุดประเภท SOC ของลูกค้า — ถ้าจุด Lotus ไม่ใช่ SOC ต้องปรับ
+
+---
+
 ### ⚠️ สิ่งที่ยังค้างอยู่ (Pending)
 
 1. **RBAC — กำหนด `security_view_mobile_clients` ให้ role ใน Firestore `permissions_config`**  

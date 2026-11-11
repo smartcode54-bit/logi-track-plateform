@@ -41,6 +41,9 @@ export default function DeliveryStopsEditor({
     const form = useFormContext();
     const stops = form.watch("deliveryStops") as DeliveryStop[] | undefined;
     const stopsError = form.formState.errors.deliveryStops?.message;
+    const stopItemErrors = form.formState.errors.deliveryStops as
+        | Array<{ destination?: unknown } | undefined>
+        | undefined;
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     /** Index of the stop whose picker is open — one at a time. */
     const [openStop, setOpenStop] = useState<number | null>(null);
@@ -263,6 +266,13 @@ export default function DeliveryStopsEditor({
                             {stop.destination && !selected && (
                                 <p className="text-xs text-amber-700 mt-1">
                                     {t("firstMile.task.stopDestinationNotListed", { destination: stop.destination })}
+                                </p>
+                            )}
+                            {/* Per-stop schema error (deliveryStops.N.destination) — the array-level
+                                notice below only carries refine() messages, so an empty stop was silent. */}
+                            {!stop.destination && Boolean(stopItemErrors?.[idx]?.destination) && (
+                                <p className="text-xs font-medium text-destructive mt-1">
+                                    {t("firstMile.task.stopDestinationRequired")}
                                 </p>
                             )}
                         </div>

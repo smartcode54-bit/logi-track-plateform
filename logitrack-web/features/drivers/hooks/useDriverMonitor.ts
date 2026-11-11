@@ -18,7 +18,8 @@ import { httpsCallable } from "firebase/functions";
 import { startOfDay, endOfDay, subDays, differenceInCalendarDays } from "date-fns";
 import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
-import { TripRecord } from "@/validate/tripRecordSchema";
+import { TripRecord, type DeliveryStopProgress } from "@/validate/tripRecordSchema";
+import { mergeStopsForDisplay, type PlannedDeliveryStop } from "@/features/drivers/utils/multiDeliveryProgress";
 import { Driver } from "@/validate/driverSchema";
 import { driverIdentityKeys } from "@/lib/driverName";
 import { buildHubCodeToDisplayMapFromEntries, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
@@ -664,6 +665,30 @@ export function useDriverMonitor() {
         return () => unsub();
     }, []);
 
+    /** task doc id / task.taskId → its planned stops (multi-drop tasks only), sorted by index. */
+    const plannedStopsByTaskId = useMemo(() => {
+        const map: Record<string, PlannedDeliveryStop[]> = {};
+        for (const task of tasks) {
+            const raw = Array.isArray(task.deliveryStops) ? task.deliveryStops : [];
+            if (!(task.isMultiDelivery === true || raw.length > 1)) continue;
+            const stops = raw
+                .filter((s) => s && typeof s.destination === "string" && s.destination.trim() !== "")
+                .map((s, i) => ({ index: typeof s.index === "number" ? s.index : i + 1, destination: s.destination }))
+                .sort((a, b) => a.index - b.index);
+            if (stops.length === 0) continue;
+            if (task.id) map[task.id] = stops;
+            if (task.taskId) map[task.taskId] = stops;
+        }
+        return map;
+    }, [tasks]);
+
+    /** Stops to show for a trip: planned stops from its task + delivered progress (display only). */
+    const getTripStops = useCallback(
+        (trip: TripRecord): DeliveryStopProgress[] =>
+            mergeStopsForDisplay(trip.deliveryStopsProgress, plannedStopsByTaskId[trip.taskId ?? ""]),
+        [plannedStopsByTaskId]
+    );
+
     useEffect(() => {
         let cancelled = false;
         const run = async () => {
@@ -1071,6 +1096,7 @@ export function useDriverMonitor() {
         setEditTripDialogOpen,
         incidentReportsByTripId,
         checkInAtByTaskId,
+        getTripStops,
         getDriver,
         getSourceDisplayName,
         fetchHubs,

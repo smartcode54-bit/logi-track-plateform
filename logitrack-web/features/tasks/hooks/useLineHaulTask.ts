@@ -221,6 +221,33 @@ export function useLineHaulTask({
         return options;
     })();
 
+    // Multi-drop: the job's destination IS stop 1 (mobile check-in card, loading page and billing
+    // all read it), so keep it in step instead of letting the admin pick a second, conflicting one.
+    const watchedIsMultiDelivery = form.watch("isMultiDelivery");
+    const watchedFirstStopDestination = form.watch("deliveryStops")?.[0]?.destination ?? "";
+    useEffect(() => {
+        if (!watchedIsMultiDelivery) return;
+        if ((form.getValues("destination") ?? "") !== watchedFirstStopDestination) {
+            form.setValue("destination", watchedFirstStopDestination, { shouldDirty: true });
+        }
+    }, [watchedIsMultiDelivery, watchedFirstStopDestination, form]);
+    const setMultiDelivery = (on: boolean) => {
+        form.setValue("isMultiDelivery", on, { shouldDirty: true });
+        if (on) {
+            if (!form.getValues("deliveryStops")?.length) {
+                // Seed stop 1 from the destination already picked, plus an empty stop 2.
+                form.setValue("deliveryStops", [
+                    { index: 1, destination: form.getValues("destination") ?? "", status: "pending" },
+                    { index: 2, destination: "", status: "pending" },
+                ]);
+            }
+        } else {
+            // Mobile treats any task holding 2+ stops as multi-drop, so stops must not linger.
+            form.setValue("deliveryStops", undefined);
+            form.clearErrors("deliveryStops");
+        }
+    };
+
     /** Pick the customer, then drop route picks that belong to someone else; auto-pick a lone option. */
     const selectCustomer = (customerId: string) => {
         form.setValue("billingCustomerId", customerId, { shouldDirty: true, shouldValidate: true });
@@ -366,7 +393,7 @@ export function useLineHaulTask({
                     time: values.time,
                     taskId: values.taskId || undefined,
                     sourceHub: values.sourceHub,
-                    destination: values.destination,
+                    destination: values.deliveryStops[0].destination,
                     jobCategory: values.jobCategory,
                     truckType: values.truckType,
                     truckId: values.truckId || undefined,
@@ -446,6 +473,12 @@ export function useLineHaulTask({
                     ...billingCustomerFields,
                     updatedAt: new Date(),
                 };
+                // Admin turned a multi-drop job back into single-drop: clear the stored stops,
+                // or mobile still opens the multi-stop delivery screen (it checks stops ≥ 2).
+                if (task.isMultiDelivery === true) {
+                    payload.isMultiDelivery = false;
+                    payload.deliveryStops = deleteField();
+                }
                 if (task.status === "Cancelled" && values.driverId) {
                     payload.status = "Assigned";
                 }
@@ -482,7 +515,9 @@ export function useLineHaulTask({
             setIsOpen(false);
             if (onSuccess) onSuccess();
         } catch (error) {
+            // Fail loud (ADR 0003): a rejected save used to leave the dialog open with no feedback.
             console.error("Error saving task:", error);
+            toast.error(t("common.toast.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
         } finally {
             setLoading(false);
         }
@@ -527,5 +562,6 @@ export function useLineHaulTask({
         customerHubOptions,
         selectCustomer,
         stopDestinationOptions,
+        setMultiDelivery,
     };
 }

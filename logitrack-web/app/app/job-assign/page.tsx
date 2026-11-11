@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { endOfDay, format, startOfDay } from "date-fns";
-import { Calendar as CalendarIcon, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2 } from "lucide-react";
+import { Calendar as CalendarIcon, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2, ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { JobImportDialog } from "./import-dialog";
 import { FirstMileTaskDialog } from "@/app/app/first-mile/task-dialog";
 import { LineHaulTaskDialog } from "@/app/app/line-haul/task-dialog";
@@ -212,6 +213,54 @@ export default function JobAssignPage() {
         [hubDisplayMap]
     );
 
+    /** Multi-drop tasks: stops in run order (same rule the mobile card uses — flag OR 2+ stops). */
+    const stopsOf = (task: JobTask) => {
+        const stops = task.deliveryStops ?? [];
+        if (task.isMultiDelivery !== true && stops.length < 2) return [];
+        return [...stops].sort((a, b) => a.index - b.index);
+    };
+
+    /** One line per stop; ✓ = delivered, ✕ = failed, ◯ = not yet. */
+    const renderStopList = (stops: ReturnType<typeof stopsOf>) =>
+        stops.map((stop) => (
+            <Badge
+                key={stop.index}
+                variant="outline"
+                className={cn(
+                    "text-xs font-medium block w-fit",
+                    stop.status === "delivered"
+                        ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30"
+                        : stop.status === "failed"
+                          ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/30"
+                          : "bg-muted text-foreground/80 border-border"
+                )}
+            >
+                {stop.status === "delivered" ? "✓" : stop.status === "failed" ? "✕" : "◯"} {stop.index}. {routeLabel(stop.destination)}
+            </Badge>
+        ));
+
+    /** Destination cell: a "N stops" chip that expands to the stop list (mirrors Driver Monitor). */
+    const renderDestination = (task: JobTask) => {
+        const stops = stopsOf(task);
+        if (stops.length === 0) {
+            return <span className="font-medium leading-tight block">{routeLabel(task.destination)}</span>;
+        }
+        return (
+            <Collapsible>
+                <CollapsibleTrigger
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200 font-medium cursor-pointer transition-colors dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30 dark:hover:bg-blue-500/25"
+                >
+                    {t("firstMile.task.stopsCount", { count: stops.length })}
+                    <ChevronDown className="h-3 w-3" />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 space-y-1 w-max" onClick={(e) => e.stopPropagation()}>
+                    {renderStopList(stops)}
+                </CollapsibleContent>
+            </Collapsible>
+        );
+    };
+
     /** Cell content for one column key — the header/body both iterate `orderedVisibleCols`. */
     const renderCell = (task: JobTask, key: string) => {
         switch (key) {
@@ -222,7 +271,7 @@ export default function JobAssignPage() {
                 </Badge>
             );
             case "source": return <span className="font-medium leading-tight block">{routeLabel(task.sourceHub)}</span>;
-            case "destination": return <span className="font-medium leading-tight block">{routeLabel(task.destination)}</span>;
+            case "destination": return renderDestination(task);
             case "actualPickup": return task.actualPickupAt ? format(task.actualPickupAt as Date, "dd/MM/yyyy HH:mm") : <span className="text-muted-foreground">-</span>;
             case "truckType": return (
                 <span className="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset bg-muted text-foreground/80 ring-border">
@@ -547,8 +596,19 @@ export default function JobAssignPage() {
                                     <span>{detailTask.time ?? "-"}</span>
                                     <span className="text-muted-foreground">{t("firstMile.table.sourceHub", "ต้นทาง")}</span>
                                     <span className="font-medium">{routeLabel(detailTask.sourceHub)}</span>
-                                    <span className="text-muted-foreground">{t("firstMile.table.destination", "ปลายทาง")}</span>
-                                    <span>{routeLabel(detailTask.destination)}</span>
+                                    {stopsOf(detailTask).length > 0 ? (
+                                        <>
+                                            <span className="text-muted-foreground">
+                                                {t("firstMile.task.deliveryStops", "จุดการจัดส่ง")} ({t("firstMile.task.stopsCount", { count: stopsOf(detailTask).length })})
+                                            </span>
+                                            <div className="space-y-1">{renderStopList(stopsOf(detailTask))}</div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-muted-foreground">{t("firstMile.table.destination", "ปลายทาง")}</span>
+                                            <span>{routeLabel(detailTask.destination)}</span>
+                                        </>
+                                    )}
                                     <span className="text-muted-foreground">{t("firstMile.task.customer", "ลูกค้า")}</span>
                                     <span>{detailTask.billingCustomerName ?? detailTask.billingCustomerCode ?? "-"}</span>
                                     <span className="text-muted-foreground">{t("firstMile.task.actualPickupAt", "วันเวลารับงานจริง")}</span>

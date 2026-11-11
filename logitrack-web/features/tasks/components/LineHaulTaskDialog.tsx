@@ -95,8 +95,10 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
         customerHubOptions,
         selectCustomer,
         stopDestinationOptions,
+        setMultiDelivery,
     } = useLineHaulTask({ mode, task, isOpen, setIsOpen, onSuccess });
     const selectedCustomerId = form.watch("billingCustomerId");
+    const isMultiDelivery = form.watch("isMultiDelivery");
 
     const body = (
         <>
@@ -286,7 +288,9 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                 }}
                             />
 
-                            {/* Destination Field (Hub) — the selected customer's hubs only */}
+                            {/* Destination Field (Hub) — the selected customer's hubs only. Hidden for
+                                multi-drop: the hook keeps it equal to stop 1. */}
+                            {!isMultiDelivery && (
                             <FormField
                                 control={form.control}
                                 name="destination"
@@ -377,6 +381,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                     );
                                 }}
                             />
+                            )}
                         </div>
 
                         {/* Actual pickup date-time — set by the admin at assign (ops only, not billing; ADR 0028) */}
@@ -430,7 +435,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                                     <FormControl>
                                         <Checkbox
                                             checked={field.value ?? false}
-                                            onCheckedChange={field.onChange}
+                                            onCheckedChange={(v) => setMultiDelivery(v === true)}
                                         />
                                     </FormControl>
                                     <div className="flex-1">
@@ -442,7 +447,7 @@ export default function LineHaulTaskDialog({ mode, task, trigger, open, onOpenCh
                         />
 
                         {/* Delivery Stops — only the chosen customer's destination hubs (one customer per job) */}
-                        {form.watch("isMultiDelivery") && (
+                        {isMultiDelivery && (
                             <FormItem>
                                 <FormLabel>{t("firstMile.task.deliveryStops")}</FormLabel>
                                 <p className="text-xs text-muted-foreground mb-3">

@@ -43,6 +43,25 @@ const firebase_functions_1 = require("firebase-functions");
 const jobCategoryWrite_1 = require("./core/jobCategoryWrite");
 const COL_TASKS = "tasks";
 /**
+ * Next runOrder for a driver = max stored runOrder + 1.
+ *
+ * Deliberately NOT `where(driverId).orderBy(runOrder, desc).limit(1)`: that needs a composite
+ * index (tasks: driverId ASC, runOrder DESC) that was never deployed, so every multi-delivery
+ * save that assigned a driver failed with FAILED_PRECONDITION (seen in prod 2026-11-07/10).
+ * The web single-delivery path (taskService.getNextRunOrderForDriver) and mobile
+ * (task_repository.dart) already scan the driver's tasks without an index — keep all three alike.
+ */
+async function nextRunOrderForDriver(db, driverId) {
+    const snap = await db.collection(COL_TASKS).where("driverId", "==", driverId).select("runOrder").get();
+    let max = 0;
+    snap.forEach((d) => {
+        const ro = d.get("runOrder");
+        if (typeof ro === "number" && Number.isFinite(ro) && ro > max)
+            max = ro;
+    });
+    return max + 1;
+}
+/**
  * Callable: Create or update a task (single or multi-delivery). Admin only.
  */
 exports.createOrUpdateTask = (0, https_1.onCall)({ enforceAppCheck: false }, // Must auth check manually (admin only)
@@ -85,20 +104,28 @@ async (request) => {
             throw new https_1.HttpsError("invalid-argument", "Duplicate destinations in delivery stops");
         }
     }
-    // Compute runOrder if assigning to driver
+    // Compute runOrder when the job lands in a driver's queue: on create, or on update when the
+    // driver changes. Re-editing a job for the same driver keeps its place in the queue (the
+    // single-delivery edit path never touches runOrder either).
     let runOrder;
     if (data.driverId) {
         try {
-            const existing = await db
-                .collection(COL_TASKS)
-                .where("driverId", "==", data.driverId)
-                .orderBy("runOrder", "desc")
-                .limit(1)
-                .get();
-            const maxRunOrder = existing.docs.length > 0 ? (existing.docs[0].data().runOrder || 0) : 0;
-            runOrder = maxRunOrder + 1;
+            let needsRunOrder = true;
+            if (data.id) {
+                const current = await db.collection(COL_TASKS).doc(data.id).get();
+                if (!current.exists) {
+                    throw new https_1.HttpsError("not-found", `Task ${data.id} not found`);
+                }
+                const stored = current.data() ?? {};
+                needsRunOrder = stored.driverId !== data.driverId || typeof stored.runOrder !== "number";
+            }
+            if (needsRunOrder) {
+                runOrder = await nextRunOrderForDriver(db, data.driverId);
+            }
         }
         catch (err) {
+            if (err instanceof https_1.HttpsError)
+                throw err;
             firebase_functions_1.logger.error("[createOrUpdateTask] Failed to compute runOrder", { driverId: data.driverId, err });
             throw new https_1.HttpsError("internal", "Failed to compute runOrder for driver");
         }
@@ -109,6 +136,10 @@ async (request) => {
         destination: data.destination.trim().toUpperCase(),
         date: new Date(data.date),
         time: data.time.trim(),
+        // Without these, multi-delivery tasks showed a blank Task ID (single-delivery writes them
+        // directly from the form). Absent → stripped below, so an update keeps the stored value.
+        taskId: typeof data.taskId === "string" && data.taskId.trim() ? data.taskId.trim() : undefined,
+        dateStr: typeof data.dateStr === "string" && data.dateStr.trim() ? data.dateStr.trim() : undefined,
         // Admin-set actual pickup date-time (ops only, ADR 0028). Stripped below if absent.
         actualPickupAt: data.actualPickupAt ? new Date(data.actualPickupAt) : undefined,
         taskType: data.taskType,
@@ -204,16 +235,7 @@ exports.getNextRunOrderForDriver = (0, https_1.onCall)({ enforceAppCheck: false 
         throw new https_1.HttpsError("invalid-argument", "driverId is required");
     }
     try {
-        const db = admin.firestore();
-        const existing = await db
-            .collection(COL_TASKS)
-            .where("driverId", "==", driverId)
-            .orderBy("runOrder", "desc")
-            .limit(1)
-            .get();
-        const maxRunOrder = existing.docs.length > 0 ? (existing.docs[0].data().runOrder || 0) : 0;
-        const nextRunOrder = maxRunOrder + 1;
-        return { runOrder: nextRunOrder };
+        return { runOrder: await nextRunOrderForDriver(admin.firestore(), driverId) };
     }
     catch (err) {
         firebase_functions_1.logger.error("[getNextRunOrderForDriver] Failed", { driverId, err });

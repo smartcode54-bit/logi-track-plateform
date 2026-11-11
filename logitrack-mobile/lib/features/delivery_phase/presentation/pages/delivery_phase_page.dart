@@ -2,10 +2,9 @@ import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../home/data/repositories/checkin_repository.dart';
-import '../../../home/data/services/photo_overlay_service.dart';
+import '../../../home/data/services/evidence_location_cache.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../data/repositories/delivery_trip_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -50,8 +49,8 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
   bool _closedRemotely = false;
 
   /// Cache position + overlay (ที่อยู่, เข็มทิศ) สำหรับรูป step 2, 3 — ไม่หน่วงซ้ำ
-  Position? _cachedOverlayPosition;
-  OverlayContext? _cachedOverlayContext;
+  /// Fresh-per-stop GPS + overlay for photo stamps (was cached forever — stale pin bug).
+  final EvidenceLocationCache _evidenceLocation = EvidenceLocationCache();
 
   bool get _canSubmit =>
       _deliveryPhotos.length == _deliveryPhotoStepKeys.length;
@@ -509,23 +508,12 @@ class _DeliveryPhasePageState extends State<DeliveryPhasePage> {
     if (isRunsheetReceived || isScreenshot) {
       compressed = await compressImageForUpload(imageBytes);
     } else {
-      if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
-        try {
-          final pos = await getCurrentPosition();
-          final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
-          if (mounted) {
-            setState(() {
-              _cachedOverlayPosition = pos;
-              _cachedOverlayContext = ctx;
-            });
-          }
-        } catch (_) {}
-      }
+      final loc = await _evidenceLocation.current();
       if (!mounted) return;
       compressed = await stampOverlayAndCompressForEvidence(
         imageBytes,
-        position: _cachedOverlayPosition,
-        overlayContext: _cachedOverlayContext,
+        position: loc.position,
+        overlayContext: loc.context,
       );
     }
     if (!mounted) return;

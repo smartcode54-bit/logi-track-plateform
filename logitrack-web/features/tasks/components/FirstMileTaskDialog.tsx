@@ -78,6 +78,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
         customerHubOptions,
         customerSocOptions,
         selectCustomer,
+        setMultiDelivery,
         customerOptions,
         trucks,
         drivers,
@@ -94,6 +95,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
         normalizeSocIdToKey
     } = useFirstMileTask({ mode, task, isOpen, setIsOpen, onSuccess });
     const selectedCustomerId = form.watch("billingCustomerId");
+    const isMultiDelivery = form.watch("isMultiDelivery");
 
     const body = (
         <>
@@ -331,7 +333,9 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                 }}
                             />
 
-                            {/* Destination (SOC) — the selected customer's SOCs only */}
+                            {/* Destination (SOC) — the selected customer's SOCs only. Hidden for
+                                multi-drop: the hook keeps it equal to stop 1. */}
+                            {!isMultiDelivery && (
                             <FormField
                                 control={form.control}
                                 name="destination"
@@ -397,6 +401,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                                     );
                                 }}
                             />
+                            )}
                         </div>
 
                         {/* Actual pickup date-time — set by the admin at assign (ops only, not billing; ADR 0028) */}
@@ -448,7 +453,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                             render={({ field }) => (
                                 <FormItem className="flex items-center gap-2">
                                     <FormControl>
-                                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                                        <Checkbox checked={field.value} onCheckedChange={(v) => setMultiDelivery(v === true)} />
                                     </FormControl>
                                     <div className="flex-1">
                                         <FormLabel className="cursor-pointer">
@@ -463,7 +468,7 @@ export default function FirstMileTaskDialog({ mode, task, trigger, open, onOpenC
                         />
 
                         {/* Delivery Stops (show if multi-delivery enabled) */}
-                        {form.watch("isMultiDelivery") && (
+                        {isMultiDelivery && (
                             <FormItem>
                                 <FormLabel>{t("firstMile.task.deliveryStops")}</FormLabel>
                                 <p className="text-xs text-muted-foreground mb-3">

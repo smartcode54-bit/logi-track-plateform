@@ -211,6 +211,7 @@ export default function DriverMonitorDashboard() {
         setEditTripDialogOpen,
         incidentReportsByTripId,
         checkInAtByTaskId,
+        getTripStops,
         getDriver,
         getSourceDisplayName,
         fetchHubs,
@@ -946,17 +947,17 @@ export default function DriverMonitorDashboard() {
                                             </TableCell>
                                             <TableCell className="text-sm"><span className="font-medium">{getSourceDisplayName(trip.origin)}</span></TableCell>
                                             <TableCell className="text-sm">
-                                                {(trip.deliveryStopsProgress?.length ?? 0) > 0 ? (
+                                                {(() => { const rowStops = getTripStops(trip); return rowStops.length > 0 ? (
                                                     <Collapsible>
                                                         <CollapsibleTrigger
                                                             onClick={(e) => e.stopPropagation()}
                                                             className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200 font-medium cursor-pointer transition-colors"
                                                         >
-                                                            {trip.deliveryStopsProgress?.length ?? trip.totalDeliveryStops} stops
+                                                            {rowStops.length} stops
                                                             <ChevronDown className="h-3 w-3" />
                                                         </CollapsibleTrigger>
                                                         <CollapsibleContent className="mt-2 space-y-1 w-max">
-                                                            {trip.deliveryStopsProgress?.map((stop) => (
+                                                            {rowStops.map((stop) => (
                                                                 <Badge
                                                                     key={stop.index}
                                                                     variant="outline"
@@ -974,7 +975,7 @@ export default function DriverMonitorDashboard() {
                                                     </Collapsible>
                                                 ) : (
                                                     <span className="font-medium">{getSourceDisplayName(trip.destination)}</span>
-                                                )}
+                                                ); })()}
                                             </TableCell>
                                             <TableCell><span className="font-mono text-xs">{trip.sealCode || "-"}</span></TableCell>
                                             <TableCell>
@@ -1424,7 +1425,7 @@ export default function DriverMonitorDashboard() {
                                     <MapPin className="h-4 w-4" />
                                     {t("driverMonitor.detail.routeInfo")}
                                 </h4>
-                                {(detailTrip.deliveryStopsProgress?.length ?? 0) > 0 ? (
+                                {getTripStops(detailTrip).length > 0 ? (
                                     <div className="bg-muted/30 rounded-lg p-4 space-y-3">
                                         <div className="text-center">
                                             <p className="text-xs text-muted-foreground mb-1">{t("driverMonitor.detail.origin")}</p>
@@ -1434,7 +1435,7 @@ export default function DriverMonitorDashboard() {
                                             <p className="text-xs text-muted-foreground mb-2">{t("driverMonitor.detail.deliveryStops")}</p>
                                             <div className="space-y-2">
                                                 {(() => {
-                                                    const allStops = detailTrip.deliveryStopsProgress ?? [];
+                                                    const allStops = getTripStops(detailTrip);
                                                     const lastIdx = allStops.length > 0 ? Math.max(...allStops.map((s) => s.index)) : -1;
                                                     return allStops.map((stop) => {
                                                         let deliveredTimeStr = "";

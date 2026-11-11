@@ -101,6 +101,7 @@ export default {
     "common.refresh": "Refresh",
     "common.actions": "Actions",
     "common.toast.validationError": "Cannot save: {count} field(s) need attention. First problem: {field}",
+    "common.toast.saveFailed": "Save failed: {message}",
     "common.show": "Show",
     "common.hide": "Hide",
     "common.joinedAt": "Joined At",

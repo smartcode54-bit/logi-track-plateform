@@ -50,6 +50,34 @@ export function getMultiDeliveryProgress(trip: Partial<TripRecord>): MultiDelive
     };
 }
 
+/** A task's planned stop — only the fields needed to show it before it is delivered. */
+export type PlannedDeliveryStop = { index: number; destination: string };
+
+/**
+ * Stops to DISPLAY for a trip: the task's planned stops, overlaid with whatever the driver has
+ * already reported in `trip.deliveryStopsProgress`.
+ *
+ * `deliveryStopsProgress` is only appended to as each stop is delivered (submitDeliveryStopProgress),
+ * so a freshly loaded multi-drop trip has none and a half-done one lacks its pending stops. The plan
+ * lives on the task. Display-only — never write the result back to the trip (pending entries would
+ * leak into billing / the mobile multi-stop page).
+ */
+export function mergeStopsForDisplay(
+    progress: DeliveryStopProgress[] | undefined,
+    planned: PlannedDeliveryStop[] | undefined
+): DeliveryStopProgress[] {
+    const done = progress ?? [];
+    const plan = planned ?? [];
+    if (plan.length === 0) return done;
+    const byIndex = new Map(done.map((s) => [s.index, s]));
+    const merged: DeliveryStopProgress[] = plan.map(
+        (p) => byIndex.get(p.index) ?? ({ index: p.index, destination: p.destination, status: "pending" } as DeliveryStopProgress)
+    );
+    const plannedIdx = new Set(plan.map((p) => p.index));
+    for (const s of done) if (!plannedIdx.has(s.index)) merged.push(s);
+    return merged.sort((a, b) => a.index - b.index);
+}
+
 /**
  * Build a display label for multi-delivery progress.
  * E.g., "2/3 stops delivered" or "Pickup" for loading state.

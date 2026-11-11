@@ -101,6 +101,7 @@ export default {
     "common.refresh": "รีเฟรช",
     "common.actions": "การกระทำ",
     "common.toast.validationError": "บันทึกไม่ได้: มี {count} ช่องที่ต้องแก้ ช่องแรกที่มีปัญหา: {field}",
+    "common.toast.saveFailed": "บันทึกไม่สำเร็จ: {message}",
     "common.show": "แสดง",
     "common.hide": "ซ่อน",
     "common.joinedAt": "วันที่เข้าร่วม",

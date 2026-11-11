@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart'
 import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
-import '../../../home/data/services/photo_overlay_service.dart';
+import '../../../home/data/services/evidence_location_cache.dart';
 import '../../data/repositories/delivery_trip_repository.dart';
 import '../../../home/presentation/pages/main_layout_scope.dart';
 import '../../../../core/utils/maps_navigation.dart';
@@ -57,7 +57,8 @@ class DeliveryStop {
 class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
   List<DeliveryStop> _stops = [];
   Position? _currentPosition;
-  OverlayContext? _cachedOverlayContext;
+  /// Fresh-per-stop GPS + overlay for photo stamps and the stop's delivered lat/lng.
+  final EvidenceLocationCache _evidenceLocation = EvidenceLocationCache();
   bool _locationLoading = true;
   bool _saving = false;
   List<HubDoc> _hubs = [];
@@ -353,20 +354,16 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
           skipOverlay: true,
         );
       } else {
-        // Fetch/reuse overlay context for GPS stamp
-        if (_cachedOverlayContext == null && _currentPosition != null) {
-          try {
-            _cachedOverlayContext = await fetchOverlayContext(
-              _currentPosition!.latitude,
-              _currentPosition!.longitude,
-            );
-          } catch (_) {}
-        }
+        // Fresh fix per stop: the page used to read GPS once in initState, so every stop's
+        // photos carried stop 1's pin/address.
+        final loc = await _evidenceLocation.current();
+        if (!mounted) return;
+        if (loc.position != null) _currentPosition = loc.position;
 
         stamped = await stampOverlayAndCompressForEvidence(
           bytes.toList(),
-          position: _currentPosition,
-          overlayContext: _cachedOverlayContext,
+          position: loc.position,
+          overlayContext: loc.context,
         );
       }
 
@@ -636,6 +633,10 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
       final tripId = widget.savedTripSummary?.tripId;
       if (tripId == null) throw Exception('No trip ID');
 
+      // Where this stop was delivered — a fix from this stop (reused if the photos were just
+      // taken), not the one read when the page opened.
+      final stopPosition = (await _evidenceLocation.current()).position ?? _currentPosition;
+
       // Upload photos to Firebase Storage
       final uploadedPhotos = <Map<String, dynamic>>[];
       for (final entry in stop.photos.entries) {
@@ -648,8 +649,8 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
         final photoMap = <String, dynamic>{'url': url, 'type': entry.key};
         if (!isScreenshotPhotoType(entry.key)) {
           photoMap['geocoding'] = {
-            'lat': _currentPosition?.latitude,
-            'lng': _currentPosition?.longitude,
+            'lat': stopPosition?.latitude,
+            'lng': stopPosition?.longitude,
             'timestamp': DateTime.now().toIso8601String(),
           };
         }
@@ -663,8 +664,8 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
         stopIndex: stop.index,
         destination: stop.destination,
         photos: uploadedPhotos,
-        deliveredLat: _currentPosition?.latitude ?? 0,
-        deliveredLng: _currentPosition?.longitude ?? 0,
+        deliveredLat: stopPosition?.latitude ?? 0,
+        deliveredLng: stopPosition?.longitude ?? 0,
       );
 
       if (mounted) {
@@ -1011,6 +1012,9 @@ class _DeliveryPhasePageMultiState extends State<DeliveryPhasePageMulti> {
   }
 
   Future<void> _openNavigationToStop(HubDoc? hub, [DeliveryStop? stop]) async {
+    // Route from where the truck is now, not where this page first opened (stop 1 / the hub).
+    await _loadLocation();
+    if (!mounted) return;
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('delivery_location_error'.tr())),
