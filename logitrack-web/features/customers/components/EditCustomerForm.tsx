@@ -28,6 +28,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { toast } from "sonner";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
+import { DEFAULT_FUEL_BAND_STEP_PARAMS, stepBandRange } from "@/lib/billingCompute";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createInvalidHandler } from "@/lib/formInvalidHandler";
 import { customerSchema, type Customer } from "@/validate/customerSchema";
@@ -81,6 +82,7 @@ export default function EditCustomerForm() {
             paymentTermsDays: undefined,
             invoiceNote: "",
             billingDateBasis: "delivered",
+            fuelPricing: undefined,
             usePlacesOfCustomerId: "",
             lineGroupId: "",
         },
@@ -92,6 +94,11 @@ export default function EditCustomerForm() {
     });
 
     const branchType = useWatch({ control: form.control, name: "branchType" });
+    // ADR 0029 — set = this customer's rate card holds BASE prices stepped per fuel band.
+    const fuelPricing = useWatch({ control: form.control, name: "fuelPricing" });
+    const fuelPricingAnchorBand = fuelPricing
+        ? stepBandRange(0, Number(fuelPricing.anchorBandLowerThb), Number(fuelPricing.bandWidthThb))
+        : null;
 
     useEffect(() => {
         const fetchData = async () => {
@@ -116,6 +123,7 @@ export default function EditCustomerForm() {
                         paymentTermsDays: data.paymentTermsDays ?? undefined,
                         invoiceNote: data.invoiceNote ?? "",
                         billingDateBasis: data.billingDateBasis ?? "delivered",
+                        fuelPricing: data.fuelPricing ?? undefined,
                         usePlacesOfCustomerId: data.usePlacesOfCustomerId ?? "",
                         lineGroupId: data.lineGroupId ?? "",
                     });
@@ -475,6 +483,115 @@ export default function EditCustomerForm() {
                                             </FormItem>
                                         )}
                                     />
+                                </div>
+                                {/* Fuel pricing model (ADR 0029) — CJSF: base price + compounded % per diesel band */}
+                                <div className="space-y-4 rounded-md border p-4">
+                                    <FormItem>
+                                        <FormLabel>{t("customers.form.fuelPricing")}</FormLabel>
+                                        <Select
+                                            value={fuelPricing ? "base_band_step" : "legacy"}
+                                            onValueChange={(v) =>
+                                                form.setValue(
+                                                    "fuelPricing",
+                                                    v === "base_band_step"
+                                                        ? { model: "base_band_step", ...DEFAULT_FUEL_BAND_STEP_PARAMS }
+                                                        : undefined,
+                                                    { shouldDirty: true }
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="legacy">{t("customers.form.fuelPricing.legacy")}</SelectItem>
+                                                <SelectItem value="base_band_step">{t("customers.form.fuelPricing.bandStep")}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormDescription>{t("customers.form.fuelPricing.desc")}</FormDescription>
+                                    </FormItem>
+                                    {fuelPricing && (
+                                        <>
+                                            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                                                <FormField
+                                                    control={form.control}
+                                                    name="fuelPricing.anchorBandLowerThb"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>{t("customers.form.fuelPricing.anchor")}</FormLabel>
+                                                            <FormControl>
+                                                                <Input type="number" step="any" {...field} value={field.value ?? ""} />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <FormField
+                                                    control={form.control}
+                                                    name="fuelPricing.bandWidthThb"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>{t("customers.form.fuelPricing.bandWidth")}</FormLabel>
+                                                            <FormControl>
+                                                                <Input type="number" step="any" min={0} {...field} value={field.value ?? ""} />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <FormField
+                                                    control={form.control}
+                                                    name="fuelPricing.stepBasisPoints"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>{t("customers.form.fuelPricing.stepPercent")}</FormLabel>
+                                                            <FormControl>
+                                                                {/* Shown as %, stored as integer basis points (70 = 0.7%) so the math stays exact. */}
+                                                                <Input
+                                                                    type="number"
+                                                                    step="0.01"
+                                                                    min={0}
+                                                                    value={field.value != null ? Number(field.value) / 100 : ""}
+                                                                    onChange={(e) =>
+                                                                        field.onChange(
+                                                                            e.target.value === ""
+                                                                                ? undefined
+                                                                                : Math.round(Number(e.target.value) * 100)
+                                                                        )
+                                                                    }
+                                                                />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <FormField
+                                                    control={form.control}
+                                                    name="fuelPricing.roundToThb"
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>{t("customers.form.fuelPricing.roundTo")}</FormLabel>
+                                                            <FormControl>
+                                                                <Input type="number" step="any" min={0} {...field} value={field.value ?? ""} />
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                            </div>
+                                            {fuelPricingAnchorBand && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    {t("customers.form.fuelPricing.summary", {
+                                                        lower: fuelPricingAnchorBand.lowerThb.toFixed(2),
+                                                        upper: fuelPricingAnchorBand.upperThb.toFixed(2),
+                                                        width: String(fuelPricing.bandWidthThb),
+                                                        pct: String(Number(fuelPricing.stepBasisPoints) / 100),
+                                                        roundTo: String(fuelPricing.roundToThb),
+                                                    })}
+                                                </p>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                                 <FormField
                                     control={form.control}

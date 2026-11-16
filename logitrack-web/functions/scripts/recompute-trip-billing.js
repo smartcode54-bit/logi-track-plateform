@@ -37,6 +37,9 @@ function mapRate(customerId, doc) {
         vehicleClass: String(d.vehicleClass ?? "4WJ").trim().toUpperCase(),
         rateThb: Number(d.rateThb ?? 0),
         effectiveFromMs: billing.timestampLikeToMillis(d.effectiveFrom),
+        jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+        voided: d.voided === true,
+        priceBasis: billing.parsePriceBasis(d.priceBasis), // ADR 0029
     };
 }
 function mapFuel(customerId, doc) {
@@ -47,6 +50,13 @@ function mapFuel(customerId, doc) {
         effectiveFromMs: billing.timestampLikeToMillis(d.effectiveFrom),
         rateMultiplier: Number(d.rateMultiplier ?? 1),
         addThbPerTrip: Number(d.addThbPerTrip ?? 0),
+        voided: d.voided === true,
+        // ADR 0029 — band-step round
+        pricingModel: billing.parseFuelPricingModel(d.pricingModel),
+        bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
+        bandStepParams: billing.parseBandStepParams(d.bandStepParams) ?? undefined,
+        referenceFuelPriceThb:
+            d.referenceFuelPriceThbPerLitre != null ? Number(d.referenceFuelPriceThbPerLitre) : undefined,
     };
 }
 

@@ -4,6 +4,7 @@ import {
     billingDateBasisOf,
     collectBillingRounds,
     formatFuelBand,
+    formatRoundAdjustment,
     groupToLineItems,
     type BillingTripRow,
 } from "./billingDocument";
@@ -188,5 +189,35 @@ describe("groupToLineItems", () => {
     it("leaves the round label empty when a row carries no round", () => {
         const items = groupToLineItems([trip()], []);
         expect(items[0].roundLabel).toBe("");
+    });
+});
+
+describe("band-step rounds on the invoice legend (ADR 0029)", () => {
+    it("carries the step from the priced rows into the round", () => {
+        const [r] = collectBillingRounds([
+            trip({
+                billingRoundEffectiveFromDateStr: "2026-12-01",
+                billingFuelBandLowerThb: 44.01,
+                billingFuelBandUpperThb: 46,
+                billingAddThbPerTrip: 7.5,
+                billingFuelPricingModel: "base_band_step",
+                billingFuelBandStep: 1,
+                billingFuelStepBasisPoints: 70,
+            }),
+        ]);
+        expect(r).toMatchObject({ fuelPricingModel: "base_band_step", fuelBandStep: 1, fuelStepBasisPoints: 70 });
+        expect(formatFuelBand(r.fuelBandLowerThb, r.fuelBandUpperThb)).toBe("44.01–46.00");
+    });
+
+    it("prints the step, never one route's THB amount", () => {
+        const step = { fuelPricingModel: "base_band_step" as const, fuelStepBasisPoints: 70, addThbPerTrip: 7.5 };
+        expect(formatRoundAdjustment({ ...step, fuelBandStep: 1 })).toBe("ขั้น +1 (+0.7%/ขั้น)");
+        expect(formatRoundAdjustment({ ...step, fuelBandStep: -2 })).toBe("ขั้น −2 (−0.7%/ขั้น)");
+        expect(formatRoundAdjustment({ ...step, fuelBandStep: 0 })).toBe("ราคาฐาน");
+    });
+
+    it("keeps the legacy THB/trip wording for other rounds", () => {
+        expect(formatRoundAdjustment({ addThbPerTrip: -50 })).toMatch(/^ปรับ -50(\.00)?\/เที่ยว$/);
+        expect(formatRoundAdjustment({})).toBe("");
     });
 });

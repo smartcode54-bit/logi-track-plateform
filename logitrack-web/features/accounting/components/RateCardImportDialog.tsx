@@ -21,12 +21,22 @@ import {
     batchCreateCustomerRateEntries,
     type CustomerRateEntryInput,
 } from "../api/billing";
+import { stepBandRange, type FuelBandStepParams } from "@/lib/billingCompute";
+import { isRateMatrixSheet, parseRateMatrixSheet, type ParsedRateMatrix } from "../utils/cjsfRateMatrix";
 
 export interface RateCardCustomerOption {
     id: string;
     code: string;
     name: string;
+    /**
+     * ADR 0029 — set for a customer priced by base price + fuel band steps (CJSF). Its rate card is
+     * imported as BASE prices, and a band-matrix sheet is read through `parseRateMatrixSheet`.
+     */
+    fuelPricing?: FuelBandStepParams;
 }
+
+/** Origin offered by default for a matrix sheet — its own "SPK / 999001" is not a code in our system. */
+const DEFAULT_MATRIX_ORIGIN_HUB = "SPK-GW";
 
 interface RateCardImportDialogProps {
     open: boolean;
@@ -64,6 +74,9 @@ export function RateCardImportDialog({
     const [jobCategory, setJobCategory] = useState<"PRIMARY" | "SUPPLEMENTARY">("PRIMARY");
     const [rows, setRows] = useState<CustomerRateEntryInput[]>([]);
     const [warnings, setWarnings] = useState<string[]>([]);
+    // ADR 0029 — a band-matrix sheet (CJSF) and the single origin all of its rows run from.
+    const [matrix, setMatrix] = useState<ParsedRateMatrix | null>(null);
+    const [originHubId, setOriginHubId] = useState<string>("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -72,19 +85,60 @@ export function RateCardImportDialog({
         () => customers.find((c) => c.id === customerId) ?? null,
         [customers, customerId]
     );
+    const fuelPricing = selectedCustomer?.fuelPricing;
+    const anchorBand = fuelPricing
+        ? stepBandRange(0, fuelPricing.anchorBandLowerThb, fuelPricing.bandWidthThb)
+        : null;
+    const matrixBlocked = matrix != null && (matrix.mismatches.length > 0 || matrix.conflicts.length > 0);
+    const readyCount = matrix ? matrix.rows.length : rows.length;
+    const canImport =
+        !!customerId && readyCount > 0 && !loading && !matrixBlocked && (!matrix || !!originHubId);
 
-    const resetState = () => {
+    const clearParsed = () => {
         setRows([]);
         setWarnings([]);
+        setMatrix(null);
         setError(null);
+    };
+
+    const resetState = () => {
+        clearParsed();
         setEffectiveFrom(undefined);
         setJobCategory("PRIMARY");
+        setOriginHubId("");
+    };
+
+    const parseMatrix = (rawRows: unknown[][], displayRows: unknown[][], params: FuelBandStepParams) => {
+        // Prices as the customer's sheet shows them (922.5 formatted `#,##0` → 923) — ADR 0029 §9.
+        const parsed = parseRateMatrixSheet(rawRows, params, displayRows);
+        if (!parsed) {
+            const band = stepBandRange(0, params.anchorBandLowerThb, params.bandWidthThb);
+            setError(
+                t("accounting.rateCard.import.matrixNoAnchor", {
+                    lower: band?.lowerThb.toFixed(2) ?? "",
+                    upper: band?.upperThb.toFixed(2) ?? "",
+                })
+            );
+            return;
+        }
+        setMatrix(parsed);
+        setWarnings(
+            parsed.warnings.map((w) =>
+                w.kind === "missingDestination"
+                    ? t("accounting.rateCard.import.matrixWarnMissingDestination", { row: w.sheetRow })
+                    : w.kind === "invalidDestination"
+                      ? t("accounting.rateCard.import.matrixWarnInvalidDestination", { row: w.sheetRow, value: w.value })
+                      : t("accounting.rateCard.import.matrixWarnMissingBase", { row: w.sheetRow })
+            )
+        );
+        if (parsed.rows.length === 0) setError(t("accounting.rateCard.import.noValidRows"));
+        setOriginHubId((prev) =>
+            prev || (knownHubSet.has(DEFAULT_MATRIX_ORIGIN_HUB) ? DEFAULT_MATRIX_ORIGIN_HUB : "")
+        );
     };
 
     const parseFile = async (file: File) => {
-        setError(null);
-        setWarnings([]);
-        setRows([]);
+        clearParsed();
         try {
             const buffer = await file.arrayBuffer();
             const wb = XLSX.read(buffer, { type: "array" });
@@ -97,6 +151,11 @@ export function RateCardImportDialog({
             const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][];
             if (!rawRows.length || rawRows.length < 2) {
                 setError(t("accounting.rateCard.import.emptySheet"));
+                return;
+            }
+            if (fuelPricing && isRateMatrixSheet(rawRows)) {
+                const displayRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }) as unknown[][];
+                parseMatrix(rawRows, displayRows, fuelPricing);
                 return;
             }
 
@@ -142,6 +201,8 @@ export function RateCardImportDialog({
                     vehicleClass: "4WJ",
                     rateThb: rate,
                     distanceKm: distance ?? undefined,
+                    // ADR 0029 — for a band-step customer the template's price column IS the base price.
+                    priceBasis: fuelPricing ? "base" : "final",
                 });
             }
 
@@ -157,13 +218,23 @@ export function RateCardImportDialog({
     };
 
     const handleImport = async () => {
-        if (!customerId || rows.length === 0) return;
+        if (!canImport) return;
         setLoading(true);
         setError(null);
         try {
             const date = effectiveFrom ?? new Date();
+            const sourceRows: CustomerRateEntryInput[] = matrix
+                ? matrix.rows.map((r) => ({
+                      hubId: originHubId,
+                      rawHubName: originHubId,
+                      destinationCode: r.destinationCode,
+                      vehicleClass: r.vehicleClass,
+                      rateThb: r.baseRateThb,
+                      priceBasis: "base",
+                  }))
+                : rows;
             // Tag the whole sheet with the selected หลัก/เสริม category (ADR-0005).
-            const taggedRows = rows.map((r) => ({ ...r, jobCategory }));
+            const taggedRows = sourceRows.map((r) => ({ ...r, jobCategory }));
             await batchCreateCustomerRateEntries(customerId, taggedRows, date);
             onImported?.();
             onOpenChange(false);
@@ -197,7 +268,14 @@ export function RateCardImportDialog({
                 <div className="space-y-4">
                     <div className="grid gap-2">
                         <Label>{t("accounting.rateCard.import.selectCustomer")}</Label>
-                        <Select value={customerId} onValueChange={setCustomerId}>
+                        <Select
+                            value={customerId}
+                            onValueChange={(v) => {
+                                // A parsed sheet was read under the previous customer's pricing model.
+                                setCustomerId(v);
+                                clearParsed();
+                            }}
+                        >
                             <SelectTrigger>
                                 <SelectValue placeholder={t("accounting.rateCard.import.selectCustomerPlaceholder")} />
                             </SelectTrigger>
@@ -257,8 +335,127 @@ export function RateCardImportDialog({
                             <p className="mt-2 text-xs text-muted-foreground">
                                 {t("accounting.rateCard.import.formatsSupported")}
                             </p>
+                            {fuelPricing && anchorBand && (
+                                <p className="mt-1 text-xs text-blue-700">
+                                    {t("accounting.rateCard.import.basePriceNote", {
+                                        lower: anchorBand.lowerThb.toFixed(2),
+                                        upper: anchorBand.upperThb.toFixed(2),
+                                    })}
+                                </p>
+                            )}
                         </div>
                     </div>
+
+                    {matrix && (
+                        <div className="space-y-3 rounded-md border border-blue-200 bg-blue-50/50 p-3 text-sm">
+                            <p className="font-medium">
+                                {t("accounting.rateCard.import.matrixDetected", {
+                                    anchor: anchorBand
+                                        ? `${anchorBand.lowerThb.toFixed(2)}–${anchorBand.upperThb.toFixed(2)}`
+                                        : "",
+                                })}
+                            </p>
+                            <div className="grid gap-2">
+                                <Label>{t("accounting.rateCard.import.matrixOrigin")}</Label>
+                                <Select value={originHubId} onValueChange={setOriginHubId} disabled={loading}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={t("accounting.rateCard.import.matrixOriginPlaceholder")} />
+                                    </SelectTrigger>
+                                    <SelectContent className="z-[1005]" position="popper">
+                                        {knownHubIds.map((h) => (
+                                            <SelectItem key={h} value={h}>
+                                                {h}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                {t("accounting.rateCard.import.matrixSummary", {
+                                    rows: matrix.rows.length,
+                                    merged: matrix.mergedDuplicates,
+                                    bands: matrix.bandColumns.length,
+                                })}
+                            </p>
+                            {!matrixBlocked && fuelPricing && (
+                                <p className="text-xs text-emerald-700">
+                                    {t("accounting.rateCard.import.matrixVerified", {
+                                        pct: String(fuelPricing.stepBasisPoints / 100),
+                                        roundTo: String(fuelPricing.roundToThb),
+                                    })}
+                                </p>
+                            )}
+                            {matrix.displayedBases.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                    {t("accounting.rateCard.import.matrixDisplayedBase", {
+                                        count: matrix.displayedBases.length,
+                                        examples: Array.from(
+                                            new Set(
+                                                matrix.displayedBases.map(
+                                                    (d) => `${d.cellThb.toLocaleString()} → ${d.displayedThb.toLocaleString()}`
+                                                )
+                                            )
+                                        ).join(", "),
+                                    })}
+                                </p>
+                            )}
+                            {matrix.rows.length > 0 && (
+                                <div className="max-h-40 overflow-auto rounded border bg-background">
+                                    <table className="w-full text-xs">
+                                        <tbody>
+                                            {matrix.rows.map((r) => (
+                                                <tr key={`${r.destinationCode}-${r.vehicleClass}`} className="border-b last:border-0">
+                                                    <td className="px-2 py-1 font-mono">{r.destinationCode}</td>
+                                                    <td className="px-2 py-1">{r.destinationName}</td>
+                                                    <td className="px-2 py-1">{r.vehicleClass}</td>
+                                                    <td className="px-2 py-1 text-right">{r.baseRateThb.toLocaleString()}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                            {matrix.mismatches.length > 0 && (
+                                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive">
+                                    <p className="font-medium">
+                                        {t("accounting.rateCard.import.matrixMismatches", { count: matrix.mismatches.length })}
+                                    </p>
+                                    <ul className="mt-1 max-h-32 space-y-0.5 overflow-auto text-xs">
+                                        {matrix.mismatches.slice(0, 30).map((m) => (
+                                            <li key={`${m.sheetRow}-${m.header}`}>
+                                                {t("accounting.rateCard.import.matrixMismatchRow", {
+                                                    row: m.sheetRow,
+                                                    dest: m.destinationCode,
+                                                    band: m.header,
+                                                    sheet: m.sheetThb.toLocaleString(),
+                                                    computed: m.computedThb.toLocaleString(),
+                                                })}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            {matrix.conflicts.length > 0 && (
+                                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive">
+                                    <p className="font-medium">
+                                        {t("accounting.rateCard.import.matrixConflicts", { count: matrix.conflicts.length })}
+                                    </p>
+                                    <ul className="mt-1 max-h-32 space-y-0.5 overflow-auto text-xs">
+                                        {matrix.conflicts.map((c) => (
+                                            <li key={`${c.destinationCode}-${c.vehicleClass}`}>
+                                                {t("accounting.rateCard.import.matrixConflictRow", {
+                                                    dest: c.destinationCode,
+                                                    vehicle: c.vehicleClass,
+                                                    rows: c.sheetRows.join(", "),
+                                                    prices: c.pricesThb.map((p) => p.toLocaleString()).join(" / "),
+                                                })}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {error && (
                         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -266,7 +463,7 @@ export function RateCardImportDialog({
                         </div>
                     )}
 
-                    {!!rows.length && (
+                    {!matrix && !!rows.length && (
                         <div className="rounded-md border px-3 py-2 text-sm">
                             {t("accounting.rateCard.import.rowsReady", { count: rows.length })}
                             <p className="text-xs text-muted-foreground mt-1">
@@ -293,7 +490,7 @@ export function RateCardImportDialog({
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                         {t("accounting.rateCard.import.cancel")}
                     </Button>
-                    <Button onClick={handleImport} disabled={!customerId || rows.length === 0 || loading}>
+                    <Button onClick={handleImport} disabled={!canImport}>
                         {loading ? (
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         ) : (

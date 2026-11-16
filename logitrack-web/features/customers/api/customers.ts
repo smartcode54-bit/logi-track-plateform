@@ -2,7 +2,7 @@
 
 import { db, storage } from "@/firebase/client";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { collection, doc, getDocs, getDoc, setDoc, updateDoc, query, orderBy, Timestamp } from "firebase/firestore";
+import { collection, deleteField, doc, getDocs, getDoc, setDoc, updateDoc, query, orderBy, Timestamp } from "firebase/firestore";
 import { COLLECTIONS } from "@/lib/collections";
 import type { Customer } from "@/validate/customerSchema";
 
@@ -95,5 +95,8 @@ export async function updateCustomer(id: string, data: Partial<Customer>, logoFi
         updatedAt: Timestamp.now(),
     } as any;
     if (logoUrl) updates.logoUrl = logoUrl;
+    // ADR 0029 — switching a customer back to legacy pricing removes the field; Firestore rejects
+    // `undefined`, and leaving the old map behind would keep the band-step UI switched on.
+    if ("fuelPricing" in data && data.fuelPricing === undefined) updates.fuelPricing = deleteField();
     await updateDoc(ref, updates);
 }

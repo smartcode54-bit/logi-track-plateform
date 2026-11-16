@@ -12,6 +12,9 @@ import {
     getTripBillingDateMs as getTripBillingDateMsFromTimestamps,
     normalizeDestinationCode,
     normalizeVehicleClass,
+    parseBandStepParams,
+    parseFuelPricingModel,
+    parsePriceBasis,
     resolveTaskCustomerId as resolveTaskCustomerFromTaskInput,
     timestampLikeToMillis,
     type BillingRateEntry,
@@ -121,6 +124,8 @@ export async function fetchRateEntriesForCustomers(
                 // Without this a voided announcement would still price the web preview, and the
                 // preview would disagree with the server (ADR 0009 §1).
                 voided: d.voided === true,
+                // ADR 0029 — base vs final price; the server guard refuses mismatched pairings.
+                priceBasis: parsePriceBasis(d.priceBasis),
             });
         });
     });
@@ -163,6 +168,10 @@ export async function fetchFuelAdjustmentsForCustomers(
                         ? Number(d.referenceFuelPriceThbPerLitre)
                         : undefined,
                 voided: d.voided === true,
+                // ADR 0029 — band-step round; without these the preview would price it as x1 +0.
+                pricingModel: parseFuelPricingModel(d.pricingModel),
+                bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
+                bandStepParams: parseBandStepParams(d.bandStepParams) ?? undefined,
             });
         });
     });

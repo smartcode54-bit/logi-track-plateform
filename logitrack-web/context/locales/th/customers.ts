@@ -62,6 +62,15 @@ export default {
     "customers.form.billingDateBasis.delivered": "วันที่ส่งสำเร็จ (ค่าเริ่มต้น)",
     "customers.form.billingDateBasis.plan": "วันที่แผนงาน (วันที่ทำงาน)",
     "customers.form.billingDateBasis.desc": "ใช้วันไหนตัดรอบบิล + เลือกเรทน้ำมัน เลือก 'วันที่แผนงาน' สำหรับลูกค้า (เช่น CJSF) ที่ยึดแผนงานที่แจ้งวันต่อวัน เพื่อให้เที่ยวที่ส่งช้าข้ามวันยังตกบิลในเดือนของแผนงาน",
+    "customers.form.fuelPricing": "การคิดราคาน้ำมัน",
+    "customers.form.fuelPricing.legacy": "แบบเดิม — rate card เป็นราคาสุดท้าย (ค่าเริ่มต้น)",
+    "customers.form.fuelPricing.bandStep": "ราคาฐาน + ขั้นน้ำมัน",
+    "customers.form.fuelPricing.desc": "ราคาฐาน + ขั้นน้ำมัน (เช่น CJSF): rate card เก็บราคาที่ช่วงดีเซลฐาน แล้วระบบคิดราคาของช่วงอื่นเอง รอบน้ำมันระบุแค่ราคาดีเซล ใช้กับเที่ยวตั้งแต่วันมีผลของ rate card ราคาฐาน",
+    "customers.form.fuelPricing.anchor": "ช่วงราคาฐานเริ่มที่ (บาท/ลิตร)",
+    "customers.form.fuelPricing.bandWidth": "ความกว้างช่วง (บาท)",
+    "customers.form.fuelPricing.stepPercent": "ขยับต่อช่วง (%)",
+    "customers.form.fuelPricing.roundTo": "ปัดทุกขั้นเป็น (บาท)",
+    "customers.form.fuelPricing.summary": "ราคาฐาน = ดีเซล {lower}–{upper} ทุกช่วง {width} บาท ราคาขยับ {pct}% (ทบต้น) ปัดเป็น {roundTo} บาททุกขั้น",
 
     // ── Pickup / delivery points card ────────────────────────────────────────
     "customers.form.places.title": "จุดรับส่ง",

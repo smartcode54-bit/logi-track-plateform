@@ -991,6 +991,25 @@ build → ประกาศเวอร์ชันขึ้น Firestore อ�
 
 ---
 
+#### 49. CJSF: rate card ราคาฐาน + ขั้นน้ำมัน — [16 พ.ย. 2026] — ดู **ADR 0029**
+
+สัญญา CJSF เขต 03: ราคาฐานที่ดีเซล 42.01–44.00, ช่วงละ ฿2 ขยับ ±0.7% ทบต้น ปัด ฿5 ทุกขั้น — เดิม rate card เก็บราคาสุดท้าย + รอบ ±฿/เที่ยวที่คิดมือ
+
+| ที่ | สิ่งที่เปลี่ยน |
+|----|---------------|
+| `customers.fuelPricing` | opt-in รายลูกค้า (ฟอร์มลูกค้า) — CJSF 42 / 2 / 70bp / 5 |
+| `customer_rate_entries.priceBasis` | `base` / `final` (ไม่มี = final) |
+| `customer_fuel_rate_adjustments` | รอบ `pricingModel: "base_band_step"` + `bandStep` + `bandStepParams` (แอดมินกรอกแค่วันมีผล + ราคาดีเซล) |
+| `lib/billingCompute.ts` + functions copy | `priceAtBandStep` (สตางค์จำนวนเต็ม — ตรงไฟล์ 110/110 ช่อง), `stepBandIndex`, `priceRateEntryForRound` guard, `diagnoseRoundPricingMismatch` |
+| `functions/src/tripBillingOnDelivered.ts` | mappers + `roundProvenanceFields` + error บอกเหตุ; snapshot `billingFuelPricingModel/BandStep/StepBasisPoints` |
+| `features/accounting/utils/cjsfRateMatrix.ts` | นำเข้าไฟล์เมทริกซ์ CJSF ตรงๆ (คอลัมน์ฐาน, แยกหลายปลายทาง, ตรวจไขว้ทุกช่อง) |
+| `rate-card/page.tsx` | badge ฐาน, preview ตาม guard, ฟอร์มรอบโหมดขั้นน้ำมัน, ตารางราคาตามช่วงน้ำมัน + export |
+| `lib/billingDocument.ts` | legend "ขั้น +1 (+0.7%/ขั้น)" / "ราคาฐาน" |
+
+**สถานะ:** tsc web+functions, eslint (0 errors), vitest 399/399 ผ่าน; ยังไม่ commit/deploy. **deploy functions ก่อน web** แล้วตั้ง CJSF → นำเข้าไฟล์เขต 03 วันมีผล X → ประกาศรอบขั้นน้ำมันแรกวันเดียวกัน. Pattern: `.vibe-rules.md` → Confirmed Patterns → "⛽ ราคาฐาน + ขั้นน้ำมัน"
+
+---
+
 #### 50. P&L รายเที่ยว (contribution model) — [16 พ.ย. 2026] — ดู **ADR 0031** + spec `shared-docs/specs/per-trip-pnl.md`
 
 หน้า `/app/accounting/pnl` (รายเดือน / รายเที่ยว / รายเส้น / รายรถ + คำเตือน + Excel) และ `/app/accounting/pnl/settings` — **คำนวณสดในเบราว์เซอร์ ไม่เก็บผล ไม่มี Cloud Function ไม่แตะ mobile และไม่แตะ `billingCompute.ts`**

@@ -371,6 +371,14 @@ of exactly `x.00` — common under Thai price caps — one band too high, overch
 time. It is never resolved at render time by following `billingFuelAdjustmentId`, because that doc is
 mutable — see [[Announcement row]] and [[Frozen price]].
 
+## Base price
+
+ราคาฐาน — for a customer on [[Fuel band step]] pricing (ADR 0029, CJSF), the contract price of a route when diesel is in the **anchor band** (CJSF: `42.01–44.00`). Stored on `customer_rate_entries` with `priceBasis: "base"`. Every other band's price is derived from it; it is never shifted by a legacy ±฿ / × round. Rows without `priceBasis` are **final** prices (fuel already included).
+
+## Fuel band step
+
+ขั้นน้ำมัน — a ฿2.00 band of diesel counted from the anchor band (step 0), upper-inclusive like [[Fuel band]]: `44.01–46.00` = +1, `40.01–42.00` = −1. Each step moves the [[Base price]] by `stepBasisPoints` (CJSF 70 = 0.7%) compounded from the previous step's price rounded to `roundToThb` (CJSF ฿5). A band-step [[Rate round]] stores its step and the contract terms; its ฿ effect differs per route, so the invoice legend prints the step, not a ฿ amount.
+
 ## Announcement row
 
 A row in `customer_rate_entries` or `customer_fuel_rate_adjustments`: the record that an announcement

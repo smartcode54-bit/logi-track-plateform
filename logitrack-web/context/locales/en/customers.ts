@@ -62,6 +62,15 @@ export default {
     "customers.form.billingDateBasis.delivered": "Delivered date (default)",
     "customers.form.billingDateBasis.plan": "Plan date (work date)",
     "customers.form.billingDateBasis.desc": "Which date decides the billing period + rate round. Choose Plan date for customers (e.g. CJSF) who reconcile by the day-by-day plan they send, so a job delivered late still bills in the planned month.",
+    "customers.form.fuelPricing": "Fuel pricing",
+    "customers.form.fuelPricing.legacy": "Legacy — rate card is the final price (default)",
+    "customers.form.fuelPricing.bandStep": "Base price + fuel band steps",
+    "customers.form.fuelPricing.desc": "Base price + fuel band steps (e.g. CJSF): the rate card holds the price at the base diesel band and the system works out every other band. Fuel rounds then only state the diesel price. Applies from the effective date of the base-price rate card.",
+    "customers.form.fuelPricing.anchor": "Base band starts at (THB/L)",
+    "customers.form.fuelPricing.bandWidth": "Band width (THB)",
+    "customers.form.fuelPricing.stepPercent": "Change per band (%)",
+    "customers.form.fuelPricing.roundTo": "Round each step to (THB)",
+    "customers.form.fuelPricing.summary": "Base price = diesel {lower}–{upper}. Every {width} THB band moves the price {pct}% (compounded), rounded to {roundTo} THB at each step.",
 
     // ── Pickup / delivery points card ────────────────────────────────────────
     "customers.form.places.title": "Pickup / Delivery Points",

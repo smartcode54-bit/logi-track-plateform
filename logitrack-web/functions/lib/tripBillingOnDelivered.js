@@ -141,6 +141,8 @@ function mapRateDoc(customerId, doc) {
         effectiveFromMs: (0, billingCompute_1.timestampLikeToMillis)(d.effectiveFrom),
         jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
         voided: d.voided === true,
+        // ADR 0029 — a base price is only ever combined with a band-step round (guard in billingCompute).
+        priceBasis: (0, billingCompute_1.parsePriceBasis)(d.priceBasis),
     };
 }
 function mapFuelDoc(customerId, doc) {
@@ -155,7 +157,42 @@ function mapFuelDoc(customerId, doc) {
         // trip, so it can never be contradicted by a later edit of the announcement (ADR 0009 §4).
         referenceFuelPriceThb: d.referenceFuelPriceThbPerLitre != null ? Number(d.referenceFuelPriceThbPerLitre) : undefined,
         voided: d.voided === true,
+        // ADR 0029 — band-step round: the step and contract terms frozen on the announcement.
+        pricingModel: (0, billingCompute_1.parseFuelPricingModel)(d.pricingModel),
+        bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
+        bandStepParams: (0, billingCompute_1.parseBandStepParams)(d.bandStepParams) ?? undefined,
     };
+}
+/**
+ * Round provenance written beside every computed price (ADR 0009 §4 + ADR 0029). One helper so the
+ * single, multi-drop and หลัก/เสริม-edit paths can never drift apart again. Nulls clear stale values
+ * when a trip is re-priced under a different kind of round.
+ */
+function roundProvenanceFields(c) {
+    return {
+        billingRoundEffectiveFromDateStr: c.roundEffectiveFromDateStr,
+        billingFuelBandLowerThb: c.fuelBandLowerThb ?? null,
+        billingFuelBandUpperThb: c.fuelBandUpperThb ?? null,
+        billingReferenceFuelPriceThb: c.referenceFuelPriceThb ?? null,
+        billingFuelPricingModel: c.fuelPricingModel ?? null,
+        billingFuelBandStep: c.fuelBandStep ?? null,
+        billingFuelStepBasisPoints: c.fuelStepBasisPoints ?? null,
+    };
+}
+/**
+ * The error for a route that HAS a rate row but cannot be priced because the row and the round do
+ * not belong together (ADR 0029) — says what to fix instead of a bare "No rate".
+ */
+function roundMismatchMessage(reason, hubId, destination, vehicleClass) {
+    const route = `${hubId} → ${destination} (${vehicleClass})`;
+    switch (reason) {
+        case "final_rate_with_band_step_round":
+            return `Rate card ยังเป็นราคาสุดท้าย — นำเข้าราคาฐานของ ${route} ก่อน (รอบน้ำมันเป็นแบบขั้นน้ำมัน)`;
+        case "base_rate_with_legacy_round":
+            return `Rate card ราคาฐานของ ${route} ต้องใช้รอบน้ำมันแบบขั้นน้ำมัน — ยังไม่มีรอบขั้นน้ำมันที่มีผลในวันนี้`;
+        case "invalid_band_step_round":
+            return `รอบน้ำมันแบบขั้นน้ำมันไม่มีขั้น/เงื่อนไข — ยกเลิกรอบแล้วประกาศใหม่ (${route})`;
+    }
 }
 /**
  * ADR 0008 §5 — a priced row is not rewritten when its current OR its new period already carries a
@@ -395,6 +432,13 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             if (!periodLockBlocking(locks, data, customerId, billingDateMs)) {
                 await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
             }
+            const multiMismatch = (0, billingCompute_1.diagnoseRoundPricingMismatch)(tripParts, taskInput, rateEntries, fuelAdjustments, explicitJobCategory ?? "PRIMARY");
+            if (multiMismatch) {
+                return {
+                    ok: false,
+                    error: roundMismatchMessage(multiMismatch, (0, billingCompute_1.extractHubId)(taskInput.sourceHub), (0, billingCompute_1.normalizeDestinationCode)(taskInput.destination), mVehicleClass),
+                };
+            }
             return { ok: false, error: "Could not compute multi-delivery billing" };
         }
         const multiLock = periodLockBlocking(locks, data, multiComputed.customerId, billingDateMs);
@@ -421,10 +465,7 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             billingAddThbPerTrip: multiComputed.addThbPerTrip,
             billingRateImportId: multiComputed.rateImportId,
             billingEffectiveFromDateStr: multiComputed.effectiveFromDateStr ?? null,
-            billingRoundEffectiveFromDateStr: multiComputed.roundEffectiveFromDateStr,
-            billingFuelBandLowerThb: multiComputed.fuelBandLowerThb ?? null,
-            billingFuelBandUpperThb: multiComputed.fuelBandUpperThb ?? null,
-            billingReferenceFuelPriceThb: multiComputed.referenceFuelPriceThb ?? null,
+            ...roundProvenanceFields(multiComputed),
             // Plan-date axis (ADR 0027): queryable field the Billing Document / Income group by.
             billingDate: billingDateTs,
             jobCategory: resolvedCategory,
@@ -494,6 +535,10 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             if (!periodLockBlocking(locks, data, customerId, billingDateMs)) {
                 await stampBillingDateOnUnpriced(tripRef, billingDateTs, customerId, tripId);
             }
+            const mismatch = (0, billingCompute_1.diagnoseRoundPricingMismatch)(tripParts, taskInput, rateEntries, fuelAdjustments, explicitJobCategory ?? "PRIMARY");
+            if (mismatch) {
+                return { ok: false, error: roundMismatchMessage(mismatch, hubId, destination, vehicleClass) };
+            }
             return { ok: false, error: `No rate: ${hubId} → ${destination} (${vehicleClass})` };
         }
         const singleLock = periodLockBlocking(locks, data, computed.customerId, billingDateMs);
@@ -509,10 +554,7 @@ async function tryWriteBillingSnapshotFromTripData(db, tripId, data, tripRef, hu
             billingRateMultiplier: computed.rateMultiplier,
             billingAddThbPerTrip: computed.addThbPerTrip,
             billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
-            billingRoundEffectiveFromDateStr: computed.roundEffectiveFromDateStr,
-            billingFuelBandLowerThb: computed.fuelBandLowerThb ?? null,
-            billingFuelBandUpperThb: computed.fuelBandUpperThb ?? null,
-            billingReferenceFuelPriceThb: computed.referenceFuelPriceThb ?? null,
+            ...roundProvenanceFields(computed),
             billingCustomerId: computed.customerId,
             // Plan-date axis (ADR 0027): queryable field the Billing Document / Income group by.
             billingDate: billingDateTs,
@@ -669,7 +711,10 @@ exports.setTripJobCategory = (0, https_1.onCall)({
             vehicleClass,
             rateRowsForCustomer: rateEntries.length,
         });
-        return new https_1.HttpsError("failed-precondition", `No ${targetCategory} rate: ${hubId} → ${destination} (${vehicleClass})`);
+        const mismatch = (0, billingCompute_1.diagnoseRoundPricingMismatch)(tripParts, taskInput, rateEntries, fuelAdjustments, targetCategory);
+        return new https_1.HttpsError("failed-precondition", mismatch
+            ? roundMismatchMessage(mismatch, hubId, destination, vehicleClass)
+            : `No ${targetCategory} rate: ${hubId} → ${destination} (${vehicleClass})`);
     };
     // Compute FIRST; only build the write payload if a rate matches the target category.
     let tripUpdate;
@@ -723,7 +768,10 @@ exports.setTripJobCategory = (0, https_1.onCall)({
             })),
             billingFuelAdjustmentId: multiComputed.fuelAdjustmentId ?? null,
             billingRateMultiplier: multiComputed.rateMultiplier,
+            billingAddThbPerTrip: multiComputed.addThbPerTrip,
             billingCustomerId: multiComputed.customerId,
+            // Round + band provenance (ADR 0009 §4, ADR 0029) — same set as the delivery path.
+            ...roundProvenanceFields(multiComputed),
         };
         newBillingEstimateThb = multiComputed.totalBillingThb;
     }
@@ -755,6 +803,8 @@ exports.setTripJobCategory = (0, https_1.onCall)({
             billingAddThbPerTrip: computed.addThbPerTrip,
             billingEffectiveFromDateStr: computed.effectiveFromDateStr ?? null,
             billingCustomerId: computed.customerId,
+            // Round + band provenance (ADR 0009 §4, ADR 0029) — same set as the delivery path.
+            ...roundProvenanceFields(computed),
         };
         newBillingEstimateThb = computed.finalRateThb;
     }

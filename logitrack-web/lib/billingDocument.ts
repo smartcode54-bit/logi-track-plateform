@@ -107,6 +107,10 @@ export interface BillingTripRow {
   billingFuelBandLowerThb?: number;
   billingFuelBandUpperThb?: number;
   billingReferenceFuelPriceThb?: number;
+  /** ADR 0029 — set when a band-step round priced the row (CJSF): the band index and its %. */
+  billingFuelPricingModel?: "base_band_step";
+  billingFuelBandStep?: number;
+  billingFuelStepBasisPoints?: number;
 }
 
 /**
@@ -145,6 +149,10 @@ export interface BillingRound {
   fuelBandLowerThb?: number;
   fuelBandUpperThb?: number;
   addThbPerTrip?: number;
+  /** ADR 0029 — a band-step round prints its step, since its THB amount differs per route. */
+  fuelPricingModel?: "base_band_step";
+  fuelBandStep?: number;
+  fuelStepBasisPoints?: number;
   /** Span of the round inside this period, on the billing axis (`billingAxisDate`) — NOT the
    *  delivery instant, which for a plan-basis customer can sit in the neighbouring month. */
   firstBillingDate?: Date;
@@ -177,6 +185,9 @@ export function collectBillingRounds(trips: BillingTripRow[]): BillingRound[] {
       fuelBandLowerThb: t.billingFuelBandLowerThb,
       fuelBandUpperThb: t.billingFuelBandUpperThb,
       addThbPerTrip: t.billingAddThbPerTrip,
+      fuelPricingModel: t.billingFuelPricingModel,
+      fuelBandStep: t.billingFuelBandStep,
+      fuelStepBasisPoints: t.billingFuelStepBasisPoints,
       firstBillingDate: d,
       lastBillingDate: d,
     });
@@ -184,6 +195,32 @@ export function collectBillingRounds(trips: BillingTripRow[]): BillingRound[] {
   return Array.from(byDate.values())
     .sort((a, b) => a.effectiveFromDateStr.localeCompare(b.effectiveFromDateStr))
     .map((r, i) => ({ ...r, label: `R${i + 1}` }));
+}
+
+/**
+ * What a round did to the price, for the invoice legend.
+ *
+ * A legacy round is one THB amount per trip. A band-step round (ADR 0029) is a % per band applied to
+ * each route's own base price, so its THB amount differs on every line — printing one would be false.
+ * It prints the step instead: "ราคาฐาน" at step 0, else e.g. "ขั้น +1 (+0.7%/ขั้น)".
+ */
+export function formatRoundAdjustment(r: Pick<
+  BillingRound,
+  "addThbPerTrip" | "fuelPricingModel" | "fuelBandStep" | "fuelStepBasisPoints"
+>): string {
+  if (r.fuelPricingModel === "base_band_step" && typeof r.fuelBandStep === "number") {
+    if (r.fuelBandStep === 0) return "ราคาฐาน";
+    const sign = r.fuelBandStep > 0 ? "+" : "−";
+    const pct =
+      typeof r.fuelStepBasisPoints === "number"
+        ? ` (${sign}${(r.fuelStepBasisPoints / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%/ขั้น)`
+        : "";
+    return `ขั้น ${sign}${Math.abs(r.fuelBandStep)}${pct}`;
+  }
+  if (typeof r.addThbPerTrip === "number") {
+    return `ปรับ ${r.addThbPerTrip >= 0 ? "+" : ""}${formatThb(r.addThbPerTrip)}/เที่ยว`;
+  }
+  return "";
 }
 
 /** `37.01–38.00`, or "-" when the row carries no band (legacy rows, or a percent-only round). */
@@ -447,10 +484,7 @@ async function buildInvoicePdf(
           ? formatLineItemDates([r.firstBillingDate, r.lastBillingDate], false)
           : r.effectiveFromDateStr;
       const band = formatFuelBand(r.fuelBandLowerThb, r.fuelBandUpperThb);
-      const adj =
-        typeof r.addThbPerTrip === "number"
-          ? `ปรับ ${r.addThbPerTrip >= 0 ? "+" : ""}${formatThb(r.addThbPerTrip)}/เที่ยว`
-          : "";
+      const adj = formatRoundAdjustment(r);
       doc.text(`${r.label}   ${span}   ${band} ฿/L   ${adj}`.trimEnd(), 18, y);
     }
     y += 2;

@@ -4,6 +4,7 @@
  * Duplicated from `logitrack-web/lib/billingCompute.ts` — keep in sync when changing either file.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DEFAULT_FUEL_BAND_STEP_PARAMS = void 0;
 exports.resolveBillingRoundProvenance = resolveBillingRoundProvenance;
 exports.extractHubId = extractHubId;
 exports.normalizeDestinationCode = normalizeDestinationCode;
@@ -13,6 +14,14 @@ exports.isEffectiveOnOrBeforeBillingDate = isEffectiveOnOrBeforeBillingDate;
 exports.fuelBandFloor = fuelBandFloor;
 exports.fuelBandRange = fuelBandRange;
 exports.computeFuelSurchargeThb = computeFuelSurchargeThb;
+exports.stepBandIndex = stepBandIndex;
+exports.stepBandRange = stepBandRange;
+exports.priceAtBandStep = priceAtBandStep;
+exports.parseBandStepParams = parseBandStepParams;
+exports.parsePriceBasis = parsePriceBasis;
+exports.parseFuelPricingModel = parseFuelPricingModel;
+exports.isBandStepRound = isBandStepRound;
+exports.priceRateEntryForRound = priceRateEntryForRound;
 exports.timestampLikeToMillis = timestampLikeToMillis;
 exports.getTripBillingDateMs = getTripBillingDateMs;
 exports.resolveTaskCustomerId = resolveTaskCustomerId;
@@ -25,6 +34,14 @@ exports.computeMultiDeliveryBilling = computeMultiDeliveryBilling;
 exports.selectStandbyRateEntry = selectStandbyRateEntry;
 exports.computeStandbyBilling = computeStandbyBilling;
 exports.computeTripBillingFromParts = computeTripBillingFromParts;
+exports.diagnoseRoundPricingMismatch = diagnoseRoundPricingMismatch;
+/** The CJSF zone-03 terms (`เรทน้ำมันเขต 03 WRT.xlsx`) — the default offered by the customer form. */
+exports.DEFAULT_FUEL_BAND_STEP_PARAMS = {
+    anchorBandLowerThb: 42,
+    bandWidthThb: 2,
+    stepBasisPoints: 70,
+    roundToThb: 5,
+};
 /**
  * Derive the round + band a record was priced under. Shared by the single- and multi-delivery
  * paths so both persist the identical field set.
@@ -37,6 +54,21 @@ function resolveBillingRoundProvenance(rateEntryEffectiveFromMs, adjustment) {
     // fuel adjustment applied at all.
     const roundMs = adjustment?.effectiveFromMs ?? rateEntryEffectiveFromMs;
     const price = adjustment?.referenceFuelPriceThb;
+    // A band-step round (ADR 0029) prints its OWN ฿2.00 band, read from the step frozen on the round —
+    // not re-derived from the price with the ฿1.00 rule of ADR 0009 §3, which would print the wrong band.
+    if (isValidBandStepRound(adjustment)) {
+        const { bandStep, bandStepParams } = adjustment;
+        const band = stepBandRange(bandStep, bandStepParams.anchorBandLowerThb, bandStepParams.bandWidthThb);
+        return {
+            roundEffectiveFromDateStr: bangkokDateStrFromMillis(roundMs),
+            fuelBandLowerThb: band?.lowerThb,
+            fuelBandUpperThb: band?.upperThb,
+            referenceFuelPriceThb: typeof price === "number" ? price : undefined,
+            fuelPricingModel: "base_band_step",
+            fuelBandStep: bandStep,
+            fuelStepBasisPoints: bandStepParams.stepBasisPoints,
+        };
+    }
     const band = typeof price === "number" ? fuelBandRange(price) : null;
     return {
         roundEffectiveFromDateStr: bangkokDateStrFromMillis(roundMs),
@@ -166,6 +198,139 @@ function computeFuelSurchargeThb(priceThb, baselineBandFloor, thbPerBaht) {
     }
     return Math.round((floor - baselineBandFloor) * thbPerBaht * 100) / 100;
 }
+// ─── Fuel band steps — base price × compounded % per band (ADR 0029) ─────────
+/**
+ * Signed index of the band containing `priceThb`, counted from the anchor band (index 0).
+ *
+ * Bands are **upper-inclusive**, like ADR 0009 §3: with anchor 42 and width 2, band 0 is
+ * `42.01–44.00`, so 44.00 → 0, 44.01 → +1, 42.00 → −1. Integer satang keeps the edges exact.
+ * Unbounded on purpose — a price outside the contract table extends the same rule (owner decision).
+ */
+function stepBandIndex(priceThb, anchorBandLowerThb, bandWidthThb) {
+    if (!Number.isFinite(priceThb) || !Number.isFinite(anchorBandLowerThb) || !Number.isFinite(bandWidthThb)) {
+        return NaN;
+    }
+    const satang = Math.round(priceThb * 100);
+    const anchor = Math.round(anchorBandLowerThb * 100);
+    const width = Math.round(bandWidthThb * 100);
+    if (width <= 0)
+        return NaN;
+    return Math.ceil((satang - anchor) / width) - 1;
+}
+/** Inclusive bounds of band `step` — e.g. step +1, anchor 42, width 2 → `{ 44.01, 46 }`. */
+function stepBandRange(step, anchorBandLowerThb, bandWidthThb) {
+    if (!Number.isInteger(step) || !Number.isFinite(anchorBandLowerThb) || !Number.isFinite(bandWidthThb)) {
+        return null;
+    }
+    const anchor = Math.round(anchorBandLowerThb * 100);
+    const width = Math.round(bandWidthThb * 100);
+    if (width <= 0)
+        return null;
+    return {
+        lowerThb: (anchor + step * width + 1) / 100,
+        upperThb: (anchor + (step + 1) * width) / 100,
+    };
+}
+/**
+ * Price of a base rate `step` bands away from the anchor band.
+ *
+ * Reproduces the contract sheet exactly: every step starts from the PREVIOUS step's ROUNDED price,
+ * `ROUND(prev × (1 ± bp/10000) / roundTo, 0) × roundTo`, so it is not `base × (1+r)^n`. Step 0 is the
+ * base price unchanged (e.g. 922.5 stays 922.5). Computed in integer satang with half-up rounding:
+ * binary floats misround the exact ties Excel resolves upward (฿2,500 × 1.007 = 2,517.5 → 2,520,
+ * where the naive float path gives 2,515).
+ */
+function priceAtBandStep(baseThb, step, stepBasisPoints, roundToThb) {
+    if (!Number.isFinite(baseThb) || baseThb < 0 || !Number.isInteger(step))
+        return NaN;
+    if (!Number.isInteger(stepBasisPoints) || stepBasisPoints < 0 || stepBasisPoints >= 10000)
+        return NaN;
+    const unit = Math.round(roundToThb * 100);
+    if (!Number.isFinite(unit) || unit <= 0)
+        return NaN;
+    const factor = step >= 0 ? 10000 + stepBasisPoints : 10000 - stepBasisPoints;
+    const denominator = 10000 * unit;
+    let satang = Math.round(baseThb * 100);
+    for (let i = 0; i < Math.abs(step); i += 1) {
+        // round-half-up(satang × factor / denominator) × unit, all integers.
+        satang = Math.floor((2 * satang * factor + denominator) / (2 * denominator)) * unit;
+    }
+    return satang / 100;
+}
+/** Read contract terms from a stored map; `null` when anything is missing or out of range. */
+function parseBandStepParams(raw) {
+    if (!raw || typeof raw !== "object")
+        return null;
+    const r = raw;
+    const anchorBandLowerThb = Number(r.anchorBandLowerThb);
+    const bandWidthThb = Number(r.bandWidthThb);
+    const stepBasisPoints = Number(r.stepBasisPoints);
+    const roundToThb = Number(r.roundToThb);
+    if (!Number.isFinite(anchorBandLowerThb))
+        return null;
+    if (!Number.isFinite(bandWidthThb) || bandWidthThb <= 0)
+        return null;
+    if (!Number.isInteger(stepBasisPoints) || stepBasisPoints <= 0 || stepBasisPoints >= 10000)
+        return null;
+    if (!Number.isFinite(roundToThb) || roundToThb <= 0)
+        return null;
+    return { anchorBandLowerThb, bandWidthThb, stepBasisPoints, roundToThb };
+}
+/** A stored `priceBasis` value; anything but `"base"` is the legacy `"final"`. */
+function parsePriceBasis(raw) {
+    return raw === "base" ? "base" : "final";
+}
+/** `"base_band_step"` when stored so, else `undefined` (a legacy multiplier/add round). */
+function parseFuelPricingModel(raw) {
+    return raw === "base_band_step" ? "base_band_step" : undefined;
+}
+function isBandStepRound(adjustment) {
+    return adjustment?.pricingModel === "base_band_step";
+}
+function isValidBandStepRound(adjustment) {
+    return (isBandStepRound(adjustment) &&
+        Number.isInteger(adjustment?.bandStep) &&
+        adjustment?.bandStepParams != null);
+}
+/**
+ * The one place a rate row and a fuel round become a price.
+ *
+ * - legacy round (or none) on a `final` row → `rateThb × multiplier + add` (unchanged behaviour)
+ * - band-step round on a `base` row → `priceAtBandStep`; reported as multiplier 1 and
+ *   add = final − base so `base × mult + add = final` holds on every stored snapshot
+ * - no round on a `base` row → the base price (the anchor band)
+ * - any other pairing is refused rather than priced: it is the signature of a route that was never
+ *   re-imported as a base price, or a round announced in the wrong mode (fail loud, ADR 0029).
+ */
+function priceRateEntryForRound(entry, adjustment) {
+    const isBase = entry.priceBasis === "base";
+    if (isBandStepRound(adjustment)) {
+        if (!isBase)
+            return { ok: false, reason: "final_rate_with_band_step_round" };
+        if (!isValidBandStepRound(adjustment))
+            return { ok: false, reason: "invalid_band_step_round" };
+        const { bandStep, bandStepParams } = adjustment;
+        const finalRateThb = priceAtBandStep(entry.rateThb, bandStep, bandStepParams.stepBasisPoints, bandStepParams.roundToThb);
+        if (!Number.isFinite(finalRateThb))
+            return { ok: false, reason: "invalid_band_step_round" };
+        return {
+            ok: true,
+            finalRateThb,
+            rateMultiplier: 1,
+            addThbPerTrip: Math.round((finalRateThb - entry.rateThb) * 100) / 100,
+        };
+    }
+    if (adjustment && isBase)
+        return { ok: false, reason: "base_rate_with_legacy_round" };
+    const rateMultiplier = adjustment?.rateMultiplier ?? 1;
+    const addThbPerTrip = adjustment?.addThbPerTrip ?? 0;
+    return {
+        ok: true,
+        finalRateThb: computeFinalRateThb(entry.rateThb, rateMultiplier, addThbPerTrip),
+        rateMultiplier,
+        addThbPerTrip,
+    };
+}
 /** Milliseconds from Firestore Timestamp, Date, number, or similar. */
 function timestampLikeToMillis(val) {
     if (!val)
@@ -286,14 +451,19 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
     const matchedAdjustment = jobCategory === "SUPPLEMENTARY"
         ? null
         : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
-    const rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
-    const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
+    // Trip-level multiplier/add are those of the BASE leg. For a band-step round (ADR 0029) the add is
+    // per route (final − base), so each stop's own amount lives in stopBreakdown.
+    let rateMultiplier = matchedAdjustment?.rateMultiplier ?? 1;
+    let addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
     const useFlatExtraStopFee = typeof extraStopFeeThb === "number" && extraStopFeeThb >= 0;
     let baseRateThb = 0;
     let stopChargeThb = 0;
     const stopBreakdown = [];
     // The rate entry that produced the base leg — carries the round this trip was priced under.
     let baseRateEntry = null;
+    // A rate row that cannot be combined with the round (ADR 0029) fails the whole trip, loudly —
+    // billing the other stops and silently dropping one would under-charge.
+    let pricingMismatch = false;
     if (useFlatExtraStopFee) {
         // Flat extra-stop fee mode: the trip's BASE rate comes from the PLANNED
         // destination (task.destination), independent of the order the stops were
@@ -326,7 +496,12 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
         if (!baseMatch)
             return null; // no rate card for any stop → cannot bill
         baseRateEntry = baseMatch;
-        const baseFinal = computeFinalRateThb(baseMatch.rateThb, rateMultiplier, addThbPerTrip);
+        const basePriced = priceRateEntryForRound(baseMatch, matchedAdjustment);
+        if (!basePriced.ok)
+            return null;
+        const baseFinal = basePriced.finalRateThb;
+        rateMultiplier = basePriced.rateMultiplier;
+        addThbPerTrip = basePriced.addThbPerTrip;
         baseRateThb = baseFinal;
         stopBreakdown.push({ stopIndex: 1, destination: baseDest, baseRateThb: baseMatch.rateThb, finalRateThb: baseFinal });
         // Exclude exactly one delivered stop (the base) from the extra-stop charges.
@@ -352,10 +527,17 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
             if (!matchedRate)
                 return;
             const baseRate = matchedRate.rateThb;
-            const finalRate = computeFinalRateThb(baseRate, rateMultiplier, addThbPerTrip);
+            const priced = priceRateEntryForRound(matchedRate, matchedAdjustment);
+            if (!priced.ok) {
+                pricingMismatch = true;
+                return;
+            }
+            const finalRate = priced.finalRateThb;
             if (idx === 0) {
                 baseRateThb = finalRate;
                 baseRateEntry = matchedRate;
+                rateMultiplier = priced.rateMultiplier;
+                addThbPerTrip = priced.addThbPerTrip;
             }
             else {
                 stopChargeThb += finalRate;
@@ -368,7 +550,7 @@ function computeMultiDeliveryBilling(trip, task, deliveryStops, vehicleClass, ra
             });
         });
     }
-    if (baseRateThb === 0 || stopBreakdown.length === 0 || !baseRateEntry)
+    if (pricingMismatch || baseRateThb === 0 || stopBreakdown.length === 0 || !baseRateEntry)
         return null;
     return {
         customerId,
@@ -434,9 +616,14 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, j
     const matchedAdjustment = jobCategory === "SUPPLEMENTARY"
         ? null
         : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
-    const multiplier = matchedAdjustment?.rateMultiplier ?? 1;
-    const addThbPerTrip = matchedAdjustment?.addThbPerTrip ?? 0;
-    const finalRate = computeFinalRateThb(matchedRate.rateThb, multiplier, addThbPerTrip);
+    // ADR 0029: a base-price row only combines with a band-step round, a final-price row only with a
+    // legacy one. A refused pairing is "no price", so the caller fails loud instead of mis-billing.
+    const priced = priceRateEntryForRound(matchedRate, matchedAdjustment);
+    if (!priced.ok)
+        return null;
+    const multiplier = priced.rateMultiplier;
+    const addThbPerTrip = priced.addThbPerTrip;
+    const finalRate = priced.finalRateThb;
     return {
         customerId,
         baseRateThb: matchedRate.rateThb,
@@ -452,5 +639,27 @@ function computeTripBillingFromParts(trip, task, rateEntries, fuelAdjustments, j
             : undefined,
         ...resolveBillingRoundProvenance(matchedRate.effectiveFromMs, matchedAdjustment),
     };
+}
+/**
+ * Why a trip whose route DOES have a rate row still got no price: the row and the round that applies
+ * cannot be combined (ADR 0029). Used only to make the error say what to fix — "import the base price
+ * for this route" — instead of a bare "No rate". `null` = not a basis/round mismatch (e.g. genuinely
+ * no rate row). For a multi-drop trip this checks the planned destination, i.e. the base leg.
+ */
+function diagnoseRoundPricingMismatch(trip, task, rateEntries, fuelAdjustments, jobCategory = "PRIMARY") {
+    if (!task)
+        return null;
+    const customerId = resolveTaskCustomerId(task);
+    if (!customerId)
+        return null;
+    const billDateMs = getTripBillingDateMs(trip);
+    const matchedRate = selectBillingRateEntry(customerId, extractHubId(task.sourceHub), normalizeDestinationCode(task.destination), normalizeVehicleClass(task.truckType), billDateMs, rateEntries, jobCategory);
+    if (!matchedRate)
+        return null;
+    const adjustment = jobCategory === "SUPPLEMENTARY"
+        ? null
+        : selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments);
+    const priced = priceRateEntryForRound(matchedRate, adjustment);
+    return priced.ok ? null : priced.reason;
 }
 //# sourceMappingURL=billingCompute.js.map

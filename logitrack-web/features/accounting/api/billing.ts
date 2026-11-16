@@ -23,7 +23,16 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
-import { normalizeDestinationCode, normalizeVehicleClass } from "@/lib/billingCompute";
+import {
+    normalizeDestinationCode,
+    normalizeVehicleClass,
+    parseBandStepParams,
+    parseFuelPricingModel,
+    parsePriceBasis,
+    type FuelBandStepParams,
+    type FuelPricingModel,
+    type RatePriceBasis,
+} from "@/lib/billingCompute";
 import { bangkokMidnightFromPickedDate, pickedDateToDateStr } from "@/lib/billingDate";
 import { driverDisplayName, driverIdentityKeys } from "@/lib/driverName";
 import { billingHubLabelFromFirestoreData } from "@/lib/hubDisplay";
@@ -40,6 +49,8 @@ export interface CustomerRateEntryInput {
     distanceKm?: number;
     /** หลัก/เสริม (ADR-0005). Tagged per import. Missing = PRIMARY. */
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
+    /** ADR 0029 — `"base"` for a customer priced by fuel band steps (CJSF). Missing = `"final"`. */
+    priceBasis?: RatePriceBasis;
 }
 
 /** Void state shared by both announcement collections (ADR 0009 §1). */
@@ -70,6 +81,10 @@ export interface CustomerFuelRateAdjustmentInput {
     fuelBandEnabled?: boolean;
     fuelBandBaselineFuelFloor?: number;
     fuelBandThbPerBaht?: number;
+    /** ADR 0029 — band-step round: base price stepped `bandStep` bands under `bandStepParams`. */
+    pricingModel?: FuelPricingModel;
+    bandStep?: number;
+    bandStepParams?: FuelBandStepParams;
 }
 
 export interface CustomerFuelRateAdjustmentRow
@@ -161,6 +176,7 @@ export async function batchCreateCustomerRateEntries(
                 rateThb: Number(row.rateThb),
                 distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
                 jobCategory: row.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+                priceBasis: parsePriceBasis(row.priceBasis),
                 ...effective,
                 importedAt: serverTimestamp(),
                 createdAt: serverTimestamp(),
@@ -200,6 +216,7 @@ export async function createCustomerRateEntry(
             rateThb: Number(row.rateThb),
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
             jobCategory: row.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
+            priceBasis: parsePriceBasis(row.priceBasis),
             ...effective,
             importedAt: serverTimestamp(),
             createdAt: serverTimestamp(),
@@ -229,6 +246,7 @@ export async function getCustomerRateEntries(customerId?: string): Promise<Custo
             rateThb: Number(d.rateThb ?? 0),
             distanceKm: d.distanceKm != null ? Number(d.distanceKm) : undefined,
             jobCategory: (d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY") as "PRIMARY" | "SUPPLEMENTARY",
+            priceBasis: parsePriceBasis(d.priceBasis),
             effectiveFrom: parseDate(d.effectiveFrom) ?? new Date(0),
             effectiveFromDateStr: d.effectiveFromDateStr != null ? String(d.effectiveFromDateStr) : undefined,
             importedAt: parseDate(d.importedAt),
@@ -275,6 +293,12 @@ export async function createCustomerFuelRateAdjustment(
     if (!Number.isFinite(input.rateMultiplier) || input.rateMultiplier <= 0) {
         throw new Error("rateMultiplier must be greater than 0");
     }
+    // ADR 0029 — a band-step round must carry its step and the contract terms, or pricing refuses it.
+    const isBandStep = input.pricingModel === "base_band_step";
+    const bandStepParams = isBandStep ? parseBandStepParams(input.bandStepParams) : null;
+    if (isBandStep && (!Number.isInteger(input.bandStep) || !bandStepParams)) {
+        throw new Error("A band-step round needs an integer bandStep and valid bandStepParams");
+    }
     const colRef = collection(db, COLLECTIONS.CUSTOMER_FUEL_RATE_ADJUSTMENTS);
     const ref = doc(colRef);
     const batch = writeBatch(db);
@@ -291,6 +315,19 @@ export async function createCustomerFuelRateAdjustment(
         fuelBandEnabled: input.fuelBandEnabled ?? false,
         fuelBandBaselineFuelFloor: input.fuelBandBaselineFuelFloor ?? null,
         fuelBandThbPerBaht: input.fuelBandThbPerBaht ?? null,
+        ...(isBandStep
+            ? {
+                  // Neutral legacy fields: a reader that predates ADR 0029 sees x1 +0, never a surcharge.
+                  rateMultiplier: 1,
+                  addThbPerTrip: 0,
+                  fuelBandEnabled: false,
+                  fuelBandBaselineFuelFloor: null,
+                  fuelBandThbPerBaht: null,
+                  pricingModel: "base_band_step",
+                  bandStep: input.bandStep,
+                  bandStepParams,
+              }
+            : {}),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
     });
@@ -322,6 +359,9 @@ export async function getCustomerFuelRateAdjustments(
             fuelBandEnabled: Boolean(d.fuelBandEnabled ?? false),
             fuelBandBaselineFuelFloor: d.fuelBandBaselineFuelFloor != null ? Number(d.fuelBandBaselineFuelFloor) : undefined,
             fuelBandThbPerBaht: d.fuelBandThbPerBaht != null ? Number(d.fuelBandThbPerBaht) : undefined,
+            pricingModel: parseFuelPricingModel(d.pricingModel),
+            bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
+            bandStepParams: parseBandStepParams(d.bandStepParams) ?? undefined,
             effectiveFromDateStr: d.effectiveFromDateStr != null ? String(d.effectiveFromDateStr) : undefined,
             createdAt: parseDate(d.createdAt),
             updatedAt: parseDate(d.updatedAt),
@@ -989,6 +1029,14 @@ export async function fetchBillingTripRows(
                 data.billingReferenceFuelPriceThb != null
                     ? Number(data.billingReferenceFuelPriceThb)
                     : undefined,
+            // ADR 0029 — lets the invoice legend print the band step instead of one THB/trip for all routes.
+            billingFuelPricingModel: parseFuelPricingModel(data.billingFuelPricingModel),
+            billingFuelBandStep: Number.isInteger(data.billingFuelBandStep)
+                ? Number(data.billingFuelBandStep)
+                : undefined,
+            billingFuelStepBasisPoints: Number.isInteger(data.billingFuelStepBasisPoints)
+                ? Number(data.billingFuelStepBasisPoints)
+                : undefined,
         };
 
         if (data.billingIsMultiDelivery && Array.isArray(data.billingMultiDeliveryBreakdown) && data.billingMultiDeliveryBreakdown.length > 0) {

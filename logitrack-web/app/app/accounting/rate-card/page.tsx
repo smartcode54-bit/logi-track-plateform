@@ -9,6 +9,7 @@ import {
     Calculator,
     Copy,
     Download,
+    Grid3x3,
     Loader2,
     MoreHorizontal,
     Pencil,
@@ -84,13 +85,24 @@ import {
 } from "@/lib/bangchakFleetReferenceFuel";
 import { SOC_DESTINATIONS, TASK_TRUCK_TYPE_ENUM } from "@/validate/taskSchema";
 import {
-    computeFinalRateThb,
     computeFuelSurchargeThb,
     fuelBandRange,
     normalizeVehicleClass,
+    parseBandStepParams,
+    priceAtBandStep,
+    priceRateEntryForRound,
     selectFuelAdjustmentForBillingDate,
+    stepBandIndex,
+    stepBandRange,
+    type FuelBandStepParams,
     type FuelRateAdjustment,
 } from "@/lib/billingCompute";
+
+/**
+ * How many bands either side of the base band the CJSF contract table prints (32–34 … 52–54 = ±5).
+ * Beyond it the same rule still prices (owner decision, ADR 0029) — the UI only warns.
+ */
+const BAND_STEP_TABLE_REACH = 5;
 
 interface HubOption {
     id: string;
@@ -119,6 +131,13 @@ function fuelRowsToAdjustments(rows: CustomerFuelRateAdjustmentRow[]): FuelRateA
         effectiveFromMs: r.effectiveFrom.getTime(),
         rateMultiplier: r.rateMultiplier,
         addThbPerTrip: r.addThbPerTrip ?? 0,
+        referenceFuelPriceThb: r.referenceFuelPriceThbPerLitre,
+        // A voided round never prices a trip, so it must not price the preview either (ADR 0009 §1).
+        voided: r.voided,
+        // ADR 0029 — band-step round; without these the preview would show it as x1 +0.
+        pricingModel: r.pricingModel,
+        bandStep: r.bandStep,
+        bandStepParams: r.bandStepParams,
     }));
 }
 
@@ -343,6 +362,8 @@ export default function AccountingRateCardPage() {
     const [savingStandbyRate, setSavingStandbyRate] = useState(false);
     const [deletingStandbyRateId, setDeletingStandbyRateId] = useState<string | null>(null);
     const [standbyRateError, setStandbyRateError] = useState<string | null>(null);
+    // ADR 0029 — per-band price table of a band-step customer, for reconciling with their sheet.
+    const [bandMatrixOpen, setBandMatrixOpen] = useState(false);
     // Vehicle class normalization state
     const [normalizeInProgress, setNormalizeInProgress] = useState(false);
     const [normalizeResult, setNormalizeResult] = useState<NormalizeVehicleClassResponse | null>(null);
@@ -353,6 +374,22 @@ export default function AccountingRateCardPage() {
         customers.forEach((c) => map.set(c.id, `${c.code} - ${c.name}`));
         return map;
     }, [customers]);
+    /** ADR 0029 — customers whose rate card holds BASE prices stepped per fuel band (CJSF). */
+    const fuelPricingByCustomer = useMemo(() => {
+        const map = new Map<string, FuelBandStepParams>();
+        customers.forEach((c) => {
+            if (c.fuelPricing) map.set(c.id, c.fuelPricing);
+        });
+        return map;
+    }, [customers]);
+    const bandStepLabel = (step: number, stepBasisPoints: number): string => {
+        if (step === 0) return t("accounting.rateCard.bandStep.base");
+        const sign = step > 0 ? "+" : "−";
+        return t("accounting.rateCard.bandStep.step", {
+            step: `${sign}${Math.abs(step)}`,
+            pct: `${sign}${stepBasisPoints / 100}`,
+        });
+    };
     const customerOnlyNameById = useMemo(() => {
         const map = new Map<string, string>();
         customers.forEach((c) => map.set(c.id, c.name));
@@ -397,6 +434,8 @@ export default function AccountingRateCardPage() {
                 id: c.id,
                 code: c.code,
                 name: c.name,
+                // ADR 0029 — band-step customers import and preview BASE prices.
+                fuelPricing: parseBandStepParams(c.fuelPricing) ?? undefined,
             }));
             setCustomers(mappedCustomers);
             setEntries(entryRows);
@@ -581,6 +620,107 @@ export default function AccountingRateCardPage() {
         [fuelSnapshots]
     );
 
+    /** ADR 0029 — the band-step terms of the customer selected in the fuel-round dialog. */
+    const adjustmentBandParams = adjustmentForm.customerId
+        ? fuelPricingByCustomer.get(adjustmentForm.customerId)
+        : undefined;
+    /** Band the dialog's diesel price falls in, whether it is off the contract table, and sample prices. */
+    const adjustmentBandPreview = useMemo(() => {
+        if (!adjustmentBandParams) return null;
+        const price = adjustmentForm.referenceFuelPrice ? Number(adjustmentForm.referenceFuelPrice) : NaN;
+        if (!Number.isFinite(price) || price <= 0) return null;
+        const { anchorBandLowerThb, bandWidthThb, stepBasisPoints, roundToThb } = adjustmentBandParams;
+        const step = stepBandIndex(price, anchorBandLowerThb, bandWidthThb);
+        const range = stepBandRange(step, anchorBandLowerThb, bandWidthThb);
+        if (!Number.isInteger(step) || !range) return null;
+        const lowest = stepBandRange(-BAND_STEP_TABLE_REACH, anchorBandLowerThb, bandWidthThb)!;
+        const highest = stepBandRange(BAND_STEP_TABLE_REACH, anchorBandLowerThb, bandWidthThb)!;
+        const sampleEntry = entries.find(
+            (e) =>
+                e.customerId === adjustmentForm.customerId &&
+                !e.voided &&
+                e.priceBasis === "base" &&
+                e.jobCategory !== "SUPPLEMENTARY"
+        );
+        const sample = sampleEntry
+            ? {
+                  route: `${sampleEntry.hubId} → ${sampleEntry.destinationCode} (${sampleEntry.vehicleClass})`,
+                  rows: [-2, -1, 0, 1, 2].map((d) => {
+                      const s2 = step + d;
+                      return {
+                          step: s2,
+                          range: stepBandRange(s2, anchorBandLowerThb, bandWidthThb)!,
+                          priceThb: priceAtBandStep(sampleEntry.rateThb, s2, stepBasisPoints, roundToThb),
+                      };
+                  }),
+              }
+            : null;
+        return {
+            step,
+            range,
+            outOfTable: Math.abs(step) > BAND_STEP_TABLE_REACH,
+            table: { lowerThb: lowest.lowerThb, upperThb: highest.upperThb },
+            sample,
+        };
+    }, [adjustmentBandParams, adjustmentForm.referenceFuelPrice, adjustmentForm.customerId, entries]);
+
+    /**
+     * ADR 0029 — every band's price for the filtered base-price rows of the selected customer, laid
+     * out like the customer's own sheet so the two can be compared cell by cell. The highlighted
+     * column is the band of the round in effect on the preview date.
+     */
+    const bandMatrix = useMemo(() => {
+        const params = filterCustomerId !== "all" ? fuelPricingByCustomer.get(filterCustomerId) : undefined;
+        if (!params) return null;
+        const { anchorBandLowerThb, bandWidthThb, stepBasisPoints, roundToThb } = params;
+        const bands = Array.from({ length: BAND_STEP_TABLE_REACH * 2 + 1 }, (_, i) => {
+            const step = i - BAND_STEP_TABLE_REACH;
+            return { step, range: stepBandRange(step, anchorBandLowerThb, bandWidthThb)! };
+        });
+        const rows = filteredEntries
+            .filter((e) => !e.voided && e.priceBasis === "base" && e.jobCategory !== "SUPPLEMENTARY")
+            .map((entry) => ({
+                entry,
+                prices: bands.map((b) => priceAtBandStep(entry.rateThb, b.step, stepBasisPoints, roundToThb)),
+            }));
+        const asOf = parseDateInput(rateCalAsOfStr) ?? new Date();
+        asOf.setHours(12, 0, 0, 0);
+        const current = selectFuelAdjustmentForBillingDate(
+            filterCustomerId,
+            asOf.getTime(),
+            fuelRowsToAdjustments(adjustmentsByCustomer.get(filterCustomerId) ?? [])
+        );
+        return {
+            params,
+            anchor: bands[BAND_STEP_TABLE_REACH].range,
+            bands,
+            rows,
+            currentStep: current?.pricingModel === "base_band_step" ? current.bandStep : undefined,
+        };
+    }, [filterCustomerId, fuelPricingByCustomer, filteredEntries, rateCalAsOfStr, adjustmentsByCustomer]);
+
+    const handleExportBandMatrix = () => {
+        if (!bandMatrix || bandMatrix.rows.length === 0) return;
+        const header = [
+            t("accounting.rateCard.table.hubId"),
+            t("accounting.rateCard.table.destination"),
+            t("accounting.rateCard.table.vehicleClass"),
+            t("accounting.rateCard.table.effectiveFrom"),
+            ...bandMatrix.bands.map((b) => `${b.range.lowerThb.toFixed(2)}-${b.range.upperThb.toFixed(2)}`),
+        ];
+        const body = bandMatrix.rows.map((r) => [
+            r.entry.hubId,
+            r.entry.destinationCode,
+            r.entry.vehicleClass,
+            format(r.entry.effectiveFrom, "dd/MM/yyyy"),
+            ...r.prices,
+        ]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), "band_matrix");
+        const code = customers.find((c) => c.id === filterCustomerId)?.code ?? filterCustomerId;
+        XLSX.writeFile(wb, `band_rate_matrix_${code}.xlsx`);
+    };
+
     /**
      * Fuel rounds of the selected customer as ordered **half-open** intervals (ADR 0009 §2, §8):
      * a round runs `[effectiveFrom, nextEffectiveFrom)`, so no day belongs to two rounds and none
@@ -595,10 +735,13 @@ export default function AccountingRateCardPage() {
         const liveDates = rows.filter((r) => !r.voided).map((r) => r.effectiveFrom.getTime());
         return rows.map((r, i) => {
             const nextLive = liveDates.find((ms) => ms > r.effectiveFrom.getTime());
-            const band =
-                r.referenceFuelPriceThbPerLitre != null
-                    ? fuelBandRange(r.referenceFuelPriceThbPerLitre)
-                    : null;
+            // A band-step round (ADR 0029) has its own ฿2 band and a % step, not one ฿/trip.
+            const isBandStep = r.pricingModel === "base_band_step" && r.bandStep != null && r.bandStepParams != null;
+            const band = isBandStep
+                ? stepBandRange(r.bandStep!, r.bandStepParams!.anchorBandLowerThb, r.bandStepParams!.bandWidthThb)
+                : r.referenceFuelPriceThbPerLitre != null
+                  ? fuelBandRange(r.referenceFuelPriceThbPerLitre)
+                  : null;
             const add = r.addThbPerTrip ?? 0;
             const pct = (r.rateMultiplier - 1) * 100;
             return {
@@ -613,12 +756,14 @@ export default function AccountingRateCardPage() {
                 bandLabel: band
                     ? `${band.lowerThb.toFixed(2)}–${band.upperThb.toFixed(2)}`
                     : "-",
-                adjustmentLabel:
-                    add !== 0
-                        ? `${add > 0 ? "+" : ""}${add.toLocaleString()} ฿/เที่ยว`
-                        : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`,
+                adjustmentLabel: isBandStep
+                    ? bandStepLabel(r.bandStep!, r.bandStepParams!.stepBasisPoints)
+                    : add !== 0
+                      ? `${add > 0 ? "+" : ""}${add.toLocaleString()} ฿/เที่ยว`
+                      : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`,
             };
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- bandStepLabel only reads `t`
     }, [fuelAdjustments, filterCustomerId, t]);
 
     useEffect(() => {
@@ -663,6 +808,43 @@ export default function AccountingRateCardPage() {
         const referenceFuelPrice = adjustmentForm.referenceFuelPrice
             ? Number(adjustmentForm.referenceFuelPrice)
             : undefined;
+
+        // ADR 0029 — a band-step customer's round only states the diesel price; the band and every
+        // route's price follow from the contract terms copied onto the round.
+        const bandParams = fuelPricingByCustomer.get(customerId);
+        if (bandParams) {
+            const bandStep =
+                referenceFuelPrice != null && Number.isFinite(referenceFuelPrice)
+                    ? stepBandIndex(referenceFuelPrice, bandParams.anchorBandLowerThb, bandParams.bandWidthThb)
+                    : NaN;
+            if (!effectiveFrom || !Number.isInteger(bandStep)) {
+                setAdjustmentError(t("accounting.rateCard.bandStep.invalid"));
+                return;
+            }
+            setSavingAdjustment(true);
+            try {
+                await createCustomerFuelRateAdjustment({
+                    customerId,
+                    effectiveFrom,
+                    rateMultiplier: 1,
+                    addThbPerTrip: 0,
+                    referenceFuelPriceThbPerLitre: referenceFuelPrice,
+                    announcementNote: adjustmentForm.announcementNote,
+                    pricingModel: "base_band_step",
+                    bandStep,
+                    bandStepParams: bandParams,
+                });
+                setFuelAdjustmentDialogOpen(false);
+                handleCancelEditAdjustment();
+                await loadData();
+            } catch (err) {
+                console.error(err);
+                setAdjustmentError(t("accounting.rateCard.fuelAdjustments.form.error"));
+            } finally {
+                setSavingAdjustment(false);
+            }
+            return;
+        }
 
         const isPercentMode = adjustmentForm.adjustmentType === "percent";
         const ratePercent = isPercentMode ? Number(adjustmentForm.ratePercent) : 0;
@@ -972,6 +1154,8 @@ export default function AccountingRateCardPage() {
                     rateThb,
                     distanceKm: Number.isFinite(distanceKm as number) ? distanceKm : undefined,
                     jobCategory: manualRateForm.jobCategory,
+                    // ADR 0029 — a band-step customer's rate card holds base prices.
+                    priceBasis: fuelPricingByCustomer.has(customerId) ? "base" : "final",
                 },
                 effectiveFrom
             );
@@ -1252,6 +1436,12 @@ export default function AccountingRateCardPage() {
                         <Download className="h-4 w-4 mr-2" />
                         {t("accounting.rateCard.exportData")}
                     </Button>
+                    {filterCustomerId !== "all" && fuelPricingByCustomer.has(filterCustomerId) && (
+                        <Button variant="outline" onClick={() => setBandMatrixOpen(true)}>
+                            <Grid3x3 className="h-4 w-4 mr-2" />
+                            {t("accounting.rateCard.bandStep.matrixButton")}
+                        </Button>
+                    )}
                     <Button variant="outline" onClick={handleExportTemplate}>
                         <Download className="h-4 w-4 mr-2" />
                         {t("accounting.rateCard.exportTemplate")}
@@ -1458,9 +1648,23 @@ export default function AccountingRateCardPage() {
                             </Select>
                         </div>
                         <div className="space-y-1.5">
-                            <Label>{t("accounting.rateCard.table.rateThb")}</Label>
+                            <Label>
+                                {(() => {
+                                    const params = fuelPricingByCustomer.get(manualRateForm.customerId);
+                                    const band = params
+                                        ? stepBandRange(0, params.anchorBandLowerThb, params.bandWidthThb)
+                                        : null;
+                                    return band
+                                        ? t("accounting.rateCard.bandStep.manualRateLabel", {
+                                              lower: band.lowerThb.toFixed(2),
+                                              upper: band.upperThb.toFixed(2),
+                                          })
+                                        : t("accounting.rateCard.table.rateThb");
+                                })()}
+                            </Label>
                             <Input
                                 type="number"
+                                step="any"
                                 value={manualRateForm.rateThb}
                                 onChange={(e) => setManualRateForm((prev) => ({ ...prev, rateThb: e.target.value }))}
                             />
@@ -1647,14 +1851,11 @@ export default function AccountingRateCardPage() {
                                           noon.getTime(),
                                           fuelAdjList
                                       );
-                                const newRate =
-                                    ruleDoc != null
-                                        ? computeFinalRateThb(
-                                              row.rateThb,
-                                              ruleDoc.rateMultiplier,
-                                              ruleDoc.addThbPerTrip
-                                          )
-                                        : null;
+                                // Same pairing rule as billing (ADR 0029): a base row only takes a band-step
+                                // round, a final row only a legacy one — anything else is shown, not priced.
+                                const priced = ruleDoc != null ? priceRateEntryForRound(row, ruleDoc) : null;
+                                const newRate = priced?.ok ? priced.finalRateThb : null;
+                                const mismatchReason = priced && !priced.ok ? priced.reason : null;
                                 return (
                                 // Voided rate rows remain visible as history, struck through
                                 // because pricing no longer selects them (ADR 0009 §1).
@@ -1691,17 +1892,48 @@ export default function AccountingRateCardPage() {
                                             </Badge>
                                         )}
                                     </TableCell>
-                                    <TableCell className="text-right">฿{row.rateThb.toLocaleString()}</TableCell>
+                                    <TableCell className="text-right">
+                                        ฿{row.rateThb.toLocaleString()}
+                                        {row.priceBasis === "base" && (
+                                            <Badge
+                                                variant="secondary"
+                                                className="ml-1.5 bg-blue-100 text-blue-800 no-underline dark:bg-blue-900/30 dark:text-blue-300"
+                                                title={t("accounting.rateCard.bandStep.basisBadgeTitle")}
+                                            >
+                                                {t("accounting.rateCard.bandStep.basisBadge")}
+                                            </Badge>
+                                        )}
+                                    </TableCell>
                                     {showRateCalPreview && (
                                         <TableCell className="text-right">
                                             {isSupplementary ? (
                                                 <span title={t("accounting.rateCard.calcPreview.suppFixed")}>
                                                     ฿{row.rateThb.toLocaleString()}
                                                 </span>
+                                            ) : mismatchReason ? (
+                                                <span
+                                                    className="text-destructive"
+                                                    title={t(
+                                                        mismatchReason === "final_rate_with_band_step_round"
+                                                            ? "accounting.rateCard.bandStep.mismatchFinalWithStep"
+                                                            : mismatchReason === "base_rate_with_legacy_round"
+                                                              ? "accounting.rateCard.bandStep.mismatchBaseWithLegacy"
+                                                              : "accounting.rateCard.bandStep.mismatchInvalid"
+                                                    )}
+                                                >
+                                                    {t("accounting.rateCard.bandStep.mismatch")}
+                                                </span>
                                             ) : newRate != null && ruleDoc != null ? (
                                                 <span
                                                     title={
-                                                        ruleDoc.addThbPerTrip !== 0
+                                                        ruleDoc.pricingModel === "base_band_step" &&
+                                                        ruleDoc.bandStep != null &&
+                                                        ruleDoc.bandStepParams != null
+                                                            ? t("accounting.rateCard.bandStep.rowTooltip", {
+                                                                step: bandStepLabel(ruleDoc.bandStep, ruleDoc.bandStepParams.stepBasisPoints),
+                                                                delta: formatSignedThbDelta(row.rateThb, newRate),
+                                                            })
+                                                            : ruleDoc.addThbPerTrip !== 0
                                                             ? t("accounting.rateCard.calcPreview.rowTooltipFixed", {
                                                                 addPerTrip: `${ruleDoc.addThbPerTrip >= 0 ? "+" : ""}${ruleDoc.addThbPerTrip.toFixed(2)}`,
                                                                 delta: formatSignedThbDelta(row.rateThb, newRate),
@@ -2066,7 +2298,21 @@ export default function AccountingRateCardPage() {
 
                                 <div className="border-t" />
 
-                                {/* ── STEP 2: Adjustment mode ── */}
+                                {/* ── STEP 2: Adjustment mode — a band-step customer has exactly one (ADR 0029) ── */}
+                                {adjustmentBandParams ? (
+                                    <div className="space-y-1 rounded-md border border-blue-200 bg-blue-50/50 p-3">
+                                        <p className="text-sm font-semibold text-foreground">
+                                            {t("accounting.rateCard.bandStep.formTitle")}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {t("accounting.rateCard.bandStep.formHint", {
+                                                width: String(adjustmentBandParams.bandWidthThb),
+                                                pct: String(adjustmentBandParams.stepBasisPoints / 100),
+                                                roundTo: String(adjustmentBandParams.roundToThb),
+                                            })}
+                                        </p>
+                                    </div>
+                                ) : (
                                 <div className="space-y-2">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                         {t("accounting.rateCard.fuelAdjustments.form.step2")}
@@ -2125,6 +2371,7 @@ export default function AccountingRateCardPage() {
                                         </button>
                                     </div>
                                 </div>
+                                )}
 
                                 <div className="border-t" />
 
@@ -2144,7 +2391,23 @@ export default function AccountingRateCardPage() {
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        {adjustmentForm.adjustmentType === "percent" ? (
+                                        {adjustmentBandParams ? (
+                                            <>
+                                                <Label>{t("accounting.rateCard.bandStep.roundBand")}</Label>
+                                                <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 font-mono text-sm">
+                                                    {adjustmentBandPreview
+                                                        ? t("accounting.rateCard.bandStep.bandResult", {
+                                                              lower: adjustmentBandPreview.range.lowerThb.toFixed(2),
+                                                              upper: adjustmentBandPreview.range.upperThb.toFixed(2),
+                                                              step: bandStepLabel(
+                                                                  adjustmentBandPreview.step,
+                                                                  adjustmentBandParams.stepBasisPoints
+                                                              ),
+                                                          })
+                                                        : t("accounting.rateCard.bandStep.needPrice")}
+                                                </div>
+                                            </>
+                                        ) : adjustmentForm.adjustmentType === "percent" ? (
                                             <>
                                                 <Label>{t("accounting.rateCard.fuelAdjustments.form.multiplier")}</Label>
                                                 <Input
@@ -2180,8 +2443,51 @@ export default function AccountingRateCardPage() {
                                     </div>
                                 </div>
 
+                                {/* ── Band-step preview (ADR 0029): the band this price falls in + sample prices ── */}
+                                {adjustmentBandParams && adjustmentBandPreview && (
+                                    <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-xs">
+                                        {adjustmentBandPreview.outOfTable && (
+                                            <p className="text-amber-600 dark:text-amber-400">
+                                                {t("accounting.rateCard.bandStep.outOfTable", {
+                                                    lower: adjustmentBandPreview.table.lowerThb.toFixed(2),
+                                                    upper: adjustmentBandPreview.table.upperThb.toFixed(2),
+                                                })}
+                                            </p>
+                                        )}
+                                        {adjustmentBandPreview.sample && (
+                                            <>
+                                                <p className="font-semibold text-foreground">
+                                                    {t("accounting.rateCard.bandStep.previewTitle", {
+                                                        route: adjustmentBandPreview.sample.route,
+                                                    })}
+                                                </p>
+                                                <div className="overflow-hidden rounded border">
+                                                    {adjustmentBandPreview.sample.rows.map((r) => (
+                                                        <div
+                                                            key={r.step}
+                                                            className={`flex justify-between border-b px-2 py-1 last:border-b-0 ${
+                                                                r.step === adjustmentBandPreview.step
+                                                                    ? "bg-blue-500/10 font-semibold text-blue-600 dark:bg-blue-500/20 dark:text-blue-400"
+                                                                    : "bg-background text-foreground"
+                                                            }`}
+                                                        >
+                                                            <span>
+                                                                {r.range.lowerThb.toFixed(2)}–{r.range.upperThb.toFixed(2)} ฿/L
+                                                            </span>
+                                                            <span className="text-muted-foreground">
+                                                                {bandStepLabel(r.step, adjustmentBandParams.stepBasisPoints)}
+                                                            </span>
+                                                            <span className="tabular-nums">฿{r.priceThb.toLocaleString()}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* ── Fuel Band Calculator (fixed mode only) ── */}
-                                {adjustmentForm.adjustmentType === "fixed_thb" && (
+                                {!adjustmentBandParams && adjustmentForm.adjustmentType === "fixed_thb" && (
                                     <div className="rounded-md border bg-muted/30 p-3 space-y-2">
                                         <div className="flex items-center gap-2">
                                             <input
@@ -2449,6 +2755,26 @@ export default function AccountingRateCardPage() {
                                         )}
                                     </TableCell>
                                     <TableCell className="text-right">
+                                        {row.pricingModel === "base_band_step" && row.bandStep != null && row.bandStepParams ? (
+                                            // ADR 0029 — the round's effect is a band step, not one multiplier.
+                                            <div className="flex flex-col items-end gap-0.5">
+                                                <span className="tabular-nums font-medium">
+                                                    {bandStepLabel(row.bandStep, row.bandStepParams.stepBasisPoints)}
+                                                </span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {(() => {
+                                                        const band = stepBandRange(
+                                                            row.bandStep,
+                                                            row.bandStepParams.anchorBandLowerThb,
+                                                            row.bandStepParams.bandWidthThb
+                                                        );
+                                                        return band
+                                                            ? `${band.lowerThb.toFixed(2)}–${band.upperThb.toFixed(2)} ฿/L`
+                                                            : "";
+                                                    })()}
+                                                </span>
+                                            </div>
+                                        ) : (
                                         <div className="flex flex-col items-end gap-0.5">
                                             <span className="tabular-nums font-medium">
                                                 {formatMultiplierTimes(row.rateMultiplier)}
@@ -2458,6 +2784,7 @@ export default function AccountingRateCardPage() {
                                                 {t("accounting.rateCard.fuelAdjustments.table.multiplierFromBase")}
                                             </span>
                                         </div>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex flex-col items-end gap-0.5">
@@ -3058,6 +3385,93 @@ export default function AccountingRateCardPage() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* ADR 0029 — the per-band price table the system derives, in the customer's own layout. */}
+            <Dialog open={bandMatrixOpen && bandMatrix != null} onOpenChange={setBandMatrixOpen}>
+                <DialogContent className="sm:max-w-6xl">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {t("accounting.rateCard.bandStep.matrixTitle", {
+                                customer: customerNameById.get(filterCustomerId) ?? filterCustomerId,
+                            })}
+                        </DialogTitle>
+                        {bandMatrix && (
+                            <DialogDescription>
+                                {t("accounting.rateCard.bandStep.matrixDescription", {
+                                    lower: bandMatrix.anchor.lowerThb.toFixed(2),
+                                    upper: bandMatrix.anchor.upperThb.toFixed(2),
+                                    width: String(bandMatrix.params.bandWidthThb),
+                                    pct: String(bandMatrix.params.stepBasisPoints / 100),
+                                    roundTo: String(bandMatrix.params.roundToThb),
+                                })}
+                            </DialogDescription>
+                        )}
+                    </DialogHeader>
+                    {bandMatrix && bandMatrix.rows.length === 0 && (
+                        <p className="text-sm text-muted-foreground">{t("accounting.rateCard.bandStep.matrixEmpty")}</p>
+                    )}
+                    {bandMatrix && bandMatrix.rows.length > 0 && (
+                        <div className="max-h-[60vh] overflow-auto rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>{t("accounting.rateCard.table.hubId")}</TableHead>
+                                        <TableHead>{t("accounting.rateCard.table.destination")}</TableHead>
+                                        <TableHead>{t("accounting.rateCard.table.vehicleClass")}</TableHead>
+                                        <TableHead>{t("accounting.rateCard.table.effectiveFrom")}</TableHead>
+                                        {bandMatrix.bands.map((b) => (
+                                            <TableHead
+                                                key={b.step}
+                                                className={`whitespace-nowrap text-right font-mono text-xs ${
+                                                    b.step === 0 ? "bg-blue-50 dark:bg-blue-900/20" : ""
+                                                } ${b.step === bandMatrix.currentStep ? "text-blue-600 dark:text-blue-400" : ""}`}
+                                            >
+                                                {b.range.lowerThb.toFixed(2)}–{b.range.upperThb.toFixed(2)}
+                                            </TableHead>
+                                        ))}
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {bandMatrix.rows.map((r) => (
+                                        <TableRow key={r.entry.id}>
+                                            <TableCell>{formatSource(r.entry.hubId)}</TableCell>
+                                            <TableCell>{formatDestination(r.entry.destinationCode)}</TableCell>
+                                            <TableCell>{displayVehicleTypeCode(r.entry.vehicleClass)}</TableCell>
+                                            <TableCell>{format(r.entry.effectiveFrom, "dd/MM/yyyy")}</TableCell>
+                                            {r.prices.map((price, i) => {
+                                                const step = bandMatrix.bands[i].step;
+                                                return (
+                                                    <TableCell
+                                                        key={step}
+                                                        className={`text-right tabular-nums ${
+                                                            step === 0 ? "bg-blue-50 font-semibold dark:bg-blue-900/20" : ""
+                                                        } ${
+                                                            step === bandMatrix.currentStep
+                                                                ? "font-semibold text-blue-600 dark:text-blue-400"
+                                                                : ""
+                                                        }`}
+                                                    >
+                                                        {price.toLocaleString()}
+                                                    </TableCell>
+                                                );
+                                            })}
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setBandMatrixOpen(false)}>
+                            {t("accounting.rateCard.bandStep.matrixClose")}
+                        </Button>
+                        <Button onClick={handleExportBandMatrix} disabled={!bandMatrix || bandMatrix.rows.length === 0}>
+                            <Download className="h-4 w-4 mr-2" />
+                            {t("accounting.rateCard.bandStep.matrixExport")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <RateCardImportDialog
                 open={importOpen}

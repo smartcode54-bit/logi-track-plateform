@@ -51,6 +51,22 @@ export const customerSchema = z.object({
      */
     billingDateBasis: z.enum(["delivered", "plan"]).optional(),
 
+    // ── Fuel pricing model (ADR 0029) ─────────────────────────────────────────
+    /**
+     * ไม่ระบุ = แบบเดิม (rate card เป็นราคาสุดท้าย + รอบน้ำมัน ×/±บาท).
+     * "base_band_step" = rate card เป็น **ราคาฐาน** ที่ช่วงดีเซล anchor (CJSF: 42.01–44.00) แล้วระบบคิดราคาของ
+     * แต่ละช่วงเอง: ช่วงละ `bandWidthThb` บาท ขยับ `stepBasisPoints` (70 = 0.7%) ทบต้น ปัดเป็น `roundToThb` บาททุกขั้น.
+     */
+    fuelPricing: z
+        .object({
+            model: z.literal("base_band_step"),
+            anchorBandLowerThb: z.coerce.number(),
+            bandWidthThb: z.coerce.number().positive(),
+            stepBasisPoints: z.coerce.number().int().positive().lt(10000),
+            roundToThb: z.coerce.number().positive(),
+        })
+        .optional(),
+
     // ── Pickup / delivery points ─────────────────────────────────────────────
     /**
      * ใช้จุดรับส่งของลูกค้ารายอื่น (doc id ใน `customers`) — เช่น JWT วิ่งงาน SPX ที่จุดเดียวกับ TTP.
