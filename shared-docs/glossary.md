@@ -589,3 +589,35 @@ delivered card's `หมายเหตุ` line **names the delay cause(s)** in
 `incident_cause_*` key stored in `delayCause` (selected as a key at `incident_report_page.dart:371`) — and
 the [[Evidence gallery]] plus the button's photo count include the incident's map/situation photos under a
 "เหตุล่าช้า" group ([ADR 0025](adr/0025-customer-line-group-notifications.md) §5).
+
+## Trip contribution
+
+กำไรต่อเที่ยว — revenue of one trip or standby event minus only the costs that trip caused: fuel on its [[Job distance]] at the truck's [[Truck fuel cost per km]], the P&L driver per-trip rate, its share of a [[Helper-day]], and maintenance accrued on its job distance. **Never** carries a share of a [[Fixed cost]]; those live at month level, and the page shows break-even trips = month fixed costs ÷ average contribution ([ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)). Own trucks only.
+
+## Job distance
+
+ระยะตามใบงาน — the round trip a trip should drive according to its job: hub → destination (`hub_soc_distances.distanceKm`) + destination → hub (`soc_hub_distances.distanceKm`). **Multi-drop = the round trip to the farthest stop** (the tables hold no stop→stop distance; km detoured between stops is [[Off-plan km]]). **Standby = 2 × the one-way leg of the same truck's previous trip** (≤ 3 days earlier; it includes the drive back to the yard), else of the standby's own job route. Owner revision 2026-11-16 of ADR 0031 §2 (which said "sum of legs + last stop → hub"). Not `trip_records.distance` (a display string), and not the odometer. Basis for per-trip fuel and maintenance accrual ([ADR 0031](adr/0031-per-trip-pnl-contribution-model.md), spec `specs/per-trip-pnl.md` R8).
+
+## Off-plan km
+
+ระยะเกินใบงาน — a truck's odometer km in a [[P&L month]] minus the [[Job distance]] of its trips that month (repositioning, depot runs, detours). Its fuel is a **month-level line per truck**, never spread into trips. October 2569: 15–18% of km, ≈ ฿17,600/month ([ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)).
+
+## Truck fuel cost per km
+
+ค่าน้ำมันต่อ กม. ของรถ — one truck's approved fuel spend in a [[P&L month]] (`vehicle_expenses`, `type: "fuel"`) ÷ its odometer km that month (from refuel odometer readings). Falls back to the fleet average, with a warning, when the truck-month has no usable odometer readings. October 2569 fleet ≈ ฿4.17/km ([ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)).
+
+## Fuel reconciliation
+
+ส่วนต่างกระทบยอดน้ำมัน — month-level P&L line: approved fuel paid in the [[P&L month]] − fuel on job distance of counted trips − [[Off-plan km]] fuel. It makes the month's fuel equal the cash paid, and holds what the fill-to-fill [[Truck fuel cost per km]] window does not attribute: fuel bought after the truck's last odometer reading of the month, trucks priced at the fleet average, receipts without a truck, and fuel of trips excluded from totals (spec `specs/per-trip-pnl.md` §4.3, [ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)).
+
+## Maintenance variance
+
+ส่วนต่างค่าซ่อม — month-level P&L line: actual maintenance bills of the month (PM + CM from `maintenance`) minus the maintenance the month's trips accrued (job distance × the P&L ฿/km for servicing + tyres). Jumps in a month with a big service; over time shows whether the ฿/km setting is too high or low. CM is never accrued on trips ([ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)).
+
+## Fixed cost
+
+ต้นทุนคงที่ — a cost that does not change with the number of trips: truck installment, insurance, vehicle tax, GPS, battery, accounting/audit, employer SSO, fuel-efficiency bonus. Reported at month / fleet level only, never per trip ([[Trip contribution]]). Insurance and tax come from renewal history in `transactions` (spread over 12 months from the renewal date); other items from the P&L fixed-cost list (per truck or company, monthly or yearly, effective from–to), including พรบ. and owner-named categories. A truck's ภาษีรถ item in the list replaces its renewal-history tax for that month — never both (owner 2026-11-16) ([ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)).
+
+## P&L month
+
+เดือนของ P&L — the month a trip counts in for the P&L: its actual work date, the task's `checkInAt` (Asia/Bangkok), falling back to `deliveredTimestamp`. **Not** the billing month: for a plan-date customer ([ADR 0027](adr/0027-plan-date-billing-axis.md)) month revenue can differ from the billing documents at month edges ([ADR 0028](adr/0028-plan-date-vs-actual-work-date.md), [ADR 0031](adr/0031-per-trip-pnl-contribution-model.md)).

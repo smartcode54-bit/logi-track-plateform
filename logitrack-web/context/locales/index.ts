@@ -41,6 +41,8 @@ import aboutTh from './th/about';
 import companyTh from './th/company';
 import driverCompensationEn from './en/driverCompensation';
 import driverCompensationTh from './th/driverCompensation';
+import pnlEn from './en/pnl';
+import pnlTh from './th/pnl';
 
 export const translations = {
     en: {
@@ -65,6 +67,7 @@ export const translations = {
         ...aboutEn,
         ...companyEn,
         ...driverCompensationEn,
+        ...pnlEn,
     },
     th: {
         ...commonTh,
@@ -88,5 +91,6 @@ export const translations = {
         ...aboutTh,
         ...companyTh,
         ...driverCompensationTh,
+        ...pnlTh,
     },
 };

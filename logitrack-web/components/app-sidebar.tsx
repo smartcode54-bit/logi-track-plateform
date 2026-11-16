@@ -134,6 +134,7 @@ export function AppSidebar() {
                 { title: t("nav.billingDocument"), url: "/app/accounting/billing-document", capability: CAPABILITIES.accounting_billing_document },
                 { title: t("nav.billingResult"), url: "/app/accounting/billing-result", capability: CAPABILITIES.accounting_billing_result },
                 { title: t("nav.shopeeExpressReport"), url: "/app/accounting/shopee-express-report", capability: CAPABILITIES.accounting_shopee_report },
+                { title: t("nav.pnl"), url: "/app/accounting/pnl", capability: CAPABILITIES.accounting_view_pnl },
             ],
         },
         {

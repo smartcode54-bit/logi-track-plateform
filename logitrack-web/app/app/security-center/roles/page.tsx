@@ -177,6 +177,9 @@ const FINANCIALS_CAPABILITIES: { id: string; title: string; description: string;
     { id: "accounting_view_other", title: "View Other Expenses", description: "View other expense records", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: true, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
     { id: "accounting_edit_other", title: "Edit Other Expenses", description: "Edit other accounting", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
     { id: "accounting_audit_expense", title: "Audit Vehicle Expense", description: "Review and approve/reject vehicle expenses", defaultPermissions: { ADMIN: true, MANAGER: true, OPERATION_STAFF: true, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    // P&L reads admin-only sources (transactions, maintenance, trip prices) — granting another role also needs a rules change (ADR 0031).
+    { id: "accounting_view_pnl", title: "View P&L", description: "Per-trip contribution, lane and truck profitability, and the monthly P&L (own trucks)", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
+    { id: "accounting_manage_pnl_settings", title: "Manage P&L Settings", description: "Set P&L rates (driver, helper, maintenance per km) and the fixed-cost list", defaultPermissions: { ADMIN: true, MANAGER: false, OPERATION_STAFF: false, OPERATOR: false, DRIVER: false, PARTNER: false, CUSTOMER: false } },
 ];
 
 // Security & Access Control permissions

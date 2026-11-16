@@ -53,6 +53,7 @@ export default {
     "nav.billingDocument": "Billing Documents",
     "nav.billingResult": "Billing Statements",
     "nav.shopeeExpressReport": "Shopee Express Report",
+    "nav.pnl": "P&L",
     "nav.operations": "Operations",
     "nav.jobAssign": "Job Assigning",
     "jobAssign.title": "Job Assigning",

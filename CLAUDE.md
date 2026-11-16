@@ -991,6 +991,28 @@ build → ประกาศเวอร์ชันขึ้น Firestore อ�
 
 ---
 
+#### 50. P&L รายเที่ยว (contribution model) — [16 พ.ย. 2026] — ดู **ADR 0031** + spec `shared-docs/specs/per-trip-pnl.md`
+
+หน้า `/app/accounting/pnl` (รายเดือน / รายเที่ยว / รายเส้น / รายรถ + คำเตือน + Excel) และ `/app/accounting/pnl/settings` — **คำนวณสดในเบราว์เซอร์ ไม่เก็บผล ไม่มี Cloud Function ไม่แตะ mobile และไม่แตะ `billingCompute.ts`**
+
+| ที่ | สิ่งที่เปลี่ยน |
+|----|---------------|
+| `lib/pnlCompute.ts` + `lib/pnl/*.ts` (+ test 18 เคส) | pure compute: กำไรส่วนเกินต่อเที่ยว, ฿/กม. fill-to-fill, ส่วนแบ่ง helper-day, บิลซ่อมลงเดือนวันเสร็จ, ประกัน/ภาษีจาก `transactions`, งบเดือน, เที่ยวคุ้มทุน, fail-loud F1–F18 |
+| `validate/pnlSettingsSchema.ts`, `lib/collections.ts` | collection ใหม่ `pnl_rates` + `pnl_fixed_costs` (append-only, วันที่เป็นสตริง) |
+| `features/pnl/{api,hooks,components,utils}` | `pnlSources.ts` (query เดือน), `pnlSettings.ts` (เพิ่ม/void), `usePnlMonth`, ตาราง + dialog, `pnlExcel.ts` |
+| `firestore.rules` | 2 match: admin, create ตรวจ field, update = `isVoidOnlyUpdate`, delete false |
+| `lib/capabilities.ts`, roles matrix, sidebar | `accounting_view_pnl`, `accounting_manage_pnl_settings` (Admin) |
+| `lib/fuelEfficiency.ts` | `KMPL_MIN/MAX` ใช้ร่วมกับหน้า fuel |
+| i18n | `context/locales/{en,th}/pnl.ts` (221 คีย์) + `nav.pnl` + capability keys |
+
+**กติกาที่เจ้าของแก้ตอน approve:** multi-drop = ไป-กลับจุดไกลสุด; standby = route ก่อนหน้าบนรถเดียวกัน (≤3 วัน) ขาเดียว × 2 (แก้ ADR 0031 §2 แล้ว)
+
+**เพิ่มวันเดียวกัน (owner):** export เป็น **ไฟล์ HTML ปรับ 4 อัตราได้** แทน Excel (`pnlHtml.ts` + `lib/pnl/scenario.ts`, สคริปต์ฝังผ่าน `toString()` ต้อง self-contained); หมวดต้นทุน **พรบ. / ภาษีรถ** (ภาษีรถในรายการใช้แทนประวัติต่ออายุของคันนั้น) + **หมวดตั้งชื่อเอง**; แท็บ **รายปี** ม.ค. → เดือนล่าสุด (`lib/pnl/year.ts`); ตารางต้นทุนคงที่แถวเดียวต่อรายการ
+
+**สถานะ:** web `tsc` ผ่าน, eslint 0 errors, vitest 431/431; ยังไม่ commit; rules deploy ไป dev แล้ว (เจ้าของเปิดหน้าตั้งค่าได้). **Deploy:** `firestore.rules` + web (ไม่มี functions) → ตั้งค่า P&L (ค่าคนขับ 250, ผู้ช่วย 400, บำรุง 0.14, ยาง 0.30 + ต้นทุนคงที่) → เปิด ต.ค. 2569 เทียบรายงานต้นทุน (฿/กม. ≈ 4.17, ระยะเกิน 15–18%). Pattern: `.vibe-rules.md` → Confirmed Patterns → "📊 P&L คำนวณสด ไม่เก็บผล"
+
+---
+
 ### ⚠️ สิ่งที่ยังค้างอยู่ (Pending)
 
 1. **RBAC — กำหนด `security_view_mobile_clients` ให้ role ใน Firestore `permissions_config`**  

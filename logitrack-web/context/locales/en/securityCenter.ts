@@ -258,6 +258,10 @@ export default {
     "securityCenter.capabilities.accounting_view_other.description": "View other expense records",
     "securityCenter.capabilities.accounting_audit_expense.title": "Audit Vehicle Expense",
     "securityCenter.capabilities.accounting_audit_expense.description": "Review and approve/reject vehicle expenses",
+    "securityCenter.capabilities.accounting_view_pnl.title": "View P&L",
+    "securityCenter.capabilities.accounting_view_pnl.description": "Per-trip contribution, lane and truck profitability, and the monthly P&L (own trucks). Reads admin-only data — other roles also need a rules change",
+    "securityCenter.capabilities.accounting_manage_pnl_settings.title": "Manage P&L Settings",
+    "securityCenter.capabilities.accounting_manage_pnl_settings.description": "Set P&L rates (driver, helper, maintenance per km) and the fixed-cost list",
     "securityCenter.capabilities.accounting_edit_other.title": "Edit Other Expenses",
     "securityCenter.capabilities.accounting_edit_other.description": "Edit other accounting",
 

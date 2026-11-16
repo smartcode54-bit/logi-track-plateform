@@ -269,6 +269,10 @@ export default {
     "securityCenter.capabilities.accounting_view_other.description": "ดูบันทึกรายจ่ายอื่นๆ",
     "securityCenter.capabilities.accounting_audit_expense.title": "ตรวจสอบค่าใช้จ่ายรถ",
     "securityCenter.capabilities.accounting_audit_expense.description": "ตรวจสอบ อนุมัติ หรือปฏิเสธรายการที่คนขับส่ง",
+    "securityCenter.capabilities.accounting_view_pnl.title": "ดู P&L",
+    "securityCenter.capabilities.accounting_view_pnl.description": "กำไรส่วนเกินรายเที่ยว รายเส้น รายรถ และ P&L รายเดือน (รถของเรา) — อ่านข้อมูลที่เปิดเฉพาะแอดมิน role อื่นต้องแก้ rules เพิ่ม",
+    "securityCenter.capabilities.accounting_manage_pnl_settings.title": "จัดการตั้งค่า P&L",
+    "securityCenter.capabilities.accounting_manage_pnl_settings.description": "ตั้งค่าคนขับ ค่าผู้ช่วย ค่าซ่อมต่อ กม. และรายการต้นทุนคงที่",
     "securityCenter.capabilities.accounting_edit_other.title": "แก้ไขรายจ่ายอื่น",
     "securityCenter.capabilities.accounting_edit_other.description": "แก้ไขบัญชีอื่น",
 

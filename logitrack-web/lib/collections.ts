@@ -129,6 +129,18 @@ export const COLLECTIONS = {
 
     /** App-wide settings, one doc per concern (see MOBILE_APP_SETTINGS_DOC) */
     SETTINGS: "settings",
+
+    /**
+     * P&L per-unit rates (ADR 0031): driver per trip, helper per helper-day, maintenance ฿/km
+     * (servicing + tyres). Append-only, effective-dated by `effectiveFrom` (yyyy-MM-dd string).
+     */
+    PNL_RATES: "pnl_rates",
+
+    /**
+     * P&L fixed-cost list (ADR 0031): one doc per VERSION of an item (`itemId` shared by versions).
+     * Append-only, effective-dated by `effectiveFromMonth` (yyyy-MM string).
+     */
+    PNL_FIXED_COSTS: "pnl_fixed_costs",
 } as const;
 
 /**

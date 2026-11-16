@@ -490,6 +490,37 @@ service cloud.firestore {
       allow write: if isAppCheckVerified() && request.auth != null && isWebAdmin();
     }
 
+    // P&L settings (ADR 0031, spec per-trip-pnl.md §4.8) — admin only, append-only like announcement
+    // rows (ADR 0009): a change is a new row with a later effective date, a mistake is voided.
+    // Editing or deleting a row would silently change months already reviewed.
+    match /pnl_rates/{docId} {
+      allow read: if request.auth != null && isWebAdmin();
+      allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin()
+        && request.resource.data.kind in ['driver_trip', 'helper_day', 'maint_service_km', 'maint_tyre_km']
+        && request.resource.data.amountThb is number && request.resource.data.amountThb >= 0
+        && request.resource.data.effectiveFrom is string
+        && request.resource.data.effectiveFrom.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.voided == false;
+      allow update: if isAppCheckVerified() && request.auth != null && isWebAdmin() && isVoidOnlyUpdate();
+      allow delete: if false;
+    }
+
+    // One doc per VERSION of a fixed-cost item (itemId shared by versions).
+    match /pnl_fixed_costs/{docId} {
+      allow read: if request.auth != null && isWebAdmin();
+      allow create: if isAppCheckVerified() && request.auth != null && isWebAdmin()
+        && request.resource.data.itemId is string
+        && request.resource.data.scope in ['truck', 'company']
+        && (request.resource.data.scope != 'truck' || request.resource.data.truckId is string)
+        && request.resource.data.frequency in ['monthly', 'yearly']
+        && request.resource.data.amountThb is number && request.resource.data.amountThb >= 0
+        && request.resource.data.effectiveFromMonth is string
+        && request.resource.data.effectiveFromMonth.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.voided == false;
+      allow update: if isAppCheckVerified() && request.auth != null && isWebAdmin() && isVoidOnlyUpdate();
+      allow delete: if false;
+    }
+
     // Driver penalties (deductions) — admin only.
     match /driver_penalties/{penaltyId} {
       allow read: if request.auth != null && isWebAdmin();

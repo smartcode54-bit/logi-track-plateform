@@ -39,6 +39,7 @@ Companion glossary: [../glossary.md](../glossary.md).
 | [0026](0026-multi-tenant-carrier-isolation.md) | Multi-tenant carrier isolation — opening the platform to TTP and its subcontractors (`tenantId` frozen on the row, `platform_admin` split from tenant admin) | Accepted 2026-09-11 (impl pending) |
 | [0027](0027-plan-date-billing-axis.md) | Per-customer plan-date billing axis — bill by the plan date (`tasks.date` → `trip_records.billingDate`), not the delivery instant, for opt-in customers (CJSF) | Accepted 2026-09-12 (Phase 1 impl local, pending verify) |
 | [0028](0028-plan-date-vs-actual-work-date.md) | Plan date vs actual work date — keep them separate; `checkInAt` is the actual date, plan date is the billing/filter axis; add no `actualDate` field, no override, no flag | Accepted 2026-09-12 (no code change) |
+| [0031](0031-per-trip-pnl-contribution-model.md) | Per-trip P&L — contribution per trip (fuel on job distance × truck ฿/km, P&L-own driver rate, helper-day split, maintenance accrual); fixed costs, off-plan-km fuel and maintenance variance at month level; actual work date; own trucks only; computed on read | Accepted 2026-11-16 (impl pending) |
 
 **Next free number: `0029`.** Take the next unused number, never reuse or renumber (see
 [conventions](0000-adr-conventions.md)).

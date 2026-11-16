@@ -47,6 +47,8 @@ import { updateVehicleExpense } from "../actions.client";
 import { functions } from "@/firebase/client";
 import { driverFilterKeys } from "@/lib/driverName";
 import { AddFuelExpenseDialog } from "@/features/accounting/components/AddFuelExpenseDialog";
+// ช่วง km/L ที่ถือว่าสมเหตุสมผลสำหรับรถบรรทุก — นอกช่วงนี้ถือว่าเพี้ยน (ใช้ร่วมกับ P&L)
+import { KMPL_MAX, KMPL_MIN } from "@/lib/fuelEfficiency";
 
 /** เหตุผลที่ค่า km/L ของแถวนั้นไม่น่าเชื่อถือ (ไม่นำไปคิดค่าเฉลี่ย) */
 export type FuelFlag =
@@ -64,9 +66,6 @@ export interface FuelRow extends VehicleExpenseRow {
     fuelFlag?: FuelFlag;
 }
 
-/** ช่วง km/L ที่ถือว่าสมเหตุสมผลสำหรับรถบรรทุก — นอกช่วงนี้ถือว่าเพี้ยน */
-const KMPL_MIN = 2;
-const KMPL_MAX = 25;
 
 /** คีย์จัดกลุ่มตาม "รถ" — truckId ก่อน, ไม่มีก็ใช้ทะเบียน (normalize); ไม่มีทั้งคู่ = null */
 function fuelTruckKey(r: VehicleExpenseRow): string | null {

@@ -57,6 +57,8 @@ export const CAPABILITIES = {
   accounting_billing_document: "accounting:billing_document",
   accounting_billing_result: "accounting:billing_result",
   accounting_shopee_report: "accounting:shopee_report",
+  accounting_view_pnl: "accounting:view_pnl",
+  accounting_manage_pnl_settings: "accounting:manage_pnl_settings",
 
   // Reporting
   reporting_view_analytics: "reporting:view_analytics",
@@ -284,6 +286,16 @@ export const CAPABILITY_META: Record<
     description: "Generate the price-free Shopee Express (TTP) billing support pack: trip summary + signed run-sheet images grouped by driver",
     module: "Accounting",
   },
+  [CAPABILITIES.accounting_view_pnl]: {
+    title: "View P&L",
+    description: "Per-trip contribution, lane and truck profitability, and the monthly P&L (own trucks)",
+    module: "Accounting",
+  },
+  [CAPABILITIES.accounting_manage_pnl_settings]: {
+    title: "Manage P&L Settings",
+    description: "Set P&L rates (driver, helper, maintenance per km) and the fixed-cost list",
+    module: "Accounting",
+  },
   [CAPABILITIES.reporting_view_analytics]: {
     title: "View Analytics",
     description: "Analytics",
@@ -380,6 +392,8 @@ export const ROUTE_CAPABILITIES: Record<string, CapabilityId> = {
   "/app/accounting/billing-document": CAPABILITIES.accounting_billing_document,
   "/app/accounting/billing-result": CAPABILITIES.accounting_billing_result,
   "/app/accounting/shopee-express-report": CAPABILITIES.accounting_shopee_report,
+  "/app/accounting/pnl": CAPABILITIES.accounting_view_pnl,
+  "/app/accounting/pnl/settings": CAPABILITIES.accounting_manage_pnl_settings,
   "/app/companies": CAPABILITIES.company_view,
   "/app/companies/new": CAPABILITIES.company_manage,
   "/app/settings/company-profile": CAPABILITIES.company_manage,

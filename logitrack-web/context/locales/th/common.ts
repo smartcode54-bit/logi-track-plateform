@@ -53,6 +53,7 @@ export default {
     "nav.billingDocument": "เอกสารวางบิล",
     "nav.billingResult": "ทะเบียนใบวางบิล",
     "nav.shopeeExpressReport": "รายงาน Shopee Express",
+    "nav.pnl": "กำไร-ขาดทุน (P&L)",
     "nav.operations": "ปฏิบัติการ",
     "nav.jobAssign": "มอบหมายงาน",
     "jobAssign.title": "มอบหมายงาน",
