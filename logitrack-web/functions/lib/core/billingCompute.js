@@ -11,6 +11,8 @@ exports.normalizeDestinationCode = normalizeDestinationCode;
 exports.normalizeVehicleClass = normalizeVehicleClass;
 exports.bangkokDateStrFromMillis = bangkokDateStrFromMillis;
 exports.isEffectiveOnOrBeforeBillingDate = isEffectiveOnOrBeforeBillingDate;
+exports.announcementRecordedMs = announcementRecordedMs;
+exports.compareAnnouncementsNewestFirst = compareAnnouncementsNewestFirst;
 exports.fuelBandFloor = fuelBandFloor;
 exports.fuelBandRange = fuelBandRange;
 exports.computeFuelSurchargeThb = computeFuelSurchargeThb;
@@ -160,6 +162,46 @@ function bangkokDateStrFromMillis(ms) {
  */
 function isEffectiveOnOrBeforeBillingDate(effectiveFromMs, billDateMs) {
     return bangkokDateStrFromMillis(effectiveFromMs) <= bangkokDateStrFromMillis(billDateMs);
+}
+/** Write time of an announcement row: its stored timestamp, else the ms suffix of its import id, else 0. */
+function announcementRecordedMs(row) {
+    if (typeof row.recordedAtMs === "number" && Number.isFinite(row.recordedAtMs) && row.recordedAtMs > 0) {
+        return row.recordedAtMs;
+    }
+    const suffix = /_(\d{12,})$/.exec(row.importId ?? "");
+    return suffix ? Number(suffix[1]) : 0;
+}
+/**
+ * Newest-first order of announcement rows (ADR 0009 §9). Every reader that picks "the row in effect"
+ * sorts with this, so the server, the web preview and the Rate Card list always agree.
+ *
+ * 1. Later Bangkok effective DAY first — the same granularity as `isEffectiveOnOrBeforeBillingDate`.
+ *    Comparing the raw instant let a row stored before 2026-08-09 (07:00 ICT) outrank a correction
+ *    re-imported for the same day (00:00 ICT) every time.
+ * 2. Same day: the row written LAST wins. Re-importing a day is how an admin corrects it.
+ * 3. id — only so a remaining tie breaks the same way everywhere (it used to be Firestore doc order,
+ *    i.e. random).
+ */
+function compareAnnouncementsNewestFirst(a, b) {
+    const dayA = bangkokDateStrFromMillis(a.effectiveFromMs);
+    const dayB = bangkokDateStrFromMillis(b.effectiveFromMs);
+    if (dayA !== dayB)
+        return dayA < dayB ? 1 : -1;
+    const recordedDiff = announcementRecordedMs(b) - announcementRecordedMs(a);
+    if (recordedDiff !== 0)
+        return recordedDiff;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+/** Row for a record dated before every row: the earliest effective day, the last written that day. */
+function earliestAnnouncement(rows) {
+    if (rows.length === 0)
+        return null;
+    const earliestDay = rows
+        .map((r) => bangkokDateStrFromMillis(r.effectiveFromMs))
+        .reduce((min, day) => (day < min ? day : min));
+    return rows
+        .filter((r) => bangkokDateStrFromMillis(r.effectiveFromMs) === earliestDay)
+        .sort(compareAnnouncementsNewestFirst)[0];
 }
 // ─── Fuel bands (ADR 0009 §3) ────────────────────────────────────────────────
 /**
@@ -378,22 +420,22 @@ function selectBillingRateEntry(customerId, hubId, destinationCode, vehicleClass
         (entry.jobCategory ?? "PRIMARY") === jobCategory);
     if (candidates.length === 0)
         return null;
-    // Primary: effective on or before trip date, by Bangkok calendar day (newest first)
+    // Primary: effective on or before trip date, by Bangkok calendar day (newest first; same day →
+    // the row written last, ADR 0009 §9)
     const effective = candidates
         .filter((e) => isEffectiveOnOrBeforeBillingDate(e.effectiveFromMs, billDateMs))
-        .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
+        .sort(compareAnnouncementsNewestFirst);
     if (effective.length > 0)
         return effective[0];
-    // Fallback: trip is before all effective dates → use oldest rate card
-    const oldest = candidates.sort((a, b) => a.effectiveFromMs - b.effectiveFromMs);
-    return oldest[0];
+    // Fallback: trip is before all effective dates → use the oldest rate card
+    return earliestAnnouncement(candidates);
 }
 function selectFuelAdjustmentForBillingDate(customerId, billDateMs, fuelAdjustments) {
     const matched = fuelAdjustments
         .filter((adj) => adj.voided !== true &&
         adj.customerId === customerId &&
         isEffectiveOnOrBeforeBillingDate(adj.effectiveFromMs, billDateMs))
-        .sort((a, b) => b.effectiveFromMs - a.effectiveFromMs);
+        .sort(compareAnnouncementsNewestFirst);
     return matched[0] ?? null;
 }
 /** Final trip rate in THB, rounded to 2 decimal places (same as legacy billing snapshot). */

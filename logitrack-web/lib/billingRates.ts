@@ -126,6 +126,8 @@ export async function fetchRateEntriesForCustomers(
                 voided: d.voided === true,
                 // ADR 0029 — base vs final price; the server guard refuses mismatched pairings.
                 priceBasis: parsePriceBasis(d.priceBasis),
+                // ADR 0009 §9 — same-day tie-break; without it the preview could pick another row.
+                recordedAtMs: toMillis(d.importedAt ?? d.createdAt),
             });
         });
     });
@@ -172,6 +174,8 @@ export async function fetchFuelAdjustmentsForCustomers(
                 pricingModel: parseFuelPricingModel(d.pricingModel),
                 bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
                 bandStepParams: parseBandStepParams(d.bandStepParams) ?? undefined,
+                // ADR 0009 §9 — same-day tie-break.
+                recordedAtMs: toMillis(d.createdAt),
             });
         });
     });

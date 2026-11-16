@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    announcementRecordedMs,
     bangkokDateStrFromMillis,
     computeFinalRateThb,
     computeFuelSurchargeThb,
@@ -225,6 +226,84 @@ describe("overnight switch-day trips price under the correct round (legacy UTC-m
             { id: "aug", customerId: "c", rateThb: 400, effectiveFromMs: legacyAug1 },
         ];
         expect(selectStandbyRateEntry("c", overnightAug1, rates)?.id).toBe("aug");
+    });
+});
+
+describe("same-day announcements: the row written last wins (ADR 0009 §9)", () => {
+    const base = { customerId: "c", hubId: "HUB", destinationCode: "DEST", vehicleClass: "4WJ" };
+    const nov1Bkk = Date.UTC(2026, 9, 31, 17, 0, 0); // 1 Nov 00:00 ICT — current storage
+    const nov1Legacy = Date.UTC(2026, 10, 1, 0, 0, 0); // 1 Nov 07:00 ICT — rows written before 2026-08-09
+    const nov5Bkk = Date.UTC(2026, 10, 4, 17, 0, 0); // 5 Nov 00:00 ICT
+    const trip = Date.UTC(2026, 10, 10, 3, 0, 0); // 10 Nov 10:00 ICT
+    const pick = (entries: BillingRateEntry[], billDate = trip) =>
+        selectBillingRateEntry("c", "HUB", "DEST", "4WJ", billDate, entries)?.id;
+
+    // Ids are chosen so that the old "first in Firestore order" behaviour would pick the wrong row.
+    const original: BillingRateEntry = {
+        ...base, id: "a-original", importId: "rc_1761000000000", rateThb: 1000,
+        effectiveFromMs: nov1Bkk, recordedAtMs: 1761000000000,
+    };
+    const correction: BillingRateEntry = {
+        ...base, id: "z-correction", importId: "rc_1763000000000", rateThb: 1100,
+        effectiveFromMs: nov1Bkk, recordedAtMs: 1763000000000,
+    };
+
+    it("a re-import for the same day supersedes the earlier row, whatever order Firestore returns", () => {
+        expect(pick([original, correction])).toBe("z-correction");
+        expect(pick([correction, original])).toBe("z-correction");
+    });
+
+    it("a legacy row stored at 07:00 ICT no longer outranks a same-day correction stored at 00:00", () => {
+        // Before: sorting the raw instant put 07:00 above 00:00, so the old price won every time.
+        const legacy: BillingRateEntry = { ...original, effectiveFromMs: nov1Legacy, recordedAtMs: undefined };
+        expect(pick([legacy, correction])).toBe("z-correction");
+    });
+
+    it("reads the write time from the import id when the row carries none", () => {
+        expect(announcementRecordedMs({ importId: "rc_1763000000000" })).toBe(1763000000000);
+        expect(announcementRecordedMs({ importId: "manual_1763000000000" })).toBe(1763000000000);
+        expect(announcementRecordedMs({ importId: "imp1" })).toBe(0);
+        expect(announcementRecordedMs({ recordedAtMs: 5, importId: "rc_1763000000000" })).toBe(5);
+        const a = { ...original, recordedAtMs: undefined };
+        const b = { ...correction, recordedAtMs: undefined };
+        expect(pick([a, b])).toBe("z-correction");
+        expect(pick([b, a])).toBe("z-correction");
+    });
+
+    it("a later effective DAY still beats a later write", () => {
+        const nov5: BillingRateEntry = { ...original, id: "nov5", effectiveFromMs: nov5Bkk, recordedAtMs: 1 };
+        expect(pick([correction, nov5])).toBe("nov5");
+        // …but not for a trip before 5 Nov.
+        expect(pick([correction, nov5], Date.UTC(2026, 10, 2, 3))).toBe("z-correction");
+    });
+
+    it("the before-every-row fallback takes the earliest day, latest write on that day", () => {
+        const nov5: BillingRateEntry = { ...original, id: "nov5", effectiveFromMs: nov5Bkk, recordedAtMs: 1 };
+        const octTrip = Date.UTC(2026, 9, 15, 3, 0, 0);
+        expect(pick([original, nov5, correction], octTrip)).toBe("z-correction");
+    });
+
+    it("breaks a full tie the same way in every input order", () => {
+        const x: BillingRateEntry = { ...base, id: "x", importId: "", rateThb: 1, effectiveFromMs: nov1Bkk };
+        const y: BillingRateEntry = { ...base, id: "y", importId: "", rateThb: 2, effectiveFromMs: nov1Bkk };
+        expect(pick([x, y])).toBe(pick([y, x]));
+    });
+
+    it("applies to fuel rounds announced twice for the same day", () => {
+        const first: FuelRateAdjustment = {
+            id: "z-first", customerId: "c", effectiveFromMs: nov1Legacy, rateMultiplier: 1, addThbPerTrip: 10,
+            recordedAtMs: 1761000000000,
+        };
+        const again: FuelRateAdjustment = {
+            id: "a-again", customerId: "c", effectiveFromMs: nov1Bkk, rateMultiplier: 1, addThbPerTrip: 20,
+            recordedAtMs: 1763000000000,
+        };
+        expect(selectFuelAdjustmentForBillingDate("c", trip, [first, again])?.id).toBe("a-again");
+        expect(selectFuelAdjustmentForBillingDate("c", trip, [again, first])?.id).toBe("a-again");
+    });
+
+    it("a voided correction leaves the original in force", () => {
+        expect(pick([original, { ...correction, voided: true }])).toBe("a-original");
     });
 });
 

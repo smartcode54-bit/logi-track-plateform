@@ -40,6 +40,7 @@ function mapRate(customerId, doc) {
         jobCategory: d.jobCategory === "SUPPLEMENTARY" ? "SUPPLEMENTARY" : "PRIMARY",
         voided: d.voided === true,
         priceBasis: billing.parsePriceBasis(d.priceBasis), // ADR 0029
+        recordedAtMs: billing.timestampLikeToMillis(d.importedAt ?? d.createdAt), // ADR 0009 §9
     };
 }
 function mapFuel(customerId, doc) {
@@ -57,6 +58,7 @@ function mapFuel(customerId, doc) {
         bandStepParams: billing.parseBandStepParams(d.bandStepParams) ?? undefined,
         referenceFuelPriceThb:
             d.referenceFuelPriceThbPerLitre != null ? Number(d.referenceFuelPriceThbPerLitre) : undefined,
+        recordedAtMs: billing.timestampLikeToMillis(d.createdAt), // ADR 0009 §9
     };
 }
 

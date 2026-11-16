@@ -138,6 +138,8 @@ function fuelRowsToAdjustments(rows: CustomerFuelRateAdjustmentRow[]): FuelRateA
         pricingModel: r.pricingModel,
         bandStep: r.bandStep,
         bandStepParams: r.bandStepParams,
+        // ADR 0009 §9 — same-day tie-break, so the preview picks the round the server picks.
+        recordedAtMs: r.createdAt?.getTime(),
     }));
 }
 
@@ -240,7 +242,11 @@ function compareVehicleClass(a: string, b: string): number {
 interface RecomputeStats {
     scanned: number;
     eligible?: number;
+    /** Re-priced from the rate card in effect on each record's date — NOT "the price changed". */
     written: number;
+    /** Of `written`, how many prices actually moved. Missing = functions deployed before it was counted. */
+    changed?: number;
+    /** Frozen prices (เสริม / manual override) a forced recompute leaves as they are (ADR-0005). */
     skipped: number;
     failed: number;
     /** Rows left alone because their period already carries a sent/paid invoice. */
@@ -248,7 +254,9 @@ interface RecomputeStats {
     blockedInvoices?: string[];
     /** Of `written`, how many were standby — so the admin can see standby was actually covered. */
     standbyWritten?: number;
-    failures?: { tripId: string; error?: string }[];
+    failures?: { tripId?: string; standbyId?: string; error?: string }[];
+    /** More eligible records than one run may write — run again. */
+    capped?: boolean;
 }
 
 export default function AccountingRateCardPage() {
@@ -932,6 +940,8 @@ export default function AccountingRateCardPage() {
                 scanned: trip.scanned + standby.scanned,
                 eligible: (trip.eligible ?? 0) + (standby.eligible ?? 0),
                 written: trip.written + standby.written,
+                changed:
+                    trip.changed != null && standby.changed != null ? trip.changed + standby.changed : undefined,
                 skipped: trip.skipped + standby.skipped,
                 failed: trip.failed + standby.failed,
                 blocked: (trip.blocked ?? 0) + (standby.blocked ?? 0),
@@ -939,6 +949,10 @@ export default function AccountingRateCardPage() {
                     ...new Set([...(trip.blockedInvoices ?? []), ...(standby.blockedInvoices ?? [])]),
                 ],
                 standbyWritten: standby.written,
+                // The reasons are what tell the admin what to fix ("No rate: …", base/final mismatch);
+                // they were dropped here before, so the dialog never showed any.
+                failures: [...(trip.failures ?? []), ...(standby.failures ?? [])],
+                capped: trip.capped === true || standby.capped === true,
             });
         } catch (err) {
             setRecomputeError(err instanceof Error ? err.message : String(err));
@@ -2129,7 +2143,7 @@ export default function AccountingRateCardPage() {
                                 onClick={() => { setRecomputeResult(null); setRecomputeError(null); setRecomputeDialogOpen(true); }}
                             >
                                 <Calculator className="h-4 w-4 mr-2" />
-                                Recompute Billing
+                                {t("accounting.rateCard.recompute.title")}
                             </Button>
                         )}
                         {canEdit && (
@@ -2169,15 +2183,15 @@ export default function AccountingRateCardPage() {
                         <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                                 <Calculator className="h-5 w-5" />
-                                Recompute Billing
+                                {t("accounting.rateCard.recompute.title")}
                             </DialogTitle>
                             <DialogDescription>
-                                คำนวณ billing ใหม่ทุก trip ที่ส่งสำเร็จในช่วงวันที่ที่เลือก — ใช้หลังจากแก้ Fuel Adjustment
+                                {t("accounting.rateCard.recompute.description")}
                             </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-2">
                             <div className="space-y-1">
-                                <Label>ช่วงวันที่</Label>
+                                <Label>{t("accounting.rateCard.recompute.dateRange")}</Label>
                                 <DateOnlyRangePicker
                                     from={recomputeFromDate}
                                     to={recomputeToDate}
@@ -2190,13 +2204,13 @@ export default function AccountingRateCardPage() {
                                 />
                             </div>
                             <div className="space-y-1">
-                                <Label>ลูกค้า (ไม่ระบุ = ทุกลูกค้า)</Label>
+                                <Label>{t("accounting.rateCard.recompute.customer")}</Label>
                                 <Select value={recomputeCustomerId} onValueChange={setRecomputeCustomerId}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="ทุกลูกค้า" />
+                                        <SelectValue placeholder={t("accounting.rateCard.recompute.allCustomers")} />
                                     </SelectTrigger>
                                     <SelectContent className="z-[1005]" position="popper">
-                                        <SelectItem value="all">ทุกลูกค้า</SelectItem>
+                                        <SelectItem value="all">{t("accounting.rateCard.recompute.allCustomers")}</SelectItem>
                                         {customers.map((c) => (
                                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                                         ))}
@@ -2208,42 +2222,80 @@ export default function AccountingRateCardPage() {
                             )}
                             {recomputeResult && (
                                 <div className="rounded-md bg-green-500/10 border border-green-500/30 p-3 text-sm space-y-1">
-                                    <p className="font-semibold text-green-600">✅ เสร็จแล้ว</p>
-                                    <p>สแกน: {recomputeResult.scanned} รายการ (เที่ยว + standby)</p>
+                                    <p className="font-semibold text-green-600">{t("accounting.rateCard.recompute.done")}</p>
+                                    <p>{t("accounting.rateCard.recompute.scanned", { count: recomputeResult.scanned })}</p>
                                     <p>
-                                        อัปเดตสำเร็จ: <span className="font-bold">{recomputeResult.written}</span>
+                                        {t("accounting.rateCard.recompute.written", { count: recomputeResult.written })}
                                         {typeof recomputeResult.standbyWritten === "number" && (
-                                            <span className="text-muted-foreground"> (standby {recomputeResult.standbyWritten})</span>
+                                            <span className="text-muted-foreground">
+                                                {" "}
+                                                {t("accounting.rateCard.recompute.writtenStandby", {
+                                                    count: recomputeResult.standbyWritten,
+                                                })}
+                                            </span>
                                         )}
                                     </p>
-                                    <p>ข้าม (ไม่มี rate card): {recomputeResult.skipped}</p>
+                                    {/* "Re-priced" is not "the price changed": a re-priced row whose price stayed
+                                        put was priced from the rate in effect on its own date. */}
+                                    {recomputeResult.changed != null && (
+                                        <>
+                                            <p className="pl-3">
+                                                {t("accounting.rateCard.recompute.changed", {
+                                                    changed: recomputeResult.changed,
+                                                    unchanged: recomputeResult.written - recomputeResult.changed,
+                                                })}
+                                            </p>
+                                            {recomputeResult.written > recomputeResult.changed && (
+                                                <p className="pl-3 text-xs text-muted-foreground">
+                                                    {t("accounting.rateCard.recompute.unchangedHint")}
+                                                </p>
+                                            )}
+                                        </>
+                                    )}
+                                    {recomputeResult.skipped > 0 && (
+                                        <p>{t("accounting.rateCard.recompute.frozen", { count: recomputeResult.skipped })}</p>
+                                    )}
                                     {(recomputeResult.blocked ?? 0) > 0 && (
                                         <p className="text-orange-600">
-                                            ⚠ ไม่แก้ {recomputeResult.blocked} รายการ — งวดนั้นออกใบแจ้งหนี้ไปแล้ว
-                                            {recomputeResult.blockedInvoices?.length
-                                                ? ` (${recomputeResult.blockedInvoices.join(", ")})`
-                                                : ""}
-                                            {" "}ต้องยกเลิก/ออกใบลดหนี้ก่อน
+                                            {t("accounting.rateCard.recompute.blocked", {
+                                                count: recomputeResult.blocked ?? 0,
+                                                invoices: recomputeResult.blockedInvoices?.length
+                                                    ? ` (${recomputeResult.blockedInvoices.join(", ")})`
+                                                    : "",
+                                            })}
                                         </p>
                                     )}
                                     {recomputeResult.failed > 0 && (
                                         <>
-                                            <p className="text-red-500">ล้มเหลว: {recomputeResult.failed}</p>
-                                            {recomputeResult.failures?.slice(0, 5).map((f) => (
-                                                <p key={f.tripId} className="text-red-400 text-xs font-mono break-all">• {f.tripId}: {f.error ?? "unknown"}</p>
-                                            ))}
+                                            <p className="text-red-500">
+                                                {t("accounting.rateCard.recompute.failed", { count: recomputeResult.failed })}
+                                            </p>
+                                            {recomputeResult.failures?.slice(0, 5).map((f) => {
+                                                const id = f.tripId ?? f.standbyId ?? "";
+                                                return (
+                                                    <p key={id} className="text-red-400 text-xs font-mono break-all">
+                                                        • {id}: {f.error ?? "unknown"}
+                                                    </p>
+                                                );
+                                            })}
                                         </>
                                     )}
-                                    {(recomputeResult.eligible ?? 0) > recomputeResult.written && (
-                                        <p className="text-amber-500">⚠️ มี trip เหลือ — กด Recompute อีกครั้ง</p>
+                                    {/* `eligible > written` used to drive this, which never cleared once a frozen
+                                        row was in range — the server's `capped` says whether work is left. */}
+                                    {recomputeResult.capped && (
+                                        <p className="text-amber-500">{t("accounting.rateCard.recompute.capped")}</p>
                                     )}
                                 </div>
                             )}
                         </div>
                         <DialogFooter>
-                            <Button variant="outline" onClick={() => setRecomputeDialogOpen(false)}>ปิด</Button>
+                            <Button variant="outline" onClick={() => setRecomputeDialogOpen(false)}>{t("common.close")}</Button>
                             <Button onClick={handleRecomputeBilling} disabled={recomputeLoading || !recomputeFromDate || !recomputeToDate}>
-                                {recomputeLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />กำลังคำนวณ...</> : <><Calculator className="h-4 w-4 mr-2" />Recompute</>}
+                                {recomputeLoading ? (
+                                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{t("accounting.rateCard.recompute.running")}</>
+                                ) : (
+                                    <><Calculator className="h-4 w-4 mr-2" />{t("accounting.rateCard.recompute.run")}</>
+                                )}
                             </Button>
                         </DialogFooter>
                     </DialogContent>

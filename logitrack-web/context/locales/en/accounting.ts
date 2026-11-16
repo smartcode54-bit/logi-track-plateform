@@ -209,6 +209,27 @@ export default {
     "accounting.rateCard.void.confirm": "Void",
     "accounting.rateCard.void.badge": "Voided",
     "accounting.rateCard.void.error": "Could not void this announcement.",
+    "accounting.rateCard.recompute.title": "Recompute Billing",
+    "accounting.rateCard.recompute.description":
+        "Re-prices every delivered trip and standby in the date range from the rate card and fuel round in effect on each record's own date — not simply the newest price.",
+    "accounting.rateCard.recompute.dateRange": "Date range",
+    "accounting.rateCard.recompute.customer": "Customer (blank = all customers)",
+    "accounting.rateCard.recompute.allCustomers": "All customers",
+    "accounting.rateCard.recompute.run": "Recompute",
+    "accounting.rateCard.recompute.running": "Computing...",
+    "accounting.rateCard.recompute.done": "✅ Done",
+    "accounting.rateCard.recompute.scanned": "Scanned {count} records (trips + standby)",
+    "accounting.rateCard.recompute.written": "Re-priced {count}",
+    "accounting.rateCard.recompute.writtenStandby": "(standby {count})",
+    "accounting.rateCard.recompute.changed": "price changed {changed} · same price {unchanged}",
+    "accounting.rateCard.recompute.unchangedHint":
+        "Same price = the rate in effect on that record's date is still the old one. If you expected the new price, check that its effective date is not after the trip's date (plan-date customers use the plan date).",
+    "accounting.rateCard.recompute.frozen":
+        "Left {count} as they were — locked price (supplementary trip / manually set price)",
+    "accounting.rateCard.recompute.blocked":
+        "⚠ Left {count} unchanged — the period is already invoiced{invoices}. Cancel or credit-note it first.",
+    "accounting.rateCard.recompute.failed": "Could not price {count} (e.g. no rate card):",
+    "accounting.rateCard.recompute.capped": "⚠️ Some records were not processed (per-run limit) — press Recompute again.",
     "accounting.rateCard.rounds.title": "Rate rounds",
     "accounting.rateCard.rounds.subtitle": "Each round runs from its effective date until the next one starts. A month may contain several.",
     "accounting.rateCard.rounds.round": "Round",

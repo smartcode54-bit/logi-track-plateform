@@ -167,6 +167,8 @@ function mapRateDoc(customerId: string, doc: admin.firestore.QueryDocumentSnapsh
         voided: d.voided === true,
         // ADR 0029 — a base price is only ever combined with a band-step round (guard in billingCompute).
         priceBasis: parsePriceBasis(d.priceBasis),
+        // ADR 0009 §9 — a same-day re-import supersedes the earlier row.
+        recordedAtMs: timestampLikeToMillis(d.importedAt ?? d.createdAt),
     };
 }
 
@@ -187,6 +189,8 @@ function mapFuelDoc(customerId: string, doc: admin.firestore.QueryDocumentSnapsh
         pricingModel: parseFuelPricingModel(d.pricingModel),
         bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
         bandStepParams: parseBandStepParams(d.bandStepParams) ?? undefined,
+        // ADR 0009 §9 — a round announced again for the same day supersedes the earlier one.
+        recordedAtMs: timestampLikeToMillis(d.createdAt),
     };
 }
 
@@ -1024,6 +1028,13 @@ interface BackfillBillingResponse {
     /** delivered without billingEstimateThb before writes attempted */
     eligible: number;
     written: number;
+    /**
+     * Of `written`, how many now carry a different price than before. A written row whose price did
+     * not move was still re-priced from the rate card in effect on its date — usually the sign that a
+     * new price takes effect after that date.
+     */
+    changed: number;
+    /** Frozen prices (เสริม / manual override, ADR-0005) — a forced recompute leaves them as they are. */
     skipped: number;
     failed: number;
     /** Rows left untouched because their period already carries a sent/paid invoice (ADR 0008 §5). */
@@ -1154,6 +1165,7 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
 
         let eligible = 0;
         let written = 0;
+        let changed = 0;
         let skipped = 0;
         let failed = 0;
         let blocked = 0;
@@ -1185,6 +1197,7 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
             }
 
             attempted++;
+            const priceBefore = typeof data.billingEstimateThb === "number" ? data.billingEstimateThb : null;
             const result = await tryWriteBillingSnapshotFromTripData(
                 db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache,
                 forceRecompute ? locks : undefined
@@ -1194,6 +1207,7 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
                 blockedInvoices.add(result.blockedInvoiceNumber);
             } else if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
                 written++;
+                if (result.billingEstimateThb !== priceBefore) changed++;
             } else if (result.skipped === true) {
                 skipped++;
             } else {
@@ -1208,6 +1222,7 @@ export const backfillTripBillingSnapshots = onCall<BackfillBillingRequest, Promi
             scanned: snap.size,
             eligible,
             written,
+            changed,
             skipped,
             failed,
             blocked,

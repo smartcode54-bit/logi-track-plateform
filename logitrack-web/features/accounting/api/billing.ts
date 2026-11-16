@@ -24,6 +24,7 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
 import {
+    compareAnnouncementsNewestFirst,
     normalizeDestinationCode,
     normalizeVehicleClass,
     parseBandStepParams,
@@ -255,11 +256,14 @@ export async function getCustomerRateEntries(customerId?: string): Promise<Custo
             voidedBy: d.voidedBy != null ? String(d.voidedBy) : undefined,
             voidedReason: d.voidedReason != null ? String(d.voidedReason) : undefined,
         };
-    }).sort((a, b) => {
-        const byDate = b.effectiveFrom.getTime() - a.effectiveFrom.getTime();
-        if (byDate !== 0) return byDate;
-        return b.importId.localeCompare(a.importId);
-    });
+    // Listed in the order pricing ranks them (ADR 0009 §9): newest effective day first, and on one
+    // day the row imported last — the one that prices trips — above the one it superseded.
+    }).sort((a, b) =>
+        compareAnnouncementsNewestFirst(
+            { id: a.id, effectiveFromMs: a.effectiveFrom.getTime(), recordedAtMs: a.importedAt?.getTime(), importId: a.importId },
+            { id: b.id, effectiveFromMs: b.effectiveFrom.getTime(), recordedAtMs: b.importedAt?.getTime(), importId: b.importId }
+        )
+    );
 }
 
 /**
@@ -370,7 +374,13 @@ export async function getCustomerFuelRateAdjustments(
             voidedBy: d.voidedBy != null ? String(d.voidedBy) : undefined,
             voidedReason: d.voidedReason != null ? String(d.voidedReason) : undefined,
         };
-    }).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime());
+    // Same order pricing uses (ADR 0009 §9) — a round re-announced for one day lists above the earlier one.
+    }).sort((a, b) =>
+        compareAnnouncementsNewestFirst(
+            { id: a.id, effectiveFromMs: a.effectiveFrom.getTime(), recordedAtMs: a.createdAt?.getTime() },
+            { id: b.id, effectiveFromMs: b.effectiveFrom.getTime(), recordedAtMs: b.createdAt?.getTime() }
+        )
+    );
 }
 
 /**

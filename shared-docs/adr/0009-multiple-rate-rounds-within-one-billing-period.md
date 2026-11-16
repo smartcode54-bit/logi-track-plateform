@@ -206,6 +206,28 @@ written **create-only, never overwritten** (`:69-82`).
    selected period as the ordered, half-open intervals of decision 2, so an admin can see a gap or an
    overlap before invoicing rather than after.
 
+9. **Two live rows for the same day: the one written last wins** *(added 2026-11-16)*. Decision 1
+   assumed a correction would carry a later `effectiveFrom`, but nothing enforces it: the import and
+   manual-add forms default a blank date to today, and re-importing a corrected sheet for the same
+   day is the natural thing to do. In practice E was still live, and a recompute after a same-day
+   correction kept billing the old price. One comparator, `compareAnnouncementsNewestFirst`
+   (`lib/billingCompute.ts` + `functions/src/core/billingCompute.ts`), now orders every rate-card
+   row and fuel round:
+   1. later **Bangkok effective day** first — the granularity `isEffectiveOnOrBeforeBillingDate`
+      already uses. Comparing the raw instant let a row stored before 2026-08-09 (07:00 ICT, C)
+      outrank a same-day correction stored at 00:00, every time;
+   2. same day → the later **write time** (`importedAt`, else `createdAt`, else the ms suffix of
+      `importId` `rc_<ms>` / `manual_<ms>`);
+   3. `id`, only so a full tie breaks the same way in every reader.
+
+   The "before every row" fallback takes the earliest day and, within it, the same order. Every
+   loader carries the write time (`recordedAtMs`): functions `mapRateDoc` / `mapFuelDoc`,
+   `lib/billingRates.ts`, the Rate Card preview, `functions/scripts/recompute-trip-billing.js`.
+   `getCustomerRateEntries` / `getCustomerFuelRateAdjustments` list rows in this same order, so the
+   row on top of the Rate Card list is the one that prices trips. Voiding the superseded row is still
+   the clean record (decision 1), but no longer needed to make the correction take effect.
+   `standby_rate_entries` are edited in place, not announced, and keep their own order.
+
 ## Consequences
 
 **Positive**
@@ -219,6 +241,10 @@ written **create-only, never overwritten** (`:69-82`).
   stored beside the amount.
 - Same-day ambiguity (E) disappears: a corrected round is a new row with a later `effectiveFrom`, and
   a wrong one is voided, so the half-open intervals of (2) stay total and disjoint by construction.
+  *(2026-11-16: this did not hold on its own — see decision 9, which resolves a same-day pair
+  deterministically instead of relying on the admin to pick a later date or void the old row.)*
+- Decision 9 is a repricing event for exactly the routes that have two live rows on one day: a forced
+  recompute of a draft period now bills the later write. Sent/paid periods stay blocked (ADR 0008 §5).
 
 **Negative / risks**
 

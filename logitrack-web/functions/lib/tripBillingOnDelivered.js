@@ -143,6 +143,8 @@ function mapRateDoc(customerId, doc) {
         voided: d.voided === true,
         // ADR 0029 — a base price is only ever combined with a band-step round (guard in billingCompute).
         priceBasis: (0, billingCompute_1.parsePriceBasis)(d.priceBasis),
+        // ADR 0009 §9 — a same-day re-import supersedes the earlier row.
+        recordedAtMs: (0, billingCompute_1.timestampLikeToMillis)(d.importedAt ?? d.createdAt),
     };
 }
 function mapFuelDoc(customerId, doc) {
@@ -161,6 +163,8 @@ function mapFuelDoc(customerId, doc) {
         pricingModel: (0, billingCompute_1.parseFuelPricingModel)(d.pricingModel),
         bandStep: Number.isInteger(d.bandStep) ? Number(d.bandStep) : undefined,
         bandStepParams: (0, billingCompute_1.parseBandStepParams)(d.bandStepParams) ?? undefined,
+        // ADR 0009 §9 — a round announced again for the same day supersedes the earlier one.
+        recordedAtMs: (0, billingCompute_1.timestampLikeToMillis)(d.createdAt),
     };
 }
 /**
@@ -937,6 +941,7 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         taskCache.set(snap.id, snap.data()); });
     let eligible = 0;
     let written = 0;
+    let changed = 0;
     let skipped = 0;
     let failed = 0;
     let blocked = 0;
@@ -963,6 +968,7 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
             }
         }
         attempted++;
+        const priceBefore = typeof data.billingEstimateThb === "number" ? data.billingEstimateThb : null;
         const result = await tryWriteBillingSnapshotFromTripData(db, doc.id, data, doc.ref, hubMaps, forceRecompute, rateCache, taskCache, forceRecompute ? locks : undefined);
         if (result.blockedInvoiceNumber) {
             blocked++;
@@ -970,6 +976,8 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         }
         else if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
             written++;
+            if (result.billingEstimateThb !== priceBefore)
+                changed++;
         }
         else if (result.skipped === true) {
             skipped++;
@@ -985,6 +993,7 @@ exports.backfillTripBillingSnapshots = (0, https_1.onCall)({
         scanned: snap.size,
         eligible,
         written,
+        changed,
         skipped,
         failed,
         blocked,

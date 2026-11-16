@@ -330,6 +330,8 @@ interface BackfillStandbyResponse {
     scanned: number;
     eligible: number;
     written: number;
+    /** Of `written`, how many now carry a different price than before. */
+    changed: number;
     skipped: number;
     failed: number;
     /** Rows left untouched because their period is already invoiced. */
@@ -416,6 +418,7 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
         const serviceFeeByCustomer = buildStandbyServiceFeeMap(feesSnap);
         let eligible = 0;
         let written = 0;
+        let changed = 0;
         let skipped = 0;
         let failed = 0;
         let blocked = 0;
@@ -433,6 +436,7 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
             if (written >= maxWrite) continue;
 
             attempted++;
+            const priceBefore = typeof data.billingEstimateThb === "number" ? data.billingEstimateThb : null;
             const result = await tryWriteStandbyBillingSnapshot(
                 db, doc.id, data, doc.ref, rateEntries, serviceFeeByCustomer, forceRecompute, locks
             );
@@ -441,6 +445,7 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
                 if (result.invoiceNumber) blockedInvoices.add(result.invoiceNumber);
             } else if (result.ok === true && result.skipped !== true && result.billingEstimateThb != null) {
                 written++;
+                if (result.billingEstimateThb !== priceBefore) changed++;
             } else if (result.skipped === true) {
                 skipped++;
             } else {
@@ -455,6 +460,7 @@ export const backfillStandbyBillingSnapshots = onCall<BackfillStandbyRequest, Pr
             scanned: snap.size,
             eligible,
             written,
+            changed,
             skipped,
             failed,
             blocked,
