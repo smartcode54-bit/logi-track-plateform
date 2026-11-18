@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
@@ -39,6 +41,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/db"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/health"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/idempotency"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/realtime"
@@ -100,6 +103,9 @@ type APIDeps struct {
 	// LineNotify are the LINE request routes of T49: POST /v1/{tasks|trips|standby}/{id}/notify-line, POST
 	// /v1/{trips|standby}/{id}/evidence/revoke and the sendCustomerLineNotification shim targets below /v1/mobile.
 	LineNotify *linenotify.Service
+	// Idempotency is the Idempotency-Key middleware of the replayable driver writes (the ✱ routes below /v1/mobile,
+	// T55): mounted on each after authentication. nil only in `api routes` (the zero value).
+	Idempotency *idempotency.Middleware
 	// Limiter and RateLimitEnabled feed the rate-limit rules of route groups (presign_user, T11).
 	Limiter          *ratelimit.Limiter
 	RateLimitEnabled bool
@@ -419,11 +425,18 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	// T49: the LINE request routes; a revocation of a token the legacy system sent needs comms owned and, to close the
 	// legacy gallery's link too, the write-back's Firestore writer (linenotify.Coexistence).
 	lineNotify := linenotify.New(pool, jobSvc, linenotify.Coexistence{CommsOwned: cfg.CommsOwned, Firestore: wbs.Firestore})
+	// The replayable driver writes (T55): scope = the caller's user id, Redis hot copy + idempotency_keys (§B.1.5).
+	idem, err := idempotency.New(idempotency.Options{Redis: rdb, Keys: ks, Store: idempotency.NewPGStore(pool),
+		TTL: cfg.Idempotency.TTL, Scope: IdempotencyScope, Log: log})
+	if err != nil {
+		closeAll()
+		return nil, nil, err
+	}
 	a, err := build(APIDeps{Auth: svc, Admin: admin, APIKeys: apiKeys, Parties: partySvc, Hubs: hubSvc, Fleet: fleetSvc,
 		Drivers: driverSvc, Expenses: expenseSvc, Maintenance: maintSvc, Billing: billingSvc, Operations: opsSvc, HR: hrSvc, Jobs: jobSvc,
 		Storage: st, LineNotify: lineNotify,
 		Events: events, Mobile: mobile, Locations: locSvc, Dashboard: dashSvc, Forms: formSvc, Chats: chatSvc,
-		Broadcasts: broadcastSvc, Limiter: limiter,
+		Broadcasts: broadcastSvc, Idempotency: idem, Limiter: limiter,
 		RateLimitEnabled: cfg.RateLimit.Enabled, PublicFormsLimit: cfg.RateLimit.Limit(ratelimit.PublicFormIP),
 		EvidenceLimit: cfg.RateLimit.Limit(ratelimit.EvidenceIP)})
 	if err != nil {
@@ -455,6 +468,10 @@ func BuildAPI(ctx context.Context, cfg *APIConfig, log zerolog.Logger, build fun
 	if err := caches.Register(a.metrics.Registry); err != nil {
 		closeAll()
 		return nil, nil, fmt.Errorf("register cache metrics: %w", err)
+	}
+	if err := idem.Register(a.metrics.Registry); err != nil {
+		closeAll()
+		return nil, nil, fmt.Errorf("register idempotency metrics: %w", err)
 	}
 	a.Health.Register(
 		checker{"postgres", pool.Ping},
@@ -597,4 +614,14 @@ var _ health.Checker = checker{}
 func classCPGOwned(pgOwnedDomains string) bool {
 	owned, err := webcfg.ParseOwned(pgOwnedDomains)
 	return err == nil && len(owned) == len(webcfg.Domains)
+}
+
+// IdempotencyScope is the Idempotency-Key scope of a request (§B.1.5): the authenticated principal's user id, ""
+// (401) without one, so a key is never shared across users.
+func IdempotencyScope(c fiber.Ctx) string {
+	p := authz.PrincipalFrom(c)
+	if p == nil || p.UserID == uuid.Nil {
+		return ""
+	}
+	return p.UserID.String()
 }

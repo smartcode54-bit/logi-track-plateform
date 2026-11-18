@@ -66,6 +66,10 @@ dependencies:
   package_info_plus: ^9.0.1
   pub_semver: ^2.2.0
   firebase_app_installations: ^0.4.2+2
+  dio: ^5.11.1
+  flutter_secure_storage: ^10.3.4
+  flutter_bloc: ^9.1.1
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:

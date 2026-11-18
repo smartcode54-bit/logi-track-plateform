@@ -651,6 +651,19 @@ The APK 4.x client (P7a, main spec §11) calls only this group plus `/v1/auth/*`
 | GET | `/v1/mobile/geo/reverse` | `driver:self` | public | P7a | APK Maps key `photo_overlay_service.dart:37` | `?lat&lng&lang=th`; `cache:geo:rev:{lat5}:{lng5}` 7 d; `GOOGLE_MAPS_SERVER_API_KEY` |
 | GET | `/v1/mobile/geo/staticmap` | `driver:self` | public | P7a | APK static-map key `photo_overlay_service.dart:58` | `?lat&lng&zoom=16&size=640x640&scale=2` -> PNG stream, cached in object storage `cache/staticmaps/{hash}.png`; `GOOGLE_MAPS_STATIC_KEY`; overlay rendering stays on device |
 
+**As built (T55 core-loop slice, 2026-11-18, spec `shared-docs/specs/mobile-go-core-loop.md`).** On a Go access token,
+PostgreSQL-owned operations only (write-back mode: `422 photos write_back_unsupported`): `GET /v1/mobile/me` (also a Go driver
+token since T55, `auth.RequireShimOrAuth`; that caller gets `mobileSettings` too; the shim call is unchanged), `GET /v1/mobile/tasks`
+(`DriverQueue`), `GET /v1/mobile/trucks` (active trucks with a vehicle class of the driver's tenant, `mobile:checkin`),
+`POST /v1/mobile/uploads/presign` (purposes `checkin_photo`, `checkin_app_screenshot`, `trip_photo` only; absolute URL),
+`POST /v1/mobile/tasks/{id}/check-in` ✱ (`{truckId, checkInAt, lat?, lng?, photoKey, appScreenshotKey, installId?}`; the server
+queue gate answers `409 failed_precondition` `queue_blocked {blockingTaskId}`; `helperDriverId` is refused `422 not_supported`
+in this slice), `POST /v1/mobile/trips` ✱ (single stop: `origin`, `destination`, `distance` and `isMultiDelivery` are refused,
+the route is the task's; `409 task_not_checked_in | multi_drop_not_supported | task_has_open_trip`, `duplicate_trip_id`,
+`duplicate_seal`), `POST /v1/mobile/trips/{id}/deliver` ✱ (`{id}` = uuid or trip number; `delivered_via = mobile`),
+`GET /v1/mobile/trips/pending-in-transit`, `GET /v1/mobile/trips/by-no/{tripNo}`. The ✱ rows run the Idempotency-Key middleware
+after authentication (scope = the caller's user id). Not yet built: the rest of this table.
+
 ### B.2.22 Cloud Functions callable shims (R45)
 
 While APK 3.x is installed (P2 until P8), five callables are still invoked by name from the device. Each becomes a thin Cloud Functions shim (issue T32) that forwards to a `/v1/mobile/*` route on the **public** listener and maps the JSON response back to the byte-compatible legacy callable contract (`{success, role, driverId, message}`, `{ok, message}`, `{skipped, reason}`, `ComputeBillingResponse`, `{ok, alreadyRead}`), translating statuses to the legacy Title-case literals (D2). The shims have **no routes of their own**: their targets are rows of §B.2.21 marked "shim target". Auth contract for every shim call:

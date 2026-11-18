@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../config/app_flavor.dart';
 import 'mobile_install_id_service.dart';
 
 /// Hybrid heartbeat: login, resume, job actions — debounced to limit Firestore writes.
@@ -59,7 +60,8 @@ class MobileClientHeartbeatService {
 
       final info = await PackageInfo.fromPlatform();
       final installId = await getOrCreateMobileInstallId();
-      const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
+      // The backend fleet, not the build flavor: a gotest build reports 'dev' (see AppFlavor.backendFleet).
+      const flavor = AppFlavor.backendFleet;
 
       final platform = defaultTargetPlatform == TargetPlatform.iOS
           ? 'ios'

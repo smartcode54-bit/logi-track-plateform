@@ -22,6 +22,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase/firebasetest"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/iam"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/mobileapp"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
@@ -114,6 +115,27 @@ func TestShimTargets(t *testing.T) {
 	}
 	expect(t, me(w.login("shim.staff@example.test"), auth.HeaderAPIKey, key), http.StatusUnauthorized, "invalid_token")
 
+	// APK 4.x (T55, auth.RequireShimOrAuth): a Go access token without a key gets the same body plus mobileSettings,
+	// is not counted as a shim call, and a shim call never carries mobileSettings.
+	r = me(w.login("shim.driver1@example.test"), "X-App-Flavor", "gotest")
+	expect(t, r, http.StatusOK, "")
+	d = r.data().(map[string]any)
+	if dr, _ := d["driver"].(map[string]any); d["id"] != drvUser || dr["id"] != drv || dr["legacyDocId"] != "drvDoc0001" ||
+		d["mobileSettings"] == nil {
+		t.Fatalf("driver me with a Go token: %s", r.raw)
+	}
+	if bytes.Count(r.raw, []byte(`"driver":`)) != 1 {
+		t.Fatalf("the driver key appears more than once: %s", r.raw)
+	}
+	r = me(w.login("shim.staff@example.test"))
+	if r.status != http.StatusOK || r.data().(map[string]any)["driver"] != nil {
+		t.Fatalf("staff me with a Go token: %d %s", r.status, r.raw)
+	}
+	if r = me(drvTok, auth.HeaderAPIKey, key); bytes.Contains(r.raw, []byte(`"mobileSettings"`)) {
+		t.Fatalf("a shim call carries mobileSettings: %s", r.raw)
+	}
+	calls[app.ShimSetDriverClaims]++
+
 	// --- addDeliveryStop -> POST /v1/mobile/tasks/{id}/stops -----------------------------------------------------
 	task := w.id(`INSERT INTO tasks (tenant_id, tenant_source, task_type, status, plan_at, source_hub_raw, destination_raw,
 		driver_id, legacy_doc_id) VALUES ($1, 'driver', 'first_mile', 'assigned', now(), 'SRC', 'DST', $2, 'fsShimTask1')
@@ -203,7 +225,11 @@ func newShimWorld(t *testing.T, o shimWorldOpts) (*firebasetest.Backend, *promet
 			if err != nil {
 				t.Fatal(err)
 			}
-			return app.MobileGroups(app.APIDeps{Auth: svc, Operations: ops})
+			mob, err := mobileapp.New(mobileapp.Deps{Pool: w.pool, Log: zerolog.Nop()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return app.MobileGroups(app.APIDeps{Auth: svc, Operations: ops, Mobile: mob})
 		}})
 	return fb, reg, w
 }

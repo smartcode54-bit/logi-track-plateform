@@ -6,6 +6,7 @@ envs/.env.prod.web
 envs/.env.prod.mobile
 envs/.env.dev.web
 envs/.env.dev.mobile
+envs/.env.gotest.mobile
 
 # Firebase Functions env (API keys; use functions/.env.example as template)
 logitrack-web/functions/.env
@@ -46,3 +47,19 @@ replay_pid*.log
 grep_*.txt
 files_to_refactor.txt
 **/tmp_*.mjs
+
+# logitrack-firmware (PlatformIO; source lives on branch pio-initial): build cache + generated IDE files
+logitrack-firmware/.pio/
+logitrack-firmware/.vscode/.browse.c_cpp.db*
+logitrack-firmware/.vscode/c_cpp_properties.json
+logitrack-firmware/.vscode/launch.json
+logitrack-firmware/.vscode/ipch
+
+# Mobile credentials: never in git (the repo is public). Real values live in envs/ (gitignored) and are copied in
+# by the build scripts; google-services.json per flavor comes from the Firebase console.
+logitrack-mobile/.env
+logitrack-mobile/.env.dev
+logitrack-mobile/.env.prod
+logitrack-mobile/android/app/src/*/google-services.json
+logitrack-mobile/ios/**/GoogleService-Info.plist
+logitrack-mobile/.env.prod.gotest-build-backup

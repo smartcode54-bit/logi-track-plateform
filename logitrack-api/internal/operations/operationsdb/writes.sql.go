@@ -102,6 +102,38 @@ func (q *Queries) HelperPayrollLocks(ctx context.Context, arg HelperPayrollLocks
 	return items, nil
 }
 
+const setDriverActiveTask = `-- name: SetDriverActiveTask :execrows
+UPDATE drivers
+SET active_truck_id = $1, active_truck_plate = $2, active_task_id = $3,
+    active_started_at = $4::timestamptz
+WHERE id = $5
+`
+
+type SetDriverActiveTaskParams struct {
+	TruckID   *uuid.UUID
+	Plate     *string
+	TaskID    *uuid.UUID
+	StartedAt time.Time
+	DriverID  uuid.UUID
+}
+
+// The driver's check-in (POST /v1/mobile/tasks/{id}/check-in, T55) starts the job: the truck the driver is
+// responsible for now (vehicle identity: the truck of this job), the job and when it started. Under the driver's RLS
+// (drivers.p_self_update + trg_driver_self_columns: only the active_* columns of its own row).
+func (q *Queries) SetDriverActiveTask(ctx context.Context, arg SetDriverActiveTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setDriverActiveTask,
+		arg.TruckID,
+		arg.Plate,
+		arg.TaskID,
+		arg.StartedAt,
+		arg.DriverID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setIncidentPhotos = `-- name: SetIncidentPhotos :one
 UPDATE incident_reports
 SET map_photo_file_id = coalesce($1::uuid, map_photo_file_id),

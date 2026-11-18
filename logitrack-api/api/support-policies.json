@@ -2099,6 +2099,58 @@
         "allowHead": false
       },
       {
+        "id": "GET /v1/mobile/tasks",
+        "method": "GET",
+        "route": "/v1/mobile/tasks",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "GET /v1/mobile/trips/by-no/:tripNo",
+        "method": "GET",
+        "route": "/v1/mobile/trips/by-no/:tripNo",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "GET /v1/mobile/trips/pending-in-transit",
+        "method": "GET",
+        "route": "/v1/mobile/trips/pending-in-transit",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "GET /v1/mobile/trucks",
+        "method": "GET",
+        "route": "/v1/mobile/trucks",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "GET /v1/payroll",
         "method": "GET",
         "route": "/v1/payroll",
@@ -3797,6 +3849,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/mobile/tasks/:id/check-in",
+        "method": "POST",
+        "route": "/v1/mobile/tasks/:id/check-in",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/mobile/tasks/:id/line-notify",
         "method": "POST",
         "route": "/v1/mobile/tasks/:id/line-notify",
@@ -3823,6 +3888,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/mobile/trips",
+        "method": "POST",
+        "route": "/v1/mobile/trips",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/mobile/trips/:id/billing/compute",
         "method": "POST",
         "route": "/v1/mobile/trips/:id/billing/compute",
@@ -3836,6 +3914,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/mobile/trips/:id/deliver",
+        "method": "POST",
+        "route": "/v1/mobile/trips/:id/deliver",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/mobile/trips/:id/line-notify",
         "method": "POST",
         "route": "/v1/mobile/trips/:id/line-notify",
@@ -3846,6 +3937,19 @@
         "predicate": "deny",
         "schema": "none",
         "owner": "P1.0",
+        "allowHead": false
+      },
+      {
+        "id": "POST /v1/mobile/uploads/presign",
+        "method": "POST",
+        "route": "/v1/mobile/uploads/presign",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
         "allowHead": false
       },
       {
@@ -4725,6 +4829,58 @@
         "allowHead": false
       },
       {
+        "id": "GET /v1/mobile/tasks",
+        "method": "GET",
+        "route": "/v1/mobile/tasks",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "GET /v1/mobile/trips/by-no/:tripNo",
+        "method": "GET",
+        "route": "/v1/mobile/trips/by-no/:tripNo",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "GET /v1/mobile/trips/pending-in-transit",
+        "method": "GET",
+        "route": "/v1/mobile/trips/pending-in-transit",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "GET /v1/mobile/trucks",
+        "method": "GET",
+        "route": "/v1/mobile/trucks",
+        "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/auth/google",
         "method": "POST",
         "route": "/v1/auth/google",
@@ -4933,6 +5089,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/mobile/tasks/:id/check-in",
+        "method": "POST",
+        "route": "/v1/mobile/tasks/:id/check-in",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/mobile/tasks/:id/line-notify",
         "method": "POST",
         "route": "/v1/mobile/tasks/:id/line-notify",
@@ -4959,6 +5128,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/mobile/trips",
+        "method": "POST",
+        "route": "/v1/mobile/trips",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/mobile/trips/:id/billing/compute",
         "method": "POST",
         "route": "/v1/mobile/trips/:id/billing/compute",
@@ -4972,6 +5154,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/mobile/trips/:id/deliver",
+        "method": "POST",
+        "route": "/v1/mobile/trips/:id/deliver",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/mobile/trips/:id/line-notify",
         "method": "POST",
         "route": "/v1/mobile/trips/:id/line-notify",
@@ -4982,6 +5177,19 @@
         "predicate": "deny",
         "schema": "none",
         "owner": "P1.0",
+        "allowHead": false
+      },
+      {
+        "id": "POST /v1/mobile/uploads/presign",
+        "method": "POST",
+        "route": "/v1/mobile/uploads/presign",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
         "allowHead": false
       },
       {

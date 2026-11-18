@@ -403,50 +403,62 @@ func (s *Service) DeliverTripAPI(ctx context.Context, p *authz.Principal, rid st
 				WithDetails(map[string]any{"status": cur.Status})
 		}
 		when := deliveryTime(at, cur.DeliveredAt, s.now())
-		next, err := q.DeliverTrip(ctx, operationsdb.DeliverTripParams{ID: id, DeliveredAt: when, Lat: lat, Lng: lng,
-			DeliveredVia: deliveredViaAdminWeb})
-		if err != nil {
-			return MapError(notFound(err))
-		}
-		if err := s.putPhotos(ctx, tx, p, id, photos); err != nil {
-			return err
-		}
-		topics, err := tripTopics(ctx, q, next.TenantID, &next.ID)
-		if err != nil {
-			return err
-		}
-		evs := []opsEvent{withTopics(tripEvent(RouteTripDelivered, next, []string{"status", "deliveredAt"}), topics)}
-		if next.TaskID != nil {
-			task, err := q.LockTask(ctx, *next.TaskID)
-			switch {
-			case errors.Is(err, pgx.ErrNoRows):
-				// a task outside the caller's write reach stays as it is
-			case err != nil:
-				return MapError(err)
-			case task.Status != TaskCompleted && task.Status != TaskCancelled:
-				done, err := q.SetTaskStatus(ctx, operationsdb.SetTaskStatusParams{ID: task.ID, Status: TaskCompleted})
-				if err != nil {
-					return MapError(err)
-				}
-				if task.DriverID != nil {
-					if _, err := q.ClearDriverActiveTask(ctx, operationsdb.ClearDriverActiveTaskParams{DriverID: *task.DriverID,
-						TaskID: &task.ID}); err != nil {
-						return MapError(err)
-					}
-				}
-				tt, err := taskTopics(ctx, q, done)
-				if err != nil {
-					return err
-				}
-				evs = append(evs, withTopics(taskEvent(RouteTaskUpdated, done, []string{"status"}), tt))
-			}
-		}
-		return appendEvents(ctx, tx, rid, "", evs...)
+		_, err = s.deliverTripTx(ctx, tx, p, rid, cur, when, lat, lng, photos, deliveredViaAdminWeb)
+		return err
 	})
 	if err != nil {
 		return WriteResult{}, err
 	}
 	return s.tripView(ctx, p, id, http.StatusOK)
+}
+
+// deliverTripTx delivers the locked trip cur in tx (the admin close, admin_web, and the driver's delivery, mobile,
+// T55): the trip becomes delivered at when with deliveredVia via, the photos are merged, its task is completed and the
+// driver's active truck cleared when it still names that task; the outbox gets trip.delivered and the task's
+// task.updated. The caller has checked the trip is open.
+func (s *Service) deliverTripTx(ctx context.Context, tx pgx.Tx, p *authz.Principal, rid string, cur Trip, when time.Time,
+	lat, lng *float64, photos []photoInput, via string) (Trip, error) {
+	q := operationsdb.New(tx)
+	id := cur.ID
+	next, err := q.DeliverTrip(ctx, operationsdb.DeliverTripParams{ID: id, DeliveredAt: when, Lat: lat, Lng: lng,
+		DeliveredVia: via})
+	if err != nil {
+		return Trip{}, MapError(notFound(err))
+	}
+	if err := s.putPhotos(ctx, tx, p, id, photos); err != nil {
+		return Trip{}, err
+	}
+	topics, err := tripTopics(ctx, q, next.TenantID, &next.ID)
+	if err != nil {
+		return Trip{}, err
+	}
+	evs := []opsEvent{withTopics(tripEvent(RouteTripDelivered, next, []string{"status", "deliveredAt"}), topics)}
+	if next.TaskID != nil {
+		task, err := q.LockTask(ctx, *next.TaskID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// a task outside the caller's write reach stays as it is
+		case err != nil:
+			return Trip{}, MapError(err)
+		case task.Status != TaskCompleted && task.Status != TaskCancelled:
+			done, err := q.SetTaskStatus(ctx, operationsdb.SetTaskStatusParams{ID: task.ID, Status: TaskCompleted})
+			if err != nil {
+				return Trip{}, MapError(err)
+			}
+			if task.DriverID != nil {
+				if _, err := q.ClearDriverActiveTask(ctx, operationsdb.ClearDriverActiveTaskParams{DriverID: *task.DriverID,
+					TaskID: &task.ID}); err != nil {
+					return Trip{}, MapError(err)
+				}
+			}
+			tt, err := taskTopics(ctx, q, done)
+			if err != nil {
+				return Trip{}, err
+			}
+			evs = append(evs, withTopics(taskEvent(RouteTaskUpdated, done, []string{"status"}), tt))
+		}
+	}
+	return next, appendEvents(ctx, tx, rid, "", evs...)
 }
 
 // deliveryTime is the delivery instant of an admin close: the body's, else the trip's own (the driver may have stamped

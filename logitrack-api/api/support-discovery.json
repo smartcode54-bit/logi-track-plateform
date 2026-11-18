@@ -56,6 +56,14 @@
     "disposition": "deferred tenant GET: denied in support OFF and ON"
   },
   {
+    "source": "internal/fleet/driver_trucks.go",
+    "registrationPath": "/trucks",
+    "mutationCapabilityReferences": [
+      "mobile:checkin"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
     "source": "internal/hr/http.go",
     "registrationPath": "",
     "mutationCapabilityReferences": [
@@ -119,6 +127,22 @@
       "security:manage_mobile_release"
     ],
     "disposition": "P1.2 pending platform release read binding; existing ordinary authorization retained"
+  },
+  {
+    "source": "internal/operations/driver_routes.go",
+    "registrationPath": "/trips/by-no/:tripNo",
+    "mutationCapabilityReferences": [
+      "mobile:submit_trip"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
+  },
+  {
+    "source": "internal/operations/driver_routes.go",
+    "registrationPath": "/trips/pending-in-transit",
+    "mutationCapabilityReferences": [
+      "mobile:submit_trip"
+    ],
+    "disposition": "deferred tenant GET: denied in support OFF and ON"
   },
   {
     "source": "internal/parties/http.go",

@@ -54,6 +54,14 @@ android {
             applicationId = "com.wrt.logitrack"
             resValue("string", "app_name", "LogiTrack")
         }
+        // mv-go test app: its own package, so it installs next to the prod and dev apps and never replaces them.
+        // Firebase dev (src/gotest/google-services.json, registered for this package) + the Go staging API.
+        // Build it with scripts/build-mobile-gotest.mjs only, never from main and never published to drivers.
+        create("gotest") {
+            dimension = "environment"
+            applicationId = "com.wrt.logitrack.gotest"
+            resValue("string", "app_name", "LogiTrack GO-TEST")
+        }
     }
 
     signingConfigs {

@@ -13,6 +13,8 @@
 | `.env.prod.web.example` | Next.js | เทมเพลต prod web (logitrack-prod) |
 | `.env.prod.web` | Next.js | ค่าจริง prod web (gitignored) |
 | `.env.prod.mobile` | Flutter | ค่าจริง prod mobile (gitignored; สร้างจาก `.env.dev.mobile.example` แล้วแก้เป็น prod) |
+| `.env.gotest.mobile.example` | Flutter | เทมเพลตแอปทดสอบ mv-go (flavor `gotest`) — `API_BASE_URL` (Go staging) + `GOTEST_BUILD`; Firebase ใช้ `.env.dev.mobile` |
+| `.env.gotest.mobile` | Flutter | ค่าจริงแอปทดสอบ mv-go (gitignored) — build ด้วย `pnpm build:mobile:gotest` เท่านั้น ไม่ publish |
 
 ไฟล์ `.env.*` ที่ไม่มี `.example` ถูก ignore ใน `.gitignore` — ใส่ค่าจริงในไฟล์นั้นแล้วอย่า commit
 

@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
@@ -80,4 +82,42 @@ func (s *Service) RequireShim(callable string) fiber.Handler {
 		}
 		return c.Next()
 	}
+}
+
+// RequireShimOrAuth is the guard of a shim target the APK 4.x calls directly (T55): a request carrying X-Api-Key is a
+// Cloud Functions shim call and goes through RequireShim(callable) unchanged (same checks, same counter, same answers);
+// any other request needs a Go access token (RequireAuth). A Firebase ID token without a key is answered as before,
+// 401 unauthenticated (the shim path's "missing credential"): it is recognised by its securetoken issuer and never
+// reaches RequireAuth, so the shim's answers to a 3.x caller do not change.
+func (s *Service) RequireShimOrAuth(callable string) fiber.Handler {
+	shim, own := s.RequireShim(callable), s.RequireAuth()
+	return func(c fiber.Ctx) error {
+		if len(c.Request().Header.PeekAll(HeaderAPIKey)) > 0 {
+			return shim(c)
+		}
+		if raw, ok := bearer(c); ok && firebaseIssued(raw) {
+			return httpx.ErrUnauthenticated()
+		}
+		return own(c)
+	}
+}
+
+// firebaseIssued reports whether raw is a JWT whose unverified iss is a Firebase securetoken issuer. It decides only
+// which 401 a request gets; nothing is trusted from it.
+func firebaseIssued(raw string) bool {
+	parts := strings.Split(strings.TrimSpace(raw), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims struct {
+		Iss string `json:"iss"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return false
+	}
+	return strings.HasPrefix(claims.Iss, "https://securetoken.google.com/")
 }

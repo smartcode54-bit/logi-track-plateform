@@ -19,6 +19,7 @@ import (
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebase"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/auth/firebasescrypt"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/config"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/idempotency"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/httpx/ratelimit"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/platform/ingress"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/webcfg"
@@ -270,6 +271,9 @@ type APIConfig struct {
 	// RateLimit is RATE_LIMIT_ENABLED and RATE_LIMIT_{LOGIN,PUBLIC_FORMS,EVIDENCE}, parsed once by
 	// ratelimit.Config (Validate below) for the rate-limit middleware and the auth buckets alike.
 	RateLimit         ratelimit.Config
+	// Idempotency is IDEMPOTENCY_TTL, the durable lifetime of the Idempotency-Key records of the replayable driver
+	// writes (the ✱ routes below /v1/mobile, T55).
+	Idempotency       idempotency.Config
 	InternalAddr      string   `env:"API_INTERNAL_ADDR,required,notEmpty"`
 	PublicAddr        string   `env:"API_PUBLIC_ADDR,required,notEmpty"`
 	PublicRouteGroups []string `env:"PUBLIC_ROUTE_GROUPS" envSeparator:"," envDefault:"/v1/mobile,/v1/auth,/public/v1,/evidence,/healthz,/media"`
@@ -328,12 +332,14 @@ func (c *APIConfig) Validate() error {
 	c.Storage.validate(&errs)
 	c.StorageAPI.validate(c.Storage, &errs)
 	c.Bangchak.validate(&errs)
-	if err := c.RateLimit.Validate(); err != nil {
-		var cerr *config.Error
-		if errors.As(err, &cerr) {
-			errs = append(errs, cerr.Invalid...)
-		} else {
-			errs = append(errs, err.Error())
+	for _, v := range []config.Validator{&c.RateLimit, c.Idempotency} {
+		if err := v.Validate(); err != nil {
+			var cerr *config.Error
+			if errors.As(err, &cerr) {
+				errs = append(errs, cerr.Invalid...)
+			} else {
+				errs = append(errs, err.Error())
+			}
 		}
 	}
 	for _, kv := range [][2]string{{"API_INTERNAL_ADDR", c.InternalAddr}, {"API_PUBLIC_ADDR", c.PublicAddr}} {

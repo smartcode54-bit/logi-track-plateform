@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 // import 'package:device_preview/device_preview.dart';
 import 'core/auth_session_listener.dart';
+import 'core/config/app_flavor.dart';
+import 'go/app/go_test_app.dart';
 import 'core/route_observer.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -41,6 +43,13 @@ void Function()? onChatRoomExited;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppFlavor.assertConfigured();
+  // The mv-go test app talks to the Go API only and never initialises Firebase (spec mobile-go-core-loop R1, D3).
+  // AppFlavor.isGoTest is a compile-time constant: dev and prod builds drop this branch.
+  if (AppFlavor.isGoTest) {
+    await runGoTestApp();
+    return;
+  }
   const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
   final envFile = flavor == 'prod' ? '.env.prod' : '.env.dev';
   await dotenv.load(fileName: envFile);
