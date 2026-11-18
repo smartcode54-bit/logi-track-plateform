@@ -1,19 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { useEffect, useMemo, useState } from "react";
+import { useMap } from "@vis.gl/react-google-maps";
 import { useLanguage } from "@/context/language";
 import { fetchDistanceRows } from "@/features/hubs/api/hubs";
 import { socIdMatchesKey } from "@/validate/taskSchema";
-
-const defaultIcon = L.icon({
-    iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-});
+import { GoogleMap, MarkerWithPopup, PanTo, THAILAND_CENTER, fitPoints, type LatLng } from "./GoogleMap";
 
 export interface SourcePoint {
     id?: string;
@@ -25,48 +17,14 @@ export interface SourcePoint {
     station_type?: string;
 }
 
-interface FitBoundsProps {
-    points: { lat: number; lng: number }[];
-    skipWhenSelected: boolean;
-    selectedSourceId: string | null;
-}
+type PlacedSource = SourcePoint & { latitude: number; longitude: number };
 
-/** เปิดการลากแผนที่เมื่อพร้อม และให้ map ได้รับ pointer events */
-function MapDragEnabler() {
+/** Shows every point while nothing is selected (a selection flies to its own point). */
+function FitBounds({ points, skip }: { points: LatLng[]; skip: boolean }) {
     const map = useMap();
     useEffect(() => {
-        map.whenReady(() => {
-            map.dragging.enable();
-            const el = map.getContainer();
-            if (el) {
-                el.style.cursor = "grab";
-                el.addEventListener("mousedown", () => { el.style.cursor = "grabbing"; });
-                el.addEventListener("mouseup", () => { el.style.cursor = "grab"; });
-                el.addEventListener("mouseleave", () => { el.style.cursor = "grab"; });
-            }
-        });
-    }, [map]);
-    return null;
-}
-
-function FitBounds({ points, skipWhenSelected, selectedSourceId }: FitBoundsProps) {
-    const map = useMap();
-    useEffect(() => {
-        if (skipWhenSelected && selectedSourceId) return;
-        if (points.length === 0) return;
-        const run = () => {
-            map.invalidateSize();
-            if (points.length === 1) {
-                map.setView(points[0], 14);
-                return;
-            }
-            const bounds = L.latLngBounds(points);
-            map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
-        };
-        map.whenReady(run);
-        const t = setTimeout(run, 150);
-        return () => clearTimeout(t);
-    }, [map, points, skipWhenSelected, selectedSourceId]);
+        if (map && !skip) fitPoints(map, points, { padding: 24, maxZoom: 14, singleZoom: 14 });
+    }, [map, points, skip]);
     return null;
 }
 
@@ -80,150 +38,49 @@ function sortedSocIdsFromDistanceRows(distances: DistanceRow[]): string[] {
     ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }
 
-/** เมื่อเลือกแถวตามราง: บินไปที่พิกัดและเปิด popup แสดงรายละเอียดจุดรับส่ง + ระยะทาง Hub→SOC หรือ SOC→Hub (LM trip_records prep). */
-function SelectedSourcePopup({
-    selectedSourceId,
-    sources,
-    getStationTypeLabel,
-    t,
-    onClearSelection,
-    distanceViewMode,
-}: {
-    selectedSourceId: string | null;
-    sources: (SourcePoint & { latitude: number; longitude: number })[];
-    getStationTypeLabel: (type: string) => string;
-    t: (key: string) => string;
-    onClearSelection?: () => void;
-    distanceViewMode?: "HUB_SOC" | "SOC_HUB";
-}) {
-    const map = useMap();
-    const popupRef = useRef<L.Popup | null>(null);
-    const selected = useMemo(
-        () => sources.find((s) => s.id === selectedSourceId || s.source_id === selectedSourceId),
-        [sources, selectedSourceId]
-    );
-    const [distanceRows, setDistanceRows] = useState<DistanceRow[]>([]);
+/** Popup of the point selected in the table: its name and the Hub→SOC or SOC→Hub distances (LM trip_records prep). */
+function SelectedSourceDetails({ selected, mode }: { selected: PlacedSource; mode: "HUB_SOC" | "SOC_HUB" }) {
+    const { t } = useLanguage();
+    const [distances, setDistances] = useState<DistanceRow[]>([]);
+    const isSocStation = String(selected.station_type ?? "").toUpperCase() === "SOC";
 
-    const kmMinTpl = (() => {
-        const s = t("firstMile.sources.kmMin");
-        return s && !s.includes("kmMin") ? s : "{{km}} km / {{min}} min";
-    })();
-    const noDataLabel = (() => {
-        const s = t("firstMile.sources.noDistanceData");
-        return s && !s.includes("noDistanceData") ? s : "—";
-    })();
-    const distanceToSocLabel = (() => {
-        const s = t("firstMile.sources.distanceToSoc");
-        return s && !s.includes("distanceToSoc") ? s : "Distance to SOC";
-    })();
-    const distanceFromSocLabel = (() => {
-        const s = t("firstMile.sources.distanceFromSoc");
-        return s && !s.includes("distanceFromSoc") ? s : "Distance from SOC";
-    })();
-
-    const buildContent = useCallback(
-        (distances: DistanceRow[], effectiveMode: "HUB_SOC" | "SOC_HUB") => {
-            const sectionLabel = effectiveMode === "HUB_SOC" ? distanceToSocLabel : distanceFromSocLabel;
-            const isSocStation = String(selected?.station_type ?? "").toUpperCase() === "SOC";
-
-            const rowLine = (label: string, d: DistanceRow | undefined) => {
-                const value = d
-                    ? kmMinTpl
-                          .replace("{{km}}", d.distanceKm.toFixed(2))
-                          .replace("{{min}}", d.durationMinutes.toFixed(1))
-                    : noDataLabel;
-                return `<p class="text-xs mt-0"><span class="font-medium">${escapeHtml(label)}</span> : ${escapeHtml(value)}</p>`;
-            };
-
-            let rowsHtml = "";
-            if (isSocStation) {
-                const hubIds = [
-                    ...new Set(distances.map((r) => String(r.destId ?? "").trim()).filter(Boolean)),
-                ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-                rowsHtml = hubIds.map((hid) => {
-                    const d = distances.find((r) => r.destId === hid);
-                    return rowLine(hid, d);
-                }).join("");
-            } else {
-                const ids = sortedSocIdsFromDistanceRows(distances);
-                rowsHtml = ids
-                    .map((id) => {
-                        const d = distances.find(
-                            (r) => r.socId === id || socIdMatchesKey(r.socId, id)
-                        );
-                        return rowLine(id, d);
-                    })
-                    .join("");
-            }
-
-            let name = selected ? selected.source_name_en : "";
-            if (
-                selected?.source_name_th &&
-                selected.source_name_th !== selected.source_name_en
-            ) {
-                name = `${name} (${selected.source_name_th})`;
-            }
-            return `
-            <div class="px-1.5 py-0.5 text-sm min-w-[140px] max-h-[200px] overflow-y-auto">
-                <p class="text-muted-foreground text-xs leading-tight">${escapeHtml(name)}</p>
-                ${rowsHtml ? `<div class="mt-1 pt-1 border-t border-border"><p class="text-xs font-medium text-muted-foreground mb-0.5 leading-tight">${escapeHtml(sectionLabel)}</p>${rowsHtml}</div>` : ""}
-            </div>
-        `;
-        },
-        [selected, kmMinTpl, noDataLabel, distanceToSocLabel, distanceFromSocLabel]
-    );
-
-    // Open/close popup when selection changes; stable deps so we don't tear down when only sources ref changes
     useEffect(() => {
-        if (!selectedSourceId || !selected) {
-            if (popupRef.current) {
-                map.removeLayer(popupRef.current);
-                popupRef.current = null;
-            }
-            map.closePopup();
-            setDistanceRows([]);
-            return;
-        }
-        setDistanceRows([]);
-        const latlng: L.LatLngExpression = [selected.latitude, selected.longitude];
-        map.flyTo(latlng, 16, { duration: 0.5 });
-
-        const mode = distanceViewMode ?? "HUB_SOC";
-        const content = buildContent([], mode);
-        const popup = L.popup({ className: "sources-map-selected-popup" })
-            .setLatLng(latlng)
-            .setContent(content)
-            .openOn(map);
-        popupRef.current = popup;
-
-        const isSocStation = String(selected.station_type ?? "").toUpperCase() === "SOC";
-        // `['distances', {code, isSoc, mode}]` (T25): Go `GET /v1/distances` or Firestore by the flag,
-        // cached, so selecting a point again costs no request.
+        // `['distances', {code, isSoc, mode}]` (T25): Go `GET /v1/distances`, cached, so selecting a point again costs no request.
         fetchDistanceRows({ code: selected.source_id, isSoc: isSocStation, mode })
-            .then((list) => setDistanceRows(list))
-            .catch(() => setDistanceRows([]));
+            .then(setDistances)
+            .catch(() => setDistances([]));
+    }, [selected.source_id, isSocStation, mode]);
 
-        return () => {
-            map.removeLayer(popup);
-            popupRef.current = null;
-        };
-    }, [map, selectedSourceId, selected?.source_id, selected?.latitude, selected?.longitude, selected?.source_name_en, selected?.source_name_th, selected?.station_type, distanceViewMode]);
+    const rows: [string, DistanceRow | undefined][] = isSocStation
+        ? [...new Set(distances.map((r) => String(r.destId ?? "").trim()).filter(Boolean))]
+              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+              .map((hid) => [hid, distances.find((r) => r.destId === hid)])
+        : sortedSocIdsFromDistanceRows(distances).map((id) => [id, distances.find((r) => r.socId === id || socIdMatchesKey(r.socId, id))]);
 
-    // Update popup content when distance data loads (or selection name changes)
-    useEffect(() => {
-        if (!selected || !popupRef.current) return;
-        const mode = distanceViewMode ?? "HUB_SOC";
-        const content = buildContent(distanceRows, mode);
-        popupRef.current.setContent(content);
-    }, [distanceRows, selected, buildContent, distanceViewMode]);
-
-    return null;
-}
-
-function escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+    const name =
+        selected.source_name_th && selected.source_name_th !== selected.source_name_en
+            ? `${selected.source_name_en} (${selected.source_name_th})`
+            : selected.source_name_en;
+    return (
+        <div className="px-1.5 py-0.5 text-sm min-w-[140px] max-h-[200px] overflow-y-auto">
+            <p className="text-muted-foreground text-xs leading-tight">{name}</p>
+            {rows.length > 0 ? (
+                <div className="mt-1 pt-1 border-t border-border">
+                    <p className="text-xs font-medium text-muted-foreground mb-0.5 leading-tight">
+                        {t(mode === "HUB_SOC" ? "firstMile.sources.distanceToSoc" : "firstMile.sources.distanceFromSoc")}
+                    </p>
+                    {rows.map(([label, d]) => (
+                        <p key={label} className="text-xs mt-0">
+                            <span className="font-medium">{label}</span> :{" "}
+                            {d
+                                ? t("firstMile.sources.kmMin").replace("{{km}}", d.distanceKm.toFixed(2)).replace("{{min}}", d.durationMinutes.toFixed(1))
+                                : t("firstMile.sources.noDistanceData")}
+                        </p>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
 }
 
 interface SourcesMapProps {
@@ -237,101 +94,71 @@ interface SourcesMapProps {
 
 export default function SourcesMap({ sources, selectedSourceId = null, onSourceSelect, onClearSelection, distanceViewMode, className = "" }: SourcesMapProps) {
     const { t } = useLanguage();
-    const [mapId] = useState(() => `sources-map-${Math.random().toString(36).slice(2, 9)}`);
+    // A marker's own popup; a new selection from the table replaces it (Leaflet's openOn closed it).
+    const [clicked, setClicked] = useState<string | null>(null);
+    const [shownSelection, setShownSelection] = useState(selectedSourceId);
+    if (shownSelection !== selectedSourceId) {
+        setShownSelection(selectedSourceId);
+        setClicked(null);
+    }
 
     const pointsWithCoords = useMemo(
         () =>
             sources.filter(
-                (s): s is SourcePoint & { latitude: number; longitude: number } =>
-                    s.latitude != null &&
-                    s.longitude != null &&
-                    Number.isFinite(s.latitude) &&
-                    Number.isFinite(s.longitude)
+                (s): s is PlacedSource =>
+                    s.latitude != null && s.longitude != null && Number.isFinite(s.latitude) && Number.isFinite(s.longitude)
             ),
         [sources]
     );
 
     const center = useMemo(() => {
-        if (pointsWithCoords.length === 0) return { lat: 13.7563, lng: 100.5018 };
-        const lat =
-            pointsWithCoords.reduce((a, p) => a + p.latitude!, 0) / pointsWithCoords.length;
-        const lng =
-            pointsWithCoords.reduce((a, p) => a + p.longitude!, 0) / pointsWithCoords.length;
+        if (pointsWithCoords.length === 0) return THAILAND_CENTER;
+        const lat = pointsWithCoords.reduce((a, p) => a + p.latitude, 0) / pointsWithCoords.length;
+        const lng = pointsWithCoords.reduce((a, p) => a + p.longitude, 0) / pointsWithCoords.length;
         return { lat, lng };
     }, [pointsWithCoords]);
 
-    const boundsPoints = useMemo(
-        () => pointsWithCoords.map((p) => ({ lat: p.latitude!, lng: p.longitude! })),
-        [pointsWithCoords]
-    );
+    const boundsPoints = useMemo(() => pointsWithCoords.map((p) => ({ lat: p.latitude, lng: p.longitude })), [pointsWithCoords]);
 
-    useEffect(() => {
-        return () => {
-            const container = L.DomUtil.get(mapId);
-            if (container) {
-                // @ts-expect-error cleanup for react strict mode
-                container._leaflet_id = null;
-            }
-        };
-    }, [mapId]);
-
-    const getStationTypeLabel = (type: string) => t(`firstMile.hub.stationType.${type}` as any) || type;
+    const selected = selectedSourceId ? pointsWithCoords.find((s) => s.id === selectedSourceId || s.source_id === selectedSourceId) : undefined;
+    const getStationTypeLabel = (type: string) => t(`firstMile.hub.stationType.${type}`) || type;
+    const mode = distanceViewMode ?? "HUB_SOC";
 
     return (
         <div className={`relative z-0 isolate h-full min-h-[320px] w-full rounded-md overflow-hidden border bg-muted/30 ${className}`}>
-            <MapContainer
-                id={mapId}
-                key={mapId}
-                center={center}
-                zoom={pointsWithCoords.length <= 1 ? 12 : 10}
-                className="h-full w-full"
-                scrollWheelZoom
-                dragging
-            >
-                <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <MapDragEnabler />
-                <FitBounds points={boundsPoints} skipWhenSelected={!!selectedSourceId} selectedSourceId={selectedSourceId} />
-                <SelectedSourcePopup
-                    selectedSourceId={selectedSourceId}
-                    sources={pointsWithCoords}
-                    getStationTypeLabel={getStationTypeLabel}
-                    t={t}
-                    onClearSelection={onClearSelection}
-                    distanceViewMode={distanceViewMode}
-                />
+            <GoogleMap defaultCenter={center} defaultZoom={pointsWithCoords.length <= 1 ? 12 : 10}>
+                <FitBounds points={boundsPoints} skip={!!selectedSourceId} />
+                <PanTo position={selected ? { lat: selected.latitude, lng: selected.longitude } : null} zoom={16} />
                 {pointsWithCoords.map((src, idx) => {
                     const sourceKey = src.id ?? src.source_id;
+                    const popup =
+                        clicked === sourceKey ? (
+                            <div className="text-sm">
+                                <p className="font-semibold">{src.source_id}</p>
+                                <p className="text-muted-foreground">{src.source_name_en}</p>
+                                {src.source_name_th && src.source_name_th !== src.source_name_en && (
+                                    <p className="text-muted-foreground text-xs">{src.source_name_th}</p>
+                                )}
+                                {src.station_type && <p className="text-xs mt-1">{getStationTypeLabel(src.station_type)}</p>}
+                            </div>
+                        ) : clicked == null && src === selected ? (
+                            <SelectedSourceDetails key={`${src.source_id}:${mode}`} selected={src} mode={mode} />
+                        ) : null;
                     return (
-                        <Marker
+                        <MarkerWithPopup
                             key={src.id ?? `${src.source_id}-${src.latitude}-${src.longitude}-${idx}`}
-                            position={[src.latitude!, src.longitude!]}
-                            icon={defaultIcon}
-                            eventHandlers={{
-                                click: () => {
-                                    if (onSourceSelect) onSourceSelect(sourceKey);
-                                },
+                            position={{ lat: src.latitude, lng: src.longitude }}
+                            title={src.source_id}
+                            onClick={() => {
+                                setClicked(sourceKey);
+                                onSourceSelect?.(sourceKey);
                             }}
-                        >
-                            <Popup>
-                                <div className="text-sm">
-                                    <p className="font-semibold">{src.source_id}</p>
-                                    <p className="text-muted-foreground">{src.source_name_en}</p>
-                                    {src.source_name_th &&
-                                        src.source_name_th !== src.source_name_en && (
-                                            <p className="text-muted-foreground text-xs">{src.source_name_th}</p>
-                                        )}
-                                    {src.station_type && (
-                                        <p className="text-xs mt-1">{getStationTypeLabel(src.station_type)}</p>
-                                    )}
-                                </div>
-                            </Popup>
-                        </Marker>
+                            popup={popup}
+                            onPopupClose={() => (clicked === sourceKey ? setClicked(null) : onClearSelection?.())}
+                        />
                     );
                 })}
-            </MapContainer>
+            </GoogleMap>
         </div>
     );
 }

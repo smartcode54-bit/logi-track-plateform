@@ -84,9 +84,9 @@ describe("one layering scale (UI1)", () => {
         expect(offenders).toEqual([]);
     });
 
-    it("each Leaflet map is its own stacking context, so its 400-1000 panes stay under the scale", () => {
-        const css = readFileSync(path.join(root, "app/globals.css"), "utf8");
-        expect(css).toMatch(/\.leaflet-container\s*\{[^}]*isolation:\s*isolate/);
+    it("each Google map is its own stacking context, so its internal z-index values stay under the scale", () => {
+        const src = readFileSync(path.join(root, "components/map/GoogleMap.tsx"), "utf8");
+        expect(src).toMatch(/className=\{cn\("isolate /);
     });
 
     it("the guard patterns catch the old ladder", () => {

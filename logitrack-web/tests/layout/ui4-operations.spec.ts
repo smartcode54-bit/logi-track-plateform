@@ -101,7 +101,13 @@ test.describe("Operations page bodies (UI4I)", () => {
                                     return labels.bottom <= frame.bottom && parseFloat(getComputedStyle(el).fontSize) >= 12;
                                 }), "chart captions are visible inside the frame").toBe(true);
                                 const markers = page.locator(".dashboard-vehicle-marker");
-                                await expect(markers.first()).toBeVisible();
+                                // GMAPS: a build without NEXT_PUBLIC_GOOGLE_MAPS_API_KEY shows "map unavailable" instead of Google.
+                                const noKey = page.locator('[data-testid="fleet-map"]').getByRole("status");
+                                await expect(markers.first().or(noKey)).toBeVisible();
+                                if (await noKey.isVisible()) {
+                                    await expect(noKey).toContainText(language === "en" ? "Map unavailable" : "แผนที่ใช้งานไม่ได้");
+                                    expect(await textContrast(noKey), "map-unavailable text contrast").toBeGreaterThanOrEqual(4.5);
+                                }
                                 const labels = markers.locator(":scope > div > span");
                                 for (const label of await labels.all()) {
                                     const style = await label.evaluate((el) => {
@@ -119,10 +125,12 @@ test.describe("Operations page bodies (UI4I)", () => {
                                     expect(style.foreground).toBe(style.tokenForeground);
                                     expect(style.background).toBe(style.tokenBackground);
                                 }
-                                await markers.first().click();
-                                const popup = page.locator(".leaflet-popup-content");
-                                await expect(popup).toContainText(language === "en" ? /Engine (ON|OFF)/ : /เครื่องยนต์/);
-                                expect(await popup.locator("p").evaluateAll((nodes) => nodes.every((el) => parseFloat(getComputedStyle(el).fontSize) >= 12))).toBe(true);
+                                if (await markers.count()) {
+                                    await markers.first().click();
+                                    const popup = page.locator(".gm-style-iw-d");
+                                    await expect(popup).toContainText(language === "en" ? /Engine (ON|OFF)/ : /เครื่องยนต์/);
+                                    expect(await popup.locator("p").evaluateAll((nodes) => nodes.every((el) => parseFloat(getComputedStyle(el).fontSize) >= 12))).toBe(true);
+                                }
                             }
                             if (pagePath === "/app/sources") {
                                 const action = page.getByRole("button", { name: language === "en" ? "Click to filter" : "คลิกเพื่อกรอง", exact: true });

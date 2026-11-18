@@ -262,7 +262,12 @@ describe("scripts/check-standalone.mjs", () => {
 
   it("allow-lists exactly the §16.1 web-public names and covers every web-server value", () => {
     // TW7: the Firebase and App Check public config left with the Firebase SDK.
-    expect([...NEXT_PUBLIC_ALLOW]).toEqual(["NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID", "NEXT_PUBLIC_SUPPORT_EMAIL"]);
+    expect([...NEXT_PUBLIC_ALLOW]).toEqual([
+      "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID",
+      "NEXT_PUBLIC_SUPPORT_EMAIL",
+      "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+      "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
+    ]);
     expect(SERVER_ONLY).toContain("GO_API_INTERNAL_URL");
     expect(SERVER_ONLY).not.toContain("NODE_ENV");
   });

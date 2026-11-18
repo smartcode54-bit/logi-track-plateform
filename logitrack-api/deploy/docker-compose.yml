@@ -294,6 +294,8 @@ x-env-web: &env-web
 x-web-build-args: &web-build-args
   NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID:-}
   NEXT_PUBLIC_SUPPORT_EMAIL: ${NEXT_PUBLIC_SUPPORT_EMAIL:-}
+  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-}
+  NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: ${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID:-}
 # caddy (TW2): exactly the §16.1 caddy names (API_PUBLIC_ADDR is the public listener's port).
 x-env-caddy: &env-caddy
   WEB_DOMAIN: ${WEB_DOMAIN:-}

@@ -2,8 +2,8 @@
 
 /**
  * The map card of the dashboard over Go (T54R): the header, the loading and error states and the
- * incident legend; the Leaflet part is `FleetMapClient`, loaded with `next/dynamic` only when the card
- * renders a map, so leaflet is never in the route's initial JS (developer-spec.md §10.11).
+ * incident legend; the Google Maps part is `FleetMapClient`, loaded with `next/dynamic` only when the card
+ * renders a map, so the maps library is never in the route's initial JS (developer-spec.md §10.11).
  */
 import dynamic from "next/dynamic";
 import { RefreshCw } from "lucide-react";

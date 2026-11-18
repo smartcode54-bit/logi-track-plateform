@@ -5,7 +5,7 @@
  *
  * `['incidents',{from,to}]` (`GET /v1/incidents`, keyset 100 per page, "load more", no cap of 200): the day picked
  * is the server's range; each row carries its trip number, driver name and photos signed; a customer reads the
- * incidents of its own trips only (RLS), never everything. The map loads its leaflet chunk when a report with a
+ * incidents of its own trips only (RLS), never everything. The map loads its Google Maps chunk when a report with a
  * position is opened (the component file, not the feature barrel). SSE `incident.created` refreshes the list.
  */
 import { useMemo, useState } from "react";

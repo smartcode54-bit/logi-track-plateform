@@ -12,30 +12,34 @@ const HEAVY_LIBRARIES = [
   "xlsx",
   "jszip",
   "fullcalendar",
-  "leaflet",
-  "react-leaflet",
-  "leaflet-geosearch",
+  "@vis.gl/react-google-maps",
 ];
 const LAZY_MODULES = [
   "app/app/sources/pickup-import-dialog.tsx",
   "features/trucks/components/TruckImportDialog.tsx",
   "features/holidays/components/HolidayCalendar.tsx",
+  // GMAPS: the shared Google map (LAZY_SHARED_MODULES), imported by the map modules after it.
+  "components/map/GoogleMap.tsx",
   "components/map/LocationPicker.tsx",
   "components/map/SourcesMap.tsx",
-  // T54R: the Go dashboard's map client (leaflet), loaded by FleetMap through next/dynamic.
+  // T54R: the Go dashboard's map client, loaded by FleetMap through next/dynamic.
   "features/dashboard/components/FleetMapClient.tsx",
   "features/incident-reports/components/IncidentLocationMapClient.tsx",
   // TW8 / UI2: the virtualised list of a long searchable select (@tanstack/react-virtual) loads on demand
   // (FilterCombobox is a SearchSelect since UI2).
   "components/ui/search-select-virtual.tsx",
 ];
+// GMAPS: lazy modules that the other lazy modules may import statically (no page may).
+const LAZY_SHARED_MODULES = ["components/map/GoogleMap.tsx"];
 const lazyModuleName = (file) => file.split("/").pop().replace(/\.tsx?$/, "");
-const LAZY_MODULE_IMPORT = {
-  regex: `(^|/)(${[...new Set(LAZY_MODULES.map(lazyModuleName))].join("|")})$`,
+const lazyModuleImport = (files) => ({
+  regex: `(^|/)(${[...new Set(files.map(lazyModuleName))].join("|")})$`,
   allowTypeImports: true,
   message:
     "Load this module with next/dynamic or await import() (developer-spec.md §10.11); a static import or re-export puts it and the library it wraps into the initial JS.",
-};
+});
+const LAZY_MODULE_IMPORT = lazyModuleImport(LAZY_MODULES);
+const LAZY_MODULE_IMPORT_FROM_LAZY = lazyModuleImport(LAZY_MODULES.filter((f) => !LAZY_SHARED_MODULES.includes(f)));
 const HEAVY_LIBRARY_MESSAGE =
   "Heavy library: import it inside a lazily loaded module (see LAZY_MODULES in eslint.config.mjs) or with await import() in a handler (developer-spec.md §10.11).";
 
@@ -119,7 +123,7 @@ const eslintConfig = defineConfig([
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
-        { paths: [...BANNED_PATHS, ...SELECT_PATHS], patterns: [LAZY_MODULE_IMPORT, ...FIREBASE_PATTERNS] },
+        { paths: [...BANNED_PATHS, ...SELECT_PATHS], patterns: [LAZY_MODULE_IMPORT_FROM_LAZY, ...FIREBASE_PATTERNS] },
       ],
     },
   },

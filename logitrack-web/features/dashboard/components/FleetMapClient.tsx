@@ -1,21 +1,21 @@
 "use client";
 
 /**
- * The Leaflet map of the dashboard over Go (T54R), loaded only through `FleetMap` (`next/dynamic`, so
- * leaflet stays out of the route's initial JS, developer-spec.md §10.11). It draws the positions of
+ * The Google map of the dashboard over Go (T54R), loaded only through `FleetMap` (`next/dynamic`, so
+ * the maps library stays out of the route's initial JS, developer-spec.md §10.11). It draws the positions of
  * `['vehicleLocations']` and marks in red the trucks named by the loaded incident page; it fetches
  * nothing itself.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useMap } from "@vis.gl/react-google-maps";
 
+import { GoogleMap, MarkerWithPopup, fitPoints } from "@/components/map/GoogleMap";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/context/language";
 import { hasIncident } from "../api/incidentMarkers";
 import type { VehicleLocationDTO } from "../api/vehicleLocationEvents";
 
-const DEFAULT_CENTER: L.LatLngExpression = [13.7563, 100.5018];
+const DEFAULT_CENTER = { lat: 13.7563, lng: 100.5018 };
 const DEFAULT_ZOOM = 6;
 
 function escapeHtml(text: string): string {
@@ -55,15 +55,6 @@ export function fleetPopupHtml(v: VehicleLocationDTO, incident: boolean, t: (key
     return `<div style="font-size:12px;min-width:140px;background:var(--card);color:var(--foreground);">${lines.join("")}</div>`;
 }
 
-function truckIcon(plate: string, engineOn: boolean, incident: boolean) {
-    return L.divIcon({
-        className: "dashboard-vehicle-marker",
-        html: fleetMarkerHtml(plate, engineOn, incident),
-        iconSize: [48, 52],
-        iconAnchor: [24, 52],
-    });
-}
-
 export interface FleetMapProps {
     vehicles: readonly VehicleLocationDTO[];
     /** Trucks named by the loaded incident page, by id and by plate. */
@@ -73,77 +64,55 @@ export interface FleetMapProps {
 
 export function FleetMapClient({ vehicles, incidentTruckIds, incidentPlates }: FleetMapProps) {
     const { t } = useLanguage();
-    const containerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<L.Map | null>(null);
-    const markersRef = useRef<L.Marker[]>([]);
+    const [open, setOpen] = useState<string | null>(null);
+    return (
+        <div className="relative h-[500px] min-h-[400px] w-full bg-muted/30">
+            <GoogleMap defaultCenter={DEFAULT_CENTER} defaultZoom={DEFAULT_ZOOM}>
+                <CenterAll vehicles={vehicles} label={t("dashboard.vehicleMap.centerAll")} />
+                {/* The markers follow the cache: a new Cartrack batch (vehicle_locations.updated) moves them in place. */}
+                {vehicles.map((v) => {
+                    const plate = v.licensePlate?.trim() || "—";
+                    const incident = hasIncident(v, incidentTruckIds, incidentPlates);
+                    return (
+                        <MarkerWithPopup
+                            key={v.truckId}
+                            position={{ lat: v.lat, lng: v.lng }}
+                            title={plate}
+                            onClick={() => setOpen(v.truckId)}
+                            popup={open === v.truckId ? <div dangerouslySetInnerHTML={{ __html: fleetPopupHtml(v, incident, t) }} /> : null}
+                            onPopupClose={() => setOpen(null)}
+                        >
+                            {/* fleetMarkerHtml escapes the plate. */}
+                            <div className="dashboard-vehicle-marker" dangerouslySetInnerHTML={{ __html: fleetMarkerHtml(plate, v.engineOn === true, incident) }} />
+                        </MarkerWithPopup>
+                    );
+                })}
+            </GoogleMap>
+        </div>
+    );
+}
 
-    useLayoutEffect(() => {
-        if (!containerRef.current || mapRef.current) return;
-        const map = L.map(containerRef.current, { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, scrollWheelZoom: true, dragging: true });
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        }).addTo(map);
-        mapRef.current = map;
-        const t0 = window.setTimeout(() => map.invalidateSize(), 0);
-        const t1 = window.setTimeout(() => map.invalidateSize(), 200);
-        return () => {
-            window.clearTimeout(t0);
-            window.clearTimeout(t1);
-            map.remove();
-            mapRef.current = null;
-        };
-    }, []);
-
+/** "Center all": fits every truck; also runs once when the first positions arrive (later batches keep the view). */
+function CenterAll({ vehicles, label }: { vehicles: readonly VehicleLocationDTO[]; label: string }) {
+    const map = useMap();
     const fit = useCallback(() => {
-        const map = mapRef.current;
         if (!map) return;
-        map.invalidateSize();
         if (vehicles.length === 0) {
-            map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+            map.setCenter(DEFAULT_CENTER);
+            map.setZoom(DEFAULT_ZOOM);
             return;
         }
-        requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
-                map.invalidateSize();
-                if (vehicles.length === 1) map.setView([vehicles[0].lat, vehicles[0].lng], 14);
-                else map.fitBounds(L.latLngBounds(vehicles.map((v) => [v.lat, v.lng] as [number, number])), { padding: [40, 40], maxZoom: 15 });
-            })
-        );
-    }, [vehicles]);
-
-    // The markers follow the cache: a new Cartrack batch (vehicle_locations.updated) moves them in place.
-    const fittedRef = useRef(false);
+        fitPoints(map, vehicles, { padding: 40, maxZoom: 15, singleZoom: 14 });
+    }, [map, vehicles]);
+    const fitted = useRef(false);
     useEffect(() => {
-        const map = mapRef.current;
-        if (!map) return;
-        for (const m of markersRef.current) m.remove();
-        markersRef.current = [];
-        for (const v of vehicles) {
-            const plate = v.licensePlate?.trim() || "—";
-            const incident = hasIncident(v, incidentTruckIds, incidentPlates);
-            const marker = L.marker([v.lat, v.lng], { icon: truckIcon(plate, v.engineOn === true, incident) }).addTo(map);
-            marker.bindPopup(fleetPopupHtml(v, incident, t));
-            markersRef.current.push(marker);
-        }
-        // Fit once the first positions arrive; later batches only move the markers, not the view.
-        if (!fittedRef.current && vehicles.length > 0) {
-            fittedRef.current = true;
-            fit();
-        }
-    }, [vehicles, incidentTruckIds, incidentPlates, t, fit]);
-
+        if (fitted.current || !map || vehicles.length === 0) return;
+        fitted.current = true;
+        fit();
+    }, [map, vehicles, fit]);
     return (
-        <div className="relative h-[500px] min-h-[400px] w-full bg-muted/30 [&_.leaflet-popup-content-wrapper]:bg-card [&_.leaflet-popup-content-wrapper]:text-foreground [&_.leaflet-popup-tip]:bg-card">
-            <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={fit}
-                className="absolute right-2 top-2 z-raised"
-            >
-                {t("dashboard.vehicleMap.centerAll")}
-            </Button>
-            <div ref={containerRef} className="relative h-full w-full overflow-hidden z-0" />
-        </div>
+        <Button variant="outline" size="sm" type="button" onClick={fit} className="absolute right-2 top-2 z-raised">
+            {label}
+        </Button>
     );
 }

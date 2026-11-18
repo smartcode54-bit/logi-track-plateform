@@ -46,9 +46,8 @@ export const FORBIDDEN_INITIAL_PACKAGES = [
     "jszip",
     "fullcalendar",
     "@fullcalendar/",
-    "leaflet",
-    "react-leaflet",
-    "leaflet-geosearch",
+    "@vis.gl/react-google-maps",
+    "@googlemaps/",
 ];
 
 /**
