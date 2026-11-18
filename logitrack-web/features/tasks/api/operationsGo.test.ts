@@ -224,6 +224,9 @@ describe("monitor: one aggregate request per page (TW6 M2, TW8 M2: 200 per page)
         expect(narrowed[1][10]).toBe(1200);
         expect(toCsv([["a", 'b"c'], [1, null]])).toBe('﻿a,"b""c"\r\n1,');
         expect(deliveredTimeOf({ deliveredAt: null, stops: multi.stops })).toBe("2026-10-11T03:00:00Z");
+        // A planned stop the trip has not reached (shown on the monitor) stays out of the sheet.
+        const planned = { ...multi, stops: [...multi.stops, { ...multi.stops[0], index: 9, status: "pending", deliveredAt: null, planned: true }] };
+        expect(buildMonitorExport([planned], "all", labels)).toHaveLength(3);
     });
 
     it("the CSV neutralises a driver-typed formula (CSV injection) and keeps numbers numbers", () => {

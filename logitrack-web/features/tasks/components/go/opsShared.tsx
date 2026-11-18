@@ -19,11 +19,12 @@ import { fieldViolations } from "@/features/auth/utils/fieldErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { fieldReasonText } from "@/lib/formServerErrors";
 import { taskStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import type { TaskStatus } from "../../api/tasks.go";
+import type { TaskStatus, TaskStopDTO } from "../../api/tasks.go";
 
 /**
  * Renders `children` only once `['me']` grants `capability` (a catalog key): the page's queries never start for a
@@ -90,6 +91,22 @@ export function TaskStatusBadge({ status }: { status: TaskStatus | string }) {
         <Badge variant={toneBadgeVariant(taskStatusTone(status))}>
             {t(`taskBoard.status.${status}`, status)}
         </Badge>
+    );
+}
+
+/** A multi-drop task's planned stops, one badge each in order: ✓ delivered, ✕ failed, ◯ not yet (main 3.6.6). */
+export function StopBadges({ stops }: { stops: readonly Pick<TaskStopDTO, "index" | "destination" | "place" | "status">[] }) {
+    return (
+        <>
+            {stops.map((s) => (
+                <Badge key={s.index} variant="outline" className={cn("block w-fit text-xs font-medium",
+                    s.status === "delivered" ? "border-success/25 bg-success/10 text-success"
+                        : s.status === "failed" ? "border-destructive/25 bg-destructive/10 text-destructive"
+                            : "border-border bg-muted text-muted-foreground")}>
+                    {s.status === "delivered" ? "✓" : s.status === "failed" ? "✕" : "◯"} {s.index}. {s.place?.label || s.destination}
+                </Badge>
+            ))}
+        </>
     );
 }
 

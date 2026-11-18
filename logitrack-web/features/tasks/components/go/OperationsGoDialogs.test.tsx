@@ -365,6 +365,32 @@ describe("task form: the stops as stored, sent only when touched", () => {
         expect(body).not.toHaveProperty("isMultiDelivery");
     });
 
+    it("a new multi-drop job: the destination field is hidden and stop 1 goes out as the destination", async () => {
+        const web = setup();
+        web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskNo: "FM-NEW-2" }) }));
+        const onClose = vi.fn();
+        renderPage("/app/first-mile", <TaskFormDialog mode="create" taskType="first_mile" allowTypeSwitch={false} onClose={onClose} />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Customer" }));
+        await u.click(await screen.findByRole("option", { name: /CJSF/ }));
+        const source = screen.getByRole("combobox", { name: "Pickup Point" });
+        await waitFor(() => expect(source).toBeEnabled());
+        await u.click(source);
+        await u.type(screen.getByPlaceholderText("Search..."), "SPK890174");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        await u.click(screen.getByRole("checkbox"));
+        expect(screen.queryByRole("combobox", { name: "Destination (SOC)" })).toBeNull();
+        await u.click(screen.getByRole("combobox", { name: "Stop 1" }));
+        await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
+        await u.click(screen.getByRole("combobox", { name: "Stop 2" }));
+        await u.type(screen.getByPlaceholderText("Search..."), "SPK890174");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        await u.click(screen.getByRole("button", { name: "Create Assignment" }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(web.calls.find((c) => c.method === "POST")!.body).toMatchObject({ destination: "SOCE", isMultiDelivery: true,
+            deliveryStops: [{ destination: "SOCE" }, { destination: "SPK890174" }] });
+    });
+
     async function open(t: TaskDTO) {
         const web = setup();
         web.on("PATCH", `/api/go/v1/tasks/${t.id}`, () => json(200, { data: t }));
@@ -473,7 +499,9 @@ describe("hub pickers: a server search per term, each value labelled by a single
         renderPage("/app/first-mile", <TaskFormDialog mode="edit" taskType="first_mile" task={t} allowTypeSwitch={false} onClose={vi.fn()} />);
         const source = await screen.findByRole("combobox", { name: "Pickup Point" });
         await waitFor(() => expect(source).toHaveTextContent("HUB-059 — ฮับ 59"));
-        expect(screen.getByRole("combobox", { name: "Destination (SOC)" })).toHaveTextContent("SOCE — บัวโรย");
+        // Multi-drop: stop 1 stands for the destination, whose own field is hidden.
+        expect(screen.queryByRole("combobox", { name: "Destination (SOC)" })).toBeNull();
+        expect(screen.getByRole("combobox", { name: "Stop 1" })).toHaveTextContent("SOCE — บัวโรย");
         expect(screen.getByRole("combobox", { name: "Stop 2" })).toHaveTextContent("LEGACY-9");
         // One lookup per code (the destination and stop 1 share SOCE's).
         expect(lookups(web).sort()).toEqual(["/api/go/v1/hubs/HUB-059", "/api/go/v1/hubs/LEGACY-9", "/api/go/v1/hubs/SOCE"]);

@@ -9,10 +9,12 @@
  * `PATCH /v1/tasks/{id}`; Appendix B §B.2.11): the browser sends ids and codes only. An edit sends the changed
  * fields only, so a task past `assigned` is refused only for what really changed (`409 task_in_progress`).
  *
- * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop, not the
- * destination field (legacy tasks and the trip editor's mirror can hold a stop 1 that differs from the destination;
- * the legacy `DeliveryStopsEditor` edited each row freely). An edit sends `deliveryStops` only when the stops were
- * touched and differ (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan.
+ * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop. A multi-drop
+ * task's destination is its stop 1 (billing, the mobile check-in card and loading page read the destination; main
+ * 3.6.6), so the destination field is hidden while the box is ticked and a create, or an edit that changes the stops,
+ * sends stop 1 as the destination. An edit sends `deliveryStops` only when the stops were touched and differ
+ * (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan, and an untouched legacy
+ * task whose stop 1 differs from its destination keeps both.
  *
  * The customer comes first: the origin, the destination and every stop are searched with `?linkedPartyId` of the
  * party in that field, so only the places linked to that customer are offered and a place linked to nobody is no
@@ -191,10 +193,12 @@ export function TaskFormDialog({
     const submit = async () => {
         setError(null);
         setLocal(null);
-        if (!v.date || !v.sourceHub || !v.destination) return setLocal(t("taskBoard.form.required"));
+        if (!v.date || !v.sourceHub || (!v.multi && !v.destination)) return setLocal(t("taskBoard.form.required"));
         if (!v.billingPartyId) return setLocal(t("firstMile.import.customerMissing"));
         const stops = v.multi ? stopsOf(v) : [];
         const stopsPatch = mode === "edit" && task ? editStopsPatch(task, v, stopsTouched) : undefined;
+        // Multi-drop: stop 1 is the destination, unless an edit leaves the stops (and the hidden field) as stored.
+        const destination = !v.multi ? v.destination : mode !== "edit" || stopsPatch ? (stops[0] ?? "") : (task?.destination ?? v.destination);
         if (mode !== "edit" || stopsPatch) {
             if (v.multi && stops.length < 2) return setLocal(t("firstMile.task.minStopsError"));
             if (v.multi && new Set(stops.map((s) => s.toUpperCase())).size !== stops.length) return setLocal(t("firstMile.task.duplicateDestError"));
@@ -209,7 +213,7 @@ export function TaskFormDialog({
                 if (v.date !== task.planDate) patch.date = v.date;
                 if (v.actualPickupAt !== toLocalInput(task.actualPickupAt)) patch.actualPickupAt = fromLocalInput(v.actualPickupAt);
                 if (v.sourceHub !== task.sourceHub) patch.sourceHub = v.sourceHub;
-                if (v.destination !== task.destination) patch.destination = v.destination;
+                if (destination !== task.destination) patch.destination = destination;
                 if (v.billingPartyId !== task.billingPartyId) patch.billingPartyId = v.billingPartyId;
                 if (v.jobCategory !== task.jobCategory) patch.jobCategory = v.jobCategory;
                 if ((v.truck?.id ?? null) !== task.truckId) patch.truckId = v.truck?.id ?? null;
@@ -229,7 +233,7 @@ export function TaskFormDialog({
                     date: v.date,
                     actualPickupAt: fromLocalInput(v.actualPickupAt),
                     sourceHub: v.sourceHub,
-                    destination: v.destination,
+                    destination,
                     billingPartyId: v.billingPartyId,
                     jobCategory: v.jobCategory,
                     truckId: v.truck?.id,
@@ -309,12 +313,14 @@ export function TaskFormDialog({
                             aria-label={t(formKeys.source)} onValueChange={(code) => set("sourceHub", code)} />
                         {notLinked(sourceHub.data)}
                     </Field>
-                    <Field label={t(formKeys.destination)}>
-                        <HubSelect {...placeFilter} value={v.destination} prefer={fm ? "SOC" : "HUB"} className="w-full"
-                            placeholder={noCustomer ? t("firstMile.task.selectCustomerFirst") : t(formKeys.selectDestination)}
-                            aria-label={t(formKeys.destination)} onValueChange={(code) => set("destination", code)} />
-                        {notLinked(destinationHub.data)}
-                    </Field>
+                    {v.multi ? null : (
+                        <Field label={t(formKeys.destination)}>
+                            <HubSelect {...placeFilter} value={v.destination} prefer={fm ? "SOC" : "HUB"} className="w-full"
+                                placeholder={noCustomer ? t("firstMile.task.selectCustomerFirst") : t(formKeys.selectDestination)}
+                                aria-label={t(formKeys.destination)} onValueChange={(code) => set("destination", code)} />
+                            {notLinked(destinationHub.data)}
+                        </Field>
+                    )}
                     <Field label={t("firstMile.task.jobCategory.label")}>
                         <Select value={v.jobCategory} onValueChange={(x) => set("jobCategory", x as JobCategory)}>
                             <SelectTrigger>
@@ -358,7 +364,10 @@ export function TaskFormDialog({
                 <div className="space-y-2 rounded-md border p-3">
                     <label className="flex items-center gap-2 text-sm font-medium">
                         <Checkbox checked={v.multi}
-                            onCheckedChange={(c) => setStops((prev) => ({ multi: c === true, stops: c === true && prev.stops.length === 0 ? [prev.destination, ""] : prev.stops }))} />
+                            onCheckedChange={(c) => setStops((prev) => c === true
+                                ? { multi: true, stops: prev.stops.length === 0 ? [prev.destination, ""] : prev.stops }
+                                // Back to one drop: the field reappears holding stop 1, the destination it stood for.
+                                : { multi: false, destination: stopsOf(prev)[0] ?? prev.destination })} />
                         {t("firstMile.task.isMultiDelivery")}
                     </label>
                     <p className="text-xs text-muted-foreground">{t("firstMile.task.isMultiDeliveryHint")}</p>
@@ -371,7 +380,7 @@ export function TaskFormDialog({
                                         placeholder={noCustomer ? t("firstMile.task.selectCustomerFirst") : t("firstMile.task.stopDestination")}
                                         aria-label={t("firstMile.task.stopIndex", { index: i + 1 })}
                                         onValueChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
-                                    {i === 0 && s.trim().toUpperCase() === v.destination.trim().toUpperCase() ? (
+                                    {i === 0 ? (
                                         <span className="text-xs text-muted-foreground">({t("firstMile.task.primaryDestination")})</span>
                                     ) : null}
                                     <Button type="button" variant="ghost" size="icon" aria-label={t("firstMile.task.removeStop")}
