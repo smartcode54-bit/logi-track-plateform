@@ -4,7 +4,8 @@
  * A monitor row's detail over Go (T34): `['trips','detail',id]` (`GET /v1/trips/{id}`: stops, photos in the ADR
  * 0018 order signed for 15 minutes, renames) and, when the row counts an incident, its reports
  * (`['incidents',{tripId}]`); both read while the dialog is open. The photo ZIP is built in the browser with jszip
- * loaded on the click (R69).
+ * loaded on the click (R69). A multi-drop trip also lists its task's planned stops from the monitor row (display
+ * only, Go withPlannedStops); the editor reads the trip detail alone, so nothing planned is written back.
  */
 import { useState } from "react";
 import dynamic from "next/dynamic";
@@ -38,6 +39,9 @@ export function TripDetailDialog({ row, onClose }: { row: MonitorRowDTO; onClose
     const [zipping, setZipping] = useState(false);
     const trip = detail.data;
     const photos = (trip?.photos ?? []).filter((p) => p.url);
+    // The trip's own progress wins per index; the plan fills the stops it has not reached.
+    const own = trip?.stops ?? [];
+    const stops = [...own, ...(row.stops ?? []).filter((p) => p.planned && !own.some((s) => s.index === p.index))].sort((a, b) => a.index - b.index);
 
     const zip = async () => {
         if (!trip) return;
@@ -104,12 +108,12 @@ export function TripDetailDialog({ row, onClose }: { row: MonitorRowDTO; onClose
                             <h4 className="text-sm font-semibold text-muted-foreground">{t("driverMonitor.detail.routeInfo")}</h4>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-muted/30 p-3 text-sm">
                                 {line(t("driverMonitor.detail.origin"), placeLabel(row.origin))}
-                                {(trip?.stops ?? []).length > 0
+                                {stops.length > 0
                                     ? line(
                                           t("driverMonitor.detail.deliveryStops"),
                                           <span className="flex flex-col gap-0.5">
-                                              {trip!.stops.map((s) => (
-                                                  <span key={s.id}>
+                                              {stops.map((s) => (
+                                                  <span key={s.index}>
                                                       {s.index}. {placeLabel(s.place)} — {t(`taskBoard.stopStatus.${s.status}`, s.status)}
                                                       {s.deliveredAt ? ` (${formatDateTime(s.deliveredAt)})` : ""}
                                                   </span>
