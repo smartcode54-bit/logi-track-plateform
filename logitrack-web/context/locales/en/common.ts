@@ -128,6 +128,7 @@ export default {
     "common.refresh": "Refresh",
     "common.actions": "Actions",
     "common.toast.validationError": "Check the highlighted fields ({count}). First: {field}",
+    "common.toast.saveFailed": "Save failed: {message}",
     "common.show": "Show",
     "common.hide": "Hide",
     "common.joinedAt": "Joined At",

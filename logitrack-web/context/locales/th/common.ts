@@ -128,6 +128,7 @@ export default {
     "common.refresh": "รีเฟรช",
     "common.actions": "การกระทำ",
     "common.toast.validationError": "กรุณาตรวจสอบช่องที่ไฮไลต์ ({count} ช่อง) ช่องแรก: {field}",
+    "common.toast.saveFailed": "บันทึกไม่สำเร็จ: {message}",
     "common.show": "แสดง",
     "common.hide": "ซ่อน",
     "common.joinedAt": "วันที่เข้าร่วม",

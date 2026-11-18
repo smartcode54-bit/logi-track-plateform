@@ -559,6 +559,15 @@ class _CheckInPageState extends State<CheckInPage> {
               date.month != actualPickupAt.month ||
               date.day != actualPickupAt.day);
     }
+    // Multi-drop (e.g. Lotus): same rule as main_layout's delivery-page switch — flag OR 2+ stops.
+    // The card must say so up front; `destination` alone is only stop 1.
+    final deliveryStops = (t['deliveryStops'] as List?) ?? const [];
+    final isMultiDrop = t['isMultiDelivery'] == true || deliveryStops.length > 1;
+    // One line per stop, in run order (stored order = stop index; sort defensively).
+    final stopNames = (deliveryStops.whereType<Map>().toList()
+          ..sort((a, b) => ((a['index'] as num?) ?? 0).compareTo((b['index'] as num?) ?? 0)))
+        .map((stop) => _resolveHubName(stop['destination'] as String? ?? ''))
+        .toList();
     final checkInPhotoUrl = t['checkInPhotoUrl'] as String?;
     final checkInLat = t['checkInLat'] as double?;
     final checkInLng = t['checkInLng'] as double?;
@@ -603,7 +612,33 @@ class _CheckInPageState extends State<CheckInPage> {
                 ),
               )
             : null,
-        title: Text(t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(t['taskId'] ?? t['FirstMileTaskId'] ?? 'Task'),
+            ),
+            if (isMultiDrop) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'checkin_multi_drop_badge'.tr(
+                    args: ['${deliveryStops.length}'],
+                  ),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blue.shade800,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -615,7 +650,24 @@ class _CheckInPageState extends State<CheckInPage> {
             if (customerDisplay.isNotEmpty)
               _infoRow('checkin_customer_label'.tr(), customerDisplay),
             _infoRow('checkin_origin'.tr(), _resolveHubName(source)),
-            _infoRow('checkin_destination'.tr(), _resolveHubName(dest)),
+            if (isMultiDrop && stopNames.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '${'checkin_delivery_stops'.tr(args: ['${stopNames.length}'])} :',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+              for (var i = 0; i < stopNames.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 2),
+                  child: Text(
+                    '${i + 1}. ${stopNames[i]}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ] else
+              _infoRow('checkin_destination'.tr(), _resolveHubName(dest)),
             if (((t['helperDriverIds'] as List?) ?? const []).isNotEmpty)
               _infoRow(
                 'checkin_helpers'.tr(),
@@ -1512,7 +1564,9 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                 ...deliveryStops.asMap().entries.map((e) {
                   final idx = e.key + 1;
                   final stop = e.value as Map<String, dynamic>;
-                  final destination = stop['destination'] as String? ?? 'Unknown';
+                  final code = stop['destination'] as String? ?? '';
+                  // Show the place name (same map as origin/destination above), not the raw code.
+                  final destination = code.isEmpty ? 'Unknown' : (widget.hubNameMap[code] ?? code);
                   final isCustom = stop['isCustom'] as bool? ?? false;
 
                   return Padding(
@@ -1544,8 +1598,11 @@ class _TaskCheckInPageState extends State<TaskCheckInPage> {
                             children: [
                               Text(
                                 destination,
+                                // The card is always light blue (also in dark mode), so the
+                                // text color must be fixed dark — the theme's onSurface is white.
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w500,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blueGrey.shade900,
                                 ),
                               ),
                               if (isCustom)
