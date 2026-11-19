@@ -10,8 +10,10 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/authz"
+	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/fleet"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/operations"
 	"github.com/smartcode54-bit/logi-track-plateform/logitrack-api/internal/writeback"
 )
@@ -29,6 +31,11 @@ func TestDriverCoreLoop(t *testing.T) {
 	}
 	next := func(c fiber.Ctx) error { return c.Next() }
 	operations.DriverRoutes(r.svc, auth, next)(r.app.Group("/v1/mobile"))
+	fs, err := fleet.New(fleet.Deps{Pool: r.pool, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet.DriverRoutes(fs, auth)(r.app.Group("/v1/mobile"))
 	const me = "driverO1"
 
 	task := func(planAt, created time.Time) uuid.UUID {
@@ -83,6 +90,18 @@ func TestDriverCoreLoop(t *testing.T) {
 		type_raw) VALUES ($1, 'self', '3กข-0001', 'กรุงเทพมหานคร', 'active', 'ISUZU', 'X', 2020, 'white', 'Mystery') RETURNING id`, r.O)
 	r.refused(http.StatusUnprocessableEntity, "truckId "+operations.ReasonUnknownVehicleClass, me, http.MethodPost,
 		path(first, "/check-in"), checkIn(unclassed, at))
+	// The check-in picker (GET /v1/mobile/trucks): the driver's own tenant (a driver has no staff tenant reach), only
+	// trucks with a vehicle class, never another tenant's.
+	got, m = r.call(me, http.MethodGet, "/v1/mobile/trucks", nil)
+	picked := map[string]bool{}
+	if list, _ := m["data"].([]any); got == http.StatusOK {
+		for _, it := range list {
+			picked[it.(map[string]any)["id"].(string)] = true
+		}
+	}
+	if got != http.StatusOK || !picked[r.truckO.String()] || picked[unclassed.String()] || picked[r.truckA.String()] {
+		t.Fatalf("trucks picker: %d %v", got, m)
+	}
 
 	// AC4: the check-in.
 	d := r.must(http.StatusOK, me, http.MethodPost, path(first, "/check-in"), checkIn(r.truckO, at))
