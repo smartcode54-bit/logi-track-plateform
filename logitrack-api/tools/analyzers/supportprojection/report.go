@@ -85,6 +85,9 @@ func (a *analyzer) writeReport(root, path string) error {
 					return true
 				}
 				source, _ := filepath.Rel(root, a.fset.Position(call.Pos()).Filename)
+				// Slash form before the prefix matches below: on Windows Rel returns backslashes, which would send every
+				// route to the default disposition and make a report generated there differ from CI's.
+				source = filepath.ToSlash(source)
 				disposition := "deferred tenant GET: denied in support OFF and ON"
 				switch {
 				case literal(path, pkg.info) == "/probe" || literal(path, pkg.info) == "/shopee-report.pdf":

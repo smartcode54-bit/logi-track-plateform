@@ -79,18 +79,22 @@ Add `NEXT_PUBLIC_APP_CHECK_RECAPTCHA_SITE_KEY` to the same file you use for othe
 
 ### Deploy
 
-**Production deploy (แนะนำ):** รันจาก **root ของ repo** (`logitrack-platform/`) เพื่อให้คัดลอก env ถูกต้อง:
+**ปกติ deploy ผ่าน GitHub Actions** (`.github/workflows/deploy.yml`) — deploy hosting + functions + Firestore rules ด้วยค่า env จาก GitHub secrets (`ENV_DEV_WEB` / `ENV_PROD_WEB`, `FUNCTIONS_ENV_*`, `FIREBASE_SERVICE_ACCOUNT_*`):
+
+| Env | Trigger |
+| --- | --- |
+| Dev (`logi-track-wrt-dev`) | push / merge เข้า `main` → workflow CI เขียว → Deploy รันเอง |
+| Prod (`logitrack-prod`) | GitHub → Actions → Deploy → Run workflow → `environment = prod` |
+
+**Deploy จากเครื่องตัวเอง — เฉพาะตอน CI ล่ม** (กฎใน `shared-docs/.vibe-rules.md`): รันจาก **root ของ repo** (`logitrack-platform/`) บน branch `main`:
 
 ```bash
-cd /path/to/logitrack-platform
-npm run deploy:prod
+pnpm deploy:dev     # หรือ pnpm deploy:prod
 ```
 
-(เปลี่ยนเป็น path จริงของโปรเจกต์ — โฟลเดอร์ root ที่มี `envs/` และ `logitrack-web/`)
+คำสั่งนี้จะ copy `envs/.env.<dev|prod>.web` → `logitrack-web/.env.production` แล้ว build และ deploy — ถ้ารันจากใน `logitrack-web/` สคริปต์จะหา `../envs/` เอง แต่ถ้า clone แยกไม่มีโฟลเดอร์ `envs` ต้องเตรียม `.env.production` เอง
 
-คำสั่งนี้จะ copy `envs/.env.prod.web` → `logitrack-web/.env.production` แล้ว build และ deploy
-
-**หมายเหตุ:** ห้ามรัน `npm run deploy:prod` จากภายในโฟลเดอร์ `logitrack-web/` โดยตรง — จะทำให้ path ของ env ผิดพลาด ต้องรันจาก root (`logitrack-platform/`)
+ภาพรวมการรัน/deploy ทุก env (รวม staging VM ของ `mv-go`): [`shared-docs/runbook-run-deploy.md`](../../shared-docs/runbook-run-deploy.md)
 
 ---
 

@@ -103,6 +103,8 @@ function locateApk(flavor, expectedVersion) {
     const override = argValue("apk");
     if (override) {
         if (!existsSync(override)) fail(`--apk path does not exist: ${override}`);
+        // The mv-go test app (flavor gotest) is handed out by hand and must never reach a fleet's gate.
+        if (/gotest/i.test(path.basename(override))) fail(`--apk names a gotest build, which is never published: ${override}`);
         console.log(`APK (from --apk, metadata checks skipped): ${override}`);
         return { apkPath: override, applicationId: null, versionNameInApk: null };
     }

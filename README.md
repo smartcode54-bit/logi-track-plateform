@@ -60,10 +60,10 @@ logitrack-platform/
 
 - **Docs & rules**: See `shared-docs/.vibe-rules.md` for structure, patterns, callable functions, and SSOT.
 - **Environment**: Copy `envs/*.example` (or repo docs) into the appropriate `.env` files for web and mobile; never commit real secrets.
+- **Run & deploy**: See [`shared-docs/runbook-run-deploy.md`](shared-docs/runbook-run-deploy.md) — local Go stack, staging VM (`mv-go`), Firebase dev/prod (`main`) and mobile build & run for every flavor.
 
 ---
 
 ## 🏁 Summary
 
 **Web admins** configure fleet, tasks, and HR (including holidays and leave); **mobile drivers** execute FM/LH tasks with check-in, photos, OCR, expenses, chat, and leave requests. One Firebase backend keeps both apps in sync for transparent, accountable operations.
-test

@@ -1,38 +1,30 @@
-# logi-track
+# LogiTrack Web (`logi-track`)
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Next.js admin app ของ LogiTrack — หน้าจัดการงาน, Driver Monitor, บัญชี/วางบิล, fleet, HR และ Security Center
 
-## Getting Started
+วิธีรันและ deploy ทุก env (local, staging VM, Firebase dev/prod) อยู่ที่ [`shared-docs/runbook-run-deploy.md`](../shared-docs/runbook-run-deploy.md)
 
-First, run the development server:
+## รันบนเครื่อง
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+เว็บต่อ backend คนละแบบตาม branch:
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Branch | Backend | วิธีรัน |
+| --- | --- | --- |
+| `mv-go` | Go API ผ่าน BFF (`app/api/*`, `proxy.ts`) | เปิด Go stack ก่อน (`make up` ใน `logitrack-api/`) แล้ว `make web` ใน `logitrack-api/` หรือ `pnpm web` ที่ root พร้อม `logitrack-web/.env.development.local` |
+| `main` | Firebase dev (`logi-track-wrt-dev`) | `pnpm dev` ที่ root — copy `envs/.env.dev.web` เป็น `logitrack-web/.env.local` แล้วเปิด dev server |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+จากนั้นเปิด <http://localhost:3000>
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## ตรวจโค้ด
 
-## Learn More
+ใน `logitrack-web/`:
 
-To learn more about Next.js, take a look at the following resources:
+- `pnpm test` — Vitest
+- `pnpm lint` — ESLint + เช็ค masked money
+- `pnpm test:e2e` — Playwright (`tests/`)
+- `pnpm build` — production build (`next build --webpack`)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `main` → Firebase: dev deploy อัตโนมัติหลัง CI เขียว, prod กดรัน workflow **Deploy** ใน GitHub Actions (`.github/workflows/deploy.yml`) — รายละเอียด env ของ Hosting/Functions: [`docs/ENV_AND_DEPLOY.md`](docs/ENV_AND_DEPLOY.md)
+- `mv-go` → staging VM: `logitrack-api/deploy/vm/deploy.sh` (ดู runbook)

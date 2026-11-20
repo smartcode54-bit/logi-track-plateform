@@ -265,6 +265,10 @@ type Querier interface {
 	// POST /v1/trips/{id}/rename: the number changes in place (the row, its photos and incidents keep their ids, so
 	// nothing is re-pointed, unlike renameTripRecord.ts:51); the history row is written in the same transaction.
 	RenameTripNo(ctx context.Context, arg RenameTripNoParams) (TripRecord, error)
+	// The driver's check-in (POST /v1/mobile/tasks/{id}/check-in, T55) starts the job: the truck the driver is
+	// responsible for now (vehicle identity: the truck of this job), the job and when it started. Under the driver's RLS
+	// (drivers.p_self_update + trg_driver_self_columns: only the active_* columns of its own row).
+	SetDriverActiveTask(ctx context.Context, arg SetDriverActiveTaskParams) (int64, error)
 	// The photos of an admin-reported incident (POST /v1/incidents): committed after the insert with the report as their
 	// owner, then linked here in the same transaction (a NULL keeps the column).
 	SetIncidentPhotos(ctx context.Context, arg SetIncidentPhotosParams) (IncidentReport, error)

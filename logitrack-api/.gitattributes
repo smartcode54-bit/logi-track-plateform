@@ -1,0 +1,4 @@
+# Files that run in Linux containers or on the staging VM keep LF in every checkout, whatever core.autocrlf says:
+# a CRLF shell script fails in the container (`set: illegal option -`), and the Caddyfile tests compare bytes.
+*.sh       text eol=lf
+deploy/**  text=auto eol=lf

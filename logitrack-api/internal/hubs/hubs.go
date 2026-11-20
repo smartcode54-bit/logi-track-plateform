@@ -278,11 +278,55 @@ func linkVisible(p *authz.Principal, h cachedHub) (link, party bool) {
 
 // --- reads --------------------------------------------------------------------------------------------------
 
+// MaxLinkedParties caps ?linkedPartyId of GET /v1/hubs. A task form asks for one customer's party, two where that
+// customer is allowed another's places; the cap only keeps the parameter bounded.
+const MaxLinkedParties = 8
+
+// ParseLinkedParties reads ?linkedPartyId of GET /v1/hubs: billing party uuids, comma separated, kept in the order
+// given without repeats. "" is no filter. The second result is the violation reason of Appendix B §B.1.5 when the
+// value is not a list of at most MaxLinkedParties uuids, "" when it is.
+func ParseLinkedParties(v string) ([]uuid.UUID, string) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, ""
+	}
+	parts := strings.Split(v, ",")
+	if len(parts) > MaxLinkedParties {
+		return nil, "too_many"
+	}
+	out := make([]uuid.UUID, 0, len(parts))
+	for _, raw := range parts {
+		id, err := uuid.Parse(strings.TrimSpace(raw))
+		if err != nil {
+			return nil, "invalid"
+		}
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, ""
+}
+
+// linkedToAny says whether h is linked to one of the billing parties a ?linkedPartyId filter named. No party named
+// is every station; a station linked to none is never in a filtered answer.
+func linkedToAny(h Hub, parties []uuid.UUID) bool {
+	if len(parties) == 0 {
+		return true
+	}
+	return h.LinkedPartyID != nil && slices.Contains(parties, *h.LinkedPartyID)
+}
+
 // ListInput are the filters and the page of GET /v1/hubs.
 type ListInput struct {
 	StationType string // HUB | SOC (legacy spellings accepted)
 	// Q: every folded word of it is in the code or a name, in any order (searchtext, the web's lib/searchText.ts).
 	Q string
+	// LinkedPartyIDs keeps only the hubs and SOCs linked to one of these billing parties (hubs.linked_party_id);
+	// empty is every station. The task form asks for the customer's own party so that picking a customer first
+	// narrows the origin, the destination and the delivery stops to that customer's places, as the legacy
+	// Firestore form did in the browser over the whole master. A hub linked to nothing is never in the answer.
+	// Several parties are accepted because a customer may be allowed to use another customer's places.
+	LinkedPartyIDs []uuid.UUID
 	// Page asks for one keyset page (?limit or ?cursor given): Limit rows (0 = DefaultLimit) after Cursor. Without it
 	// the whole master answers in one response.
 	Page   bool
@@ -366,6 +410,9 @@ func (s *Service) List(ctx context.Context, p *authz.Principal, in ListInput) ([
 	out := make([]Hub, 0, len(all))
 	for _, h := range all {
 		if station != "" && h.StationType != station {
+			continue
+		}
+		if !linkedToAny(h.Hub, in.LinkedPartyIDs) {
 			continue
 		}
 		if len(terms) > 0 && !matches(h.Hub, terms) {

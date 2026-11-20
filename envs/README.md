@@ -2,6 +2,8 @@
 
 โฟลเดอร์นี้เก็บเทมเพลตและ (ถ้ามี) ค่าจริงของ environment สำหรับ **dev** และ **production** ของแต่ละแอป **ห้าม commit ไฟล์ที่มีค่าจริง**
 
+> ภาพรวมการรันและ deploy ทุก env (local Go stack, staging VM, Firebase dev/prod, mobile ทุก flavor): [`shared-docs/runbook-run-deploy.md`](../shared-docs/runbook-run-deploy.md)
+
 ## โครงสร้าง
 
 | ไฟล์ | ใช้กับ | คำอธิบาย |
@@ -13,6 +15,8 @@
 | `.env.prod.web.example` | Next.js | เทมเพลต prod web (logitrack-prod) |
 | `.env.prod.web` | Next.js | ค่าจริง prod web (gitignored) |
 | `.env.prod.mobile` | Flutter | ค่าจริง prod mobile (gitignored; สร้างจาก `.env.dev.mobile.example` แล้วแก้เป็น prod) |
+| `.env.gotest.mobile.example` | Flutter | เทมเพลตแอปทดสอบ mv-go (flavor `gotest`) — `API_BASE_URL` (Go staging) + `GOTEST_BUILD`; Firebase ใช้ `.env.dev.mobile` |
+| `.env.gotest.mobile` | Flutter | ค่าจริงแอปทดสอบ mv-go (gitignored) — build ด้วย `pnpm build:mobile:gotest` เท่านั้น ไม่ publish |
 
 ไฟล์ `.env.*` ที่ไม่มี `.example` ถูก ignore ใน `.gitignore` — ใส่ค่าจริงในไฟล์นั้นแล้วอย่า commit
 

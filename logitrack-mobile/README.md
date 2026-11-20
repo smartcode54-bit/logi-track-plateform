@@ -1,8 +1,28 @@
-# logi_track_driver_app
+# LogiTrack Driver App (`logitrack-mobile`)
 
-A new Flutter project.
+แอป Flutter ของคนขับ มี 3 flavor: `dev` (Firebase dev), `prod` (Firebase prod, build จาก `main` เท่านั้น) และ `gotest` (ทดสอบ Go API บน branch `mv-go`)
+
+| เรื่อง | ไฟล์ |
+| --- | --- |
+| รัน / build / ปล่อยเวอร์ชันครบทุก flavor | [`shared-docs/runbook-run-deploy.md`](../shared-docs/runbook-run-deploy.md) หัวข้อ Mobile build & run |
+| build APK ละเอียด | [`docs/BUILD_APK.md`](docs/BUILD_APK.md) |
+| ต่อมือถือจริง / USB debugging / Google Sign-In | [`docs/RUN_ON_PHYSICAL_DEVICE.md`](docs/RUN_ON_PHYSICAL_DEVICE.md) |
+| ปล่อยเวอร์ชัน + บังคับอัปเดต + keystore | [`docs/RELEASE_AND_FORCE_UPDATE.md`](docs/RELEASE_AND_FORCE_UPDATE.md) |
+
+## รันเร็วๆ (flavor dev)
+
+```bash
+pnpm mobile:dev        # ที่ root: copy envs/.env.dev.mobile → logitrack-mobile/.env.dev
+cd logitrack-mobile
+flutter pub get
+flutter run --flavor dev --dart-define=FLAVOR=dev
+```
+
+ต้องใส่ทั้ง `--flavor` และ `--dart-define=FLAVOR=` ทุกครั้งที่รันบน Android — `flutter run` เปล่าๆ build ไม่ผ่านเพราะโปรเจกต์มี productFlavors และต้องมี `android/app/src/<flavor>/google-services.json` (gitignored) กับ `.env.dev` + `.env.prod` อยู่ในเครื่อง
 
 ## ทดสอบบน Browser (เมื่อไม่มีอุปกรณ์หรือ Android Studio)
+
+บน web ไม่มี flavor — แอปใช้ค่า dev (`.env.dev`) เสมอ
 
 รันแอปบน Chrome ได้เลย ไม่ต้องมีเครื่อง Android/iOS หรือ Android Studio สำหรับรันเครื่องจำลอง:
 
@@ -85,7 +105,7 @@ flutter config --enable-web
 
 ```bash
 flutter devices
-flutter run
+flutter run --flavor dev --dart-define=FLAVOR=dev
 ```
 
 ถ้ามีหลาย device (เช่น Chrome + Emulator) Flutter จะถามให้เลือก — เลือกตัวที่ชื่อ **android** / **emulator**
@@ -94,13 +114,15 @@ flutter run
 
 ```bash
 flutter emulators
-flutter run -d <id ของ emulator>
+flutter emulators --launch <id ของ emulator>
+flutter run -d <id ของเครื่องจาก flutter devices> --flavor dev --dart-define=FLAVOR=dev
 ```
 
 เช่น ถ้า `flutter emulators` แสดง `Pixel_6_API_34`:
 
 ```bash
-flutter run -d Pixel_6_API_34
+flutter emulators --launch Pixel_6_API_34
+flutter run --flavor dev --dart-define=FLAVOR=dev
 ```
 
 ### ใช้กล้อง / GPS บน Emulator
@@ -114,19 +136,15 @@ flutter run -d Pixel_6_API_34
 flutter doctor
 ```
 
-ต้องมีเครื่องหมายถูกที่ **Android toolchain** และ **Android Studio** (หรือ Android command-line tools) ถ้ายังไม่ติดตั้งครบ `flutter doctor` จะบอกขั้นตอนเพิ่ม
+ต้องมีเครื่องหมายถูกที่ **Android toolchain** และ **Android Studio** (หรือ Android command-line tools) ถ้ายังไม่ติดตั้งครบ `flutter doctor` จะบอกขั้นตอนเพิ่ม — ใช้ JDK 21 (JDK ที่ใหม่กว่า เช่น JBR 25 ทำให้ Gradle 8.14 ล้ม)
 
 ---
 
-## Getting Started
+## ตรวจโค้ดก่อน commit
 
-This project is a starting point for a Flutter application.
+mobile ยังไม่มี CI — ใน `logitrack-mobile/` ให้รันเอง:
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter analyze
+flutter test
+```

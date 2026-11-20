@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- gotest flavor only (src/gotest/ is merged into gotestDebug/gotestRelease, never into dev or prod).
+     Plain http is allowed to this device's own loopback and the emulator's host alias, nothing else:
+     a local Go stack is reached with `adb reverse` (pnpm build:mobile:gotest:local), and its
+     presigned media URLs point at http://localhost:9000 (MinIO). Every other host stays https-only. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

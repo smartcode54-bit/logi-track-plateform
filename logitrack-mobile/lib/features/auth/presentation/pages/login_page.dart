@@ -37,7 +37,11 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
-    final envLabel = _appFlavor == 'prod' ? 'Release' : 'Dev';
+    final envLabel = switch (_appFlavor) {
+      'prod' => 'Release',
+      'gotest' => 'GO-TEST',
+      _ => 'Dev',
+    };
     setState(() {
       _versionNumber = 'v${info.version}';
       _versionDisplay =

@@ -30,9 +30,14 @@ class MobileAppVersionService {
   static const _cachedAtKey = 'logitrack_version_config_cached_at';
   static const _cacheTtl = Duration(days: 30);
 
+  /// Where the floor is read from. null = Firestore `settings/mobile_app` (dev and prod, unchanged). The gotest app
+  /// sets a source reading `GET /v1/mobile/settings` from the Go API (T55); the cache and fail-open rules below
+  /// apply to either source.
+  VersionConfigSource? remoteSource;
+
   /// Returns true if the user may proceed (version OK, or no usable config — fail open).
   Future<bool> ensureAllowedToRun(BuildContext context) async {
-    _VersionConfig? config;
+    VersionConfig? config;
     try {
       config = await _fetchRemote();
       // Writes the cache on success, and clears it when the floor has been removed — otherwise
@@ -68,7 +73,9 @@ class MobileAppVersionService {
 
   /// Reads the live config. Throws on network / permission failure so the caller can fall back to
   /// cache; returns null when the doc exists but configures no floor.
-  Future<_VersionConfig?> _fetchRemote() async {
+  Future<VersionConfig?> _fetchRemote() async {
+    final source = remoteSource;
+    if (source != null) return source();
     final doc = await FirebaseFirestore.instance
         .collection('settings')
         .doc('mobile_app')
@@ -81,13 +88,13 @@ class MobileAppVersionService {
     final minStr = (data['minAllowedVersion'] as String?)?.trim() ?? '';
     if (minStr.isEmpty) return null;
 
-    return _VersionConfig(
+    return VersionConfig(
       minAllowedVersion: minStr,
       apkDownloadUrl: (data['apkDownloadUrl'] as String?)?.trim() ?? '',
     );
   }
 
-  Future<void> _writeCache(_VersionConfig? config) async {
+  Future<void> _writeCache(VersionConfig? config) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (config == null) {
@@ -105,7 +112,7 @@ class MobileAppVersionService {
   }
 
   /// The last floor this device saw, or null when there is none or it has gone stale.
-  Future<_VersionConfig?> _readCache() async {
+  Future<VersionConfig?> _readCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final minStr = prefs.getString(_minVersionKey)?.trim() ?? '';
@@ -118,7 +125,7 @@ class MobileAppVersionService {
       );
       if (age > _cacheTtl || age.isNegative) return null;
 
-      return _VersionConfig(
+      return VersionConfig(
         minAllowedVersion: minStr,
         apkDownloadUrl: prefs.getString(_apkUrlKey)?.trim() ?? '',
       );
@@ -191,8 +198,13 @@ class MobileAppVersionService {
   }
 }
 
-class _VersionConfig {
-  const _VersionConfig({
+/// Reads the live floor: throws on a network or server failure (the caller falls back to the cache), returns null
+/// when no floor is configured.
+typedef VersionConfigSource = Future<VersionConfig?> Function();
+
+/// The floor and the download link of the forced update (ADR 0007).
+class VersionConfig {
+  const VersionConfig({
     required this.minAllowedVersion,
     required this.apkDownloadUrl,
   });

@@ -1,4 +1,4 @@
 {
      "java.configuration.updateBuildConfiguration": "interactive",
-     "cmake.sourceDirectory": "D:/Secret/LOGI-TRACK/logitrack-platform/.claude/worktrees/sad-williamson-5acf33/logitrack-mobile/linux/runner"
+     "java.import.gradle.java.home": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.5.11-hotspot"
 }

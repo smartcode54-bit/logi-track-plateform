@@ -71,6 +71,15 @@ ORDER BY 1;
 -- them yet); the new plan is inserted as stop 1..n in the same transaction.
 DELETE FROM task_delivery_stops WHERE task_id = sqlc.arg(task_id);
 
+-- name: SetDriverActiveTask :execrows
+-- The driver's check-in (POST /v1/mobile/tasks/{id}/check-in, T55) starts the job: the truck the driver is
+-- responsible for now (vehicle identity: the truck of this job), the job and when it started. Under the driver's RLS
+-- (drivers.p_self_update + trg_driver_self_columns: only the active_* columns of its own row).
+UPDATE drivers
+SET active_truck_id = sqlc.arg(truck_id), active_truck_plate = sqlc.arg(plate), active_task_id = sqlc.arg(task_id),
+    active_started_at = sqlc.arg(started_at)::timestamptz
+WHERE id = sqlc.arg(driver_id);
+
 -- name: ClearDriverActiveTask :execrows
 -- The delivery of a trip (POST /v1/trips/{id}/deliver, admin_web) ends the job the driver was running: the driver's
 -- active truck is cleared when it still names this task (a driver who has since checked in to another job keeps it).
