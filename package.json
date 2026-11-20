@@ -11,6 +11,8 @@
     "mobile:dev": "node -e \"var fs=require('fs'); if(fs.existsSync('envs/.env.dev.mobile')) fs.copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev');\"",
     "build:mobile:dev": "node -e \"require('fs').copyFileSync('envs/.env.dev.mobile','logitrack-mobile/.env.dev')\" && cd logitrack-mobile && flutter build apk --release --flavor dev --dart-define=FLAVOR=dev",
     "build:mobile:gotest": "node scripts/build-mobile-gotest.mjs",
+    "build:mobile:gotest:local": "node scripts/build-mobile-gotest.mjs --local",
+    "gotest:reverse": "node scripts/build-mobile-gotest.mjs --reverse",
     "build:mobile:prod":"node -e \"require('fs').copyFileSync('envs/.env.prod.mobile','logitrack-mobile/.env.prod')\" && cd logitrack-mobile && flutter build apk --release --flavor prod --dart-define=FLAVOR=prod",
     "backfill:task-hub-customers:dry-run": "pnpm --filter logi-track run backfill:task-hub-customers:dry-run",
     "backfill:task-hub-customers:apply": "pnpm --filter logi-track run backfill:task-hub-customers:apply",

@@ -2,6 +2,8 @@
 
 โฟลเดอร์นี้เก็บเทมเพลตและ (ถ้ามี) ค่าจริงของ environment สำหรับ **dev** และ **production** ของแต่ละแอป **ห้าม commit ไฟล์ที่มีค่าจริง**
 
+> ภาพรวมการรันและ deploy ทุก env (local Go stack, staging VM, Firebase dev/prod, mobile ทุก flavor): [`shared-docs/runbook-run-deploy.md`](../shared-docs/runbook-run-deploy.md)
+
 ## โครงสร้าง
 
 | ไฟล์ | ใช้กับ | คำอธิบาย |

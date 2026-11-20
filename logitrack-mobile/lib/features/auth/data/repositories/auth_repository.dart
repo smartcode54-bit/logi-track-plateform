@@ -14,7 +14,16 @@ import '../../../home/data/services/draft_storage_service.dart';
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static bool _googleInitialized = false;
+  /// Memoized so `initialize()` runs at most once per process — the plugin
+  /// marks itself initialized even when init throws, so a retry after a
+  /// failure would otherwise fail with "init() has already been called".
+  static Future<void>? _googleInit;
+
+  static Future<void> _ensureGoogleInitialized() {
+    return _googleInit ??= GoogleSignIn.instance.initialize(
+      serverClientId: dotenv.env['FIREBASE_WEB_CLIENT_ID'],
+    );
+  }
 
   /// Keeps `users/{uid}.lastLogin` in sync for admin Security Center (Firestore is not updated on every Auth sign-in server-side).
   Future<void> _touchLastLogin(User user) async {
@@ -110,37 +119,42 @@ class AuthRepository {
 
   Future<User?> signInWithGoogle() async {
     try {
-      final GoogleSignInAccount googleUser;
-      try {
-        // Initialize GoogleSignIn with the Web Client ID from env (only once)
-        if (!_googleInitialized) {
-          final serverClientId = dotenv.env['FIREBASE_WEB_CLIENT_ID'];
-          await GoogleSignIn.instance.initialize(
-            serverClientId: serverClientId,
-          );
-          _googleInitialized = true;
+      final UserCredential userCredential;
+      if (kIsWeb) {
+        // google_sign_in v7 has no authenticate() on web (it needs the
+        // plugin's rendered button + a clientId meta tag). Firebase Auth's
+        // popup flow handles the OAuth client itself.
+        try {
+          userCredential = await _auth.signInWithPopup(GoogleAuthProvider());
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'popup-closed-by-user' ||
+              e.code == 'cancelled-popup-request') {
+            return null;
+          }
+          rethrow;
         }
-        googleUser = await GoogleSignIn.instance.authenticate();
-      } catch (e) {
-        // If the user cancelled, we return null so the UI doesn't show a scary red error.
-        // Otherwise, throw so we can see the real issue (like missing SHA-1 hash).
-        if (e.toString().contains('sign_in_canceled')) {
-          return null;
+      } else {
+        final GoogleSignInAccount googleUser;
+        try {
+          await _ensureGoogleInitialized();
+          googleUser = await GoogleSignIn.instance.authenticate();
+        } on GoogleSignInException catch (e) {
+          if (e.code == GoogleSignInExceptionCode.canceled) return null;
+          debugPrint('Google Sign-In Error: $e');
+          throw Exception('Google Sign-In Error: $e');
+        } catch (e) {
+          // Surface the real issue (e.g. missing SHA-1 / wrong client ID).
+          debugPrint('Google Sign-In Error: $e');
+          throw Exception('Google Sign-In Error: $e');
         }
-        // Print and throw for debugging
-        print('Google Sign-In Error: $e');
-        throw Exception('Google Sign-In Error: $e');
+
+        final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+        final AuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: null, // accessToken is no longer provided directly in v7.x
+          idToken: googleAuth.idToken,
+        );
+        userCredential = await _auth.signInWithCredential(credential);
       }
-
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: null, // accessToken is no longer provided directly in v7.x
-        idToken: googleAuth.idToken,
-      );
-
-      final UserCredential userCredential = await _auth.signInWithCredential(
-        credential,
-      );
       final User? user = userCredential.user;
 
       if (user != null) {
@@ -157,7 +171,7 @@ class AuthRepository {
               .get();
 
           if (driverQuery.docs.isEmpty) {
-            await GoogleSignIn.instance.signOut();
+            if (!kIsWeb) await GoogleSignIn.instance.signOut();
             await _auth.signOut();
             throw Exception(
               'Access Denied: You must be a registered driver to use this app.',

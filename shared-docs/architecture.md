@@ -361,13 +361,21 @@ SOC dedup ด้วย `normalizeSocIdToKey` (เช่น `SOCE` = `SOCE (…)`
 
 ```
 GitHub Actions
-├── ci.yml   (trigger: push to main, PR)
-│   └── pnpm install → tsc --noEmit → eslint → vitest
-└── deploy.yml  (trigger: push to main)
-    └── Firebase Hosting deploy (dev/prod)
+├── ci.yml          (trigger: push to main / mv-go, PR — เฉพาะ logitrack-web/**, shared-docs/**)
+│   └── pnpm install → tsc --noEmit → eslint → vitest → bundle budget → standalone build
+├── deploy.yml      (trigger: CI เขียวบน main → dev อัตโนมัติ / workflow_dispatch → dev หรือ prod)
+│   └── firebase deploy --only hosting,functions,firestore
+├── go-ci.yml       (trigger: push mv-go, tag api-v*, PR เข้า mv-go)
+│   └── lint → gen-check → migrate → test → goldens → stack → build image ghcr.io (ไม่ deploy)
+└── secret-scan.yml (trigger: push / PR ของ mv-go*)
+    └── gitleaks
 ```
 
+Staging ของ `mv-go` (VM `showkhun.co`) ไม่มี workflow — deploy ด้วย `logitrack-api/deploy/vm/deploy.sh` จากเครื่องผู้ deploy; mobile ยังไม่มี CI
+
 > ห้าม `firebase deploy` จาก local — ใช้ GitHub Actions เท่านั้น (ยกเว้นกรณีฉุกเฉิน CI ล่ม)
+
+ขั้นตอนรันและ deploy ทุก env: [runbook-run-deploy.md](./runbook-run-deploy.md)
 
 ---
 

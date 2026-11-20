@@ -52,31 +52,35 @@ If the device does **not** appear:
 
 ## Step 4: Run the app on the physical device
 
+The project has product flavors (`dev`, `prod`, `gotest`), so every run needs both `--flavor` and `--dart-define=FLAVOR=` — a bare `flutter run` fails to build. Sync the env first with `pnpm mobile:dev` from the repo root.
+
 **Option A – Let Flutter pick the device (if only one is connected):**
 
 ```bash
 cd logitrack-mobile
-flutter run
+flutter run --flavor dev --dart-define=FLAVOR=dev
 ```
 
 **Option B – Specify the device by ID:**
 
 ```bash
 cd logitrack-mobile
-flutter run -d <device_id>
+flutter run -d <device_id> --flavor dev --dart-define=FLAVOR=dev
 ```
 
 Use the **device ID** from `flutter devices` (e.g. `RG79MFIJZLY9MFTS`):
 
 ```bash
-flutter run -d RG79MFIJZLY9MFTS
+flutter run -d RG79MFIJZLY9MFTS --flavor dev --dart-define=FLAVOR=dev
 ```
 
 **Option C – Release build (smaller, faster on device):**
 
 ```bash
-flutter run --release
+flutter run --release --flavor dev --dart-define=FLAVOR=dev
 ```
+
+For the `gotest` flavor (Go API on `mv-go`) use `pnpm build:mobile:gotest:local` from the repo root instead — see [shared-docs/runbook-run-deploy.md](../../shared-docs/runbook-run-deploy.md).
 
 ---
 
@@ -244,35 +248,28 @@ flutter doctor --android-licenses
 
 Accept the licenses when prompted.
 
-# build apk for physical device
+## Build APK for a physical device
 
-ต้องใส่ `--dart-define=FLAVOR=...` ด้วย เพื่อให้แอปโหลด `.env.prod` หรือ `.env.dev` ถูกต้อง (รวมถึง FIREBASE_WEB_CLIENT_ID สำหรับ Google Sign-In)
+ใช้สคริปต์ที่ root ของ repo — copy env ให้ตรง flavor และใส่ทั้ง `--flavor` กับ `--dart-define=FLAVOR=` ให้ (ขาดตัวไหน แอปจะโหลด `.env` ผิดและ `FIREBASE_WEB_CLIENT_ID` สำหรับ Google Sign-In ผิด):
 
-```bash - prod
-flutter build apk --flavor prod --dart-define=FLAVOR=prod
-# หรือ split ตาม ABI:
-flutter build apk --flavor prod --dart-define=FLAVOR=prod --split-per-abi
+```bash
+pnpm build:mobile:dev      # Firebase dev
+pnpm build:mobile:prod     # Firebase prod (build จาก main เท่านั้น)
 ```
 
-```bash - dev
-flutter build apk --flavor dev --dart-define=FLAVOR=dev
-# หรือ split ตาม ABI:
-flutter build apk --flavor dev --dart-define=FLAVOR=dev --split-per-abi
-```
+ห้ามใส่ `--split-per-abi` — การปล่อยเวอร์ชันต้องใช้ APK universal ตัวเดียว (ADR 0007) รายละเอียดผลลัพธ์และการตรวจ build อยู่ที่ [BUILD_APK.md](./BUILD_APK.md)
 
 ### `flutter run` (debug)
 
 ```bash
 # Dev → ใช้ Firebase Dev + Web Client ID ของ Dev
 flutter run --flavor dev --dart-define=FLAVOR=dev
-
 ```
+
 ```bash
 # Prod → ใช้ Firebase Prod + Web Client ID ของ Prod
 flutter run --flavor prod --dart-define=FLAVOR=prod
-
-
-flutter build apk --flavor prod --release
+```
 
 ---
 

@@ -1077,3 +1077,4 @@ match /mobile_installations/{installId} {
 34. `logitrack-web/lib/hubDisplay.ts` — `primaryHubLabelFromFirestoreData` (UI: TH→EN→code) + `billingHubLabelFromFirestoreData` (billing docs: EN→TH→code)
 35. `logitrack-web/functions/src/backfillTripTruckData.ts` — callable 3-pass backfill truck identifiers สำหรับ trip_records/vehicle_expenses/tasks
 36. `logitrack-mobile/lib/features/vehicle_expense/presentation/pages/vehicle_expense_page.dart` — `_fetchFreshDriverData()` re-fetch ก่อนเปิด expense form
+37. `shared-docs/runbook-run-deploy.md` — runbook การรันและ deploy ทุก env (local Go stack, staging VM `mv-go`, Firebase dev/prod `main`, mobile ทุก flavor)
