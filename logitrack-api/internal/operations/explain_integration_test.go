@@ -241,6 +241,12 @@ func TestExplainEveryQueryShapeUsesAnIndex(t *testing.T) {
 			_, err := q.ClearDriverActiveTask(ctx, operationsdb.ClearDriverActiveTaskParams{DriverID: drv, TaskID: &task})
 			return err
 		}, nil}, // drivers primary key
+		{"SetDriverActiveTask", driver, func(ctx context.Context, q *operationsdb.Queries) error {
+			truck, plate := uuid.Must(uuid.NewV7()), "70-1234" // EXPLAIN only: the truck need not exist
+			_, err := q.SetDriverActiveTask(ctx, operationsdb.SetDriverActiveTaskParams{
+				TruckID: &truck, Plate: &plate, TaskID: &task, StartedAt: cursorAt, DriverID: drv})
+			return err
+		}, nil}, // drivers primary key (the driver's check-in, under its own RLS)
 		{"SetIncidentPhotos", staff, func(ctx context.Context, q *operationsdb.Queries) error {
 			_, err := q.SetIncidentPhotos(ctx, operationsdb.SetIncidentPhotosParams{ID: incident})
 			return err
