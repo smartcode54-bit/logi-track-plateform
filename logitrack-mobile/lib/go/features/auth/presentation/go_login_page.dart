@@ -4,10 +4,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../app/go_badge.dart';
 import '../../../core/error_text.dart';
+import '../data/google_identity_source.dart';
 import 'login_bloc.dart';
 
-/// The gotest login (spec mobile-go-core-loop R3, R7, R16, R17): email and password against the Go API. Google
-/// sign-in and "forgot password" are not in this slice (shown disabled).
+/// The gotest login (spec mobile-go-core-loop R3, R7, R16, R17): email and password, or Google (developer-spec §11.4;
+/// the button is disabled in a build without `GOOGLE_OIDC_CLIENT_ID`), against the Go API. "Forgot password" is not in
+/// this slice.
 class GoLoginPage extends StatefulWidget {
   const GoLoginPage({super.key, this.messageKey, required this.versionLabel});
 
@@ -51,16 +53,7 @@ class _GoLoginPageState extends State<GoLoginPage> {
             Text(widget.versionLabel, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 24),
             if (widget.messageKey != null) _Notice(text: widget.messageKey!.tr()),
-            if (state.error != null)
-              _Notice(
-                text: apiErrorText(state.error!, overrides: const {
-                  'invalid_credentials': 'login_error_invalid_credentials',
-                  'account_disabled': 'login_error_account_disabled',
-                  'driver_profile_required': 'login_error_driver_profile_required',
-                  'no_account': 'login_error_invalid_credentials',
-                }),
-                error: true,
-              ),
+            if (state.error != null) _Notice(text: _errorText(state.error!), error: true),
             Form(
               key: _form,
               child: Column(children: [
@@ -91,15 +84,32 @@ class _GoLoginPageState extends State<GoLoginPage> {
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              onPressed: null,
+              onPressed: state.busy || !context.read<LoginBloc>().auth.googleAvailable
+                  ? null
+                  : () => context.read<LoginBloc>().add(GoogleLoginSubmitted()),
               icon: const Icon(Icons.g_mobiledata),
-              label: Text('gotest_not_available_title'.tr()),
+              label: Text('sign_in_google'.tr()),
             ),
           ]);
         }),
       ),
     );
   }
+}
+
+/// The text of a login failure. `no_account` and `invalid_token` come only from `POST /v1/auth/google`: the password
+/// login answers `invalid_credentials` for every wrong address or password.
+String _errorText(Object error) {
+  if (error is GoogleSignInFailed) {
+    return 'login_error_google_failed'.tr(namedArgs: {'code': error.code});
+  }
+  return apiErrorText(error, overrides: const {
+    'invalid_credentials': 'login_error_invalid_credentials',
+    'account_disabled': 'login_error_account_disabled',
+    'driver_profile_required': 'login_error_driver_profile_required',
+    'no_account': 'login_error_google_no_account',
+    'invalid_token': 'login_error_google_invalid_token',
+  });
 }
 
 class _Notice extends StatelessWidget {

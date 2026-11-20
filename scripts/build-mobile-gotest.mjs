@@ -53,6 +53,9 @@ function googleServices(flavor) {
     return {
         projectId: json.project_info?.project_id,
         packages: (json.client ?? []).map((c) => c.client_info?.android_client_info?.package_name),
+        // OAuth web clients (client_type 3): the `aud` of the ID token google_sign_in asks for (serverClientId).
+        webClientIds: (json.client ?? []).flatMap((c) =>
+            (c.oauth_client ?? []).filter((o) => o.client_type === 3).map((o) => o.client_id)),
     };
 }
 
@@ -140,6 +143,15 @@ if (devEnv.FIREBASE_PROJECT_ID !== gotest.projectId) {
 }
 copyFileSync(devEnvPath, join(mobile, ".env.dev"));
 
+// Google sign-in (developer-spec §11.4, §11.13): the server client id, i.e. the OAuth web client of the dev project.
+// Go accepts the token only when this id is in its GOOGLE_OIDC_ALLOWED_CLIENT_IDS. Empty = the button is disabled.
+const googleClientId = (cfg.GOOGLE_OIDC_CLIENT_ID || devEnv.FIREBASE_WEB_CLIENT_ID || "").trim();
+if (googleClientId && !gotest.webClientIds.includes(googleClientId)) {
+    fail("GOOGLE_OIDC_CLIENT_ID (or FIREBASE_WEB_CLIENT_ID of envs/.env.dev.mobile) is not an OAuth web client of " +
+        `src/gotest/google-services.json (${gotest.projectId})`);
+}
+if (!googleClientId) console.warn("[build-mobile-gotest] warning: no Google client id; Google sign-in is disabled");
+
 // A local build has its own version, so an APK made for this machine is never mistaken for a staging one.
 const buildName = `4.0.0-gotest.${build}${local ? ".local" : ""}`;
 const args = [
@@ -147,6 +159,7 @@ const args = [
     "--flavor", "gotest",
     "--dart-define=FLAVOR=gotest",
     `--dart-define=API_BASE_URL=${apiBaseUrl}`,
+    `--dart-define=GOOGLE_OIDC_CLIENT_ID=${googleClientId}`,
     `--build-name=${buildName}`,
     `--build-number=${build}`,
 ];

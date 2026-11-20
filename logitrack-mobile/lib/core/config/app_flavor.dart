@@ -20,6 +20,10 @@ class AppFlavor {
   /// Go API base URL, from `--dart-define=API_BASE_URL=...`; set for `gotest` builds only.
   static const String apiBaseUrl = String.fromEnvironment('API_BASE_URL');
 
+  /// The Google server client id (the OAuth web client, `aud` of the ID token) for Google sign-in against Go, from
+  /// `--dart-define=GOOGLE_OIDC_CLIENT_ID=...` (developer-spec §11.13); `gotest` only. Empty = Google sign-in off.
+  static const String googleOidcClientId = String.fromEnvironment('GOOGLE_OIDC_CLIENT_ID');
+
   /// A `gotest` build without [apiBaseUrl] would silently fall back to dev-only Firebase behaviour; refuse it.
   static void assertConfigured() {
     if (isGoTest && apiBaseUrl.isEmpty) {

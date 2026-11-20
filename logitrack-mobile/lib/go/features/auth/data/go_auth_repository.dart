@@ -2,31 +2,70 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../../../core/api/token_store.dart';
 import '../domain/mobile_me.dart';
+import 'google_identity_source.dart';
 
-/// A login that needs a new password first (`403 password_change_required`, R79).
+/// A login that needs a new password first (`403 password_change_required`, R79). [email] is set when the sign-in
+/// was Google's (the form had no address): the change-password step logs in again with it.
 class PasswordChangeRequired implements Exception {
-  PasswordChangeRequired(this.ticket);
+  PasswordChangeRequired(this.ticket, {this.email});
   final String ticket;
+  final String? email;
 }
 
-/// The session against the Go API (spec mobile-go-core-loop R3-R7): login, the silent start, the forced password
-/// change, `GET /v1/mobile/me` and logout.
+/// The session against the Go API (spec mobile-go-core-loop R3-R7): login (password or Google), the silent start,
+/// the forced password change, `GET /v1/mobile/me` and logout.
 class GoAuthRepository {
-  GoAuthRepository({required this.api, required this.tokens, required this.installId, required this.appVersion});
+  GoAuthRepository({
+    required this.api,
+    required this.tokens,
+    required this.installId,
+    required this.appVersion,
+    this.google,
+  });
 
   final ApiClient api;
   final TokenStore tokens;
   final String installId;
   final String appVersion;
 
+  /// Null or not [GoogleIdentitySource.available] = Google sign-in is off in this build.
+  final GoogleIdentitySource? google;
+
+  bool get googleAvailable => google?.available ?? false;
+
   /// `POST /v1/auth/login` then `GET /v1/mobile/me`. Throws [PasswordChangeRequired] for a temporary password,
   /// [ApiException] / [NetworkException] otherwise; an account without a driver is logged out again and answered as
   /// `403 driver_profile_required`.
   Future<MobileMe> login(String email, String password) async {
+    await _openSession('/v1/auth/login', {'email': email.trim(), 'password': password});
+    return _driverOrLogout();
+  }
+
+  /// Google sign-in (developer-spec §11.4, Appendix C §C.4.10): the account picker, then
+  /// `POST /v1/auth/google {idToken, platform, installId, appVersion}` without a nonce, then the same path as [login].
+  /// Null when the driver cancels the picker (no request is made). Go answers `403 no_account` when no active user is
+  /// linked to that Google account and none has its (Gmail or Workspace) address: there is no self-signup. Throws
+  /// [GoogleSignInFailed] when the phone could not get a token.
+  Future<MobileMe?> loginWithGoogle() async {
+    final source = google;
+    if (source == null || !source.available) throw GoogleSignInFailed('not_configured');
+    final picked = await source.pick();
+    if (picked == null) return null;
     try {
-      final d = await api.postData('/v1/auth/login', {
-        'email': email.trim(),
-        'password': password,
+      await _openSession('/v1/auth/google', {'idToken': picked.idToken}, email: picked.email);
+    } catch (_) {
+      // Let the next attempt offer the account picker again (another account may be the linked one).
+      await source.forget();
+      rethrow;
+    }
+    return _driverOrLogout();
+  }
+
+  /// Posts a sign-in [body] (plus platform, install id and app version) and stores the tokens of the answer.
+  Future<void> _openSession(String path, Map<String, Object?> body, {String? email}) async {
+    try {
+      final d = await api.postData(path, {
+        ...body,
         'platform': 'android',
         'installId': installId,
         'appVersion': appVersion,
@@ -39,10 +78,11 @@ class GoAuthRepository {
       );
     } on ApiException catch (e) {
       final ticket = e.details['passwordChangeTicket'];
-      if (e.code == 'password_change_required' && ticket is String) throw PasswordChangeRequired(ticket);
+      if (e.code == 'password_change_required' && ticket is String) {
+        throw PasswordChangeRequired(ticket, email: email);
+      }
       rethrow;
     }
-    return _driverOrLogout();
   }
 
   /// The silent start of a cold launch (R4): with a stored refresh token the interceptor refreshes on the first call.
@@ -79,6 +119,7 @@ class GoAuthRepository {
       // Offline or already revoked: the local session ends anyway.
     } finally {
       await tokens.clear();
+      await google?.forget();
     }
   }
 

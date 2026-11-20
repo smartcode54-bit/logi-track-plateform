@@ -11,6 +11,7 @@ import '../../core/services/mobile_install_id_service.dart';
 import '../core/services/go_heartbeat_service.dart';
 import '../core/services/go_version_config_source.dart';
 import '../features/auth/data/go_auth_repository.dart';
+import '../features/auth/data/google_identity_source.dart';
 import '../features/check_in/data/go_truck_repository.dart';
 import '../features/tasks/data/go_task_repository.dart';
 import '../features/trips/data/go_trip_repository.dart';
@@ -68,7 +69,13 @@ class GoServices {
       api: api,
       tokens: tokens,
       uploads: UploadClient(api),
-      auth: GoAuthRepository(api: api, tokens: tokens, installId: installId, appVersion: info.version),
+      auth: GoAuthRepository(
+        api: api,
+        tokens: tokens,
+        installId: installId,
+        appVersion: info.version,
+        google: PluginGoogleIdentitySource(AppFlavor.googleOidcClientId),
+      ),
       tasks: GoTaskRepository(api),
       trips: GoTripRepository(api),
       trucks: GoTruckRepository(api),
