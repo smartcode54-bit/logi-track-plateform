@@ -270,7 +270,7 @@ type APIConfig struct {
 	StorageAPI
 	// RateLimit is RATE_LIMIT_ENABLED and RATE_LIMIT_{LOGIN,PUBLIC_FORMS,EVIDENCE}, parsed once by
 	// ratelimit.Config (Validate below) for the rate-limit middleware and the auth buckets alike.
-	RateLimit         ratelimit.Config
+	RateLimit ratelimit.Config
 	// Idempotency is IDEMPOTENCY_TTL, the durable lifetime of the Idempotency-Key records of the replayable driver
 	// writes (the ✱ routes below /v1/mobile, T55).
 	Idempotency       idempotency.Config

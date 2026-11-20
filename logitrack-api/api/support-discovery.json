@@ -61,7 +61,7 @@
     "mutationCapabilityReferences": [
       "mobile:checkin"
     ],
-    "disposition": "deferred tenant GET: denied in support OFF and ON"
+    "disposition": "P1.3 pending read-key/projection binding; denied until bound"
   },
   {
     "source": "internal/hr/http.go",
