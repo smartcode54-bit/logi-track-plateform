@@ -420,19 +420,24 @@ src=$(sed -n 's/^NEXT_PUBLIC_FIREBASE_PROJECT_ID=//p' .env.old.prod | tr -d '\r'
 #    saved as sec/prod-reader-sa.json
 # 2. owner: the Auth export (signed in as the owner; a secret: hashes and salts)
 npx -y firebase-tools@15.33.0 auth:export sec/prod-auth-export.json --format=json --project "$src"
+#    with a key instead of the owner's login (the etl-reader key cannot export Auth): firebase-tools prefers a cached
+#    `firebase login` over GOOGLE_APPLICATION_CREDENTIALS, so hide it with an empty config directory
+#    XDG_CONFIG_HOME=$(mktemp -d) GOOGLE_APPLICATION_CREDENTIALS=$PWD/sec/<key>.json npx -y firebase-tools@15.33.0 auth:export ...
 # 3. the dump (read only; dump does not use OWN_FLEET_TENANT_ID, any uuid passes its check)
 APP_ENV=local OWN_FLEET_TENANT_ID=$(uuidgen | tr 'A-Z' 'a-z') ETL_FIRESTORE_PROJECT_ID="$src" \
   GOOGLE_APPLICATION_CREDENTIALS=sec/prod-reader-sa.json go run ./cmd/etl dump --collections=all --out=sec/prod-dump
-# 4. to the VM
+# 4. to the VM (logitrack writes the reports into the directory; the files of sec/ arrive 0600, so group read)
 tar -C sec -czf - prod-dump prod-auth-export.json | ssh showkhun.co 'umask 027
-  install -d -m 0750 -o root -g logitrack /opt/logitrack/shared/etl-import
-  tar -C /opt/logitrack/shared/etl-import --no-same-owner -xzf - && chgrp -R logitrack /opt/logitrack/shared/etl-import'
+  install -d -m 0770 -o root -g logitrack /opt/logitrack/shared/etl-import
+  tar -C /opt/logitrack/shared/etl-import --no-same-owner -xzf - && chgrp -R logitrack /opt/logitrack/shared/etl-import &&
+  chmod -R g+rX,o-rwx /opt/logitrack/shared/etl-import'
 ```
 
 On the VM, as root, after a deploy that has `run-app.sh etl`: take the backup of section 7 (the database, then
 the media), stop the apps, create the database again as section 7 does (the `psql` block, without the restore),
 migrate, then load. Each step has a dry run first; `auth-import` comes before `load` (the drivers load links the
-logins by `authId`).
+logins by `authId`), and the admin seed before `auth-rbac` (its actor, the first `PLATFORM_ADMIN_EMAILS` address,
+needs a users row).
 
 ```sh
 run() { runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh "$@"; }
@@ -442,12 +447,12 @@ run etl auth-import --export=$d/prod-auth-export.json --dump=$d/prod-dump --repo
 run etl auth-import --export=$d/prod-auth-export.json --dump=$d/prod-dump --report=$d/migration_users_report.csv
 run etl load --dump=$d/prod-dump --report=$d/load-report.json --dry-run
 run etl load --dump=$d/prod-dump --report=$d/load-report.json
+run seed --bootstrap-admin                          # BOOTSTRAP_ADMIN_EMAIL again (the new database has no user)
+run seed bootstrap-platform-admins                  # PLATFORM_ADMIN_EMAILS of the .env
 run etl auth-rbac --dump=$d/prod-dump --report=$d/migration_rbac_report.csv
 run etl reconcile --dump=$d/prod-dump --out=$d     # exit 2 on a mismatch
 run etl quarantine list
 run etl status
-run seed --bootstrap-admin                          # BOOTSTRAP_ADMIN_EMAIL again (the new database has no user)
-run seed bootstrap-platform-admins                  # PLATFORM_ADMIN_EMAILS of the .env
 # the caches still hold the demo's rows under the same own-fleet tenant id
 docker exec logitrack-redis sh -c "redis-cli --scan --pattern 'lt:dev:*' | xargs -r redis-cli del" >/dev/null
 bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 restart all
