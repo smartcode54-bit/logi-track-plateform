@@ -12,6 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { fakeWeb, json, makeMe, type FakeCall } from "@/test-utils/fakeWeb";
 import { renderWithProviders } from "@/test-utils/renderWithProviders";
 import { stubVirtualLayout } from "@/test-utils/virtualLayout";
+import { SELECTABLE_DRIVER_STATUSES } from "@/features/accounting/api/pickers.go";
 import { CustomerSearchSelect, DriverSelect, HubSelect, TruckSelect } from "./entity-pickers";
 
 const N = 5000;
@@ -115,5 +116,50 @@ describe("selected value outside the current page", () => {
         setup();
         renderWithProviders(<DriverSelect aria-label="Driver" value="d-4321" selectedLabel="คนขับ 4321" onValueChange={vi.fn()} />);
         expect(await screen.findByRole("combobox", { name: "Driver" })).toHaveTextContent("คนขับ 4321");
+    });
+});
+
+describe("a form that creates a record (SELECTABLE_DRIVER_STATUSES)", () => {
+    // Go filters on one status per request, so a comma-separated list is one request per status merged in the
+    // browser: a driver who has left (`inactive`) is no pick, an `on_duty` one still is.
+    const STAFF = [
+        { id: "d-act", displayName: "คนขับ Active", status: "active" },
+        { id: "d-duty", displayName: "คนขับ On duty", status: "on_duty" },
+        { id: "d-gone", displayName: "คนขับ Inactive", status: "inactive" },
+    ];
+
+    function setupStaff() {
+        const web = fakeWeb();
+        web.on("GET", "/api/go/v1/me", () => json(200, { data: makeMe() }));
+        web.on("GET", "/api/go/v1/drivers", (call: FakeCall) => {
+            const status = params(call).get("status");
+            return json(200, { data: status ? STAFF.filter((d) => d.status === status) : STAFF });
+        });
+        return web;
+    }
+
+    it("asks for each status and lists the union, without the inactive driver", async () => {
+        const web = setupStaff();
+        renderWithProviders(
+            <DriverSelect aria-label="Driver" status={SELECTABLE_DRIVER_STATUSES} value="" onValueChange={vi.fn()} />
+        );
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Driver" }));
+        await waitFor(() => expect(rows()).toBe(2));
+
+        const asked = web.calls.filter((c) => c.url.startsWith("/api/go/v1/drivers"));
+        expect(asked.map((c) => params(c).get("status")).sort()).toEqual(["active", "on_duty"]);
+        expect(screen.getByRole("option", { name: /คนขับ Active/ })).toBeTruthy();
+        expect(screen.getByRole("option", { name: /คนขับ On duty/ })).toBeTruthy();
+        expect(screen.queryByRole("option", { name: /คนขับ Inactive/ })).toBeNull();
+    });
+
+    it("asks once and lists everyone where no status is given (a filter)", async () => {
+        const web = setupStaff();
+        renderWithProviders(<DriverSelect aria-label="Driver" value="" onValueChange={vi.fn()} />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Driver" }));
+        await waitFor(() => expect(rows()).toBe(3));
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/drivers"))).toHaveLength(1);
     });
 });

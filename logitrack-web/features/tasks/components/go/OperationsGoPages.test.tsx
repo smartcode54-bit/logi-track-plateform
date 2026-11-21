@@ -111,6 +111,22 @@ describe("Go operations pages (T34)", () => {
         expect(web.calls.some((c) => c.method === "POST")).toBe(false);
     });
 
+    it("a multi-drop task's destination is a stops chip that lists each stop's progress in place (main 3.6.6)", async () => {
+        const web = setup();
+        const stop = (index: number, label: string, status: string) => ({ index, destination: label, destinationHubId: null, place: place(label),
+            status, deliveredAt: null, sequence: null, sourceId: null, isCustom: false });
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [{ ...task("in_transit"), isMultiDelivery: true,
+            stops: [stop(1, "SOCE", "delivered"), stop(2, "SOCN", "failed"), stop(3, "SOCW", "pending")] }] }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
+        renderPage("/app/job-assign", <JobAssignBoardPage />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("button", { name: /3 stops/ }));
+        expect(screen.getByText("✓ 1. SOCE")).toBeInTheDocument();
+        expect(screen.getByText("✕ 2. SOCN")).toBeInTheDocument();
+        expect(screen.getByText("◯ 3. SOCW")).toBeInTheDocument();
+        expect(screen.queryByRole("dialog")).toBeNull(); // the chip opens in place, not the task's detail
+    });
+
     it("unified columns show actual pickup, save visibility, and restore it without hiding mobile summaries", async () => {
         const web = setup();
         web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [{ ...task("assigned"), actualPickupAt: "2026-10-14T03:00:00Z" }] }));

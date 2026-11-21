@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 
 import { useLanguage } from "@/context/language";
+import { SELECTABLE_DRIVER_STATUSES } from "@/features/accounting/api/pickers.go";
 import { Field, SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -207,7 +208,7 @@ function AddPenaltyForm() {
             <CardContent className="space-y-3 pt-6">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <Field label={t("driverComp.penalty.driver")} className="md:col-span-2">
-                        <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverComp.penalty.driver")} className="w-full" />
+                        <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverComp.penalty.driver")} status={SELECTABLE_DRIVER_STATUSES} className="w-full" />
                     </Field>
                     <Select value={typeCode} onValueChange={onTypeChange}>
                         <SelectTrigger aria-label={t("driverComp.penalty.type")}>
