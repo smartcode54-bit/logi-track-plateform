@@ -11,7 +11,7 @@
 // internal/operations/overcap_integration_test.go and internal/hubs/overcap_integration_test.go.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import React from "react";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const xlsx = vi.hoisted(() => ({ writeFile: vi.fn(), rows: [] as unknown[][] }));
@@ -221,7 +221,8 @@ describe("income over the old 500-row cap", () => {
         expect(domRows()).toBeGreaterThan(0);
         expect(domRows()).toBeLessThan(100);
         for (let page = 2; page <= total / PAGE; page++) {
-            await u.click(screen.getByRole("button", { name: "Next" }));
+            // 19 pages of rows already loaded: a plain click each (a simulated pointer sequence per page is what timed out on CI).
+            fireEvent.click(screen.getByRole("button", { name: "Next" }));
             expect(screen.getByText(rangeText(page, total))).toBeInTheDocument();
             expect(domRows()).toBeLessThan(100);
         }
@@ -239,7 +240,7 @@ describe("income over the old 500-row cap", () => {
 
         expect(cursors(web, "/api/go/v1/trips")).toEqual(["", "200", "400", "600"]);
         expect(cursors(web, "/api/go/v1/standby")).toEqual(["", "200"]);
-    });
+    }, 30_000);
 });
 
 describe("task board hub filter over the old 50-hub cap, from the Go hub master", () => {
