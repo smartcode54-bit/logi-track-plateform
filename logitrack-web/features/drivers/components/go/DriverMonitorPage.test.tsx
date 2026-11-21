@@ -75,11 +75,11 @@ function LanguageSwitch() {
     const { setLanguage } = useLanguage();
     return <button onClick={() => setLanguage("th")}>Thai</button>;
 }
-function setup(principal: MeDTO = customer, reply: (call: FakeCall) => Response | Promise<Response> = () => json(200, { data: [row], meta: { facets } })) {
+function setup(principal: MeDTO = customer, reply: (call: FakeCall) => Response | Promise<Response> = () => json(200, { data: [row], meta: { facets } }), detailStops: unknown[] = []) {
     const web = fakeWeb();
     web.on("GET", "/api/go/v1/me", () => json(200, { data: principal }));
     web.on("GET", "/api/go/v1/trips/monitor", reply);
-    web.on("GET", "/api/go/v1/trips/trip-1", () => json(200, { data: { ...row, photos: [], stops: [] } }));
+    web.on("GET", "/api/go/v1/trips/trip-1", () => json(200, { data: { ...row, photos: [], stops: detailStops } }));
     window.history.replaceState(null, "", "/app/driver-monitor");
     const view = renderWithProviders(<RouteNamespaces pathname="/app/driver-monitor"><DriverMonitorPage /><LanguageSwitch /></RouteNamespaces>, getQueryClient());
     return { ...view, web, calls: () => web.calls.filter((c) => c.url.startsWith("/api/go/v1/trips/monitor")) };
@@ -123,6 +123,21 @@ describe("scoped monitor presentation", () => {
         expect(await screen.findByText("No photos available")).toBeInTheDocument();
         expect(web.count("GET", "/api/go/v1/trips/trip-1")).toBe(1);
         expect(screen.queryByRole("button", { name: "Edit partner / trip" })).toBeNull();
+    });
+
+    it("the detail dialog lists a multi-drop trip's planned stops after the ones the driver reported", async () => {
+        const multi = { ...row, status: "in_transit" as const, deliveredAt: null, stops: [
+            { index: 1, place: place("SOCE"), status: "delivered", deliveredAt: "2026-10-12T05:00:00Z", completedSeq: 1 },
+            { index: 2, place: place("SOCN"), status: "pending", deliveredAt: null, completedSeq: null, planned: true },
+        ] };
+        setup(customer, () => json(200, { data: [multi], meta: { facets } }), [
+            { id: "stop-1", index: 1, destination: "SOCE", destinationHubId: null, place: place("SOCE"), sourceId: null, status: "delivered",
+              deliveredAt: "2026-10-12T05:00:00Z", deliveredLat: null, deliveredLng: null, completedSeq: 1 },
+        ]);
+        await userEvent.click(await screen.findByRole("button", { name: "View trip FM-123 and evidence" }));
+        const dialog = await screen.findByRole("dialog", { name: /Trip Details/ });
+        await waitFor(() => expect(dialog).toHaveTextContent(/1\. SOCE — Delivered/));
+        expect(dialog).toHaveTextContent("2. SOCN — Pending");
     });
 
     it("shows the incident indicator beside the phone status badge", async () => {
@@ -236,16 +251,20 @@ describe("scoped monitor presentation", () => {
         expect(await screen.findByRole("button", { name: "View trip FM-123 and evidence" })).toBeInTheDocument();
     });
 
-    it("a failed next page keeps the loaded trip and load-more retries its cursor", async () => {
+    it("a failed next page keeps the loaded trip and Try again retries its cursor", async () => {
         let fail = true;
         const { calls } = setup(customer, (call) => params(call).cursor
             ? fail ? goErr(422, "invalid_argument") : json(200, { data: [{ ...row, id: "trip-2", tripNo: "FM-456" }] })
             : json(200, { data: [row], nextCursor: "cursor-2", meta: { facets } }));
         expect(await screen.findByRole("button", { name: "View trip FM-123 and evidence" })).toBeInTheDocument();
-        await waitFor(() => expect(calls()).toHaveLength(2));
+        expect(calls()).toHaveLength(1);
+        await userEvent.click(screen.getByRole("button", { name: "Next" }));
+        expect(await screen.findByText("The next page could not be loaded.")).toHaveAttribute("role", "alert");
+        expect(calls()).toHaveLength(2);
+        expect(screen.getByRole("button", { name: "View trip FM-123 and evidence" })).toBeInTheDocument();
         expect(screen.queryByText("No trips found.")).toBeNull();
         fail = false;
-        await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+        await userEvent.click(screen.getByRole("button", { name: "Try again" }));
         expect(await screen.findByRole("button", { name: "View trip FM-456 and evidence" })).toBeInTheDocument();
         expect(params(calls()[1]).cursor).toBe("cursor-2");
         expect(params(calls()[2]).cursor).toBe("cursor-2");

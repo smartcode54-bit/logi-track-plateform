@@ -2,8 +2,7 @@
 
 /**
  * Pieces the Go operations pages share (T34): the capability gate (no query runs before `['me']` grants the
- * route), the hub master of the boards' source-hub filter (`['hubs',{view:'go'}]`), the status badges and the
- * "load more" footer of a keyset list. The task and trip forms pick hubs with the server-searched `HubSelect`
+ * route), the hub master of the boards' source-hub filter (`['hubs',{view:'go'}]`) and the status badges. The task and trip forms pick hubs with the server-searched `HubSelect`
  * (`components/entity-pickers.tsx`, UI2B). Nothing here imports Firebase, and nothing renders a key of a split
  * namespace (`driverMonitor`, `accounting`), so the standby and incident routes (outside the driver-monitor
  * group) can use it.
@@ -19,11 +18,12 @@ import { fieldViolations } from "@/features/auth/utils/fieldErrors";
 import { apiErrorText } from "@/lib/apiError";
 import { fieldReasonText } from "@/lib/formServerErrors";
 import { taskStatusTone, toneBadgeVariant } from "@/lib/statusPresentation";
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import type { TaskStatus } from "../../api/tasks.go";
+import type { TaskStatus, TaskStopDTO } from "../../api/tasks.go";
 
 /**
  * Renders `children` only once `['me']` grants `capability` (a catalog key): the page's queries never start for a
@@ -93,40 +93,28 @@ export function TaskStatusBadge({ status }: { status: TaskStatus | string }) {
     );
 }
 
+/** A multi-drop task's planned stops, one badge each in order: ✓ delivered, ✕ failed, ◯ not yet (main 3.6.6). */
+export function StopBadges({ stops }: { stops: readonly Pick<TaskStopDTO, "index" | "destination" | "place" | "status">[] }) {
+    return (
+        <>
+            {stops.map((s) => (
+                <Badge key={s.index} variant="outline" className={cn("block w-fit text-xs font-medium",
+                    s.status === "delivered" ? "border-success/25 bg-success/10 text-success"
+                        : s.status === "failed" ? "border-destructive/25 bg-destructive/10 text-destructive"
+                            : "border-border bg-muted text-muted-foreground")}>
+                    {s.status === "delivered" ? "✓" : s.status === "failed" ? "✕" : "◯"} {s.index}. {s.place?.label || s.destination}
+                </Badge>
+            ))}
+        </>
+    );
+}
+
 export function VehicleClassChip({ value }: { value: string | null | undefined }) {
     if (!value) return <span className="text-muted-foreground">—</span>;
     return (
         <Badge variant="outline">
             {value}
         </Badge>
-    );
-}
-
-/** The footer of a keyset list: rows loaded, and the next page on demand (no silent cap, TW8). */
-export function LoadMoreFooter({
-    loaded,
-    hasNextPage,
-    isFetchingNextPage,
-    onLoadMore,
-}: {
-    loaded: number;
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    onLoadMore: () => void;
-}) {
-    const { t } = useLanguage();
-    return (
-        <div className="flex items-center justify-between gap-2 border-t px-4 py-3 text-sm text-muted-foreground">
-            <span>{t("taskBoard.loadedRows", { count: loaded })}</span>
-            {hasNextPage ? (
-                <Button variant="outline" size="sm" onClick={onLoadMore} disabled={isFetchingNextPage}>
-                    {isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {t("taskBoard.loadMore")}
-                </Button>
-            ) : (
-                <span>{t("taskBoard.allLoaded")}</span>
-            )}
-        </div>
     );
 }
 

@@ -29,7 +29,7 @@ import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -100,6 +100,7 @@ export function BillingResultPage() {
     const list = useInfiniteQuery(statementsQuery(filter));
     const rows = statementRows(list.data?.pages);
     const stats = useMemo(() => statementStats(rows), [rows]);
+    const { pageRows, pager } = useListPager(rows, list, filter);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [docsFor, setDocsFor] = useState<StatementDTO | null>(null);
 
@@ -260,7 +261,7 @@ export function BillingResultPage() {
                         <p className="py-12 text-center text-sm text-muted-foreground">{t("accounting.billingResult.noData")}</p>
                     ) : (
                         <div className="overflow-x-auto">
-                            <Table>
+                            <Table stack>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("accounting.billingResult.table.invoiceNumber")}</TableHead>
@@ -278,7 +279,7 @@ export function BillingResultPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {rows.map((s) => {
+                                    {pageRows.map((s) => {
                                         const eff = effectiveStatus(s);
                                         const busy = busyId === s.id;
                                         return (
@@ -351,13 +352,7 @@ export function BillingResultPage() {
                             </Table>
                         </div>
                     )}
-                    <LoadMore
-                        loaded={rows.length}
-                        hasNextPage={list.hasNextPage}
-                        isFetchingNextPage={list.isFetchingNextPage}
-                        error={list.isFetchNextPageError}
-                        onLoadMore={() => void list.fetchNextPage()}
-                    />
+                    <ListPager {...pager} />
                 </CardContent>
             </Card>
 

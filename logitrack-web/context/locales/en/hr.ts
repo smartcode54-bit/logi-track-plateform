@@ -5,9 +5,6 @@ export default {
     "hr.refresh": "Refresh",
     "hr.cancel": "Cancel",
     "hr.allDrivers": "All drivers",
-    "hr.list.showing": "Showing {shown}",
-    "hr.list.showingOf": "Showing {shown} of {total}",
-    "hr.list.loadMore": "Load more",
 
     "hr.error.stale_run": "A penalty of this run changed since the run was generated. Generate the round again, then approve.",
     "hr.error.run_not_approvable": "Only a draft or pending run can be approved.",

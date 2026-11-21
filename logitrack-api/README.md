@@ -904,7 +904,7 @@ Tests: `go test ./internal/platform/cache/... ./internal/platform/httpx/...` (ke
 
 ## Develop
 
-Go `1.27` with `toolchain go1.27.2` (stdlib security fixes; the go command downloads it automatically).
+Go `1.27` with `toolchain go1.27.4` (stdlib security fixes; the go command downloads it automatically).
 
 ```bash
 go test -race ./...

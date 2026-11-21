@@ -4,6 +4,7 @@
  * API key metadata, one-time creation secrets and revocation through Go. Platform reads use
  * projected DTOs; every mutation remains subject to the dedicated server control policy.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { MaskedValue } from "@/components/masked-value";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,6 +45,7 @@ export function ApiKeysPage() {
     const [busy, setBusy] = useState(false);
 
     const rows = apiKeyRows(keys.data?.pages);
+    const { pageRows, pager } = useListPager(rows, keys);
     const invalidate = () => client.invalidateQueries({ queryKey: queryKeys.apiKeys() });
 
     const confirmRevoke = async () => {
@@ -98,7 +100,7 @@ export function ApiKeysPage() {
                         <p className="text-sm text-muted-foreground">{t("securityCenter.apiKeys.empty")}</p>
                     ) : (
                         <div className="overflow-x-auto rounded-md border">
-                            <Table>
+                            <Table stack>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("securityCenter.apiKeys.name")}</TableHead>
@@ -112,7 +114,7 @@ export function ApiKeysPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {rows.map((k) => (
+                                    {pageRows.map((k) => (
                                         <TableRow key={k.id} data-testid="api-key-row">
                                             <TableCell>
                                                 <span className="font-medium"><MaskedValue value={k.name} source={k} path="name" /></span>
@@ -156,14 +158,7 @@ export function ApiKeysPage() {
                             </Table>
                         </div>
                     )}
-                    {keys.hasNextPage ? (
-                        <div className="mt-4 flex justify-center">
-                            <Button variant="outline" size="sm" onClick={() => void keys.fetchNextPage()} disabled={keys.isFetchingNextPage}>
-                                {keys.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
-                                {t("securityCenter.audit.loadMore")}
-                            </Button>
-                        </div>
-                    ) : null}
+                    <ListPager {...pager} className="mt-4" />
                 </CardContent>
             </Card>
 

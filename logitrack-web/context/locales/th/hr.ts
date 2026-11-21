@@ -5,9 +5,6 @@ export default {
     "hr.refresh": "รีเฟรช",
     "hr.cancel": "ยกเลิก",
     "hr.allDrivers": "พนักงานขับรถทั้งหมด",
-    "hr.list.showing": "แสดง {shown} รายการ",
-    "hr.list.showingOf": "แสดง {shown} จาก {total} รายการ",
-    "hr.list.loadMore": "โหลดเพิ่ม",
 
     "hr.error.stale_run": "ค่าปรับในรอบจ่ายนี้เปลี่ยนไปหลังจากสร้างรอบแล้ว กรุณาสร้างรอบจ่ายใหม่ก่อนอนุมัติ",
     "hr.error.run_not_approvable": "อนุมัติได้เฉพาะรอบจ่ายที่เป็นฉบับร่างหรือรออนุมัติ",

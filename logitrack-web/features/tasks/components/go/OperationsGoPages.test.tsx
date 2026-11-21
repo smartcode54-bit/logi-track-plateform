@@ -111,6 +111,22 @@ describe("Go operations pages (T34)", () => {
         expect(web.calls.some((c) => c.method === "POST")).toBe(false);
     });
 
+    it("a multi-drop task's destination is a stops chip that lists each stop's progress in place (main 3.6.6)", async () => {
+        const web = setup();
+        const stop = (index: number, label: string, status: string) => ({ index, destination: label, destinationHubId: null, place: place(label),
+            status, deliveredAt: null, sequence: null, sourceId: null, isCustom: false });
+        web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [{ ...task("in_transit"), isMultiDelivery: true,
+            stops: [stop(1, "SOCE", "delivered"), stop(2, "SOCN", "failed"), stop(3, "SOCW", "pending")] }] }));
+        web.on("GET", "/api/go/v1/hubs", () => json(200, { data: [] }));
+        renderPage("/app/job-assign", <JobAssignBoardPage />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("button", { name: /3 stops/ }));
+        expect(screen.getByText("✓ 1. SOCE")).toBeInTheDocument();
+        expect(screen.getByText("✕ 2. SOCN")).toBeInTheDocument();
+        expect(screen.getByText("◯ 3. SOCW")).toBeInTheDocument();
+        expect(screen.queryByRole("dialog")).toBeNull(); // the chip opens in place, not the task's detail
+    });
+
     it("unified columns show actual pickup, save visibility, and restore it without hiding mobile summaries", async () => {
         const web = setup();
         web.on("GET", "/api/go/v1/tasks", () => json(200, { data: [{ ...task("assigned"), actualPickupAt: "2026-10-14T03:00:00Z" }] }));
@@ -207,7 +223,7 @@ describe("Go operations pages (T34)", () => {
         web.on("GET", "/api/go/v1/trips/monitor", (c) => {
             const q = params(c.url);
             if (q.facets === "false") return q.cursor ? json(200, { data: [row("r2", "SPXTH-2")] }) : json(200, { data: [row("r1", "SPXTH-1")], nextCursor: "p2" });
-            // The table's next page (the VirtualTable asks for it near the end of the loaded rows): no facets.
+            // The table's next page (the pager asks for it past the loaded rows): no facets.
             if (q.cursor) return json(200, { data: [row("r2", "SPXTH-2")] });
             return json(200, { data: [row("r1", "SPXTH-1")], nextCursor: "p2", meta: { facets: { total: 412, statusCounts: { delivered: 400, in_transit: 12 }, incident: 3,
                 origins: [], destinations: [], plates: [], vehicleClasses: [], partners: [] } } });
@@ -242,7 +258,7 @@ describe("Go operations pages (T34)", () => {
             mapPhoto: null, situation1Photo: null, situation2Photo: null, reportedByKind: "driver", createdAt: "2026-10-11T00:00:00Z" }] }));
         const standby = renderPage("/app/standby-records", <StandbyRecordsPage />);
         expect(await screen.findByText("สมหญิง")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /Load more/ })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
         standby.unmount();
         renderPage("/app/incident-reports", <IncidentReportsPage />);
         expect(await screen.findByText("SPXTH-7")).toBeInTheDocument();

@@ -43,6 +43,8 @@ export interface MonitorStopDTO {
     status: string;
     deliveredAt: string | null;
     completedSeq: number | null;
+    /** A stop of the task's plan the trip has no progress for yet (shown pending; Go withPlannedStops). */
+    planned?: boolean;
 }
 
 export interface PricePreviewDTO {
@@ -438,6 +440,7 @@ export interface MonitorExportLabels {
  * The sheet of the export (the Firestore page's columns, `DriverMonitorDashboard.tsx:383-500`): one row per trip,
  * one per stop of a multi-drop trip. With a destination filter a multi-drop trip lists only the stops that match
  * it (ADR 0006 §6), and its stored price goes on the first row it lists, so a summed column counts each trip once.
+ * Planned stops the trip has not reached are display only: the sheet lists the stops the driver reported, as before.
  */
 export function buildMonitorExport(rows: MonitorRowDTO[], destinationFilter: string, l: MonitorExportLabels): ExportCell[][] {
     const out: ExportCell[][] = [l.headers];
@@ -456,7 +459,7 @@ export function buildMonitorExport(rows: MonitorRowDTO[], destinationFilter: str
             l.status(r.status),
             null,
         ];
-        const stops = r.stops ?? [];
+        const stops = (r.stops ?? []).filter((s) => !s.planned);
         if (stops.length > 0) {
             const emitted =
                 destinationFilter && destinationFilter !== MONITOR_ALL ? stops.filter((s) => s.place?.key === destinationFilter) : stops;

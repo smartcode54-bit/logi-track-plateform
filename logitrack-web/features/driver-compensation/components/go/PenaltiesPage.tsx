@@ -9,6 +9,7 @@
  * A penalty is added with `POST /v1/penalties` (whole baht, deducted by R2 runs in installments) and an open
  * one cancelled with `POST /v1/penalties/{id}/cancel` behind a confirmation.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useState } from "react";
 import { format } from "date-fns";
 import { Ban, Loader2, Plus } from "lucide-react";
@@ -16,6 +17,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 
 import { useLanguage } from "@/context/language";
+import { SELECTABLE_DRIVER_STATUSES } from "@/features/accounting/api/pickers.go";
 import { Field, SearchPicker, formatThb, type PickValue } from "@/features/accounting/components/go/shared";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -36,7 +38,7 @@ import {
     type PenaltyDTO,
     type PenaltyFilters,
 } from "../../api/penalties.go";
-import { HrErrorAlert, LoadMoreFooter, StatusBadge, dayLabel } from "./hrShared";
+import { HrErrorAlert, StatusBadge, dayLabel } from "./hrShared";
 
 const ALL = "all";
 type StatusFilter = NonNullable<PenaltyFilters["status"]> | typeof ALL;
@@ -47,6 +49,7 @@ export function PenaltiesPage() {
     const [status, setStatus] = useState<StatusFilter>(ALL);
     const list = usePenalties({ driverId: filterDriver?.id, status: status === ALL ? undefined : status });
     const rows = penaltyRows(list.data?.pages);
+    const { pageRows, pager } = useListPager(rows, list, [filterDriver?.id, status]);
     const [cancelling, setCancelling] = useState<PenaltyDTO | null>(null);
 
     return (
@@ -81,7 +84,7 @@ export function PenaltiesPage() {
             <HrErrorAlert error={list.error} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <Table>
+                <Table stack>
                     <TableHeader>
                         <TableRow>
                             <TableHead>{t("driverComp.penalty.driver")}</TableHead>
@@ -109,7 +112,7 @@ export function PenaltiesPage() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            rows.map((p) => (
+                            pageRows.map((p) => (
                                 <TableRow key={p.id}>
                                     <TableCell>{p.driverName || t("payroll.unknownDriver")}</TableCell>
                                     <TableCell>
@@ -143,12 +146,7 @@ export function PenaltiesPage() {
                         )}
                     </TableBody>
                 </Table>
-                <LoadMoreFooter
-                    shown={rows.length}
-                    hasNextPage={Boolean(list.hasNextPage)}
-                    fetchingNext={list.isFetchingNextPage}
-                    onLoadMore={() => void list.fetchNextPage()}
-                />
+                <ListPager {...pager} className="border-t px-4 py-3" />
             </div>
 
             <CancelPenaltyDialog penalty={cancelling} onClose={() => setCancelling(null)} />
@@ -207,7 +205,7 @@ function AddPenaltyForm() {
             <CardContent className="space-y-3 pt-6">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <Field label={t("driverComp.penalty.driver")} className="md:col-span-2">
-                        <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverComp.penalty.driver")} className="w-full" />
+                        <SearchPicker kind="driver" value={driver} onChange={setDriver} placeholder={t("driverComp.penalty.driver")} status={SELECTABLE_DRIVER_STATUSES} className="w-full" />
                     </Field>
                     <Select value={typeCode} onValueChange={onTypeChange}>
                         <SelectTrigger aria-label={t("driverComp.penalty.type")}>

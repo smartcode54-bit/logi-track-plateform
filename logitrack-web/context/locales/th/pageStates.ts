@@ -19,8 +19,6 @@ export default {
     "pageHeader.back": "กลับไปที่{page}",
     "common.actionsFor": "ตัวเลือกของ {name}",
     "common.actionsForRow": "ตัวเลือกของแถวนี้",
-    "common.previousPage": "หน้าก่อนหน้า",
-    "common.nextPage": "หน้าถัดไป",
     "common.removeFile": "ลบไฟล์",
     "common.removePhoto": "ลบรูปภาพ",
     "common.removeRow": "ลบแถวนี้",

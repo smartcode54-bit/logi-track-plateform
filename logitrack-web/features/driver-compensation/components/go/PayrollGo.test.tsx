@@ -114,14 +114,15 @@ describe("payroll over Go", () => {
         expect(await screen.findByText("Driver 1")).toBeInTheDocument();
         expect(screen.getByTestId("payroll-pending")).toHaveTextContent("2");
         expect(screen.getByTestId("payroll-paid")).toHaveTextContent("5");
-        expect(screen.getByTestId("hr-shown")).toHaveTextContent("Showing 2 of 8");
+        expect(screen.getByText("Rows 1–2 of 8")).toBeInTheDocument();
         expect(screen.getByTestId("payroll-loaded-net")).toHaveTextContent("฿300");
         const first = web.calls.find((c) => c.url.startsWith("/api/go/v1/payroll?"))!;
         expect(q(first).get("limit")).toBe(String(PAYROLL_PAGE_SIZE));
         expect(q(first).get("status")).toBeNull();
 
-        await user.click(screen.getByRole("button", { name: "Load more" }));
+        await user.click(screen.getByRole("button", { name: "Next" }));
         expect(await screen.findByText("Driver 3")).toBeInTheDocument();
+        expect(screen.getByText("3 rows")).toBeInTheDocument();
         expect(web.calls.some((c) => c.url.includes("cursor=c2"))).toBe(true);
 
         await user.click(screen.getByRole("button", { name: /^Paid/ }));

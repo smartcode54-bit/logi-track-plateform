@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { AdvancedMarker, AdvancedMarkerAnchorPoint } from "@vis.gl/react-google-maps";
+
+import { GoogleMap, PanTo } from "@/components/map/GoogleMap";
 
 interface IncidentLocationMapClientProps {
     lat: number;
@@ -10,49 +10,20 @@ interface IncidentLocationMapClientProps {
 }
 
 export function IncidentLocationMapClient({ lat, lng }: IncidentLocationMapClientProps) {
-    const mapContainerRef = useRef<HTMLDivElement>(null);
-    const mapInstanceRef = useRef<L.Map | null>(null);
-    const markerRef = useRef<L.Marker | null>(null);
-
-    useEffect(() => {
-        if (typeof window === "undefined" || !mapContainerRef.current) return;
-
-        if (!mapInstanceRef.current) {
-            mapInstanceRef.current = L.map(mapContainerRef.current, {
-                zoomControl: false // Disable zoom control to make it look cleaner in a small dialog
-            }).setView([lat, lng], 15);
-
-            L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-                maxZoom: 19,
-                attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
-            }).addTo(mapInstanceRef.current);
-
-            const icon = L.divIcon({
-                className: "incident-marker",
-                html: `
-          <div style="background:var(--destructive);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:2px solid var(--card);overflow:hidden;">
-            <img src="/exclamation_8848378.png" alt="" style="width:20px;height:20px;object-fit:contain;" />
-          </div>
-        `,
-                iconSize: [32, 32],
-                iconAnchor: [16, 16],
-            });
-
-            markerRef.current = L.marker([lat, lng], { icon }).addTo(mapInstanceRef.current);
-        } else {
-            mapInstanceRef.current.setView([lat, lng], 15);
-            if (markerRef.current) {
-                markerRef.current.setLatLng([lat, lng]);
-            }
-        }
-
-        return () => {
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove();
-                mapInstanceRef.current = null;
-            }
-        };
-    }, [lat, lng]);
-
-    return <div ref={mapContainerRef} className="w-full h-full z-0" />;
+    const position = { lat, lng };
+    return (
+        // No zoom control: a cleaner look in a small dialog.
+        <GoogleMap defaultCenter={position} defaultZoom={15} zoomControl={false} className="z-0">
+            <PanTo position={position} />
+            <AdvancedMarker position={position} anchorPoint={AdvancedMarkerAnchorPoint.CENTER}>
+                <div
+                    className="incident-marker"
+                    style={{ background: "var(--destructive)", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--card)", overflow: "hidden" }}
+                >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- a 20 px marker glyph inside the map */}
+                    <img src="/exclamation_8848378.png" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                </div>
+            </AdvancedMarker>
+        </GoogleMap>
+    );
 }

@@ -22,7 +22,7 @@ import { Fuel, Plus, RefreshCw, Upload } from "lucide-react";
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,6 +113,7 @@ function ExpensesPage({ type }: { type: ExpenseType }) {
     const list = useInfiniteQuery(expensesQuery(filter));
     const rows = expenseRows(list.data?.pages);
     const totals = useMemo(() => expenseTotals(rows), [rows]);
+    const { pageRows, pager } = useListPager(rows, list, filter);
     const efficiency = useMemo(() => (isFuel ? fuelEfficiency(rows) : new Map()), [rows, isFuel]);
     const avgKmpl = useMemo(() => {
         const values = [...efficiency.values()].map((e) => e.kmPerLiter).filter((v): v is number => v != null && v > 0);
@@ -320,11 +321,10 @@ function ExpensesPage({ type }: { type: ExpenseType }) {
             <Card>
                 <CardContent className="space-y-3 p-0 pb-3">
                     <VirtualTable
-                        data={rows}
+                        data={pageRows}
                         columns={columns}
                         getRowId={(r) => r.id}
                         aria-label={isFuel ? t("accounting.fuel.title") : t("accounting.other.title")}
-                        infinite={list}
                         loading={list.isPending}
                         error={list.isError}
                         emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("accounting.go.expense.empty")}</p>}
@@ -333,13 +333,7 @@ function ExpensesPage({ type }: { type: ExpenseType }) {
                         rowClassName="cursor-pointer"
                     />
                     <div className="px-4">
-                        <LoadMore
-                            loaded={rows.length}
-                            hasNextPage={list.hasNextPage}
-                            isFetchingNextPage={list.isFetchingNextPage}
-                            error={list.isFetchNextPageError}
-                            onLoadMore={() => void list.fetchNextPage()}
-                        />
+                        <ListPager {...pager} />
                     </div>
                 </CardContent>
             </Card>

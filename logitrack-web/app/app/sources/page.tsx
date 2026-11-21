@@ -1,8 +1,9 @@
 "use client";
 
+import { ListPager } from "@/components/list-pager";
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Plus, MapPin, Search, Pencil, ChevronLeft, ChevronRight, RefreshCw, Download, Route, MoreHorizontal, Link, AlertTriangle, FileSpreadsheet } from "lucide-react";
+import { Plus, MapPin, Search, Pencil, RefreshCw, Download, Route, MoreHorizontal, Link, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -526,7 +527,7 @@ export default function SourcesPage() {
                         </div>
                     </CardHeader>
                     <CardContent className="flex-1 min-h-0 p-4 flex flex-col overflow-auto">
-                       <Table>
+                       <Table stack>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>{t("firstMile.sources.table.sourceId")}</TableHead>
@@ -645,36 +646,9 @@ export default function SourcesPage() {
                                 )}
                             </TableBody>
                         </Table>
-                        {tableSources.length > 0 && (
-                            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/20">
-                                <p className="text-sm text-muted-foreground">
-                                    {t("firstMile.sources.pagination.showing")}{" "}
-                                    {(currentPage - 1) * itemsPerPage + 1}{" "}
-                                    {t("firstMile.sources.pagination.to")}{" "}
-                                    {Math.min(currentPage * itemsPerPage, tableSources.length)}{" "}
-                                    {t("firstMile.sources.pagination.of")} {tableSources.length}{" "}
-                                    {t("firstMile.sources.pagination.entries")}
-                                </p>
-                                <div className="flex gap-1">
-                                    <Button aria-label={t("common.previousPage")}
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                                        disabled={currentPage === 1}
-                                    >
-                                        <ChevronLeft className="h-4 w-4" />
-                                    </Button>
-                                    <Button aria-label={t("common.nextPage")}
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                                        disabled={currentPage === totalPages}
-                                    >
-                                        <ChevronRight className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
+                        <ListPager className="border-t px-4 py-3" page={currentPage} from={tableSources.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to={Math.min(currentPage * itemsPerPage, tableSources.length)} total={tableSources.length}
+                hasPrevious={currentPage > 1} hasNext={currentPage * itemsPerPage < tableSources.length} loading={false} error={false}
+                onFirst={() => setCurrentPage(1)} onPrevious={() => setCurrentPage((p) => Math.max(1, p - 1))} onNext={() => setCurrentPage((p) => p + 1)} />
                     </CardContent>
                 </Card>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { ListPager } from "@/components/list-pager";
 import { useRef, useState } from "react";
 import { useCan } from "@/features/auth/api/useMe";
 import { useSuspendSubcontractor } from "../api/useSubcontractors";
@@ -65,7 +66,7 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
         <>
         {succeeded && <Alert variant="success" role="status"><AlertDescription>{t("subcontractors.ui4.suspended")}</AlertDescription></Alert>}
         <div ref={focusFallback} tabIndex={-1} className="rounded-xl border border-border/50 bg-card overflow-hidden">
-            <Table>
+            <Table stack>
                 <TableHeader className="bg-muted/30">
                     <TableRow className="hover:bg-transparent border-border/50">
                         <TableHead className="pl-6" aria-sort={props.sortConfig?.key === 'nameTh' ? props.sortConfig.direction === "asc" ? "ascending" : "descending" : "none"}>
@@ -163,40 +164,9 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
                 </TableBody>
             </Table>
 
-            {/* Pagination */}
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between px-6 py-4 border-t border-border/50 bg-muted/20">
-                <div className="text-xs text-muted-foreground">
-                    {t("subcontractors.pagination.showing")}{" "}
-                    <span className="font-medium text-foreground">
-                        {props.filteredCount === 0 ? 0 : (props.currentPage - 1) * props.itemsPerPage + 1}
-                    </span>{" "}
-                    {t("subcontractors.pagination.to")}{" "}
-                    <span className="font-medium text-foreground">
-                        {Math.min(props.currentPage * props.itemsPerPage, props.filteredCount)}
-                    </span>{" "}
-                    {t("subcontractors.pagination.of")}{" "}
-                    <span className="font-medium text-foreground">{props.filteredCount}</span>{" "}
-                    {t("subcontractors.pagination.results")}
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => props.setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={props.currentPage === 1}
-                    >
-                        {t("subcontractors.pagination.previous")}
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => props.setCurrentPage(p => Math.min(Math.ceil(props.filteredCount / props.itemsPerPage), p + 1))}
-                        disabled={props.currentPage >= Math.ceil(props.filteredCount / props.itemsPerPage)}
-                    >
-                        {t("subcontractors.pagination.next")}
-                    </Button>
-                </div>
-            </div>
+            <ListPager className="border-t px-6 py-3" page={props.currentPage} from={props.filteredCount === 0 ? 0 : (props.currentPage - 1) * props.itemsPerPage + 1} to={Math.min(props.currentPage * props.itemsPerPage, props.filteredCount)} total={props.filteredCount}
+                hasPrevious={props.currentPage > 1} hasNext={props.currentPage * props.itemsPerPage < props.filteredCount} loading={false} error={false}
+                onFirst={() => props.setCurrentPage(1)} onPrevious={() => props.setCurrentPage((p) => Math.max(1, p - 1))} onNext={() => props.setCurrentPage((p) => p + 1)} />
         </div>
         <AlertDialog open={selected !== null} onOpenChange={(open) => { if (!open && !suspend.isPending) setSelected(null); }}>
             <DialogContent role="alertdialog" showCloseButton={false}

@@ -115,8 +115,10 @@ root-only file handed to migrate and seed per run) is listed for the owner on th
   Docker Desktop or OrbStack emulation), curl. Run the scripts from a checkout of `mv-go`.
 - The web's public build values in a gitignored file, e.g. `logitrack-api/deploy/vm/.env.web-build`
   (`.env.*` is gitignored there): the `NEXT_PUBLIC_*` names of `logitrack-web/Dockerfile`, today the
-  optional `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID` and `NEXT_PUBLIC_SUPPORT_EMAIL` (the support address of
-  `/app/support`, UI3C). These end up in the browser bundle, so only public values
+  optional `NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID`, `NEXT_PUBLIC_SUPPORT_EMAIL` (the support address of
+  `/app/support`, UI3C), `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` (GMAPS: the web
+  maps' Google key, HTTP-referrer restricted to `https://logi.showkhun.co/*` and limited to Maps JavaScript API +
+  Places API (New); without it every map shows "map unavailable"). These end up in the browser bundle, so only public values
   belong there; deploy.sh refuses any other name and never prints a value. TW7 removed the Firebase SDK from
   the web: a file written earlier may still hold the `NEXT_PUBLIC_FIREBASE_*` / `NEXT_PUBLIC_APP_CHECK_*`
   lines, which deploy.sh skips with a notice naming them (never passed to docker); delete them from the file.
@@ -394,6 +396,73 @@ deployment whose Firestore project serves a fleet moves the domain and the proje
 the gate's writers (developer-spec.md §12.2, the T52R rollout), and serves this web only after that switch: until
 then it keeps a pre-TW7 web image, whose flag still hides the Go page (developer-spec.md §10.13, the TW7
 precondition).
+
+## 9. Loading a production copy (etl)
+
+Replaces the demo seed with a copy of a Firestore project's data, for staging on realistic rows. Only the
+database is copied; everything else stays this VM's own: local storage (no `media-copy`, so the copy's photos and
+documents have no file here), the `showkhun-project` bridge and FCM, Cartrack and the other integrations off.
+
+- **The source is only read.** `etl dump` runs off the VM with the key of a service account that holds
+  `roles/datastore.viewer` (Cloud Datastore Viewer) and nothing else on the source project, so no write can reach
+  it. The VM never holds a key of the source project, and its `.env` keeps `ETL_FIRESTORE_PROJECT_ID`,
+  `GOOGLE_APPLICATION_CREDENTIALS`, `ETL_SYNC_ENABLED=false` and `COMPAT_PROJECTION_ENABLED=false` as they are;
+  `mirror`, `project` and `export-back` are never run here.
+- **The copy holds personal data** (drivers, phones, the Auth export's password hashes): the files live under
+  `shared/etl-import` (root:logitrack, no access for others) and are deleted once the load is checked.
+- **Never `deploy.sh --reseed` afterwards**: it tops the demo seed up on top of the copy. A plain deploy migrates
+  only (`shared/.first-deploy-done` stays).
+
+Off the VM, in `logitrack-api/` (`sec/` is gitignored). The source project is the one of the old web `.env`;
+its value is read when the command runs and written nowhere:
+
+```sh
+src=$(sed -n 's/^NEXT_PUBLIC_FIREBASE_PROJECT_ID=//p' .env.old.prod | tr -d '\r')   # the file may have CRLF line ends
+# 1. owner: Console of $src -> IAM -> service account etl-reader, role Cloud Datastore Viewer only -> JSON key
+#    saved as sec/prod-reader-sa.json
+# 2. owner: the Auth export (signed in as the owner; a secret: hashes and salts)
+npx -y firebase-tools@15.33.0 auth:export sec/prod-auth-export.json --format=json --project "$src"
+#    with a key instead of the owner's login (the etl-reader key cannot export Auth): firebase-tools prefers a cached
+#    `firebase login` over GOOGLE_APPLICATION_CREDENTIALS, so hide it with an empty config directory
+#    XDG_CONFIG_HOME=$(mktemp -d) GOOGLE_APPLICATION_CREDENTIALS=$PWD/sec/<key>.json npx -y firebase-tools@15.33.0 auth:export ...
+# 3. the dump (read only; dump does not use OWN_FLEET_TENANT_ID, any uuid passes its check)
+APP_ENV=local OWN_FLEET_TENANT_ID=$(uuidgen | tr 'A-Z' 'a-z') ETL_FIRESTORE_PROJECT_ID="$src" \
+  GOOGLE_APPLICATION_CREDENTIALS=sec/prod-reader-sa.json go run ./cmd/etl dump --collections=all --out=sec/prod-dump
+# 4. to the VM (logitrack writes the reports into the directory; the files of sec/ arrive 0600, so group read)
+tar -C sec -czf - prod-dump prod-auth-export.json | ssh showkhun.co 'umask 027
+  install -d -m 0770 -o root -g logitrack /opt/logitrack/shared/etl-import
+  tar -C /opt/logitrack/shared/etl-import --no-same-owner -xzf - && chgrp -R logitrack /opt/logitrack/shared/etl-import &&
+  chmod -R g+rX,o-rwx /opt/logitrack/shared/etl-import'
+```
+
+On the VM, as root, after a deploy that has `run-app.sh etl`: take the backup of section 7 (the database, then
+the media), stop the apps, create the database again as section 7 does (the `psql` block, without the restore),
+migrate, then load. Each step has a dry run first; `auth-import` comes before `load` (the drivers load links the
+logins by `authId`), and the admin seed before `auth-rbac` (its actor, the first `PLATFORM_ADMIN_EMAILS` address,
+needs a users row).
+
+```sh
+run() { runuser -u logitrack -- env -i HOME=/home/logitrack PATH=/usr/bin:/bin /opt/logitrack/current/deploy/vm/run-app.sh "$@"; }
+d=/opt/logitrack/shared/etl-import
+run migrate up
+run etl auth-import --export=$d/prod-auth-export.json --dump=$d/prod-dump --report=$d/migration_users_report.csv --dry-run
+run etl auth-import --export=$d/prod-auth-export.json --dump=$d/prod-dump --report=$d/migration_users_report.csv
+run etl load --dump=$d/prod-dump --report=$d/load-report.json --dry-run
+run etl load --dump=$d/prod-dump --report=$d/load-report.json
+run seed --bootstrap-admin                          # BOOTSTRAP_ADMIN_EMAIL again (the new database has no user)
+run seed bootstrap-platform-admins                  # PLATFORM_ADMIN_EMAILS of the .env
+run etl auth-rbac --dump=$d/prod-dump --report=$d/migration_rbac_report.csv
+run etl reconcile --dump=$d/prod-dump --out=$d     # exit 2 on a mismatch
+run etl quarantine list
+run etl status
+# the caches still hold the demo's rows under the same own-fleet tenant id
+docker exec logitrack-redis sh -c "redis-cli --scan --pattern 'lt:dev:*' | xargs -r redis-cli del" >/dev/null
+bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 restart all
+```
+
+Once the pages look right: `rm -rf /opt/logitrack/shared/etl-import` on the VM, `rm -rf sec/prod-dump
+sec/prod-auth-export.json sec/prod-reader-sa.json` off it, and the owner deletes the key (or the whole
+`etl-reader` account) in the source project's Console. Back to the demo: restore the section 7 dump.
 
 ## Operations
 

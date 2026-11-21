@@ -31,10 +31,11 @@ import {
     type ColumnDef,
     type RowData,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 
 import { cn } from "@/lib/utils";
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow, useStackedCellLabels } from "@/components/ui/table";
 
 declare module "@tanstack/react-table" {
     // The type parameters must match the library's declaration to merge with it.
@@ -124,6 +125,11 @@ export function VirtualTable<TData>({
     onRowClick,
 }: VirtualTableProps<TData>) {
     const scrollRef = useRef<HTMLDivElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
+    // Below md the rows are stacked cards (app/globals.css): the page scrolls, not a box inside it, and every row of
+    // the page (a ListPager page, 50 rows) is rendered, so no window is kept.
+    const stacked = useIsMobile();
+    useStackedCellLabels(tableRef);
 
     // TanStack Table and Virtual hand back mutable instances whose methods read the latest state; the
     // component reads them during render only, so React Compiler memoisation does not apply here.
@@ -146,7 +152,9 @@ export function VirtualTable<TData>({
         // zero-height window never renders every row.
         measureElement: (element) => (element as HTMLElement).offsetHeight || estimateRowHeight,
     });
-    const items = virtualizer.getVirtualItems();
+    const items: Pick<VirtualItem, "index" | "start" | "end">[] = stacked
+        ? rows.map((_, index) => ({ index, start: 0, end: 0 }))
+        : virtualizer.getVirtualItems();
     const lastIndex = items.length > 0 ? items[items.length - 1].index : -1;
 
     // Infinite paging: the window reached the last `fetchAheadRows` loaded rows. Not while the query fetches
@@ -159,9 +167,9 @@ export function VirtualTable<TData>({
     const nextPageFailed = infinite?.isFetchNextPageError ?? false;
     const fetchNextPage = infinite?.fetchNextPage;
     useEffect(() => {
-        if (!fetchNextPage || !hasNextPage || isFetchingNextPage || isFetching || nextPageFailed || lastIndex < 0) return;
+        if (stacked || !fetchNextPage || !hasNextPage || isFetchingNextPage || isFetching || nextPageFailed || lastIndex < 0) return;
         if (lastIndex >= rows.length - 1 - fetchAheadRows) void fetchNextPage({ cancelRefetch: false });
-    }, [fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, nextPageFailed, lastIndex, rows.length, fetchAheadRows]);
+    }, [stacked, fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, nextPageFailed, lastIndex, rows.length, fetchAheadRows]);
 
     // A new filter starts at the top of its list.
     const firstReset = useRef(true);
@@ -174,8 +182,8 @@ export function VirtualTable<TData>({
     }, [resetScrollKey]);
 
     const columnCount = table.getVisibleLeafColumns().length;
-    const paddingTop = items.length > 0 ? items[0].start : 0;
-    const paddingBottom = items.length > 0 ? virtualizer.getTotalSize() - items[items.length - 1].end : 0;
+    const paddingTop = !stacked && items.length > 0 ? items[0].start : 0;
+    const paddingBottom = !stacked && items.length > 0 ? virtualizer.getTotalSize() - items[items.length - 1].end : 0;
     const placeholder = loading ? loadingState : rows.length === 0 ? (error ? errorState : emptyState) : null;
 
     return (
@@ -187,10 +195,10 @@ export function VirtualTable<TData>({
             // The viewport scrolls; keyboard users reach it with Tab.
             tabIndex={0}
             className={cn("relative w-full overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
-            style={{ maxHeight }}
+            style={{ maxHeight: stacked ? undefined : maxHeight }}
         >
             {/* The header row counts; -1 while more pages exist (the total is not known yet, WAI-ARIA). */}
-            <table data-slot="table" className="w-full caption-bottom text-sm" aria-rowcount={hasNextPage ? -1 : rows.length + 1}>
+            <table ref={tableRef} data-slot="table" data-stack="mobile" className="w-full caption-bottom text-sm" aria-rowcount={hasNextPage ? -1 : rows.length + 1}>
                 <TableHeader className={cn("sticky top-0 z-raised bg-card", headerClassName)}>
                     {table.getHeaderGroups().map((group) => (
                         <TableRow key={group.id} aria-rowindex={1} className={headerRowClassName}>
@@ -217,7 +225,7 @@ export function VirtualTable<TData>({
                                 return (
                                     <TableRow
                                         key={row.id}
-                                        ref={virtualizer.measureElement}
+                                        ref={stacked ? undefined : virtualizer.measureElement}
                                         data-index={item.index}
                                         aria-rowindex={item.index + 2}
                                         className={cn(onRowClick && "cursor-pointer", rowClassName)}

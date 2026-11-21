@@ -128,6 +128,7 @@ export default {
     "common.refresh": "Refresh",
     "common.actions": "Actions",
     "common.toast.validationError": "Check the highlighted fields ({count}). First: {field}",
+    "common.toast.saveFailed": "Save failed: {message}",
     "common.show": "Show",
     "common.hide": "Hide",
     "common.joinedAt": "Joined At",
@@ -360,6 +361,10 @@ export default {
     "lineHaul.task.selectDestinationHub": "Select Destination Hub",
     "lineHaul.task.searchHub": "Search Hub...",
     "lineHaul.task.noHub": "No hubs found.",
+    "lineHaul.task.deliveryStopsHint": "Add 2 or more stops — only the selected customer's destination hubs (a multi-delivery job is one customer)",
+    "lineHaul.task.stopsSelectCustomerFirst": "Select the customer first, then add stops",
+    "lineHaul.task.stopsNoCustomerHubs": "This customer has no linked destination hubs — link hubs to the customer on the Sources page first",
+    "lineHaul.task.stopsWrongCustomer": "Delivery stops must be the selected customer's destination hubs — fix stop {stops}",
 
     // Payroll (admin)
     "payroll.subtitle": "Manage driver earnings, deductions, and payment cycles.",
@@ -481,6 +486,11 @@ export default {
     "common.searchPlaceholder": "Search...",
     "common.noResults": "No results",
 
+    // GMAPS: the Google maps (components/map/GoogleMap.tsx) and the location picker's place search.
+    "common.map.unavailable": "Map unavailable: no Google Maps key is set for this build.",
+    "common.map.searchPlaceholder": "Search for a place or address",
+    "common.map.searchFailed": "Place search failed. Try again or click the map.",
+
     // UI2: the shared searchable select (components/ui/search-select.tsx).
     "common.select.placeholder": "Select...",
     "common.select.search": "Search...",
@@ -491,4 +501,14 @@ export default {
     "common.select.remove": "Remove {label}",
     "common.select.partial": "Showing {shown} of {total}. Type to narrow the list.",
     "common.select.count": "{count} of {max} selected",
+    "common.pager.label": "Pages of this list",
+    "common.pager.rows": "Rows {from}–{to}",
+    "common.pager.rowsOf": "Rows {from}–{to} of {total}",
+    "common.pager.count": "{count} rows",
+    "common.pager.page": "Page {page}",
+    "common.pager.first": "First page",
+    "common.pager.previous": "Previous",
+    "common.pager.next": "Next",
+    "common.pager.retry": "Try again",
+    "common.pager.error": "The next page could not be loaded.",
 };

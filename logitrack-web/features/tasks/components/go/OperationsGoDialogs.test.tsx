@@ -2,7 +2,7 @@
 // providers with every request through the BFF (/api/go/v1/...). Pinned here:
 // - the boards' SOC and source-hub filters are server parameters (W9): a SOCN task past row 200 of a busy day is on
 //   the first page, and the hub picker offers every hub of the Go master (TW8);
-// - the monitor is a VirtualTable (developer-spec.md §10.10 W9, TW8: 5,000 rows reached by scrolling with fewer than
+// - the monitor is a VirtualTable (developer-spec.md §10.10 W9, TW8: 5,000 rows reached by Next with fewer than
 //   100 rows in the DOM), has no revenue column (the owner's July layout), and its export shows a count only when it
 //   is the count of the filtered set;
 // - resolving a stuck trip as delivered sends the editor's delivery time (the billing period it falls in);
@@ -74,11 +74,12 @@ const ALL_CAPS = [
 
 const HUBS = [
     { id: "h1", sourceId: "ALANG-A", sourceNameTh: "วังทองหลาง", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" },
-    { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC" },
+    { id: "h2", sourceId: "SOCE", sourceNameTh: "บัวโรย", sourceNameEn: null, stationType: "SOC", linkedPartyId: "p1", linkedCustomerKind: "customer" },
     { id: "h3", sourceId: "SPK890174", sourceNameTh: "ห้วยขวาง10", sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" },
     { id: "h4", sourceId: "RC-01", sourceNameTh: "ศูนย์คืนสินค้า", sourceNameEn: null, stationType: "SOC" },
+    // Linked to the same customer as the rest, so a form that asks for the customer first still pages through them.
     ...Array.from({ length: 60 }, (_, i) => ({ id: `hx${i}`, sourceId: `HUB-${String(i).padStart(3, "0")}`, sourceNameTh: `ฮับ ${i}`,
-        sourceNameEn: null, stationType: "HUB" })),
+        sourceNameEn: null, stationType: "HUB", linkedPartyId: "p1", linkedCustomerKind: "customer" })),
 ];
 
 /**
@@ -88,7 +89,11 @@ const HUBS = [
 function goHubs(call: FakeCall) {
     const q = params(call.url);
     const terms = searchTerms(q.q);
+    // ?linkedPartyId keeps the stations of those billing parties, as hubs.linkedToAny does: a station linked to
+    // nobody (RC-01) is no pick of a form that asks for the customer first.
+    const parties = q.linkedPartyId ? q.linkedPartyId.split(",") : [];
     const rows = HUBS.filter((h) => (!q.stationType || h.stationType === q.stationType) &&
+        (parties.length === 0 || (h.linkedPartyId != null && parties.includes(h.linkedPartyId))) &&
         matchesTerms(foldSearchText(`${h.sourceId} ${h.sourceNameTh} ${h.sourceNameEn ?? ""}`), terms))
         .sort((a, b) => (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
     if (!q.limit) return json(200, { data: rows });
@@ -197,28 +202,40 @@ function monitorWeb(total: number, customer = false) {
 describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
     const viewport = () => screen.getByRole("region", { name: "Driver monitor" });
     const domRows = () => viewport().querySelectorAll("tbody tr[data-index]");
+    const PAGE = 50;
+    const SERVER_PAGE = 200;
+    /** The pager's footer for page `n` (1-based) of `total` trips: with no filter on, the total is the facets' from the first page. */
+    const rangeText = (n: number, total: number) =>
+        `Rows ${((n - 1) * PAGE + 1).toLocaleString()}–${Math.min(n * PAGE, total).toLocaleString()} of ${total.toLocaleString()}`;
+    const monitorCalls = (web: ReturnType<typeof monitorWeb>) => web.calls.filter((c) => c.url.startsWith("/api/go/v1/trips/monitor"));
+    /** Clicks Next to the last page: one request per server page reached; returns the most rows the DOM held. */
+    async function nextToTheEnd(web: ReturnType<typeof monitorWeb>, total: number, rows: () => number) {
+        const u = userEvent.setup();
+        let max = rows();
+        for (let page = 2; page <= total / PAGE; page++) {
+            await u.click(screen.getByRole("button", { name: "Next" }));
+            await screen.findByText(rangeText(page, total));
+            expect(monitorCalls(web)).toHaveLength(Math.ceil((page * PAGE) / SERVER_PAGE));
+            max = Math.max(max, rows());
+        }
+        expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+        return max;
+    }
 
-    it("5,000 trips: scrolling pages to the last row while fewer than 100 rows are in the DOM; no revenue column", async () => {
+    it("5,000 trips: Next pages to the last row while fewer than 100 rows are in the DOM; no revenue column", async () => {
         const total = 5000;
         const web = monitorWeb(total);
         renderPage("/app/driver-monitor", <DriverMonitorPage />);
-        expect(await screen.findByText("200 rows loaded")).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1, total))).toBeInTheDocument();
         // The owner's July layout: the price is in the detail and the export, not a table column.
         expect(within(viewport()).queryByText("Estimated revenue")).toBeNull();
         expect(within(viewport()).getAllByRole("columnheader")).toHaveLength(12);
 
-        let loaded = 200;
-        let maxDomRows = domRows().length;
-        while (loaded < total) {
-            scrollViewport(viewport(), "end", ROW, loaded);
-            loaded += 200;
-            await screen.findByText(`${loaded} rows loaded`);
-            maxDomRows = Math.max(maxDomRows, domRows().length);
-        }
-        scrollViewport(viewport(), "end", ROW, total);
+        let maxDomRows = await nextToTheEnd(web, total, () => domRows().length);
+        scrollViewport(viewport(), "end", ROW, PAGE);
         expect(screen.getByText("SPXTH-4999")).toBeInTheDocument();
         expect(screen.queryByText("SPXTH-0")).toBeNull();
-        expect(screen.getByText("All rows loaded")).toBeInTheDocument();
+        expect(screen.getByText(`Page ${total / PAGE}`)).toBeInTheDocument();
         maxDomRows = Math.max(maxDomRows, domRows().length);
         expect(maxDomRows).toBeGreaterThan(0);
         expect(maxDomRows).toBeLessThan(100);
@@ -232,16 +249,14 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
             const total = 5000;
             const web = monitorWeb(total, true);
             renderPage("/app/driver-monitor", <DriverMonitorPage />);
-            await screen.findByText("200 rows loaded");
+            await screen.findByText(rangeText(1, total));
             const region = screen.getByRole("region", { name: "Your trips" });
             expect(within(region).getAllByRole("columnheader")).toHaveLength(1);
             expect(within(region).queryByText("Estimated revenue")).toBeNull();
-            let maxRows = 0;
-            for (let loaded = 200; loaded <= total; loaded += 200) {
-                await screen.findByText(`${loaded} rows loaded`);
-                maxRows = Math.max(maxRows, region.querySelectorAll("tbody tr[data-index]").length);
-                scrollViewport(region, "end", 260, loaded);
-            }
+            const rows = () => region.querySelectorAll("tbody tr[data-index]").length;
+            let maxRows = await nextToTheEnd(web, total, rows);
+            scrollViewport(region, "end", 260, PAGE);
+            maxRows = Math.max(maxRows, rows());
             expect(screen.getByRole("button", { name: "View trip SPXTH-4999 and evidence" })).toBeInTheDocument();
             expect(maxRows).toBeGreaterThan(0);
             expect(maxRows).toBeLessThan(100);
@@ -255,7 +270,7 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
         if (customer) vi.stubGlobal("innerWidth", 375);
         monitorWeb(412, customer);
         renderPage("/app/driver-monitor", <DriverMonitorPage />);
-        expect(await screen.findByText("200 rows loaded")).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1, 412))).toBeInTheDocument();
         const u = userEvent.setup();
         await u.click(screen.getByRole("button", { name: /^Export$/ }));
         expect(await screen.findByText("412 trips match these filters.")).toBeInTheDocument();
@@ -341,7 +356,12 @@ describe("task form: the stops as stored, sent only when touched", () => {
         expect(screen.queryByText("SPK1")).toBeNull();
         expect(screen.queryByText("SPK2")).toBeNull();
         const source = screen.getByRole("combobox", { name: "Source (SOC)" });
-        expect(source).toHaveTextContent("Select Source (SOC)");
+        // The customer went with the route: until one is chosen again, no place can be picked.
+        expect(source).toBeDisabled();
+        expect(source).toHaveTextContent("Select the customer first");
+        await u.click(screen.getByRole("combobox", { name: "Customer" }));
+        await u.click(await screen.findByRole("option", { name: /CJSF/ }));
+        await waitFor(() => expect(source).toBeEnabled());
         await u.click(source);
         await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
         await u.click(screen.getByRole("combobox", { name: "Destination (Hub)" }));
@@ -353,6 +373,32 @@ describe("task form: the stops as stored, sent only when touched", () => {
         expect(body).toMatchObject({ taskType: "line_haul", sourceHub: "SOCE", destination: "SPK890174", billingPartyId: "p1" });
         expect(body).not.toHaveProperty("deliveryStops");
         expect(body).not.toHaveProperty("isMultiDelivery");
+    });
+
+    it("a new multi-drop job: the destination field is hidden and stop 1 goes out as the destination", async () => {
+        const web = setup();
+        web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskNo: "FM-NEW-2" }) }));
+        const onClose = vi.fn();
+        renderPage("/app/first-mile", <TaskFormDialog mode="create" taskType="first_mile" allowTypeSwitch={false} onClose={onClose} />);
+        const u = userEvent.setup();
+        await u.click(await screen.findByRole("combobox", { name: "Customer" }));
+        await u.click(await screen.findByRole("option", { name: /CJSF/ }));
+        const source = screen.getByRole("combobox", { name: "Pickup Point" });
+        await waitFor(() => expect(source).toBeEnabled());
+        await u.click(source);
+        await u.type(screen.getByPlaceholderText("Search..."), "SPK890174");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        await u.click(screen.getByRole("checkbox"));
+        expect(screen.queryByRole("combobox", { name: "Destination (SOC)" })).toBeNull();
+        await u.click(screen.getByRole("combobox", { name: "Stop 1" }));
+        await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
+        await u.click(screen.getByRole("combobox", { name: "Stop 2" }));
+        await u.type(screen.getByPlaceholderText("Search..."), "SPK890174");
+        await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
+        await u.click(screen.getByRole("button", { name: "Create Assignment" }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(web.calls.find((c) => c.method === "POST")!.body).toMatchObject({ destination: "SOCE", isMultiDelivery: true,
+            deliveryStops: [{ destination: "SOCE" }, { destination: "SPK890174" }] });
     });
 
     async function open(t: TaskDTO) {
@@ -408,34 +454,53 @@ describe("hub pickers: a server search per term, each value labelled by a single
     const hubCalls = (web: ReturnType<typeof setup>) => web.calls.filter((c) => c.url.split("?")[0] === "/api/go/v1/hubs");
     const lookups = (web: ReturnType<typeof setup>) => web.calls.filter((c) => c.url.startsWith("/api/go/v1/hubs/")).map((c) => c.url);
 
-    it("task form: no whole-master read; a Thai term without its tone mark finds the hub; the pick prefills the customer and posts its code", async () => {
+    it("task form: the customer first narrows both place searches to its party; a Thai term without its tone mark finds the hub", async () => {
         const web = setup();
         web.on("POST", "/api/go/v1/tasks", () => json(201, { data: task({ taskNo: "FM-NEW-1" }) }));
         const onClose = vi.fn();
         renderPage("/app/first-mile", <TaskFormDialog mode="create" taskType="first_mile" allowTypeSwitch={false} onClose={onClose} />);
         const source = await screen.findByRole("combobox", { name: "Pickup Point" });
         expect(hubCalls(web)).toEqual([]); // nothing is read before a list opens: no whole master
+        expect(source).toBeDisabled(); // and no place is pickable before the customer
 
         const u = userEvent.setup();
+        await u.click(screen.getByRole("combobox", { name: "Customer" }));
+        await u.click(await screen.findByRole("option", { name: /CJSF/ }));
+        await waitFor(() => expect(source).toBeEnabled());
+
         await u.click(source);
-        // Both kinds stay selectable, the preferred one (HUB for a first-mile source) first: one page of each.
-        await waitFor(() => expect(hubCalls(web).map((c) => params(c.url))).toEqual([{ stationType: "HUB", limit: "50" }, { stationType: "SOC", limit: "50" }]));
+        // Both kinds stay selectable, the preferred one (HUB for a first-mile source) first: one page of each,
+        // each narrowed to the customer's billing party.
+        await waitFor(() => expect(hubCalls(web).map((c) => params(c.url))).toEqual([
+            { stationType: "HUB", linkedPartyId: "p1", limit: "50" },
+            { stationType: "SOC", linkedPartyId: "p1", limit: "50" },
+        ]));
         await u.type(screen.getByPlaceholderText("Search..."), "หวยขวาง");
+        // SPK890174 is past the first page by code, so the term has to reach the server: one request per kind.
+        await waitFor(() => expect(hubCalls(web).filter((c) => params(c.url).q).map((c) => params(c.url))).toEqual([
+            { q: "หวยขวาง", stationType: "HUB", linkedPartyId: "p1", limit: "50" },
+            { q: "หวยขวาง", stationType: "SOC", linkedPartyId: "p1", limit: "50" },
+        ]));
         await u.click(await screen.findByRole("option", { name: /SPK890174 — ห้วยขวาง10/ }));
-        expect(hubCalls(web).filter((c) => params(c.url).q).map((c) => params(c.url))).toEqual([
-            { q: "หวยขวาง", stationType: "HUB", limit: "50" },
-            { q: "หวยขวาง", stationType: "SOC", limit: "50" },
-        ]);
         await waitFor(() => expect(source).toHaveTextContent("SPK890174 — ห้วยขวาง10"), { timeout: 3000 });
 
         await u.click(screen.getByRole("combobox", { name: "Destination (SOC)" }));
         await u.click(await screen.findByRole("option", { name: /SOCE — บัวโรย/ }));
         await u.click(screen.getByRole("button", { name: "Create Assignment" }));
         await waitFor(() => expect(onClose).toHaveBeenCalled());
-        // No customer was picked: the hub's billing party (p1) prefilled it.
         expect(web.calls.find((c) => c.method === "POST")!.body).toMatchObject({ sourceHub: "SPK890174", destination: "SOCE", billingPartyId: "p1" });
         // A picked record labels its own code: no lookup request.
         expect(lookups(web)).toEqual([]);
+    });
+
+    it("task form: a place the chosen customer does not own is flagged, not rewritten", async () => {
+        setup();
+        // RC-01 is linked to nobody: a legacy task keeps it, and the form says so instead of clearing it.
+        renderPage("/app/first-mile",
+            <TaskFormDialog mode="edit" taskType="first_mile" task={task({ sourceHub: "RC-01", sourceHubId: "h4", source: place("RC-01") })}
+                allowTypeSwitch={false} onClose={vi.fn()} />);
+        expect(await screen.findByText("This place is not linked to the selected customer — pick again")).toBeInTheDocument();
+        expect(await screen.findByRole("combobox", { name: "Pickup Point" })).toHaveTextContent("RC-01");
     });
 
     it("task form: a value outside the current page keeps its label (a lookup by code); a code not in the master shows as is", async () => {
@@ -444,7 +509,9 @@ describe("hub pickers: a server search per term, each value labelled by a single
         renderPage("/app/first-mile", <TaskFormDialog mode="edit" taskType="first_mile" task={t} allowTypeSwitch={false} onClose={vi.fn()} />);
         const source = await screen.findByRole("combobox", { name: "Pickup Point" });
         await waitFor(() => expect(source).toHaveTextContent("HUB-059 — ฮับ 59"));
-        expect(screen.getByRole("combobox", { name: "Destination (SOC)" })).toHaveTextContent("SOCE — บัวโรย");
+        // Multi-drop: stop 1 stands for the destination, whose own field is hidden.
+        expect(screen.queryByRole("combobox", { name: "Destination (SOC)" })).toBeNull();
+        expect(screen.getByRole("combobox", { name: "Stop 1" })).toHaveTextContent("SOCE — บัวโรย");
         expect(screen.getByRole("combobox", { name: "Stop 2" })).toHaveTextContent("LEGACY-9");
         // One lookup per code (the destination and stop 1 share SOCE's).
         expect(lookups(web).sort()).toEqual(["/api/go/v1/hubs/HUB-059", "/api/go/v1/hubs/LEGACY-9", "/api/go/v1/hubs/SOCE"]);

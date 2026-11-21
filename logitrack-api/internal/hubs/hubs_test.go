@@ -3,6 +3,7 @@ package hubs
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -353,6 +354,48 @@ func TestHubKeysAndCursor(t *testing.T) {
 	for _, bad := range []string{"", "!", hubCursor{Code: "X"}.encode(), hubCursor{ID: a}.encode()} {
 		if _, ok := decodeHubCursor(bad); ok {
 			t.Errorf("decodeHubCursor(%q) accepted", bad)
+		}
+	}
+}
+
+// ?linkedPartyId of GET /v1/hubs: the task form narrows the stations to the customer it holds, and a station
+// linked to nobody is no pick (the legacy Firestore form filtered the whole master in the browser the same way).
+func TestLinkedPartyFilter(t *testing.T) {
+	a := uuid.MustParse("00000000-0000-7000-8000-00000000000a")
+	b := uuid.MustParse("00000000-0000-7000-8000-00000000000b")
+
+	if got, bad := ParseLinkedParties("  "); bad != "" || got != nil {
+		t.Errorf("blank is no filter: %v %q", got, bad)
+	}
+	if got, bad := ParseLinkedParties(" " + a.String() + " , " + b.String() + "," + a.String()); bad != "" ||
+		len(got) != 2 || got[0] != a || got[1] != b {
+		t.Errorf("trimmed and deduped in order: %v %q", got, bad)
+	}
+	if _, bad := ParseLinkedParties("not-a-uuid"); bad != "invalid" {
+		t.Errorf("invalid = %q", bad)
+	}
+	many := make([]string, MaxLinkedParties+1)
+	for i := range many {
+		many[i] = uuid.NewString()
+	}
+	if _, bad := ParseLinkedParties(strings.Join(many, ",")); bad != "too_many" {
+		t.Errorf("too_many = %q", bad)
+	}
+
+	linkedA, linkedB, unlinked := Hub{LinkedPartyID: &a}, Hub{LinkedPartyID: &b}, Hub{}
+	for name, c := range map[string]struct {
+		h       Hub
+		parties []uuid.UUID
+		want    bool
+	}{
+		"no filter keeps every station":     {unlinked, nil, true},
+		"the party asked for":               {linkedA, []uuid.UUID{a}, true},
+		"another customer's station":        {linkedB, []uuid.UUID{a}, false},
+		"a station linked to nobody":        {unlinked, []uuid.UUID{a}, false},
+		"one of several parties (borrowed)": {linkedB, []uuid.UUID{a, b}, true},
+	} {
+		if got := linkedToAny(c.h, c.parties); got != c.want {
+			t.Errorf("%s: linkedToAny = %v", name, got)
 		}
 	}
 }

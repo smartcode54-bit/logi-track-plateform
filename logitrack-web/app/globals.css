@@ -10,8 +10,8 @@
  *   The next/font variables are set on <html> in app/layout.tsx.
  * - Shape, space and depth: a radius scale off `--radius`, a 4 px spacing rhythm with three named
  *   steps, and four shadow levels (xl and 2xl resolve to the lg level).
- * - Layering: one z-index scale (`z-raised` ... `z-tooltip`). Leaflet maps are isolated below, so their
- *   400-1000 pane values never compete with it. A guard test keeps arbitrary z-index values over 50 out.
+ * - Layering: one z-index scale (`z-raised` ... `z-tooltip`). Google maps are isolated (`isolate` on the
+ *   map, components/map/GoogleMap.tsx), so their internal z-index values never compete with it. A guard test keeps arbitrary z-index values over 50 out.
  * - Light and dark through next-themes (`class` attribute on <html>, app/providers.tsx).
  */
 
@@ -19,12 +19,6 @@
 
 /* Keep row menus in view while a wide table scrolls on a phone. */
 @media (max-width: 767px) {
-  .leaflet-container .leaflet-control-zoom.leaflet-bar a {
-    min-width: 44px;
-    min-height: 44px;
-    line-height: 44px;
-  }
-
   [data-slot="table"]:has(> tbody > tr > td:last-child [aria-haspopup="menu"]) > :is(thead, tbody) > tr > :is(th, td):last-child {
     position: sticky;
     right: 0;
@@ -217,12 +211,6 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
 
-  /* Each Leaflet map is its own stacking context: its panes and controls (z-index 400-1000) stay inside
-     the map, so dialogs, popovers and the sticky header of the layering scale always sit above it. */
-  .leaflet-container {
-    isolation: isolate;
-  }
-
   /* The sidebar rail's tooltips only label (UI3B): neither the tooltip nor Radix's positioning wrapper around it
      takes a pointer, so the logo's tooltip, which lies over the header's sidebar trigger, never swallows its click
      (components/ui/sidebar.tsx, SidebarMenuButton). */
@@ -242,16 +230,84 @@
   font-family: inherit;
 }
 
-/* Sources map popup: ลด margin ความสูงตามเนื้อหา scroll เฉพาะเมื่อเนื้อหาล้น */
-.leaflet-popup.sources-map-selected-popup .leaflet-popup-content-wrapper {
-  margin: 0;
-}
-.leaflet-popup.sources-map-selected-popup .leaflet-popup-content {
-  margin: 4px 8px;
+/* Stacked tables on a phone (DESIGN.md, Tables). Below md a table marked data-stack (Table `stack`, every
+   VirtualTable) shows each row as a card: the first cell is its title, every other cell one line with its column's
+   header on the left (`data-label`, components/ui/table.tsx). Rows are flex columns, so a column hidden on small
+   screens (`hidden md:table-cell`) stays hidden. Unlayered, so it outranks the cells' own width, wrap and alignment
+   utilities, which suit the wide table. */
+@media (width < 48rem) {
+  table[data-stack] {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  table[data-stack] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-stack] > tbody {
+    display: block;
+  }
+  table[data-stack] > tbody > tr {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding-block: 0.75rem;
+  }
+  /* A cell spanning the row (loading, empty, error) keeps its own size and alignment. */
+  table[data-stack] > tbody > tr > td:not([colspan]) {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding-block: 0;
+    padding-inline: 0.5rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table[data-stack] > tbody > tr > td:first-child:not([colspan]) {
+    font-weight: 500;
+  }
+  table[data-stack] > tbody > tr > td[data-label] {
+    position: relative;
+    /* An empty value still keeps its label's line. */
+    min-height: 1.25rem;
+    padding-inline-start: calc(40% + 0.75rem);
+    text-align: start;
+  }
+  table[data-stack] > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    position: absolute;
+    inset-inline-start: 0.5rem;
+    width: 40%;
+    /* The label is plain caption-weight text whatever the cell sets (mono codes, bold money, badges). */
+    color: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.25rem;
+    letter-spacing: normal;
+    text-transform: none;
+    /* One line, so a long header never runs into the next row's label. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
-/* Dashboard vehicle map: custom truck marker (no default Leaflet icon) */
-.leaflet-marker-icon.dashboard-vehicle-marker {
-  background: none !important;
-  border: none !important;
+/* Google Maps info windows (components/map/GoogleMap.tsx) in the card colours, so popup text stays readable
+   in dark mode. Google's own class names; the close icon's colour is an inline style, hence !important. */
+.gm-style .gm-style-iw-c,
+.gm-style .gm-style-iw-d {
+  background-color: var(--card);
+  color: var(--card-foreground);
+}
+.gm-style .gm-style-iw-tc::after {
+  background-color: var(--card);
+}
+.gm-style .gm-style-iw-chr button span {
+  background-color: var(--card-foreground) !important;
 }

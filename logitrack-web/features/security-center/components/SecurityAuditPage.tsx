@@ -3,13 +3,14 @@
 /**
  * Security audit logs over Go (T54S; developer-spec.md §10.10, §10.13; Appendix E §E.2.4 row
  * `/app/security-center/audit`, §E.10). The keyset `GET /v1/security-events` replaces the 500-row
- * `getDocs`: the date range, type and severity go to Go and are in the key; "load more" pages back
+ * `getDocs`: the date range, type and severity go to Go and are in the key; Next pages back
  * without a cap; the text search runs over the loaded rows, with a "loaded N" indicator so it never
  * pretends to cover rows that were not fetched. Polled every 30 s while visible and only while one page
- * is loaded (every 5 min for a platform principal); after "load more", Refresh updates. The viewer's own
+ * is loaded (every 5 min for a platform principal); after Next, Refresh updates. The viewer's own
  * cross-tenant reads (`isOwnCrossTenantRead`, one audit row per request of a platform principal) are
  * hidden from the list, the KPIs and the export by default, behind a toggle with their count.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { maskedJsonText } from "@/lib/maskedValue";
 import { MaskedValue } from "@/components/masked-value";
 import { useMemo, useState } from "react";
@@ -83,6 +84,7 @@ export function SecurityAuditPage() {
     const q = search.trim().toLowerCase();
     const rows = visible.rows.filter((r) => (eventMatches(r, q) || eventTypeLabel(r.type, t).toLowerCase().includes(q)));
     const pollPaused = (events.data?.pages.length ?? 0) > 1;
+    const { pageRows, pager } = useListPager(rows, events, [type, severity, from, q, showOwnReads]);
     const types = eventTypesOf(events.data?.pages);
     const kpis = {
         total: rows.length,
@@ -228,7 +230,7 @@ export function SecurityAuditPage() {
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <Table>
+                        <Table stack>
                             <TableHeader>
                                 <TableRow className="bg-muted/50">
                                     <TableHead>{t("securityCenter.audit.timestamp")}</TableHead>
@@ -247,7 +249,7 @@ export function SecurityAuditPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    rows.map((r) => (
+                                    pageRows.map((r) => (
                                         <TableRow key={r.id} data-testid="event-row">
                                             <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                                                 {formatDateTime(r.createdAt, language)}
@@ -277,14 +279,7 @@ export function SecurityAuditPage() {
                         {t("securityCenter.audit.loadedRows", { shown: rows.length, loaded: loaded.length })}
                         {pollPaused ? <span className="block text-xs" data-testid="poll-paused">{t("securityCenter.pollPaused")}</span> : null}
                     </span>
-                    {events.hasNextPage ? (
-                        <Button variant="outline" size="sm" onClick={() => void events.fetchNextPage()} disabled={events.isFetchingNextPage}>
-                            {events.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
-                            {t("securityCenter.audit.loadMore")}
-                        </Button>
-                    ) : loaded.length > 0 ? (
-                        <span>{t("securityCenter.audit.allLoaded")}</span>
-                    ) : null}
+                    <ListPager {...pager} className="sm:ml-auto" />
                 </div>
             </div>
         </div>

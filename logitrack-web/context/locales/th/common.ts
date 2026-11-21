@@ -128,6 +128,7 @@ export default {
     "common.refresh": "รีเฟรช",
     "common.actions": "การกระทำ",
     "common.toast.validationError": "กรุณาตรวจสอบช่องที่ไฮไลต์ ({count} ช่อง) ช่องแรก: {field}",
+    "common.toast.saveFailed": "บันทึกไม่สำเร็จ: {message}",
     "common.show": "แสดง",
     "common.hide": "ซ่อน",
     "common.joinedAt": "วันที่เข้าร่วม",
@@ -360,6 +361,10 @@ export default {
     "lineHaul.task.selectDestinationHub": "เลือกปลายทาง (ฮับ)",
     "lineHaul.task.searchHub": "ค้นหาฮับ...",
     "lineHaul.task.noHub": "ไม่พบฮับ",
+    "lineHaul.task.deliveryStopsHint": "เพิ่มจุดส่ง 2 จุดขึ้นไป — เลือกได้เฉพาะฮับปลายทางของลูกค้าที่เลือก (งานพ่วงต้องเป็นลูกค้ารายเดียวกัน)",
+    "lineHaul.task.stopsSelectCustomerFirst": "เลือกลูกค้าก่อน แล้วจึงเพิ่มจุดส่ง",
+    "lineHaul.task.stopsNoCustomerHubs": "ลูกค้ารายนี้ยังไม่มีฮับปลายทางที่ผูกไว้ — ผูกฮับกับลูกค้าที่หน้าจุดรับส่งก่อน",
+    "lineHaul.task.stopsWrongCustomer": "จุดส่งต้องเป็นฮับปลายทางของลูกค้าที่เลือก — แก้จุดที่ {stops}",
 
     // Payroll (admin)
     "payroll.subtitle": "จัดการรายได้ การหัก และรอบการจ่ายของคนขับ",
@@ -480,6 +485,11 @@ export default {
     "common.searchPlaceholder": "ค้นหา...",
     "common.noResults": "ไม่พบรายการ",
 
+    // GMAPS: the Google maps (components/map/GoogleMap.tsx) and the location picker's place search.
+    "common.map.unavailable": "แผนที่ใช้งานไม่ได้: บิลด์นี้ยังไม่ได้ตั้งค่าคีย์ Google Maps",
+    "common.map.searchPlaceholder": "ค้นหาสถานที่หรือที่อยู่",
+    "common.map.searchFailed": "ค้นหาสถานที่ไม่สำเร็จ ลองอีกครั้งหรือคลิกบนแผนที่",
+
     // UI2: the shared searchable select (components/ui/search-select.tsx).
     "common.select.placeholder": "เลือก...",
     "common.select.search": "ค้นหา...",
@@ -490,4 +500,14 @@ export default {
     "common.select.remove": "นำ {label} ออก",
     "common.select.partial": "แสดง {shown} จาก {total} รายการ พิมพ์เพื่อค้นหาเพิ่ม",
     "common.select.count": "เลือกแล้ว {count} จาก {max}",
+    "common.pager.label": "หน้าของรายการนี้",
+    "common.pager.rows": "แถว {from}–{to}",
+    "common.pager.rowsOf": "แถว {from}–{to} จาก {total}",
+    "common.pager.count": "{count} แถว",
+    "common.pager.page": "หน้า {page}",
+    "common.pager.first": "หน้าแรก",
+    "common.pager.previous": "ก่อนหน้า",
+    "common.pager.next": "ถัดไป",
+    "common.pager.retry": "ลองอีกครั้ง",
+    "common.pager.error": "โหลดหน้าถัดไปไม่สำเร็จ",
 };

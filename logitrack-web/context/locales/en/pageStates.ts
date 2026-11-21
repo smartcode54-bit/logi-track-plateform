@@ -27,8 +27,6 @@ export default {
     "common.actionsFor": "Actions for {name}",
     "common.actionsForRow": "Actions for this row",
     // Names of icon-only buttons (DESIGN.md: every icon-only control is named in both languages).
-    "common.previousPage": "Previous page",
-    "common.nextPage": "Next page",
     "common.removeFile": "Remove file",
     "common.removePhoto": "Remove photo",
     "common.removeRow": "Remove this row",

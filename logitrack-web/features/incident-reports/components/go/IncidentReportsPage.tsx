@@ -3,11 +3,12 @@
 /**
  * Incident reports over Go (T34, P2; Appendix E §E.2.1 row incident-reports, §E.5 rows 7-8; TW8 M2).
  *
- * `['incidents',{from,to}]` (`GET /v1/incidents`, keyset 100 per page, "load more", no cap of 200): the day picked
+ * `['incidents',{from,to}]` (`GET /v1/incidents`, keyset 100 per page, Next, no cap of 200): the day picked
  * is the server's range; each row carries its trip number, driver name and photos signed; a customer reads the
- * incidents of its own trips only (RLS), never everything. The map loads its leaflet chunk when a report with a
+ * incidents of its own trips only (RLS), never everything. The map loads its Google Maps chunk when a report with a
  * position is opened (the component file, not the feature barrel). SSE `incident.created` refreshes the list.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -31,7 +32,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { pageItems } from "@/features/tasks/api/tasks.go";
-import { CapabilityGate, LoadMoreFooter } from "@/features/tasks/components/go/opsShared";
+import { CapabilityGate } from "@/features/tasks/components/go/opsShared";
 import { incidentCause, incidentsQuery, matchesIncident, type IncidentDTO } from "../../api/incidents.go";
 
 export function IncidentReportsPage() {
@@ -52,7 +53,8 @@ function Reports() {
     const day = date ? format(date, "yyyy-MM-dd") : "";
     const q = useInfiniteQuery({ ...incidentsQuery({ from: day, to: day }), placeholderData: keepPreviousData });
     const rows = useMemo(() => pageItems(q.data?.pages), [q.data]);
-    const shown = useMemo(() => rows.filter((r) => matchesIncident(r, search)), [rows, search]);
+    const found = useMemo(() => rows.filter((r) => matchesIncident(r, search)), [rows, search]);
+    const { pageRows: shown, pager } = useListPager(found, q, [day, search]);
 
     return (
         <div className="flex flex-col gap-section">
@@ -109,7 +111,7 @@ function Reports() {
 
             <div className="overflow-hidden rounded-lg border bg-card">
                 <div className="overflow-x-auto">
-                    <Table className="min-w-[900px]">
+                    <Table stack className="min-w-[900px]">
                         <TableHeader className="bg-muted/50">
                             <TableRow>
                                 {["tripId", "createdAt", "driver", "plate", "description", "cause"].map((k) => (
@@ -145,7 +147,7 @@ function Reports() {
                         </TableBody>
                     </Table>
                 </div>
-                <LoadMoreFooter loaded={rows.length} hasNextPage={Boolean(q.hasNextPage)} isFetchingNextPage={q.isFetchingNextPage} onLoadMore={() => void q.fetchNextPage()} />
+                <ListPager {...pager} className="border-t px-4 py-3" />
             </div>
 
             {detail ? (

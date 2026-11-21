@@ -7,12 +7,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' as intl;
-import 'package:geolocator/geolocator.dart';
 import '../../../home/data/repositories/checkin_repository.dart';
 import '../../../home/data/repositories/driver_repository.dart';
 import '../../../home/data/services/cloud_vision_ocr_service.dart';
 import '../../../home/data/repositories/hubs_repository.dart';
-import '../../../home/data/services/photo_overlay_service.dart';
+import '../../../home/data/services/evidence_location_cache.dart';
 import '../../../home/data/models/trip_record.dart';
 import '../../../home/data/repositories/hub_soc_distances_repository.dart';
 import '../../../home/data/repositories/trip_records_repository.dart';
@@ -101,6 +100,21 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   /// Each entry: {destination, sourceId?, isCustom}
   final List<Map<String, dynamic>> _additionalDeliveryStops = [];
 
+  /// Planned stops of the assigned multi-drop task (e.g. Lotus), in run order. Read-only here —
+  /// the admin set them in Job Assign; `_destinationController` holds stop 1 for distance lookup.
+  List<Map<String, dynamic>> _taskDeliveryStops = [];
+
+  /// Place name for a stored code (or EN name): Thai → English → customer → code, like check-in.
+  String _hubDisplay(String codeOrName) {
+    if (codeOrName.isEmpty) return '-';
+    for (final h in _allHubs) {
+      if (h.sourceId == codeOrName || h.sourceNameEn == codeOrName) {
+        return h.displayName;
+      }
+    }
+    return codeOrName;
+  }
+
   /// SOC standby (รหัส 0XXX) ไม่แสดงใน dropdown ต้นทาง/ปลายทาง
   static bool _isSocStandby(HubDoc h) =>
       h.stationType == stationTypeSoc && h.sourceId.trim().startsWith('0');
@@ -122,8 +136,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   bool _locationLoading = true;
 
   /// Cache position + overlay สำหรับรูป step 2, 3 — ไม่หน่วงซ้ำ
-  Position? _cachedOverlayPosition;
-  OverlayContext? _cachedOverlayContext;
+  /// Fresh-per-stop GPS + overlay for photo stamps (was cached forever — stale pin bug).
+  final EvidenceLocationCache _evidenceLocation = EvidenceLocationCache();
 
   /// เก็บ task ID + เวลาเช็คอิน สำหรับส่งต่อไปยัง StandbyPage
   String? _activeTaskId;
@@ -215,8 +229,14 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       final taskType = data?['taskType'] as String?;
       final sourceHub = data?['sourceHub'] as String?;
       final destination = data?['destination'] as String?;
-      final isMultiDelivery = data?['isMultiDelivery'] as bool? ?? false;
-      final deliveryStops = data?['deliveryStops'] as List? ?? [];
+      final deliveryStops = (data?['deliveryStops'] as List? ?? [])
+          .whereType<Map>()
+          .map((s) => Map<String, dynamic>.from(s))
+          .toList()
+        ..sort((a, b) => ((a['index'] as num?) ?? 0).compareTo((b['index'] as num?) ?? 0));
+      // Same rule as check-in card / main_layout: flag OR 2+ stops.
+      final isMultiDelivery =
+          (data?['isMultiDelivery'] as bool? ?? false) || deliveryStops.length > 1;
       final checkInAt = data?['checkInAt'] as Timestamp?;
       final checkInAppScreenshotUrl =
           data?['checkInAppScreenshotUrl'] as String?;
@@ -257,10 +277,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           }
 
           // Handle multi-delivery vs single-delivery
+          _taskDeliveryStops =
+              (isMultiDelivery && deliveryStops.isNotEmpty) ? deliveryStops : [];
           if (isMultiDelivery && deliveryStops.isNotEmpty) {
             // For multi-delivery, use first stop's destination
-            final firstStop = deliveryStops[0] as Map<String, dynamic>?;
-            final firstStopDest = firstStop?['destination'] as String?;
+            final firstStopDest = deliveryStops.first['destination'] as String?;
             if (firstStopDest != null &&
                 firstStopDest.isNotEmpty &&
                 _destinationController.text.isEmpty) {
@@ -370,10 +391,13 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   }
 
   void _clearTripIdDuplicateError() {
-    if (_tripIdDuplicateError != null && mounted) {
+    // The seal check excludes the trip's own doc, so its result belongs to the old Trip ID too —
+    // clear both; Save re-checks before writing anyway.
+    if ((_tripIdDuplicateError != null || _sealCodeDuplicateError != null) && mounted) {
       setState(() {
         _tripIdDuplicateError = null;
-        if (_sealCodeDuplicateError == null) _lastDuplicateDebug = null;
+        _sealCodeDuplicateError = null;
+        _lastDuplicateDebug = null;
       });
     }
   }
@@ -718,15 +742,21 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
           );
         }
       }
-      final ocrTripId = result.tripId?.trim();
-      if (ocrTripId != null && ocrTripId.isNotEmpty) {
-        final ocrSeal = result.sealCode?.trim();
+      // Re-check against what is IN THE FORM now, not the raw OCR result:
+      // - ZX: OCR's "seal" is just the first 6–12-digit number on the waybill and is never put in
+      //   the seal field (the driver scans the seal) — checking it flagged a seal nobody entered.
+      // - Always overwrite the previous result: a retake must clear errors from the last photo,
+      //   otherwise a stale seal error (the ZX seal field never changes on retake, so its
+      //   listener never clears it) keeps Save disabled photo after photo.
+      final formTripId = _tripIdController.text.trim();
+      if (formTripId.isNotEmpty) {
+        final formSeal = _sealCodeController.text.trim();
         final duplicate = await checkDuplicateTripIdAndSeal(
-          tripId: ocrTripId,
-          sealCode: (ocrSeal != null && ocrSeal.isNotEmpty) ? ocrSeal : null,
+          tripId: formTripId,
+          sealCode: formSeal.isEmpty ? null : formSeal,
           currentDriverId: FirebaseAuth.instance.currentUser?.uid,
         );
-        if (duplicate.hasDuplicate && mounted) {
+        if (mounted) {
           setState(() {
             _tripIdDuplicateError = duplicate.tripIdExists
                 ? 'loading_phase_duplicate_trip_id'.tr()
@@ -734,8 +764,10 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
             _sealCodeDuplicateError = duplicate.sealCodeExists
                 ? 'loading_phase_duplicate_seal_code'.tr()
                 : null;
-            _lastDuplicateDebug = duplicate;
+            _lastDuplicateDebug = duplicate.hasDuplicate ? duplicate : null;
           });
+        }
+        if (duplicate.hasDuplicate && mounted) {
           final msg = duplicate.tripIdExists && duplicate.sealCodeExists
               ? 'loading_phase_duplicate_trip_and_seal'.tr()
               : duplicate.tripIdExists
@@ -809,23 +841,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         skipOverlay: true,
       );
     } else {
-      if (_cachedOverlayPosition == null || _cachedOverlayContext == null) {
-        try {
-          final pos = await getCurrentPosition();
-          final ctx = await fetchOverlayContext(pos.latitude, pos.longitude);
-          if (mounted) {
-            setState(() {
-              _cachedOverlayPosition = pos;
-              _cachedOverlayContext = ctx;
-            });
-          }
-        } catch (_) {}
-      }
+      final loc = await _evidenceLocation.current();
       if (!mounted) return;
       compressed = await stampOverlayAndCompressForEvidence(
         imageBytes,
-        position: _cachedOverlayPosition,
-        overlayContext: _cachedOverlayContext,
+        position: loc.position,
+        overlayContext: loc.context,
       );
     }
     if (!mounted) return;
@@ -994,7 +1015,12 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
         ).format(DateTime.now()),
         runsheetPhotos: List<Uint8List>.from(_runsheetPhotos),
         stepPhotos: _stepPhotos,
-        deliveryStops: [], // No delivery stops on loading phase - they're added in delivery phase
+        // Planned stops from the assigned task, then any extra stops the driver added here.
+        deliveryStops: [
+          for (final s in _taskDeliveryStops)
+            {'destination': _hubDisplay(s['destination'] as String? ?? '')},
+          ..._additionalDeliveryStops,
+        ],
       ),
     );
 
@@ -1165,6 +1191,63 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
   }
 
   /// ล้างฟอร์มและรูปทั้งหมด หลัง save สำเร็จ
+  /// Read-only list of the assigned task's delivery stops (numbered, in run order).
+  /// Theme colors (not a fixed light fill) so it stays readable in dark mode.
+  Widget _buildTaskStopsCard() {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.local_shipping, size: 20, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'checkin_delivery_stops'.tr(args: ['${_taskDeliveryStops.length}']),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            for (var i = 0; i < _taskDeliveryStops.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 12,
+                      backgroundColor: scheme.primary,
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: scheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _hubDisplay(_taskDeliveryStops[i]['destination'] as String? ?? ''),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _clearForm() {
     _tripIdController.clear();
     _sealCodeController.clear();
@@ -1178,6 +1261,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
     ).format(now);
     setState(() {
       _jobType = jobTypeFirstMile;
+      _taskDeliveryStops = [];
       _runsheetPhotos.clear();
       _stepPhotos.clear();
       _ocrPartnerCode = null;
@@ -1192,6 +1276,7 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
       _lastDuplicateDebug = null;
       _additionalDeliveryStops.clear();
     });
+    _evidenceLocation.reset();
     DraftStorageService.instance.clearLoadingDraft();
   }
 
@@ -1946,6 +2031,11 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                             setState(() => _allHubs = [..._allHubs, hub]),
                       ),
                       const SizedBox(height: 12),
+                      // Multi-drop task: show the assigned stops instead of a single destination
+                      // picker (the picker would only ever show stop 1).
+                      if (_taskDeliveryStops.isNotEmpty)
+                        _buildTaskStopsCard()
+                      else
                       SearchableHubPicker(
                         label: 'loading_phase_destination'.tr(),
                         hintText: _jobType == jobTypeFirstMile
@@ -2050,7 +2140,26 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                       const SizedBox(height: 24),
 
                       // ========== STEP 5: Additional Delivery Stops (J&T only) ==========
-                      if (_ocrPartnerCode == zxPartnerCode)
+                      // Optional, so it must not look like a step to fill in: until a stop is
+                      // added it is only a quiet text link. The card appears once there is a list.
+                      if (_ocrPartnerCode == zxPartnerCode &&
+                          _additionalDeliveryStops.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: _showAddDeliveryStopDialog,
+                              icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+                              label: Text('add_extra_stop_optional'.tr()),
+                              style: TextButton.styleFrom(
+                                foregroundColor:
+                                    Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (_ocrPartnerCode == zxPartnerCode)
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -2067,23 +2176,8 @@ class _LoadingPhasePageState extends State<LoadingPhasePage> {
                                     ),
                                     const SizedBox(height: 12),
 
-                                    // ปลายทาง section: empty state or list
-                                    if (_additionalDeliveryStops.isEmpty)
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue.shade50,
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          'no_additional_stops'.tr(),
-                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                      )
-                                    else
-                                      Column(
+                                    // Only shown once at least one stop was added (see the link above).
+                                    Column(
                                         children: [
                                           ..._additionalDeliveryStops.asMap().entries.map((e) {
                                             final stop = e.value;

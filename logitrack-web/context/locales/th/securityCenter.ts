@@ -207,8 +207,6 @@ export default {
     "securityCenter.audit.system": "ระบบ",
     "securityCenter.audit.searchLoadedOnly": "การค้นหาครอบคลุม {count} แถวที่โหลดแล้ว กดโหลดเพิ่มเพื่อค้นย้อนหลังเพิ่มเติม",
     "securityCenter.audit.loadedRows": "แสดง {shown} จาก {loaded} แถวที่โหลด",
-    "securityCenter.audit.loadMore": "โหลดเพิ่ม",
-    "securityCenter.audit.allLoaded": "โหลดครบทุกแถวในช่วงนี้แล้ว",
     "securityCenter.roles.subtitleGo": "เลือกสิทธิ์ของแต่ละบทบาทในองค์กรที่เลือก ช่องที่ปิดใช้งานแก้ไม่ได้: ผู้ดูแลองค์กรมีทุกสิทธิ์เสมอ และบางสิทธิ์สงวนไว้สำหรับผู้ดำเนินการแพลตฟอร์มหรือแอปคนขับ",
     "securityCenter.roles.layer": "ใช้สิทธิ์กับ",
     "securityCenter.roles.layerPlatform": "ทุกองค์กร",
