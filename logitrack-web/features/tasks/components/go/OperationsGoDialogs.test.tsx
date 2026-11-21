@@ -264,7 +264,8 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
         } finally {
             restore();
         }
-    }, 60_000);
+        // ~110 ms of jsdom render per Next for the phone cards (12 s alone); the loaded CI runner took 49-60 s.
+    }, 120_000);
 
     it.each([false, true])("the export shows the facets total only with no filter on (customer phone: %s)", async (customer) => {
         if (customer) vi.stubGlobal("innerWidth", 375);
