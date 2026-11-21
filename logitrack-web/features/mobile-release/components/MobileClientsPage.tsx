@@ -3,12 +3,13 @@
 /**
  * Mobile clients over Go (T54S; `GET /v1/app-installations[/stats]`, T52S; Appendix E §E.2.4 row
  * `/app/security-center/mobile-clients`, §E.5 row 28). The keyset list replaces the collection-group
- * listener capped at 200 (100 per page, "load more", polled every 60 s while visible and while one page
- * is loaded, every 5 min for a platform principal; Refresh updates after "load more"); each row's
+ * listener capped at 200 (100 per page, Next, polled every 60 s while visible and while one page
+ * is loaded, every 5 min for a platform principal; Refresh updates after Next); each row's
  * version status comes from Go (the gate's floor and latest release), and the summary is one grouped
  * read over the installations seen in the last 7 days. RLS scopes the rows (a carrier's tenant_admin
  * its own tenant): no `partnerScopeId` claim is involved any more.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { MaskedValue } from "@/components/masked-value";
 import { useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -45,6 +46,7 @@ export function MobileClientsPage() {
     const list = useInstallations({ flavor: flavor === ALL ? "" : flavor }, reach);
     const stats = useInstallationStats({ since: ACTIVE_WINDOW, belowVersion: "" }, reach);
     const rows = installationRows(list.data?.pages);
+    const { pageRows, pager } = useListPager(rows, list, flavor);
     const pollPaused = (list.data?.pages.length ?? 0) > 1;
     const s = stats.data;
 
@@ -119,7 +121,7 @@ export function MobileClientsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {rows.map((r, index) => {
+                                    {pageRows.map((r, index) => {
                                         const badge = STATUS_BADGE[r.versionStatus as VersionStatus];
                                         return (
                                             <TableRow key={`${r.driverId}/${isMaskedValue(r.installId, { source: r, path: "installId" }) ? index : r.installId}`} data-testid="installation-row" title={`${t("securityCenter.mobileClients.colDriverId")}: ${r.driverId} · ${t("securityCenter.mobileClients.colInstallId")}: ${maskedValueText(r.installId, { source: r, path: "installId" })}`}>
@@ -144,6 +146,7 @@ export function MobileClientsPage() {
                             </Table>
                         </div>
                     )}
+                    <ListPager {...pager} className="mt-4" />
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                         <span>
                             {t("securityCenter.mobileClients.loaded", { count: rows.length })}
@@ -159,12 +162,6 @@ export function MobileClientsPage() {
                                 <RefreshCw className={`mr-2 h-4 w-4 text-muted-foreground ${list.isFetching ? "animate-spin" : ""}`} />
                                 {t("securityCenter.mobileClients.refresh")}
                             </Button>
-                            {list.hasNextPage ? (
-                                <Button variant="outline" size="sm" onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-                                    {list.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
-                                    {t("securityCenter.audit.loadMore")}
-                                </Button>
-                            ) : null}
                         </div>
                     </div>
                 </CardContent>

@@ -49,7 +49,6 @@ export default {
     "users.empty": "ไม่พบผู้ใช้ที่ตรงกับตัวกรอง",
     "users.loading": "กำลังโหลด...",
     "users.loadMore": "โหลดเพิ่ม",
-    "users.shown": "แสดง {count} ผู้ใช้",
     "users.never": "ไม่เคย",
     "users.noName": "ไม่มีชื่อ",
     "users.noRole": "ไม่มีบทบาท",

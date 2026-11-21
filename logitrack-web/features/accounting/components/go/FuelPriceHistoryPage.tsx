@@ -13,7 +13,7 @@ import { Loader2, Minus, RefreshCw, TrendingDown, TrendingUp } from "lucide-reac
 
 import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,6 +45,7 @@ export function FuelPriceHistoryPage() {
     const days = useInfiniteQuery(fuelDailyRangeQuery(from));
     const rows = fuelSnapshotRows(days.data?.pages);
     const table = useMemo(() => fuelHistoryTable(rows, fuelType), [rows, fuelType]);
+    const { pageRows, pager } = useListPager(table.rows, days, [from, fuelType]);
     const latest = rows[0];
     const previous = rows[1];
     const dieselNow = latest?.items.filter((i) => isDieselName(i.nameTh)) ?? [];
@@ -133,7 +134,7 @@ export function FuelPriceHistoryPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {table.rows.map(({ day, prices, diff }) => (
+                                {pageRows.map(({ day, prices, diff }) => (
                                     <TableRow key={day.dayKey ?? day.capturedAt}>
                                         <TableCell className="sticky left-0 z-10 bg-background font-mono text-xs">
                                             <div>{formatDay(day.dayKey ?? null)}</div>
@@ -162,13 +163,7 @@ export function FuelPriceHistoryPage() {
                     )}
                 </CardContent>
             </Card>
-            <LoadMore
-                loaded={rows.length}
-                hasNextPage={days.hasNextPage}
-                isFetchingNextPage={days.isFetchingNextPage}
-                error={days.isFetchNextPageError}
-                onLoadMore={() => void days.fetchNextPage()}
-            />
+            <ListPager {...pager} />
         </div>
     );
 }

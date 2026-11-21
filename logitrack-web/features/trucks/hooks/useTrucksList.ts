@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -17,7 +17,7 @@ export interface TruckRow extends TruckDTO {
  * The trucks page (T25): `['trucks', filters]` keyset pages of 100 with the filters sent to the server
  * (`GET /v1/trucks?ownership&status&type&q`), polled every 60 s while visible (Appendix E §E.5 row 30,
  * replacing the `onSnapshot` listener capped at 100 rows); the drivers column joins the active
- * assignments. The table pages through the loaded rows; "load more" fetches the next keyset page.
+ * assignments. The table pages through the loaded rows; Next fetches the next keyset page.
  */
 export function useTrucksList() {
     const queryClient = useQueryClient();
@@ -30,10 +30,6 @@ export function useTrucksList() {
     const [pmFilter, setPMFilter] = useState<PMStatus | null>(null);
     const q = useDebouncedValue(searchQuery.trim());
 
-    // Pagination over the loaded rows
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
-
     const pages = useTruckPages(
         {
             ownership: groupFilter === "own" || groupFilter === "subcontractor" ? (groupFilter as Ownership) : "",
@@ -45,8 +41,6 @@ export function useTrucksList() {
     );
     const fleet = useFleetStats();
     const assignments = useActiveAssignments();
-
-    useEffect(() => setCurrentPage(1), [q, typeFilter, statusFilter, groupFilter, pmFilter]);
 
     const uniqueTypes = useMemo(() => {
         const types = new Set([...fleet.trucks, ...pages.trucks].map((t) => t.type).filter(Boolean));
@@ -69,8 +63,6 @@ export function useTrucksList() {
         ) : pages.trucks;
         return source.map((t) => ({ ...t, drivers: byTruck.get(t.id) ?? [] }));
     }, [pages.trucks, fleet.trucks, assignments.assignments, pmFilter, q, typeFilter, statusFilter]);
-
-    const totalPages = Math.ceil(filteredTrucks.length / itemsPerPage);
 
     // The card filters set the list filters (the server applies them).
     const handleCardFilterChange = ({ type, status }: { type: string | null; status: string | null }) => {
@@ -108,10 +100,7 @@ export function useTrucksList() {
         setTypeFilter("all");
         setStatusFilter("all");
         setGroupFilter("all");
-        setCurrentPage(1);
     };
-
-    useEffect(() => setCurrentPage((page) => Math.min(page, Math.max(1, totalPages))), [totalPages]);
 
     const source = pmFilter ? fleet : pages;
     const isRefreshing = useIsFetching({ queryKey: queryKeys.trucks.all() }) > 0;
@@ -138,15 +127,13 @@ export function useTrucksList() {
         setStatusFilter,
         groupFilter,
         setGroupFilter: (value: string) => { setPMFilter(null); setGroupFilter(value); },
-        currentPage,
-        setCurrentPage,
-        itemsPerPage,
         uniqueTypes,
         filteredTrucks,
-        totalPages,
         hasNextPage: !pmFilter && pages.hasNextPage,
         isFetchingNextPage: pages.isFetchingNextPage,
-        fetchNextPage: () => void pages.fetchNextPage(),
+        isFetching: pages.isFetching,
+        isFetchNextPageError: pages.isFetchNextPageError,
+        fetchNextPage: () => pages.fetchNextPage(),
         handleCardFilterChange,
         activeCardFilter,
         clearFilters,

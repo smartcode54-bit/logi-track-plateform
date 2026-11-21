@@ -36,12 +36,6 @@ export default {
     "drivers.action.editDetails": "Edit Details",
 
     // Pagination
-    "drivers.pagination.showing": "Showing",
-    "drivers.pagination.to": "to",
-    "drivers.pagination.of": "of",
-    "drivers.pagination.entries": "entries",
-    "drivers.pagination.previous": "Previous",
-    "drivers.pagination.next": "Next",
 
     // Status Badges
     "drivers.status.active": "Active",

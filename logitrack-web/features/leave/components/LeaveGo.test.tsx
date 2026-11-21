@@ -91,12 +91,13 @@ describe("leave requests over Go", () => {
         expect(screen.getByTestId("leave-total")).toHaveTextContent("16");
         expect(screen.getByTestId("leave-pending")).toHaveTextContent("3");
         expect(screen.getByTestId("leave-approved")).toHaveTextContent("10");
-        expect(screen.getByTestId("hr-shown")).toHaveTextContent("Showing 2 of 16");
+        expect(screen.getByText("Rows 1–2 of 16")).toBeInTheDocument();
         const first = web.calls.find((c) => c.url.startsWith("/api/go/v1/leave-requests?"))!;
         expect(q(first).get("limit")).toBe(String(LEAVE_PAGE_SIZE));
 
-        await user.click(screen.getByRole("button", { name: "Load more" }));
+        await user.click(screen.getByRole("button", { name: "Next" }));
         expect(await screen.findByText("Driver 3")).toBeInTheDocument();
+        expect(screen.getByText("3 rows")).toBeInTheDocument();
         expect(web.calls.some((c) => c.url.includes("cursor=c2"))).toBe(true);
 
         await user.click(screen.getByRole("button", { name: /^Approved/ }));

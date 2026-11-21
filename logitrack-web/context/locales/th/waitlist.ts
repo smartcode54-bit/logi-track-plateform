@@ -17,7 +17,5 @@ export default {
     "waitlist.removeTitle": "ลบออกจากรายการรอ?",
     "waitlist.removeDesc": "จะลบ {email} ออก หากลงทะเบียนใหม่จะได้รายการใหม่",
     "waitlist.cancel": "ยกเลิก",
-    "waitlist.loadMore": "โหลดเพิ่ม",
     "waitlist.refresh": "รีเฟรช",
-    "waitlist.showing": "แสดง {shown} จาก {total}",
 };

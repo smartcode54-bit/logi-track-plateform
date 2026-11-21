@@ -3,13 +3,14 @@
 /**
  * Standby records over Go (T34, P2; Appendix E §E.2.1 row standby-records, §E.5 rows 15-17; TW8 M2).
  *
- * `['standby',{from,to}]` (`GET /v1/standby`, keyset 100 per page, "load more", no cap of 300): the range is the
+ * `['standby',{from,to}]` (`GET /v1/standby`, keyset 100 per page, Next, no cap of 300): the range is the
  * server's filter, each row carries its driver's name and its photos signed; the detail reads the task's check-in
  * photo with `['tasks','detail',id]` while it is open. The backfill dialog (`operations:create_standby`) is mounted
  * on open only. SSE `standby.completed` / `standby.priced` refresh the list in every tab. The detail resends the
  * customer's LINE card and revokes its photo link (T49, `operations:edit_trip_details`; the legacy page's button),
  * shown by `LineNotifyActions` (P5; no web flag since TW7).
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -33,7 +34,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import { LineNotifyActions } from "@/features/line/components/go/LineNotifyActions";
 import { pageItems, taskDetailQuery } from "@/features/tasks/api/tasks.go";
-import { CapabilityGate, LoadMoreFooter } from "@/features/tasks/components/go/opsShared";
+import { CapabilityGate } from "@/features/tasks/components/go/opsShared";
 import { standbyQuery, type StandbyDTO } from "../../api/standby.go";
 
 const StandbyBackfillDialog = dynamic(() => import("./StandbyBackfillDialog").then((m) => m.StandbyBackfillDialog), { ssr: false });
@@ -63,7 +64,8 @@ function Records() {
     const [backfill, setBackfill] = useState(false);
     const q = useInfiniteQuery({ ...standbyQuery({ from, to }), placeholderData: keepPreviousData });
     const rows = useMemo(() => pageItems(q.data?.pages), [q.data]);
-    const shown = useMemo(() => rows.filter((r) => matches(r, search)), [rows, search]);
+    const found = useMemo(() => rows.filter((r) => matches(r, search)), [rows, search]);
+    const { pageRows: shown, pager } = useListPager(found, q, [from, to, search]);
 
     return (
         <div className="flex flex-col gap-section">
@@ -174,7 +176,7 @@ function Records() {
                         </TableBody>
                     </Table>
                 </div>
-                <LoadMoreFooter loaded={rows.length} hasNextPage={Boolean(q.hasNextPage)} isFetchingNextPage={q.isFetchingNextPage} onLoadMore={() => void q.fetchNextPage()} />
+                <ListPager {...pager} className="border-t px-4 py-3" />
             </div>
 
             {backfill ? <StandbyBackfillDialog onClose={() => setBackfill(false)} /> : null}

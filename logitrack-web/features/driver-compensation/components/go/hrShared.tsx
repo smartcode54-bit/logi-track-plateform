@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Small pieces the Go HR pages share (T46): the error banner over `hrErrorText`, status badges, the
- * "load more" footer of a keyset list and the payroll round label. Nothing here imports Firebase.
+ * Small pieces the Go HR pages share (T46): the error banner over `hrErrorText`, status badges
+ * and the payroll round label. Nothing here imports Firebase.
  */
 import { format, isValid, parseISO } from "date-fns";
 import { enUS, th as thLocale } from "date-fns/locale";
@@ -48,39 +48,6 @@ export function StatusBadge({ status, labelKey, className }: { status: string; l
         <Badge variant={toneBadgeVariant(STATUS_TONES[status] ?? "neutral")} className={className}>
             {t(labelKey, status)}
         </Badge>
-    );
-}
-
-/** "Showing n of m" and the "load more" button of a keyset list. */
-export function LoadMoreFooter({
-    shown,
-    total,
-    hasNextPage,
-    fetchingNext,
-    onLoadMore,
-}: {
-    shown: number;
-    total?: number;
-    hasNextPage: boolean;
-    fetchingNext: boolean;
-    onLoadMore: () => void;
-}) {
-    const { t } = useLanguage();
-    if (shown === 0) return null;
-    return (
-        <div className="flex items-center justify-between gap-4 border-t px-4 py-3 text-sm text-muted-foreground">
-            <span data-testid="hr-shown">
-                {total !== undefined
-                    ? t("hr.list.showingOf", { shown: shown.toLocaleString(), total: total.toLocaleString() })
-                    : t("hr.list.showing", { shown: shown.toLocaleString() })}
-            </span>
-            {hasNextPage ? (
-                <Button variant="outline" size="sm" onClick={onLoadMore} disabled={fetchingNext}>
-                    {fetchingNext ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {t("hr.list.loadMore")}
-                </Button>
-            ) : null}
-        </div>
     );
 }
 

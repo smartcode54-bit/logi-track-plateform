@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/context/language";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { PageHeader } from "@/components/page-header";
 
 export default function CustomersList() {
@@ -34,6 +34,7 @@ export default function CustomersList() {
     const pages = useCustomerPages({ q });
     const loading = pages.isPending;
     const filtered = useMemo(() => pages.data?.pages.flatMap((p) => p.data ?? []) ?? [], [pages.data]);
+    const { pageRows, pager } = useListPager(filtered, pages, q);
 
     return (
         <div className="flex flex-col gap-section">
@@ -83,7 +84,7 @@ export default function CustomersList() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filtered.map((c) => (
+                                {pageRows.map((c) => (
                                     <TableRow key={c.id}>
                                         <TableCell className="font-mono font-medium">{c.code}</TableCell>
                                         <TableCell className="flex items-center gap-2">
@@ -123,12 +124,7 @@ export default function CustomersList() {
                             </TableBody>
                         </Table>
                         <div className="mt-4">
-                            <LoadMore
-                                loaded={filtered.length}
-                                hasNextPage={pages.hasNextPage}
-                                isFetchingNextPage={pages.isFetchingNextPage}
-                                onLoadMore={() => void pages.fetchNextPage()}
-                            />
+                            <ListPager {...pager} />
                         </div>
                     </>)}
                 </CardContent>

@@ -2,8 +2,7 @@
 
 /**
  * Pieces the Go operations pages share (T34): the capability gate (no query runs before `['me']` grants the
- * route), the hub master of the boards' source-hub filter (`['hubs',{view:'go'}]`), the status badges and the
- * "load more" footer of a keyset list. The task and trip forms pick hubs with the server-searched `HubSelect`
+ * route), the hub master of the boards' source-hub filter (`['hubs',{view:'go'}]`) and the status badges. The task and trip forms pick hubs with the server-searched `HubSelect`
  * (`components/entity-pickers.tsx`, UI2B). Nothing here imports Firebase, and nothing renders a key of a split
  * namespace (`driverMonitor`, `accounting`), so the standby and incident routes (outside the driver-monitor
  * group) can use it.
@@ -116,34 +115,6 @@ export function VehicleClassChip({ value }: { value: string | null | undefined }
         <Badge variant="outline">
             {value}
         </Badge>
-    );
-}
-
-/** The footer of a keyset list: rows loaded, and the next page on demand (no silent cap, TW8). */
-export function LoadMoreFooter({
-    loaded,
-    hasNextPage,
-    isFetchingNextPage,
-    onLoadMore,
-}: {
-    loaded: number;
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    onLoadMore: () => void;
-}) {
-    const { t } = useLanguage();
-    return (
-        <div className="flex items-center justify-between gap-2 border-t px-4 py-3 text-sm text-muted-foreground">
-            <span>{t("taskBoard.loadedRows", { count: loaded })}</span>
-            {hasNextPage ? (
-                <Button variant="outline" size="sm" onClick={onLoadMore} disabled={isFetchingNextPage}>
-                    {isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {t("taskBoard.loadMore")}
-                </Button>
-            ) : (
-                <span>{t("taskBoard.allLoaded")}</span>
-            )}
-        </div>
     );
 }
 

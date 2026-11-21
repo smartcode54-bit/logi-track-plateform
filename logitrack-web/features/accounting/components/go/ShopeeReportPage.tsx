@@ -1,5 +1,6 @@
 "use client";
 
+import { ListPager, useListPager } from "@/components/list-pager";
 import { Field as AccessibleField } from "@/features/accounting/components/go/shared";
 
 /**
@@ -68,6 +69,7 @@ export function ShopeeReportPage() {
     const report = useQuery(shopeeReportQuery(loaded?.customerId ?? "", loaded?.year ?? 0, loaded?.month ?? 0, loaded?.half ?? "full", loaded !== null));
     const job = useJob(jobId);
     const trips = useMemo(() => report.data?.trips ?? [], [report.data]);
+    const { pageRows, pager } = useListPager(trips, {}, loaded);
 
     const download = async (ctx: Loaded) => {
         setDownloading(true);
@@ -259,13 +261,14 @@ export function ShopeeReportPage() {
                         </CardHeader>
                         <CardContent className="p-0">
                             <VirtualTable
-                                data={trips}
+                                data={pageRows}
                                 columns={columns}
                                 getRowId={(r) => r.id}
                                 aria-label={t("accounting.shopeeReport.table.title", { count: trips.length })}
                                 emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("accounting.shopeeReport.empty")}</p>}
                                 resetScrollKey={JSON.stringify(loaded)}
                             />
+                            <ListPager {...pager} className="border-t px-4 py-3" />
                         </CardContent>
                     </Card>
                 </>

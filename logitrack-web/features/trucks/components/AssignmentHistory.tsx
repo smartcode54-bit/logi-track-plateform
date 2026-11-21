@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { VirtualTable } from "@/components/virtual-table";
 import { useLanguage } from "@/context/language";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -47,6 +47,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
     const q = useDebouncedValue(search.trim());
     const statusParam = status === "all" ? "" : status;
     const history = useAssignmentHistory({ status: statusParam, q });
+    const { pageRows, pager } = useListPager(history.rows, history, [statusParam, q]);
 
     const columns = useMemo(
         () => [
@@ -154,12 +155,11 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
             </div>
             {history.isError && !history.isFetchNextPageError && <QueryError label={t("assignments.historyLoadError")} error={history.error} onRetry={() => void history.refetch()} retrying={history.isFetching} />}
             <VirtualTable
-                data={history.rows}
+                data={pageRows}
                 columns={columns}
                 getRowId={(row) => row.id}
                 aria-label={t("assignments.history")}
                 estimateRowHeight={HISTORY_ROW_HEIGHT}
-                infinite={history}
                 loading={history.isPending}
                 loadingState={t("assignments.table.loading")}
                 emptyState={t("assignments.table.noHistory")}
@@ -170,13 +170,7 @@ export function AssignmentHistory({ onRevoke }: AssignmentHistoryProps) {
                 rowClassName="border-border/50 hover:bg-muted/30 transition-colors"
             />
             <div className="p-4 border-t border-border/50">
-                <LoadMore
-                    loaded={history.rows.length}
-                    hasNextPage={history.hasNextPage}
-                    isFetchingNextPage={history.isFetchingNextPage}
-                    error={history.isFetchNextPageError}
-                    onLoadMore={() => void history.fetchNextPage()}
-                />
+                <ListPager {...pager} />
             </div>
         </div>
     );

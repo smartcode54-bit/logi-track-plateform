@@ -17,7 +17,5 @@ export default {
     "waitlist.removeTitle": "Remove from the waitlist?",
     "waitlist.removeDesc": "{email} will be removed. A person who joins again gets a new entry.",
     "waitlist.cancel": "Cancel",
-    "waitlist.loadMore": "Load more",
     "waitlist.refresh": "Refresh",
-    "waitlist.showing": "Showing {shown} of {total}",
 };

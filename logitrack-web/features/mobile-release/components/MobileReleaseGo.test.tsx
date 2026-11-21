@@ -207,7 +207,8 @@ describe("Mobile clients (Go)", () => {
         expect(within(rows[0]).getByText("Carrier One")).toBeInTheDocument();
         expect(within(rows[1]).getByText("Test build")).toHaveClass("bg-destructive");
         expect(await screen.findByTestId("mobile-summary")).toHaveTextContent("30 devices · 2 blocked · 6 outdated · 20 on the latest build");
-        expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+        expect(screen.getByText("Rows 1–2")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
         const list = web.calls.find((c) => c.url.startsWith("/api/go/v1/platform/app-installations?"));
         expect(list?.url).toBe("/api/go/v1/platform/app-installations?limit=100");
         const projected = web.calls.filter((c) => c.url.startsWith("/api/go/v1/platform/app-installations"));

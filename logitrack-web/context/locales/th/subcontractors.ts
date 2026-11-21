@@ -66,12 +66,6 @@ export default {
     "subcontractors.action.suspendPartner": "ระงับรถร่วม",
 
     // Pagination
-    "subcontractors.pagination.showing": "แสดง",
-    "subcontractors.pagination.to": "ถึง",
-    "subcontractors.pagination.of": "จาก",
-    "subcontractors.pagination.results": "รายการ",
-    "subcontractors.pagination.previous": "ก่อนหน้า",
-    "subcontractors.pagination.next": "ถัดไป",
 
     // Status Badges
     // New Subcontractor Page
