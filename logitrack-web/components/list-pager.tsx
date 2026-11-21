@@ -37,6 +37,9 @@ export interface PagerSource {
 
 export const LIST_PAGE_SIZE = 50;
 
+/** Room above a list brought back into view: the app shell's sticky header (h-16) plus a small gap. */
+const STICKY_HEADER_OFFSET_PX = 72;
+
 export interface ListPagerProps {
     /** 1-based page number. */
     page: number;
@@ -104,16 +107,20 @@ export function ListPager({ page, from, to, total, hasPrevious, hasNext, loading
     const { t } = useLanguage();
     const root = useRef<HTMLElement>(null);
 
-    // A new page starts at its first row: the table's own scroll goes back to the top and comes into view.
+    // A new page starts at its first row: the table's own scroll goes back to the top, and when the reader has
+    // scrolled past the table's top (the usual case after pressing Next under a long page) the page scrolls back
+    // up to it, below the sticky header. `block: "nearest"` never moved a table taller than the screen.
     const shown = useRef(page);
     useEffect(() => {
         if (shown.current === page) return;
         shown.current = page;
-        const scope = root.current?.closest('[data-slot="card"]') ?? root.current?.parentElement;
-        const table = scope?.querySelector<HTMLElement>('[data-slot="virtual-table-viewport"], [data-slot="table-container"]');
+        const scope = root.current?.closest<HTMLElement>('[data-slot="card"]') ?? root.current?.parentElement;
+        const table = scope?.querySelector<HTMLElement>('[data-slot="virtual-table-viewport"], [data-slot="table-container"]') ?? scope;
         if (!table) return;
         table.scrollTop = 0;
-        table.scrollIntoView?.({ block: "nearest" });
+        if (table.getBoundingClientRect().top >= STICKY_HEADER_OFFSET_PX) return;
+        table.style.scrollMarginTop = `${STICKY_HEADER_OFFSET_PX}px`;
+        table.scrollIntoView?.({ block: "start" });
     }, [page]);
 
     if (to === 0 && !hasPrevious) return null;
