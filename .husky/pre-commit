@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# The changelog step below runs on PowerShell (Windows only). Husky runs hooks with `sh -e`, so on macOS and
+# Linux the missing command failed every commit; skip the step there.
+if ! command -v powershell >/dev/null 2>&1; then
+  exit 0
+fi
+
 
 
 # Get the date, time, and changed files
