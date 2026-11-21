@@ -174,7 +174,7 @@ export function RenewalsPage() {
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <Table>
+                    <Table stack>
                         <TableHeader>
                             <TableRow>
                                 <TableHead className="w-[300px]">{t("renewals.table.vehicle")}</TableHead>

@@ -527,7 +527,7 @@ export default function SourcesPage() {
                         </div>
                     </CardHeader>
                     <CardContent className="flex-1 min-h-0 p-4 flex flex-col overflow-auto">
-                       <Table>
+                       <Table stack>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>{t("firstMile.sources.table.sourceId")}</TableHead>

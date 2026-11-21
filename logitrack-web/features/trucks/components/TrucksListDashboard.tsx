@@ -205,7 +205,7 @@ export default function TrucksListDashboard() {
             {assignmentsError && <TruckQueryError onRetry={refresh} retrying={isRefreshing} />}
             {/* Content */}
             <div className="border rounded-lg bg-card overflow-hidden">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/50">
                         <TableRow className="hover:bg-transparent border-b border-border/50">
                             <TableHead className="w-[100px]">{t('trucks.table.id')}</TableHead>

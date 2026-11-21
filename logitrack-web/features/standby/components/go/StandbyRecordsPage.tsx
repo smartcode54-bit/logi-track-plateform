@@ -133,7 +133,7 @@ function Records() {
 
             <div className="overflow-hidden rounded-lg border bg-card">
                 <div className="overflow-x-auto">
-                    <Table className="min-w-[900px]">
+                    <Table stack className="min-w-[900px]">
                         <TableHeader className="bg-muted/50">
                             <TableRow>
                                 {["date", "driver", "route", "startedAt", "endedAt", "duration", "status"].map((k) => (

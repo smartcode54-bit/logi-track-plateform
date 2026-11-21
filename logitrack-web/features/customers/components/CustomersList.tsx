@@ -74,7 +74,7 @@ export default function CustomersList() {
                             {pages.isError ? t("masterData.list.loadError") : t("customers.noData")}
                         </div>
                     ) : (<>
-                        <Table>
+                        <Table stack>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>{t("customers.table.code")}</TableHead>

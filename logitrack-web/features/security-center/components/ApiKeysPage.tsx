@@ -100,7 +100,7 @@ export function ApiKeysPage() {
                         <p className="text-sm text-muted-foreground">{t("securityCenter.apiKeys.empty")}</p>
                     ) : (
                         <div className="overflow-x-auto rounded-md border">
-                            <Table>
+                            <Table stack>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("securityCenter.apiKeys.name")}</TableHead>
