@@ -85,7 +85,7 @@ export function WaitlistPage() {
                 </CardHeader>
                 <CardContent>
                     <div className="rounded-md border">
-                        <Table>
+                        <Table stack>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>{t("waitlist.email")}</TableHead>

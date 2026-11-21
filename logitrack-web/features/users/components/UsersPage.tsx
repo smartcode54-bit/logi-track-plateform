@@ -219,7 +219,7 @@ export function UsersPage() {
 
             <Card className="bg-card border-border shadow-sm">
                 <div className="rounded-md overflow-x-auto">
-                    <Table>
+                    <Table stack>
                         <TableHeader className="bg-muted/40">
                             <TableRow className="hover:bg-transparent border-none">
                                 <TableHead className="h-11 pl-6 text-sm font-medium">{t("users.table.user")}</TableHead>

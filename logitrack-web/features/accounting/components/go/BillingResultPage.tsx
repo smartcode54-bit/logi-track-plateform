@@ -261,7 +261,7 @@ export function BillingResultPage() {
                         <p className="py-12 text-center text-sm text-muted-foreground">{t("accounting.billingResult.noData")}</p>
                     ) : (
                         <div className="overflow-x-auto">
-                            <Table>
+                            <Table stack>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("accounting.billingResult.table.invoiceNumber")}</TableHead>

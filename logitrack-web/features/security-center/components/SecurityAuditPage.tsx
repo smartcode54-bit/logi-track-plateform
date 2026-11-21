@@ -230,7 +230,7 @@ export function SecurityAuditPage() {
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <Table>
+                        <Table stack>
                             <TableHeader>
                                 <TableRow className="bg-muted/50">
                                     <TableHead>{t("securityCenter.audit.timestamp")}</TableHead>

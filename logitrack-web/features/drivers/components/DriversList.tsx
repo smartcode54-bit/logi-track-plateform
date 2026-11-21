@@ -175,7 +175,7 @@ export default function DriversList() {
 
                 {pages.isError && !pages.isFetchNextPageError ? <QueryError label={t("drivers.loadError")} onRetry={() => void pages.refetch()} retrying={pages.isFetching} /> : null}
                 <div className="border rounded-lg bg-card overflow-hidden">
-                    <Table>
+                    <Table stack>
                         <TableHeader className="bg-muted/50">
                             <TableRow className="border-b border-border/50">
                                 <TableHead>{t("drivers.table.driver")}</TableHead>

@@ -130,7 +130,7 @@ export function LeaveRequestsPage() {
             <HrErrorAlert error={list.error} title={t("leaveRequests.toast.failedLoad")} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
                             <TableHead>{t("leaveRequests.table.driver")}</TableHead>

@@ -108,7 +108,7 @@ export function MobileClientsPage() {
                         <p className="text-sm text-muted-foreground">{t("securityCenter.mobileClients.empty")}</p>
                     ) : (
                         <div className="overflow-x-auto rounded-md border">
-                            <Table>
+                            <Table stack>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t("securityCenter.mobileClients.colDriver")}</TableHead>

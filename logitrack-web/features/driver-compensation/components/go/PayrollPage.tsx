@@ -182,7 +182,7 @@ export function PayrollPage() {
             <HrErrorAlert error={list.error} title={t("payroll.toast.failedLoad")} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
                             <TableHead>{t("payroll.table.driver")}</TableHead>

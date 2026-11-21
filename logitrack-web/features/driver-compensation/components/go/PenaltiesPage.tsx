@@ -84,7 +84,7 @@ export function PenaltiesPage() {
             <HrErrorAlert error={list.error} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <Table>
+                <Table stack>
                     <TableHeader>
                         <TableRow>
                             <TableHead>{t("driverComp.penalty.driver")}</TableHead>

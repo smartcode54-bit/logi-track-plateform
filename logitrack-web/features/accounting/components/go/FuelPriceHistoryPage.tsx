@@ -122,7 +122,7 @@ export function FuelPriceHistoryPage() {
                     ) : rows.length === 0 ? (
                         <div className="py-12 text-center text-sm text-muted-foreground">{t("accounting.fuelHistory.empty")}</div>
                     ) : (
-                        <Table>
+                        <Table stack>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="sticky left-0 z-10 min-w-[110px] bg-background">{t("accounting.fuelHistory.date")}</TableHead>

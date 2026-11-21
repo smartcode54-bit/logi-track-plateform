@@ -100,7 +100,7 @@ export function TenantsPage() {
             </div>
 
             <Card className="bg-card border-border shadow-sm">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/40">
                         <TableRow className="hover:bg-transparent">
                             <TableHead className="pl-6 text-sm font-medium">{t("tenants.table.name")}</TableHead>

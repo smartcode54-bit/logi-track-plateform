@@ -66,7 +66,7 @@ export function SubcontractorTable(props: SubcontractorTableProps) {
         <>
         {succeeded && <Alert variant="success" role="status"><AlertDescription>{t("subcontractors.ui4.suspended")}</AlertDescription></Alert>}
         <div ref={focusFallback} tabIndex={-1} className="rounded-xl border border-border/50 bg-card overflow-hidden">
-            <Table>
+            <Table stack>
                 <TableHeader className="bg-muted/30">
                     <TableRow className="hover:bg-transparent border-border/50">
                         <TableHead className="pl-6" aria-sort={props.sortConfig?.key === 'nameTh' ? props.sortConfig.direction === "asc" ? "ascending" : "descending" : "none"}>
