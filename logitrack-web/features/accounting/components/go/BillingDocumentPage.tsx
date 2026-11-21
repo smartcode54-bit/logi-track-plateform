@@ -496,7 +496,7 @@ export function BillingDocumentPage() {
                 id: "category",
                 header: () => t("accounting.billingDocument.table.jobCategory"),
                 cell: ({ row: { original: r } }) => (
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col items-start gap-1">
                         <JobCategoryBadge value={r.jobCategory} kind={r.rowType} />
                         {r.flags.includes("supp_priced_with_fuel") ? (
                             <Badge variant="destructive" className="w-fit">
