@@ -485,6 +485,11 @@ export default {
     "common.searchPlaceholder": "ค้นหา...",
     "common.noResults": "ไม่พบรายการ",
 
+    // GMAPS: the Google maps (components/map/GoogleMap.tsx) and the location picker's place search.
+    "common.map.unavailable": "แผนที่ใช้งานไม่ได้: บิลด์นี้ยังไม่ได้ตั้งค่าคีย์ Google Maps",
+    "common.map.searchPlaceholder": "ค้นหาสถานที่หรือที่อยู่",
+    "common.map.searchFailed": "ค้นหาสถานที่ไม่สำเร็จ ลองอีกครั้งหรือคลิกบนแผนที่",
+
     // UI2: the shared searchable select (components/ui/search-select.tsx).
     "common.select.placeholder": "เลือก...",
     "common.select.search": "ค้นหา...",

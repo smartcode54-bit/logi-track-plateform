@@ -486,6 +486,11 @@ export default {
     "common.searchPlaceholder": "Search...",
     "common.noResults": "No results",
 
+    // GMAPS: the Google maps (components/map/GoogleMap.tsx) and the location picker's place search.
+    "common.map.unavailable": "Map unavailable: no Google Maps key is set for this build.",
+    "common.map.searchPlaceholder": "Search for a place or address",
+    "common.map.searchFailed": "Place search failed. Try again or click the map.",
+
     // UI2: the shared searchable select (components/ui/search-select.tsx).
     "common.select.placeholder": "Select...",
     "common.select.search": "Search...",

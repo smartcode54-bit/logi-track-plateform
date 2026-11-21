@@ -23,7 +23,8 @@ function fakeGis() {
             state.rendered += 1;
         },
     };
-    window.google = { accounts: { id: gis } };
+    // @types/google.maps (GMAPS) types window.google as the whole Maps namespace; GIS is all this fake needs.
+    window.google = { accounts: { id: gis } } as typeof window.google;
     return {
         state,
         /** The user completes the Google popup: GIS calls the page-wide callback. */
@@ -58,7 +59,7 @@ beforeEach(() => {
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    delete window.google;
+    delete (window as { google?: unknown }).google;
 });
 
 describe("GoogleSignInButton", () => {

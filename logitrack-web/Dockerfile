@@ -32,6 +32,10 @@ FROM deps AS build
 ARG NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID=""
 # The GORATECH support address shown on /app/support (UI3C); empty: the page shows no contact.
 ARG NEXT_PUBLIC_SUPPORT_EMAIL=""
+# GMAPS: the Google Maps browser key (HTTP-referrer restricted; Maps JavaScript API + Places API (New) only)
+# and the Map ID of its advanced markers. Empty key: every map shows "map unavailable"; empty Map ID: DEMO_MAP_ID.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
+ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=""
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY shared-docs shared-docs
 COPY logitrack-web logitrack-web

@@ -8,7 +8,7 @@ import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-// Leaflet needs a real layout; the map client is replaced by a probe of what the card hands it.
+// The Google map needs a real browser; the map client is replaced by a probe of what the card hands it.
 vi.mock("./FleetMapClient", () => ({
     FleetMapClient: ({ vehicles, incidentTruckIds, incidentPlates }: { vehicles: { truckId: string }[]; incidentTruckIds: Set<string>; incidentPlates: Set<string> }) => (
         <div data-testid="map-probe">{`${vehicles.map((v) => v.truckId).join(",")}|${[...incidentTruckIds].join(",")}|${[...incidentPlates].join(",")}`}</div>

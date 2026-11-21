@@ -138,24 +138,24 @@ test.describe("UI4K3 maintenance demo", () => {
                         await expect(page.getByLabel(language === "en" ? "Total Cost" : "ราคารวม", { exact: true })).toHaveValue("3500.00");
                         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
                         if (theme === "dark") {
-                            await page.waitForSelector(".leaflet-control-geosearch .results");
-                            const colors = await page.locator(".leaflet-control-geosearch .results").evaluate((results) => {
-                                const active = document.createElement("div");
-                                active.className = "active";
-                                results.append(active);
-                                const style = getComputedStyle(active);
+                            // GMAPS: the picker's place search sits on the map in the theme's tokens; a build without
+                            // NEXT_PUBLIC_GOOGLE_MAPS_API_KEY shows "map unavailable" instead.
+                            const picker = page.locator(".location-picker");
+                            const search = picker.getByRole("searchbox");
+                            const noKey = picker.getByRole("status");
+                            await expect(search.or(noKey)).toBeVisible();
+                            const target = (await search.isVisible()) ? search : noKey;
+                            const colors = await target.evaluate((el) => {
+                                const style = getComputedStyle(el);
                                 const tokenProbe = document.createElement("div");
-                                tokenProbe.style.color = "var(--accent-foreground)";
-                                tokenProbe.style.backgroundColor = "var(--accent)";
+                                tokenProbe.style.color = el.matches("input") ? "var(--foreground)" : "var(--muted-foreground)";
                                 document.body.append(tokenProbe);
                                 const expected = getComputedStyle(tokenProbe);
-                                const output = { foreground: style.color, background: style.backgroundColor, expectedForeground: expected.color, expectedBackground: expected.backgroundColor };
-                                active.remove();
+                                const output = { foreground: style.color, expectedForeground: expected.color };
                                 tokenProbe.remove();
                                 return output;
                             });
                             expect(colors.foreground).toBe(colors.expectedForeground);
-                            expect(colors.background).toBe(colors.expectedBackground);
                         }
                     }
                     if (SHOTS) {

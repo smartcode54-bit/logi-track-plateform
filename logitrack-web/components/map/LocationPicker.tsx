@@ -1,157 +1,150 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
-import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch';
-import 'leaflet-geosearch/dist/geosearch.css';
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { AdvancedMarker, useMapsLibrary } from "@vis.gl/react-google-maps";
 
-// Fix Leaflet marker icon issue in Next.js
-const icon = L.icon({
-    iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-});
+import { Input } from "@/components/ui/input";
+import { useLanguage } from "@/context/language";
+import { GoogleMap, PanTo, THAILAND_CENTER, type LatLng } from "./GoogleMap";
 
 interface LocationPickerProps {
-    value?: { lat: number; lng: number };
+    value?: LatLng;
     searchPlaceholder?: string;
-    onChange: (value: { lat: number; lng: number }) => void;
+    onChange: (value: LatLng) => void;
 }
 
-function LocationMarker({ position, onChange }: { position: { lat: number; lng: number } | null, onChange: (pos: { lat: number; lng: number }) => void }) {
-    const map = useMap();
+/** Thailand's bounding box: results prefer it but are not restricted to it (Places API (New) `locationBias`). */
+const THAILAND_BOUNDS = { south: 5.6, west: 97.3, north: 20.5, east: 105.7 };
 
-    useEffect(() => {
-        if (position) {
-            map.flyTo(position, map.getZoom());
-        }
-    }, [position, map]);
-
-    useMapEvents({
-        click(e: L.LeafletMouseEvent) {
-            onChange(e.latlng);
-        },
-    });
-
-    return position ? <Marker position={position} icon={icon} /> : null;
-}
-
-
-
-function SearchControl({ onChange, searchPlaceholder }: { onChange: (pos: { lat: number; lng: number }) => void; searchPlaceholder: string }) {
-    const map = useMap();
-
-    useEffect(() => {
-        const provider = new OpenStreetMapProvider();
-
-        const searchControl = new (GeoSearchControl as any)({
-            provider,
-            style: 'bar',
-            showMarker: false,
-            showPopup: false,
-            autoClose: true,
-            retainZoomLevel: false,
-            animateZoom: true,
-            keepResult: false,
-            searchLabel: searchPlaceholder,
-        });
-
-        map.addControl(searchControl);
-
-        const onLocation = (event: L.LeafletEvent) => {
-            const result = event as L.LeafletEvent & { location?: { x: number; y: number } };
-            if (result.location) {
-                onChange({ lat: Number(result.location.y), lng: Number(result.location.x) });
-            }
-        };
-        map.on('geosearch/showlocation', onLocation);
-
-        return () => {
-            map.off('geosearch/showlocation', onLocation);
-            map.removeControl(searchControl);
-        };
-    }, [map, onChange, searchPlaceholder]);
-
-    return null;
-}
-
-export default function LocationPicker({ value, onChange, searchPlaceholder = "Search for a place..." }: LocationPickerProps) {
-    // Default to Thailand center if no value
-    const defaultCenter = { lat: 13.7563, lng: 100.5018 };
-
-    // Generate a unique ID for this instance
-    const [mapId] = useState(() => `map-${Math.random().toString(36).substr(2, 9)}`);
-
-    // Workaround for "Map container is already initialized" error in Strict Mode / Dev
-    useEffect(() => {
-        return () => {
-            const container = L.DomUtil.get(mapId);
-            if (container) {
-                // @ts-expect-error — leaflet internal property not in type definitions
-                container._leaflet_id = null;
-            }
-        };
-    }, [mapId]);
-
+/** Click the map, or search a place or address, to set the pin. */
+export default function LocationPicker({ value, onChange, searchPlaceholder }: LocationPickerProps) {
     return (
-        <div className="location-picker h-[300px] w-full min-w-0 max-w-full rounded-md overflow-hidden border">
-            <MapContainer
-                id={mapId}
-                key={mapId}
-                center={value || defaultCenter}
-                zoom={10}
-                className="h-full w-full"
+        <div className="location-picker relative h-[300px] w-full min-w-0 max-w-full rounded-md overflow-hidden border">
+            <GoogleMap
+                defaultCenter={value ?? THAILAND_CENTER}
+                defaultZoom={10}
+                onClick={(e) => {
+                    if (e.detail.latLng) onChange(e.detail.latLng);
+                }}
             >
-                <style jsx global>{`
-                    .location-picker .leaflet-geosearch-bar {
-                        width: auto;
-                        max-width: none;
-                        margin-left: 62px;
-                        margin-right: 10px;
-                    }
-                    .location-picker .leaflet-control-geosearch form input {
-                        min-width: 0;
-                        padding-right: 32px;
-                    }
-                    .leaflet-control-geosearch form input {
-                        color: var(--foreground) !important;
-                        background: var(--background) !important;
-                    }
-                    .leaflet-control-geosearch .results {
-                        color: var(--foreground) !important;
-                        background: var(--background) !important;
-                    }
-                    .leaflet-control-geosearch .results > .active,
-                    .leaflet-control-geosearch .results > :hover {
-                        color: var(--accent-foreground) !important;
-                        background-color: var(--accent) !important;
-                    }
-                    @media (max-width: 767px) {
-                        .location-picker .leaflet-control-geosearch button.reset {
-                            min-width: 44px;
-                            height: 44px;
-                            line-height: 44px;
-                        }
-                        .location-picker .leaflet-control-geosearch form input {
-                            height: 44px;
-                            padding-right: 44px;
-                        }
-                        .location-picker .leaflet-control-geosearch .results > * {
-                            min-height: 44px;
-                            white-space: normal;
-                        }
-                    }
-                `}</style>
-                <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <SearchControl onChange={onChange} searchPlaceholder={searchPlaceholder} />
-                <LocationMarker position={value || null} onChange={onChange} />
-            </MapContainer>
+                <PlaceSearch placeholder={searchPlaceholder} onPick={onChange} />
+                <PanTo position={value} />
+                {value ? <AdvancedMarker position={value} /> : null}
+            </GoogleMap>
+        </div>
+    );
+}
+
+type Results = { input: string; items: google.maps.places.PlacePrediction[] };
+
+/** Places API (New) Autocomplete over the map: typing lists places, picking one moves the pin. */
+function PlaceSearch({ placeholder, onPick }: { placeholder?: string; onPick: (pos: LatLng) => void }) {
+    const { t, language } = useLanguage();
+    const places = useMapsLibrary("places");
+    const [query, setQuery] = useState("");
+    const [picked, setPicked] = useState<string | null>(null);
+    const [results, setResults] = useState<Results | null>(null);
+    const [failed, setFailed] = useState(false);
+    // One billing session runs from the first keystroke to the pick's fetchFields.
+    const session = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
+
+    const input = query.trim();
+    const searching = input.length >= 2 && query !== picked;
+
+    useEffect(() => {
+        if (!places || !searching) return;
+        let live = true;
+        const timer = setTimeout(() => {
+            session.current ??= new places.AutocompleteSessionToken();
+            places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+                input,
+                sessionToken: session.current,
+                locationBias: THAILAND_BOUNDS,
+                region: "th",
+                language,
+            })
+                .then(({ suggestions }) => {
+                    if (live) setResults({ input, items: suggestions.flatMap((s) => (s.placePrediction ? [s.placePrediction] : [])) });
+                })
+                .catch(() => {
+                    if (live) setFailed(true);
+                });
+        }, 250);
+        return () => {
+            live = false;
+            clearTimeout(timer);
+        };
+    }, [places, searching, input, language]);
+
+    const items = searching && !failed && results?.input === input ? results.items : null;
+
+    const pick = async (prediction: google.maps.places.PlacePrediction) => {
+        const text = prediction.text.toString();
+        setQuery(text);
+        setPicked(text);
+        try {
+            const place = prediction.toPlace();
+            await place.fetchFields({ fields: ["location"] });
+            session.current = null;
+            if (place.location) onPick({ lat: place.location.lat(), lng: place.location.lng() });
+            else setFailed(true);
+        } catch {
+            setFailed(true);
+        }
+    };
+
+    const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        // The picker sits inside forms: Enter picks the first place instead of submitting.
+        if (e.key === "Enter") {
+            e.preventDefault();
+            if (items?.[0]) void pick(items[0]);
+        } else if (e.key === "Escape" && items) {
+            e.preventDefault();
+            setPicked(query);
+        }
+    };
+
+    const label = placeholder ?? t("common.map.searchPlaceholder");
+    return (
+        <div className="absolute inset-x-2 top-2 z-raised">
+            <Input
+                type="search"
+                value={query}
+                onChange={(e) => {
+                    setQuery(e.target.value);
+                    setFailed(false);
+                }}
+                onKeyDown={onKeyDown}
+                placeholder={label}
+                aria-label={label}
+                autoComplete="off"
+                className="bg-background dark:bg-background shadow-sm"
+            />
+            {items ? (
+                <ul aria-label={label} className="mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+                    {items.length === 0 ? (
+                        <li className="px-3 py-2 text-sm text-muted-foreground">{t("common.noResults")}</li>
+                    ) : (
+                        items.map((p) => (
+                            <li key={p.placeId}>
+                                <button
+                                    type="button"
+                                    onClick={() => void pick(p)}
+                                    className="flex min-h-11 w-full flex-col justify-center px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none md:min-h-0"
+                                >
+                                    <span>{(p.mainText ?? p.text).toString()}</span>
+                                    {p.secondaryText ? <span className="text-xs text-muted-foreground">{p.secondaryText.toString()}</span> : null}
+                                </button>
+                            </li>
+                        ))
+                    )}
+                </ul>
+            ) : null}
+            {failed ? (
+                <p role="alert" className="mt-1 rounded-md border bg-background px-3 py-1.5 text-xs text-destructive shadow-sm">
+                    {t("common.map.searchFailed")}
+                </p>
+            ) : null}
         </div>
     );
 }

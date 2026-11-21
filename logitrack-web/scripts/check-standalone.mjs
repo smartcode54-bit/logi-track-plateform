@@ -38,8 +38,14 @@ export const SERVER_ONLY = [
 
 // developer-spec.md §16.1, consumer web-public. TW7 (P6) removed the Firebase SDK, so the seven
 // NEXT_PUBLIC_FIREBASE_* and three NEXT_PUBLIC_APP_CHECK_* names are refused like any other. UI3C added the
-// support address of /app/support (public by nature: the page shows it).
-export const NEXT_PUBLIC_ALLOW = new Set(["NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID", "NEXT_PUBLIC_SUPPORT_EMAIL"]);
+// support address of /app/support (public by nature: the page shows it). GMAPS added the Google Maps browser key
+// (public by nature, referrer restricted) and the Map ID.
+export const NEXT_PUBLIC_ALLOW = new Set([
+  "NEXT_PUBLIC_GOOGLE_OIDC_CLIENT_ID",
+  "NEXT_PUBLIC_SUPPORT_EMAIL",
+  "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+  "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
+]);
 
 const SOURCE_DIRS = ["app", "components", "context", "features", "hooks", "lib", "types", "validate"];
 const SOURCE_EXT = /\.(c|m)?(j|t)sx?$/;
