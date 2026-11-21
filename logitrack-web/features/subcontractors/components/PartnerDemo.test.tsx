@@ -119,7 +119,9 @@ describe("partner list filters and pagination", () => {
         act(() => client.setQueryData(queryKeys.subcontractors.list({ view: "full" }), rows));
         await waitFor(() => expect(screen.getByText("Partner 11")).toBeVisible());
         act(() => client.setQueryData(queryKeys.subcontractors.list({ view: "full" }), []));
-        await waitFor(() => expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled());
+        // An empty list has no pager.
+        await waitFor(() => expect(screen.queryByRole("navigation", { name: "Pages of this list" })).toBeNull());
+        expect(screen.queryByText("Partner 1")).toBeNull();
     });
 
     it("puts 19, 20, 50 and 51 trucks in the groups named by the labels", async () => {

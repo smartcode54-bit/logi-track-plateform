@@ -257,7 +257,8 @@ heading starts at the same left edge (16 px from the sidebar) and a phone keeps 
 form caps its width with a left-aligned `max-w-*`; cards keep their own padding.
 
 Breakpoints are Tailwind's (`sm` 640, `md` 768, `lg` 1024, `xl` 1280). Every page works from 360 px: filters wrap,
-tables scroll horizontally inside their card (`overflow-x-auto`), dialogs keep a 16 px margin
+list tables stack their rows as cards (see Tables), other tables scroll horizontally inside their card
+(`overflow-x-auto`), dialogs keep a 16 px margin
 (`w-[calc(100%-2rem)]`) and footers stack their buttons. Fixed widths above 360 px are not allowed on mobile.
 
 ## Elevation & Depth
@@ -372,13 +373,24 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 ### Tables
 - **Primitive:** `components/ui/table.tsx`; long or paged lists use `components/virtual-table.tsx` (TanStack
   Table + Virtual) inside a card.
+- **Paging:** every list pages through `components/list-pager.tsx` (`useListPager` + `ListPager`): 50 rows a page,
+  First / Previous / Next under the table, the row range and the page number (a keyset list has no page count; the
+  total shows once the last page is reached). The next server page is requested only when the reader steps past the
+  loaded rows; no list scrolls or grows without end. Totals and exports read every row, never the page in view.
 - **Density:** 40 px header and rows (`h-10`, `p-2`), 14 px text, horizontal dividers only, no zebra stripes.
 - **Header:** the primitive's 14 px medium ink, sentence case; sticky on scrolling lists (`sticky top-0 z-raised
   bg-card`).
 - **Alignment:** text left; numbers, money and dates right-aligned with `tabular-nums`; codes and plates in mono.
 - **Rows:** hover mist, selected mist; row actions in a ghost icon button opening a DropdownMenu at the row's end.
 - **States:** loading shows skeleton rows; empty shows one graphite line and the next action; errors show inline with
-  a retry. Below `md` the table scrolls horizontally within its card.
+  a retry.
+- **Phones (stacked rows):** below `md` a list table shows each row as a card instead of scrolling sideways: the
+  first column is the card's title, every other cell one line with its column header as a graphite label on the left
+  (40 %, one line, ellipsis) and the value beside it; a column hidden on small screens stays hidden. Every
+  `VirtualTable` does this (it then renders the whole page of rows, so the page scrolls, not a box inside it); a
+  list on the plain primitive opts in with `<Table stack>`, which labels the cells from the header row
+  (`useStackedCellLabels`, rules in app/globals.css). Put the column that names the row first. Small tables in
+  dialogs and summaries keep the plain table and scroll horizontally within their card.
 
 ### Dialogs and Sheets
 - 8 px radius, `shadow-lg`, 24 px padding, 50 % black backdrop, 16 px margin on small screens (`max-w-lg` unless the

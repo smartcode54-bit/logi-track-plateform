@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerPartySelect } from "@/components/entity-pickers";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager, type PagerSource } from "@/components/list-pager";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -207,9 +207,10 @@ function MissingManualAction({ row, onManual }: { row: ManualPriceRow; onManual:
  * trips and standby lists `accounting:view_income` already reads, so the tab never calls a route the role
  * cannot use.
  */
-function LoadedMissingBillingTab({ rows, hasMore, customerName, canEditTrips, canOverride, onManual }: { rows: IncomeRow[]; hasMore: boolean; customerName: (id: string | null) => string } & MissingEditProps) {
+function LoadedMissingBillingTab({ rows, hasMore, source, customerName, canEditTrips, canOverride, onManual }: { rows: IncomeRow[]; hasMore: boolean; source: PagerSource; customerName: (id: string | null) => string } & MissingEditProps) {
     const { t } = useLanguage();
     const unpriced = useMemo(() => unpricedIncomeRows(rows), [rows]);
+    const { pageRows, pager } = useListPager(unpriced, source);
     return (
         <div className="space-y-4" data-testid="missing-billing-loaded">
             <p className="text-sm text-muted-foreground">{t("accounting.go.income.missingLoadedHint")}</p>
@@ -232,7 +233,7 @@ function LoadedMissingBillingTab({ rows, hasMore, customerName, canEditTrips, ca
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {unpriced.map((r) => (
+                            {pageRows.map((r) => (
                                 <TableRow key={r.id}>
                                     <TableCell className="font-mono text-xs">
                                         {r.label || t("accounting.income.recordType.standby")}{r.recordType === "standby" ? ` · ${formatBangkokDateTime(r.deliveredAt)}` : ""}
@@ -257,6 +258,7 @@ function LoadedMissingBillingTab({ rows, hasMore, customerName, canEditTrips, ca
                     </Table>
                 </div>
             )}
+            <ListPager {...pager} />
         </div>
     );
 }
@@ -466,6 +468,8 @@ export function IncomePage() {
             ]);
         },
     };
+
+    const { pageRows, pager } = useListPager(priced, infinite, [filter, recordType]);
 
     /**
      * Walks every remaining page of the range (the totals and the export need them all); resolves the pages
@@ -828,24 +832,17 @@ export function IncomePage() {
 
                         <TabsContent value="with-billing" className="mt-4 space-y-4">
                             <VirtualTable
-                                data={priced}
+                                data={pageRows}
                                 columns={columns}
                                 getRowId={(r) => r.id}
                                 aria-label={t("nav.income")}
-                                infinite={infinite}
                                 loading={(wantTrips && trips.isPending) || (wantStandby && standby.isPending)}
                                 error={Boolean(error)}
                                 emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("accounting.income.noRecords")}</p>}
                                 resetScrollKey={JSON.stringify([filter, recordType])}
                                 maxHeight={640}
                             />
-                            <div className="max-md:[&_button]:min-h-11"><LoadMore
-                                loaded={rows.length}
-                                hasNextPage={Boolean(hasMore)}
-                                isFetchingNextPage={fetchingMore}
-                                error={infinite.isFetchNextPageError}
-                                onLoadMore={() => void infinite.fetchNextPage()}
-                            /></div>
+                            <ListPager {...pager} />
                         </TabsContent>
                         <TabsContent value="missing-billing" className="mt-4">
                             {canBillingRows ? (
@@ -862,9 +859,8 @@ export function IncomePage() {
                                         if (wantTrips) void missingTrips.refetch();
                                         if (wantStandby) void missingStandby.refetch();
                                     }}>{t("shell.retry")}</Button> : null}
-                                    {!missingPending && (!missingError || monthlyRows.length > 0) ? <LoadedMissingBillingTab rows={monthlyRows} hasMore={Boolean(missingHasMore)} customerName={customerName} canEditTrips={canEditTrips} canOverride={canOverride} onManual={setManual} /> : <p className="text-sm text-muted-foreground">—</p>}
-                                    {!missingPending ? <div className="max-md:[&_button]:min-h-11"><LoadMore loaded={monthlyRows.length} hasNextPage={Boolean(missingHasMore)} isFetchingNextPage={Boolean(missingFetchingMore)} error={Boolean(missingNextError)} onLoadMore={() => void loadMoreMissing()} /></div> : null}
-                                </div>
+                                    {!missingPending && (!missingError || monthlyRows.length > 0) ? <LoadedMissingBillingTab rows={monthlyRows} hasMore={Boolean(missingHasMore)} source={{ hasNextPage: Boolean(missingHasMore), isFetchingNextPage: Boolean(missingFetchingMore), isFetching: missingTrips.isFetching || missingStandby.isFetching, isFetchNextPageError: Boolean(missingNextError), fetchNextPage: loadMoreMissing }} customerName={customerName} canEditTrips={canEditTrips} canOverride={canOverride} onManual={setManual} /> : <p className="text-sm text-muted-foreground">—</p>}
+                                                                    </div>
                             )}
                         </TabsContent>
                     </Tabs>

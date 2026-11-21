@@ -13,11 +13,12 @@
  * {fields:'minimal'}]`) and server searches (drivers, trucks). SSE `task.*` refreshes the board in every tab
  * (500 ms window), so a mobile check-in shows without a reload.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Copy, FileSpreadsheet, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
+import { Calendar as CalendarIcon, ChevronDown, Copy, FileSpreadsheet, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
@@ -32,6 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
     Dialog,
     DialogContent,
@@ -56,7 +58,7 @@ import {
     type TaskDTO,
     type TaskType,
 } from "../../api/tasks.go";
-import { CapabilityGate, goHubFilterOptions, LoadMoreFooter, TaskStatusBadge, useGoHubs, VehicleClassChip } from "./opsShared";
+import { CapabilityGate, goHubFilterOptions, StopBadges, TaskStatusBadge, useGoHubs, VehicleClassChip } from "./opsShared";
 import type { TaskFormMode } from "./TaskFormDialog";
 
 // Mounted on open only, each its own chunk (developer-spec.md §10.11): the form and its pickers, the detail with
@@ -169,7 +171,8 @@ function Board({ kind }: { kind: BoardKind }) {
     const type: TaskBoardType = kind === "all" ? typeFilter : kind;
     const filter = { date: date ? format(date, "yyyy-MM-dd") : "", type, soc, hub };
     const q = useInfiniteQuery({ ...taskBoardQuery(filter), placeholderData: keepPreviousData });
-    const shown = useMemo(() => pageItems(q.data?.pages), [q.data]);
+    const loaded = useMemo(() => pageItems(q.data?.pages), [q.data]);
+    const { pageRows: shown, pager } = useListPager(loaded, q, filter);
     const hubs = useGoHubs();
     const hubOptions = useMemo(() => goHubFilterOptions(hubs.list), [hubs.list]);
     const keys = titleKeys(kind, profile);
@@ -359,10 +362,19 @@ function Board({ kind }: { kind: BoardKind }) {
                                             <span className="block font-medium leading-tight">{task.source?.label || task.sourceHub}</span>
                                         </TableCell> : null}
                                         {showColumn("destination") ? <TableCell>
-                                            {task.destinationPlace?.label || task.destination}
                                             {task.isMultiDelivery && task.stops.length > 1 ? (
-                                                <span className="ml-1 text-xs text-muted-foreground">{t("taskBoard.stops", { count: task.stops.length })}</span>
-                                            ) : null}
+                                                // The Driver Monitor's chip: "N stops", opened in place without opening the detail.
+                                                <Collapsible>
+                                                    <CollapsibleTrigger onClick={(e) => e.stopPropagation()}
+                                                        className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium text-foreground hover:bg-accent">
+                                                        {t("taskBoard.stops", { count: task.stops.length })}
+                                                        <ChevronDown className="h-3 w-3" />
+                                                    </CollapsibleTrigger>
+                                                    <CollapsibleContent className="mt-2 w-max space-y-1" onClick={(e) => e.stopPropagation()}>
+                                                        <StopBadges stops={task.stops} />
+                                                    </CollapsibleContent>
+                                                </Collapsible>
+                                            ) : (task.destinationPlace?.label || task.destination)}
                                         </TableCell> : null}
                                         {showColumn("actualPickup") ? <TableCell>{kind === "all" ? formatDay(task.actualPickupAt) : boardTime(task) || "—"}</TableCell> : null}
                                         {showColumn("truckType") ? <TableCell>
@@ -426,12 +438,7 @@ function Board({ kind }: { kind: BoardKind }) {
                     </Table>
                 </div>
             </div>)}
-                <LoadMoreFooter
-                    loaded={shown.length}
-                    hasNextPage={Boolean(q.hasNextPage)}
-                    isFetchingNextPage={q.isFetchingNextPage}
-                    onLoadMore={() => void q.fetchNextPage()}
-                />
+                <ListPager {...pager} className="border-t px-4 py-3" />
 
             {form ? (
                 <TaskFormDialog

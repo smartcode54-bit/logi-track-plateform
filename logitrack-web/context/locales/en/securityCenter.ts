@@ -196,8 +196,6 @@ export default {
     "securityCenter.audit.system": "System",
     "securityCenter.audit.searchLoadedOnly": "The search covers the {count} loaded rows; load more to search further back.",
     "securityCenter.audit.loadedRows": "Showing {shown} of {loaded} loaded rows",
-    "securityCenter.audit.loadMore": "Load more",
-    "securityCenter.audit.allLoaded": "All rows in this range are loaded.",
     "securityCenter.roles.subtitleGo": "Choose which permissions each role has in the selected organisation. Fixed cells cannot be changed: organisation admins retain every permission, and some permissions are reserved for the platform operator or driver app.",
     "securityCenter.roles.layer": "Apply permissions to",
     "securityCenter.roles.layerPlatform": "All organisations",

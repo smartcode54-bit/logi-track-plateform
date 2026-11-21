@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { boardTime, taskDetailQuery, taskTripQuery, type TaskDTO } from "../../api/tasks.go";
-import { TaskStatusBadge } from "./opsShared";
+import { StopBadges, TaskStatusBadge } from "./opsShared";
 
 const TripEditDialog = dynamic(() => import("@/features/drivers/components/go/TripEditDialog").then((m) => m.TripEditDialog), { ssr: false });
 
@@ -69,10 +69,10 @@ export function TaskDetailDialog({
                         {row(t("firstMile.table.time"), boardTime(d) || "—")}
                         {row(t("jobAssign.table.actualPickup"), formatDateTime(d.actualPickupAt))}
                         {row(t("firstMile.table.sourceHub"), <span className="font-medium">{d.source?.label || d.sourceHub}</span>)}
-                        {row(t("firstMile.table.destination"), d.destinationPlace?.label || d.destination)}
                         {d.isMultiDelivery && d.stops.length > 1
-                            ? row(t("firstMile.task.deliveryStops"), d.stops.map((s) => `${s.index}. ${s.place?.label || s.destination}`).join(", "))
-                            : null}
+                            ? row(`${t("firstMile.task.deliveryStops")} (${t("taskBoard.stops", { count: d.stops.length })})`,
+                                <span className="block space-y-1"><StopBadges stops={d.stops} /></span>)
+                            : row(t("firstMile.table.destination"), d.destinationPlace?.label || d.destination)}
                         {row(t("firstMile.table.type"), d.truckType ?? "—")}
                         {row(t("firstMile.task.jobCategory.label"), d.jobCategory === "SUPPLEMENTARY" ? t("firstMile.task.jobCategory.supplementary") : t("firstMile.task.jobCategory.primary"))}
                         {row(t("firstMile.table.licensePlate"), <span className="font-mono">{d.licensePlate ?? "—"}</span>)}

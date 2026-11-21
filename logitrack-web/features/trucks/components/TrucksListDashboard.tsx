@@ -9,8 +9,6 @@ import {
     MoreHorizontal,
     Eye,
     Edit,
-    ChevronLeft,
-    ChevronRight,
     ChevronDown,
     Users,
     RefreshCcw,
@@ -53,7 +51,7 @@ import { truckTypeLabel } from "../utils/labels";
 import { useTrucksList } from "../hooks/useTrucksList";
 import { TruckComplianceCards } from "./TruckComplianceCards";
 import { LazyDialog, LazyDialogLoading } from "@/components/lazy-dialog";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 
 // The import dialog carries xlsx: loaded on the first open only (developer-spec.md §10.11).
 const TruckImportDialog = dynamic(() => import("./TruckImportDialog").then((m) => m.TruckImportDialog), {
@@ -77,24 +75,19 @@ export default function TrucksListDashboard() {
         setStatusFilter,
         groupFilter,
         setGroupFilter,
-        currentPage,
-        setCurrentPage,
-        itemsPerPage,
         uniqueTypes,
         filteredTrucks,
-        totalPages,
         hasNextPage,
         isFetchingNextPage,
+        isFetching,
+        isFetchNextPageError,
         fetchNextPage,
         handleCardFilterChange,
         activeCardFilter,
         clearFilters
     } = useTrucksList();
 
-    const paginatedTrucks = filteredTrucks.slice(
-        (currentPage - 1) * itemsPerPage,
-        currentPage * itemsPerPage
-    );
+    const { pageRows: paginatedTrucks, pager } = useListPager(filteredTrucks, { hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError, fetchNextPage }, [searchQuery, typeFilter, statusFilter, groupFilter, activeCardFilter]);
 
     const getStatusLabel = (status: string) => {
         switch (status) {
@@ -212,7 +205,7 @@ export default function TrucksListDashboard() {
             {assignmentsError && <TruckQueryError onRetry={refresh} retrying={isRefreshing} />}
             {/* Content */}
             <div className="border rounded-lg bg-card overflow-hidden">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/50">
                         <TableRow className="hover:bg-transparent border-b border-border/50">
                             <TableHead className="w-[100px]">{t('trucks.table.id')}</TableHead>
@@ -343,54 +336,8 @@ export default function TrucksListDashboard() {
 
                 {/* Pagination over the loaded rows; the next keyset page loads on demand (T25). */}
                 {!(error && !hasData) && <>
-                <div className="px-4 pt-4 border-t border-border/50 bg-muted/20">
-                    <LoadMore loaded={filteredTrucks.length} hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onLoadMore={fetchNextPage} />
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 bg-muted/20">
-                    <div className="text-sm text-muted-foreground">
-                        {t('masterData.list.showing', { from: paginatedTrucks.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0, to: Math.min(currentPage * itemsPerPage, filteredTrucks.length), total: filteredTrucks.length })}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Button aria-label={t("common.previousPage")}
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                        >
-                            <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <div className="flex items-center gap-1">
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                let pageNum = i + 1;
-                                if (totalPages > 5 && currentPage > 3) {
-                                    pageNum = currentPage - 2 + i;
-                                    if (pageNum > totalPages) pageNum = totalPages - (4 - i);
-                                }
-
-                                return (
-                                    <Button
-                                        key={pageNum}
-                                        variant={currentPage === pageNum ? "default" : "outline"}
-                                        size="sm"
-                                        className="h-8 w-8 p-0"
-                                        onClick={() => setCurrentPage(pageNum)}
-                                    >
-                                        {pageNum}
-                                    </Button>
-                                );
-                            })}
-                        </div>
-                        <Button aria-label={t("common.nextPage")}
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages || totalPages === 0}
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
-                    </div>
+                <div className="border-t px-4 py-3">
+                    <ListPager {...pager} />
                 </div>
                 </>}
             </div>

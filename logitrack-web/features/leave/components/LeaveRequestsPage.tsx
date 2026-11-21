@@ -9,6 +9,7 @@
  * reason. While the installed 3.x apps still write leave requests in Firestore a decision may answer
  * `202` (written back, not mirrored yet): the page says so and the poll shows the new status once mirrored.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useState } from "react";
 import { Ban, CheckCircle2, Clock, FileText, Loader2, MoreHorizontal, Paperclip, RefreshCw, User, XCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -16,7 +17,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/context/language";
 import { useCan } from "@/features/auth/api/useMe";
 import { Field, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
-import { HrErrorAlert, LoadMoreFooter, StatusBadge, dayLabel } from "@/features/driver-compensation/components/go/hrShared";
+import { HrErrorAlert, StatusBadge, dayLabel } from "@/features/driver-compensation/components/go/hrShared";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ export function LeaveRequestsPage() {
     const [driver, setDriver] = useState<PickValue | null>(null);
     const list = useLeaveRequests({ status: status === ALL ? undefined : status, driverId: driver?.id });
     const rows = leaveRows(list.data?.pages);
+    const { pageRows, pager } = useListPager(rows, list, [status, driver?.id]);
     const counts = leaveStatusCounts(list.data?.pages);
     const allCount = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined;
     const total = counts ? (status === ALL ? allCount : counts[status]) : undefined;
@@ -128,7 +130,7 @@ export function LeaveRequestsPage() {
             <HrErrorAlert error={list.error} title={t("leaveRequests.toast.failedLoad")} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
                             <TableHead>{t("leaveRequests.table.driver")}</TableHead>
@@ -157,7 +159,7 @@ export function LeaveRequestsPage() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            rows.map((req) => {
+                            pageRows.map((req) => {
                                 const actions = canManage ? leaveActions(req.status) : [];
                                 return (
                                     <TableRow key={req.id} className="cursor-pointer transition-colors hover:bg-muted/50" onClick={() => setSelected({ request: req })}>
@@ -223,13 +225,7 @@ export function LeaveRequestsPage() {
                         )}
                     </TableBody>
                 </Table>
-                <LoadMoreFooter
-                    shown={rows.length}
-                    total={total}
-                    hasNextPage={Boolean(list.hasNextPage)}
-                    fetchingNext={list.isFetchingNextPage}
-                    onLoadMore={() => void list.fetchNextPage()}
-                />
+                <ListPager {...pager} total={total ?? pager.total} className="border-t px-4 py-3" />
             </div>
 
             <LeaveDecisionDialog

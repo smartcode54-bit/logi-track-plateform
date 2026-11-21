@@ -21,7 +21,7 @@ import { useLanguage } from "@/context/language";
 import { apiErrorText } from "@/lib/apiError";
 import { CustomerSearchSelect } from "@/components/entity-pickers";
 import { LazyDialogLoading } from "@/components/lazy-dialog";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -202,6 +202,7 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
 
     const all = rateEntryRows(entries.data?.pages);
     const rows = useMemo(() => filterRateEntries(all, { hubId: hub, destinationCode: dest, vehicleClass, q, showVoided }), [all, hub, dest, vehicleClass, q, showVoided]);
+    const { pageRows, pager } = useListPager(rows, entries, [customerId, hub, dest, vehicleClass, q, showVoided]);
     // The loaded rows' customers and the selected one (the export's file name), one cached query each.
     const customers = useCustomerLookup([customerId === ALL_CUSTOMERS ? null : customerId, ...all.map((r) => r.customerId)]);
     const hubs = useMemo(
@@ -383,23 +384,16 @@ export function EntriesTab({ customerId, canEdit }: { customerId: string; canEdi
             <p className="text-xs text-muted-foreground">{t("accounting.go.rateCard.loadedHint", { shown: rows.length, loaded: all.length })}</p>
             <ApiErrorAlert error={entries.error} />
             <VirtualTable
-                data={rows}
+                data={pageRows}
                 columns={columns}
                 getRowId={(r) => r.id}
                 aria-label={t("accounting.rateCard.title")}
-                infinite={entries}
                 loading={entries.isPending}
                 error={entries.isError}
                 emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("accounting.rateCard.noEntries")}</p>}
                 resetScrollKey={customerId}
             />
-            <LoadMore
-                loaded={all.length}
-                hasNextPage={entries.hasNextPage}
-                isFetchingNextPage={entries.isFetchingNextPage}
-                error={entries.isFetchNextPageError}
-                onLoadMore={() => void entries.fetchNextPage()}
-            />
+            <ListPager {...pager} />
             {adding ? <AddRateDialog hubs={hubs} initialCustomerId={customerId} onClose={() => setAdding(false)} /> : null}
             {importMounted ? (
                 <RateImportDialog

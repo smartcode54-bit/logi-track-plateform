@@ -9,10 +9,21 @@
  * `PATCH /v1/tasks/{id}`; Appendix B §B.2.11): the browser sends ids and codes only. An edit sends the changed
  * fields only, so a task past `assigned` is refused only for what really changed (`409 task_in_progress`).
  *
- * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop, not the
- * destination field (legacy tasks and the trip editor's mirror can hold a stop 1 that differs from the destination;
- * the legacy `DeliveryStopsEditor` edited each row freely). An edit sends `deliveryStops` only when the stops were
- * touched and differ (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan.
+ * The stop list is edited as it is stored: every row (stop 1 included) is the task's own planned stop. A multi-drop
+ * task's destination is its stop 1 (billing, the mobile check-in card and loading page read the destination; main
+ * 3.6.6), so the destination field is hidden while the box is ticked and a create, or an edit that changes the stops,
+ * sends stop 1 as the destination. An edit sends `deliveryStops` only when the stops were touched and differ
+ * (trimmed, case-insensitive) from the task's, so assigning a driver never rewrites the plan, and an untouched legacy
+ * task whose stop 1 differs from its destination keeps both.
+ *
+ * The customer comes first: the origin, the destination and every stop are searched with `?linkedPartyId` of the
+ * party in that field, so only the places linked to that customer are offered and a place linked to nobody is no
+ * pick (link them on the Sources page). Changing the customer clears an origin or destination the new customer
+ * does not own and keeps one it does; a place the customer does not own (a legacy task) is flagged, never
+ * rewritten. The stops are not checked that way — they have no lookup here. The driver and helper searches drop
+ * the drivers who have left (`SELECTABLE_DRIVER_STATUSES`), while a value already held keeps its label whatever
+ * its status. Unlike the legacy form this one does not auto-pick a customer's only place: that wanted the whole
+ * master in the browser.
  */
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
@@ -21,8 +32,8 @@ import { toast } from "sonner";
 
 import { useLanguage } from "@/context/language";
 import { Field, SearchPicker, type PickValue } from "@/features/accounting/components/go/shared";
-import { CustomerPartySelect, HubSelect } from "@/components/entity-pickers";
-import type { HubPick } from "@/features/accounting/api/pickers.go";
+import { CustomerPartySelect, HubSelect, useHubByCode } from "@/components/entity-pickers";
+import { SELECTABLE_DRIVER_STATUSES, type HubPick } from "@/features/accounting/api/pickers.go";
 import { useCustomerLookup } from "@/features/accounting/api/useCustomerLookup";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -151,24 +162,43 @@ export function TaskFormDialog({
         }
     }, [linkedParty, linkedCustomer]);
 
-    // A picked hub linked to a customer prefills the customer when none is chosen (ADR 0027 convenience, as the
-    // legacy form); a hub linked to a carrier (partner) leaves the field to the user.
-    const pickPlace = (field: "sourceHub" | "destination", code: string, hub: HubPick | null | undefined) => {
-        const partyId = hub?.linkedCustomerKind === "customer" ? hub.linkedPartyId : null;
-        setV((prev) => {
-            const next = { ...prev, [field]: code };
-            if (!prev.billingPartyId && partyId) next.billingPartyId = partyId;
-            return next;
-        });
+    // The two places the form holds, as the master knows them: the very lookups `HubSelect` labels its value
+    // with (one cached query per code), so reading them here costs no request.
+    const sourceHub = useHubByCode(v.sourceHub);
+    const destinationHub = useHubByCode(v.destination);
+    // A place is the customer's when the master links it to that billing party. A code the master does not know
+    // (a legacy task) and a lookup still in flight raise nothing: the form never blocks on them.
+    const ownedBy = (h: HubPick | null | undefined, party: string) => !h || !party || h.linkedPartyId === party;
+
+    // Customer first (as the legacy Firestore form): the place pickers below ask Go for the stations linked to
+    // the party in this field, so changing the customer drops a place the new one does not own and keeps a place
+    // it does (re-assigning a task's customer need not rewrite a route both customers use). The stops are left
+    // as they are — they have no lookup here — so a stop of the previous customer stays until it is re-picked.
+    const selectCustomer = (id: string) => {
+        if (id === v.billingPartyId) return;
+        setV((prev) => ({
+            ...prev,
+            billingPartyId: id,
+            sourceHub: ownedBy(sourceHub.data, id) ? prev.sourceHub : "",
+            destination: ownedBy(destinationHub.data, id) ? prev.destination : "",
+        }));
     };
+    // The place pickers stay closed until a customer is chosen: with no party there is nothing to narrow by.
+    const noCustomer = !v.billingPartyId;
+    const placeFilter = { linkedPartyId: v.billingPartyId || undefined, disabled: noCustomer };
+    const notLinked = (h: HubPick | null | undefined) => (ownedBy(h, v.billingPartyId) ? null : (
+        <p className="text-xs text-warning">{t("firstMile.task.placeNotLinkedToCustomer")}</p>
+    ));
 
     const submit = async () => {
         setError(null);
         setLocal(null);
-        if (!v.date || !v.sourceHub || !v.destination) return setLocal(t("taskBoard.form.required"));
+        if (!v.date || !v.sourceHub || (!v.multi && !v.destination)) return setLocal(t("taskBoard.form.required"));
         if (!v.billingPartyId) return setLocal(t("firstMile.import.customerMissing"));
         const stops = v.multi ? stopsOf(v) : [];
         const stopsPatch = mode === "edit" && task ? editStopsPatch(task, v, stopsTouched) : undefined;
+        // Multi-drop: stop 1 is the destination, unless an edit leaves the stops (and the hidden field) as stored.
+        const destination = !v.multi ? v.destination : mode !== "edit" || stopsPatch ? (stops[0] ?? "") : (task?.destination ?? v.destination);
         if (mode !== "edit" || stopsPatch) {
             if (v.multi && stops.length < 2) return setLocal(t("firstMile.task.minStopsError"));
             if (v.multi && new Set(stops.map((s) => s.toUpperCase())).size !== stops.length) return setLocal(t("firstMile.task.duplicateDestError"));
@@ -183,7 +213,7 @@ export function TaskFormDialog({
                 if (v.date !== task.planDate) patch.date = v.date;
                 if (v.actualPickupAt !== toLocalInput(task.actualPickupAt)) patch.actualPickupAt = fromLocalInput(v.actualPickupAt);
                 if (v.sourceHub !== task.sourceHub) patch.sourceHub = v.sourceHub;
-                if (v.destination !== task.destination) patch.destination = v.destination;
+                if (destination !== task.destination) patch.destination = destination;
                 if (v.billingPartyId !== task.billingPartyId) patch.billingPartyId = v.billingPartyId;
                 if (v.jobCategory !== task.jobCategory) patch.jobCategory = v.jobCategory;
                 if ((v.truck?.id ?? null) !== task.truckId) patch.truckId = v.truck?.id ?? null;
@@ -203,7 +233,7 @@ export function TaskFormDialog({
                     date: v.date,
                     actualPickupAt: fromLocalInput(v.actualPickupAt),
                     sourceHub: v.sourceHub,
-                    destination: v.destination,
+                    destination,
                     billingPartyId: v.billingPartyId,
                     jobCategory: v.jobCategory,
                     truckId: v.truck?.id,
@@ -272,18 +302,25 @@ export function TaskFormDialog({
                     <Field label={t("firstMile.task.actualPickupAt")} htmlFor="task-pickup">
                         <Input id="task-pickup" type="datetime-local" value={v.actualPickupAt} onChange={(e) => set("actualPickupAt", e.target.value)} />
                     </Field>
-                    <Field label={t(formKeys.source)}>
-                        <HubSelect value={v.sourceHub} prefer={fm ? "HUB" : "SOC"} placeholder={t(formKeys.selectSource)} className="w-full"
-                            aria-label={t(formKeys.source)} onHubChange={(code, h) => pickPlace("sourceHub", code, h)} />
-                    </Field>
-                    <Field label={t(formKeys.destination)}>
-                        <HubSelect value={v.destination} prefer={fm ? "SOC" : "HUB"} placeholder={t(formKeys.selectDestination)} className="w-full"
-                            aria-label={t(formKeys.destination)} onHubChange={(code, h) => pickPlace("destination", code, h)} />
-                    </Field>
-                    <Field label={t("firstMile.task.customer")}>
-                        <CustomerPartySelect aria-label={t("firstMile.task.customer")} value={v.billingPartyId} onValueChange={(id) => set("billingPartyId", id)}
+                    <Field label={t("firstMile.task.customer")} className="sm:col-span-2">
+                        <CustomerPartySelect aria-label={t("firstMile.task.customer")} value={v.billingPartyId} onValueChange={selectCustomer}
                             placeholder={t("firstMile.task.selectCustomer")} className="min-w-[200px]" />
+                        <p className="text-xs text-muted-foreground">{t("firstMile.task.customerFirstHint")}</p>
                     </Field>
+                    <Field label={t(formKeys.source)}>
+                        <HubSelect {...placeFilter} value={v.sourceHub} prefer={fm ? "HUB" : "SOC"} className="w-full"
+                            placeholder={noCustomer ? t("firstMile.task.selectCustomerFirst") : t(formKeys.selectSource)}
+                            aria-label={t(formKeys.source)} onValueChange={(code) => set("sourceHub", code)} />
+                        {notLinked(sourceHub.data)}
+                    </Field>
+                    {v.multi ? null : (
+                        <Field label={t(formKeys.destination)}>
+                            <HubSelect {...placeFilter} value={v.destination} prefer={fm ? "SOC" : "HUB"} className="w-full"
+                                placeholder={noCustomer ? t("firstMile.task.selectCustomerFirst") : t(formKeys.selectDestination)}
+                                aria-label={t(formKeys.destination)} onValueChange={(code) => set("destination", code)} />
+                            {notLinked(destinationHub.data)}
+                        </Field>
+                    )}
                     <Field label={t("firstMile.task.jobCategory.label")}>
                         <Select value={v.jobCategory} onValueChange={(x) => set("jobCategory", x as JobCategory)}>
                             <SelectTrigger>
@@ -316,18 +353,21 @@ export function TaskFormDialog({
                     </Field>
                     <Field label={t("firstMile.task.driverName")}>
                         <SearchPicker kind="driver" value={v.driver} onChange={(x) => set("driver", x)} placeholder={t("firstMile.task.selectDriver")}
-                            clearLabel={t("taskBoard.form.noDriver")} className="w-full" />
+                            status={SELECTABLE_DRIVER_STATUSES} clearLabel={t("taskBoard.form.noDriver")} className="w-full" />
                     </Field>
                     <Field label={t("task.helper.label")}>
                         <SearchPicker kind="driver" value={v.helper} onChange={(x) => set("helper", x)} placeholder={t("task.helper.select")}
-                            clearLabel={t("task.helper.none")} className="w-full" />
+                            status={SELECTABLE_DRIVER_STATUSES} clearLabel={t("task.helper.none")} className="w-full" />
                     </Field>
                 </div>
 
                 <div className="space-y-2 rounded-md border p-3">
                     <label className="flex items-center gap-2 text-sm font-medium">
                         <Checkbox checked={v.multi}
-                            onCheckedChange={(c) => setStops((prev) => ({ multi: c === true, stops: c === true && prev.stops.length === 0 ? [prev.destination, ""] : prev.stops }))} />
+                            onCheckedChange={(c) => setStops((prev) => c === true
+                                ? { multi: true, stops: prev.stops.length === 0 ? [prev.destination, ""] : prev.stops }
+                                // Back to one drop: the field reappears holding stop 1, the destination it stood for.
+                                : { multi: false, destination: stopsOf(prev)[0] ?? prev.destination })} />
                         {t("firstMile.task.isMultiDelivery")}
                     </label>
                     <p className="text-xs text-muted-foreground">{t("firstMile.task.isMultiDeliveryHint")}</p>
@@ -336,10 +376,11 @@ export function TaskFormDialog({
                             {v.stops.map((s, i) => (
                                 <div key={i} className="flex items-center gap-2">
                                     <span className="w-16 text-xs text-muted-foreground">{t("firstMile.task.stopIndex")} {i + 1}</span>
-                                    <HubSelect value={s} prefer={fm ? "SOC" : "HUB"} placeholder={t("firstMile.task.stopDestination")} className="w-full flex-1"
+                                    <HubSelect {...placeFilter} value={s} prefer={fm ? "SOC" : "HUB"} className="w-full flex-1"
+                                        placeholder={noCustomer ? t("firstMile.task.selectCustomerFirst") : t("firstMile.task.stopDestination")}
                                         aria-label={t("firstMile.task.stopIndex", { index: i + 1 })}
                                         onValueChange={(code) => setStops((prev) => ({ stops: prev.stops.map((x, j) => (j === i ? code : x)) }))} />
-                                    {i === 0 && s.trim().toUpperCase() === v.destination.trim().toUpperCase() ? (
+                                    {i === 0 ? (
                                         <span className="text-xs text-muted-foreground">({t("firstMile.task.primaryDestination")})</span>
                                     ) : null}
                                     <Button type="button" variant="ghost" size="icon" aria-label={t("firstMile.task.removeStop")}
@@ -348,7 +389,7 @@ export function TaskFormDialog({
                                     </Button>
                                 </div>
                             ))}
-                            <Button type="button" variant="outline" size="sm" onClick={() => setStops((prev) => ({ stops: [...prev.stops, ""] }))}>
+                            <Button type="button" variant="outline" size="sm" disabled={noCustomer} onClick={() => setStops((prev) => ({ stops: [...prev.stops, ""] }))}>
                                 <Plus className="mr-1 h-4 w-4" />
                                 {t("firstMile.task.addStop")}
                             </Button>

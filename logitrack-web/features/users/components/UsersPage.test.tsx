@@ -126,16 +126,19 @@ describe("UsersPage", () => {
         return { web, me };
     }
 
-    it("lists through Go, loads more, and makes no Firebase or Cloud Functions call", async () => {
+    it("lists through Go, pages to the next 50, and makes no Firebase or Cloud Functions call", async () => {
         const { web } = setup();
         const people = Array.from({ length: 60 }, (_, i) => user(i));
         web.on("GET", "/api/go/v1/users", usersRoute(() => people));
         renderWithProviders(<UsersPage />);
         await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(50));
-        await userEvent.setup().click(screen.getByRole("button", { name: "Load more" }));
-        await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(60));
-        expect(screen.getByTestId("users-count")).toHaveTextContent("60 users shown");
-        expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+        expect(screen.getByText("Rows 1–50")).toBeInTheDocument();
+        await userEvent.setup().click(screen.getByRole("button", { name: "Next" }));
+        await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(10));
+        expect(screen.getByText("Rows 51–60 of 60")).toBeInTheDocument();
+        expect(screen.getByText("Page 2")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+        expect(web.calls.filter((c) => c.url.startsWith("/api/go/v1/users?"))).toHaveLength(2);
         expect(web.calls.every((c) => c.url.startsWith("/api/go/") || c.url.startsWith("/api/auth/"))).toBe(true);
     });
 

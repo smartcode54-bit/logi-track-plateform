@@ -36,12 +36,6 @@ export default {
     "drivers.action.editDetails": "แก้ไขรายละเอียด",
 
     // Pagination
-    "drivers.pagination.showing": "แสดง",
-    "drivers.pagination.to": "ถึง",
-    "drivers.pagination.of": "จาก",
-    "drivers.pagination.entries": "รายการ",
-    "drivers.pagination.previous": "ก่อนหน้า",
-    "drivers.pagination.next": "ถัดไป",
 
     // Status Badges
     "drivers.status.active": "ใช้งาน",

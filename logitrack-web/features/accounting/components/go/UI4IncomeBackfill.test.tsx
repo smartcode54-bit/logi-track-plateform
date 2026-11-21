@@ -176,13 +176,16 @@ describe("Income billing clarity", () => {
         await u.click(screen.getByRole("combobox", { name: "Month" }));
         await u.click(screen.getByRole("option", { name: "February" }));
         await screen.findByText("TR-trips-first");
-        await u.click(screen.getByRole("button", { name: "Load more" }));
-        await screen.findAllByRole("alert");
+        await u.click(screen.getByRole("button", { name: "Next" }));
+        expect(await screen.findByText("The next page could not be loaded.")).toHaveAttribute("role", "alert");
+        expect(screen.getByText("TR-trips-first")).toBeInTheDocument();
         fail = false;
-        await u.click(screen.getByRole("button", { name: "Load more" }));
+        await u.click(screen.getByRole("button", { name: "Try again" }));
         await screen.findByText("TR-trips-next");
         expect(screen.getByText(/standby-next/)).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+        expect(screen.getByText("4 rows")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     });
     it.each(["trip", "standby"])("loads only selected %s pages in the fallback month", async (kind) => {
         const web = setup(["accounting:view_income"]);
@@ -196,7 +199,7 @@ describe("Income billing clarity", () => {
         await u.click(await screen.findByRole("combobox", { name: "Trip type" }));
         await u.click(screen.getByRole("option", { name: kind === "trip" ? "Normal trip" : "Standby" }));
         await u.click(screen.getByTestId("missing-billing-tab"));
-        await u.click(await screen.findByRole("button", { name: "Load more" }));
+        await u.click(await screen.findByRole("button", { name: "Next" }));
         await screen.findByText(kind === "trip" ? "TR-next" : /Standby next/);
         const cursorCalls = web.calls.filter((c) => new URL(c.url, "http://test").searchParams.has("cursor"));
         expect(cursorCalls.length).toBeGreaterThan(0);

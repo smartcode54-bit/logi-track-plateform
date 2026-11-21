@@ -208,7 +208,7 @@ describe("fleet driver demo regressions", () => {
         await waitFor(() => expect(errorToast).toHaveBeenCalledWith("Check the highlighted fields (1). First: First name is required"));
     });
 
-    it("leaves next-page failures to LoadMore while preserving loaded drivers", async () => {
+    it("leaves next-page failures to the pager while preserving loaded drivers", async () => {
         const web = fakeWeb()
             .on("GET", "/api/go/v1/me", () => json(200, { data: makeMe() }))
             .on("GET", "/api/go/v1/drivers", (call) => call.url.includes("cursor=")
@@ -217,8 +217,9 @@ describe("fleet driver demo regressions", () => {
         const { client } = renderWithProviders(<DriversList />);
         client.setDefaultOptions({ queries: { retry: false } });
         await screen.findByText(driver.fullNameTh!);
-        await userEvent.setup().click(screen.getByRole("button", { name: "Load more" }));
-        expect(await screen.findByRole("alert")).toHaveTextContent("The next rows could not be loaded.");
+        await userEvent.setup().click(screen.getByRole("button", { name: "Next" }));
+        expect(await screen.findByRole("alert")).toHaveTextContent("The next page could not be loaded.");
+        expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
         expect(screen.queryByText("Could not load drivers. Try again.")).not.toBeInTheDocument();
         expect(screen.getByText(driver.fullNameTh!)).toBeInTheDocument();
         expect(web.count("GET", "/api/go/v1/drivers")).toBe(2);

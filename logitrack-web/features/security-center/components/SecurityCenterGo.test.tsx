@@ -411,9 +411,11 @@ describe("Security audit (Go)", () => {
         expect(first.searchParams.get("from")).toMatch(/^\d{4}-\d\d-\d\dT/);
         expect(first.searchParams.has("cursor")).toBe(false);
 
-        await u.click(screen.getByRole("button", { name: "Load more" }));
+        expect(screen.getByText("Rows 1–2")).toBeInTheDocument();
+        await u.click(screen.getByRole("button", { name: "Next" }));
         await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(3));
-        expect(screen.getByText("All rows in this range are loaded.")).toBeInTheDocument();
+        expect(screen.getByText("3 rows")).toBeInTheDocument();
+        expect(web.calls.filter((c) => c.url.includes("cursor=next-1"))).toHaveLength(1);
 
         await u.type(screen.getByRole("textbox", { name: "Search logs..." }), "older");
         await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(1));
@@ -429,7 +431,7 @@ describe("Security audit (Go)", () => {
 });
 
 describe("Security audit (Go): a platform principal's own reads and the poll", () => {
-    it("hides the viewer's own cross-tenant reads from the rows, the KPIs and the export unless asked, and stops polling after load more", async () => {
+    it("hides the viewer's own cross-tenant reads from the rows, the KPIs and the export unless asked, and stops polling after the next page", async () => {
         const { web } = setup(PLATFORM);
         const own = (n: number) =>
             event(n, { type: "platform_cross_tenant_access", severity: "warning", summary: `own ${n}`, actorUserId: "u-self", tenantId: null, details: { outcome: "accepted", version: "1" } });
@@ -451,7 +453,7 @@ describe("Security audit (Go): a platform principal's own reads and the poll", (
         expect(screen.getByText("Warning / critical").parentElement).toHaveTextContent("3");
         await u.click(within(screen.getByTestId("own-reads")).getByRole("checkbox"));
 
-        await u.click(screen.getByRole("button", { name: "Load more" }));
+        await u.click(screen.getByRole("button", { name: "Next" }));
         await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(2));
         expect(screen.getByTestId("own-reads")).toHaveTextContent("(3)");
         expect(screen.getByTestId("poll-paused")).toHaveTextContent("Auto-refresh is paused while older pages are loaded");

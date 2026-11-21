@@ -6,6 +6,7 @@
  * names and status, and assigns or removes their `tenant_admin`s. The route is gated by
  * `platform:manage_tenants` (proxy.ts, lib/routeCapabilities.ts); Go checks every call again.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { MaskedValue } from "@/components/masked-value";
 import { useMemo, useState } from "react";
 import { Edit, Loader2, MoreHorizontal, Plus, RefreshCw, UserCog } from "lucide-react";
@@ -41,6 +42,7 @@ export function TenantsPage() {
     const tenants = useTenants({ kind, status }, allowed);
     const invalidate = useInvalidateTenants();
     const rows = useMemo(() => tenants.data?.pages.flatMap((p) => p.data ?? []) ?? [], [tenants.data]);
+    const { pageRows, pager } = useListPager(rows, tenants, [kind, status]);
 
     const [form, setForm] = useState<{ tenant: TenantDTO | null } | null>(null);
     const [adminsOf, setAdminsOf] = useState<TenantDTO | null>(null);
@@ -98,7 +100,7 @@ export function TenantsPage() {
             </div>
 
             <Card className="bg-card border-border shadow-sm">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/40">
                         <TableRow className="hover:bg-transparent">
                             <TableHead className="pl-6 text-sm font-medium">{t("tenants.table.name")}</TableHead>
@@ -128,7 +130,7 @@ export function TenantsPage() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            rows.map((tenant) => (
+                            pageRows.map((tenant) => (
                                 <TableRow key={tenant.id} data-testid="tenant-row">
                                     <TableCell className="pl-6">
                                         <div className="flex flex-col">
@@ -171,14 +173,7 @@ export function TenantsPage() {
                 </Table>
             </Card>
 
-            {tenants.hasNextPage ? (
-                <div className="flex justify-end">
-                    <Button variant="outline" onClick={() => void tenants.fetchNextPage()} disabled={tenants.isFetchingNextPage}>
-                        {tenants.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
-                        {t("users.loadMore")}
-                    </Button>
-                </div>
-            ) : null}
+            <ListPager {...pager} />
 
             {form ? (
                 <TenantFormDialog

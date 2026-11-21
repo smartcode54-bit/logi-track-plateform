@@ -49,7 +49,6 @@ export default {
     "users.empty": "No users match these filters.",
     "users.loading": "Loading...",
     "users.loadMore": "Load more",
-    "users.shown": "{count} users shown",
     "users.never": "Never",
     "users.noName": "No name",
     "users.noRole": "No role",

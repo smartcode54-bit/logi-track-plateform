@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 
 import { importTolls, type TollImportResult } from "../../api/expenses.go";
+import { SELECTABLE_DRIVER_STATUSES } from "@/features/accounting/api/pickers.go";
 import { SearchPicker, type PickValue } from "./shared";
 
 /** A legacy Excel 97-2003 workbook (`.xls`, an OLE2 container): Go's sheet reader cannot read it. */
@@ -90,7 +91,7 @@ export function TollImportDialog({ open, onOpenChange }: { open: boolean; onOpen
                     </AccessibleField>
                     <AccessibleField className="space-y-1" label={t("accounting.tollImport.selectDriver")} labelClassName="text-xs">
 
-                        <SearchPicker kind="driver" value={driver} onChange={(v) => { setDriver(v); setCheck(null); }} placeholder={t("accounting.tollImport.selectDriverPlaceholder")} className="w-full" />
+                        <SearchPicker kind="driver" value={driver} onChange={(v) => { setDriver(v); setCheck(null); }} placeholder={t("accounting.tollImport.selectDriverPlaceholder")} status={SELECTABLE_DRIVER_STATUSES} className="w-full" />
                     </AccessibleField>
                     <AccessibleField className="col-span-2 space-y-1" label={t("accounting.tollImport.clickUpload")} labelClassName="text-xs">
 

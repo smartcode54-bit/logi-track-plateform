@@ -1,5 +1,5 @@
 // T54R (issue #74; Appendix E §E.5 row 18): the waitlist over Go: keyset pages of GET /v1/waitlist with
-// meta.total, "load more" by cursor, and DELETE /v1/waitlist/{id} behind a confirmation, which refreshes
+// meta.total, the next page by cursor, and DELETE /v1/waitlist/{id} behind a confirmation, which refreshes
 // the list and the sidebar's ['badges']. The web has no Firebase SDK since TW7 (lib/noFirebase.test.ts).
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -63,15 +63,15 @@ describe("the waitlist over Go", () => {
         renderWithProviders(<WaitlistPage />);
         expect(await screen.findByText("visitor1@example.test")).toBeInTheDocument();
         expect(screen.getByTestId("waitlist-total")).toHaveTextContent("4");
-        expect(screen.getByText("Showing 3 of 4")).toBeInTheDocument();
+        expect(screen.getByText("Rows 1–3 of 4")).toBeInTheDocument();
         expect(screen.getByText("+66 812345678")).toBeInTheDocument();
         const first = web.calls.find((c) => c.url.startsWith("/api/go/v1/waitlist"))!;
         expect(new URL(first.url, "http://web.test").searchParams.get("limit")).toBe(String(WAITLIST_PAGE_SIZE));
 
-        await user.click(screen.getByRole("button", { name: "Load more" }));
+        await user.click(screen.getByRole("button", { name: "Next" }));
         expect(await screen.findByText("visitor4@example.test")).toBeInTheDocument();
-        expect(screen.getByText("Showing 4 of 4")).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+        expect(screen.getByText("4 rows")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
         expect(web.calls.some((c) => c.url.includes("cursor=c2"))).toBe(true);
     });
 

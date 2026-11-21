@@ -31,7 +31,7 @@ import { maintenanceServiceLabel, maintenanceStatusLabel } from "../../utils/mai
 import { canTransitionMaintenance } from "../../utils/maintenanceTransitions";
 import { PageHeader } from "@/components/page-header";
 import { apiErrorText } from "@/lib/apiError";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
@@ -217,13 +217,10 @@ function PendingQueue() {
                             <p className="text-xs font-medium text-muted-foreground">
                                 {t("maintenance.go.queueLoaded", { status: maintenanceStatusLabel(status, t), loaded, total })}
                             </p>
-                            <LoadMore
-                                loaded={loaded}
-                                hasNextPage={q.hasNextPage}
-                                isFetchingNextPage={q.isFetchingNextPage}
-                                error={q.isFetchNextPageError}
-                                onLoadMore={() => void q.fetchNextPage()}
-                            />
+                            {/* A work queue with drafts in its rows: it grows in place, it does not page. */}
+                            <Button type="button" variant="outline" size="sm" onClick={() => void q.fetchNextPage()} disabled={q.isFetchingNextPage}>
+                                {t("masterData.list.loadMore")}
+                            </Button>
                         </div>
                     ) : null;
                 })}
@@ -265,6 +262,7 @@ export function MaintenanceOverviewPage() {
     const rows = maintenanceRows(list.data?.pages);
     const counts = maintenanceStatusCounts(all.data?.pages);
     const totals = useMemo(() => maintenanceCostTotals(rows), [rows]);
+    const { pageRows, pager } = useListPager(rows, list, filter);
     const pct = (part: number) => (totals.total > 0 ? ((part / totals.total) * 100).toFixed(1) : "0.0");
 
     const columns = useMemo(
@@ -448,11 +446,10 @@ export function MaintenanceOverviewPage() {
                 <CardContent className="space-y-3">
                     {list.isError ? <QueryError error={list.error} label={t("maintenance.go.historyError")} onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null}
                     <VirtualTable
-                        data={rows}
+                        data={pageRows}
                         columns={columns}
                         getRowId={(r) => r.id}
                         aria-label={t("maintenance.serviceHistory")}
-                        infinite={list}
                         loading={list.isPending}
                         loadingState={<QueryLoading label={t("maintenance.go.historyLoading")} />}
                         error={list.isError}
@@ -460,13 +457,7 @@ export function MaintenanceOverviewPage() {
                         emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("maintenance.noRecords")}</p>}
                         resetScrollKey={JSON.stringify(filter)}
                     />
-                    {list.isPending || (list.isError && !list.data) ? null : <LoadMore
-                        loaded={rows.length}
-                        hasNextPage={list.hasNextPage}
-                        isFetchingNextPage={list.isFetchingNextPage}
-                        error={list.isFetchNextPageError}
-                        onLoadMore={() => void list.fetchNextPage()}
-                    />}
+                    {list.isPending || (list.isError && !list.data) ? null : <ListPager {...pager} />}
                 </CardContent>
             </Card>
 

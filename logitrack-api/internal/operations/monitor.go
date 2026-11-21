@@ -91,13 +91,54 @@ type MonitorRow struct {
 	Price            *PricePreview `json:"price,omitempty"`
 }
 
-// MonitorStop is one stop of a multi-drop trip on the monitor.
+// MonitorStop is one stop of a multi-drop trip on the monitor. Planned marks a stop of the task's plan the trip has no
+// progress for yet (withPlannedStops): shown pending, never exported or written back.
 type MonitorStop struct {
 	Index        int32      `json:"index"`
 	Place        Place      `json:"place"`
 	Status       string     `json:"status"`
 	DeliveredAt  *time.Time `json:"deliveredAt"`
 	CompletedSeq *int32     `json:"completedSeq"`
+	Planned      bool       `json:"planned,omitempty"`
+}
+
+// withPlannedStops is the stop list a monitor row shows (main 3.6.6, mergeStopsForDisplay): the 3.x app reports a
+// stop's progress only once it is delivered, so a freshly loaded multi-drop trip lists none and a half-done one lacks
+// its pending stops. The plan is the task's (two stops or more): each planned stop without progress shows as pending,
+// and progress at an index the plan does not hold (a stop the driver added) is kept. Display only.
+func withPlannedStops(progress, plan []MonitorStop) []MonitorStop {
+	if len(plan) < 2 {
+		return progress
+	}
+	out := slices.Clone(plan)
+	for _, s := range progress {
+		if i := slices.IndexFunc(out, func(p MonitorStop) bool { return p.Index == s.Index }); i >= 0 {
+			out[i] = s
+		} else {
+			out = append(out, s)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b MonitorStop) int { return cmp.Compare(a.Index, b.Index) })
+	return out
+}
+
+// planOf is the planned stops of a trip's task (none without a task).
+func planOf(byTask map[uuid.UUID][]MonitorStop, taskID *uuid.UUID) []MonitorStop {
+	if taskID == nil {
+		return nil
+	}
+	return byTask[*taskID]
+}
+
+// taskIDsOf is the distinct task ids of a page's trips (the plans withPlannedStops reads).
+func taskIDsOf(ids []*uuid.UUID) []uuid.UUID {
+	out := []uuid.UUID{}
+	for _, id := range ids {
+		if id != nil && !slices.Contains(out, *id) {
+			out = append(out, *id)
+		}
+	}
+	return out
 }
 
 // MonitorTruck is the truck a trip ran on: key is its plate filter value (id:<truckId> | plate:<raw> | __none__),
@@ -322,6 +363,7 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 	var (
 		rows   []operationsdb.MonitorTripsRow
 		stops  []TripStop
+		plans  []operationsdb.TaskDeliveryStop
 		facets []operationsdb.MonitorFacetsRow
 		bill   map[uuid.UUID]billing.TripBilling
 	)
@@ -350,6 +392,15 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 				return err
 			}
 		}
+		taskIDs := make([]*uuid.UUID, len(rows))
+		for i, row := range rows {
+			taskIDs[i] = row.TripRecord.TaskID
+		}
+		if ids := taskIDsOf(taskIDs); len(ids) > 0 {
+			if plans, err = q.TaskStopsOf(ctx, ids); err != nil {
+				return err
+			}
+		}
 		// The price: billing.TripBillingOf, the one billing projection of a trip (F59), in this transaction, so RLS
 		// decides which snapshots it reads (R61: a carrier reads no price of a trip the own fleet priced).
 		if income {
@@ -372,6 +423,11 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 			Place: d.place(&st.DestinationRaw, st.DestinationHubID, nil), Status: st.Status, DeliveredAt: st.DeliveredAt,
 			CompletedSeq: st.CompletedSeq})
 	}
+	byTask := map[uuid.UUID][]MonitorStop{}
+	for _, st := range plans {
+		byTask[st.TaskID] = append(byTask[st.TaskID], MonitorStop{Index: st.StopIndex,
+			Place: d.place(&st.DestinationRaw, st.DestinationHubID, nil), Status: "pending", Planned: true})
+	}
 	out := make([]MonitorRow, 0, len(rows))
 	for _, row := range rows {
 		t := row.TripRecord
@@ -384,7 +440,7 @@ func (s *Service) staffMonitor(ctx context.Context, p *authz.Principal, d direct
 			checkInAt: row.TaskCheckInAt, runOrder: row.TaskRunOrder, planAt: row.TaskPlanAt, taskTruck: row.TaskTruckID,
 			taskPlate: row.TaskPlate, taskClass: row.TaskVehicleClass, fullTh: row.DriverFullNameTh,
 			first: row.DriverFirstName, last: row.DriverLastName, incidents: row.IncidentCount, photos: row.PhotoCount},
-			byTrip[t.ID])
+			withPlannedStops(byTrip[t.ID], planOf(byTask, t.TaskID)))
 		mr.DeliveredVia, mr.NeedsAdminReview, mr.ReviewStatus = t.DeliveredVia, &t.NeedsAdminReview, t.ReviewStatus
 		if b, ok := bill[t.ID]; ok {
 			mr.Price = pricePreview(b)
@@ -402,6 +458,7 @@ func (s *Service) scopeMonitor(ctx context.Context, p *authz.Principal, d direct
 	var (
 		rows   []scopedb.ScopeMonitorTripsRow
 		stops  []scopedb.ScopeTripStop
+		plans  []scopedb.ScopeTaskStop
 		facets []scopedb.ScopeMonitorFacetsRow
 	)
 	err := s.scopeRead(ctx, p, func(q *scopedb.Queries) error {
@@ -426,6 +483,15 @@ func (s *Service) scopeMonitor(ctx context.Context, p *authz.Principal, d direct
 				return err
 			}
 		}
+		taskIDs := make([]*uuid.UUID, len(rows))
+		for i, row := range rows {
+			taskIDs[i] = row.ScopeTrip.TaskID
+		}
+		if ids := taskIDsOf(taskIDs); len(ids) > 0 {
+			if plans, err = q.ScopeTaskStopsOf(ctx, ids); err != nil {
+				return err
+			}
+		}
 		if m.facets {
 			facets, err = q.ScopeMonitorFacets(ctx, scopedb.ScopeMonitorFacetsParams{TrimChars: trimChars, FromAt: m.from, ToAt: m.to})
 		}
@@ -440,6 +506,11 @@ func (s *Service) scopeMonitor(ctx context.Context, p *authz.Principal, d direct
 			Place: d.place(&st.DestinationRaw, st.DestinationHubID, nil), Status: st.Status, DeliveredAt: st.DeliveredAt,
 			CompletedSeq: st.CompletedSeq})
 	}
+	byTask := map[uuid.UUID][]MonitorStop{}
+	for _, st := range plans {
+		byTask[st.TaskID] = append(byTask[st.TaskID], MonitorStop{Index: st.StopIndex,
+			Place: d.place(&st.DestinationRaw, st.DestinationHubID, nil), Status: "pending", Planned: true})
+	}
 	out := make([]MonitorRow, 0, len(rows))
 	for _, row := range rows {
 		t := row.ScopeTrip
@@ -452,7 +523,7 @@ func (s *Service) scopeMonitor(ctx context.Context, p *authz.Principal, d direct
 			taskNo: row.TaskNo, taskStatus: row.TaskStatus, checkInAt: row.TaskCheckInAt, runOrder: row.TaskRunOrder,
 			planAt: row.TaskPlanAt, taskTruck: row.TaskTruckID, taskPlate: row.TaskPlate, taskClass: row.TaskVehicleClass,
 			fullTh: row.DriverFullNameTh, first: row.DriverFirstName, last: row.DriverLastName,
-			incidents: row.IncidentCount, photos: row.PhotoCount}, byTrip[t.ID]))
+			incidents: row.IncidentCount, photos: row.PhotoCount}, withPlannedStops(byTrip[t.ID], planOf(byTask, t.TaskID))))
 	}
 	fr := make([]facetRow, len(facets))
 	for i, f := range facets {

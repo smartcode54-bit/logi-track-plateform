@@ -9,6 +9,9 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { VirtualTable } from "./virtual-table";
+
+const screenSize = vi.hoisted(() => ({ phone: false }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => screenSize.phone }));
 import { scrollViewport, stubVirtualLayout } from "@/test-utils/virtualLayout";
 
 interface Item {
@@ -188,5 +191,24 @@ describe("VirtualTable", () => {
         render(<VirtualTable data={items(3)} columns={columns} getRowId={(r) => r.id} aria-label="Rows" onRowClick={onRowClick} />);
         screen.getByText("Row 2").click();
         expect(onRowClick).toHaveBeenCalledWith({ id: "r-2", name: "Row 2", n: 2 });
+    });
+
+    it("on a phone renders every row of the page as stacked cards, with no scroll box of its own", () => {
+        screenSize.phone = true;
+        try {
+            const { container } = render(
+                <VirtualTable data={items(50)} columns={columns} getRowId={(r) => r.id} aria-label="Rows" estimateRowHeight={ROW} maxHeight={VIEWPORT} />
+            );
+            expect(bodyRows(container)).toHaveLength(50);
+            expect(container.querySelector('tr[data-slot="virtual-spacer"]')).toBeNull();
+            expect(viewportOf().style.maxHeight).toBe("");
+            expect(container.querySelector("table")).toHaveAttribute("data-stack", "mobile");
+            // The first column titles the card; the others carry their header as a label.
+            const cells = bodyRows(container)[0].querySelectorAll("td");
+            expect(cells[0].dataset.label).toBeUndefined();
+            expect(cells[1].dataset.label).toBe("Number");
+        } finally {
+            screenSize.phone = false;
+        }
     });
 });

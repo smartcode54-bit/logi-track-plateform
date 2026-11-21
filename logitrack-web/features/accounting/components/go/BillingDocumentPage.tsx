@@ -18,6 +18,7 @@
  * Repairs (a forced recompute, a standby customer) call the T38 routes (`../../api/billingWrites.go.ts`)
  * and invalidate only this month's keys.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
@@ -381,6 +382,8 @@ export function BillingDocumentPage() {
     const reviewActive = params.plate !== "" || params.vehicleClass !== "" || params.reviewMonth !== "";
     const stale = loaded !== null && (loaded.customerId !== customerId || loaded.year !== year || loaded.month !== month);
     const previewRows = useMemo(() => (data?.rows ?? []).filter((r) => r.inPreview), [data]);
+    // The period is one read (its totals need every row); the table shows it a page at a time.
+    const { pageRows, pager } = useListPager(previewRows, {}, [loaded, params]);
     const basisLabel =
         loaded?.customerId === ALL_PARTIES || data?.basis == null
             ? "all"
@@ -840,7 +843,7 @@ export function BillingDocumentPage() {
                     </CardHeader>
                     <CardContent className="p-0">
                         <VirtualTable
-                            data={previewRows}
+                            data={pageRows}
                             columns={columns}
                             getRowId={(r) => r.id}
                             aria-label={t("accounting.billingDocument.table.title", { count: previewRows.length })}
@@ -848,6 +851,7 @@ export function BillingDocumentPage() {
                             resetScrollKey={JSON.stringify([loaded, params])}
                             maxHeight={640}
                         />
+                        <ListPager {...pager} className="border-t px-4 py-3" />
                     </CardContent>
                 </Card>
             ) : loaded && !complete ? (

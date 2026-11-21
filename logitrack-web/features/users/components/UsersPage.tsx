@@ -2,7 +2,7 @@
 
 /**
  * Security Center users page, fully on Go from P0 (T18; developer-spec.md §10.13; R49, R81). The list is
- * `GET /v1/users` (keyset, 50 per page, "load more" past any count, server-side search and filters,
+ * `GET /v1/users` (keyset, 50 per page, Next past any count, server-side search and filters,
  * polled every 60 s while visible: Appendix E §E.5 row 14), and every action is a Go route through the
  * BFF; no Cloud Function and no Firestore read remain. Controls follow the Go capabilities of `['me']`
  * (`users:view|manage|assign_role|revoke_sessions`, `drivers:edit`, `platform:manage_platform_roles`);
@@ -13,6 +13,7 @@
  * disable, sign out everywhere) are greyed out on a user Go marks `manageAccount: false` (a membership outside the
  * caller's reach); the user's role here stays editable.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { MaskedValue } from "@/components/masked-value";
 import { useEffect, useMemo, useState } from "react";
 import { Edit, KeyRound, Loader2, LogOut, Mail, MoreHorizontal, Plus, RefreshCw, Search, UserPlus } from "lucide-react";
@@ -85,6 +86,7 @@ export function UsersPage() {
 
     const users = useUsers({ q, role, status }, Boolean(me), reach);
     const rows = useMemo(() => users.data?.pages.flatMap((p) => p.data ?? []) ?? [], [users.data]);
+    const { pageRows, pager } = useListPager(rows, users, [q, role, status]);
 
     const [createOpen, setCreateOpen] = useState(false);
     const [addOpen, setAddOpen] = useState(false);
@@ -217,7 +219,7 @@ export function UsersPage() {
 
             <Card className="bg-card border-border shadow-sm">
                 <div className="rounded-md overflow-x-auto">
-                    <Table>
+                    <Table stack>
                         <TableHeader className="bg-muted/40">
                             <TableRow className="hover:bg-transparent border-none">
                                 <TableHead className="h-11 pl-6 text-sm font-medium">{t("users.table.user")}</TableHead>
@@ -249,7 +251,7 @@ export function UsersPage() {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                rows.map((user) => {
+                                pageRows.map((user) => {
                                     const self = isSelf(me, user);
                                     const when = lastSignIn(user.lastLoginAt);
                                     // The account-wide actions: not on the caller, nor on an account Go says the caller does not manage.
@@ -353,15 +355,7 @@ export function UsersPage() {
                 </div>
             </Card>
 
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span data-testid="users-count">{t("users.shown", { count: rows.length })}</span>
-                {users.hasNextPage ? (
-                    <Button variant="outline" onClick={() => void users.fetchNextPage()} disabled={users.isFetchingNextPage}>
-                        {users.isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-muted-foreground" /> : null}
-                        {t("users.loadMore")}
-                    </Button>
-                ) : null}
-            </div>
+            <ListPager {...pager} />
 
             {actions.manage && actions.assignRole ? (
                 <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} me={me} actions={actions} onAdded={() => void invalidate()} />

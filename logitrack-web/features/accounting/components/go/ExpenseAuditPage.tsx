@@ -22,7 +22,7 @@ import { useLanguage } from "@/context/language";
 import { PageHeader } from "@/components/page-header";
 import { useCan } from "@/features/auth/api/useMe";
 import { apiErrorText } from "@/lib/apiError";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { VirtualTable } from "@/components/virtual-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,7 +74,9 @@ export function ExpenseAuditPage() {
     const list = useInfiniteQuery(expensesQuery(filter));
     const rows = expenseRows(list.data?.pages);
     const counts = statusCountsOf(list.data?.pages);
-    const pending = useMemo(() => rows.filter((r) => r.status === "pending"), [rows]);
+    const { pageRows, pager } = useListPager(rows, list, filter);
+    // Select-all and bulk approval act on the page in view, never on rows the reader cannot see.
+    const pending = useMemo(() => pageRows.filter((r) => r.status === "pending"), [pageRows]);
     const selectedPending = pending.filter((r) => selected.has(r.id));
 
     const changeFilter = (next: () => void) => {
@@ -265,11 +267,10 @@ export function ExpenseAuditPage() {
             <Card>
                 <CardContent className="space-y-3 p-0 pb-3">
                     <VirtualTable
-                        data={rows}
+                        data={pageRows}
                         columns={columns}
                         getRowId={(r) => r.id}
                         aria-label={t("accounting.audit.title")}
-                        infinite={list}
                         loading={list.isPending}
                         error={list.isError}
                         emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{t("accounting.go.expense.empty")}</p>}
@@ -278,13 +279,7 @@ export function ExpenseAuditPage() {
                         rowClassName="cursor-pointer"
                     />
                     <div className="px-4">
-                        <LoadMore
-                            loaded={rows.length}
-                            hasNextPage={list.hasNextPage}
-                            isFetchingNextPage={list.isFetchingNextPage}
-                            error={list.isFetchNextPageError}
-                            onLoadMore={() => void list.fetchNextPage()}
-                        />
+                        <ListPager {...pager} />
                     </div>
                 </CardContent>
             </Card>

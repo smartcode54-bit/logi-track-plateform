@@ -8,6 +8,7 @@
  * followed through `['jobs',id]`), approval and the status moves are Go routes: no callable and no browser
  * write. Writes need `hr:manage_payroll`; `hr:view_payroll` alone reads.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -44,7 +45,7 @@ import {
     type PayrollAction,
     type PayrollStatus,
 } from "../../api/payroll.go";
-import { HrErrorAlert, LoadMoreFooter, StatusBadge, periodLabel } from "./hrShared";
+import { HrErrorAlert, StatusBadge, periodLabel } from "./hrShared";
 import { PayrollRunDialog, usePayrollActions } from "./PayrollRunDialog";
 
 const ALL = "all";
@@ -65,6 +66,7 @@ export function PayrollPage() {
     };
     const list = usePayrollRuns(filters);
     const runs = payrollRuns(list.data?.pages);
+    const { pageRows, pager } = useListPager(runs, list, [period, round, status, driver?.id]);
     const counts = payrollStatusCounts(list.data?.pages);
     const total = counts ? (filters.status ? counts[filters.status] : Object.values(counts).reduce((a, b) => a + b, 0)) : undefined;
     const loadedNet = useMemo(() => runs.reduce((acc, r) => acc + (r.netPayThb || 0), 0), [runs]);
@@ -180,7 +182,7 @@ export function PayrollPage() {
             <HrErrorAlert error={list.error} title={t("payroll.toast.failedLoad")} />
 
             <div className="overflow-hidden rounded-lg border bg-card">
-                <Table>
+                <Table stack>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
                             <TableHead>{t("payroll.table.driver")}</TableHead>
@@ -209,7 +211,7 @@ export function PayrollPage() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            runs.map((run) => (
+                            pageRows.map((run) => (
                                 <PayrollRow
                                     key={run.id}
                                     run={run}
@@ -222,13 +224,7 @@ export function PayrollPage() {
                         )}
                     </TableBody>
                 </Table>
-                <LoadMoreFooter
-                    shown={runs.length}
-                    total={total}
-                    hasNextPage={Boolean(list.hasNextPage)}
-                    fetchingNext={list.isFetchingNextPage}
-                    onLoadMore={() => void list.fetchNextPage()}
-                />
+                <ListPager {...pager} total={total ?? pager.total} className="border-t px-4 py-3" />
             </div>
 
             <PayrollRunDialog id={openId} onClose={() => setOpenId(null)} canManage={canManage} actions={actions} />

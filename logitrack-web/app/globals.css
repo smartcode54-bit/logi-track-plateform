@@ -230,6 +230,74 @@
   font-family: inherit;
 }
 
+/* Stacked tables on a phone (DESIGN.md, Tables). Below md a table marked data-stack (Table `stack`, every
+   VirtualTable) shows each row as a card: the first cell is its title, every other cell one line with its column's
+   header on the left (`data-label`, components/ui/table.tsx). Rows are flex columns, so a column hidden on small
+   screens (`hidden md:table-cell`) stays hidden. Unlayered, so it outranks the cells' own width, wrap and alignment
+   utilities, which suit the wide table. */
+@media (width < 48rem) {
+  table[data-stack] {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  table[data-stack] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-stack] > tbody {
+    display: block;
+  }
+  table[data-stack] > tbody > tr {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding-block: 0.75rem;
+  }
+  /* A cell spanning the row (loading, empty, error) keeps its own size and alignment. */
+  table[data-stack] > tbody > tr > td:not([colspan]) {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding-block: 0;
+    padding-inline: 0.5rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table[data-stack] > tbody > tr > td:first-child:not([colspan]) {
+    font-weight: 500;
+  }
+  table[data-stack] > tbody > tr > td[data-label] {
+    position: relative;
+    /* An empty value still keeps its label's line. */
+    min-height: 1.25rem;
+    padding-inline-start: calc(40% + 0.75rem);
+    text-align: start;
+  }
+  table[data-stack] > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    position: absolute;
+    inset-inline-start: 0.5rem;
+    width: 40%;
+    /* The label is plain caption-weight text whatever the cell sets (mono codes, bold money, badges). */
+    color: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.25rem;
+    letter-spacing: normal;
+    text-transform: none;
+    /* One line, so a long header never runs into the next row's label. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 /* Google Maps info windows (components/map/GoogleMap.tsx) in the card colours, so popup text stays readable
    in dark mode. Google's own class names; the close icon's colour is an inline style, hence !important. */
 .gm-style .gm-style-iw-c,

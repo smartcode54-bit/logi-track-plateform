@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useDriverPages } from "@/features/drivers/api/useDrivers";
 import type { DriverStatus } from "@/features/drivers/api/drivers";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import {
     Users,
     Activity,
@@ -52,11 +52,6 @@ export default function DriversList() {
     const [statusFilter, setStatusFilter] = useState<"all" | DriverStatus>("all");
     const q = useDebouncedValue(searchQuery.trim());
 
-    // Pagination over the loaded rows; "load more" fetches the next keyset page.
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
-    useEffect(() => setCurrentPage(1), [q, statusFilter]);
-
     // `['drivers', {status, q}]`: keyset pages of 100 (no 100-row cap), polled every 60 s while the
     // tab is visible (Appendix E §E.5 row 23, replacing the onSnapshot listener).
     const pages = useDriverPages({ status: statusFilter === "all" ? "" : statusFilter, q });
@@ -72,11 +67,7 @@ export default function DriversList() {
         onLeave: counts.inactive ?? 0,
     };
 
-    const paginatedDrivers = filteredDrivers.slice(
-        (currentPage - 1) * itemsPerPage,
-        currentPage * itemsPerPage
-    );
-    const totalPages = Math.ceil(filteredDrivers.length / itemsPerPage);
+    const { pageRows: paginatedDrivers, pager } = useListPager(filteredDrivers, pages, [q, statusFilter]);
 
     return (
         <div className="flex flex-col gap-section">
@@ -184,7 +175,7 @@ export default function DriversList() {
 
                 {pages.isError && !pages.isFetchNextPageError ? <QueryError label={t("drivers.loadError")} onRetry={() => void pages.refetch()} retrying={pages.isFetching} /> : null}
                 <div className="border rounded-lg bg-card overflow-hidden">
-                    <Table>
+                    <Table stack>
                         <TableHeader className="bg-muted/50">
                             <TableRow className="border-b border-border/50">
                                 <TableHead>{t("drivers.table.driver")}</TableHead>
@@ -285,37 +276,8 @@ export default function DriversList() {
                     </Table>
 
                     {/* Pagination Footer */}
-                    <div className="px-4 pt-4 border-t border-border/50 bg-muted/20">
-                        <LoadMore
-                            loaded={filteredDrivers.length}
-                            hasNextPage={pages.hasNextPage}
-                            isFetchingNextPage={pages.isFetchingNextPage}
-                            error={pages.isFetchNextPageError}
-                            onLoadMore={() => void pages.fetchNextPage()}
-                        />
-                    </div>
-                    <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 bg-muted/20">
-                        <div className="text-sm text-muted-foreground">
-                            {t("drivers.pagination.showing")} {paginatedDrivers.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} {t("drivers.pagination.to")} {Math.min(currentPage * itemsPerPage, filteredDrivers.length)} {t("drivers.pagination.of")} {filteredDrivers.length} {t("drivers.pagination.entries")}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage === 1}
-                            >
-                                {t("drivers.pagination.previous")}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage === totalPages || totalPages === 0}
-                            >
-                                {t("drivers.pagination.next")}
-                            </Button>
-                        </div>
+                    <div className="border-t px-4 py-3">
+                        <ListPager {...pager} total={unavailable ? pager.total : statusFilter === "all" ? stats.total : (counts[statusFilter] ?? pager.total)} />
                     </div>
                 </div>
             </div>

@@ -184,13 +184,13 @@ function combineHubPages(results: { data?: HubPick[]; isFetching: boolean; error
  * a page of each kind with the preferred kind first (the legacy dropdowns listed every station, the
  * preferred kind first: a SOC stays selectable where a hub comes first, and the other way round).
  */
-function useHubSearch(stationType: string | undefined, prefer: HubKind | undefined) {
+function useHubSearch(stationType: string | undefined, prefer: HubKind | undefined, linkedPartyId: string | undefined) {
     const { t } = useLanguage();
     const [open, setOpen] = React.useState(false);
     const [term, setTerm] = React.useState("");
     const q = useDebouncedValue(term);
     const kinds: (string | undefined)[] = !stationType && prefer ? [prefer, prefer === "SOC" ? "HUB" : "SOC"] : [stationType];
-    const result = useQueries({ queries: kinds.map((k) => ({ ...hubSearchQuery(q, k), enabled: open })), combine: combineHubPages });
+    const result = useQueries({ queries: kinds.map((k) => ({ ...hubSearchQuery(q, k, linkedPartyId), enabled: open })), combine: combineHubPages });
     const hubs = result.hubs;
     const options = React.useMemo(() => hubs.map(hubOption), [hubs]);
     return {
@@ -210,6 +210,11 @@ type HubSelectProps = Omit<PickerProps, "onValueChange"> & {
     stationType?: string;
     /** Lists both kinds, this one first (ignored with `stationType`). */
     prefer?: HubKind;
+    /**
+     * Narrows the list to the stations linked to this billing party (several comma separated). A form that asks
+     * for the customer first passes it, so only that customer's places are offered.
+     */
+    linkedPartyId?: string;
     /** The hub of `value` when the caller holds it (no lookup then). */
     selectedHub?: HubPick | null;
     onValueChange?: (code: string, option: SearchSelectOption | null) => void;
@@ -218,16 +223,16 @@ type HubSelectProps = Omit<PickerProps, "onValueChange"> & {
 };
 
 /**
- * `GET /v1/hubs?q&stationType&limit` per term; the value is the hub's code (`sourceId`), what tasks, trips
+ * `GET /v1/hubs?q&stationType&linkedPartyId&limit` per term; the value is the hub's code (`sourceId`), what tasks, trips
  * and rate cards hold. The value is labelled by `selectedHub`, else `selectedLabel`, else a single-record
  * lookup of its code; a code that is not in the master (a legacy task) stays shown as the code.
  */
 export const HubSelect = React.forwardRef<HTMLButtonElement, HubSelectProps>(function HubSelect(
-    { selectedLabel, stationType, prefer, selectedHub, onValueChange, onHubChange, ...props },
+    { selectedLabel, stationType, prefer, linkedPartyId, selectedHub, onValueChange, onHubChange, ...props },
     ref
 ) {
     const client = useQueryClient();
-    const { hubs, search } = useHubSearch(stationType, prefer);
+    const { hubs, search } = useHubSearch(stationType, prefer, linkedPartyId);
     const lookup = useHubByCode(props.value, !selectedHub && !selectedLabel);
     const valueHub = selectedHub ?? lookup.data ?? null;
     // Labels the value as held: the lookup may answer a SOC key (SOCE) or another spelling with the master's code.
