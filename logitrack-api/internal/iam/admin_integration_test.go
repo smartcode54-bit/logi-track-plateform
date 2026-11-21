@@ -431,11 +431,28 @@ func TestUserAdministration(t *testing.T) {
 	w.oneEvent("user_invited", func() resp {
 		return w.send(http.MethodPost, "/v1/users/"+newID+"/invite", ta, map[string]any{"locale": "en"})
 	}, http.StatusAccepted)
+	// The user signed in with Google once: an email change drops that link (the new address's Google account links on
+	// its next sign-in), and the legacy uid stays.
+	w.exec(`INSERT INTO auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', 'g-sub-invited'),
+		($1, 'firebase_legacy', 'uid-invited')`, newID)
 	w.oneEvent("user_updated", func() resp {
 		return w.send(http.MethodPatch, "/v1/users/"+newID, ta, map[string]any{"email": "renamed@example.test", "displayName": "Renamed"})
 	}, http.StatusOK)
 	if v := w.count(`SELECT auth_version FROM users WHERE id = $1`, newID); v != 2 {
 		t.Errorf("an email change left auth_version at %d", v)
+	}
+	if d, _ := w.lastEventDetails("user_updated"); d["emailChanged"] != true || d["googleIdentityRemoved"] != true {
+		t.Errorf("user_updated details %v", d)
+	}
+	if w.count(`SELECT count(*) FROM auth_identities WHERE user_id = $1 AND provider = 'google'`, newID) != 0 ||
+		w.count(`SELECT count(*) FROM auth_identities WHERE user_id = $1 AND provider = 'firebase_legacy'`, newID) != 1 {
+		t.Error("auth_identities after the email change")
+	}
+	w.oneEvent("user_updated", func() resp {
+		return w.send(http.MethodPatch, "/v1/users/"+newID, ta, map[string]any{"displayName": "Renamed again"})
+	}, http.StatusOK)
+	if d, _ := w.lastEventDetails("user_updated"); d["emailChanged"] != false || d["googleIdentityRemoved"] != false {
+		t.Errorf("user_updated details of a name change %v", d)
 	}
 	expect(t, w.send(http.MethodPost, "/v1/users", ta, map[string]any{"email": "x@example.test", "displayName": "X",
 		"role": "operator", "tenantId": w.C}), http.StatusForbidden, "permission_denied")

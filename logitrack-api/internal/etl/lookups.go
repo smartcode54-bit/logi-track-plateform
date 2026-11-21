@@ -54,9 +54,10 @@ type driverMatch struct {
 	ref
 }
 
-// driverByRef resolves a driverId-like value: drivers.legacy_doc_id, then drivers.legacy_auth_uid (the doc-id
-// then authId order of tenantLookups.ts:62-78); for tasks only, then the name (matchDriverOptionId,
-// driverName.ts:44-61). No phone or plate fallback (R28).
+// driverByRef resolves a driverId-like value: drivers.legacy_doc_id, then drivers.legacy_auth_uid, then a past
+// uid of the driver's authIdHistory (the doc-id then authId order of tenantLookups.ts:62-78, and driverIdentityKeys,
+// driverName.ts); for tasks only, then the name (matchDriverOptionId, driverName.ts:44-61). No phone or plate
+// fallback (R28).
 func (c *docCtx) driverByRef(raw, name string) (driverMatch, error) {
 	m := driverMatch{raw: strings.TrimSpace(raw), match: "none"}
 	if m.raw != "" {
@@ -66,6 +67,15 @@ func (c *docCtx) driverByRef(raw, name string) (driverMatch, error) {
 			return m, err
 		}
 		r, err = c.one(`SELECT id, tenant_id FROM drivers WHERE legacy_auth_uid = $1`, m.raw)
+		if err != nil || r.ok() {
+			m.ref, m.match = r, "auth_uid"
+			return m, err
+		}
+		// A row written before an email / Google re-link names the driver by the uid the re-link replaced; the
+		// 3.x callables keep it in drivers.authIdHistory, read from the loaded document (no column holds it).
+		r, err = c.one(`SELECT d.id, d.tenant_id FROM etl.source_docs s JOIN drivers d ON d.id::text = s.target_id
+			WHERE s.collection = 'drivers' AND s.target_table = 'drivers' AND s.raw->'authIdHistory' @> jsonb_build_array($1::text)
+			ORDER BY d.legacy_doc_id COLLATE "C" LIMIT 1`, m.raw)
 		if err != nil || r.ok() {
 			m.ref, m.match = r, "auth_uid"
 			return m, err
