@@ -2,7 +2,7 @@
 // providers with every request through the BFF (/api/go/v1/...). Pinned here:
 // - the boards' SOC and source-hub filters are server parameters (W9): a SOCN task past row 200 of a busy day is on
 //   the first page, and the hub picker offers every hub of the Go master (TW8);
-// - the monitor is a VirtualTable (developer-spec.md §10.10 W9, TW8: 5,000 rows reached by scrolling with fewer than
+// - the monitor is a VirtualTable (developer-spec.md §10.10 W9, TW8: 5,000 rows reached by Next with fewer than
 //   100 rows in the DOM), has no revenue column (the owner's July layout), and its export shows a count only when it
 //   is the count of the filtered set;
 // - resolving a stuck trip as delivered sends the editor's delivery time (the billing period it falls in);
@@ -202,28 +202,40 @@ function monitorWeb(total: number, customer = false) {
 describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
     const viewport = () => screen.getByRole("region", { name: "Driver monitor" });
     const domRows = () => viewport().querySelectorAll("tbody tr[data-index]");
+    const PAGE = 50;
+    const SERVER_PAGE = 200;
+    /** The pager's footer for page `n` (1-based) of `total` trips: with no filter on, the total is the facets' from the first page. */
+    const rangeText = (n: number, total: number) =>
+        `Rows ${((n - 1) * PAGE + 1).toLocaleString()}–${Math.min(n * PAGE, total).toLocaleString()} of ${total.toLocaleString()}`;
+    const monitorCalls = (web: ReturnType<typeof monitorWeb>) => web.calls.filter((c) => c.url.startsWith("/api/go/v1/trips/monitor"));
+    /** Clicks Next to the last page: one request per server page reached; returns the most rows the DOM held. */
+    async function nextToTheEnd(web: ReturnType<typeof monitorWeb>, total: number, rows: () => number) {
+        const u = userEvent.setup();
+        let max = rows();
+        for (let page = 2; page <= total / PAGE; page++) {
+            await u.click(screen.getByRole("button", { name: "Next" }));
+            await screen.findByText(rangeText(page, total));
+            expect(monitorCalls(web)).toHaveLength(Math.ceil((page * PAGE) / SERVER_PAGE));
+            max = Math.max(max, rows());
+        }
+        expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+        return max;
+    }
 
-    it("5,000 trips: scrolling pages to the last row while fewer than 100 rows are in the DOM; no revenue column", async () => {
+    it("5,000 trips: Next pages to the last row while fewer than 100 rows are in the DOM; no revenue column", async () => {
         const total = 5000;
         const web = monitorWeb(total);
         renderPage("/app/driver-monitor", <DriverMonitorPage />);
-        expect(await screen.findByText("200 rows loaded")).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1, total))).toBeInTheDocument();
         // The owner's July layout: the price is in the detail and the export, not a table column.
         expect(within(viewport()).queryByText("Estimated revenue")).toBeNull();
         expect(within(viewport()).getAllByRole("columnheader")).toHaveLength(12);
 
-        let loaded = 200;
-        let maxDomRows = domRows().length;
-        while (loaded < total) {
-            scrollViewport(viewport(), "end", ROW, loaded);
-            loaded += 200;
-            await screen.findByText(`${loaded} rows loaded`);
-            maxDomRows = Math.max(maxDomRows, domRows().length);
-        }
-        scrollViewport(viewport(), "end", ROW, total);
+        let maxDomRows = await nextToTheEnd(web, total, () => domRows().length);
+        scrollViewport(viewport(), "end", ROW, PAGE);
         expect(screen.getByText("SPXTH-4999")).toBeInTheDocument();
         expect(screen.queryByText("SPXTH-0")).toBeNull();
-        expect(screen.getByText("All rows loaded")).toBeInTheDocument();
+        expect(screen.getByText(`Page ${total / PAGE}`)).toBeInTheDocument();
         maxDomRows = Math.max(maxDomRows, domRows().length);
         expect(maxDomRows).toBeGreaterThan(0);
         expect(maxDomRows).toBeLessThan(100);
@@ -237,16 +249,14 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
             const total = 5000;
             const web = monitorWeb(total, true);
             renderPage("/app/driver-monitor", <DriverMonitorPage />);
-            await screen.findByText("200 rows loaded");
+            await screen.findByText(rangeText(1, total));
             const region = screen.getByRole("region", { name: "Your trips" });
             expect(within(region).getAllByRole("columnheader")).toHaveLength(1);
             expect(within(region).queryByText("Estimated revenue")).toBeNull();
-            let maxRows = 0;
-            for (let loaded = 200; loaded <= total; loaded += 200) {
-                await screen.findByText(`${loaded} rows loaded`);
-                maxRows = Math.max(maxRows, region.querySelectorAll("tbody tr[data-index]").length);
-                scrollViewport(region, "end", 260, loaded);
-            }
+            const rows = () => region.querySelectorAll("tbody tr[data-index]").length;
+            let maxRows = await nextToTheEnd(web, total, rows);
+            scrollViewport(region, "end", 260, PAGE);
+            maxRows = Math.max(maxRows, rows());
             expect(screen.getByRole("button", { name: "View trip SPXTH-4999 and evidence" })).toBeInTheDocument();
             expect(maxRows).toBeGreaterThan(0);
             expect(maxRows).toBeLessThan(100);
@@ -260,7 +270,7 @@ describe("driver monitor: Table + Virtual (§10.10 W9, TW8)", () => {
         if (customer) vi.stubGlobal("innerWidth", 375);
         monitorWeb(412, customer);
         renderPage("/app/driver-monitor", <DriverMonitorPage />);
-        expect(await screen.findByText("200 rows loaded")).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1, 412))).toBeInTheDocument();
         const u = userEvent.setup();
         await u.click(screen.getByRole("button", { name: /^Export$/ }));
         expect(await screen.findByText("412 trips match these filters.")).toBeInTheDocument();

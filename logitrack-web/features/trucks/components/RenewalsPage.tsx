@@ -1,5 +1,6 @@
 "use client";
 
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useState } from "react";
 import { useRenewals } from "@/features/trucks/api/useTrucks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,6 +69,7 @@ export function RenewalsPage() {
 
         return true;
     });
+    const { pageRows, pager } = useListPager(filteredTrucks, {}, [searchTerm, filter]);
 
 
     if (loading || query.isError && !query.data) return <div className="flex flex-col gap-section">
@@ -185,7 +187,7 @@ export function RenewalsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {filteredTrucks.map((truck) => (
+                            {pageRows.map((truck) => (
                                 <TableRow key={truck.truckId}>
                                     <TableCell>
                                         <div className="font-semibold">{truck.licensePlate}</div>
@@ -258,6 +260,7 @@ export function RenewalsPage() {
                             )}
                         </TableBody>
                     </Table>
+                    <ListPager {...pager} className="border-t px-4 py-3" />
                 </CardContent>
             </Card>
         </div>

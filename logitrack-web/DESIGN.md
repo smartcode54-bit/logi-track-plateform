@@ -372,6 +372,10 @@ segmented control or radio group instead.** No native `<select>`, no Radix Selec
 ### Tables
 - **Primitive:** `components/ui/table.tsx`; long or paged lists use `components/virtual-table.tsx` (TanStack
   Table + Virtual) inside a card.
+- **Paging:** every list pages through `components/list-pager.tsx` (`useListPager` + `ListPager`): 50 rows a page,
+  First / Previous / Next under the table, the row range and the page number (a keyset list has no page count; the
+  total shows once the last page is reached). The next server page is requested only when the reader steps past the
+  loaded rows; no list scrolls or grows without end. Totals and exports read every row, never the page in view.
 - **Density:** 40 px header and rows (`h-10`, `p-2`), 14 px text, horizontal dividers only, no zebra stripes.
 - **Header:** the primitive's 14 px medium ink, sentence case; sticky on scrolling lists (`sticky top-0 z-raised
   bg-card`).

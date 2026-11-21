@@ -4,7 +4,7 @@
 // - standby records: 350 records (old cap 300), "load more" to the last one, the count without "+";
 // - incident reports: 250 reports (old cap 200), the same;
 // - income: 650 delivered trips (old cap 500) and 350 standby records, "load the whole range": the totals and the
-//   export cover all 1,000 rows, the table keeps < 100 DOM rows and scrolls to the last one;
+//   export cover all 1,000 rows, the table keeps < 100 DOM rows and pages to the last one;
 // - the task board's hub filter over the Go hub master: 404 hubs (old cap 50), a hub past the old cap is found and
 //   filters the board on the server.
 // The Go side of each list (no server cap, the keyset walk reaches every row) is pinned by
@@ -105,16 +105,23 @@ function keyset<T>(all: T[]) {
 const cursors = (web: ReturnType<typeof setup>, path: string) =>
     web.calls.filter((c) => c.url.split("?")[0] === path).map((c) => params(c.url).get("cursor") ?? "");
 
-/** Clicks "Load more" until the footer says every row is loaded. */
-async function loadToTheEnd(u: ReturnType<typeof userEvent.setup>, total: number) {
-    for (let i = 0; i < 20 && !screen.queryByText(`${total} rows loaded`); i++) {
-        const loaded = screen.getByText(/^\d+ rows loaded$/).textContent;
-        await u.click(screen.getByRole("button", { name: "Load more" }));
-        await waitFor(() => expect(screen.getByText(/^\d+ rows loaded$/).textContent).not.toBe(loaded));
+const PAGE = 50;
+/** The pager's footer for page `n` (1-based); `total` once the last server page is loaded. */
+const rangeText = (n: number, total?: number) => {
+    const to = Math.min(n * PAGE, total ?? n * PAGE);
+    return `Rows ${((n - 1) * PAGE + 1).toLocaleString()}–${to.toLocaleString()}${total === undefined ? "" : ` of ${total.toLocaleString()}`}`;
+};
+
+/** Clicks "Next" to the last page of `total` rows served `serverPage` at a time; the footer follows every step. */
+async function nextToTheEnd(u: ReturnType<typeof userEvent.setup>, total: number, serverPage: number) {
+    const pages = Math.ceil(total / PAGE);
+    for (let page = 2; page <= pages; page++) {
+        await u.click(screen.getByRole("button", { name: "Next" }));
+        const loaded = Math.ceil((page * PAGE) / serverPage) * serverPage;
+        expect(await screen.findByText(rangeText(page, loaded >= total ? total : undefined))).toBeInTheDocument();
     }
-    expect(await screen.findByText(`${total} rows loaded`)).toBeInTheDocument();
-    expect(screen.getByText("All rows loaded")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(screen.getByText(`Page ${pages}`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 }
 
 const at = (i: number) => new Date(Date.UTC(2026, 9, 10) - i * 60_000).toISOString();
@@ -142,9 +149,9 @@ describe("standby records over the old 300-row cap", () => {
         web.on("GET", "/api/go/v1/standby", keyset(records));
         renderPage("/app/standby-records", <StandbyRecordsPage />);
 
-        expect(await screen.findByText(`${STANDBY_PAGE_SIZE} rows loaded`)).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1))).toBeInTheDocument();
         expect(screen.getByText(`${STANDBY_PAGE_SIZE}+`)).toBeInTheDocument();
-        await loadToTheEnd(userEvent.setup(), records.length);
+        await nextToTheEnd(userEvent.setup(), records.length, STANDBY_PAGE_SIZE);
 
         // The 301st to the 350th were never on the Firestore page.
         expect(screen.getByText("คนขับรอ 349")).toBeInTheDocument();
@@ -161,8 +168,8 @@ describe("incident reports over the old 200-row cap", () => {
         web.on("GET", "/api/go/v1/incidents", keyset(reports));
         renderPage("/app/incident-reports", <IncidentReportsPage />);
 
-        expect(await screen.findByText(`${INCIDENTS_PAGE_SIZE} rows loaded`)).toBeInTheDocument();
-        await loadToTheEnd(userEvent.setup(), reports.length);
+        expect(await screen.findByText(rangeText(1))).toBeInTheDocument();
+        await nextToTheEnd(userEvent.setup(), reports.length, INCIDENTS_PAGE_SIZE);
 
         expect(screen.getByText("INC-0249")).toBeInTheDocument();
         expect(screen.getByText(String(reports.length))).toBeInTheDocument();
@@ -193,13 +200,13 @@ describe("income over the old 500-row cap", () => {
         renderPage("/app/accounting/income", <IncomePage />);
 
         // First pages: 200 trips + 200 standby; the figures say they cover the loaded rows only.
-        expect(await screen.findByText(`${2 * INCOME_PAGE_SIZE} loaded`)).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1))).toBeInTheDocument();
         expect(screen.getByText("The figures above cover the rows loaded so far; load more to include the rest.")).toBeInTheDocument();
 
         const u = userEvent.setup();
         await u.click(screen.getByRole("button", { name: "Load the whole range" }));
         const total = trips.length + standby.length;
-        expect(await screen.findByText(`${total} loaded`, undefined, { timeout: 5000 })).toBeInTheDocument();
+        expect(await screen.findByText(rangeText(1, total), undefined, { timeout: 5000 })).toBeInTheDocument();
         expect(screen.queryByText("The figures above cover the rows loaded so far; load more to include the rest.")).toBeNull();
 
         // Totals over every row: 650 × ฿1,000 + 350 × ฿500.
@@ -208,14 +215,20 @@ describe("income over the old 500-row cap", () => {
         expect(within(card("Billing amount")).getByText(`฿${(650 * 1000 + 350 * 500).toLocaleString("en-US", { minimumFractionDigits: 2 })}`)).toBeInTheDocument();
         expect(within(card("Priced rows")).getByText(total.toLocaleString())).toBeInTheDocument();
 
-        // 1,000 rows, fewer than 100 in the DOM; the oldest trip is reached by scrolling.
+        // 1,000 rows, fewer than 100 in the DOM; the oldest trip is on the last page (every row is loaded: no request).
         const viewport = document.querySelector<HTMLElement>('[data-slot="virtual-table-viewport"]')!;
         const domRows = () => viewport.querySelectorAll("tbody tr[data-index]").length;
         expect(domRows()).toBeGreaterThan(0);
         expect(domRows()).toBeLessThan(100);
+        for (let page = 2; page <= total / PAGE; page++) {
+            await u.click(screen.getByRole("button", { name: "Next" }));
+            expect(screen.getByText(rangeText(page, total))).toBeInTheDocument();
+            expect(domRows()).toBeLessThan(100);
+        }
+        expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
         // Unmeasured rows count at the table's estimate (48 px) until they render: scroll past both heights.
-        scrollViewport(viewport, "end", 48, total);
-        scrollViewport(viewport, "end", 48, total);
+        scrollViewport(viewport, "end", 48, PAGE);
+        scrollViewport(viewport, "end", 48, PAGE);
         expect(within(viewport).getByText("SPXTH-0649")).toBeInTheDocument();
         expect(domRows()).toBeLessThan(100);
 

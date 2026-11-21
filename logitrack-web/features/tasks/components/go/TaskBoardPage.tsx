@@ -13,6 +13,7 @@
  * {fields:'minimal'}]`) and server searches (drivers, trucks). SSE `task.*` refreshes the board in every tab
  * (500 ms window), so a mobile check-in shows without a reload.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
@@ -57,7 +58,7 @@ import {
     type TaskDTO,
     type TaskType,
 } from "../../api/tasks.go";
-import { CapabilityGate, goHubFilterOptions, LoadMoreFooter, StopBadges, TaskStatusBadge, useGoHubs, VehicleClassChip } from "./opsShared";
+import { CapabilityGate, goHubFilterOptions, StopBadges, TaskStatusBadge, useGoHubs, VehicleClassChip } from "./opsShared";
 import type { TaskFormMode } from "./TaskFormDialog";
 
 // Mounted on open only, each its own chunk (developer-spec.md §10.11): the form and its pickers, the detail with
@@ -170,7 +171,8 @@ function Board({ kind }: { kind: BoardKind }) {
     const type: TaskBoardType = kind === "all" ? typeFilter : kind;
     const filter = { date: date ? format(date, "yyyy-MM-dd") : "", type, soc, hub };
     const q = useInfiniteQuery({ ...taskBoardQuery(filter), placeholderData: keepPreviousData });
-    const shown = useMemo(() => pageItems(q.data?.pages), [q.data]);
+    const loaded = useMemo(() => pageItems(q.data?.pages), [q.data]);
+    const { pageRows: shown, pager } = useListPager(loaded, q, filter);
     const hubs = useGoHubs();
     const hubOptions = useMemo(() => goHubFilterOptions(hubs.list), [hubs.list]);
     const keys = titleKeys(kind, profile);
@@ -436,12 +438,7 @@ function Board({ kind }: { kind: BoardKind }) {
                     </Table>
                 </div>
             </div>)}
-                <LoadMoreFooter
-                    loaded={shown.length}
-                    hasNextPage={Boolean(q.hasNextPage)}
-                    isFetchingNextPage={q.isFetchingNextPage}
-                    onLoadMore={() => void q.fetchNextPage()}
-                />
+                <ListPager {...pager} className="border-t px-4 py-3" />
 
             {form ? (
                 <TaskFormDialog

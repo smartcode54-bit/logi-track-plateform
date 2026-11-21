@@ -66,12 +66,6 @@ export default {
     "subcontractors.action.suspendPartner": "Suspend partner",
 
     // Pagination
-    "subcontractors.pagination.showing": "Showing",
-    "subcontractors.pagination.to": "to",
-    "subcontractors.pagination.of": "of",
-    "subcontractors.pagination.results": "results",
-    "subcontractors.pagination.previous": "Previous",
-    "subcontractors.pagination.next": "Next",
 
     // Status Badges
     // New Subcontractor Page

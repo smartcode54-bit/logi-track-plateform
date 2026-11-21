@@ -105,7 +105,7 @@ describe("fleet review regressions", () => {
         try {
             serve(() => json(200, { data: [{ ...assignment, createdAt: "2026-10-01T00:00:00Z" }] }));
             render(<AssignmentHistory onRevoke={vi.fn()} />);
-            await screen.findByText("1 loaded");
+            await screen.findByText("1 rows");
             expect(screen.queryByText("NO")).toBeNull();
             expect(screen.getAllByText("-").length).toBeGreaterThan(0);
         } finally { restore(); }

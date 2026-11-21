@@ -223,7 +223,7 @@ describe("Go operations pages (T34)", () => {
         web.on("GET", "/api/go/v1/trips/monitor", (c) => {
             const q = params(c.url);
             if (q.facets === "false") return q.cursor ? json(200, { data: [row("r2", "SPXTH-2")] }) : json(200, { data: [row("r1", "SPXTH-1")], nextCursor: "p2" });
-            // The table's next page (the VirtualTable asks for it near the end of the loaded rows): no facets.
+            // The table's next page (the pager asks for it past the loaded rows): no facets.
             if (q.cursor) return json(200, { data: [row("r2", "SPXTH-2")] });
             return json(200, { data: [row("r1", "SPXTH-1")], nextCursor: "p2", meta: { facets: { total: 412, statusCounts: { delivered: 400, in_transit: 12 }, incident: 3,
                 origins: [], destinations: [], plates: [], vehicleClasses: [], partners: [] } } });
@@ -258,7 +258,7 @@ describe("Go operations pages (T34)", () => {
             mapPhoto: null, situation1Photo: null, situation2Photo: null, reportedByKind: "driver", createdAt: "2026-10-11T00:00:00Z" }] }));
         const standby = renderPage("/app/standby-records", <StandbyRecordsPage />);
         expect(await screen.findByText("สมหญิง")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /Load more/ })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
         standby.unmount();
         renderPage("/app/incident-reports", <IncidentReportsPage />);
         expect(await screen.findByText("SPXTH-7")).toBeInTheDocument();

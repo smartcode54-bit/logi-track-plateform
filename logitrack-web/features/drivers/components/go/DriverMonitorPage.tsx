@@ -13,6 +13,7 @@
  * loads the next page. SSE `trip.*`, `standby.*`, `incident.created` and `task.*` refresh it through the 2 s window.
  * The export pages through the same route with its cursor and loads xlsx on the click.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useId, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
@@ -39,7 +40,7 @@ import { navigationProfileOf, profileRouteLabelKey } from "@/features/auth/utils
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { CapabilityGate, LoadMoreFooter } from "@/features/tasks/components/go/opsShared";
+import { CapabilityGate } from "@/features/tasks/components/go/opsShared";
 import { pageItems } from "@/features/tasks/api/tasks.go";
 import {
     activeMonitorFilters,
@@ -106,6 +107,7 @@ function Monitor() {
     const effective: MonitorFilter = { ...filter, q, driverId: driver?.id ?? "" };
     const list = useInfiniteQuery({ ...monitorQuery(effective), placeholderData: keepPreviousData });
     const rows = useMemo(() => pageItems(list.data?.pages), [list.data]);
+    const { pageRows, pager } = useListPager(rows, list, effective);
     const facets = monitorFacets(list.data?.pages);
     const set = <K extends keyof MonitorFilter>(k: K, v: MonitorFilter[K]) => setFilter((prev) => ({ ...prev, [k]: v }));
     const active = activeMonitorFilters(effective);
@@ -389,11 +391,10 @@ function Monitor() {
 
             <div className={cn("overflow-hidden rounded-lg border bg-card", compact && "[&_button]:min-h-11 [&_button]:min-w-11")}>
                 <VirtualTable
-                    data={rows}
+                    data={pageRows}
                     columns={columns}
                     getRowId={(r) => r.id}
                     aria-label={title}
-                    infinite={list}
                     loading={list.isPending}
                     loadingState={
                         <span className="flex flex-col items-center justify-center gap-2 py-8">
@@ -412,8 +413,7 @@ function Monitor() {
                     headerRowClassName="border-b border-border/50 bg-muted/50"
                     rowClassName="border-b border-border/50 transition-colors hover:bg-muted/50"
                 />
-                <LoadMoreFooter loaded={rows.length} hasNextPage={Boolean(list.hasNextPage)} isFetchingNextPage={list.isFetchingNextPage}
-                    onLoadMore={() => void list.fetchNextPage()} />
+                <ListPager {...pager} total={exportTotal ?? pager.total} className="border-t px-4 py-3" />
             </div>
 
             {detail ? <TripDetailDialog row={detail} onClose={() => setDetail(null)} /> : null}

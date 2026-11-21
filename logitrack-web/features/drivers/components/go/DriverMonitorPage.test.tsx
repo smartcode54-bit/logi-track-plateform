@@ -251,16 +251,20 @@ describe("scoped monitor presentation", () => {
         expect(await screen.findByRole("button", { name: "View trip FM-123 and evidence" })).toBeInTheDocument();
     });
 
-    it("a failed next page keeps the loaded trip and load-more retries its cursor", async () => {
+    it("a failed next page keeps the loaded trip and Try again retries its cursor", async () => {
         let fail = true;
         const { calls } = setup(customer, (call) => params(call).cursor
             ? fail ? goErr(422, "invalid_argument") : json(200, { data: [{ ...row, id: "trip-2", tripNo: "FM-456" }] })
             : json(200, { data: [row], nextCursor: "cursor-2", meta: { facets } }));
         expect(await screen.findByRole("button", { name: "View trip FM-123 and evidence" })).toBeInTheDocument();
-        await waitFor(() => expect(calls()).toHaveLength(2));
+        expect(calls()).toHaveLength(1);
+        await userEvent.click(screen.getByRole("button", { name: "Next" }));
+        expect(await screen.findByText("The next page could not be loaded.")).toHaveAttribute("role", "alert");
+        expect(calls()).toHaveLength(2);
+        expect(screen.getByRole("button", { name: "View trip FM-123 and evidence" })).toBeInTheDocument();
         expect(screen.queryByText("No trips found.")).toBeNull();
         fail = false;
-        await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+        await userEvent.click(screen.getByRole("button", { name: "Try again" }));
         expect(await screen.findByRole("button", { name: "View trip FM-456 and evidence" })).toBeInTheDocument();
         expect(params(calls()[1]).cursor).toBe("cursor-2");
         expect(params(calls()[2]).cursor).toBe("cursor-2");

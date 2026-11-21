@@ -27,7 +27,7 @@ import { formatLicensePlate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { QueryError, QueryLoading } from "@/components/page-states";
-import { LoadMore } from "@/components/load-more";
+import { ListPager, useListPager } from "@/components/list-pager";
 import { toneBadgeVariant, truckStatusTone } from "@/lib/statusPresentation";
 import { maintenanceDay } from "../../utils/maintenanceDates";
 import { maintenanceTruckStatusLabel } from "../../utils/maintenanceLabels";
@@ -103,6 +103,7 @@ export function TruckMaintenancePage() {
     const history = useInfiniteQuery(maintenanceQuery({ truckId }, truckId !== ""));
     const records = maintenanceRows(history.data?.pages);
     const legacy = useMemo(() => records.map(toMaintenanceData), [records]);
+    const { pageRows, pager } = useListPager(legacy, history, truckId);
     const byId = useMemo(() => new Map(records.map((r) => [r.id, r])), [records]);
     const totals = maintenanceCostTotals(records);
 
@@ -197,11 +198,11 @@ export function TruckMaintenancePage() {
                         <>
                             <MaintenanceStats totalPMCost={totals.pm} totalCMCost={totals.cm} loadedCount={records.length} />
                             {history.isError ? <QueryError error={history.error} label={t("maintenance.go.historyError")} onRetry={() => void history.refetch()} retrying={history.isFetching} /> : null}
-                            <MaintenanceHistoryList history={legacy} onNewClick={startNew} onEditClick={startEdit} />
+                            <MaintenanceHistoryList history={pageRows} onNewClick={startNew} onEditClick={startEdit} />
                         </>
                     )}
                     {history.data ? (
-                        <LoadMore loaded={records.length} hasNextPage={history.hasNextPage} isFetchingNextPage={history.isFetchingNextPage} error={history.isFetchNextPageError} onLoadMore={() => void history.fetchNextPage()} />
+                        <ListPager {...pager} />
                     ) : null}
                 </div>
             ) : (

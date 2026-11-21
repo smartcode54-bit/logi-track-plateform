@@ -7,6 +7,7 @@
  * `DELETE /v1/waitlist/{id}` behind a confirmation, which makes the list and the sidebar's count stale.
  * The route needs `waitlist:view` (a steward key, R60); `proxy.ts` refuses the page to anyone else.
  */
+import { ListPager, useListPager } from "@/components/list-pager";
 import { useState } from "react";
 import { format } from "date-fns";
 import { Loader2, Mail, RefreshCw, Trash2 } from "lucide-react";
@@ -34,6 +35,7 @@ export function WaitlistPage() {
 
     const entries = waitlistEntries(list.data?.pages);
     const total = waitlistTotal(list.data?.pages) ?? entries.length;
+    const { pageRows, pager } = useListPager(entries, list);
 
     const confirmRemove = async () => {
         if (!removing) return;
@@ -101,7 +103,7 @@ export function WaitlistPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    entries.map((entry) => (
+                                    pageRows.map((entry) => (
                                         <TableRow key={entry.id}>
                                             <TableCell className="font-medium">{entry.email}</TableCell>
                                             <TableCell>{entry.name}</TableCell>
@@ -124,17 +126,7 @@ export function WaitlistPage() {
                             </TableBody>
                         </Table>
                     </div>
-                    {entries.length > 0 && (
-                        <div className="mt-4 flex items-center justify-between gap-4 text-sm text-muted-foreground">
-                            <span>{t("waitlist.showing", { shown: entries.length.toLocaleString(), total: total.toLocaleString() })}</span>
-                            {list.hasNextPage && (
-                                <Button variant="outline" size="sm" onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-                                    {list.isFetchingNextPage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    {t("waitlist.loadMore")}
-                                </Button>
-                            )}
-                        </div>
-                    )}
+                    <ListPager {...pager} total={total} className="mt-4" />
                 </CardContent>
             </Card>
 
