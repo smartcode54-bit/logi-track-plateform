@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 
-import { useListPager } from "./list-pager";
+import { ListPager, type ListPagerProps, useListPager } from "./list-pager";
+
+vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }));
 
 const rows = (n: number) => Array.from({ length: n }, (_, i) => i);
 
@@ -59,5 +61,41 @@ describe("useListPager", () => {
         key = "b";
         rerender();
         expect(result.current.pager.page).toBe(1);
+    });
+});
+
+describe("ListPager", () => {
+    const props = (page: number): ListPagerProps => ({
+        page, from: (page - 1) * 50 + 1, to: page * 50, hasPrevious: page > 1, hasNext: true, loading: false, error: false,
+        onFirst: vi.fn(), onPrevious: vi.fn(), onNext: vi.fn(),
+    });
+    const mount = (tableTop: number) => {
+        const ui = (page: number) => (
+            <div data-slot="card">
+                <div data-slot="table-container" />
+                <ListPager {...props(page)} />
+            </div>
+        );
+        const view = render(ui(1));
+        const table = view.container.querySelector<HTMLElement>('[data-slot="table-container"]')!;
+        table.scrollTop = 120;
+        table.getBoundingClientRect = () => ({ top: tableTop }) as DOMRect;
+        table.scrollIntoView = vi.fn();
+        return { table, next: () => view.rerender(ui(2)) };
+    };
+
+    it("brings the table's top back below the sticky header when a new page opens past it", () => {
+        const { table, next } = mount(-900);
+        next();
+        expect(table.scrollTop).toBe(0);
+        expect(table.style.scrollMarginTop).toBe("72px");
+        expect(table.scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    });
+
+    it("leaves the page where it is when the table's top is already on screen", () => {
+        const { table, next } = mount(300);
+        next();
+        expect(table.scrollTop).toBe(0);
+        expect(table.scrollIntoView).not.toHaveBeenCalled();
     });
 });
