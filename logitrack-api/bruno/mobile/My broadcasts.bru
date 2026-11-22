@@ -1,0 +1,34 @@
+meta {
+  name: My broadcasts
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/broadcasts
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/broadcasts`
+
+  Broadcasts addressed to the driver (not voided).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:broadcasts`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` is a list of objects with `id`, `ref`, `createdByName`, `title`, `messageText`, `read`; `nextCursor` pages
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from a previous page's nextCursor
+}

@@ -1,0 +1,36 @@
+meta {
+  name: List daily fuel snapshots
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/fuel/daily
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~from: 2026-11-01
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/fuel/daily`
+
+  Lists daily Bangchak fuel price snapshots, newest first.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_fuel`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `dayKey`, `monthKey`, `capturedAt`, `source`, `status`, `items`; `nextCursor` pages
+  - **Query `from`**: start day key YYYY-MM-DD
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from nextCursor
+}

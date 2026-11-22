@@ -1,0 +1,25 @@
+meta {
+  name: Logout all sessions
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/logout-all
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/auth/logout-all`
+
+  Revokes every session of the caller. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal,public
+  - **Success:** `204`
+}

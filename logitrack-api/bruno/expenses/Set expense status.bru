@@ -1,0 +1,38 @@
+meta {
+  name: Set expense status
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/expenses/:id/status
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "status": "approved",
+    "adminNote": "OK"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/expenses/:id/status`
+
+  Audit decision on one expense. Approving a fuel row with truck and odometer runs the PM check in the same transaction (result in pmCheck).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:audit_expense`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `type`, `category`, `status`, `amountThb`, `pmCheck`
+}

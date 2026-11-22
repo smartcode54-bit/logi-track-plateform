@@ -1,0 +1,37 @@
+meta {
+  name: Notify LINE for task
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/tasks/:id/notify-line
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "force": false
+  }
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/tasks/:id/notify-line`
+
+  Queues a notify.line.force job sending the check-in card (202 with jobId, poll GET /v1/jobs/:id). force resends a card already sent. Staff with an effective tenant only; read-only cross-tenant requests are refused.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:edit_trip_details`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `jobId`, `status`
+}

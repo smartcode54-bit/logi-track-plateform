@@ -1,0 +1,35 @@
+meta {
+  name: Send my chat message
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/chat/messages
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "text": "Arrived at the hub",
+    "imageKey": null,
+    "clientMessageId": "client-msg-0001"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/mobile/chat/messages`
+
+  Driver sends a message; clientMessageId makes it idempotent.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:chat`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `id`, `chatId`, `senderRole`, `senderName`, `text`, `imageUrl`
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Get my profile
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/me
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+tests {
+  test("returns the signed-in user", function () {
+    expect(res.body.data.id).to.be.a("string");
+    expect(res.body.data.capabilities).to.be.an("array");
+  });
+}
+
+docs {
+  `GET /v1/me`
+
+  Current user's profile, active tenant, capabilities, platform roles and support-access state.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `email`, `displayName`, `tenant`, `capabilities`, `mustChangePassword`
+}

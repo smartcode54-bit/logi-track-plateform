@@ -1,0 +1,30 @@
+meta {
+  name: Resolve file download
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/files?key=trips/00000000-0000-0000-0000-000000000000/loading_1-1700000000000.jpg
+  body: none
+  auth: inherit
+}
+
+params:query {
+  key: trips/00000000-0000-0000-0000-000000000000/loading_1-1700000000000.jpg
+}
+
+assert {
+  res.status: eq 302
+}
+
+docs {
+  `GET /v1/files`
+
+  302 redirect to a short-lived signed URL of the object. Honors per-purpose read capabilities. Refused for support principals.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `302`
+  - **Query `key`** (required): object key
+}

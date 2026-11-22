@@ -1,0 +1,57 @@
+meta {
+  name: Update subcontractor
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/subcontractors/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "nameTh": "บริษัท ขนส่งตัวอย่าง จำกัด",
+    "nameEn": "Example Transport Co.",
+    "legalType": "company",
+    "idCardNumber": "",
+    "taxId": "0105500000000",
+    "contactPerson": "Somchai",
+    "phone": "0812345678",
+    "email": "ops@example.com",
+    "website": "https://example.com",
+    "address": "1 Example Rd, Bangkok",
+    "designation": "Manager",
+    "fleetSize": 10,
+    "dispatchCenter": "Bangkok",
+    "serviceRegions": [
+      "central"
+    ],
+    "vehicleTypes": [
+      "4W"
+    ],
+    "lineGroupId": "",
+    "billingDateBasis": "delivered",
+    "documentKeys": []
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/subcontractors/:id`
+
+  Partial update of the carrier profile (null clears a field). Rule checked in the service: fleet:manage_subcontractors or the tenant's own tenant_admin.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `code`, `nameTh`, `nameEn`, `status`, `fleetSize`
+}

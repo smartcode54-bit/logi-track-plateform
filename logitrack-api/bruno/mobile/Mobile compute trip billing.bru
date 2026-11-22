@@ -1,0 +1,42 @@
+meta {
+  name: Mobile compute trip billing
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/trips/:id/billing/compute
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  X-Api-Key: {{shimApiKey}}
+  Authorization: Bearer {{firebaseIdToken}}
+}
+
+body:json {
+  {
+    "forceRecompute": false
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/mobile/trips/:id/billing/compute`
+
+  Shim for the computeTripBillingSnapshot callable: needs the cf_shim X-Api-Key plus the driver's Firebase ID token as Bearer. The id may be a Firestore trip ref.
+
+  - **Auth:** Cloud Functions shim: `X-Api-Key` (cf_shim key) plus `Authorization: Bearer <Firebase ID token>`
+  - **Capabilities:** `mobile:submit_trip`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `ok`, `skipped`, `billingEstimateThb`, `error`, `reason`
+}

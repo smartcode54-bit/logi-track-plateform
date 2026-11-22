@@ -1,0 +1,39 @@
+meta {
+  name: Register push device
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/v1/me/devices
+  body: json
+  auth: inherit
+}
+
+headers {
+  ~X-App-Version: 3.6.6
+}
+
+body:json {
+  {
+    "installId": "install-0001",
+    "token": "<fcm-token>",
+    "platform": "android",
+    "appFlavor": "prod"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `PUT /v1/me/devices`
+
+  Registers or refreshes the caller's FCM device token (max 10 devices per user; least recently seen dropped). 409 token_held_by_another_device when another user's device holds the token. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `204`
+  - **Header `X-App-Version`**: app version stored with the device
+}

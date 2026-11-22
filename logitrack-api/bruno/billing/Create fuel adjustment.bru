@@ -1,0 +1,41 @@
+meta {
+  name: Create fuel adjustment
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/fuel-adjustments
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "customerId": "00000000-0000-0000-0000-000000000000",
+    "effectiveFromDateStr": "2026-11-01",
+    "mode": "percent",
+    "pct": 2.5,
+    "addThbPerTrip": null,
+    "referenceFuelPriceThbPerLitre": null,
+    "fuelBandBaselineFuelFloor": null,
+    "fuelBandThbPerBaht": null,
+    "announcementNote": "Nov diesel adjustment"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/fuel-adjustments`
+
+  Creates a fuel adjustment. mode is percent (pct), fixed_thb (addThbPerTrip) or band (referenceFuelPriceThbPerLitre + band fields). Writes need an effective tenant and only the own fleet (403 own_fleet_only otherwise). Unknown query parameters give 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `customerId`, `effectiveFromDateStr`, `rateMultiplier`, `addThbPerTrip`, `announcementNote`
+}

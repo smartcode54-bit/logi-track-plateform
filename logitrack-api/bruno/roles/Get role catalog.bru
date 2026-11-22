@@ -1,0 +1,30 @@
+meta {
+  name: Get role catalog
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/roles
+  body: none
+  auth: inherit
+}
+
+headers {
+  ~X-Api-Key: {{apiKey}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/roles`
+
+  Capability catalog and default role matrix. Cached privately 5 min. Admits a bearer token or an integration/script API key.
+
+  - **Auth:** Bearer access token, or an API key in `X-Api-Key` (scopes: `integration`, `script`). Send one, not both: set this request's auth to *No Auth* and enable the `X-Api-Key` header to use the key
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `capabilities`, `roles`, `stewardCapabilities`
+}

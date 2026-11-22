@@ -1,0 +1,26 @@
+meta {
+  name: List my sessions
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/me/sessions
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/me/sessions`
+
+  Active sessions of the caller; current=true marks the calling session.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `platform`, `installId`, `deviceLabel`, `lastSeenAt`, `current`
+}

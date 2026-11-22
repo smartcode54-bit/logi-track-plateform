@@ -1,0 +1,45 @@
+meta {
+  name: Add tenant member
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/tenants/:id/members
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "email": "member@example.com",
+    "role": "dispatcher",
+    "displayName": "New Member",
+    "locale": "th"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/tenants/:id/members`
+
+  Adds a person by email: existing account gets the membership, otherwise an invited account is created. Same 201 either way; 409 already_exists if already a member.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:assign_role`, `users:manage`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `tenantId`, `userId`, `role`, `status`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

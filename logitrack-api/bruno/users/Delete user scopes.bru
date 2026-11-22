@@ -1,0 +1,36 @@
+meta {
+  name: Delete user scopes
+  type: http
+  seq: 14
+}
+
+delete {
+  url: {{baseUrl}}/v1/users/:id/scopes/:kind
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  kind: customer
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/users/:id/scopes/:kind`
+
+  Removes all scope grants of the given kind from the user.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:assign_role`, `platform:manage_platform_roles`
+  - **Listeners:** internal
+  - **Success:** `204`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

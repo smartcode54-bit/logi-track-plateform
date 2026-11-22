@@ -1,0 +1,42 @@
+meta {
+  name: List payroll runs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/payroll
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~period: 2026-11
+  ~round: R1
+  ~status: draft
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/payroll`
+
+  Lists payroll runs by period, round and status with meta.statusCounts on the first page.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:view_payroll`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `driverId`, `driverName`, `payPeriod`, `round`, `netPayThb`; `nextCursor` pages
+  - **Query `period`**: pay period (yyyy-MM)
+  - **Query `round`**: R1 | R2
+  - **Query `status`**: draft | pending_approval | approved | paid | cancelled
+  - **Query `driverId`**: filter by driver
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

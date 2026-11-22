@@ -1,0 +1,33 @@
+meta {
+  name: Support customer options
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/support/customer-options
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~ids: 00000000-0000-0000-0000-000000000000
+  ~codes: CJSF
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/support/customer-options`
+
+  Support-plane lookup of customer references by ids or codes (exactly one, comma-separated, max 100). Requires a support principal with drivers:view or fleet:view_trucks.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `code`; `nextCursor` pages
+  - **Query `ids`**: Comma-separated customer uuids (xor codes)
+  - **Query `codes`**: Comma-separated customer codes (xor ids)
+}

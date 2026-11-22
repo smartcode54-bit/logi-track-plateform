@@ -1,0 +1,39 @@
+meta {
+  name: List API keys
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/api-keys
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/api-keys`
+
+  Lists API keys of the caller's effective tenant. API keys cannot call this route (people only).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_api_keys`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `name`, `scope`, `keyPrefix`, `capabilities`, `status`; `nextCursor` pages
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

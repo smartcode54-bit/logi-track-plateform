@@ -1,0 +1,25 @@
+meta {
+  name: Startup probe
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/startupz
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /startupz`
+
+  200 once startup completed, 503 before.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `status`
+}

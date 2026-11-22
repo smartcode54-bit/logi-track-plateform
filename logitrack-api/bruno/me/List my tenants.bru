@@ -1,0 +1,26 @@
+meta {
+  name: List my tenants
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/v1/me/tenants
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/me/tenants`
+
+  Tenants the caller belongs to, with role and status.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `nameTh`, `nameEn`, `kind`, `role`, `status`
+}

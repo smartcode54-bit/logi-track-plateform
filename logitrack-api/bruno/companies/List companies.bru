@@ -1,0 +1,38 @@
+meta {
+  name: List companies
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/companies
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~type: 
+  ~q: 
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/companies`
+
+  Lists issuer companies of the effective tenant.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `company:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tenantId`, `nameTh`, `nameEn`, `taxId`, `branchType`; `nextCursor` pages
+  - **Query `type`**: Company type filter
+  - **Query `q`**: Search text
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

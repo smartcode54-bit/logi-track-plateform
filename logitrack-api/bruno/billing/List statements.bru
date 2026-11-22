@@ -1,0 +1,42 @@
+meta {
+  name: List statements
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/statements
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  ~status: draft
+  ~year: 2026
+  ~month: 11
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/statements`
+
+  Lists billing statements, filterable by customer, status (draft|sent|paid|cancelled) and period.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:billing_result`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `customerId`, `invoiceNumber`, `period`, `totalAmount`, `status`; `nextCursor` pages
+  - **Query `customerId`**: filter by customer id
+  - **Query `status`**: draft|sent|paid|cancelled
+  - **Query `year`**: period year
+  - **Query `month`**: period month 1-12
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from nextCursor
+}

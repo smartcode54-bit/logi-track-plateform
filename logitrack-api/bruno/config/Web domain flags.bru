@@ -1,0 +1,26 @@
+meta {
+  name: Web domain flags
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/config/web-flags
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/config/web-flags`
+
+  Per-domain source flags (go or firebase) for the web coexistence. Unauthenticated; internal listener only.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `domains`
+}

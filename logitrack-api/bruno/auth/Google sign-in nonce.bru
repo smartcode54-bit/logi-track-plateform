@@ -1,0 +1,30 @@
+meta {
+  name: Google sign-in nonce
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/auth/google/nonce
+  body: none
+  auth: none
+}
+
+script:post-response {
+  if (res.status === 200) bru.setVar("googleNonce", res.body.data.nonce);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/auth/google/nonce`
+
+  Issues a one-time nonce to embed in the Google ID token request. Rate limited per IP. 404 while Google sign-in is off (no GOOGLE_OIDC_ALLOWED_CLIENT_IDS).
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `nonce`, `expiresIn`
+}

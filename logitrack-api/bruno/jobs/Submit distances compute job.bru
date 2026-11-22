@@ -1,0 +1,27 @@
+meta {
+  name: Submit distances compute job
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/jobs/distances.compute
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/jobs/distances.compute`
+
+  Queues the hub-to-SOC distance matrix computation (202 {jobId}).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:calculate_distances`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `jobId`
+}

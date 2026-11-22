@@ -1,0 +1,47 @@
+meta {
+  name: List security events
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/security-events
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~type: 
+  ~severity: 
+  ~from: 2026-01-01T00:00:00Z
+  ~to: 2026-12-31T23:59:59Z
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/security-events`
+
+  Security audit feed for the effective tenant (requires a tenant context). Meta lists known event types.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_audit`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `createdAt`, `type`, `severity`, `summary`, `actorEmail`; `nextCursor` pages
+  - **Query `type`**: Event type
+  - **Query `severity`**: Severity
+  - **Query `from`**: Start of range
+  - **Query `to`**: End of range
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

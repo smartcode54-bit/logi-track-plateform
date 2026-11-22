@@ -1,0 +1,31 @@
+meta {
+  name: Get daily fuel snapshot
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/fuel/daily/:dayKey
+  body: none
+  auth: inherit
+}
+
+params:path {
+  dayKey: 2026-11-20
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/fuel/daily/:dayKey`
+
+  Returns the fuel snapshot of one day (YYYY-MM-DD).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_fuel`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `dayKey`, `monthKey`, `capturedAt`, `source`, `status`, `items`
+}

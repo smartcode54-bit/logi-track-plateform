@@ -1,0 +1,44 @@
+meta {
+  name: List trucks
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/trucks
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~ownership: own
+  ~tenantId: 00000000-0000-0000-0000-000000000000
+  ~status: active
+  ~type: 6 Wheels
+  ~q: 70-1234
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trucks`
+
+  Lists trucks in the caller's reach (keyset paged). Dispatchers get the scope_trucks projection; unknown query parameters are rejected with 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:view_trucks`, `dispatch:view_operations`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tenantId`, `licensePlate`, `status`, `type`, `ownershipType`; `nextCursor` pages
+  - **Query `ownership`**: own | subcontractor
+  - **Query `tenantId`**: filter by tenant
+  - **Query `status`**: active | inactive | maintenance | insurance_claim | sold
+  - **Query `type`**: truck type
+  - **Query `q`**: search text (plate etc.)
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

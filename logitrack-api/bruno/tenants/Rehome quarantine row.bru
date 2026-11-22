@@ -1,0 +1,36 @@
+meta {
+  name: Rehome quarantine row
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/v1/tenants/quarantine/rows/:table/:id/rehome
+  body: json
+  auth: inherit
+}
+
+params:path {
+  table: trucks
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "tenantId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/tenants/quarantine/rows/:table/:id/rehome`
+
+  Moves a quarantined row (and its children and files) to a real tenant. Platform admin with quarantine maintenance access only.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `204`
+}

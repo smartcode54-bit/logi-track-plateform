@@ -1,0 +1,30 @@
+meta {
+  name: Evidence gallery
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{publicBaseUrl}}/evidence?k=<evidence-token>
+  body: none
+  auth: none
+}
+
+params:query {
+  k: <evidence-token>
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /evidence`
+
+  Public HTML evidence gallery; the token (query k) is the access control. 400 empty token, 404 unknown/revoked. Rate limited per IP. Returns text/html.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`
+  - **Query `k`** (required): evidence token
+}

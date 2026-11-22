@@ -1,0 +1,44 @@
+meta {
+  name: List hubs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/hubs
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~stationType: HUB
+  ~q: SPK
+  ~linkedPartyId: 00000000-0000-0000-0000-000000000000
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~If-None-Match: "etag"
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/hubs`
+
+  Lists hubs/SOCs; any authenticated user. Without limit/cursor returns all rows. Supports ETag (304 on If-None-Match).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `sourceId`, `sourceNameTh`, `stationType`, `latitude`, `longitude`; `nextCursor` pages
+  - **Query `stationType`**: HUB or SOC
+  - **Query `q`**: name/code search
+  - **Query `linkedPartyId`**: billing party id(s)
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from nextCursor
+  - **Header `If-None-Match`**: ETag from a previous response; 304 when unchanged
+}

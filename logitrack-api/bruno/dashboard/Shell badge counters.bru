@@ -1,0 +1,31 @@
+meta {
+  name: Shell badge counters
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/badges
+  body: none
+  auth: inherit
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/badges`
+
+  Counters for the app shell (waitlist, pending expenses, unassigned/urgent chats); each present only with its capability. No query params.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `waitlist`, `pendingExpenses`, `unassignedChats`, `urgentChats`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

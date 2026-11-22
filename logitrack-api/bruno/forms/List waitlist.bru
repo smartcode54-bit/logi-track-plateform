@@ -1,0 +1,34 @@
+meta {
+  name: List waitlist
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/waitlist
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/waitlist`
+
+  Lists waitlist entries; meta.total counts all entries. Support principals with the platform capability get counts only.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `waitlist:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `email`, `name`, `countryCode`, `createdAt`; `nextCursor` pages
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

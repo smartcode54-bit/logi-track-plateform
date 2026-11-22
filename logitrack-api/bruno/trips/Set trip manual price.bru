@@ -1,0 +1,38 @@
+meta {
+  name: Set trip manual price
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/v1/trips/:id/billing/manual
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "billingEstimateThb": 1650.0,
+    "jobCategory": "PRIMARY"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/trips/:id/billing/manual`
+
+  Overrides a trip price (above 0, two decimals) for the given job category; own fleet only. 409 when the period is locked.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:override_price`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `ok`, `billingEstimateThb`, `error`, `reason`, `billingDateMoved`
+}

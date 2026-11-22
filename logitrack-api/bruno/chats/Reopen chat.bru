@@ -1,0 +1,31 @@
+meta {
+  name: Reopen chat
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/v1/chats/:id/reopen
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/chats/:id/reopen`
+
+  Reopens a closed chat.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `chat:send`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`
+}

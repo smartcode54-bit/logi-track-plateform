@@ -1,0 +1,35 @@
+meta {
+  name: Upload via broker
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{baseUrl}}/v1/uploads/:grantId/content
+  body: none
+  auth: inherit
+}
+
+params:path {
+  grantId: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~Content-Type: image/jpeg
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `PUT /v1/uploads/:grantId/content`
+
+  Uploads the raw bytes through the API for a grant (session-bound). Content-Type and size must match the presign. 403 upload_context_changed if the session changed.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`
+  - **Header `Content-Type`**: must equal the contentType declared at presign
+  - **Body:** binary (the raw file bytes; pick the file in Bruno)
+}

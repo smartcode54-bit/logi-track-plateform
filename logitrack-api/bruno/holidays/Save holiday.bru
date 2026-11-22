@@ -1,0 +1,42 @@
+meta {
+  name: Save holiday
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/holidays
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "date": "2026-12-31",
+    "type": "company",
+    "status": "published",
+    "name": "Company holiday",
+    "nameEn": "Company holiday",
+    "nameTh": "วันหยุดบริษัท",
+    "description": "",
+    "descriptionEn": "",
+    "descriptionTh": "",
+    "isRecurring": false
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/holidays`
+
+  Creates (201) or updates (200) the holiday of that day and type. Public rows require a steward.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_holidays`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `date`, `type`, `status`, `name`, `isRecurring`
+}

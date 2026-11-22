@@ -1,0 +1,59 @@
+meta {
+  name: Update task
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/tasks/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "date": "2026-11-22",
+    "time": "09:00",
+    "sourceHub": "SPK-GW",
+    "sourceHubId": "00000000-0000-0000-0000-000000000000",
+    "destination": "SPK890103",
+    "destinationHubId": "00000000-0000-0000-0000-000000000000",
+    "jobCategory": "PRIMARY",
+    "truckId": "00000000-0000-0000-0000-000000000000",
+    "truckType": "4WJ",
+    "driverId": "00000000-0000-0000-0000-000000000000",
+    "helperDriverId": null,
+    "billingPartyId": "00000000-0000-0000-0000-000000000000",
+    "sourceLinkedPartyId": "00000000-0000-0000-0000-000000000000",
+    "destinationLinkedPartyId": "00000000-0000-0000-0000-000000000000",
+    "isMultiDelivery": false,
+    "deliveryStops": [],
+    "status": "assigned",
+    "runOrder": 1
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/tasks/:id`
+
+  Changes only the fields in the body. A different tenantId triggers reassignment. 409 task_in_progress/task_closed/driver_inactive on invalid transitions; X-Act-On-Tenant required for admins.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_tasks`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `taskNo`, `taskType`, `status`, `sourceHub`, `destination`
+  - **Header `X-Act-On-Tenant`**: Platform admin only: act on a tenant id, or * for all tenants
+}

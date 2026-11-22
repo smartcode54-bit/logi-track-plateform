@@ -1,0 +1,38 @@
+meta {
+  name: Update service fee
+  type: http
+  seq: 13
+}
+
+patch {
+  url: {{baseUrl}}/v1/billing/service-fees/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "amountThb": 350.0,
+    "note": "Raised"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/billing/service-fees/:id`
+
+  Partially updates a service fee; omitted fields are unchanged.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `feeType`, `amountThb`, `unit`, `note`
+}

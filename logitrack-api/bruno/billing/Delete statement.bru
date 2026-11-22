@@ -1,0 +1,30 @@
+meta {
+  name: Delete statement
+  type: http
+  seq: 23
+}
+
+delete {
+  url: {{baseUrl}}/v1/billing/statements/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/billing/statements/:id`
+
+  Deletes a draft statement.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:manage_statements`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

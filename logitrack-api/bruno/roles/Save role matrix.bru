@@ -1,0 +1,46 @@
+meta {
+  name: Save role matrix
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/v1/roles/matrix
+  body: json
+  auth: inherit
+}
+
+params:query {
+  ~tenantId: 00000000-0000-0000-0000-000000000000
+  ~layer: tenant
+}
+
+body:json {
+  {
+    "overrides": [
+      {
+        "role": "dispatcher",
+        "capability": "drivers:edit",
+        "allowed": true
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/roles/matrix`
+
+  Saves the complete set of overrides of the layer; rows absent are removed. Meta.changes reports how many rows changed. 422 capability_not_overridable for refused cells.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_roles`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `layer`, `tenantId`, `tenantKind`, `roles`
+  - **Query `tenantId`**: Tenant whose matrix to save
+  - **Query `layer`**: tenant or platform
+}

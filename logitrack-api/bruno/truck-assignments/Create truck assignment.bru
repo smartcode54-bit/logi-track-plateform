@@ -1,0 +1,34 @@
+meta {
+  name: Create truck assignment
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/truck-assignments
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "truckId": "00000000-0000-0000-0000-000000000000",
+    "driverId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/truck-assignments`
+
+  Assigns a driver to a truck. Returns 409 failed_precondition with a reason if the assignment conflicts.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_assignments`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `truckId`, `driverId`, `status`, `createdAt`
+}

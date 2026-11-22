@@ -1,0 +1,31 @@
+meta {
+  name: List statement lines
+  type: http
+  seq: 27
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/statements/:id/lines
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/statements/:id/lines`
+
+  Returns every line of a statement (not paginated).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:billing_result`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `rowId`, `rowType`, `tripId`, `tripNo`, `amountThb`
+}

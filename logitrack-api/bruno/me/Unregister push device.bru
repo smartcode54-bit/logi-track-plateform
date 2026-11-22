@@ -1,0 +1,29 @@
+meta {
+  name: Unregister push device
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/v1/me/devices/:installId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  installId: install-0001
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/me/devices/:installId`
+
+  Removes the caller's device token for an install. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `204`
+}

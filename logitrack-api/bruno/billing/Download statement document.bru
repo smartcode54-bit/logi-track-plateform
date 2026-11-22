@@ -1,0 +1,31 @@
+meta {
+  name: Download statement document
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/statements/:id/documents/:kind
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  kind: invoice_summary_pdf
+}
+
+assert {
+  res.status: eq 302
+}
+
+docs {
+  `GET /v1/billing/statements/:id/documents/:kind`
+
+  302 redirect to a signed URL of the stored document. kind: invoice_summary_pdf, invoice_detail_xlsx, bundle_zip, receipt_pdf (receipt only when paid).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:billing_result`
+  - **Listeners:** internal
+  - **Success:** `302`
+}

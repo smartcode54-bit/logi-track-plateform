@@ -1,0 +1,34 @@
+meta {
+  name: My chat messages
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/chat/messages
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~before: 
+  ~limit: 50
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/chat/messages`
+
+  Driver's chat messages, newest first.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:chat`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` is a list of objects with `id`, `chatId`, `senderRole`, `senderName`, `text`, `imageUrl`; `nextCursor` pages
+  - **Query `before`**: cursor
+  - **Query `limit`**: page size
+}

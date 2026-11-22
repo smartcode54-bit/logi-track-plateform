@@ -1,0 +1,37 @@
+meta {
+  name: Cancel task
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/tasks/:id/cancel
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Customer cancelled"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/tasks/:id/cancel`
+
+  Cancels a task with an optional reason (max 500 chars). 409 when the task is already closed.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_tasks`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `taskNo`, `taskType`, `status`, `sourceHub`, `destination`
+}

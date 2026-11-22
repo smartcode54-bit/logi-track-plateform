@@ -1,0 +1,32 @@
+meta {
+  name: Security overview
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/security/overview
+  body: none
+  auth: inherit
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/security/overview`
+
+  Security center overview (users, sessions, logins, events) for the effective tenant. No query params allowed.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_overview`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `generatedAt`, `scope`, `users`, `sessions`, `logins`, `events`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

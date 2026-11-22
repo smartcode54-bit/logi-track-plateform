@@ -1,0 +1,49 @@
+meta {
+  name: Import tasks
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/v1/tasks/import
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "taskType": "FIRST_MILE",
+    "notify": false,
+    "dryRun": true,
+    "rows": [
+      {
+        "date": "2026-11-22",
+        "time": "09:00",
+        "sourceHub": "SPK-GW",
+        "destination": "SPK890103",
+        "billingPartyId": "00000000-0000-0000-0000-000000000000",
+        "jobCategory": "PRIMARY",
+        "truckType": "4WJ",
+        "plate": "1กข1234",
+        "taskNo": "",
+        "note": ""
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/tasks/import`
+
+  Bulk-creates tasks from parsed sheet rows (max 1000); each row is its own savepoint. dryRun validates only. Returns created[] and errors[].
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_tasks`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `created`, `errors`, `dryRun`
+}

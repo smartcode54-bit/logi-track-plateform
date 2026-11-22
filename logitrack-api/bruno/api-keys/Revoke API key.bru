@@ -1,0 +1,30 @@
+meta {
+  name: Revoke API key
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/v1/api-keys/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/api-keys/:id`
+
+  Revokes the key; effective on its next request.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_api_keys`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

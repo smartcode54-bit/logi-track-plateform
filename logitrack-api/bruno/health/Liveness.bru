@@ -1,0 +1,25 @@
+meta {
+  name: Liveness
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{publicBaseUrl}}/healthz
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /healthz`
+
+  Liveness probe, 200 while the process serves HTTP.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `status`
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Security status
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/security/status
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/security/status`
+
+  Platform-wide system status (database, redis, scheduler, outbox, jobs); no tenant data. Support principals may call it with the platform read capability.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_status`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `database`, `redis`, `scheduler`, `outbox`, `jobs`
+}

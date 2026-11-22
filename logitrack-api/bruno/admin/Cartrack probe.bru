@@ -1,0 +1,26 @@
+meta {
+  name: Cartrack probe
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/admin/cartrack/probe
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/admin/cartrack/probe`
+
+  Platform admin only. Enqueues/reads a Cartrack API probe: 200 with outcome when done, 202 with jobId while running (see GET /v1/jobs/{id}).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `jobId`, `status`, `httpStatus`, `vehicleCount`, `error`
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Get driver document
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/drivers/:id/documents/:kind
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  kind: id_card
+}
+
+assert {
+  res.status: eq 302
+}
+
+docs {
+  `GET /v1/drivers/:id/documents/:kind`
+
+  Redirects (302) to a 5-minute presigned URL of the driver's document. kind is profile, id_card or license; 404 when absent or out of reach.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `drivers:view_pii`
+  - **Listeners:** internal
+  - **Success:** `302`
+}

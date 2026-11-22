@@ -1,0 +1,31 @@
+meta {
+  name: List platform user sessions
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/users/:id/sessions
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/users/:id/sessions`
+
+  Platform-staff read; the principal must hold the stated capability on the platform plane. Responses are projected (consent-aware).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:view_sessions`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `platform`, `amr`, `appVersion`, `createdAt`, `lastSeenAt`; `nextCursor` pages
+}

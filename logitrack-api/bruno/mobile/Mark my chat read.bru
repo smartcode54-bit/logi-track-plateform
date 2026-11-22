@@ -1,0 +1,32 @@
+meta {
+  name: Mark my chat read
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/chat/read
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "lastReadAt": "2026-11-22T10:00:00Z"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/mobile/chat/read`
+
+  Records the driver's last read time. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:chat`
+  - **Listeners:** internal,public
+  - **Success:** `204`
+}

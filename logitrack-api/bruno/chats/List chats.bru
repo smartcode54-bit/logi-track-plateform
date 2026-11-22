@@ -1,0 +1,40 @@
+meta {
+  name: List chats
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/chats
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~filter: queue
+  ~status: open
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/chats`
+
+  Staff chat console list. filter=queue|mine|all.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `chat:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`; `nextCursor` pages
+  - **Query `filter`**: queue, mine or all
+  - **Query `status`**: open or closed
+  - **Query `driverId`**: filter by driver
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from a previous page's nextCursor
+}

@@ -1,0 +1,30 @@
+meta {
+  name: Get support access state
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/tenants/:id/support-access
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/tenants/:id/support-access`
+
+  Returns whether platform support access is enabled for the tenant, with version for optimistic update.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `enabled`, `version`, `changedAt`, `changedBy`, `eligibleToToggle`
+}

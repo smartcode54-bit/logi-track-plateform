@@ -1,0 +1,40 @@
+meta {
+  name: Update maintenance record
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/v1/maintenance/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "status": "completed",
+    "endDate": "2026-11-26",
+    "totalCostThb": 5200,
+    "notes": "Done"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/maintenance/:id`
+
+  Partially updates a maintenance record; only fields present in the body change.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_maintenance`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `truckId`, `licensePlate`, `type`, `status`, `displayCostThb`
+}

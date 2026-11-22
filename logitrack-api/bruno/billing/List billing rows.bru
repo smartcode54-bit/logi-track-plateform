@@ -1,0 +1,46 @@
+meta {
+  name: List billing rows
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/rows?year=2026&month=11
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  year: 2026
+  month: 11
+  ~types: trip,standby
+  ~categories: PRIMARY
+  ~plate: 
+  ~vehicleClass: 4WJ
+  ~reviewMonth: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/rows`
+
+  Previews billable rows (trips, standby, multi-drop) for a month with totals, issues and filter options.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:billing_document`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `customerId`, `year`, `month`, `rows`, `unpriced`, `invoice`
+  - **Query `customerId`**: customer id, or 'all'
+  - **Query `year`** (required): period year
+  - **Query `month`** (required): period month
+  - **Query `types`**: repeated, bracketed or comma separated
+  - **Query `categories`**: job categories, same list forms
+  - **Query `plate`**: truck plate filter
+  - **Query `vehicleClass`**: vehicle class filter
+  - **Query `reviewMonth`**: review-month filter on the opposite date axis
+}

@@ -1,0 +1,38 @@
+meta {
+  name: Submit standby billing backfill
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/jobs/billing.backfill-standby
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "fromDateStr": "2026-11-01",
+    "toDateStr": "2026-11-30",
+    "maxScan": 5000,
+    "maxWrite": 1000,
+    "forceRecompute": false,
+    "customerId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/jobs/billing.backfill-standby`
+
+  Queues a standby billing backfill over a date range (own fleet); forceRecompute also needs accounting:recompute_force.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `jobId`
+}

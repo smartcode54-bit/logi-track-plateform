@@ -1,0 +1,38 @@
+meta {
+  name: Send maintenance reminder
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/maintenance/:id/remind
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "title": "Service appointment",
+    "body": "Please bring the truck in on 25 Nov."
+  }
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/maintenance/:id/remind`
+
+  Queues an FCM reminder to the driver(s) of the record's truck. Only for open records with a driver (409 otherwise). Responds 202 with the event id.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_maintenance`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `eventId`
+}

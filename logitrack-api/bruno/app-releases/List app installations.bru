@@ -1,0 +1,42 @@
+meta {
+  name: List app installations
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/app-installations
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~tenantId: 00000000-0000-0000-0000-000000000000
+  ~since: 7d
+  ~belowVersion: 3.6.0
+  ~flavor: prod
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/app-installations`
+
+  Driver-app installations with version status (ok/outdated/blocked). Internal only; supports support-view projection.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_mobile_clients`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `driverId`, `driverName`, `installId`, `platform`, `appVersion`, `flavor`, `lastSeenAt`, `versionStatus`; `nextCursor` pages
+  - **Query `tenantId`**: filter by tenant
+  - **Query `since`**: RFC3339 time or window like 7d / 24h
+  - **Query `belowVersion`**: only installs below this version
+  - **Query `flavor`**: dev or prod
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from a previous page's nextCursor
+}

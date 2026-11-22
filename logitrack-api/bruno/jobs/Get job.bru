@@ -1,0 +1,30 @@
+meta {
+  name: Get job
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/jobs/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/jobs/:id`
+
+  Returns one job with status, progress and result; 404 when it does not exist or the caller may not read it.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `type`, `status`, `params`, `progress`, `result`
+}

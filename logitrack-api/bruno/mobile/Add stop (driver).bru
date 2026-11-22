@@ -1,0 +1,47 @@
+meta {
+  name: Add stop (driver)
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/tasks/:id/stops
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  X-Api-Key: {{shimApiKey}}
+  Authorization: Bearer {{firebaseIdToken}}
+  ~X-Api-Key: <cf_shim key>
+}
+
+body:json {
+  {
+    "destination": "Lotus Bangna",
+    "destinationHubId": "00000000-0000-0000-0000-000000000000",
+    "sourceId": "HUB001",
+    "isCustom": false
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/mobile/tasks/:id/stops`
+
+  Driver-app shim for adding a delivery stop to the driver's own task; takes the party of the stop's hub. Needs a cf_shim API key plus the driver's Firebase ID token.
+
+  - **Auth:** Cloud Functions shim: `X-Api-Key` (cf_shim key) plus `Authorization: Bearer <Firebase ID token>`
+  - **Capabilities:** `mobile:submit_trip`
+  - **Listeners:** internal,public
+  - **Success:** `201`; `data` has `taskId`, `upgradedFromSingle`, `pending`, `stops`
+  - **Header `X-Api-Key`**: cf_shim API key
+}

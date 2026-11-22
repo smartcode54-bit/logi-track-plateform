@@ -1,0 +1,30 @@
+meta {
+  name: Revoke standby evidence link
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/standby/:id/evidence/revoke
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/standby/:id/evidence/revoke`
+
+  Revokes the evidence-gallery token of a standby record. 204 (or 200 with legacyLinkOpen); 409 legacy_evidence_link for legacy tokens.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:edit_trip_details`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

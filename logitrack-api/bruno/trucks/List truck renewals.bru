@@ -1,0 +1,44 @@
+meta {
+  name: List truck renewals
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/trucks/renewals
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~due: 30
+  ~ownership: own
+  ~status: active
+  ~tenantId: 00000000-0000-0000-0000-000000000000
+  ~q: 70-1234
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trucks/renewals`
+
+  Lists trucks with tax and insurance renewal state (nextDueDate, daysRemaining, state), sorted by earliest expiry.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:view_renewals`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `truckId`, `tenantId`, `licensePlate`, `nextDueDate`, `tax`, `insurance`; `nextCursor` pages
+  - **Query `due`**: due-within filter
+  - **Query `ownership`**: own | subcontractor
+  - **Query `status`**: truck status
+  - **Query `tenantId`**: tenant filter
+  - **Query `q`**: search
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

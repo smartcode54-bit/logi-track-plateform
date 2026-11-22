@@ -1,0 +1,32 @@
+meta {
+  name: Users by role
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/stats/users-by-role
+  body: none
+  auth: inherit
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/stats/users-by-role`
+
+  Counts of users by tenant role, scope kind and platform role for the effective tenant.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_overview`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `scope`, `total`, `none`, `tenantRoles`, `scopes`, `platformRoles`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

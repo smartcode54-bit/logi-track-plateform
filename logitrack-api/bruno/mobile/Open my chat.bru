@@ -1,0 +1,27 @@
+meta {
+  name: Open my chat
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/chat
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/mobile/chat`
+
+  Gets or creates the driver's chat (200/201).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:chat`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`
+}

@@ -1,0 +1,39 @@
+meta {
+  name: Upload to local storage
+  type: http
+  seq: 8
+}
+
+put {
+  url: {{baseUrl}}/v1/uploads/local/trips/00000000-0000-0000-0000-000000000000/loading_1-1700000000000.jpg?X-LT-Expires=1700000900&X-LT-Signature=<signature>
+  body: none
+  auth: none
+}
+
+params:query {
+  X-LT-Expires: 1700000900
+  X-LT-Signature: <signature>
+}
+
+headers {
+  ~Content-Type: image/jpeg
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/uploads/local/*`
+
+  Signed PUT for the local storage backend (key in path; X-LT-Expires and X-LT-Signature query params from the presign URL). 404 when the local backend is off.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal
+  - **Success:** `200`
+  - **Query `X-LT-Expires`** (required): expiry unix seconds
+  - **Query `X-LT-Signature`** (required): signature from the presign URL
+  - **Header `Content-Type`**: must equal the signed content type
+  - **Body:** binary (the raw file bytes; pick the file in Bruno)
+}

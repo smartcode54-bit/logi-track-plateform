@@ -1,0 +1,37 @@
+meta {
+  name: Set support access
+  type: http
+  seq: 11
+}
+
+put {
+  url: {{baseUrl}}/v1/tenants/:id/support-access
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "enabled": true,
+    "expectedVersion": "1"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/tenants/:id/support-access`
+
+  Tenant admin toggles consent for platform support access. expectedVersion must match the current state version; rate-limited 10/min.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `enabled`, `version`, `changedAt`, `changedBy`, `eligibleToToggle`
+}

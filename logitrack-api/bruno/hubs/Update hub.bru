@@ -1,0 +1,42 @@
+meta {
+  name: Update hub
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/hubs/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "sourceNameTh": "บางปู",
+    "sourceNameEn": "Bangpu",
+    "latitude": 13.5,
+    "longitude": 100.7,
+    "stationType": "HUB",
+    "linkedPartyId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/hubs/:id`
+
+  Updates hub fields; absent fields stay, null clears an optional one (a null link unlinks).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_sources`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `sourceId`, `sourceNameTh`, `stationType`, `latitude`, `longitude`
+}

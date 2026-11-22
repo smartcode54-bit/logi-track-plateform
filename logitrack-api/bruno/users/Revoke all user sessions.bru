@@ -1,0 +1,35 @@
+meta {
+  name: Revoke all user sessions
+  type: http
+  seq: 16
+}
+
+delete {
+  url: {{baseUrl}}/v1/users/:id/sessions
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/users/:id/sessions`
+
+  Revokes every session of the user.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:revoke_sessions`
+  - **Listeners:** internal
+  - **Success:** `204`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

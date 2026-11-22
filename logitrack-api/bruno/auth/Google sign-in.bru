@@ -1,0 +1,44 @@
+meta {
+  name: Google sign-in
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/google
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "idToken": "{{googleIdToken}}",
+    "nonce": "{{googleNonce}}",
+    "platform": "{{loginPlatform}}",
+    "installId": "",
+    "appVersion": ""
+  }
+}
+
+script:post-response {
+  // Keep the new tokens for every other request (runtime variables, never written to disk).
+  if (res.status === 200 && res.body && res.body.data) {
+    if (res.body.data.accessToken) bru.setVar("accessToken", res.body.data.accessToken);
+    if (res.body.data.refreshToken) bru.setVar("refreshToken", res.body.data.refreshToken);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/auth/google`
+
+  Exchanges a Google ID token (bound to the nonce) for a LogiTrack session. Same result shape as login. 404 while Google sign-in is off (no GOOGLE_OIDC_ALLOWED_CLIENT_IDS).
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `accessToken`, `expiresIn`, `refreshToken`, `tenants`, `defaultTenantId`
+}

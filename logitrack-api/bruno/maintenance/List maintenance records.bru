@@ -1,0 +1,40 @@
+meta {
+  name: List maintenance records
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/maintenance
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~truckId: 00000000-0000-0000-0000-000000000000
+  ~status: scheduled
+  ~type: PM
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/maintenance`
+
+  Lists maintenance records with meta.statusCounts on the first page.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:view_maintenance`, `fleet:manage_maintenance`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tenantId`, `truckId`, `licensePlate`, `type`, `status`, `displayCostThb`; `nextCursor` pages
+  - **Query `truckId`**: filter by truck
+  - **Query `status`**: pm_booking | scheduled | in_progress | completed | cancelled
+  - **Query `type`**: PM | CM
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

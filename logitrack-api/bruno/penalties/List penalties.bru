@@ -1,0 +1,38 @@
+meta {
+  name: List penalties
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/penalties
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~status: pending
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/penalties`
+
+  Lists driver penalties (keyset paged). status may be repeated.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_payroll`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `driverId`, `driverName`, `typeCode`, `totalThb`, `status`; `nextCursor` pages
+  - **Query `driverId`**: filter by driver
+  - **Query `status`**: pending | partially_deducted | ... (repeatable)
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

@@ -1,0 +1,39 @@
+meta {
+  name: List customers
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/customers
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~fields: minimal
+  ~q: 
+  ~ids: 00000000-0000-0000-0000-000000000000
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/customers`
+
+  Any authenticated user gets the minimal list; the full list needs fleet:manage_customers. ids (repeatable or comma-separated, up to 100) looks up by customer or billing party id.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `billingPartyId`, `code`, `name`, `billingDateBasis`, `createdAt`; `nextCursor` pages
+  - **Query `fields`**: minimal for the short projection
+  - **Query `q`**: Search text
+  - **Query `ids`**: Customer or billing-party ids to look up
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

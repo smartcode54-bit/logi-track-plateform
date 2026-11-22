@@ -1,0 +1,29 @@
+meta {
+  name: Evidence gallery by token
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{publicBaseUrl}}/evidence/:token
+  body: none
+  auth: none
+}
+
+params:path {
+  token: <evidence-token>
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /evidence/:token`
+
+  Same gallery with the token in the path. Returns text/html.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`
+}

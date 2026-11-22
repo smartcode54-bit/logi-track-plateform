@@ -1,0 +1,37 @@
+meta {
+  name: List vehicle locations
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/vehicle-locations
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~truckId: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/vehicle-locations`
+
+  Latest GPS position per vehicle (either capability suffices). truckId may repeat, use truckId[] or be comma-separated; unknown params are 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:view_live_map`, `dispatch:view_operations`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `truckId`, `gpsVehicleId`, `engineOn`, `positionDescription`, `driverName`, `fuelPercentage`; `nextCursor` pages
+  - **Query `truckId`**: Truck uuid filter (repeatable, comma-separated, or truckId[]; max limited)
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

@@ -1,0 +1,41 @@
+meta {
+  name: Switch tenant context
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/tenant
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": "member",
+    "tenantId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+script:post-response {
+  // Keep the new tokens for every other request (runtime variables, never written to disk).
+  if (res.status === 200 && res.body && res.body.data) {
+    if (res.body.data.accessToken) bru.setVar("accessToken", res.body.data.accessToken);
+    if (res.body.data.refreshToken) bru.setVar("refreshToken", res.body.data.refreshToken);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/auth/tenant`
+
+  Changes the session's tenant context (member), enters read-only support mode for a tenant, or leaves support mode. Returns a new access token. Unknown body fields are rejected.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `accessToken`, `expiresIn`
+}

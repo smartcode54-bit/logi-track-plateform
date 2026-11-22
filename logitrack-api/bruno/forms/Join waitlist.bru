@@ -1,0 +1,36 @@
+meta {
+  name: Join waitlist
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/waitlist
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "visitor@example.com",
+    "name": "Visitor",
+    "countryCode": "TH",
+    "phone": "0812345678",
+    "website": ""
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/waitlist`
+
+  Anonymous public form post (via the BFF), rate-limited per IP and per email. The website field is a honeypot and must stay empty.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`
+}

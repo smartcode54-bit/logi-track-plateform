@@ -1,0 +1,39 @@
+meta {
+  name: Update driver
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/drivers/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "mobile": "0898765432",
+    "status": "inactive",
+    "statusNote": "On leave"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/drivers/:id`
+
+  Partially updates a driver (PII fields also need drivers:view_pii; tenantId moves need a steward). Returns 204 when a tenant move took the driver out of the caller's reach.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `drivers:edit`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `displayName`, `firstName`, `lastName`, `status`
+}

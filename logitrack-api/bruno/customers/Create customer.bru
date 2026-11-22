@@ -1,0 +1,48 @@
+meta {
+  name: Create customer
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/customers
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "code": "CJSF",
+    "name": "Example Customer Co., Ltd.",
+    "description": "Retail customer",
+    "logoKey": "",
+    "address": "1 Example Rd, Bangkok",
+    "taxId": "0105500000000",
+    "branchType": "hq",
+    "branchNumber": "",
+    "contactName": "Somchai",
+    "contactPhone": "0812345678",
+    "billingEmail": "billing@example.com",
+    "paymentTermsDays": 30,
+    "invoiceNote": "",
+    "lineGroupId": "",
+    "billingDateBasis": "delivered",
+    "driverIdTypes": []
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/customers`
+
+  Creates a customer and its billing party.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_customers`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `billingPartyId`, `code`, `name`, `billingDateBasis`, `createdAt`
+}

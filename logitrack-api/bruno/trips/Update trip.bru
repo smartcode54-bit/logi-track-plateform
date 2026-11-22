@@ -1,0 +1,64 @@
+meta {
+  name: Update trip
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/v1/trips/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "sealCode": "SEAL001",
+    "partnerCode": "TTP",
+    "ocrData": {},
+    "deliveredAt": "2026-11-22T10:00:00Z",
+    "needsAdminReview": false,
+    "reviewStatus": "pending",
+    "reviewReason": null,
+    "origin": "SPK-GW",
+    "destination": "SPK890103",
+    "photos": [
+      {
+        "type": "delivery_step_1",
+        "key": "uploads/photo.jpg",
+        "lat": 13.7,
+        "lng": 100.5,
+        "address": "Bangkok",
+        "geocodedAt": "2026-11-22T10:00:00Z"
+      }
+    ],
+    "stops": [
+      {
+        "destination": "SPK890103",
+        "status": "delivered",
+        "deliveredAt": "2026-11-22T10:00:00Z",
+        "lat": 13.7,
+        "lng": 100.5
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/trips/:id`
+
+  Edits review, seal, partner, OCR, origin/destination, photos or stops of a trip; only supplied fields change.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:edit_trip_details`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tripNo`, `status`, `jobType`, `driverName`, `deliveredAt`
+}

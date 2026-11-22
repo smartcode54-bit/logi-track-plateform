@@ -1,0 +1,34 @@
+meta {
+  name: List standby rates
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/standby-rates
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  ~includeVoided: false
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/standby-rates`
+
+  Lists standby rates per customer (not paginated).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `rateThb`, `effectiveFromDateStr`, `note`, `voided`
+  - **Query `customerId`**: filter by customer id
+  - **Query `includeVoided`**: include voided rows (true|false)
+}

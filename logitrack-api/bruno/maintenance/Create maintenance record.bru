@@ -1,0 +1,52 @@
+meta {
+  name: Create maintenance record
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/maintenance
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "truckId": "00000000-0000-0000-0000-000000000000",
+    "type": "PM",
+    "serviceType": "เช็คระยะตามรอบ",
+    "startDate": "2026-11-25",
+    "endDate": "2026-11-26",
+    "status": "scheduled",
+    "appointmentTime": "09:00",
+    "pickupAppointmentAt": "2026-11-26T10:00:00Z",
+    "costLaborThb": 1500,
+    "costPartsThb": 3500,
+    "totalCostThb": 5000,
+    "invoiceAmountThb": 5000,
+    "provider": "Example Garage",
+    "providerLat": 13.75,
+    "providerLng": 100.5,
+    "paymentMethod": "transfer",
+    "currentMileage": 120500,
+    "nextServiceMileage": 130500,
+    "notes": "",
+    "files": {}
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/maintenance`
+
+  Creates a maintenance record (PM or CM) for a truck.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_maintenance`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `tenantId`, `truckId`, `licensePlate`, `type`, `status`, `displayCostThb`
+}

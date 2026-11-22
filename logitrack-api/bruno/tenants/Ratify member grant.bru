@@ -1,0 +1,37 @@
+meta {
+  name: Ratify member grant
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/v1/tenants/:id/members/:userId/ratify
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  userId: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "expectedGrantVersion": "1"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/tenants/:id/members/:userId/ratify`
+
+  Tenant admin ratifies a platform-granted membership, naming the grant version they reviewed (expectedGrantVersion; mismatch is a conflict).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `grantVersion`, `ratifiedAt`
+}

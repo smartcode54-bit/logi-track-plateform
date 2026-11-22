@@ -1,0 +1,31 @@
+meta {
+  name: Get trip by number
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/v1/trips/by-no/:tripNo
+  body: none
+  auth: inherit
+}
+
+params:path {
+  tripNo: TRP-20261122-001
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trips/by-no/:tripNo`
+
+  Returns one trip by its trip number.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:view_driver_monitor`, `accounting:view_income`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tripNo`, `status`, `jobType`, `driverName`, `deliveredAt`
+}

@@ -1,0 +1,32 @@
+meta {
+  name: List service fees
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/service-fees
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~customerId: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/service-fees`
+
+  Lists per-customer service fees (not paginated).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `feeType`, `amountThb`, `unit`, `note`
+  - **Query `customerId`**: filter by customer id
+}

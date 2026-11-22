@@ -1,0 +1,33 @@
+meta {
+  name: List app installations
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/app-installations
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/app-installations`
+
+  Platform-wide mobile app installations (heartbeats). Route exists in routes.txt but its handler is registered outside internal/iam (mobileapp); see that package for its query contract.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

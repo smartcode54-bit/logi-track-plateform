@@ -1,0 +1,42 @@
+meta {
+  name: List truck assignments
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/truck-assignments
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~status: active
+  ~truckId: 00000000-0000-0000-0000-000000000000
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~q: 
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/truck-assignments`
+
+  Lists driver-to-truck assignments (keyset paged).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:view_assignments`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `truckId`, `truckPlate`, `driverId`, `driverName`, `status`; `nextCursor` pages
+  - **Query `status`**: active | revoked | cancelled
+  - **Query `truckId`**: filter by truck
+  - **Query `driverId`**: filter by driver
+  - **Query `q`**: search
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

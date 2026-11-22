@@ -1,0 +1,35 @@
+meta {
+  name: List jobs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/jobs
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~type: billing.backfill-trips
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/jobs`
+
+  Lists the caller's own jobs plus tenant jobs of types the caller holds the capability for. Cursor paged; limit 1-500.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `type`, `status`, `params`, `progress`, `createdAt`; `nextCursor` pages
+  - **Query `type`**: job type filter
+  - **Query `limit`**: 1-500
+  - **Query `cursor`**: opaque cursor from nextCursor
+}

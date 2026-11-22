@@ -1,0 +1,37 @@
+meta {
+  name: Run PM check for truck
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/trucks/:id/pm-check
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "mileage": 120500
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/trucks/:id/pm-check`
+
+  Runs the preventive-maintenance check for the truck at the given odometer reading; creates a PM booking if over the threshold. 404 when truck is out of reach.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:audit_expense`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `created`, `maintenanceId`, `outcome`
+}

@@ -1,0 +1,44 @@
+meta {
+  name: Set tenant member
+  type: http
+  seq: 8
+}
+
+put {
+  url: {{baseUrl}}/v1/tenants/:id/members/:userId
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  userId: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "role": "dispatcher",
+    "status": "active"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/tenants/:id/members/:userId`
+
+  Changes a member's role and/or status (active, suspended). Either field may be omitted but not both.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:assign_role`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `tenantId`, `userId`, `role`, `status`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Mobile profile
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/me
+  body: none
+  auth: none
+}
+
+headers {
+  X-Api-Key: {{shimApiKey}}
+  Authorization: Bearer {{firebaseIdToken}}
+  ~X-Api-Key: <cf_shim-api-key>
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/me`
+
+  Driver-app profile: GET /v1/me plus driver tenant and Firestore doc id (setDriverClaims shim target). 403 for support principals.
+
+  - **Auth:** Cloud Functions shim: `X-Api-Key` (cf_shim key) plus `Authorization: Bearer <Firebase ID token>`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `id`, `email`, `displayName`, `tenant`, `capabilities`, `mustChangePassword`, `driver`
+  - **Header `X-Api-Key`**: cf_shim API key
+}

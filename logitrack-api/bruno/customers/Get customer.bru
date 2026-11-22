@@ -1,0 +1,31 @@
+meta {
+  name: Get customer
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/customers/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/customers/:id`
+
+  Returns one customer. 404 for unknown id.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_customers`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `billingPartyId`, `code`, `name`, `billingDateBasis`, `createdAt`
+}

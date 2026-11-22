@@ -1,0 +1,47 @@
+meta {
+  name: List users
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/users
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~q: somchai
+  ~role: dispatcher
+  ~status: active
+  ~sort: 
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/users`
+
+  Lists users in the caller's tenant reach (platform principals get the platform user list). Support principals get 403 support_view_unavailable. Unknown query params are 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `email`, `displayName`, `status`, `memberships`, `platformRoles`; `nextCursor` pages
+  - **Query `q`**: Search text
+  - **Query `role`**: Filter by tenant role or scope kind
+  - **Query `status`**: Filter by status: active, disabled, reset_required, deleted
+  - **Query `sort`**: Sort order
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

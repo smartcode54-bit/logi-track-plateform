@@ -1,0 +1,53 @@
+meta {
+  name: List trips
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/trips
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~axis: delivered
+  ~from: 2026-11-01
+  ~to: 2026-11-30
+  ~status: delivered
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  ~truckId: 00000000-0000-0000-0000-000000000000
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trips`
+
+  Lists trip records (keyset pages). axis selects whether from/to bound delivery or plan date.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:view_driver_monitor`, `accounting:view_income`, `dispatch:view_operations`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tripNo`, `status`, `jobType`, `driverName`, `deliveredAt`; `nextCursor` pages
+  - **Query `axis`**: date axis for from/to
+  - **Query `from`**: range start
+  - **Query `to`**: range end
+  - **Query `status`**: status; repeatable
+  - **Query `driverId`**: driver id
+  - **Query `customerId`**: customer id
+  - **Query `truckId`**: truck id
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from nextCursor
+  - **Header `X-Act-On-Tenant`**: Platform admin only: act on a tenant id, or * for all tenants
+}

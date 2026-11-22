@@ -1,0 +1,37 @@
+meta {
+  name: Web event stream (SSE)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/events
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~topics: 
+  ~lastEventId: 
+}
+
+headers {
+  ~Last-Event-ID: 
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /v1/events`
+
+  Server-Sent Events stream for the web console; bearer only (tickets rejected).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`
+  - **Query `topics`**: comma separated topics; defaults to the caller's allowed topics
+  - **Query `lastEventId`**: resume from this event id
+  - **Header `Last-Event-ID`**: standard SSE resume header
+}

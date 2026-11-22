@@ -1,0 +1,31 @@
+meta {
+  name: Get payroll run
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/payroll/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/payroll/:id`
+
+  Returns one payroll run with its earning/deduction line items.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:view_payroll`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `driverId`, `payPeriod`, `round`, `status`, `netPayThb`
+}

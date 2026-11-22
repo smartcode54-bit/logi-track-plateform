@@ -1,0 +1,34 @@
+meta {
+  name: Get role matrix
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/roles/matrix
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~tenantId: 00000000-0000-0000-0000-000000000000
+  ~layer: tenant
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/roles/matrix`
+
+  Returns the effective role matrix of a layer (tenant by default; tenantId/layer select another).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_roles`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `layer`, `tenantId`, `tenantKind`, `roles`
+  - **Query `tenantId`**: Tenant whose matrix to read
+  - **Query `layer`**: tenant or platform
+}

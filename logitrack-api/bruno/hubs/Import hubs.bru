@@ -1,0 +1,42 @@
+meta {
+  name: Import hubs
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/hubs/import
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "rows": [
+      {
+        "sourceId": "SPK-GW",
+        "sourceNameTh": "บางปู",
+        "sourceNameEn": "Bangpu",
+        "latitude": 13.5,
+        "longitude": 100.7,
+        "stationType": "HUB"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/hubs/import`
+
+  Upserts hubs by sourceId from parsed rows; blank fields keep existing values (import never clears).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_sources`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `created`, `updated`, `errors`
+}

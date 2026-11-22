@@ -1,0 +1,48 @@
+meta {
+  name: List vehicle expenses
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/expenses
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~type: fuel
+  ~status: pending
+  ~category: toll
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~truckId: 00000000-0000-0000-0000-000000000000
+  ~from: 2026-11-01
+  ~to: 2026-11-30
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/expenses`
+
+  Lists fuel/other vehicle expenses with meta.statusCounts on the first page. Currently gated by a P1.0 deny route group.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_fuel`, `accounting:view_other`, `accounting:audit_expense`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tenantId`, `type`, `category`, `status`, `amountThb`; `nextCursor` pages
+  - **Query `type`**: fuel | other
+  - **Query `status`**: pending | approved | rejected
+  - **Query `category`**: tire_repair | maintenance | toll | parking | other
+  - **Query `driverId`**: filter by driver
+  - **Query `truckId`**: filter by truck
+  - **Query `from`**: date from (YYYY-MM-DD)
+  - **Query `to`**: date to (YYYY-MM-DD)
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

@@ -1,0 +1,35 @@
+meta {
+  name: Mobile heartbeat
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/heartbeat
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "installId": "install-0001",
+    "platform": "android",
+    "appVersion": "3.6.6",
+    "buildNumber": "11",
+    "flavor": "prod"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/mobile/heartbeat`
+
+  Driver app reports installId, platform, version and flavor so staff can see outdated installs. Rate limited 1 per 30s per driver and install. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal,public
+  - **Success:** `204`
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Void standby rate
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/standby-rates/:id/void
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Wrong customer"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/standby-rates/:id/void`
+
+  Voids a standby rate with a reason.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `rateThb`, `effectiveFromDateStr`, `note`, `voided`
+}

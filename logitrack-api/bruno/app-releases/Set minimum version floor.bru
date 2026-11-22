@@ -1,0 +1,33 @@
+meta {
+  name: Set minimum version floor
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/v1/app-releases/floor
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "minAllowedVersion": "3.6.0"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/app-releases/floor`
+
+  Sets or clears (null) the minimum allowed app version. People only (API keys refused). 409 no_apk_url when no download link exists; 422 above_latest. meta reports changed and blocked7d.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_mobile_release`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `minAllowedVersion`, `latestVersion`, `apkDownloadUrl`
+}

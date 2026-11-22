@@ -1,0 +1,36 @@
+meta {
+  name: List platform API keys
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/api-keys
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 50
+  ~cursor: 
+  ~tenantId: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/api-keys`
+
+  Platform-wide key metadata for platform staff; optional tenantId narrows to one tenant. limit max 100.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_api_keys`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `name`, `scope`, `keyPrefix`, `capabilities`, `status`; `nextCursor` pages
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+  - **Query `tenantId`**: Restrict to one tenant
+}

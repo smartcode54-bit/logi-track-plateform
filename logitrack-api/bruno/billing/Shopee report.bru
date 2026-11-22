@@ -1,0 +1,38 @@
+meta {
+  name: Shopee report
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/shopee-report?customerId=00000000-0000-0000-0000-000000000000&year=2026&month=11
+  body: none
+  auth: inherit
+}
+
+params:query {
+  customerId: 00000000-0000-0000-0000-000000000000
+  year: 2026
+  month: 11
+  ~half: full
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/shopee-report`
+
+  Shopee evidence report data for a customer period with photo counts.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:shopee_report`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `customerId`, `year`, `month`, `half`, `trips`, `tripCount`
+  - **Query `customerId`** (required): customer id
+  - **Query `year`** (required): period year
+  - **Query `month`** (required): period month
+  - **Query `half`**: full|first|second
+}

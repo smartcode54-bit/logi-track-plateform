@@ -1,0 +1,29 @@
+meta {
+  name: Delete user
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/v1/users/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/users/:id`
+
+  Deletes a user. Requires the platform_admin platform role (not a tenant capability).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `204`
+}

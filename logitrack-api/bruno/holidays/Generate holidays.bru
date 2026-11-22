@@ -1,0 +1,41 @@
+meta {
+  name: Generate holidays
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/v1/holidays/generate
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "year": 2026,
+    "finalHolidays": [
+      {
+        "date": "2026-12-31",
+        "type": "public",
+        "name": "New Year's Eve"
+      }
+    ],
+    "initialHolidays": []
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/holidays/generate`
+
+  Writes the reviewed final holidays of a year as published and deletes initial holidays the review dropped, in one transaction.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_holidays`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `saved`, `deleted`, `duplicates`
+}

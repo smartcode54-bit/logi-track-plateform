@@ -1,0 +1,53 @@
+meta {
+  name: Record truck renewal
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/trucks/:id/renewals
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "type": "tax",
+    "status": "completed",
+    "amount": 3200,
+    "paymentMethod": "transfer",
+    "date": "2026-11-20",
+    "expiryDate": "2027-11-20",
+    "receiptKey": "receipts/key-placeholder.pdf",
+    "notes": "",
+    "responsible": "company",
+    "startDate": "2026-11-20",
+    "provider": "Example Insurance",
+    "policyId": "POL-1",
+    "policyNumber": "12345",
+    "coverage": "2+",
+    "documentKeys": [],
+    "documents": [],
+    "insuranceNotes": ""
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/trucks/:id/renewals`
+
+  Records a tax or insurance renewal for the truck and writes a ledger transaction when completed. Returns 201 when a transaction was created, else 200.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_renewals`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `truck`, `transaction`
+}

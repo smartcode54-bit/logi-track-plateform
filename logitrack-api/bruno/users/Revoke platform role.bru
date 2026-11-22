@@ -1,0 +1,31 @@
+meta {
+  name: Revoke platform role
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{baseUrl}}/v1/users/:id/platform-roles/:role
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  role: dispatcher
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/users/:id/platform-roles/:role`
+
+  Revokes the named platform role from the user.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `platform:manage_platform_roles`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

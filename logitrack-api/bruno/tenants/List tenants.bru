@@ -1,0 +1,43 @@
+meta {
+  name: List tenants
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/tenants
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~kind: carrier
+  ~status: active
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/tenants`
+
+  Lists tenants (own fleet and carriers) the caller may see. Support principals get 403.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `platform:manage_tenants`, `fleet:manage_subcontractors`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `kind`, `code`, `nameTh`, `nameEn`, `status`; `nextCursor` pages
+  - **Query `kind`**: own_fleet or carrier
+  - **Query `status`**: Tenant status
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}
