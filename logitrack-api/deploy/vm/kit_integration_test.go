@@ -284,7 +284,7 @@ func TestNginxRouting(t *testing.T) {
 
 // TestShellcheck: every script of the kit is clean under shellcheck (sourcing kit.conf).
 func TestShellcheck(t *testing.T) {
-	scripts := []string{"provision.sh", "deploy.sh", "rollout.sh", "run-app.sh", "kit.conf", "testdata/stub.sh"}
+	scripts := []string{"provision.sh", "deploy.sh", "rollout.sh", "run-app.sh", "prod-sync.sh", "kit.conf", "testdata/stub.sh"}
 	var files []testcontainers.ContainerFile
 	for _, s := range scripts {
 		files = append(files, testcontainers.ContainerFile{HostFilePath: filepath.Join(kitDir(t), s), ContainerFilePath: "/mnt/" + s, FileMode: 0o755})

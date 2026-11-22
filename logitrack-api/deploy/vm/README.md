@@ -84,6 +84,7 @@ Tree on the VM:
 | `ecosystem.config.cjs` | the four pm2 apps and their per-process listener settings |
 | `nginx/` | the two vhosts, the Cloudflare real-IP and proxy-header snippets, the access-log format |
 | `pm2-logitrack.service` | the systemd unit of the user's pm2 daemon |
+| `prod-sync.sh`, `logitrack-prod-sync.{service,timer,logrotate}` | the 6-hourly refresh of the production copy (section 10; `--dry-run`, `--no-commit`) |
 
 Secrets never leave the VM: `provision.sh` generates them there with `bin/vmenv` (`tools/vmenv`): the three role
 passwords (inside the database URLs; PostgreSQL receives SCRAM verifiers on psql's stdin), the Redis and RabbitMQ
@@ -405,7 +406,7 @@ documents have no file here), the `showkhun-project` bridge and FCM, Cartrack an
 
 - **The source is only read.** `etl dump` runs off the VM with the key of a service account that holds
   `roles/datastore.viewer` (Cloud Datastore Viewer) and nothing else on the source project, so no write can reach
-  it. The VM never holds a key of the source project, and its `.env` keeps `ETL_FIRESTORE_PROJECT_ID`,
+  it. The `.env` never holds a key of the source project (section 10 keeps a read-only one root's alone), and it keeps `ETL_FIRESTORE_PROJECT_ID`,
   `GOOGLE_APPLICATION_CREDENTIALS`, `ETL_SYNC_ENABLED=false` and `COMPAT_PROJECTION_ENABLED=false` as they are;
   `mirror`, `project` and `export-back` are never run here.
 - **The copy holds personal data** (drivers, phones, the Auth export's password hashes): the files live under
@@ -463,6 +464,75 @@ bash /opt/logitrack/current/deploy/vm/rollout.sh pm2 restart all
 Once the pages look right: `rm -rf /opt/logitrack/shared/etl-import` on the VM, `rm -rf sec/prod-dump
 sec/prod-auth-export.json sec/prod-reader-sa.json` off it, and the owner deletes the key (or the whole
 `etl-reader` account) in the source project's Console. Back to the demo: restore the section 7 dump.
+
+## 10. Keeping the production copy fresh (prod-sync, every 6 hours)
+
+`logitrack-prod-sync.timer` runs `prod-sync.sh` at 00:15, 06:15, 12:15 and 18:15 (VM time) and brings the copy of
+section 9 up to date. It never wipes: each run continues from the checkpoints the last load left (`etl.source_docs`
+keeps every document's update time, `etl.watermarks` each collection's high mark). Owner's choices of 2026-11-22:
+incremental, no media, a read-only key on the VM, no alerting beyond the failed unit.
+
+One run, as root, under a lock (a run by hand while the timer's run is going logs `skipped`):
+
+1. `etl dump --collections=all` (every document: Firestore cannot list "changed since" without a timestamp field;
+   about 7,000 documents, 4 runs a day, inside the free tier) and `firebase-tools auth:export`, as root with the key
+   of `/etc/logitrack/prod-sync.env`, into `shared/prod-sync/run.*` (deleted when the run ends, failed or not);
+2. as `logitrack` through `run-app.sh`: `etl auth-import` (accounts staging lacks; existing ones are skipped),
+   `etl load` (upserts the documents whose update time is newer; one transaction, so a failure rolls back whole and
+   the database keeps its last good load), `seed bootstrap-platform-admins`;
+3. a flush of the read-through cache (`lt:*:cache:*` in logitrack-redis; sessions stay), `etl status`, and the stamp
+   `shared/prod-sync/last-success`.
+
+What survives a run: everything made on staging (users, passwords, rows testers created), the platform_admin
+grants, the Own fleet support-access consent. A staging edit of a row that came from production lasts until
+production changes that document. Not synced: media (no `media-copy`; local storage), documents deleted in
+production (their rows stay), `permissions_config` (run `auth-rbac` of section 9 by hand), legacy passwords
+(`FIREBASE_SCRYPT_*` stay empty here: imported accounts sign in with Google or a reset). A deploy during a run may
+fail its migrate or the run (each rolls back); run the failed one again.
+
+**Install** (once; needs the section 9 copy loaded and a deploy that ships `prod-sync.sh`). The owner creates, in
+the source project's Console, a service account with **Cloud Datastore Viewer** and **Firebase Authentication
+Viewer** only (no writer role: the job is unattended) and saves its JSON key as `sec/prod-sync-reader.json` off the
+VM. Then, from `logitrack-api/` (the project id is read from the old web `.env` when the command runs):
+
+```sh
+ssh showkhun.co 'install -d -m 0755 /opt/logitrack-sync-tools &&
+  PATH=/opt/node-v24.14.0/bin:$PATH npm install --prefix /opt/logitrack-sync-tools --no-fund --no-audit firebase-tools@15.33.0 >/dev/null'
+ssh showkhun.co 'install -d -m 0700 /etc/logitrack && umask 077 && cat >/etc/logitrack/prod-reader-sa.json &&
+  chmod 0400 /etc/logitrack/prod-reader-sa.json' <sec/prod-sync-reader.json
+src=$(sed -n 's/^NEXT_PUBLIC_FIREBASE_PROJECT_ID=//p' .env.old.prod | tr -d '\r')
+printf 'PROD_SYNC_PROJECT_ID=%s\nPROD_SYNC_CREDENTIALS=/etc/logitrack/prod-reader-sa.json\n' "$src" |
+  ssh showkhun.co 'umask 077 && cat >/etc/logitrack/prod-sync.env'
+rm sec/prod-sync-reader.json
+```
+
+On the VM, as root:
+
+```sh
+k=/opt/logitrack/current/deploy/vm
+install -m 0644 $k/logitrack-prod-sync.service $k/logitrack-prod-sync.timer /etc/systemd/system/
+install -m 0644 $k/logitrack-prod-sync.logrotate /etc/logrotate.d/logitrack-prod-sync
+systemctl daemon-reload
+bash $k/prod-sync.sh --dry-run          # set-up only: no read, no write
+bash $k/prod-sync.sh --no-commit        # reads production; auth-import and load roll back
+systemctl start logitrack-prod-sync.service     # the first run (waits for it; non-zero when it failed)
+systemctl enable --now logitrack-prod-sync.timer
+```
+
+**Run once by hand:** `systemctl start logitrack-prod-sync.service`.
+
+**The last run:**
+
+```sh
+systemctl list-timers logitrack-prod-sync.timer        # last and next run
+systemctl status logitrack-prod-sync.service           # "failed" = the last run failed
+cat /opt/logitrack/shared/prod-sync/last-success       # time and release of the last good run
+tail -n 100 /opt/logitrack/shared/logs/prod-sync.log   # also journalctl -u logitrack-prod-sync.service
+```
+
+**Disable:** `systemctl disable --now logitrack-prod-sync.timer`. To remove it too: delete the two units and
+`/etc/logrotate.d/logitrack-prod-sync`, `systemctl daemon-reload`, `rm -rf /etc/logitrack/prod-sync.env
+/etc/logitrack/prod-reader-sa.json /opt/logitrack-sync-tools`, and the owner deletes the key in the Console.
 
 ## Operations
 
@@ -524,7 +594,7 @@ of api, worker, scheduler, migrate and seed (`STORAGE_BACKEND=local`, empty `S3_
 node, every script run against a temporary tree with stub commands (dry runs change nothing; no generated secret
 in any output or process argument; a second provision changes nothing; a JWT key path outside `shared/secrets/`
 is refused; deploy from a clean export, refusal of untracked files, rollback, the public-check failure path,
-the first-deploy seed and the `--reseed` top-up of a later deploy, pruning; the section 2 reload; the backup commands' modes). With `-tags=integration`
+the first-deploy seed and the `--reseed` top-up of a later deploy, pruning; the section 2 reload; the backup commands' modes; prod-sync.sh's refusal of a readable key, dry run, step order, `--no-commit`, failed load and lock). With `-tags=integration`
 (`make test-integration`, or `make vm-check`): `nginx -t`, the routing of both vhosts and the error logs of an
 unreachable upstream (no credential in them) under `nginx:1.24` with a dummy certificate at the real paths,
 shellcheck over every script, and section 7's restore run as written on PostgreSQL 18 (definer owners kept,

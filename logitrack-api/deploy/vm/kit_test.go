@@ -30,7 +30,7 @@ import (
 )
 
 // The commands the kit calls; each becomes a link to testdata/stub.sh.
-var stubbed = []string{"id", "useradd", "chown", "runuser", "psql", "docker", "curl", "systemctl", "nginx", "ss", "ssh", "go"}
+var stubbed = []string{"id", "useradd", "chown", "runuser", "psql", "docker", "curl", "systemctl", "nginx", "ss", "ssh", "go", "flock"}
 
 // Generated names whose values are secrets (vmenv), and the URLs that embed a generated password.
 var (
@@ -296,12 +296,12 @@ func writeFile(t *testing.T, path, content string, mode os.FileMode) {
 
 func TestScriptsParse(t *testing.T) {
 	needBash(t)
-	for _, f := range []string{"provision.sh", "deploy.sh", "rollout.sh", "run-app.sh", "kit.conf"} {
+	for _, f := range []string{"provision.sh", "deploy.sh", "rollout.sh", "run-app.sh", "prod-sync.sh", "kit.conf"} {
 		if out, err := exec.Command("bash", "-n", f).CombinedOutput(); err != nil {
 			t.Errorf("bash -n %s: %v\n%s", f, err, out)
 		}
 	}
-	for _, f := range []string{"provision.sh", "deploy.sh", "rollout.sh", "run-app.sh"} {
+	for _, f := range []string{"provision.sh", "deploy.sh", "rollout.sh", "run-app.sh", "prod-sync.sh"} {
 		st, err := os.Stat(f)
 		if err != nil || st.Mode()&0o111 == 0 {
 			t.Errorf("%s must be executable", f)
@@ -1432,5 +1432,156 @@ func TestReadmeRunbook(t *testing.T) {
 				t.Errorf("README restores without the dump's owners: %s", l)
 			}
 		}
+	}
+}
+
+// TestProdSync: prod-sync.sh (README section 10) refuses a key others can read; --dry-run reads and writes nothing;
+// a run reads production as root, then writes the database as logitrack in order, flushes the read cache, keeps no
+// personal data and stamps the run, and neither output names the project or shows the key; --no-commit commits
+// nothing; a failed load exits non-zero without a stamp; a run while another holds the lock is skipped.
+func TestProdSync(t *testing.T) {
+	s := newSandbox(t)
+	rel := fakeRelease(t, s, "abc1234")
+	script := filepath.Join(rel, "deploy", "vm", "prod-sync.sh")
+	writeFile(t, script, string(must(os.ReadFile("prod-sync.sh"))), 0o755)
+	root := filepath.Join(s.prefix, "opt", "logitrack")
+	if err := os.Symlink(filepath.Join("releases", "abc1234"), filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "shared", ".env"), "APP_ENV=dev\nETL_DATABASE_URL=postgres://etl@127.0.0.1/logitrack\n", 0o640)
+	// cmd/etl: records its arguments, creates the dump directory, fails the load on demand.
+	writeFile(t, filepath.Join(rel, "bin", "etl"), "#!/bin/sh\necho \"etl $*\" >>\""+s.state+"/programs.log\"\n"+
+		"case $1 in dump) mkdir -p \"${3#--out=}\" ;; load) [ ! -e \""+s.state+"/fail-load\" ] || exit 1 ;; esac\n", 0o755)
+	writeFile(t, filepath.Join(s.prefix, "opt", "logitrack-sync-tools", "node_modules", ".bin", "firebase"),
+		"#!/bin/sh\necho \"firebase $*\" >>\""+s.state+"/programs.log\"\n: >\"$2\"\n", 0o755)
+	key := filepath.Join(s.prefix, "etc", "logitrack", "prod-reader-sa.json")
+	writeFile(t, key, `{"type":"service_account","private_key":"KEY-CONTENT-NEVER-SHOWN"}`, 0o400)
+	writeFile(t, filepath.Join(s.prefix, "etc", "logitrack", "prod-sync.env"),
+		"PROD_SYNC_PROJECT_ID=prod-project-x1\nPROD_SYNC_CREDENTIALS=/etc/logitrack/prod-reader-sa.json\n", 0o600)
+	syncDir := filepath.Join(root, "shared", "prod-sync")
+	stamp := filepath.Join(syncDir, "last-success")
+	reset := func() {
+		s.resetCalls(t)
+		writeFile(t, filepath.Join(s.state, "programs.log"), "", 0o644)
+	}
+	noSecret := func(what, out string) {
+		t.Helper()
+		for _, v := range []string{"prod-project-x1", "KEY-CONTENT-NEVER-SHOWN"} {
+			if strings.Contains(out, v) {
+				t.Errorf("%s shows %q:\n%s", what, v, out)
+			}
+		}
+	}
+	noRunDirs := func() {
+		t.Helper()
+		if left, _ := filepath.Glob(filepath.Join(syncDir, "run.*")); len(left) != 0 {
+			t.Errorf("personal data left behind: %v", left)
+		}
+	}
+
+	// A key the group can read is refused before anything runs.
+	if err := os.Chmod(key, 0o440); err != nil {
+		t.Fatal(err)
+	}
+	reset()
+	if out, code := s.run(t, script, "--prefix", s.prefix); code != 2 || !strings.Contains(out, "readable by root only") {
+		t.Fatalf("group-readable key: exit %d\n%s", code, out)
+	}
+	if got := s.read(t, "programs.log"); got != "" {
+		t.Errorf("a refused run ran %q", got)
+	}
+	if err := os.Chmod(key, 0o400); err != nil {
+		t.Fatal(err)
+	}
+
+	// --dry-run: the plan, and no read, write, lock or log.
+	reset()
+	out, code := s.run(t, script, "--dry-run", "--prefix", s.prefix)
+	if code != 0 || !strings.Contains(out, "would run step load") {
+		t.Fatalf("--dry-run: exit %d\n%s", code, out)
+	}
+	if got := s.read(t, "programs.log") + s.read(t, "calls.log"); strings.Contains(got, "etl") || strings.Contains(got, "firebase") ||
+		strings.Contains(got, "runuser") || strings.Contains(got, "docker") || strings.Contains(got, "flock") {
+		t.Errorf("--dry-run ran something:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "shared", "logs", "prod-sync.log")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("--dry-run wrote the log (%v)", err)
+	}
+
+	// A run.
+	reset()
+	out, code = s.run(t, script, "--prefix", s.prefix)
+	if code != 0 || !strings.Contains(out, "done (run)") {
+		t.Fatalf("run: exit %d\n%s", code, out)
+	}
+	noSecret("the output", out)
+	logText := string(must(os.ReadFile(filepath.Join(root, "shared", "logs", "prod-sync.log"))))
+	noSecret("the log", logText)
+	if !strings.Contains(logText, "done (run)") {
+		t.Errorf("the log lacks the run:\n%s", logText)
+	}
+	var steps []string
+	for _, l := range strings.Split(strings.TrimSpace(s.read(t, "programs.log")), "\n") {
+		f := strings.Fields(l)
+		steps = append(steps, f[0]+" "+f[1])
+	}
+	want := []string{"etl dump", "firebase auth:export", "etl auth-import", "etl load", "seed bootstrap-platform-admins", "etl status"}
+	if !slices.Equal(steps, want) {
+		t.Errorf("steps %q, want %q", steps, want)
+	}
+	if p := s.read(t, "programs.log"); strings.Contains(p, "--dry-run") || !strings.Contains(p, "etl dump --collections=all") {
+		t.Errorf("run arguments:\n%s", p)
+	}
+	calls := s.read(t, "calls.log")
+	if n := strings.Count(calls, "runuser -u logitrack -- env -i"); n != 4 {
+		t.Errorf("%d runs as logitrack, want 4 (auth-import, load, seed, status):\n%s", n, calls)
+	}
+	if strings.Contains(calls, key) || !strings.Contains(calls, "flock -n 9") || !strings.Contains(calls, "docker exec logitrack-redis") {
+		t.Errorf("calls:\n%s", calls)
+	}
+	if got := string(must(os.ReadFile(stamp))); !strings.HasSuffix(got, " abc1234\n") {
+		t.Errorf("stamp %q", got)
+	}
+	noRunDirs()
+
+	// --no-commit: auth-import and load roll back; no admins, flush or stamp.
+	if err := os.Remove(stamp); err != nil {
+		t.Fatal(err)
+	}
+	reset()
+	if out, code = s.run(t, script, "--no-commit", "--prefix", s.prefix); code != 0 {
+		t.Fatalf("--no-commit: exit %d\n%s", code, out)
+	}
+	p := s.read(t, "programs.log")
+	if !strings.Contains(p, "etl auth-import") || !strings.Contains(p, "etl load --dump=") || strings.Count(p, " --dry-run") != 2 ||
+		strings.Contains(p, "seed") || strings.Contains(s.read(t, "calls.log"), "docker") {
+		t.Errorf("--no-commit ran:\n%s", p)
+	}
+	if _, err := os.Stat(stamp); !errors.Is(err, os.ErrNotExist) {
+		t.Error("--no-commit stamped the run")
+	}
+	noRunDirs()
+
+	// A failed load: non-zero, no later step, no stamp, no personal data left.
+	writeFile(t, filepath.Join(s.state, "fail-load"), "", 0o644)
+	reset()
+	out, code = s.run(t, script, "--prefix", s.prefix)
+	if code == 0 || !strings.Contains(out, "FAILED at step load") {
+		t.Fatalf("failed load: exit %d\n%s", code, out)
+	}
+	if p := s.read(t, "programs.log"); strings.Contains(p, "seed") || strings.Contains(p, "etl status") {
+		t.Errorf("steps after the failed load ran:\n%s", p)
+	}
+	if _, err := os.Stat(stamp); !errors.Is(err, os.ErrNotExist) {
+		t.Error("a failed run stamped")
+	}
+	noRunDirs()
+
+	// The lock is held by another run: skipped, exit 0, nothing read.
+	writeFile(t, filepath.Join(s.state, "flock-busy"), "", 0o644)
+	reset()
+	out, code = s.run(t, script, "--prefix", s.prefix)
+	if code != 0 || !strings.Contains(out, "skipped") || s.read(t, "programs.log") != "" {
+		t.Errorf("overlapping run: exit %d\n%s\n%s", code, out, s.read(t, "programs.log"))
 	}
 }

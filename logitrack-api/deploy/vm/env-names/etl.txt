@@ -1,6 +1,7 @@
 # Environment allow-list of cmd/etl (README "9. Loading a Firestore dump"): load, auth-import, auth-rbac and
 # reconcile of a dump made off the VM. Exactly the developer-spec.md §16.1 names with consumer etl or all-go
-# (checked by `make env-check`). The VM holds no production key: dump runs where the read-only key is.
+# (checked by `make env-check`). No production key reaches etl through run-app.sh: dump runs where the read-only
+# key is (off the VM, or as root in prod-sync.sh, README section 10).
 APP_ENV
 DATABASE_MAX_CONNS
 DATABASE_MIN_CONNS

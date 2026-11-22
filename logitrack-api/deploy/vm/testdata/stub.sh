@@ -137,6 +137,7 @@ case $name in
     pwd -P >"$state/go.cwd"
     ls migrations >"$state/go.migrations" 2>/dev/null || :
     ;;
+  flock) [ ! -e "$state/flock-busy" ] ;;
   pm2 | systemctl | nginx | ss | node) ;;
   *)
     echo "stub: unexpected command $name" >&2
