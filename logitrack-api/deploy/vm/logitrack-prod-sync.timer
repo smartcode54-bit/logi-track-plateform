@@ -1,0 +1,12 @@
+# Managed by logitrack-api/deploy/vm (README section 10); do not edit on the server.
+# Every 6 hours (VM local time); a run missed while the VM was down starts at boot. A oneshot service never
+# starts twice at once, and prod-sync.sh also holds a lock against a run by hand.
+[Unit]
+Description=LogiTrack staging: sync from production Firestore every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

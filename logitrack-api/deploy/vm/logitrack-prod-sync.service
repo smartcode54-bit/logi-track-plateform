@@ -1,0 +1,15 @@
+# Managed by logitrack-api/deploy/vm (README section 10); do not edit on the server.
+# One run of prod-sync.sh: production Firestore -> the staging database (incremental upsert, one transaction).
+# Runs as root: the read-only production key in /etc/logitrack is root's alone. A failed run leaves the unit
+# "failed" (systemctl --failed) and the database at its last good load.
+[Unit]
+Description=LogiTrack staging: sync from production Firestore
+After=network-online.target docker.service postgresql.service
+Wants=network-online.target
+ConditionPathExists=/etc/logitrack/prod-sync.env
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/logitrack/current/deploy/vm/prod-sync.sh
+Nice=10
+TimeoutStartSec=45min

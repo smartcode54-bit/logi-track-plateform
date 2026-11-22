@@ -1,0 +1,8 @@
+# Managed by logitrack-api/deploy/vm (README section 10): /etc/logrotate.d/logitrack-prod-sync
+/opt/logitrack/shared/logs/prod-sync.log {
+	weekly
+	rotate 8
+	compress
+	missingok
+	notifempty
+}
