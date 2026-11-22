@@ -1,0 +1,36 @@
+meta {
+  name: List holidays
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/holidays
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~year: 2026
+}
+
+headers {
+  ~If-None-Match: "etag-placeholder"
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/holidays`
+
+  Lists holidays visible to any authenticated user. Returns a strong ETag; a matching If-None-Match yields 304.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `date`, `type`, `status`, `name`, `isRecurring`; `nextCursor` pages
+  - **Query `year`**: calendar year
+  - **Header `If-None-Match`**: ETag from a previous response; 304 when unchanged
+}

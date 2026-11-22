@@ -1,0 +1,36 @@
+meta {
+  name: Compute standby billing
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/standby/:id/billing/compute
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "forceRecompute": false
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/standby/:id/billing/compute`
+
+  Prices a standby record; forceRecompute needs accounting:recompute_force on the own fleet.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `ok`, `skipped`, `billingEstimateThb`, `error`, `reason`
+}

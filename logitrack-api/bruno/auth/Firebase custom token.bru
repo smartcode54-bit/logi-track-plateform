@@ -1,0 +1,26 @@
+meta {
+  name: Firebase custom token
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/v1/bridge/firebase-token
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/bridge/firebase-token`
+
+  Mints a Firebase custom token for the web during the Firebase coexistence bridge. 404 unless the bridge mode includes web. Internal listener only.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `customToken`, `expiresIn`
+}

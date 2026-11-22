@@ -1,0 +1,27 @@
+meta {
+  name: My chat
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/chat
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/chat`
+
+  The driver's open chat and read state; 404 when none.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:chat`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`, `reads`
+}

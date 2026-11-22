@@ -1,0 +1,48 @@
+meta {
+  name: Refresh tokens
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/refresh
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "refreshToken": "{{refreshToken}}"
+  }
+}
+
+script:post-response {
+  // Keep the new tokens for every other request (runtime variables, never written to disk).
+  if (res.status === 200 && res.body && res.body.data) {
+    if (res.body.data.accessToken) bru.setVar("accessToken", res.body.data.accessToken);
+    if (res.body.data.refreshToken) bru.setVar("refreshToken", res.body.data.refreshToken);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+tests {
+  test("returns a token pair", function () {
+    expect(res.body.data.accessToken).to.be.a("string");
+    expect(res.body.data.refreshToken).to.be.a("string");
+    expect(res.body.data.expiresIn).to.be.a("number");
+  });
+}
+
+docs {
+  `POST /v1/auth/refresh`
+
+  Rotates the refresh token and returns a new token pair. 422 when refreshToken is missing; reuse of a rotated token revokes the session.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `accessToken`, `expiresIn`, `refreshToken`
+}

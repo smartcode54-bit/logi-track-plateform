@@ -1,0 +1,36 @@
+meta {
+  name: List quarantine rows
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/v1/tenants/quarantine/rows
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~table: trucks
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/tenants/quarantine/rows`
+
+  Platform-only review of rows parked in the quarantine tenant, with counts per table in meta.byTable.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `platform:cross_tenant_read`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `table`, `id`, `legacyDocId`, `label`, `createdAt`, `trace`; `nextCursor` pages
+  - **Query `table`**: Restrict to one table
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

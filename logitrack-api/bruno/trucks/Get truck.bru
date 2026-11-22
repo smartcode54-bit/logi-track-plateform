@@ -1,0 +1,31 @@
+meta {
+  name: Get truck
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/trucks/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trucks/:id`
+
+  Returns one truck with status history, current assignments and files (short-lived presigned URLs). 404 when not found or out of reach.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:view_trucks`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `licensePlate`, `statusHistory`, `currentAssignments`, `files`
+}

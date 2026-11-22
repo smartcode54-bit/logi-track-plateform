@@ -1,0 +1,63 @@
+meta {
+  name: Create driver
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/drivers
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "firstName": "Somchai",
+    "lastName": "Jaidee",
+    "fullNameTh": "สมชาย ใจดี",
+    "mobile": "0812345678",
+    "email": "driver@example.com",
+    "birthDate": "1990-01-31",
+    "idCard": "1234567890123",
+    "idCardExpiredDate": "2030-01-31",
+    "truckLicenseId": "12345678",
+    "licenseType": "บ.2",
+    "licenseExpiredDate": "2028-01-31",
+    "employmentType": "full_time",
+    "contractYears": 1,
+    "employmentStart": "2026-01-01",
+    "employmentEnd": null,
+    "hireDate": "2026-01-01",
+    "probationPassed": false,
+    "status": "active",
+    "statusNote": "",
+    "assignToProject": "",
+    "profileKey": "drivers/profile-placeholder.jpg",
+    "idCardKey": "drivers/idcard-placeholder.jpg",
+    "licenseKey": "drivers/license-placeholder.jpg",
+    "customerDriverIds": [
+      {
+        "customerId": "00000000-0000-0000-0000-000000000000",
+        "idTypeKey": "staff_id",
+        "value": "D-001"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/drivers`
+
+  Creates a driver. PII is returned only to callers with drivers:view_pii (response then Cache-Control: no-store).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `drivers:create`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `tenantId`, `displayName`, `firstName`, `lastName`, `status`
+}

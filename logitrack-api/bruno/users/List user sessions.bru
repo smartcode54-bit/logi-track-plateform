@@ -1,0 +1,36 @@
+meta {
+  name: List user sessions
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/v1/users/:id/sessions
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/users/:id/sessions`
+
+  Lists active sessions of the user (platform principals use the projected platform variant).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:revoke_sessions`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `platform`, `amr`, `appVersion`, `createdAt`, `lastSeenAt`; `nextCursor` pages
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Open chat with driver
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/chats
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "driverId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/chats`
+
+  Gets the driver's open chat (200) or creates one (201).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `chat:send`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`
+}

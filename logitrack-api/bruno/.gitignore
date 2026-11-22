@@ -1,0 +1,2 @@
+# Local credentials for {{process.env.*}}; copy .env.example.
+.env

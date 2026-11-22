@@ -1,0 +1,35 @@
+meta {
+  name: Send broadcast
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/broadcasts
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "recipientGroup": "all_driver",
+    "title": "Notice",
+    "messageText": "Please update the app."
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/broadcasts`
+
+  Sends a broadcast to a recipientGroup (all_driver, own_fleet, subcontractor, all_tenants) or to explicit recipientUserIds (give exactly one). Returns 201.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `broadcasts:send`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `createdByName`, `title`, `messageText`, `recipientGroup`, `recipientCount`, `readCount`, `sentAt`
+}

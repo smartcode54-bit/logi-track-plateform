@@ -1,0 +1,66 @@
+meta {
+  name: Create payroll config version
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/payroll/config
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "effectiveFrom": "2026-12-01",
+    "weekdayRateThb": 600,
+    "holidayRateThb": 900,
+    "payStandby": true,
+    "helperDayRateThb": 400,
+    "fuelIncentiveTiers": [
+      {
+        "minKmPerLitre": 6,
+        "amountThb": 500
+      }
+    ],
+    "fuelMinRefuelsPerMonth": 4,
+    "tripVolumeTiers": [
+      {
+        "minTrips": 20,
+        "amountThb": 1000
+      }
+    ],
+    "sso": {
+      "ratePercent": 5,
+      "baseExistingThb": 15000,
+      "baseNewThb": 15000,
+      "existingHiredBeforeYear": 2020,
+      "maxAgeInclusive": 60,
+      "probationMonths": 4
+    },
+    "penaltyTypes": [
+      {
+        "code": "DAMAGE",
+        "nameEn": "Damage",
+        "nameTh": "ความเสียหาย",
+        "defaultAmountThb": 500
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/payroll/config`
+
+  Creates a new effective-dated compensation config version; absent fields take schema defaults.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_payroll`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `effectiveFromDate`, `weekdayRateThb`, `holidayRateThb`, `sso`, `penaltyTypes`
+}

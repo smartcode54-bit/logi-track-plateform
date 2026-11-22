@@ -1,0 +1,39 @@
+meta {
+  name: List subcontractors
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/subcontractors
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~fields: minimal
+  ~q: 
+  ~status: active
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/subcontractors`
+
+  Any authenticated principal gets fields=minimal; the full summary list needs fleet:manage_subcontractors (checked in the service).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `code`, `nameTh`, `nameEn`, `status`, `fleetSize`; `nextCursor` pages
+  - **Query `fields`**: minimal for the short projection
+  - **Query `q`**: Search text
+  - **Query `status`**: Status filter
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

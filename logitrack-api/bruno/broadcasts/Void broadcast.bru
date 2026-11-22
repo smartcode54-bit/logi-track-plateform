@@ -1,0 +1,30 @@
+meta {
+  name: Void broadcast
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/v1/broadcasts/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/broadcasts/:id`
+
+  Soft-deletes a broadcast. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `broadcasts:send`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

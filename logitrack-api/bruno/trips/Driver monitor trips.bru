@@ -1,0 +1,62 @@
+meta {
+  name: Driver monitor trips
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/v1/trips/monitor?month=2026-11
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~from: 2026-11-01
+  ~to: 2026-11-30
+  month: 2026-11
+  ~status: delivered
+  ~jobType: FIRST_MILE
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  ~partner: TTP
+  ~plate: 1กข1234
+  ~vehicleClass: 4WJ
+  ~origin: SPK-GW
+  ~destination: SPK890103
+  ~q: TRP
+  ~facets: true
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trips/monitor`
+
+  Driver Monitor feed in pages of up to 200 rows with optional facets (filter option counts).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:view_driver_monitor`, `dispatch:view_operations`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tripNo`, `status`, `driverName`, `origin`, `destination`; `nextCursor` pages
+  - **Query `from`**: range start (with the other bound, instead of month)
+  - **Query `to`**: range end (with the other bound, instead of month)
+  - **Query `month`** (required): month YYYY-MM; send month, or both from and to (422 otherwise)
+  - **Query `status`**: status; repeatable
+  - **Query `jobType`**: job type
+  - **Query `driverId`**: driver id
+  - **Query `customerId`**: customer id
+  - **Query `partner`**: partner code
+  - **Query `plate`**: truck plate
+  - **Query `vehicleClass`**: vehicle class
+  - **Query `origin`**: origin
+  - **Query `destination`**: destination
+  - **Query `q`**: text search
+  - **Query `facets`**: true/1 includes facets, false/0 omits
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from nextCursor
+}

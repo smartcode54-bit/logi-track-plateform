@@ -1,0 +1,49 @@
+meta {
+  name: Backfill standby record
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/standby/backfill
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "driverId": "00000000-0000-0000-0000-000000000000",
+    "taskId": "00000000-0000-0000-0000-000000000000",
+    "tripId": "00000000-0000-0000-0000-000000000000",
+    "truckId": "00000000-0000-0000-0000-000000000000",
+    "startLocation": "SPK-GW",
+    "endLocation": "SPK890103",
+    "startedAt": "2026-11-22T08:00:00Z",
+    "endedAt": "2026-11-22T10:00:00Z",
+    "note": "Waited for dock",
+    "jobCategory": "PRIMARY",
+    "photos": [
+      {
+        "type": "customer_worksheet",
+        "key": "uploads/sheet.jpg",
+        "overlayText": ""
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/standby/backfill`
+
+  Creates a completed standby record for a past job; also completes its task and sets the trip to standby. endedAt must be after startedAt.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:create_standby`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `driverName`, `startedAt`, `endedAt`, `status`
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Support file content
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/support/files/:fileId/content
+  body: none
+  auth: inherit
+}
+
+params:path {
+  fileId: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /v1/support/files/:fileId/content`
+
+  Streams a file's bytes for a read-only support visit (images and PDFs only). 404 unless the caller is in support mode; 403 when tenant consent is masked.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`
+}

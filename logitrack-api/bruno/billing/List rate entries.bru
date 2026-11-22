@@ -1,0 +1,38 @@
+meta {
+  name: List rate entries
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/rate-entries
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  ~includeVoided: false
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/rate-entries`
+
+  Lists rate-card entries, optionally per customer. Cursor paged.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `customerId`, `hubId`, `destinationCode`, `vehicleClass`, `rateThb`; `nextCursor` pages
+  - **Query `customerId`**: filter by customer id
+  - **Query `includeVoided`**: include voided rows (true|false)
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from nextCursor
+}

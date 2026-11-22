@@ -1,0 +1,38 @@
+meta {
+  name: Submit billing impact report
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/jobs/billing.impact-report
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "fromDateStr": "2026-11-01",
+    "toDateStr": "2026-11-30",
+    "maxScan": 5000,
+    "maxWrite": 1000,
+    "forceRecompute": false,
+    "customerId": "00000000-0000-0000-0000-000000000000"
+  }
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/jobs/billing.impact-report`
+
+  Queues a read-only billing impact report (own fleet).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_overview`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `jobId`
+}

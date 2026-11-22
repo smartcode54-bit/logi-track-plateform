@@ -1,0 +1,27 @@
+meta {
+  name: Latest broadcast
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/broadcasts/latest
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/broadcasts/latest`
+
+  The driver's newest broadcast, or null.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:broadcasts`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `id`, `ref`, `title`, `messageText`, `sentAt`, `read`
+}

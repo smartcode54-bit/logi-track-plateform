@@ -1,0 +1,31 @@
+meta {
+  name: Logout
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/logout
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "refreshToken": "{{refreshToken}}"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/auth/logout`
+
+  Revokes the current session. Accepts the bearer, the refresh token, or both; an expired/revoked bearer does not block logout via refresh token. API keys refused. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal,public
+  - **Success:** `204`
+}

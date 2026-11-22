@@ -1,0 +1,46 @@
+meta {
+  name: Publish app release
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/app-releases
+  body: json
+  auth: inherit
+}
+
+headers {
+  ~X-Api-Key: <release_publisher-api-key>
+  ~X-Api-Key: {{apiKey}}
+}
+
+body:json {
+  {
+    "flavor": "prod",
+    "version": "3.6.6",
+    "buildNumber": "11",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sizeBytes": 52428800,
+    "releaseNotes": "Multi-drop improvements",
+    "force": false,
+    "switchFlavor": false
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/app-releases`
+
+  Publishes an uploaded APK as the latest release (201; 200 when replayed). The floor is never moved by publishing.
+
+  - **Auth:** Bearer access token, or an API key in `X-Api-Key` (scopes: `release_publisher`). Send one, not both: set this request's auth to *No Auth* and enable the `X-Api-Key` header to use the key
+  - **Capabilities:** `security:manage_mobile_release`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `flavor`, `version`, `buildNumber`, `apkUrl`, `apkSha256`
+  - **Header `X-Api-Key`**: alternative to the bearer; do not send both
+}

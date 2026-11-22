@@ -1,0 +1,40 @@
+meta {
+  name: Update truck
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/trucks/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "status": "maintenance",
+    "statusNote": "Scheduled service",
+    "currentMileage": 111500,
+    "notes": "Updated via API"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/trucks/:id`
+
+  Partially updates a truck; only fields present in the body change. Returns the full truck detail.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:edit_truck`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `licensePlate`, `status`, `type`, `ownershipType`
+}

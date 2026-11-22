@@ -1,0 +1,32 @@
+meta {
+  name: Get live retail fuel prices
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/fuel/retail
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~locale: th
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/fuel/retail`
+
+  Live Bangchak retail prices, cached about one hour. 503 unavailable when the feed is off or failing.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_fuel`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `locale`, `fetchedAt`, `source`, `items`
+  - **Query `locale`**: th|en
+}

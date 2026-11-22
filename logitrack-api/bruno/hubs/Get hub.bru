@@ -1,0 +1,35 @@
+meta {
+  name: Get hub
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/hubs/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: SPK-GW
+}
+
+headers {
+  ~If-None-Match: "etag"
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/hubs/:id`
+
+  Returns one hub by uuid or source code. Any authenticated user; supports ETag.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `sourceId`, `sourceNameTh`, `stationType`, `latitude`, `longitude`
+  - **Header `If-None-Match`**: ETag from a previous response; 304 when unchanged
+}

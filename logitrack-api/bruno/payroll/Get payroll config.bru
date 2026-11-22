@@ -1,0 +1,32 @@
+meta {
+  name: Get payroll config
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/payroll/config
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~at: 2026-11-20T00:00:00Z
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/payroll/config`
+
+  Without ?at returns all compensation config versions; with ?at returns the version effective at that instant (or null).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_payroll`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `effectiveFromDate`, `weekdayRateThb`, `holidayRateThb`, `sso`, `penaltyTypes`; `nextCursor` pages
+  - **Query `at`**: instant to resolve the effective version
+}

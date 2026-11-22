@@ -1,0 +1,36 @@
+meta {
+  name: Trips missing billing date
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/v1/billing/rows/missing-billing-date?year=2026&month=11
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~customerId: 00000000-0000-0000-0000-000000000000
+  year: 2026
+  month: 11
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/billing/rows/missing-billing-date`
+
+  Lists delivered trips of the period that lack a billingDate.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:billing_document`
+  - **Listeners:** internal
+  - **Success:** `200`
+  - **Query `customerId`**: customer id, or 'all'
+  - **Query `year`** (required): period year
+  - **Query `month`** (required): period month
+}

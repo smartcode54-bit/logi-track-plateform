@@ -1,0 +1,59 @@
+meta {
+  name: List tasks
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/tasks
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~taskType: FIRST_MILE
+  ~date: 2026-11-22
+  ~from: 2026-11-01
+  ~to: 2026-11-30
+  ~status: assigned
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~truckId: 00000000-0000-0000-0000-000000000000
+  ~q: TSK
+  ~sourceHub: SPK-GW
+  ~destination: SPK890103
+  ~limit: 50
+  ~cursor: 
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/tasks`
+
+  Lists tasks (keyset pages) visible to the caller; any one capability suffices and task type is checked per row. Unknown query params give 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:view_first_mile`, `operations:view_line_haul`, `dispatch:view_operations`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `taskNo`, `taskType`, `status`, `sourceHub`, `destination`; `nextCursor` pages
+  - **Query `taskType`**: first-mile or line-haul
+  - **Query `date`**: plan day yyyy-MM-dd
+  - **Query `from`**: plan date from
+  - **Query `to`**: plan date to
+  - **Query `status`**: status; repeatable
+  - **Query `driverId`**: driver or helper id
+  - **Query `truckId`**: truck id
+  - **Query `q`**: substring of number/places
+  - **Query `sourceHub`**: origin filter
+  - **Query `destination`**: destination filter
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from nextCursor
+  - **Header `X-Act-On-Tenant`**: Platform admin only: act on a tenant id, or * for all tenants
+}

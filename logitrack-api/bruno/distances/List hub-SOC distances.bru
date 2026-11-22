@@ -1,0 +1,37 @@
+meta {
+  name: List hub-SOC distances
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/distances
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~hubId: SPK-GW
+  ~direction: hub_to_soc
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/distances`
+
+  Lists cached hub/SOC distances (keyset pages); any authenticated user.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `hubSourceId`, `socKey`, `direction`, `distanceKm`, `durationMinutes`; `nextCursor` pages
+  - **Query `hubId`**: hub uuid or code
+  - **Query `direction`**: direction filter
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from nextCursor
+}

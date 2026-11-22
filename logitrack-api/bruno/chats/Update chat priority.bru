@@ -1,0 +1,37 @@
+meta {
+  name: Update chat priority
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/chats/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "priority": "urgent"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/chats/:id`
+
+  Sets the chat priority (normal or urgent).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `chat:send`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`
+}

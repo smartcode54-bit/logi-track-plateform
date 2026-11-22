@@ -1,0 +1,36 @@
+meta {
+  name: Mark chat read
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/v1/chats/:id/read
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "lastReadAt": "2026-11-22T10:00:00Z"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/chats/:id/read`
+
+  Records the caller's last read time. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `chat:view`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

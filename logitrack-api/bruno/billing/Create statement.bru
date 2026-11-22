@@ -1,0 +1,47 @@
+meta {
+  name: Create statement
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/statements
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "customerId": "00000000-0000-0000-0000-000000000000",
+    "year": 2026,
+    "month": 11,
+    "types": [
+      "trip",
+      "standby",
+      "multi_drop"
+    ],
+    "categories": [
+      "PRIMARY",
+      "SUPPLEMENTARY"
+    ],
+    "note": "November billing",
+    "issuerCompanyId": "00000000-0000-0000-0000-000000000000",
+    "showActualPickup": false
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/statements`
+
+  Generates a statement for one customer and month; document rendering is queued. Refuses rows outside the caller's reach. Writes need an effective tenant and only the own fleet (403 own_fleet_only otherwise). Unknown query parameters give 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:billing_document`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `customerId`, `invoiceNumber`, `period`, `totalAmount`, `status`
+}

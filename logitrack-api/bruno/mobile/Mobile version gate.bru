@@ -1,0 +1,36 @@
+meta {
+  name: Mobile version gate
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/settings
+  body: none
+  auth: none
+}
+
+params:query {
+  ~flavor: prod
+}
+
+headers {
+  ~If-None-Match: "etag"
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/settings`
+
+  Anonymous gate for the driver app: minAllowedVersion, latest release and APK link. Supports ETag/If-None-Match (304). Rate limited per IP.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `flavor`, `minAllowedVersion`, `latestVersion`, `apkDownloadUrl`, `apkSha256`, `releasedAt`
+  - **Query `flavor`**: dev or prod; defaults to the deployment's flavor
+  - **Header `If-None-Match`**: returns 304 when unchanged
+}

@@ -1,0 +1,26 @@
+meta {
+  name: Distances metadata
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/distances/meta
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/distances/meta`
+
+  Returns when distances were last computed and the pair count.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `lastCalculatedAt`, `pairs`
+}

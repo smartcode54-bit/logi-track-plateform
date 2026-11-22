@@ -1,0 +1,30 @@
+meta {
+  name: Delete service fee
+  type: http
+  seq: 12
+}
+
+delete {
+  url: {{baseUrl}}/v1/billing/service-fees/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/billing/service-fees/:id`
+
+  Deletes a service fee.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

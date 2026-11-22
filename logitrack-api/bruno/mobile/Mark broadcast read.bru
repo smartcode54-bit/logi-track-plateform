@@ -1,0 +1,38 @@
+meta {
+  name: Mark broadcast read
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/broadcasts/:id/read
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  X-Api-Key: {{shimApiKey}}
+  Authorization: Bearer {{firebaseIdToken}}
+  ~X-Api-Key: <cf_shim-api-key>
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/mobile/broadcasts/:id/read`
+
+  markBroadcastRead shim target: marks a broadcast read; id is the uuid or the Firestore doc id.
+
+  - **Auth:** Cloud Functions shim: `X-Api-Key` (cf_shim key) plus `Authorization: Bearer <Firebase ID token>`
+  - **Capabilities:** `mobile:broadcasts`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `broadcastId`, `alreadyRead`
+  - **Header `X-Api-Key`**: cf_shim API key
+}

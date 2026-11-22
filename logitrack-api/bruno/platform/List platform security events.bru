@@ -1,0 +1,42 @@
+meta {
+  name: List platform security events
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/security-events
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~type: 
+  ~severity: 
+  ~from: 2026-01-01T00:00:00Z
+  ~to: 2026-12-31T23:59:59Z
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/security-events`
+
+  Platform-staff read; the principal must hold the stated capability on the platform plane. Responses are projected (consent-aware).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_audit`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `createdAt`, `type`, `severity`, `summary`, `tenantId`; `nextCursor` pages
+  - **Query `type`**: Event type
+  - **Query `severity`**: Severity
+  - **Query `from`**: Start of range (RFC 3339)
+  - **Query `to`**: End of range
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Get chat
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/chats/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/chats/:id`
+
+  A chat with its read state.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `chat:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `status`, `priority`, `assignedAdminUserId`, `reads`, `driverLastReadAt`
+}

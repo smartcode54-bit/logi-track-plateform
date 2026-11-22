@@ -1,0 +1,49 @@
+meta {
+  name: Create task
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/tasks
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "taskType": "FIRST_MILE",
+    "date": "2026-11-22",
+    "time": "09:00",
+    "sourceHub": "SPK-GW",
+    "sourceHubId": "00000000-0000-0000-0000-000000000000",
+    "destination": "SPK890103",
+    "destinationHubId": "00000000-0000-0000-0000-000000000000",
+    "jobCategory": "PRIMARY",
+    "truckId": "00000000-0000-0000-0000-000000000000",
+    "truckType": "4WJ",
+    "driverId": "00000000-0000-0000-0000-000000000000",
+    "helperDriverId": null,
+    "billingPartyId": "00000000-0000-0000-0000-000000000000",
+    "sourceLinkedPartyId": "00000000-0000-0000-0000-000000000000",
+    "destinationLinkedPartyId": "00000000-0000-0000-0000-000000000000",
+    "isMultiDelivery": false,
+    "deliveryStops": []
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/tasks`
+
+  Creates a task; taskType, date, sourceHub, destination and billingPartyId are required. 422 on field violations.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_tasks`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `taskNo`, `taskType`, `status`, `sourceHub`, `destination`
+}

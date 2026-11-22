@@ -1,0 +1,27 @@
+meta {
+  name: Submit Bangchak snapshot job
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/jobs/bangchak.snapshot
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/jobs/bangchak.snapshot`
+
+  Queues a platform-wide Bangchak fuel snapshot (202 {jobId}). Steward only.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `jobId`
+}

@@ -1,0 +1,40 @@
+meta {
+  name: Create penalty
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/penalties
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "driverId": "00000000-0000-0000-0000-000000000000",
+    "typeCode": "DAMAGE",
+    "typeName": "Damage",
+    "totalThb": 1500,
+    "installmentsTotal": 3,
+    "reason": "Cargo damage",
+    "evidenceKey": "evidence/key-placeholder.jpg",
+    "incurredAt": "2026-11-15"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/penalties`
+
+  Creates a pending penalty for a driver, deducted by payroll in installments.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_payroll`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `driverId`, `typeCode`, `totalThb`, `status`, `installmentThb`
+}

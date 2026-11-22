@@ -1,0 +1,51 @@
+meta {
+  name: Update customer
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/customers/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "name": "Example Customer Co., Ltd.",
+    "description": "Retail customer",
+    "logoKey": "",
+    "address": "1 Example Rd, Bangkok",
+    "taxId": "0105500000000",
+    "branchType": "hq",
+    "branchNumber": "",
+    "contactName": "Somchai",
+    "contactPhone": "0812345678",
+    "billingEmail": "billing@example.com",
+    "paymentTermsDays": 30,
+    "invoiceNote": "",
+    "lineGroupId": "",
+    "billingDateBasis": "delivered",
+    "driverIdTypes": []
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/customers/:id`
+
+  Partial update of a customer (null clears a field).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_customers`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `billingPartyId`, `code`, `name`, `billingDateBasis`, `createdAt`
+}

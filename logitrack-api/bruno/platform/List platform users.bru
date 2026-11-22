@@ -1,0 +1,42 @@
+meta {
+  name: List platform users
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/users
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~q: 
+  ~status: active
+  ~role: 
+  ~sort: 
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/users`
+
+  Platform-staff read; the principal must hold the stated capability on the platform plane. Responses are projected (consent-aware).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `email`, `displayName`, `status`, `memberships`, `platformRoles`; `nextCursor` pages
+  - **Query `q`**: Search text
+  - **Query `status`**: Status filter
+  - **Query `role`**: Role filter
+  - **Query `sort`**: Sort order
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

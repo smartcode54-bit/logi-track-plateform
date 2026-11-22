@@ -1,0 +1,44 @@
+meta {
+  name: Create incident
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/incidents
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "driverId": "00000000-0000-0000-0000-000000000000",
+    "tripId": "00000000-0000-0000-0000-000000000000",
+    "truckId": "00000000-0000-0000-0000-000000000000",
+    "delayCause": "traffic",
+    "description": "Road closed",
+    "lat": 13.7,
+    "lng": 100.5,
+    "photoKeys": {
+      "map": "uploads/map.jpg",
+      "situation1": "uploads/s1.jpg",
+      "situation2": "uploads/s2.jpg"
+    }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/incidents`
+
+  Admin files an incident report, optionally linked to a driver, trip and truck, with map/situation photos.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:edit_trip_details`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `tripNo`, `driverName`, `delayCause`, `description`, `createdAt`
+}

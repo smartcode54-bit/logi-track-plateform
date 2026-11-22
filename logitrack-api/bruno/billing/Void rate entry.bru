@@ -1,0 +1,37 @@
+meta {
+  name: Void rate entry
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/rate-entries/:id/void
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Entered by mistake"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/rate-entries/:id/void`
+
+  Voids a rate entry with a reason. Own fleet only.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `hubId`, `destinationCode`, `vehicleClass`, `rateThb`
+}

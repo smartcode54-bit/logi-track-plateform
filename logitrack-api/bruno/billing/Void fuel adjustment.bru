@@ -1,0 +1,37 @@
+meta {
+  name: Void fuel adjustment
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/fuel-adjustments/:id/void
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Superseded"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/fuel-adjustments/:id/void`
+
+  Voids a fuel adjustment with a reason.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `effectiveFromDateStr`, `rateMultiplier`, `addThbPerTrip`, `announcementNote`
+}

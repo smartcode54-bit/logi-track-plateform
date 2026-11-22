@@ -1,0 +1,37 @@
+meta {
+  name: Cancel leave request
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/leave-requests/:id/cancel
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Reason text"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/leave-requests/:id/cancel`
+
+  Decides a leave request (cancel). Returns 200 with the request, or 202 with a write-back echo while the Firestore mirror has not acknowledged.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_leave`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `driverId`, `driverName`, `type`, `status`, `startDate`
+}

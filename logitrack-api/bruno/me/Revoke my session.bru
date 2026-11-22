@@ -1,0 +1,29 @@
+meta {
+  name: Revoke my session
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/v1/me/sessions/:sid
+  body: none
+  auth: inherit
+}
+
+params:path {
+  sid: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/me/sessions/:sid`
+
+  Revokes one of the caller's own sessions. 404 for an unknown or malformed id. Returns 204.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `204`
+}

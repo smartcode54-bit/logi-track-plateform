@@ -1,0 +1,41 @@
+meta {
+  name: Create hub
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/hubs
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "sourceId": "SPK-GW",
+    "sourceNameTh": "บางปู",
+    "sourceNameEn": "Bangpu",
+    "latitude": 13.5,
+    "longitude": 100.7,
+    "stationType": "HUB",
+    "linkedPartyId": "00000000-0000-0000-0000-000000000000",
+    "linkedCustomerId": null,
+    "linkedCustomerKind": null
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/hubs`
+
+  Creates a hub/SOC (sourceNameTh required; both coordinates or neither). 409 on a duplicate sourceId.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:manage_sources`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `sourceId`, `sourceNameTh`, `stationType`, `latitude`, `longitude`
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Replay dead-letter queue
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/admin/queues/:queue/replay
+  body: none
+  auth: inherit
+}
+
+params:path {
+  queue: notify.fcm
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/admin/queues/:queue/replay`
+
+  Records a queue.replay job moving the queue's dead-lettered messages back. platform_admin only; 404 for unknown queue. Returns 202 with the job id.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Platform role:** `platform_admin`
+  - **Listeners:** internal
+  - **Success:** `202`; `data` has `jobId`
+}

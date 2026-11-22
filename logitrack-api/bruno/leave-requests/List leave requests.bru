@@ -1,0 +1,38 @@
+meta {
+  name: List leave requests
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/leave-requests
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~status: pending
+  ~driverId: 00000000-0000-0000-0000-000000000000
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/leave-requests`
+
+  Lists leave requests with meta.statusCounts on the first page. status may be repeated.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:view_leave`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `tenantId`, `driverId`, `driverName`, `type`, `status`, `startDate`; `nextCursor` pages
+  - **Query `status`**: pending | approved | rejected | cancelled (repeatable)
+  - **Query `driverId`**: filter by driver
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque keyset cursor from previous nextCursor
+}

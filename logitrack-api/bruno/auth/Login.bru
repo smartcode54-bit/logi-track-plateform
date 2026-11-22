@@ -1,0 +1,53 @@
+meta {
+  name: Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "{{email}}",
+    "password": "{{password}}",
+    "platform": "{{loginPlatform}}",
+    "installId": "",
+    "appVersion": "",
+    "geo": null
+  }
+}
+
+script:post-response {
+  // Keep the new tokens for every other request (runtime variables, never written to disk).
+  if (res.status === 200 && res.body && res.body.data) {
+    if (res.body.data.accessToken) bru.setVar("accessToken", res.body.data.accessToken);
+    if (res.body.data.refreshToken) bru.setVar("refreshToken", res.body.data.refreshToken);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+tests {
+  test("returns a token pair", function () {
+    expect(res.body.data.accessToken).to.be.a("string");
+    expect(res.body.data.refreshToken).to.be.a("string");
+    expect(res.body.data.expiresIn).to.be.a("number");
+  });
+}
+
+docs {
+  `POST /v1/auth/login`
+
+  Email/password login. Returns access/refresh tokens and the tenants the user belongs to; may answer a must-change-password ticket error. Rate limited per IP.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `accessToken`, `expiresIn`, `refreshToken`, `tenants`, `defaultTenantId`
+}

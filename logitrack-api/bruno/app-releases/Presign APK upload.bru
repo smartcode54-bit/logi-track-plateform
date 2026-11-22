@@ -1,0 +1,46 @@
+meta {
+  name: Presign APK upload
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/app-releases/presign
+  body: json
+  auth: inherit
+}
+
+headers {
+  ~X-Api-Key: <release_publisher-api-key>
+  ~X-Api-Key: {{apiKey}}
+}
+
+body:json {
+  {
+    "flavor": "prod",
+    "version": "3.6.6",
+    "buildNumber": "11",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sizeBytes": 52428800,
+    "releaseNotes": "Multi-drop improvements",
+    "force": false,
+    "switchFlavor": false
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/app-releases/presign`
+
+  Returns an upload URL for the release APK under an immutable key. 409 when the gate refuses the release.
+
+  - **Auth:** Bearer access token, or an API key in `X-Api-Key` (scopes: `release_publisher`). Send one, not both: set this request's auth to *No Auth* and enable the `X-Api-Key` header to use the key
+  - **Capabilities:** `security:manage_mobile_release`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `key`, `url`, `method`, `headers`, `expiresAt`, `publicUrl`
+  - **Header `X-Api-Key`**: alternative to the bearer; do not send both
+}

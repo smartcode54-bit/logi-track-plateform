@@ -1,0 +1,27 @@
+meta {
+  name: My chat unread count
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/chat/unread-count
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/mobile/chat/unread-count`
+
+  Unread chats and messages count for the driver.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `mobile:chat`
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `count`, `messages`
+}

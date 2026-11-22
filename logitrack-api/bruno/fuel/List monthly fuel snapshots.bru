@@ -1,0 +1,34 @@
+meta {
+  name: List monthly fuel snapshots
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/fuel/monthly
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/fuel/monthly`
+
+  Lists monthly fuel price snapshots.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:view_fuel`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `monthKey`, `capturedAt`, `source`, `status`, `items`; `nextCursor` pages
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from nextCursor
+}

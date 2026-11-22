@@ -1,0 +1,45 @@
+meta {
+  name: Mark trip delivered
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/trips/:id/deliver
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "deliveredAt": "2026-11-22T10:00:00Z",
+    "lat": 13.7,
+    "lng": 100.5,
+    "photos": [
+      {
+        "type": "delivery_step_1",
+        "key": "uploads/photo.jpg"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/trips/:id/deliver`
+
+  Admin completes a trip as delivered with optional position and photos. 409 when the trip is already delivered or cancelled.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:edit_trip_details`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tripNo`, `status`, `jobType`, `driverName`, `deliveredAt`
+}

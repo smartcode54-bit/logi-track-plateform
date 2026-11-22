@@ -1,0 +1,37 @@
+meta {
+  name: Cancel trip
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/trips/:id/cancel
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Wrong assignment"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/trips/:id/cancel`
+
+  Cancels a trip and its task. 409 when it is already closed.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:edit_trip_details`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tripNo`, `status`, `jobType`, `driverName`, `deliveredAt`
+}

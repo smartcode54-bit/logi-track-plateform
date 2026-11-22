@@ -1,0 +1,38 @@
+meta {
+  name: Update holiday
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/holidays/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "name": "Renamed holiday",
+    "status": "published"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/holidays/:id`
+
+  Partially updates a holiday; only fields in the body change.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `hr:manage_holidays`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `date`, `type`, `status`, `name`, `isRecurring`
+}

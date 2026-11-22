@@ -1,0 +1,45 @@
+meta {
+  name: Set user scopes
+  type: http
+  seq: 15
+}
+
+put {
+  url: {{baseUrl}}/v1/users/:id/scopes/:kind
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+  kind: customer
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "billingPartyIds": [
+      "00000000-0000-0000-0000-000000000000"
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PUT /v1/users/:id/scopes/:kind`
+
+  Replaces the scope grants of the given kind (e.g. customer, dispatcher) for the user. Customer needs users:assign_role; dispatcher needs platform:manage_platform_roles.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:assign_role`, `platform:manage_platform_roles`
+  - **Listeners:** internal
+  - **Success:** `200`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

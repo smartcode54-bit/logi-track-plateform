@@ -1,0 +1,32 @@
+meta {
+  name: Mobile event stream (SSE)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{publicBaseUrl}}/v1/mobile/events?ticket={{sseTicket}}
+  body: none
+  auth: none
+}
+
+params:query {
+  ticket: {{sseTicket}}
+  ~topics: 
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /v1/mobile/events`
+
+  Server-Sent Events stream for the driver app. The ticket from POST /v1/auth/sse-ticket is the only credential. 404 when mobile SSE is disabled.
+
+  - **Auth:** SSE ticket in `?ticket=` (from `auth/Issue SSE ticket`)
+  - **Listeners:** internal,public
+  - **Success:** `200`
+  - **Query `ticket`** (required): single-use ticket
+  - **Query `topics`**: comma separated topics; defaults to the caller's allowed topics
+}

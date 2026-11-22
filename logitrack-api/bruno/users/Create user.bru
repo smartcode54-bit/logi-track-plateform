@@ -1,0 +1,45 @@
+meta {
+  name: Create user
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/users
+  body: json
+  auth: inherit
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "email": "new.user@example.com",
+    "displayName": "New User",
+    "role": "dispatcher",
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "driverId": "",
+    "billingPartyIds": [],
+    "sendInvite": true,
+    "locale": "th"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/users`
+
+  Creates a user (with a temporary password shown once, or an invite when sendInvite is true). Role 'customer' creates a scope-only account.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:manage`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `user`, `temporaryPassword`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

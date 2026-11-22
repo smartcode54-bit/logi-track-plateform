@@ -1,0 +1,36 @@
+meta {
+  name: List app releases
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/app-releases
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~flavor: prod
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/app-releases`
+
+  Published driver-app releases plus gate settings in meta.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:manage_mobile_release`, `security:view_mobile_clients`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `flavor`, `version`, `buildNumber`, `apkUrl`, `apkSha256`; `nextCursor` pages
+  - **Query `flavor`**: dev or prod
+  - **Query `limit`**: page size
+  - **Query `cursor`**: opaque cursor from a previous page's nextCursor
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Get owner company
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/companies/owner
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/companies/owner`
+
+  Returns the tenant's owner company profile. No query parameters.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `company:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `tenantId`, `nameTh`, `nameEn`, `taxId`, `branchType`
+}

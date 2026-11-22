@@ -1,0 +1,42 @@
+meta {
+  name: Update tenant
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/v1/tenants/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "code": "CAR001",
+    "status": "suspended",
+    "nameTh": "ผู้รับเหมาตัวอย่าง",
+    "nameEn": "Example Carrier",
+    "contractorTenantId": "00000000-0000-0000-0000-000000000000",
+    "reason": "Contract paused"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/tenants/:id`
+
+  Partial update of code, status, names, contractorTenantId. Support may only change status with a reason (lifecycle). 409 failed_precondition for own-fleet status changes.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `platform:manage_tenants`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `kind`, `code`, `nameTh`, `nameEn`, `status`
+}

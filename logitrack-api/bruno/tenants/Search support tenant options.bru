@@ -1,0 +1,35 @@
+meta {
+  name: Search support tenant options
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/v1/tenants/support-options
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~q: example
+  ~limit: 50
+  ~cursor: 
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/tenants/support-options`
+
+  Cursor-paged search of tenants a support principal may open (rate-limited, 60/min). Strict query: only q, limit, cursor.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` is a list of objects with `id`, `kind`, `code`, `reference`, `nameTh`, `status`; `nextCursor` pages
+  - **Query `q`**: Search text
+  - **Query `limit`**: Page size (positive integer)
+  - **Query `cursor`**: Opaque cursor from the previous page's nextCursor
+}

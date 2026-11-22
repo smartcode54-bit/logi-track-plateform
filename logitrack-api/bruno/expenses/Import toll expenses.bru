@@ -1,0 +1,35 @@
+meta {
+  name: Import toll expenses
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/expenses/toll-import
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file()
+  driverId: driver UUID
+  truckId: truck UUID
+  dryRun: true|false (optional)
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/expenses/toll-import`
+
+  Imports a toll card history (multipart field file plus driverId, truckId, dryRun form fields, or JSON {driverId, truckId, dryRun, rows[]}). Creates pending toll expenses; duplicates are skipped. 429 with Retry-After when imports are busy.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_other`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `created`, `skipped`, `skippedRows`, `dryRun`
+  - **Body:** multipart
+}

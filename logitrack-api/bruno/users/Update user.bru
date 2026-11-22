@@ -1,0 +1,43 @@
+meta {
+  name: Update user
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/v1/users/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "displayName": "Renamed User",
+    "email": "renamed@example.com"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/users/:id`
+
+  Updates display name and/or email (partial; send only the fields to change, null clears). An email change refreshes the user's claims.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:manage`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `email`, `displayName`, `status`, `memberships`, `platformRoles`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

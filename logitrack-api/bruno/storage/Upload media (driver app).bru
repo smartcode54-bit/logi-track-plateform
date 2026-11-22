@@ -1,0 +1,38 @@
+meta {
+  name: Upload media (driver app)
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{publicBaseUrl}}/media/trips/00000000-0000-0000-0000-000000000000/loading_1-1700000000000.jpg?X-LT-Expires=1700000900&X-LT-Signature=<signature>
+  body: none
+  auth: none
+}
+
+params:query {
+  X-LT-Expires: 1700000900
+  X-LT-Signature: <signature>
+}
+
+headers {
+  ~Content-Type: image/jpeg
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `PUT /media/*`
+
+  Signed PUT of the local backend on the public listener, used by the driver app. APK keys are 404 here.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`
+  - **Query `X-LT-Expires`** (required): expiry unix seconds
+  - **Query `X-LT-Signature`** (required): signature from the presign URL
+  - **Header `Content-Type`**: must equal the signed content type
+  - **Body:** binary (the raw file bytes; pick the file in Bruno)
+}

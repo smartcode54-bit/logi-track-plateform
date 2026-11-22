@@ -1,0 +1,45 @@
+meta {
+  name: Import rate entries
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/rate-entries/import
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "customerId": "00000000-0000-0000-0000-000000000000",
+    "effectiveFromDateStr": "2026-11-01",
+    "rows": [
+      {
+        "hubId": "SPK-GW",
+        "rawHubName": "J&T EXPRESS Bangpu",
+        "destinationCode": "SPK890103",
+        "vehicleClass": "4WJ",
+        "rateThb": 1500.0,
+        "distanceKm": 42.5,
+        "jobCategory": "PRIMARY"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/rate-entries/import`
+
+  Imports many rate rows for one customer and effective date in a single import batch. Writes need an effective tenant and only the own fleet (403 own_fleet_only otherwise). Unknown query parameters give 400.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `importId`, `count`
+}

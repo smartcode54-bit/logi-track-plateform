@@ -1,0 +1,31 @@
+meta {
+  name: Get tasks by number
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/v1/tasks/by-number/:taskNo
+  body: none
+  auth: inherit
+}
+
+params:path {
+  taskNo: FM-20261122-001
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/tasks/by-number/:taskNo`
+
+  Looks up tasks by their task number; may match several tenants' rows within the caller's reach.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:view_first_mile`, `operations:view_line_haul`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `taskNo`, `taskType`, `status`, `sourceHub`, `destination`
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Set statement status
+  type: http
+  seq: 28
+}
+
+post {
+  url: {{baseUrl}}/v1/billing/statements/:id/status
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "status": "sent"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/billing/statements/:id/status`
+
+  Moves a statement through draft -> sent -> paid, or to cancelled. Invalid transitions are refused.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:manage_statements`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `invoiceNumber`, `period`, `totalAmount`, `status`
+}

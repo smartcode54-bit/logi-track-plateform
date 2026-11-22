@@ -1,0 +1,34 @@
+meta {
+  name: Download local media
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{publicBaseUrl}}/media/app_releases/prod/3.6.6/app.apk
+  body: none
+  auth: none
+}
+
+params:query {
+  ~X-LT-Expires: 1700000900
+  ~X-LT-Signature: <signature>
+  ~disposition: 
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /media/*`
+
+  Streams an object from the local backend. Private keys need the signed X-LT-Expires/X-LT-Signature query; keys under app_releases/ are public. 404 when missing.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal,public
+  - **Success:** `200`
+  - **Query `X-LT-Expires`**: expiry (private keys)
+  - **Query `X-LT-Signature`**: signature (private keys)
+  - **Query `disposition`**: Content-Disposition to apply
+}

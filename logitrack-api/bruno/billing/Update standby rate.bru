@@ -1,0 +1,39 @@
+meta {
+  name: Update standby rate
+  type: http
+  seq: 19
+}
+
+patch {
+  url: {{baseUrl}}/v1/billing/standby-rates/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "rateThb": 850.0,
+    "effectiveFromDateStr": "2026-11-01",
+    "note": "Raised"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `PATCH /v1/billing/standby-rates/:id`
+
+  Partially updates a standby rate.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:edit_rate_card`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `customerId`, `rateThb`, `effectiveFromDateStr`, `note`, `voided`
+}

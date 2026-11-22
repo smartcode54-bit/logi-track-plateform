@@ -1,0 +1,31 @@
+meta {
+  name: List trip photos
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/v1/trips/:id/photos
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/trips/:id/photos`
+
+  Lists the evidence photos of a trip with download references.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `operations:view_driver_monitor`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `type`, `url`, `lat`, `lng`, `address`
+}

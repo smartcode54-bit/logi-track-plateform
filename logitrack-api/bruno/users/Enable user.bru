@@ -1,0 +1,41 @@
+meta {
+  name: Enable user
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/v1/users/:id/enable
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+body:json {
+  {
+    "reason": "Returned"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `POST /v1/users/:id/enable`
+
+  Re-enables a disabled account.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:manage`
+  - **Listeners:** internal
+  - **Success:** `204`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

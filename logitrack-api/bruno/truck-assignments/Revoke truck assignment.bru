@@ -1,0 +1,31 @@
+meta {
+  name: Revoke truck assignment
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/truck-assignments/:id/revoke
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/truck-assignments/:id/revoke`
+
+  Revokes an active truck assignment.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:manage_assignments`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `truckId`, `driverId`, `status`, `revokedAt`
+}

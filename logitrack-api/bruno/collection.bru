@@ -1,0 +1,32 @@
+headers {
+  Accept: application/json
+}
+
+auth {
+  mode: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+script:pre-request {
+  // Staging reaches the internal routes through the web BFF (/api/go/v1/*), which drops a browser
+  // Authorization header and takes the access token from the lt_at cookie instead.
+  if (bru.getEnvVar("viaBff") === "true" && bru.getVar("accessToken")) {
+    req.setHeader("Cookie", "lt_at=" + bru.getVar("accessToken"));
+  }
+}
+
+docs {
+  # LogiTrack API (`logitrack-api`)
+
+  One request per route of `logitrack-api/api/routes.txt` (the generated route table of `cmd/api`), one folder per route group.
+
+  - Success bodies are `{"data": ...}`; keyset lists add `"nextCursor"` (send it back as `?cursor=`).
+  - Errors are `{"error": {"code", "message", "details", "requestId"}}`; branch on `code`.
+  - Sign in with `auth/Login` first: it stores `accessToken` and `refreshToken` as runtime variables, and every request that inherits the collection auth sends `Authorization: Bearer {{accessToken}}`.
+  - `{{baseUrl}}` is the internal listener (dashboard routes); `{{publicBaseUrl}}` is the public listener (`/v1/auth/*`, `/v1/mobile/*`, `/evidence/*`, `/media/*`, `/healthz`).
+
+  See `README.md` in this folder.
+}

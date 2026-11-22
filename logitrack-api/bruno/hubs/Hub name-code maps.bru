@@ -1,0 +1,31 @@
+meta {
+  name: Hub name-code maps
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/hubs/maps
+  body: none
+  auth: inherit
+}
+
+headers {
+  ~If-None-Match: "etag"
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/hubs/maps`
+
+  Returns the hub code/name lookup maps used by clients. Any authenticated user; supports ETag.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `nameToCode`, `codeToName`
+  - **Header `If-None-Match`**: ETag from a previous response; 304 when unchanged
+}

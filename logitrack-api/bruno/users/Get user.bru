@@ -1,0 +1,36 @@
+meta {
+  name: Get user
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/users/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  ~X-Act-On-Tenant: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/users/:id`
+
+  Returns one user with memberships, scopes, platform roles and linked driver. 404 for unknown or out-of-reach id.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `users:view`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `id`, `email`, `displayName`, `status`, `memberships`, `platformRoles`
+  - **Header `X-Act-On-Tenant`**: Platform staff only: act on this tenant (uuid) or * for all tenants (read-only).
+}

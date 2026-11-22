@@ -1,0 +1,27 @@
+meta {
+  name: Platform users by role
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/stats/users-by-role
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/stats/users-by-role`
+
+  Platform-staff read; the principal must hold the stated capability on the platform plane. Responses are projected (consent-aware).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `security:view_overview`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `scope`, `total`, `none`, `tenantRoles`, `scopes`, `platformRoles`
+}

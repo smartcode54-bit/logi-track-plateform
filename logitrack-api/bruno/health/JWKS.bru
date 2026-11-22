@@ -1,0 +1,25 @@
+meta {
+  name: JWKS
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/.well-known/jwks.json
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  `GET /.well-known/jwks.json`
+
+  Public RFC 7517 JWK Set (not wrapped in the data envelope) used to verify access tokens. Internal listener only; cached 300s.
+
+  - **Auth:** None (anonymous)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `keys`
+}

@@ -1,0 +1,34 @@
+meta {
+  name: Import trucks
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/trucks/import
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file()
+  tenantId: optional tenant UUID
+  dryRun: true|false (optional)
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/trucks/import`
+
+  Imports trucks from an XLSX/CSV upload (multipart field file, first sheet, header row first) or JSON {tenantId, dryRun, rows[]}. Updating an existing plate also needs fleet:edit_truck; 429 with Retry-After when imports are busy. dryRun writes nothing.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:create_truck`
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `created`, `updated`, `unchanged`, `errors`, `dryRun`
+  - **Body:** multipart
+}

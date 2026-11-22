@@ -1,0 +1,30 @@
+meta {
+  name: Issue SSE ticket
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/auth/sse-ticket
+  body: none
+  auth: inherit
+}
+
+script:post-response {
+  if (res.status === 200) bru.setVar("sseTicket", res.body.data.ticket);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/auth/sse-ticket`
+
+  Issues a short-lived single-use ticket for GET /v1/mobile/events (the only credential of that stream). Driver-app sessions only: sign in with platform android or ios, else 403 permission_denied.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal,public
+  - **Success:** `200`; `data` has `ticket`, `expiresIn`
+}

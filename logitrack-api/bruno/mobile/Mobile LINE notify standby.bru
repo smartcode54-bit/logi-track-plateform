@@ -1,0 +1,42 @@
+meta {
+  name: Mobile LINE notify standby
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{publicBaseUrl}}/v1/mobile/standby/:id/line-notify
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+headers {
+  X-Api-Key: {{shimApiKey}}
+  Authorization: Bearer {{firebaseIdToken}}
+}
+
+body:json {
+  {
+    "force": false
+  }
+}
+
+assert {
+  res.status: eq 202
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/mobile/standby/:id/line-notify`
+
+  Shim for sendCustomerLineNotification (standby card): needs the cf_shim X-Api-Key plus the driver's Firebase ID token. Answers 202 {ok} or {ok,skipped,reason} (e.g. already queued). The id is a Firestore doc ref.
+
+  - **Auth:** Cloud Functions shim: `X-Api-Key` (cf_shim key) plus `Authorization: Bearer <Firebase ID token>`
+  - **Capabilities:** `mobile:submit_standby`
+  - **Listeners:** internal,public
+  - **Success:** `202`; `data` has `ok`, `skipped`, `reason`
+}

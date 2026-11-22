@@ -1,0 +1,31 @@
+meta {
+  name: Get distance pair
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/distances/:originId/:destinationId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  originId: SPK-GW
+  destinationId: SOCE
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/distances/:originId/:destinationId`
+
+  Returns distance and duration between two hubs/SOCs, by uuid or code (URL-encoded Thai codes work). 404 when no pair exists.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `distanceKm`, `durationMinutes`, `direction`
+}

@@ -1,0 +1,30 @@
+meta {
+  name: Delete waitlist entry
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/v1/waitlist/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 00000000-0000-0000-0000-000000000000
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `DELETE /v1/waitlist/:id`
+
+  Deletes an entry; 404 for unknown id.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `waitlist:view`
+  - **Listeners:** internal
+  - **Success:** `204`
+}

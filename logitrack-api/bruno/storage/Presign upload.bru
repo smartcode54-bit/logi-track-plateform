@@ -1,0 +1,39 @@
+meta {
+  name: Presign upload
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/v1/uploads/presign
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "purpose": "trip_photo",
+    "entityId": "00000000-0000-0000-0000-000000000000",
+    "contentType": "image/jpeg",
+    "sizeBytes": 204800,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "key": "",
+    "variant": "loading_1",
+    "fileName": ""
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/uploads/presign`
+
+  Creates a pending file row and returns a signed upload URL (PUT) for the given purpose. Rate limited per user.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`; `data` has `key`, `url`, `method`, `headers`, `expiresAt`, `storageBackend`
+}

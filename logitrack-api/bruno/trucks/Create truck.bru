@@ -1,0 +1,78 @@
+meta {
+  name: Create truck
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/trucks
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "licensePlate": "70-1234",
+    "province": "กรุงเทพมหานคร",
+    "vin": "MHFXX12345678",
+    "engineNumber": "ENG123456",
+    "gpsVehicleId": "GPS-001",
+    "status": "active",
+    "statusNote": "",
+    "brand": "Isuzu",
+    "model": "FRR 210",
+    "year": 2022,
+    "color": "white",
+    "type": "6 Wheels",
+    "seats": 3,
+    "fuelType": "diesel",
+    "engineCapacity": 5193,
+    "fuelCapacity": 200,
+    "maxLoadWeightKg": 7000,
+    "registrationDate": "2022-03-01",
+    "buyingDate": "2022-02-15",
+    "notes": "",
+    "taxExpiryDate": "2027-03-01",
+    "taxExpenseThb": 3200,
+    "taxResponsible": "company",
+    "taxRenewalStatus": "pending",
+    "maintenanceResponsible": "company",
+    "lastServiceDate": "2026-09-01",
+    "nextServiceDate": "2027-03-01",
+    "nextServiceMileage": 120000,
+    "pmIntervalKm": 10000,
+    "currentMileage": 110000,
+    "insurancePolicyId": "POL-1",
+    "insurancePolicyNumber": "12345",
+    "insuranceCompany": "Example Insurance",
+    "insuranceType": "2+",
+    "insuranceStartDate": "2026-01-01",
+    "insuranceExpiryDate": "2027-01-01",
+    "insurancePremiumThb": 25000,
+    "insuranceNotes": "",
+    "insuranceRenewalStatus": "pending",
+    "paymentMethod": "transfer",
+    "files": {
+      "registration": [
+        "trucks/key-placeholder.pdf"
+      ]
+    }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/trucks`
+
+  Creates a truck. Fields are partial-input (absent vs null are distinguished); licensePlate is required and validated.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `fleet:create_truck`
+  - **Listeners:** internal
+  - **Success:** `201`; `data` has `id`, `tenantId`, `licensePlate`, `status`, `type`, `ownershipType`
+}

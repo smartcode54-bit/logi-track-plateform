@@ -1,0 +1,26 @@
+meta {
+  name: App installation stats
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/platform/app-installations/stats
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `GET /v1/platform/app-installations/stats`
+
+  Platform-wide aggregate counts of mobile app installations by version (handler in the mobileapp package).
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Listeners:** internal
+  - **Success:** `200`
+}

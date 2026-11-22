@@ -1,0 +1,37 @@
+meta {
+  name: Bulk set expense status
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/expenses/bulk-status
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "ids": [
+      "00000000-0000-0000-0000-000000000000"
+    ],
+    "status": "approved",
+    "adminNote": "Verified"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+}
+
+docs {
+  `POST /v1/expenses/bulk-status`
+
+  Sets the audit status of up to 500 expenses at once; approving fuel rows may run the PM check.
+
+  - **Auth:** Bearer access token (`{{accessToken}}`, set by `auth/Login`)
+  - **Capabilities:** `accounting:audit_expense`
+  - **Listeners:** internal
+  - **Success:** `200`
+}
