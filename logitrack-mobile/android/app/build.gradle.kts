@@ -64,6 +64,17 @@ android {
         }
     }
 
+    // Install-over test of the 3.x -> 4.x session exchange (spec mobile-auth-exchange R17-R19): the gotest code built
+    // under the dev package by `pnpm build:mobile:gotest:upgrade`, which passes -P logitrackUpgradeTest=true. Only then
+    // does the dev flavor get the loopback-only cleartext config of src/upgradeTest/ (a local Go stack over
+    // `adb reverse`); every other dev build keeps its manifest unchanged.
+    if (project.findProperty("logitrackUpgradeTest") == "true") {
+        sourceSets.getByName("dev") {
+            manifest.srcFile("src/upgradeTest/AndroidManifest.xml")
+            res.srcDir("src/upgradeTest/res")
+        }
+    }
+
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {

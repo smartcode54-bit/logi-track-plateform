@@ -2,7 +2,18 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/api/api_exception.dart';
 import '../../../../core/api/token_store.dart';
 import '../domain/mobile_me.dart';
+import 'firebase_session_source.dart';
 import 'google_identity_source.dart';
+
+/// The 3.x Firebase session could not be carried into a Go session, and retrying is pointless (spec
+/// mobile-auth-exchange R13): the login page shows [messageKey].
+class ExchangeRefused implements Exception {
+  ExchangeRefused(this.messageKey);
+  final String messageKey;
+
+  @override
+  String toString() => 'ExchangeRefused($messageKey)';
+}
 
 /// A login that needs a new password first (`403 password_change_required`, R79). [email] is set when the sign-in
 /// was Google's (the form had no address): the change-password step logs in again with it.
@@ -21,6 +32,7 @@ class GoAuthRepository {
     required this.installId,
     required this.appVersion,
     this.google,
+    this.legacy,
   });
 
   final ApiClient api;
@@ -32,6 +44,9 @@ class GoAuthRepository {
   final GoogleIdentitySource? google;
 
   bool get googleAvailable => google?.available ?? false;
+
+  /// The Firebase session of APK 3.x, traded once for a Go session (spec mobile-auth-exchange); null = no exchange.
+  final LegacyFirebaseSession? legacy;
 
   /// `POST /v1/auth/login` then `GET /v1/mobile/me`. Throws [PasswordChangeRequired] for a temporary password,
   /// [ApiException] / [NetworkException] otherwise; an account without a driver is logged out again and answered as
@@ -61,6 +76,34 @@ class GoAuthRepository {
     return _driverOrLogout();
   }
 
+  /// `POST /v1/auth/exchange {idToken, platform, installId, appVersion}` with the 3.x Firebase ID token (R11-R14).
+  /// Outcomes (table R13): success, a temporary password and the refusals end the Firebase session, so the exchange
+  /// runs once; a closed route (404, the server is not in bridge mode `mobile` yet) and an unreachable or failing
+  /// server keep it for a later launch.
+  Future<MobileMe?> _exchangeLegacy() async {
+    final source = legacy;
+    if (source == null) return null;
+    final session = await source.read(); // NetworkException: offline, the Firebase session stays
+    if (session == null) {
+      await source.end();
+      return null;
+    }
+    try {
+      await _openSession('/v1/auth/exchange', {'idToken': session.idToken}, email: session.email);
+    } on PasswordChangeRequired {
+      await source.end();
+      rethrow;
+    } on ApiException catch (e) {
+      if (e.status == 404) return null; // not enabled on this server yet: login form, exchange again later
+      if (e.status == 429 || e.status >= 500) throw NetworkException(e); // retry later, like offline
+      await source.end();
+      throw ExchangeRefused(
+          e.code == 'account_disabled' ? 'login_error_account_disabled' : 'login_notice_exchange_relogin');
+    }
+    await source.end();
+    return _driverOrLogout();
+  }
+
   /// Posts a sign-in [body] (plus platform, install id and app version) and stores the tokens of the answer.
   Future<void> _openSession(String path, Map<String, Object?> body, {String? email}) async {
     try {
@@ -86,10 +129,12 @@ class GoAuthRepository {
   }
 
   /// The silent start of a cold launch (R4): with a stored refresh token the interceptor refreshes on the first call.
-  /// Returns null when there is no session to resume; a network failure throws [NetworkException] (the token stays).
+  /// Without one, the Firebase session APK 3.x left on the phone is exchanged for a Go session (spec
+  /// mobile-auth-exchange R11). Returns null when there is no session to resume; a network failure throws
+  /// [NetworkException] (the token, or the Firebase session, stays).
   Future<MobileMe?> resume() async {
     final refresh = await tokens.readRefreshToken();
-    if (refresh == null || refresh.isEmpty) return null;
+    if (refresh == null || refresh.isEmpty) return _exchangeLegacy();
     try {
       return await _driverOrLogout();
     } on ApiException catch (e) {

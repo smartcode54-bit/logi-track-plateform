@@ -10,9 +10,15 @@ void main() {
     'package:firebase_storage/',
     'package:cloud_functions/',
     'package:firebase_auth/',
+    'package:firebase_core/',
     'package:firebase_app_check/',
     'core/services/cloud_functions_service.dart',
+    'firebase_options.dart',
   ];
+  // The one gotest file that may read Firebase Auth: the 3.x session the first 4.x launch exchanges (spec
+  // mobile-auth-exchange R15). It may import exactly these, and nothing else from the forbidden list.
+  const legacySessionFile = 'lib/go/features/auth/data/firebase_session_source.dart';
+  const legacySessionAllowed = ['package:firebase_auth/', 'package:firebase_core/', 'firebase_options.dart'];
   // The one Firestore-repository file the gotest pages may import: for the SelectableTruck type only.
   const allowedRepository = 'trucks_repository.dart';
 
@@ -31,8 +37,10 @@ void main() {
     final bad = <String>[];
     for (final dir in ['lib/go', 'lib/core/api']) {
       for (final f in dartFiles(dir)) {
+        final legacy = f.path.replaceAll('\\', '/') == legacySessionFile;
         for (final line in imports(f)) {
-          if (forbidden.any(line.contains)) bad.add('${f.path}: $line');
+          final allowed = legacy && legacySessionAllowed.any(line.contains);
+          if (!allowed && forbidden.any(line.contains)) bad.add('${f.path}: $line');
           if (line.contains('/data/repositories/') &&
               !line.contains('/go/') &&
               !line.contains(allowedRepository) &&

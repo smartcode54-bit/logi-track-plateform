@@ -10,6 +10,7 @@ import '../../core/services/mobile_app_version_service.dart';
 import '../../core/services/mobile_install_id_service.dart';
 import '../core/services/go_heartbeat_service.dart';
 import '../core/services/go_version_config_source.dart';
+import '../features/auth/data/firebase_session_source.dart';
 import '../features/auth/data/go_auth_repository.dart';
 import '../features/auth/data/google_identity_source.dart';
 import '../features/check_in/data/go_truck_repository.dart';
@@ -75,6 +76,7 @@ class GoServices {
         installId: installId,
         appVersion: info.version,
         google: PluginGoogleIdentitySource(AppFlavor.googleOidcClientId),
+        legacy: FlutterFireLegacySession(),
       ),
       tasks: GoTaskRepository(api),
       trips: GoTripRepository(api),

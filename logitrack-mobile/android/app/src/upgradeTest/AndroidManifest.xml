@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Install-over test only (spec mobile-auth-exchange R19): merged into the dev flavor when Gradle gets
+         -P logitrackUpgradeTest=true (pnpm build:mobile:gotest:upgrade), never in a normal dev build.
+         Lets the test build reach a local Go stack over http on loopback (see res/xml). -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

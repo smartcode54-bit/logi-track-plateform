@@ -25,6 +25,7 @@ POST /v1/app-releases internal
 PUT /v1/app-releases/floor internal
 POST /v1/app-releases/presign internal
 USE /v1/auth internal,public
+POST /v1/auth/exchange internal,public
 POST /v1/auth/google internal,public
 GET /v1/auth/google/nonce internal,public
 POST /v1/auth/login internal,public

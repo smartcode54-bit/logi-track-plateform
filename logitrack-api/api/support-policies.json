@@ -3108,6 +3108,19 @@
         "allowHead": false
       },
       {
+        "id": "POST /v1/auth/exchange",
+        "method": "POST",
+        "route": "/v1/auth/exchange",
+        "class": "tenant_write",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
         "id": "POST /v1/auth/google",
         "method": "POST",
         "route": "/v1/auth/google",
@@ -4872,6 +4885,19 @@
         "method": "GET",
         "route": "/v1/mobile/trucks",
         "class": "deny",
+        "phase": 0,
+        "plane": "tenant",
+        "target": "none",
+        "predicate": "deny",
+        "schema": "none",
+        "owner": "",
+        "allowHead": false
+      },
+      {
+        "id": "POST /v1/auth/exchange",
+        "method": "POST",
+        "route": "/v1/auth/exchange",
+        "class": "tenant_write",
         "phase": 0,
         "plane": "tenant",
         "target": "none",

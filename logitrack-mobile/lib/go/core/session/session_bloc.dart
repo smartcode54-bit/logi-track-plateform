@@ -81,6 +81,11 @@ class SessionBloc extends Bloc<SessionEvent, SessionState> {
       emit(me == null ? SessionUnauthenticated() : SessionAuthenticated(me));
     } on NetworkException {
       emit(SessionOffline());
+    } on PasswordChangeRequired catch (p) {
+      // The 3.x session belongs to a user who must choose a new password first (spec mobile-auth-exchange R13).
+      emit(SessionNeedsPassword(email: p.email ?? '', ticket: p.ticket));
+    } on ExchangeRefused catch (e) {
+      emit(SessionUnauthenticated(messageKey: e.messageKey));
     } on ApiException catch (e) {
       emit(SessionUnauthenticated(
           messageKey: e.code == 'driver_profile_required' ? 'login_error_driver_profile_required' : null));

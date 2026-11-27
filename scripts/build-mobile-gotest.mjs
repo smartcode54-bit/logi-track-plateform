@@ -22,6 +22,10 @@
 //                                      the host port 8081 hangs on this machine); MinIO's presigned URLs use
 //                                      localhost:9000, so 9000 is reversed as well.
 //   pnpm gotest:reverse                only redo the adb reverse (it is lost when the phone is unplugged)
+//   pnpm build:mobile:gotest:upgrade   install-over test of the 3.x -> 4.x session exchange (spec mobile-auth-exchange):
+//                                      the gotest code under the DEV package (com.example.logi_track_driver_app, Firebase
+//                                      dev, versionCode 400000+N, 4.0.0-gotest.<N>.upgrade), installed over a signed-in dev
+//                                      3.x app; needs the local Go stack in AUTH_FIREBASE_BRIDGE_MODE=mobile
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -62,8 +66,15 @@ function googleServices(flavor) {
 const argv = process.argv.slice(2);
 const local = argv.includes("--local");
 const reverseOnly = argv.includes("--reverse");
-const unknown = argv.filter((a) => a !== "--local" && a !== "--reverse");
-if (unknown.length) fail(`unknown argument(s): ${unknown.join(" ")} (use --local or --reverse)`);
+// Install-over test of the 3.x -> 4.x session exchange (spec mobile-auth-exchange R17-R19): the gotest code built
+// under the DEV package and Firebase dev project, installed over a signed-in dev 3.x app. Local stack only.
+const upgradeTest = argv.includes("--upgrade-test");
+const unknown = argv.filter((a) => a !== "--local" && a !== "--reverse" && a !== "--upgrade-test");
+if (unknown.length) fail(`unknown argument(s): ${unknown.join(" ")} (use --local, --reverse or --local --upgrade-test)`);
+if (upgradeTest && (!local || reverseOnly)) fail("--upgrade-test needs --local (the local Go stack in bridge mode mobile)");
+const FLAVOR = upgradeTest ? "dev" : "gotest";
+const DEV_PACKAGE = "com.example.logi_track_driver_app";
+const TARGET_PACKAGE = upgradeTest ? DEV_PACKAGE : PACKAGE;
 
 // The hosts src/gotest/res/xml/network_security_config.xml lets through over plain http.
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "10.0.2.2"]);
@@ -143,27 +154,42 @@ if (devEnv.FIREBASE_PROJECT_ID !== gotest.projectId) {
 }
 copyFileSync(devEnvPath, join(mobile, ".env.dev"));
 
+// The install-over build uses the dev flavor's google-services.json: it must be the same (non-prod) project as
+// envs/.env.dev.mobile, so the dev 3.x app it replaces and the exchange's Firebase ID tokens share one project (R18).
+const firebaseApp = upgradeTest ? googleServices("dev") : gotest;
+if (upgradeTest) {
+    if (!firebaseApp.packages.includes(DEV_PACKAGE)) fail(`src/dev/google-services.json has no client for ${DEV_PACKAGE}`);
+    if (firebaseApp.projectId === prodProject) fail(`src/dev/google-services.json is the prod project (${prodProject})`);
+    if (firebaseApp.projectId !== devEnv.FIREBASE_PROJECT_ID) {
+        fail(`src/dev/google-services.json (${firebaseApp.projectId}) and envs/.env.dev.mobile ` +
+            `(${devEnv.FIREBASE_PROJECT_ID}) name different Firebase projects`);
+    }
+}
+
 // Google sign-in (developer-spec §11.4, §11.13): the server client id, i.e. the OAuth web client of the dev project.
 // Go accepts the token only when this id is in its GOOGLE_OIDC_ALLOWED_CLIENT_IDS. Empty = the button is disabled.
 const googleClientId = (cfg.GOOGLE_OIDC_CLIENT_ID || devEnv.FIREBASE_WEB_CLIENT_ID || "").trim();
-if (googleClientId && !gotest.webClientIds.includes(googleClientId)) {
+if (googleClientId && !firebaseApp.webClientIds.includes(googleClientId)) {
     fail("GOOGLE_OIDC_CLIENT_ID (or FIREBASE_WEB_CLIENT_ID of envs/.env.dev.mobile) is not an OAuth web client of " +
-        `src/gotest/google-services.json (${gotest.projectId})`);
+        `src/${FLAVOR}/google-services.json (${firebaseApp.projectId})`);
 }
 if (!googleClientId) console.warn("[build-mobile-gotest] warning: no Google client id; Google sign-in is disabled");
 
-// A local build has its own version, so an APK made for this machine is never mistaken for a staging one.
-const buildName = `4.0.0-gotest.${build}${local ? ".local" : ""}`;
+// A local build has its own version, so an APK made for this machine is never mistaken for a staging one. The
+// install-over build's versionCode sits above any dev build (400000 + N), so `adb install -r` can replace dev 3.x.
+const buildName = `4.0.0-gotest.${build}${upgradeTest ? ".upgrade" : local ? ".local" : ""}`;
+const buildNumber = upgradeTest ? 400000 + build : build;
 const args = [
     "build", "apk", "--release",
-    "--flavor", "gotest",
+    "--flavor", FLAVOR,
     "--dart-define=FLAVOR=gotest",
     `--dart-define=API_BASE_URL=${apiBaseUrl}`,
     `--dart-define=GOOGLE_OIDC_CLIENT_ID=${googleClientId}`,
     `--build-name=${buildName}`,
-    `--build-number=${build}`,
+    `--build-number=${buildNumber}`,
+    ...(upgradeTest ? ["--android-project-arg=logitrackUpgradeTest=true"] : []),
 ];
-console.log(`[build-mobile-gotest] ${PACKAGE} ${buildName} -> ${apiBaseUrl} (Firebase ${gotest.projectId})`);
+console.log(`[build-mobile-gotest] ${TARGET_PACKAGE} ${buildName} (${buildNumber}) -> ${apiBaseUrl} (Firebase ${firebaseApp.projectId})`);
 const prodEnv = join(mobile, ".env.prod");
 const prodEnvBackup = join(mobile, ".env.prod.gotest-build-backup");
 if (existsSync(prodEnvBackup)) fail(`${prodEnvBackup} exists: a previous build was interrupted; restore it to .env.prod first`);
@@ -179,13 +205,19 @@ try {
     if (hadProdEnv) renameSync(prodEnvBackup, prodEnv);
 }
 if (status === 0 && local) {
-    const apk = join(mobile, "build", "app", "outputs", "flutter-apk", `logitrack-gotestRelease-v${buildName}.apk`);
+    const apk = join(mobile, "build", "app", "outputs", "flutter-apk", `logitrack-${FLAVOR}Release-v${buildName}.apk`);
     if (!existsSync(apk)) fail(`built, but ${apk} is missing`);
     if (reversePorts(apiBaseUrl)) {
         const r = adb("install", "-r", apk);
         process.stdout.write(r.stdout);
-        if (r.status !== 0) fail(`adb install failed: ${r.stderr.trim()}`);
-        console.log("[build-mobile-gotest] installed: open 'LogiTrack GO-TEST' and log in with a seeded driver");
+        if (r.status !== 0) {
+            const hint = /UPDATE_INCOMPATIBLE/.test(r.stderr)
+                ? " (the installed dev app was signed with another key: build dev 3.x on this machine first)" : "";
+            fail(`adb install failed: ${r.stderr.trim()}${hint}`);
+        }
+        console.log(upgradeTest
+            ? "[build-mobile-gotest] installed over the dev app: open 'LogiTrack DEV'; a signed-in 3.x session should land on Home"
+            : "[build-mobile-gotest] installed: open 'LogiTrack GO-TEST' and log in with a seeded driver");
     } else {
         console.log(`[build-mobile-gotest] APK: ${apk}`);
     }

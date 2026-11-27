@@ -435,6 +435,11 @@ type grant struct {
 	// googleSub, for a Google sign-in, is the linked Google account: the link must still exist; its
 	// last_used_at is written in the session transaction.
 	googleSub string
+	// firebaseUID, for a session exchange (POST /v1/auth/exchange), is the verified Firebase uid: the locked
+	// row must still carry it as legacy_auth_uid, and firebaseAuthTime (unix seconds) must not predate a
+	// password change made since the token was verified (spec mobile-auth-exchange R9).
+	firebaseUID      string
+	firebaseAuthTime int64
 }
 
 // openSession creates the session and the first token pair in one transaction: the default tenant is
@@ -466,6 +471,19 @@ func (s *Service) openSession(ctx context.Context, uid uuid.UUID, g grant, in Lo
 			}
 			if n == 0 {
 				return errNoAccount() // unlinked after it was resolved
+			}
+		}
+		if g.firebaseUID != "" {
+			// Read under the row lock taken above, so the uid and password_changed_at cannot move before COMMIT.
+			b, err := q.GetBridgeUser(ctx, uid)
+			if err != nil {
+				return err
+			}
+			if b.LegacyAuthUid == nil || *b.LegacyAuthUid != g.firebaseUID {
+				return errNoAccount() // the uid moved to another user after it was resolved
+			}
+			if b.PasswordChangedAt != nil && g.firebaseAuthTime < b.PasswordChangedAt.Unix() {
+				return errInvalidToken() // a password change landed after the token was verified
 			}
 		}
 		pc.issue(uid, user.AuthVersion)

@@ -695,6 +695,7 @@
     "login_error_google_no_account": "บัญชี Google นี้ยังไม่มีผู้ใช้ใน LogiTrack ติดต่อฝ่ายจัดส่งให้เพิ่มอีเมล Gmail ของคุณในบัญชี",
     "login_error_google_invalid_token": "Google ปฏิเสธการเข้าสู่ระบบ ลองใหม่อีกครั้ง",
     "login_error_google_failed": "เริ่มการเข้าสู่ระบบด้วย Google บนเครื่องนี้ไม่ได้ ({code})",
+    "login_notice_exchange_relogin": "ไม่สามารถใช้การเข้าสู่ระบบเดิมต่อได้ กรุณาเข้าสู่ระบบอีกครั้ง",
     "session_expired_relogin": "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
     "password_change_title": "ตั้งรหัสผ่านใหม่",
     "password_change_body": "คุณเข้าด้วยรหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านของคุณเองเพื่อใช้งานต่อ",

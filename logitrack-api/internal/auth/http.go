@@ -56,6 +56,7 @@ func (s *Service) mountAuth(r fiber.Router) {
 	r.Post("/login", s.handleLogin)
 	r.Get("/google/nonce", s.handleGoogleNonce)
 	r.Post("/google", s.handleGoogle)
+	r.Post("/exchange", s.handleExchange)
 	r.Post("/refresh", s.handleRefresh)
 	bindOwn(r, http.MethodPost, "/logout", "/v1/auth/logout", "empty", httpx.PolicySession, s.refuseAPIKeys, s.handleLogout)
 	bindOwn(r, http.MethodPost, "/logout-all", "/v1/auth/logout-all", "empty", httpx.PolicySession, s.RequireAuth(), s.handleLogoutAll)
@@ -120,6 +121,22 @@ func (s *Service) handleGoogle(c fiber.Ctx) error {
 	}
 	in.IP, in.UserAgent, in.RequestID = httpx.ClientIPFrom(c), c.Get(fiber.HeaderUserAgent), httpx.RequestIDFrom(c)
 	res, err := s.GoogleSignIn(c.Context(), in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, res)
+}
+
+func (s *Service) handleExchange(c fiber.Ctx) error {
+	var in ExchangeInput
+	if err := httpx.DecodeJSON(c, &in); err != nil {
+		if !s.fb.Mode.Mobile() || s.fb.Verifier == nil {
+			return httpx.ErrNotFound() // a closed route answers 404 whatever the body (R2)
+		}
+		return err
+	}
+	in.IP, in.UserAgent, in.RequestID = httpx.ClientIPFrom(c), c.Get(fiber.HeaderUserAgent), httpx.RequestIDFrom(c)
+	res, err := s.Exchange(c.Context(), in)
 	if err != nil {
 		return err
 	}

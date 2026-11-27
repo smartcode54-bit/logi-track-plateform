@@ -695,6 +695,7 @@
     "login_error_google_no_account": "This Google account has no LogiTrack user. Ask dispatch to add your Gmail address to your account.",
     "login_error_google_invalid_token": "Google sign-in was refused. Try again.",
     "login_error_google_failed": "Google sign-in could not start on this phone ({code}).",
+    "login_notice_exchange_relogin": "Your previous sign-in could not be carried over. Please sign in again.",
     "session_expired_relogin": "Your session has ended. Please sign in again.",
     "password_change_title": "Set a new password",
     "password_change_body": "You signed in with a temporary password. Set your own password to continue.",
