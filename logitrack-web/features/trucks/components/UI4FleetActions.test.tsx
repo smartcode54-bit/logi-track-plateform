@@ -153,7 +153,8 @@ describe("UI4 fleet actions", () => {
     it.each([
         { nextServiceMileage: 9000, currentMileage: 10000, nextServiceDate: null, label: "PM: เกินกำหนด 1000 กม." },
         { nextServiceMileage: 11000, currentMileage: 10000, nextServiceDate: null, label: "PM: เหลือ 1000 กม." },
-        { nextServiceMileage: null, currentMileage: 10000, nextServiceDate: new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10), label: "PM: เหลือ 10 วัน" },
+        // The Bangkok date, as classifyPM counts days: a UTC date is a day behind from 00:00 to 07:00 Bangkok time.
+        { nextServiceMileage: null, currentMileage: 10000, nextServiceDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(Date.now() + 10 * 86400000), label: "PM: เหลือ 10 วัน" },
     ])("keeps Thai maintenance labels consistent: $label", async ({ label, ...over }) => {
         localStorage.setItem("language", "en");
         serve({ ...over, status: "active" });
