@@ -6,7 +6,8 @@ import * as XLSXStyle from "xlsx-js-style";
 import { Upload, X, FileSpreadsheet, Check, AlertCircle, Download } from "lucide-react";
 import { format } from "date-fns";
 import { collection, writeBatch, doc } from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/firebase/client";
 import { useLanguage } from "@/context/language";
 import { COLLECTIONS } from "@/lib/collections";
 import { taskService, TaskTruck } from "@/features/tasks/services/taskService";
@@ -15,6 +16,8 @@ import { jobCategoryFromCell } from "@/lib/jobCategory";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
 import { cellText, resolveImportColumns } from "@/lib/importColumns";
 import { JOB_ASSIGN_IMPORT_COLUMNS } from "./importColumns";
+import { matchImportDriver, type MatchableDriver } from "@/lib/driverMatch";
+import { driverDisplayName } from "@/lib/driverName";
 
 const normalizePlate = (plate: unknown) => String(plate ?? "").toUpperCase().replace(/[\s-]/g, "");
 
@@ -52,8 +55,11 @@ interface ImportRow {
     jobCategory?: "PRIMARY" | "SUPPLEMENTARY";
     taskId?: string;
     licensePlate?: string;
+    driverId?: string;          // drivers doc id — what the mobile app lists tasks by
     driverName?: string;
     driverPhone?: string;
+    /** The sheet named a driver but no single active driver matched it — row is rejected. */
+    driverIssue?: "notFound" | "ambiguous";
     billingCustomerId?: string;
     billingCustomerName?: string;
     billingCustomerCode?: string;
@@ -96,6 +102,8 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const trucksRef = useRef<TaskTruck[]>([]);
     const hubsRef = useRef<Record<string, any>[]>([]);
+    const driversRef = useRef<MatchableDriver[]>([]);
+    const driversLoadRef = useRef<Promise<void>>(Promise.resolve());
     const customersRef = useRef<CustomerData[]>([]);
     const customersByIdRef = useRef<Map<string, CustomerData>>(new Map());
     const [customers, setCustomers] = useState<CustomerData[]>([]);
@@ -104,6 +112,10 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
         if (!open) return;
         taskService.fetchTrucks().then((f) => { trucksRef.current = f; }).catch((e) => console.error("trucks", e));
         taskService.fetchHubs().then((h) => { hubsRef.current = h; }).catch((e) => console.error("hubs", e));
+        // parseExcel awaits this: a file picked before the list arrives must not read as "driver not found".
+        driversLoadRef.current = taskService.fetchDrivers()
+            .then((ds) => { driversRef.current = ds.filter((d) => !!d.id) as MatchableDriver[]; })
+            .catch((e) => console.error("drivers", e));
         getCustomers().then((cs) => {
             customersRef.current = cs;
             customersByIdRef.current = new Map(cs.map((c) => [c.id, c]));
@@ -124,9 +136,13 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
     };
 
     const recompute = (row: ImportRow): ImportRow => {
-        const isValid = !!(row.destination && row.sourceHub) && !row.plateUnknown && !!row.jobCategory && !!row.billingCustomerId;
+        const isValid = !!(row.destination && row.sourceHub) && !row.plateUnknown && !row.driverIssue && !!row.jobCategory && !!row.billingCustomerId;
         const invalidReason = row.plateUnknown
             ? t("firstMile.import.plateNotInFleet")
+            : row.driverIssue === "ambiguous"
+            ? t("jobAssign.import.driverAmbiguous", "คนขับซ้ำกันหลายคน")
+            : row.driverIssue === "notFound"
+            ? t("jobAssign.import.driverNotFound", "ไม่พบคนขับในระบบ")
             : !row.jobCategory
                 ? t("firstMile.import.jobCategoryUnknown")
                 : !row.billingCustomerId
@@ -142,6 +158,7 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
 
     const parseExcel = async (file: File) => {
         try {
+            await driversLoadRef.current;
             const buf = await file.arrayBuffer();
             const wb = XLSX.read(buf);
             const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -189,6 +206,8 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                 }
 
                 const customer = resolveCustomer(customerCell);
+                const driverMatch = matchImportDriver(driversRef.current, driverPhone, driverName);
+                const matchedDriver = driverMatch.kind === "matched" ? driverMatch.driver : undefined;
 
                 return recompute({
                     id: index,
@@ -202,8 +221,11 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                     jobCategory,
                     taskId: shipmentId ? String(shipmentId) : undefined,
                     licensePlate: matchedTruck?.licensePlate ?? licensePlate,
-                    driverName,
-                    driverPhone,
+                    // A matched driver's own record wins over what was typed, like picking them in the form.
+                    driverId: matchedDriver?.id,
+                    driverName: matchedDriver ? driverDisplayName(matchedDriver as unknown as Record<string, unknown>, driverName) : driverName,
+                    driverPhone: matchedDriver ? (cellText(matchedDriver.mobile ?? matchedDriver.phone) ?? driverPhone) : driverPhone,
+                    driverIssue: driverMatch.kind === "notFound" || driverMatch.kind === "ambiguous" ? driverMatch.kind : undefined,
                     billingCustomerId: customer?.id,
                     billingCustomerName: customer?.name,
                     billingCustomerCode: customer?.code,
@@ -315,8 +337,24 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                 const prefix = row.taskType === "LINE_HAUL" ? "LH" : "FM";
                 taskIdByRow.set(row.id, `${prefix}-${dateStr}-${String(n).padStart(3, "0")}`);
             }
+            // runOrder per assigned driver, after their existing tasks, in pickup order. The app's queue
+            // sorts by the pickup instant (ADR 0028); runOrder is its tiebreaker, like a form assign.
+            const runOrderByRow = new Map<number, number>();
+            const rowsByDriver = new Map<string, ImportRow[]>();
+            for (const row of validRows) {
+                if (!row.driverId) continue;
+                rowsByDriver.set(row.driverId, [...(rowsByDriver.get(row.driverId) ?? []), row]);
+            }
+            for (const [driverId, rows] of rowsByDriver) {
+                let next = await taskService.getNextRunOrderForDriver(driverId);
+                const when = (r: ImportRow) => (r.actualPickupAt ?? r.date).getTime();
+                for (const r of [...rows].sort((a, b) => when(a) - when(b) || a.id - b.id)) {
+                    runOrderByRow.set(r.id, next++);
+                }
+            }
             setProgress(15);
 
+            const created: { id: string; row: ImportRow; time: string }[] = [];
             const batchSize = 400;
             const totalBatches = Math.ceil(validRows.length / batchSize);
             for (let i = 0; i < totalBatches; i++) {
@@ -325,11 +363,14 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                 chunk.forEach((row) => {
                     const docRef = doc(collection(db, COLLECTIONS.TASKS));
                     const dateStr = format(row.date, "ddMMyyyy");
+                    const time = row.actualPickupAt ? format(row.actualPickupAt, "HH:mm") : "00:00";
+                    const runOrder = runOrderByRow.get(row.id);
+                    if (row.driverId) created.push({ id: docRef.id, row, time });
                     batch.set(docRef, {
                         date: row.date,
                         dateStr,
                         // Plan has no time; carry it from the actual pickup (ADR 0028), default 00:00.
-                        time: row.actualPickupAt ? format(row.actualPickupAt, "HH:mm") : "00:00",
+                        time,
                         ...(row.actualPickupAt ? { actualPickupAt: row.actualPickupAt } : {}),
                         sourceHub: row.sourceHub,
                         destination: row.destination,
@@ -338,6 +379,8 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                         ...(row.truckId ? { truckId: row.truckId } : {}),
                         taskId: taskIdByRow.get(row.id) || "",
                         licensePlate: row.licensePlate || "",
+                        ...(row.driverId ? { driverId: row.driverId } : {}),
+                        ...(runOrder != null ? { runOrder } : {}),
                         driverName: row.driverName || "",
                         driverPhone: row.driverPhone || "",
                         billingCustomerId: row.billingCustomerId,
@@ -352,8 +395,25 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                     });
                 });
                 await batch.commit();
-                setProgress(15 + Math.round(((i + 1) / totalBatches) * 85));
+                setProgress(15 + Math.round(((i + 1) / totalBatches) * 75));
             }
+
+            // Tell each driver about their new task, as a form assign does. The tasks are saved
+            // already, so a failed notification is logged and never fails the import.
+            const notify = httpsCallable<{ taskId: string; newDriverId?: string; status?: string; sourceHub?: string; destination?: string; date?: string; time?: string; taskType: string }, { ok: boolean }>(functions, "notifyTaskUpdate");
+            const results = await Promise.allSettled(created.map(({ id, row, time }) => notify({
+                taskId: id,
+                taskType: row.taskType,
+                newDriverId: row.driverId,
+                status: "Pending",
+                sourceHub: row.sourceHub,
+                destination: row.destination,
+                date: format(row.date, "yyyy-MM-dd"),
+                time,
+            })));
+            const failed = results.filter((r) => r.status === "rejected");
+            if (failed.length > 0) console.warn(`notifyTaskUpdate failed for ${failed.length}/${results.length} imported tasks`, failed);
+            setProgress(100);
 
             setUploading(false);
             setOpen(false);
@@ -438,6 +498,7 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                                                 <TableHead>{t("firstMile.import.table.dest")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.jobCategory")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.truckType")}</TableHead>
+                                                <TableHead>{t("jobAssign.import.table.driver", "คนขับ")}</TableHead>
                                                 <TableHead>{t("firstMile.import.table.status")}</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -485,6 +546,15 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                                                             : <span className="text-red-500">{t("firstMile.import.unknown")}</span>}
                                                     </TableCell>
                                                     <TableCell>{row.truckType}</TableCell>
+                                                    <TableCell className="text-xs whitespace-nowrap">
+                                                        {row.driverId ? (
+                                                            <span className="text-green-600 font-medium">{row.driverName}</span>
+                                                        ) : row.driverIssue ? (
+                                                            <span className="text-red-500">{row.driverName || row.driverPhone}</span>
+                                                        ) : (
+                                                            <span className="text-muted-foreground">{t("jobAssign.import.noDriver", "ยังไม่ระบุคนขับ")}</span>
+                                                        )}
+                                                    </TableCell>
                                                     <TableCell>
                                                         {row.isValid ? <Check className="h-4 w-4 text-green-500" /> : <span className="text-xs text-red-500 font-medium">{row.invalidReason || t("firstMile.import.invalid")}</span>}
                                                     </TableCell>
