@@ -4,9 +4,12 @@
  * Paging of a list: one page of rows on screen at a time, Previous / Next under the table. `useListPager`
  * slices the rows the page already holds (the flattened pages of its `useInfiniteQuery`, after the page's own
  * client filter if it has one) and asks the server for the next keyset cursor (Appendix B §B.1.5) only when
- * the reader steps past the loaded rows: a list of thousands costs `pageSize` rows in the DOM and one request
- * per server page reached. A keyset cursor cannot jump to page N or count the list, so the footer says the
- * page number and the row range, and the total once the last server page has arrived.
+ * the reader steps past the loaded rows, or for a page bigger than a server page: a list of thousands costs
+ * `pageSize` rows in the DOM and one request per server page reached. A keyset cursor cannot jump to page N or count the list, so the footer says
+ * the page number and the row range, and the total once the last server page has arrived.
+ *
+ * The reader picks the rows per page (`LIST_PAGE_SIZES`) in the footer; the choice is one per browser, kept in
+ * localStorage, and applies to every list. The page keeps its first row on screen when the size changes.
  *
  *   const list = useInfiniteQuery(expensesQuery(filter));
  *   const rows = expenseRows(list.data?.pages);
@@ -18,10 +21,11 @@
  * Totals and exports keep reading every row (`rows`, or their own walk of the cursor), never `pageRows`.
  * A small in-memory list pages the same way with no source: `useListPager(rows)`.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ChevronsLeft, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/context/language";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +40,49 @@ export interface PagerSource {
 }
 
 export const LIST_PAGE_SIZE = 50;
+export const LIST_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+const PAGE_SIZE_STORAGE_KEY = "listPager.pageSize";
+const pageSizeListeners = new Set<() => void>();
+// The choice in memory: it still holds for the visit when storage is unavailable.
+let chosenPageSize: number | null = null;
+
+function readPageSize(): number {
+    if (chosenPageSize !== null) return chosenPageSize;
+    let saved = NaN;
+    try {
+        saved = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    } catch {
+        /* Storage can be unavailable. */
+    }
+    chosenPageSize = (LIST_PAGE_SIZES as readonly number[]).includes(saved) ? saved : LIST_PAGE_SIZE;
+    return chosenPageSize;
+}
+
+function subscribePageSize(listener: () => void): () => void {
+    // Another tab's choice: read it again.
+    const onStorage = (e: StorageEvent) => {
+        if (e.key !== PAGE_SIZE_STORAGE_KEY && e.key !== null) return;
+        chosenPageSize = null;
+        listener();
+    };
+    pageSizeListeners.add(listener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+        pageSizeListeners.delete(listener);
+        window.removeEventListener("storage", onStorage);
+    };
+}
+
+export function setListPageSize(size: number): void {
+    chosenPageSize = size;
+    try {
+        localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+    } catch {
+        /* Storage can be unavailable. */
+    }
+    for (const listener of [...pageSizeListeners]) listener();
+}
 
 /** Room above a list brought back into view: the app shell's sticky header (h-16) plus a small gap. */
 const STICKY_HEADER_OFFSET_PX = 72;
@@ -57,26 +104,40 @@ export interface ListPagerProps {
     onFirst: () => void;
     onPrevious: () => void;
     onNext: () => void;
+    /** Rows per page, and its picker; a list with a fixed size has neither. */
+    pageSize?: number;
+    onPageSizeChange?: (size: number) => void;
     className?: string;
 }
 
-export function useListPager<T>(rows: T[], source: PagerSource = {}, resetKey?: unknown, pageSize = LIST_PAGE_SIZE): { pageRows: T[]; pager: ListPagerProps } {
+/** `pageSize` fixes the size (no picker); without it the reader's choice applies. */
+export function useListPager<T>(rows: T[], source: PagerSource = {}, resetKey?: unknown, pageSize?: number): { pageRows: T[]; pager: ListPagerProps } {
+    const chosen = useSyncExternalStore(subscribePageSize, readPageSize, () => LIST_PAGE_SIZE);
+    const size = pageSize ?? chosen;
     const key = JSON.stringify(resetKey ?? null);
-    const [at, setAt] = useState({ key, index: 0 });
-    const loadedPages = Math.ceil(rows.length / pageSize);
-    // A new filter starts at page 1; a list that came back shorter falls back to its last page.
-    const index = at.key === key ? Math.min(at.index, Math.max(loadedPages - 1, 0)) : 0;
-    const start = index * pageSize;
-    const pageRows = useMemo(() => rows.slice(start, start + pageSize), [rows, start, pageSize]);
+    // The position is the first row wanted on screen, so a new page size keeps it in view.
+    const [at, setAt] = useState({ key, first: 0 });
+    const first = at.key === key ? at.first : 0; // a new filter starts at page 1
+    const wanted = Math.floor(first / size);
+    const loadedPages = Math.ceil(rows.length / size);
+    // A list that came back shorter falls back to its last page.
+    const index = Math.min(wanted, Math.max(loadedPages - 1, 0));
+    const start = index * size;
+    const pageRows = useMemo(() => rows.slice(start, start + size), [rows, start, size]);
     const hasNextPage = Boolean(source.hasNextPage);
     const { fetchNextPage } = source;
     const busy = Boolean(source.isFetching || source.isFetchingNextPage);
     const failed = Boolean(source.isFetchNextPageError);
 
     // Next past the loaded rows records the page wanted; this asks the server for it once no fetch is running
-    // (a press during a background refetch is kept, not dropped) and again while the page is still short (a
-    // client filter may match nothing in a server page). A failed request stops it; Next retries.
-    const wanting = at.key === key && at.index > index && hasNextPage;
+    // (a press during a background refetch is kept, not dropped) and again while the page is still empty (a
+    // client filter may match nothing in a server page). A page bigger than a server page is filled the same
+    // way. A failed request stops it; Next retries.
+    // shortcut: takes a server page to be LIST_PAGE_SIZE rows (the API's DefaultLimit); a list paged smaller on
+    // the server shows a short page at 50 or less until Next, as before page sizes.
+    const stepped = wanted > index;
+    const fill = size > LIST_PAGE_SIZE && rows.length < (wanted + 1) * size;
+    const wanting = hasNextPage && (stepped || fill);
     useEffect(() => {
         if (wanting && !busy && !failed) void fetchNextPage?.({ cancelRefetch: false });
     }, [wanting, busy, failed, fetchNextPage, rows.length]);
@@ -92,18 +153,28 @@ export function useListPager<T>(rows: T[], source: PagerSource = {}, resetKey?: 
             hasNext: index + 1 < loadedPages || hasNextPage,
             loading: Boolean(source.isFetchingNextPage) || (wanting && !failed),
             error: failed,
-            onFirst: () => setAt({ key, index: 0 }),
-            onPrevious: () => setAt({ key, index: Math.max(index - 1, 0) }),
+            onFirst: () => setAt({ key, first: 0 }),
+            onPrevious: () => setAt({ key, first: Math.max(index - 1, 0) * size }),
             onNext: () => {
-                setAt({ key, index: index + 1 });
+                setAt({ key, first: (index + 1) * size });
                 if (failed && index + 1 >= loadedPages) void fetchNextPage?.({ cancelRefetch: false });
             },
+            ...(pageSize === undefined && {
+                pageSize: size,
+                onPageSizeChange: (next: number) => {
+                    setAt({ key, first: start });
+                    setListPageSize(next);
+                },
+            }),
         },
     };
 }
 
-/** The footer of a paged list: row range, page number, First / Previous / Next. Nothing for an empty list. */
-export function ListPager({ page, from, to, total, hasPrevious, hasNext, loading, error, onFirst, onPrevious, onNext, className }: ListPagerProps) {
+/**
+ * The footer of a paged list: row range, rows per page, page number, First / Previous / Next. Nothing for an
+ * empty list; no page size picker for a list no longer than the smallest size.
+ */
+export function ListPager({ page, from, to, total, hasPrevious, hasNext, loading, error, onFirst, onPrevious, onNext, pageSize, onPageSizeChange, className }: ListPagerProps) {
     const { t } = useLanguage();
     const root = useRef<HTMLElement>(null);
 
@@ -130,6 +201,7 @@ export function ListPager({ page, from, to, total, hasPrevious, hasNext, loading
             ? t("common.pager.rowsOf", { from: n(from), to: n(to), total: n(total) })
             : t("common.pager.rows", { from: n(from), to: n(to) });
     const single = !hasPrevious && !hasNext;
+    const picker = pageSize !== undefined && onPageSizeChange !== undefined && (!single || to > LIST_PAGE_SIZES[0]);
 
     return (
         <nav
@@ -145,24 +217,51 @@ export function ListPager({ page, from, to, total, hasPrevious, hasNext, loading
                     {t("common.pager.error")}
                 </p>
             )}
-            {!single && (
-                <div className="ml-auto flex items-center gap-1">
-                    <Button type="button" variant="ghost" size="icon-sm" onClick={onFirst} disabled={!hasPrevious} aria-label={t("common.pager.first")} title={t("common.pager.first")}>
-                        <ChevronsLeft />
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={onPrevious} disabled={!hasPrevious}>
-                        <ChevronLeft />
-                        <span className="max-sm:sr-only">{t("common.pager.previous")}</span>
-                    </Button>
-                    <span className="min-w-16 px-2 text-center font-medium tabular-nums text-foreground" aria-current="page">
-                        {t("common.pager.page", { page: n(page) })}
-                    </span>
-                    <Button type="button" variant="outline" size="sm" onClick={onNext} disabled={!hasNext || loading}>
-                        <span className="max-sm:sr-only">{error ? t("common.pager.retry") : t("common.pager.next")}</span>
-                        {loading ? <Loader2 className="animate-spin" /> : <ChevronRight />}
-                    </Button>
-                </div>
-            )}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+                {picker && (
+                    <div className="flex items-center gap-2">
+                        <span className="max-sm:sr-only" aria-hidden="true">
+                            {t("common.pager.pageSize")}
+                        </span>
+                        {/* A menu, not the searchable Select: the app shell already ships it, so no list pays for it. */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button type="button" variant="outline" size="sm" className="gap-1 tabular-nums" aria-label={`${t("common.pager.pageSize")}: ${pageSize}`}>
+                                    {pageSize}
+                                    <ChevronDown className="size-3" aria-hidden />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-20">
+                                <DropdownMenuRadioGroup aria-label={t("common.pager.pageSize")} value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+                                    {LIST_PAGE_SIZES.map((n) => (
+                                        <DropdownMenuRadioItem key={n} value={String(n)} className="tabular-nums max-md:min-h-11">
+                                            {n}
+                                        </DropdownMenuRadioItem>
+                                    ))}
+                                </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                )}
+                {!single && (
+                    <div className="flex items-center gap-1">
+                        <Button type="button" variant="ghost" size="icon-sm" onClick={onFirst} disabled={!hasPrevious} aria-label={t("common.pager.first")} title={t("common.pager.first")}>
+                            <ChevronsLeft />
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={onPrevious} disabled={!hasPrevious}>
+                            <ChevronLeft />
+                            <span className="max-sm:sr-only">{t("common.pager.previous")}</span>
+                        </Button>
+                        <span className="min-w-16 px-2 text-center font-medium tabular-nums text-foreground" aria-current="page">
+                            {t("common.pager.page", { page: n(page) })}
+                        </span>
+                        <Button type="button" variant="outline" size="sm" onClick={onNext} disabled={!hasNext || loading}>
+                            <span className="max-sm:sr-only">{error ? t("common.pager.retry") : t("common.pager.next")}</span>
+                            {loading ? <Loader2 className="animate-spin" /> : <ChevronRight />}
+                        </Button>
+                    </div>
+                )}
+            </div>
         </nav>
     );
 }

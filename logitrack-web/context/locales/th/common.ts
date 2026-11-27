@@ -505,6 +505,7 @@ export default {
     "common.pager.rowsOf": "แถว {from}–{to} จาก {total}",
     "common.pager.count": "{count} แถว",
     "common.pager.page": "หน้า {page}",
+    "common.pager.pageSize": "แถวต่อหน้า",
     "common.pager.first": "หน้าแรก",
     "common.pager.previous": "ก่อนหน้า",
     "common.pager.next": "ถัดไป",
