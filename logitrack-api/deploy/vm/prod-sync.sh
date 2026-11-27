@@ -2,7 +2,7 @@
 # prod-sync.sh: bring the staging database up to date with production Firestore (deploy/vm/README.md section 10).
 # Run as root by logitrack-prod-sync.timer every 6 hours, or by hand:
 #
-#   /opt/logitrack/current/deploy/vm/prod-sync.sh [--dry-run | --no-commit]
+#   /opt/logitrack/current/deploy/vm/prod-sync.sh [--dry-run | --no-commit] [--reapply COLLECTIONS]
 #
 # One run, under a lock (a second run while one is going logs "skipped" and exits 0):
 #   1. etl dump --collections=all and firebase-tools auth:export, as root, with the read-only key named in
@@ -17,6 +17,8 @@
 # support-access consent are not documents of the dump. A staging edit of a row that came from production lasts
 # until production changes that document. Documents deleted in production keep their rows here.
 #
+# --reapply tasks,trip_records (by hand, after a release changed how those collections map) runs a second load of
+# just them with --force, so documents production has not changed since the last run are mapped again too.
 # --dry-run checks the set-up and prints the plan: no read, no write, no lock, no log. --no-commit reads production
 # and runs auth-import and load with --dry-run (nothing committed, no stamp). The dump and the export hold personal
 # data: they live in shared/prod-sync/run.* for the length of the run only. Output goes to stdout (the journal under
@@ -25,15 +27,22 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: prod-sync.sh [--dry-run | --no-commit]" >&2
+  echo "usage: prod-sync.sh [--dry-run | --no-commit] [--reapply COLLECTIONS]" >&2
   exit "${1:-2}"
 }
 mode=run
 prefix=""
+reapply=""
 while [ $# -gt 0 ]; do
   case $1 in
     --dry-run) mode=dry ;;
     --no-commit) mode=nocommit ;;
+    --reapply)
+      [ $# -ge 2 ] || usage
+      [[ $2 =~ ^[A-Za-z_]+(,[A-Za-z_]+)*$ ]] || usage
+      reapply=$2
+      shift
+      ;;
     --prefix)
       [ $# -ge 2 ] || usage
       prefix=$2
@@ -95,7 +104,7 @@ private "$creds"
 rel=$(cd -P "$root/current" && pwd)
 [ -x "$rel/bin/etl" ] || die "$rel/bin/etl is missing"
 
-steps="dump auth-export auth-import load platform-admins cache-flush status stamp"
+steps="dump auth-export auth-import load ${reapply:+reapply }platform-admins cache-flush status stamp"
 if [ "$mode" = dry ]; then
   say "[dry-run] set-up ok: release $(basename "$rel"), config, key and firebase-tools in place"
   for s in $steps; do say "[dry-run] would run step $s"; done
@@ -165,6 +174,12 @@ sync_run() {
   step=load
   say "== $step"
   as_user etl load --dump="$work/dump" ${commit:+"$commit"}
+
+  if [ -n "$reapply" ]; then
+    step=reapply
+    say "== $step $reapply"
+    as_user etl load --dump="$work/dump" --collections="$reapply" --force ${commit:+"$commit"}
+  fi
 
   if [ "$mode" = nocommit ]; then
     step=status

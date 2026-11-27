@@ -182,6 +182,15 @@ func TestMirrorEmitsOperationsEvents(t *testing.T) {
 		t.Fatalf("an unchanged multi-drop trip: %+v", evs)
 	}
 
+	// A driver's check-in (checkin_repository.dart) loads its time and place: the Driver Monitor and Job Assign
+	// check-in columns read tasks.check_in_at.
+	checkIn := time.Date(2026, 9, 2, 3, 4, 5, 0, time.UTC)
+	h.fs.Merge("tasks/task_3", map[string]any{"checkInAt": ts(checkIn), "checkInLat": 13.75, "checkInLng": 100.5})
+	h.sweep(p)
+	if v := h.scalar(`SELECT check_in_at = $1 AND check_in_lat = 13.75 AND check_in_lng = 100.5 FROM tasks WHERE legacy_doc_id = 'task_3'`, checkIn); v != true {
+		t.Fatalf("a check-in: %v", v)
+	}
+
 	// Tasks: a cancellation tells the task's driver queue too; a moved plan day adds task.plan_date_changed.
 	task3 := h.id(`SELECT id FROM tasks WHERE legacy_doc_id = 'task_3'`)
 	driver := h.id(`SELECT driver_id FROM tasks WHERE id = $1`, task3)
