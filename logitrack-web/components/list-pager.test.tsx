@@ -133,11 +133,11 @@ describe("ListPager", () => {
     it("shows the page size picker only for a list longer than the smallest size", () => {
         const one = (to: number): ListPagerProps => ({ ...props(1), from: 1, to, hasNext: false, pageSize: 50, onPageSizeChange: vi.fn() });
         const view = render(<ListPager {...one(30)} />);
-        expect(screen.getByRole("combobox", { name: "common.pager.pageSize" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "common.pager.pageSize: 50" })).toBeTruthy();
         view.rerender(<ListPager {...one(8)} />);
-        expect(screen.queryByRole("combobox", { name: "common.pager.pageSize" })).toBeNull();
+        expect(screen.queryByRole("button", { name: /common.pager.pageSize/ })).toBeNull();
         view.rerender(<ListPager {...props(2)} />);
-        expect(screen.queryByRole("combobox", { name: "common.pager.pageSize" })).toBeNull();
+        expect(screen.queryByRole("button", { name: /common.pager.pageSize/ })).toBeNull();
     });
 
     it("leaves the page where it is when the table's top is already on screen", () => {

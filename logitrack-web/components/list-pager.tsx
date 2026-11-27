@@ -22,10 +22,10 @@
  * A small in-memory list pages the same way with no source: `useListPager(rows)`.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronRight, ChevronsLeft, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/context/language";
 import { cn } from "@/lib/utils";
 
@@ -223,18 +223,24 @@ export function ListPager({ page, from, to, total, hasPrevious, hasNext, loading
                         <span className="max-sm:sr-only" aria-hidden="true">
                             {t("common.pager.pageSize")}
                         </span>
-                        <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-                            <SelectTrigger size="sm" className="w-[4.5rem] tabular-nums" aria-label={t("common.pager.pageSize")}>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {LIST_PAGE_SIZES.map((n) => (
-                                    <SelectItem key={n} value={String(n)}>
-                                        {n}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        {/* A menu, not the searchable Select: the app shell already ships it, so no list pays for it. */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button type="button" variant="outline" size="sm" className="gap-1 tabular-nums" aria-label={`${t("common.pager.pageSize")}: ${pageSize}`}>
+                                    {pageSize}
+                                    <ChevronDown className="size-3" aria-hidden />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-20">
+                                <DropdownMenuRadioGroup aria-label={t("common.pager.pageSize")} value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+                                    {LIST_PAGE_SIZES.map((n) => (
+                                        <DropdownMenuRadioItem key={n} value={String(n)} className="tabular-nums max-md:min-h-11">
+                                            {n}
+                                        </DropdownMenuRadioItem>
+                                    ))}
+                                </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 )}
                 {!single && (
