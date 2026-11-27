@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { endOfDay, format, startOfDay } from "date-fns";
-import { Calendar as CalendarIcon, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2, ChevronDown } from "lucide-react";
+import { Calendar as CalendarIcon, Plus, MoreHorizontal, Pencil, RefreshCw, Copy, Settings2, ChevronDown, Trash2, Ban, X, Search } from "lucide-react";
+import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { JobImportDialog } from "./import-dialog";
 import { FirstMileTaskDialog } from "@/app/app/first-mile/task-dialog";
@@ -21,7 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SOC_DESTINATIONS, SOC_KEYS, Task as JobTask, normalizeSocIdToKey } from "@/validate/taskSchema";
 import { buildHubCodeToDisplayMapFromHubRows, resolveHubOrSocDisplay } from "@/lib/hubDisplay";
-import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc, where, type QueryConstraint } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, query, orderBy, limit, doc, updateDoc, where, writeBatch, type QueryConstraint } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/client";
 import { COLLECTIONS } from "@/lib/collections";
@@ -65,6 +68,22 @@ const JOB_COLUMNS: { key: string; labelKey: string; fallback: string }[] = [
 const DEFAULT_VISIBLE_COLS = ["date", "jobType", "source", "destination", "actualPickup", "truckType", "taskId", "licensePlate", "driver", "status", "checkIn"];
 const COLS_STORAGE_KEY = "jobAssign.visibleColumns";
 
+/**
+ * Jobs the driver has not started. Only these may be deleted or bulk-cancelled: a checked-in job has a
+ * trip_record (and maybe billing) pointing at it, so removing it would orphan that trip.
+ */
+const NOT_STARTED_STATUSES: ReadonlyArray<string> = ["Pending", "Assigned"];
+const canDelete = (task: JobTask) => NOT_STARTED_STATUSES.includes(task.status) || task.status === "Cancelled";
+const canBulkCancel = (task: JobTask) => NOT_STARTED_STATUSES.includes(task.status);
+
+/** Filter key for the driver dropdown: the drivers doc id, else the typed name (legacy tasks). */
+const UNASSIGNED = "__unassigned__";
+const driverKeyOf = (task: JobTask) => task.driverId || (task.driverName ? `name:${task.driverName}` : UNASSIGNED);
+const normalizePlate = (v: unknown) => String(v ?? "").replace(/[\s-]/g, "").toLowerCase();
+
+/** Firestore caps a batch at 500 writes. */
+const BATCH_LIMIT = 450;
+
 function toDate(val: unknown): Date | null {
     if (!val) return null;
     if (val instanceof Date) return val;
@@ -82,6 +101,14 @@ export default function JobAssignPage() {
     const [hubs, setHubs] = useState<Record<string, any>[]>([]);
     const [selectedHub, setSelectedHub] = useState<string>("all");
     const [selectedSOC, setSelectedSOC] = useState<string>("all");
+    const [selectedDriver, setSelectedDriver] = useState<string>("all");
+    const [plateQuery, setPlateQuery] = useState("");
+
+    // Row selection (checkboxes) + the bulk/single delete & bulk cancel confirmations.
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [deleteTargets, setDeleteTargets] = useState<JobTask[] | null>(null);
+    const [bulkCancelTargets, setBulkCancelTargets] = useState<JobTask[] | null>(null);
+    const [busy, setBusy] = useState(false);
 
     // Dialog state — dialogTaskType picks which task form (FM vs LH) is mounted.
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -365,17 +392,124 @@ export default function JobAssignPage() {
         }
     };
 
-    const filteredTasks = tasks.filter((task) => {
-        if (isCustomer && customerScopeId) {
-            const isSourceMatch = task.sourceHubLinkedCustomerId === customerScopeId;
-            const isDestinationMatch = task.destinationLinkedCustomerId === customerScopeId;
-            const isDeliveryStopMatch = task.deliveryStops?.some((stop) => stop.destinationLinkedCustomerId === customerScopeId) ?? false;
-            if (!isSourceMatch && !isDestinationMatch && !isDeliveryStopMatch) return false;
+    /** Driver dropdown options: every driver that appears on the loaded day's jobs, sorted by name. */
+    const driverOptions = useMemo(() => {
+        const byKey = new Map<string, string>();
+        for (const task of tasks) {
+            const key = driverKeyOf(task);
+            if (key !== UNASSIGNED && !byKey.has(key)) byKey.set(key, task.driverName || task.driverId || key);
         }
-        if (selectedSOC !== "all" && normalizeSocIdToKey(task.destination || "") !== selectedSOC) return false;
-        if (selectedHub !== "all" && task.sourceHub !== selectedHub) return false;
-        return true;
-    });
+        return [...byKey.entries()].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label, "th"));
+    }, [tasks]);
+    const hasUnassigned = useMemo(() => tasks.some((task) => driverKeyOf(task) === UNASSIGNED), [tasks]);
+
+    const filteredTasks = useMemo(() => {
+        const plate = normalizePlate(plateQuery);
+        return tasks.filter((task) => {
+            if (isCustomer && customerScopeId) {
+                const isSourceMatch = task.sourceHubLinkedCustomerId === customerScopeId;
+                const isDestinationMatch = task.destinationLinkedCustomerId === customerScopeId;
+                const isDeliveryStopMatch = task.deliveryStops?.some((stop) => stop.destinationLinkedCustomerId === customerScopeId) ?? false;
+                if (!isSourceMatch && !isDestinationMatch && !isDeliveryStopMatch) return false;
+            }
+            if (selectedSOC !== "all" && normalizeSocIdToKey(task.destination || "") !== selectedSOC) return false;
+            if (selectedHub !== "all" && task.sourceHub !== selectedHub) return false;
+            if (selectedDriver !== "all" && driverKeyOf(task) !== selectedDriver) return false;
+            if (plate && !normalizePlate(task.licensePlate).includes(plate)) return false;
+            return true;
+        });
+    }, [tasks, isCustomer, customerScopeId, selectedSOC, selectedHub, selectedDriver, plateQuery]);
+
+    const hasExtraFilters = selectedSOC !== "all" || selectedHub !== "all" || selectedDriver !== "all" || plateQuery.trim() !== "";
+    const clearFilters = () => {
+        setSelectedSOC("all");
+        setSelectedHub("all");
+        setSelectedDriver("all");
+        setPlateQuery("");
+    };
+
+    // Selection only ever covers rows on screen: a filter or day change silently drops hidden rows,
+    // so a bulk action can never touch a job the admin cannot see.
+    const visibleSelected = useMemo(() => filteredTasks.filter((task) => task.id && selectedIds.has(task.id)), [filteredTasks, selectedIds]);
+    useEffect(() => {
+        setSelectedIds((prev) => {
+            const visible = new Set(filteredTasks.map((task) => task.id).filter(Boolean) as string[]);
+            const next = new Set([...prev].filter((id) => visible.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [filteredTasks]);
+
+    const allVisibleSelected = filteredTasks.length > 0 && visibleSelected.length === filteredTasks.length;
+    const toggleAllVisible = (checked: boolean) =>
+        setSelectedIds(checked ? new Set(filteredTasks.map((task) => task.id).filter(Boolean) as string[]) : new Set());
+    const toggleRow = (id: string | undefined, checked: boolean) => {
+        if (!id) return;
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (checked) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    };
+
+    /** Tell each assigned driver their job is gone, so the app drops it. Best-effort: the write already happened. */
+    const notifyCancelled = async (list: JobTask[]) => {
+        const notify = httpsCallable(functions, "notifyTaskUpdate");
+        const results = await Promise.allSettled(
+            list
+                .filter((task) => task.driverId && task.status !== "Cancelled")
+                .map((task) => notify({ taskId: task.id, taskType: task.taskType, newDriverId: task.driverId, status: "Cancelled" }))
+        );
+        results.forEach((r) => r.status === "rejected" && console.warn("FCM notify after cancel/delete:", r.reason));
+    };
+
+    const runBatched = async (list: JobTask[], write: (batch: ReturnType<typeof writeBatch>, task: JobTask) => void) => {
+        for (let i = 0; i < list.length; i += BATCH_LIMIT) {
+            const batch = writeBatch(db);
+            list.slice(i, i + BATCH_LIMIT).forEach((task) => write(batch, task));
+            await batch.commit();
+        }
+    };
+
+    const handleDelete = async (targets: JobTask[]) => {
+        const eligible = targets.filter((task) => task.id && canDelete(task));
+        if (eligible.length === 0) return;
+        setBusy(true);
+        try {
+            await runBatched(eligible, (batch, task) => batch.delete(doc(db, COLLECTIONS.TASKS, task.id!)));
+            await notifyCancelled(eligible);
+            toast.success(t("jobAssign.toast.deleted", { count: eligible.length }));
+            setSelectedIds(new Set());
+            setDeleteTargets(null);
+        } catch (err) {
+            console.error("Failed to delete tasks:", err);
+            toast.error(t("jobAssign.toast.failed"));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const handleBulkCancel = async (targets: JobTask[]) => {
+        const eligible = targets.filter((task) => task.id && canBulkCancel(task));
+        if (eligible.length === 0) return;
+        setBusy(true);
+        try {
+            const now = new Date();
+            await runBatched(eligible, (batch, task) => batch.update(doc(db, COLLECTIONS.TASKS, task.id!), { status: "Cancelled", updatedAt: now }));
+            await notifyCancelled(eligible);
+            toast.success(t("jobAssign.toast.cancelled", { count: eligible.length }));
+            setSelectedIds(new Set());
+            setBulkCancelTargets(null);
+        } catch (err) {
+            console.error("Failed to cancel tasks:", err);
+            toast.error(t("jobAssign.toast.failed"));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const deleteEligible = deleteTargets?.filter(canDelete) ?? [];
+    const cancelEligible = bulkCancelTargets?.filter(canBulkCancel) ?? [];
 
     return (
         <PagePermissionGuard capability={CAPABILITIES.operations_view_first_mile}>
@@ -490,14 +624,82 @@ export default function JobAssignPage() {
                                 </SelectContent>
                             </Select>
                         </div>
+
+                        <div className="flex flex-col gap-2 min-w-[200px]">
+                            <label className="text-sm font-medium">{t("jobAssign.filter.driver")}</label>
+                            <Select value={selectedDriver} onValueChange={setSelectedDriver}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">{t("jobAssign.filter.allDrivers")}</SelectItem>
+                                    {hasUnassigned && <SelectItem value={UNASSIGNED}>{t("jobAssign.filter.unassigned")}</SelectItem>}
+                                    {driverOptions.map((d) => (
+                                        <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="flex flex-col gap-2 min-w-[180px]">
+                            <label className="text-sm font-medium">{t("jobAssign.filter.plate")}</label>
+                            <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    value={plateQuery}
+                                    onChange={(e) => setPlateQuery(e.target.value)}
+                                    placeholder={t("jobAssign.filter.platePlaceholder")}
+                                    className="pl-8"
+                                />
+                            </div>
+                        </div>
+
+                        {hasExtraFilters && (
+                            <div className="flex flex-col justify-end">
+                                <Button variant="ghost" onClick={clearFilters}>
+                                    <X className="mr-2 h-4 w-4" />
+                                    {t("jobAssign.filter.clear")}
+                                </Button>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
+
+                {/* Bulk actions — only while rows are ticked. */}
+                {!isCustomer && visibleSelected.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-4 py-2">
+                        <span className="text-sm font-medium">{t("jobAssign.bulk.selected", { count: visibleSelected.length })}</span>
+                        <div className="ml-auto flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setBulkCancelTargets(visibleSelected)}>
+                                <Ban className="mr-2 h-4 w-4" />
+                                {t("jobAssign.bulk.cancel")}
+                            </Button>
+                            <Button variant="destructive" size="sm" onClick={() => setDeleteTargets(visibleSelected)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                {t("jobAssign.bulk.delete")}
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                                {t("jobAssign.bulk.clear")}
+                            </Button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Table */}
                 <div className="border rounded-md bg-card shadow-sm overflow-hidden">
                     <Table>
                         <TableHeader className="bg-muted/50">
                             <TableRow>
+                                {!isCustomer && (
+                                    <TableHead className="w-10">
+                                        <Checkbox
+                                            checked={allVisibleSelected ? true : visibleSelected.length > 0 ? "indeterminate" : false}
+                                            onCheckedChange={(v) => toggleAllVisible(v === true)}
+                                            aria-label={t("jobAssign.selectAll")}
+                                            disabled={filteredTasks.length === 0}
+                                        />
+                                    </TableHead>
+                                )}
                                 {orderedVisibleCols.map((c) => (
                                     <TableHead key={c.key}>{t(c.labelKey, c.fallback)}</TableHead>
                                 ))}
@@ -507,13 +709,27 @@ export default function JobAssignPage() {
                         <TableBody>
                             {filteredTasks.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={orderedVisibleCols.length + 1} className="h-24 text-center">
+                                    <TableCell colSpan={orderedVisibleCols.length + (isCustomer ? 1 : 2)} className="h-24 text-center">
                                         {t("firstMile.table.noTasks", "ไม่มีงาน")}
                                     </TableCell>
                                 </TableRow>
                             ) : (
                                 filteredTasks.map((task) => (
-                                    <TableRow key={task.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => setDetailTask(task)}>
+                                    <TableRow
+                                        key={task.id}
+                                        className="hover:bg-muted/50 cursor-pointer"
+                                        data-state={task.id && selectedIds.has(task.id) ? "selected" : undefined}
+                                        onClick={() => setDetailTask(task)}
+                                    >
+                                        {!isCustomer && (
+                                            <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                                                <Checkbox
+                                                    checked={!!task.id && selectedIds.has(task.id)}
+                                                    onCheckedChange={(v) => toggleRow(task.id, v === true)}
+                                                    aria-label={t("jobAssign.selectRow")}
+                                                />
+                                            </TableCell>
+                                        )}
                                         {orderedVisibleCols.map((c) => (
                                             <TableCell
                                                 key={c.key}
@@ -544,6 +760,16 @@ export default function JobAssignPage() {
                                                                 {t("firstMile.table.cancel", "ยกเลิก")}
                                                             </DropdownMenuItem>
                                                         )}
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem
+                                                            className="text-destructive focus:text-destructive"
+                                                            disabled={!canDelete(task)}
+                                                            title={canDelete(task) ? undefined : t("jobAssign.deleteNotAllowed")}
+                                                            onClick={() => setDeleteTargets([task])}
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                            {t("jobAssign.delete")}
+                                                        </DropdownMenuItem>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>
                                             </TableCell>
@@ -576,6 +802,57 @@ export default function JobAssignPage() {
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setCancelTask(null)}>{t("firstMile.cancelAbort", "ไม่")}</Button>
                             <Button variant="destructive" onClick={() => cancelTask && handleCancelTask(cancelTask)}>{t("firstMile.cancelConfirm", "ยืนยันยกเลิก")}</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Delete (single from the row menu, or bulk from the selection bar). */}
+                <Dialog open={!!deleteTargets} onOpenChange={(open) => !open && !busy && setDeleteTargets(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>{t("jobAssign.deleteTitle")}</DialogTitle>
+                            <DialogDescription>
+                                {deleteEligible.length > 0
+                                    ? t("jobAssign.deleteMessage", { count: deleteEligible.length })
+                                    : t("jobAssign.nothingEligible")}
+                            </DialogDescription>
+                        </DialogHeader>
+                        {deleteTargets && deleteTargets.length > deleteEligible.length && deleteEligible.length > 0 && (
+                            <p className="text-sm text-amber-700 dark:text-amber-400">
+                                {t("jobAssign.skippedStarted", { count: deleteTargets.length - deleteEligible.length })}
+                            </p>
+                        )}
+                        <DialogFooter>
+                            <Button variant="outline" disabled={busy} onClick={() => setDeleteTargets(null)}>{t("firstMile.cancelAbort", "ไม่")}</Button>
+                            <Button variant="destructive" disabled={busy || deleteEligible.length === 0} onClick={() => deleteTargets && handleDelete(deleteTargets)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                {t("jobAssign.deleteConfirm")}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Bulk cancel — not-started jobs only. */}
+                <Dialog open={!!bulkCancelTargets} onOpenChange={(open) => !open && !busy && setBulkCancelTargets(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>{t("jobAssign.cancelTitle")}</DialogTitle>
+                            <DialogDescription>
+                                {cancelEligible.length > 0
+                                    ? t("jobAssign.cancelMessage", { count: cancelEligible.length })
+                                    : t("jobAssign.nothingEligible")}
+                            </DialogDescription>
+                        </DialogHeader>
+                        {bulkCancelTargets && bulkCancelTargets.length > cancelEligible.length && cancelEligible.length > 0 && (
+                            <p className="text-sm text-amber-700 dark:text-amber-400">
+                                {t("jobAssign.skippedNotCancellable", { count: bulkCancelTargets.length - cancelEligible.length })}
+                            </p>
+                        )}
+                        <DialogFooter>
+                            <Button variant="outline" disabled={busy} onClick={() => setBulkCancelTargets(null)}>{t("firstMile.cancelAbort", "ไม่")}</Button>
+                            <Button variant="destructive" disabled={busy || cancelEligible.length === 0} onClick={() => bulkCancelTargets && handleBulkCancel(bulkCancelTargets)}>
+                                {t("firstMile.cancelConfirm", "ยืนยันยกเลิก")}
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>

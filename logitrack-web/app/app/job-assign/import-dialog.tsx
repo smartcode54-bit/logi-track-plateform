@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 
@@ -437,13 +436,13 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                     {t("jobAssign.import.button", "นำเข้าจากไฟล์")}
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
+            <DialogContent className={`max-w-[95vw] xl:max-w-7xl flex flex-col ${file ? "h-[90vh]" : "max-h-[90vh]"}`}>
                 <DialogHeader>
                     <DialogTitle>{t("jobAssign.import.title", "นำเข้างาน (FM + LH ไฟล์เดียว)")}</DialogTitle>
                     <DialogDescription>{t("jobAssign.import.description", "ไฟล์เดียว ใส่คอลัมน์ FM/LH ต่อแถวเพื่อแยกประเภทงาน")}</DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden flex flex-col gap-4">
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-4">
                     {!file ? (
                         <div className="flex flex-col gap-4 h-full">
                             <div className="flex justify-between items-center">
@@ -464,7 +463,7 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex flex-col gap-4 h-full">
+                        <div className="flex flex-col gap-4 flex-1 min-h-0">
                             <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md border">
                                 <div className="flex items-center gap-3">
                                     <div className="bg-green-100 p-2 rounded"><FileSpreadsheet className="h-5 w-5 text-green-600" /></div>
@@ -484,8 +483,11 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                                 </Alert>
                             )}
 
-                            <div className="border rounded-md flex-1 overflow-hidden">
-                                <ScrollArea className="h-[420px]">
+                            {/* One native scroll box for both axes: the old Radix ScrollArea only scrolled
+                                vertically and clipped the right-hand columns (driver, status). The Table's own
+                                overflow-x wrapper is switched off so the horizontal bar sits at the bottom of the
+                                visible box, not after the last row. Header stays pinned while scrolling. */}
+                            <div className="border rounded-md flex-1 min-h-0 overflow-auto [&_[data-slot=table-container]]:overflow-visible [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-muted">
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-muted/50">
@@ -562,7 +564,6 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
                                             ))}
                                         </TableBody>
                                     </Table>
-                                </ScrollArea>
                             </div>
                         </div>
                     )}
