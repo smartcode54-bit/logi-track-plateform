@@ -175,6 +175,7 @@ func loadTask(c *docCtx) error {
 		set("helper_driver_id", helper).set("run_order", runOrder).
 		set("is_multi_delivery", c.isTrue("isMultiDelivery")).
 		set("line_checkin_notified_at", c.ts("lineCheckinNotifiedAt")).
+		set("check_in_at", c.ts("checkInAt")).set("check_in_lat", c.float("checkInLat")).set("check_in_lng", c.float("checkInLng")).
 		set("plan_time", c.planTime("time")).set("actual_pickup_at", c.ts("actualPickupAt")).
 		set("cancelled_at", c.ts("cancelledAt")).set("cancel_reason", c.text("cancelReason"))
 	if c.lineOwned() {

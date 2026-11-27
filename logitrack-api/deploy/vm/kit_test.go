@@ -1562,6 +1562,23 @@ func TestProdSync(t *testing.T) {
 	}
 	noRunDirs()
 
+	// --reapply: a second load of just those collections, forced; a value that is not a collection list is refused.
+	reset()
+	if out, code = s.run(t, script, "--reapply", "tasks", "--prefix", s.prefix); code != 0 {
+		t.Fatalf("--reapply: exit %d\n%s", code, out)
+	}
+	if p := s.read(t, "programs.log"); strings.Count(p, "etl load --dump=") != 2 || !strings.Contains(p, " --collections=tasks --force") {
+		t.Errorf("--reapply ran:\n%s", p)
+	}
+	noRunDirs()
+	if err := os.Remove(stamp); err != nil {
+		t.Fatal(err)
+	}
+	reset()
+	if out, code = s.run(t, script, "--reapply", "tasks;id", "--prefix", s.prefix); code != 2 || s.read(t, "programs.log") != "" {
+		t.Errorf("a bad --reapply: exit %d\n%s", code, out)
+	}
+
 	// A failed load: non-zero, no later step, no stamp, no personal data left.
 	writeFile(t, filepath.Join(s.state, "fail-load"), "", 0o644)
 	reset()

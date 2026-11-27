@@ -84,7 +84,7 @@ Tree on the VM:
 | `ecosystem.config.cjs` | the four pm2 apps and their per-process listener settings |
 | `nginx/` | the two vhosts, the Cloudflare real-IP and proxy-header snippets, the access-log format |
 | `pm2-logitrack.service` | the systemd unit of the user's pm2 daemon |
-| `prod-sync.sh`, `logitrack-prod-sync.{service,timer,logrotate}` | the 6-hourly refresh of the production copy (section 10; `--dry-run`, `--no-commit`) |
+| `prod-sync.sh`, `logitrack-prod-sync.{service,timer,logrotate}` | the 6-hourly refresh of the production copy (section 10; `--dry-run`, `--no-commit`, `--reapply`) |
 
 Secrets never leave the VM: `provision.sh` generates them there with `bin/vmenv` (`tools/vmenv`): the three role
 passwords (inside the database URLs; PostgreSQL receives SCRAM verifiers on psql's stdin), the Redis and RabbitMQ
@@ -521,6 +521,11 @@ systemctl enable --now logitrack-prod-sync.timer
 
 **Run once by hand:** `systemctl start logitrack-prod-sync.service`.
 
+**After a release changes how a collection maps** (a field the load did not carry before): the timer's runs apply
+only documents production changed since, so run once, as root, `bash /opt/logitrack/current/deploy/vm/prod-sync.sh
+--reapply tasks` (a comma list of collections). It adds a second load of just those collections with `--force`;
+`etl load` emits no domain events, so the reapplied rows notify nobody.
+
 **The last run:**
 
 ```sh
@@ -594,7 +599,7 @@ of api, worker, scheduler, migrate and seed (`STORAGE_BACKEND=local`, empty `S3_
 node, every script run against a temporary tree with stub commands (dry runs change nothing; no generated secret
 in any output or process argument; a second provision changes nothing; a JWT key path outside `shared/secrets/`
 is refused; deploy from a clean export, refusal of untracked files, rollback, the public-check failure path,
-the first-deploy seed and the `--reseed` top-up of a later deploy, pruning; the section 2 reload; the backup commands' modes; prod-sync.sh's refusal of a readable key, dry run, step order, `--no-commit`, failed load and lock). With `-tags=integration`
+the first-deploy seed and the `--reseed` top-up of a later deploy, pruning; the section 2 reload; the backup commands' modes; prod-sync.sh's refusal of a readable key, dry run, step order, `--no-commit`, `--reapply`, failed load and lock). With `-tags=integration`
 (`make test-integration`, or `make vm-check`): `nginx -t`, the routing of both vhosts and the error logs of an
 unreachable upstream (no credential in them) under `nginx:1.24` with a dummy certificate at the real paths,
 shellcheck over every script, and section 7's restore run as written on PostgreSQL 18 (definer owners kept,
