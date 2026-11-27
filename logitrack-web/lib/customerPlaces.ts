@@ -80,8 +80,8 @@ export function placeMatchesQuery(place: { code: string; name?: string }, query:
 
 /** Same place code — exact, or the same SOC once a legacy key ("SOCE", "SOCE (…)") is normalized. */
 export function samePlaceCode(a: string | undefined, b: string | undefined): boolean {
-    const x = (a ?? "").trim();
-    const y = (b ?? "").trim();
+    const x = String(a ?? "").trim();
+    const y = String(b ?? "").trim();
     if (!x || !y) return false;
     return x === y || normalizeSocIdToKey(x) === normalizeSocIdToKey(y);
 }

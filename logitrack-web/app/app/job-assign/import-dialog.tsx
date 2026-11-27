@@ -13,6 +13,8 @@ import { taskService, TaskTruck } from "@/features/tasks/services/taskService";
 import { taskTruckTypeFromTruckDoc } from "@/lib/truckType";
 import { jobCategoryFromCell } from "@/lib/jobCategory";
 import { getCustomers, CustomerData } from "@/features/customers/api/customers";
+import { cellText, resolveImportColumns } from "@/lib/importColumns";
+import { JOB_ASSIGN_IMPORT_COLUMNS } from "./importColumns";
 
 const normalizePlate = (plate: unknown) => String(plate ?? "").toUpperCase().replace(/[\s-]/g, "");
 
@@ -144,29 +146,31 @@ export function JobImportDialog({ onSuccess }: ImportDialogProps) {
             const wb = XLSX.read(buf);
             const sheet = wb.Sheets[wb.SheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-            const headers = (jsonData[0] as string[]).map((h) => h?.toString().toLowerCase().trim());
+            // Each column maps to one field — see JOB_ASSIGN_IMPORT_COLUMNS for why the order matters.
+            const cols = resolveImportColumns(jsonData[0] ?? [], JOB_ASSIGN_IMPORT_COLUMNS);
             const rows = jsonData.slice(1);
 
             const parsed = rows.map((row: any, index): ImportRow | null => {
                 if (!row || row.length === 0) return null;
-                const getValue = (terms: string[]) => {
-                    const idx = headers.findIndex((h) => terms.some((ph) => h?.includes(ph)));
-                    return idx !== -1 ? row[idx] : undefined;
+                const getValue = (field: keyof typeof cols) => {
+                    const idx = cols[field];
+                    return idx === undefined ? undefined : row[idx];
                 };
-                if (isExampleNote(getValue(["note", "หมายเหตุ"]))) return null;
+                if (isExampleNote(getValue("note"))) return null;
 
-                const taskType = parseTaskType(getValue(["fm/lh", "fmlh"]));
-                const rawDate = getValue(["date", "วันแผน", "วัน"]);
-                const actualRaw = getValue(["actual", "รับงานจริง", "รับจริง"]);
-                const sourceHub = getValue(["source", "hub", "ต้นทาง", "pickup", "จุดรับงาน", "pickup location"]);
-                const destination = getValue(["destination", "soc", "ปลายทาง"]);
-                const customerCell = getValue(["customer", "ลูกค้า", "บริษัท"]);
-                const sheetTruckType = getValue(["truck type", "ประเภทรถ", "platetype"]);
-                const shipmentId = getValue(["shipment", "id", "เลขงาน"]);
-                const licensePlate = getValue(["license", "ทะเบียน"]);
-                const driverName = getValue(["driver", "name", "คนขับ"]);
-                const driverPhone = getValue(["phone", "tel", "เบอร์"]);
-                const jobCategory = jobCategoryFromCell(getValue(["job category", "หลัก/เสริม", "jobcategory"]));
+                const taskType = parseTaskType(getValue("taskType"));
+                const rawDate = getValue("date");
+                const actualRaw = getValue("actual");
+                const sourceHub = cellText(getValue("sourceHub"));
+                const destination = cellText(getValue("destination"));
+                const customerCell = getValue("customer");
+                const sheetTruckType = cellText(getValue("truckType"));
+                const shipmentId = cellText(getValue("shipmentId"));
+                const licensePlate = cellText(getValue("licensePlate"));
+                const driverName = cellText(getValue("driverName"));
+                const driverPhone = cellText(getValue("driverPhone"));
+                const jobCategory = jobCategoryFromCell(getValue("jobCategory"));
+                if (!sourceHub && !destination && !licensePlate && !driverName && rawDate == null) return null;
 
                 const plateKey = normalizePlate(licensePlate);
                 const matchedTruck = plateKey ? trucksRef.current.find((tr) => normalizePlate(tr.licensePlate) === plateKey) : undefined;

@@ -10,15 +10,16 @@ export const SOC_KEYS = ["SOCE", "SOCN", "SOCW"] as const;
 
 /** เช็คว่า socId จาก Firestore ตรงกับ key (SOCE/SOCN/SOCW) หรือไม่ รองรับทั้ง "SOCE" และ "SOCE (Bueroi)" */
 export function socIdMatchesKey(socId: string, key: string): boolean {
-    const u = (socId ?? "").trim().toUpperCase();
-    const k = (key ?? "").trim().toUpperCase();
+    const u = String(socId ?? "").trim().toUpperCase();
+    const k = String(key ?? "").trim().toUpperCase();
     if (!k) return false;
     return u === k || u.startsWith(k + " ") || u.startsWith(k + "(");
 }
 
 /** แปลง source_id ของ SOC เป็น key มาตรฐาน SOCE/SOCN/SOCW หรือรหัส SOC อื่นที่เป็น UPPERCASE (สำหรับ hub_soc_distances / SOC ใหม่). */
 export function normalizeSocIdToKey(sourceId: string): string {
-    const u = (sourceId ?? "").trim().toUpperCase();
+    // String(): legacy docs can hold a number here (an Excel serial from a mis-mapped import column).
+    const u = String(sourceId ?? "").trim().toUpperCase();
     for (const key of SOC_KEYS) {
         const k = key.toUpperCase();
         if (u === k || u.startsWith(k + " ") || u.startsWith(k + "(")) return key;
