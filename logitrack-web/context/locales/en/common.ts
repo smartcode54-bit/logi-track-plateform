@@ -506,6 +506,7 @@ export default {
     "common.pager.rowsOf": "Rows {from}–{to} of {total}",
     "common.pager.count": "{count} rows",
     "common.pager.page": "Page {page}",
+    "common.pager.pageSize": "Rows per page",
     "common.pager.first": "First page",
     "common.pager.previous": "Previous",
     "common.pager.next": "Next",

@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { act, render, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, renderHook, screen } from "@testing-library/react";
 
-import { ListPager, type ListPagerProps, useListPager } from "./list-pager";
+import { LIST_PAGE_SIZE, ListPager, type ListPagerProps, setListPageSize, useListPager } from "./list-pager";
 
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }));
 
@@ -64,6 +64,44 @@ describe("useListPager", () => {
     });
 });
 
+describe("useListPager page size", () => {
+    beforeEach(() => {
+        localStorage.clear();
+        act(() => setListPageSize(LIST_PAGE_SIZE));
+    });
+
+    it("pages by the reader's choice, keeps the first row on screen and stores the choice", () => {
+        const { result } = renderHook(() => useListPager(rows(120), {}, "k"));
+        expect(result.current.pager).toMatchObject({ pageSize: 50, page: 1, to: 50 });
+        act(() => result.current.pager.onNext());
+        act(() => result.current.pager.onPageSizeChange?.(10));
+        expect(result.current.pager).toMatchObject({ pageSize: 10, page: 6, from: 51, to: 60 });
+        expect(localStorage.getItem("listPager.pageSize")).toBe("10");
+        act(() => result.current.pager.onPageSizeChange?.(100));
+        expect(result.current.pager).toMatchObject({ page: 1, from: 1, to: 100 });
+    });
+
+    it("applies the choice to every list on the page", () => {
+        const a = renderHook(() => useListPager(rows(120), {}, "a"));
+        const b = renderHook(() => useListPager(rows(120), {}, "b"));
+        act(() => a.result.current.pager.onPageSizeChange?.(25));
+        expect(b.result.current.pager).toMatchObject({ pageSize: 25, to: 25 });
+    });
+
+    it("fills a page larger than the server's page from the next cursor", () => {
+        act(() => setListPageSize(100));
+        const source = { hasNextPage: true, isFetching: false, fetchNextPage: vi.fn(() => Promise.resolve()) };
+        const { result } = renderHook(() => useListPager(rows(50), source, "k"));
+        expect(source.fetchNextPage).toHaveBeenCalledTimes(1);
+        expect(result.current.pager).toMatchObject({ page: 1, to: 50, loading: true });
+    });
+
+    it("has no picker for a list with a fixed size", () => {
+        const { result } = renderHook(() => useListPager(rows(120), {}, "k", 50));
+        expect(result.current.pager.onPageSizeChange).toBeUndefined();
+    });
+});
+
 describe("ListPager", () => {
     const props = (page: number): ListPagerProps => ({
         page, from: (page - 1) * 50 + 1, to: page * 50, hasPrevious: page > 1, hasNext: true, loading: false, error: false,
@@ -90,6 +128,16 @@ describe("ListPager", () => {
         expect(table.scrollTop).toBe(0);
         expect(table.style.scrollMarginTop).toBe("72px");
         expect(table.scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    });
+
+    it("shows the page size picker only for a list longer than the smallest size", () => {
+        const one = (to: number): ListPagerProps => ({ ...props(1), from: 1, to, hasNext: false, pageSize: 50, onPageSizeChange: vi.fn() });
+        const view = render(<ListPager {...one(30)} />);
+        expect(screen.getByRole("combobox", { name: "common.pager.pageSize" })).toBeTruthy();
+        view.rerender(<ListPager {...one(8)} />);
+        expect(screen.queryByRole("combobox", { name: "common.pager.pageSize" })).toBeNull();
+        view.rerender(<ListPager {...props(2)} />);
+        expect(screen.queryByRole("combobox", { name: "common.pager.pageSize" })).toBeNull();
     });
 
     it("leaves the page where it is when the table's top is already on screen", () => {
